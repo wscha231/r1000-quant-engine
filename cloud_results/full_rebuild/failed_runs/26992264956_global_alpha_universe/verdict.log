@@ -1,0 +1,93 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        2470941 (DIRTY)
+  started:       2026-06-05 15:07:20 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-06-05
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  leader_rescue: (cfg default)
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+OK: companyfacts.zip 0.1d old, 1321 MB
+
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 741
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         448
+early_scout        133
+future_winner       96
+core_compounder     64
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=741
+  phase9_core_eligible                      mean=0.086  sum=64
+  phase9_future_eligible                    mean=0.126  sum=93
+  phase9_early_eligible                     mean=0.179  sum=133
+  phase9_unassigned                         mean=0.609  sum=451
+  phase9_mktcap_percentile                  mean=0.501  sum=371
+
+Final portfolio: 19 positions
+  Sleeve dist: {'core_compounder': 7, 'early_scout': 7, 'future_winner': 4}
+  Top 10 by weight:
+ticker portfolio_sleeve_label   weight
+   CAT        core_compounder 0.120640
+ GOOGL        core_compounder 0.108293
+   VRT        core_compounder 0.080000
+  AAPL        core_compounder 0.077883
+   NVT          future_winner 0.057773
+  AMAT        core_compounder 0.056859
+  LRCX        core_compounder 0.056859
+   FIX        core_compounder 0.046926
+   UMC            early_scout 0.046067
+   BWA            early_scout 0.040000
+
+======================================================================
+METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.3141     0.2451        +6.90pp
+  sharpe                       1.7869     1.2453        +0.5416
+  max_dd                      -0.1773    -0.2579        +8.06pp
+  ir                           1.1962     1.0244        +0.1718
+  avg_turnover_monthly         0.5336     0.4854        +4.82pp
+  avg_stock_names             24.8193    24.3300        +0.4893
+  beat_month_ratio             0.6627     0.5663        +0.0964
+  excess_cagr                  0.1638     0.1102        +5.36pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.35000000000000003, 'future_winner': 0.30000000000000004, 'early_scout': 0.35000000000000003}
+  actual:  {'core_compounder': 0.5474603176794208, 'future_winner': 0.16170246299048174, 'early_scout': 0.2711031488977352}
+  counts:  {'core_compounder': 7, 'future_winner': 4, 'early_scout': 7}
+
+=== VERDICT ===
+  dCAGR    +6.90pp   (gate >= +0.5pp)
+  dSharpe  +0.5416    (gate >= -0.05)
+  dMaxDD   +8.06pp   (gate >= -3pp; positive better)
+  early_scout selected: 7    (gate >= 4)
+
+  --> SHIP vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). Rotate baseline + next phase.
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-03-31 at equity 6.6149
+  Lifetime CAGR:   30.92% over 6.83 years
+  Lifetime total:  530.29%
+  vs baseline CAGR (24.51%): +6.41pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.
