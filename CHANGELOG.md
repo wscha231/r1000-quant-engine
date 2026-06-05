@@ -196,6 +196,31 @@ All entries must be written in English. Entries must be predictable and machine-
   - This fixes a readiness false positive only; it does not change broker trades or target-book selection.
   - A true stale operating book still blocks when it is older than the latest observable close.
 
+### 17:24 KST - data-readiness-preflight-latest-run-restore
+
+- scope:
+  - Make the data readiness preflight restore the explicitly requested latest-run directory from Google Drive before auditing so branch runs can inspect fresh research or failed-run outputs instead of stale committed cloud_results pointers.
+- files:
+  - `.github/workflows/data_readiness_preflight.yml` ->restores the `latest_run` input from Drive using the same relative local path before running `tools/audit_data_readiness.py`.
+  - `tests/workflow_artifact_smoke.py` ->expects latest-run restore wiring and unsafe path guarding in the preflight workflow.
+  - `CHANGELOG.md` ->records the preflight restore fix.
+- symbols_added:
+  - `data_readiness_preflight.yml::restore_requested_latest_run(latest_run)` ->restores a safe relative latest-run path from Google Drive into the audit workspace.
+- symbols_changed:
+  - `data_readiness_preflight.yml::Restore Google Drive data lake` ->restores the requested latest-run directory in addition to cache, free data, and manifests.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/data_readiness/summary.json` ->will reflect the restored latest-run input when that path exists on Google Drive.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.github/workflows/data_readiness_preflight.yml').read_text(encoding='utf-8')); print('yaml ok')"` ->PASS.
+  - `git diff --check -- .github\workflows\data_readiness_preflight.yml tests\workflow_artifact_smoke.py CHANGELOG.md` ->PASS.
+- risks_or_notes:
+  - Default branch preflight can still audit stale committed `cloud_results` when no matching Drive path exists; pass a concrete Drive path such as `research_runs/<safe_branch>/failed_runs/<run_id>/outputs` to audit a specific branch full rebuild.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

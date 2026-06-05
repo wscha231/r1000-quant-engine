@@ -104,10 +104,25 @@ jobs:
               echo "[preflight] missing on Drive: $BASE$remote"
             fi
           }
+          restore_requested_latest_run() {
+            local latest_run="$1"
+            if [ -z "$latest_run" ]; then
+              return 0
+            fi
+            case "$latest_run" in
+              /*|../*|*/../*|*"/.."|.)
+                echo "[preflight] skip unsafe latest_run restore path: $latest_run"
+                return 0
+                ;;
+            esac
+            restore_dir "$latest_run" "$latest_run"
+          }
+          LATEST_RUN_INPUT="${{ github.event.inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
           restore_dir cache_prices cache_prices
           restore_dir data_raw/free data_raw/free
           restore_dir data_pit/free data_pit/free
           restore_dir manifests/free_data manifests/free_data
+          restore_requested_latest_run "$LATEST_RUN_INPUT"
           mkdir -p data_raw/free/sec
           if [ ! -s data_raw/free/sec/companyfacts.zip ] && rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
             rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
