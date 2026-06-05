@@ -53,6 +53,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 08:20 KST - tighten-main-quality-caps-to-two-percent
+
+- scope:
+  - Tighten the existing main quality-compounder bull low-confirmation NEW-entry cap and weak-timing HOLD trim after current broker artifact analysis showed the affected rows were concentrated in the remaining main MDD window.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP` and `MAIN_QUALITY_HOLD_WEAK_TIMING_CAP` from `0.03` to `0.02`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects qualifying main quality NEW and HOLD rows to cap at 2%.
+  - `CHANGELOG.md` ->records the main quality cap tightening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_main_quality_bull_low_confirm_new_entry_cap(weighted, portfolio_kind)` ->qualifying main quality-compounder bull low-confirmation NEW rows now cap at 2%.
+  - `apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)` ->qualifying main quality-compounder bull weak-timing HOLD rows now trim to 2%.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show qualifying `main_quality_bull_low_confirm_new_entry_cap_status=applied` and `main_quality_hold_weak_timing_trim_status=applied` rows capped at `0.02`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27043662433`; all 11 affected rows inside the 2021-11-08 to 2023-03-13 main MDD window had negative next-period returns, but official acceptance still requires fast replay broker-ledger metrics.
+
 ### 07:28 KST - tighten-concentrated-quality-bull-new-entry-cap
 
 - scope:
