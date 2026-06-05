@@ -683,10 +683,10 @@ def test_main_quality_bull_low_confirm_new_entry_cap_applies_narrowly() -> None:
     ]
     capped = apply_main_quality_bull_low_confirm_new_entry_cap(selected, "main")
     by_ticker = {row["ticker"]: row for row in capped}
-    assert by_ticker["LOWCONF"]["weight"] == 0.04
-    assert by_ticker["LOWCONF"]["target_weight"] == 0.04
+    assert by_ticker["LOWCONF"]["weight"] == 0.03
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.03
     assert by_ticker["LOWCONF"]["main_quality_bull_low_confirm_new_entry_cap_status"] == "applied"
-    assert by_ticker["CAPACITYBULL"]["weight"] == 0.04
+    assert by_ticker["CAPACITYBULL"]["weight"] == 0.03
     assert by_ticker["CAPACITYBULL"]["main_quality_bull_low_confirm_new_entry_cap_status"] == "applied"
     assert by_ticker["CONFIRMED"]["weight"] == 0.08
     assert by_ticker["WATCH"]["weight"] == 0.08
@@ -806,14 +806,14 @@ def test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only() -> Non
     ]
     trimmed = apply_main_quality_hold_weak_timing_trim(selected, "main")
     by_ticker = {row["ticker"]: row for row in trimmed}
-    assert by_ticker["LOWCONF"]["weight"] == 0.04
-    assert by_ticker["LOWCONF"]["target_weight"] == 0.04
+    assert by_ticker["LOWCONF"]["weight"] == 0.03
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.03
     assert by_ticker["LOWCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["WEAKRS"]["weight"] == 0.04
+    assert by_ticker["WEAKRS"]["weight"] == 0.03
     assert by_ticker["WEAKRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["MIDCONF"]["weight"] == 0.04
+    assert by_ticker["MIDCONF"]["weight"] == 0.03
     assert by_ticker["MIDCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["MIDRS"]["weight"] == 0.04
+    assert by_ticker["MIDRS"]["weight"] == 0.03
     assert by_ticker["MIDRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
     assert by_ticker["OKHOLD"]["weight"] == 0.12
     assert by_ticker["NEW"]["weight"] == 0.12
