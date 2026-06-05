@@ -86,6 +86,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - Scheduled daily updates remain lightweight because `sec_companyfacts` defaults to `false`.
   - Latest verified broker-ledger baseline remains run `26958138179` on commit `371de428729b47a58f4b976d36d8a23f84322bba`; targets still do not pass.
 
+### 09:36 KST - alphaops-entry-cash-wait-tightening
+
+- scope:
+  - Tighten narrow AlphaOps vNext entry cash-wait caps for broker-ledger MDD reduction while keeping monthly target-book replay and current holdings on the production vNext source.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds a main GREEN/bull low-confirmation high-volatility market-leader NEW-entry cap and tightens four concentrated NEW-entry caps that previously had positive row-proxy evidence.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the new main cap and updates concentrated cap expectations.
+  - `CHANGELOG.md` ->records the policy experiment before fast replay verification.
+- symbols_added:
+  - `apply_main_green_bull_low_confirm_high_vol_new_entry_cap(weighted, portfolio_kind)` ->caps main GREEN/bull MARKET_LEADER NEW entries above 5% when confirmation is below 0.50 and ATR is at least 6%.
+- symbols_changed:
+  - `build_target_book(candidate, crisis_states, portfolio_kind, target_n, variant_id, prices)` ->applies the new main GREEN/bull low-confirmation high-volatility NEW-entry cap before other main green-neutral cyclical caps.
+  - `apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(weighted, portfolio_kind)` ->uses a 12% cap instead of 15% for confirmed market leaders with weak one-month benchmark relative strength.
+  - `apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->uses a 6% cap instead of 8% for Energy/Materials high-volatility neutral-regime NEW entries.
+  - `apply_concentrated_defense_neutral_quality_new_entry_cap(weighted, portfolio_kind)` ->uses a 12% cap instead of 15% for DEFENSE_REVIEW neutral quality NEW entries.
+  - `apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)` ->uses an 8% cap instead of 10% for unconfirmed quality-bull NEW entries.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->will include `main_green_bull_low_confirm_high_vol_new_entry_cap_status` after replay when the cap applies.
+  - `outputs/reports/operating_concentrated_target_book.csv` ->will reflect tighter concentrated cap levels after replay.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -B -c "from pathlib import Path; compile(Path('tools/run_alphaops_vnext_policy_replay.py').read_text(encoding='utf-8'), 'tools/run_alphaops_vnext_policy_replay.py', 'exec'); compile(Path('tests/alphaops_vnext_policy_replay_smoke.py').read_text(encoding='utf-8'), 'tests/alphaops_vnext_policy_replay_smoke.py', 'exec'); print('compile ok')"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - This is a policy behavior change and requires fast broker replay verification before keeping it.
+  - Revert or adjust if official broker-ledger MDD does not improve with acceptable CAGR and Sharpe impact.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract
