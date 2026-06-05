@@ -113,6 +113,8 @@ MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
+MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP = 0.04
+MAIN_QUALITY_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.75
 MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP = 0.06
 MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_ATR_THRESHOLD = 0.10
 MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_SECTORS = {"Energy", "Materials"}
@@ -707,6 +709,50 @@ def apply_main_green_bull_low_confirm_high_vol_new_entry_cap(
             )
         else:
             item["main_green_bull_low_confirm_high_vol_new_entry_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
+def apply_main_quality_bull_low_confirm_new_entry_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "main" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        style_regime = str(item.get("market_style_regime_label") or "")
+        capacity_regime = str(item.get("regime_capacity_regime") or item.get("regime_state") or "")
+        confirmation = safe_float(item.get("selection_confirmation_score"), 1.0)
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and is_new_entry
+            and crisis_state == "GREEN"
+            and style_regime == "quality_compounder"
+            and capacity_regime == "bull"
+            and confirmation < MAIN_QUALITY_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD
+            and weight > MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP
+        ):
+            item["pre_main_quality_bull_low_confirm_new_entry_cap_weight"] = weight
+            item["weight"] = MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP
+            item["target_weight"] = MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP
+            item["main_quality_bull_low_confirm_new_entry_cap"] = (
+                MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP
+            )
+            item["main_quality_bull_low_confirm_new_entry_cap_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|main_quality_bull_low_confirm_new_entry_cap"
+            )
+        else:
+            item["main_quality_bull_low_confirm_new_entry_cap_status"] = "not_applicable"
         capped.append(item)
     return capped
 
@@ -1397,6 +1443,7 @@ def build_variant_book(
         weighted = apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_green_bull_low_confirm_high_vol_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_main_quality_bull_low_confirm_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_hold_decay_trim(weighted, portfolio_kind)

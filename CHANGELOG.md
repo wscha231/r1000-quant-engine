@@ -53,6 +53,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 05:57 KST - add-main-quality-bull-low-confirm-new-entry-cap
+
+- scope:
+  - Add a main production cap for low-confirmation quality-compounder bull GREEN new entries after broker artifact analysis showed positive all-period and MDD row-proxy deltas while broad HOLD and defense rules were rejected.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds and applies a main-only quality-compounder bull low-confirmation GREEN new-entry cap at 4%.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the new main quality-bull low-confirmation new-entry cap and excludes confirmed, WATCH, HOLD, neutral-regime, breakout-style, and concentrated rows.
+  - `CHANGELOG.md` ->records the main quality-bull low-confirmation new-entry cap.
+- symbols_added:
+  - `apply_main_quality_bull_low_confirm_new_entry_cap(weighted, portfolio_kind)` ->caps main GREEN quality-compounder bull NEW rows to 4% when confirmation is below 0.75.
+- symbols_changed:
+  - `build_target_book(candidate, crisis_states, portfolio_kind, target_n, variant_id, prices)` ->applies the new main cap after existing main low-confirmation high-volatility caps.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show qualifying `main_quality_bull_low_confirm_new_entry_cap_status=applied` rows capped at `0.04`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27037441761`; official acceptance still requires fast replay broker-ledger metrics because local artifact proxy is not production evidence.
+
 ### 05:05 KST - tighten-concentrated-hold-decay-cap
 
 - scope:
