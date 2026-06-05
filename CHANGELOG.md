@@ -53,6 +53,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 05:05 KST - tighten-concentrated-hold-decay-cap
+
+- scope:
+  - Tighten the existing concentrated HOLD decay trim after broker artifact analysis showed positive all-period and MDD row-proxy deltas for lowering the cap without broadening the trigger.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `CONCENTRATED_HOLD_DECAY_CAP` from `0.08` to `0.04`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects qualifying concentrated HOLD decay rows to cap at 4%.
+  - `CHANGELOG.md` ->records the concentrated HOLD decay cap tightening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_concentrated_hold_decay_trim(weighted, portfolio_kind)` ->qualifying concentrated HOLD decay rows now trim to 4% instead of 8%.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show qualifying `concentrated_hold_decay_trim_status=applied` rows capped at `0.04`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27035076946`; official acceptance still requires fast replay broker-ledger metrics because local artifact proxy is not production evidence.
+
 ### 04:12 KST - widen-main-quality-hold-weak-timing-trim
 
 - scope:
