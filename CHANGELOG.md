@@ -5,6 +5,34 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 16:36 KST - cap-concentrated-damaged-weak-leaders
+
+- scope: Add a narrow concentrated-only cap for weak MARKET_LEADER exposure during WATCH/DEFENSE_REVIEW when QQQ damage or poor one-month ticker timing is already visible.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds and applies the concentrated watch damaged weak market-leader cap after existing concentrated WATCH new-entry caps.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers cap application to both new and hold concentrated MARKET_LEADER rows plus skip conditions.
+  - `CHANGELOG.md` ->records the policy candidate and validation status.
+- symbols_added:
+  - `apply_concentrated_watch_damaged_weak_market_leader_cap(weighted, portfolio_kind)` ->caps concentrated MARKET_LEADER rows to 8% when WATCH/DEFENSE_REVIEW, weak confirmation or breakout quality, and QQQ damage or weak one-month ticker timing are present.
+  - `test_concentrated_watch_damaged_weak_market_leader_cap_applies_to_new_and_hold_rows()` ->verifies the new cap and skip cases.
+- symbols_changed:
+  - `build_variant_book(candidate, portfolio_kind, target_n, crisis_states, prices)` ->runs the new concentrated cap in the target-book policy stack.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should include `concentrated_watch_damaged_weak_ml_cap_status` and cap qualifying rows to 8%.
+- validation:
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.
+- risks_or_notes:
+  - This is a behavior change; keep only if official broker-ledger fast replay improves concentrated MDD or CAGR/Sharpe without damaging main.
+
 ### 15:45 KST - prefer-sec-enriched-candidate-books
 
 - scope: Make AlphaOps replay consumers prefer SEC-enriched candidate books before base historical candidate books.

@@ -90,6 +90,10 @@ CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP = 0.03
 CONCENTRATED_UNCONFIRMED_QUALITY_BULL_CONFIRMATION_THRESHOLD = 0.50
 CONCENTRATED_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
+CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CAP = 0.08
+CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CONFIRMATION_THRESHOLD = 0.50
+CONCENTRATED_WATCH_DAMAGED_WEAK_ML_BREAKOUT_THRESHOLD = 0.60
+CONCENTRATED_WATCH_DAMAGED_WEAK_ML_TICKER_RET_1M_THRESHOLD = 0.05
 CONCENTRATED_GREEN_BULL_QQQ_DOWN_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_GREEN_BULL_QQQ_DOWN_THRESHOLD = 0.0
 CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP = 0.08
@@ -1102,6 +1106,55 @@ def apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap(
     return capped
 
 
+def apply_concentrated_watch_damaged_weak_market_leader_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        lane = str(item.get("primary_lane") or "").upper()
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        confirmation = safe_float(item.get("selection_confirmation_score"), 1.0)
+        breakout_quality = safe_float(item.get("breakout_setup_quality_score"), 1.0)
+        qqq_1m_return = safe_float(item.get("qqq_1m_return"), 0.0)
+        spy_1m_return = safe_float(item.get("spy_1m_return"), 0.0)
+        ticker_ret_1m = safe_float(item.get("ticker_ret_1m"), 1.0)
+        weak_quality = (
+            confirmation < CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CONFIRMATION_THRESHOLD
+            or breakout_quality < CONCENTRATED_WATCH_DAMAGED_WEAK_ML_BREAKOUT_THRESHOLD
+        )
+        market_or_timing_damage = (
+            qqq_1m_return < spy_1m_return
+            or ticker_ret_1m < CONCENTRATED_WATCH_DAMAGED_WEAK_ML_TICKER_RET_1M_THRESHOLD
+        )
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and lane == "MARKET_LEADER"
+            and crisis_state in CONCENTRATED_RISK_STATE_CAP_STATES
+            and weak_quality
+            and market_or_timing_damage
+            and weight > CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CAP
+        ):
+            item["pre_concentrated_watch_damaged_weak_ml_cap_weight"] = weight
+            item["weight"] = CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CAP
+            item["target_weight"] = CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CAP
+            item["concentrated_watch_damaged_weak_ml_cap"] = CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CAP
+            item["concentrated_watch_damaged_weak_ml_cap_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|concentrated_watch_damaged_weak_ml_cap"
+            )
+        else:
+            item["concentrated_watch_damaged_weak_ml_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
 def apply_concentrated_green_bull_qqq_down_new_entry_cap(
     weighted: list[dict[str, Any]],
     portfolio_kind: str,
@@ -1584,6 +1637,7 @@ def build_variant_book(
         weighted = apply_concentrated_hold_decay_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_concentrated_watch_damaged_weak_market_leader_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_green_bull_qqq_down_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_green_consumer_overheat_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(weighted, portfolio_kind)
