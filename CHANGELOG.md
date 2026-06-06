@@ -53,6 +53,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 10:22 KST - block-main-residual-risk-buckets
+
+- scope:
+  - Block the already-verified main residual risk buckets after the 1% replay still improved official broker CAGR, MDD, and Sharpe while leaving a 2.064pp main MDD gap.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP`, `MAIN_QUALITY_HOLD_WEAK_TIMING_CAP`, and `MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP` from `0.01` to `0.0`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects qualifying main quality and cyclical risk rows to receive zero target exposure.
+  - `CHANGELOG.md` ->records the main residual risk bucket block.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_main_quality_bull_low_confirm_new_entry_cap(weighted, portfolio_kind)` ->qualifying main quality-compounder bull low-confirmation NEW rows now receive zero target exposure.
+  - `apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)` ->qualifying main quality-compounder bull weak-timing HOLD rows now receive zero target exposure.
+  - `apply_main_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->qualifying main GREEN neutral Energy/Materials high-volatility NEW rows now receive zero target exposure.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show qualifying main residual risk rows with `weight=0.0`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27047563162`; zero exposure is more aggressive than prior caps, so official acceptance requires fast replay broker-ledger metrics and target-book integrity checks.
+
 ### 09:38 KST - tighten-main-residual-risk-caps-to-one-percent
 
 - scope:
