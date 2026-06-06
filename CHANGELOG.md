@@ -258,14 +258,14 @@ All entries must be written in English. Entries must be predictable and machine-
   - Strengthen the data readiness preflight so broker target work cannot look ready while SEC/Form4/13F/ETF PIT evidence stores or target-book smart-money columns are missing.
 - files:
   - `.github/workflows/data_readiness_preflight.yml` ->restores `data_pit/sec`, `data_pit/etf_holdings`, and `data_pit/macro` from Google Drive in addition to the free-data and price stores.
-  - `tools/audit_data_readiness.py` ->blocks fullrun readiness when SEC/Form4/13F/ETF PIT evidence stores are missing and blocks policy replay when SEC evidence exists but operating target books omit `sec_smart_money` features.
-  - `tests/data_readiness_smoke.py` ->adds PIT evidence store fixtures and smart-money target-book columns to ready-state tests.
+  - `tools/audit_data_readiness.py` ->blocks fullrun readiness when SEC/Form4/13F/ETF PIT evidence stores are missing, blocks policy replay when SEC evidence exists but operating target books omit `sec_smart_money` features, and recognizes actual AlphaOps SEC/ETF evidence columns.
+  - `tests/data_readiness_smoke.py` ->adds PIT evidence store fixtures plus smart-money and `sec_13f_smart_money_score` target-book columns to ready-state tests.
   - `tests/workflow_artifact_smoke.py` ->expects the preflight workflow to restore SEC, ETF, and macro PIT stores.
   - `CHANGELOG.md` ->records the data preflight evidence-lake gate.
 - symbols_added:
   - `write_pit_evidence_store(root)` ->test helper that creates Form4, 13F, and ETF PIT evidence placeholders.
 - symbols_changed:
-  - `build_payload(args)` ->adds SEC/Form4/13F/ETF evidence-store blockers and sec-smart-money target-book policy blockers.
+  - `build_payload(args)` ->adds SEC/Form4/13F/ETF evidence-store blockers, sec-smart-money target-book policy blockers, and coverage recognition for actual AlphaOps SEC/ETF score columns.
   - `test_data_readiness_detects_fresh_operating_books_and_snapshots()` ->models a ready run with PIT evidence stores and smart-money target-book columns.
   - `test_data_readiness_caps_target_freshness_to_observable_close()` ->keeps freshness gating compatible with the stricter evidence-store contract.
   - `test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfacts()` ->keeps policy replay allowed when PIT stores exist even if companyfacts is missing.
@@ -279,6 +279,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `outputs/data_readiness/summary.json::policy_replay_blockers` ->now flags SEC evidence stores that are present but not represented in operating target-book `sec_smart_money` feature columns.
 - validation:
   - `py -3 -m py_compile tools\audit_data_readiness.py tests\data_readiness_smoke.py tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\audit_data_readiness.py tests\data_readiness_smoke.py` ->PASS after adding actual AlphaOps SEC/ETF coverage columns.
   - `py -3 tests\data_readiness_smoke.py` ->PASS.
   - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
   - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.

@@ -138,6 +138,7 @@ def test_data_readiness_reports_feature_source_coverage_and_pit_dates() -> None:
                 "market_style_regime_label": "balanced",
                 "leadership_theme": "ai_compute",
                 "smart_money_score": 0.4,
+                "sec_13f_smart_money_score": 0.6,
                 "selection_confirmation_score": 0.7,
                 "target_n": 15,
                 "action": "NEW",
@@ -154,6 +155,7 @@ def test_data_readiness_reports_feature_source_coverage_and_pit_dates() -> None:
                 "market_style_regime_label": "balanced",
                 "leadership_theme": "industrial_rebuild",
                 "smart_money_score": 0.1,
+                "sec_13f_smart_money_score": 0.2,
                 "selection_confirmation_score": 0.4,
                 "target_n": 15,
                 "action": "HOLD",
@@ -181,6 +183,7 @@ def test_data_readiness_reports_feature_source_coverage_and_pit_dates() -> None:
         main = coverage["books"]["main"]
         assert main["categories"]["price_momentum"]["present_count"] >= 2
         assert main["categories"]["macro_regime"]["present_count"] >= 3
+        assert main["categories"]["sec_smart_money"]["present_count"] >= 2
         assert main["categories"]["theme_leadership"]["present_columns"] == ["leadership_theme"]
         assert coverage["overall"]["pit_future_available_from_rows"] == 2
         assert main["pit_available_from_check"]["rows_with_any_future_available_from"] == 1
