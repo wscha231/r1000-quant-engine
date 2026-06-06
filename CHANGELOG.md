@@ -5,6 +5,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 23:14 KST - exempt-high-conviction-stable-concentrated-leaders
+
+- scope: Reduce concentrated CAGR drag from over-tight confirmed MARKET_LEADER weak-RS caps while keeping the weak-leader defense active.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->exempts high-conviction stable concentrated GREEN confirmed MARKET_LEADER NEW rows from the weak-RS cap when score, SEC evidence, volatility, and positive one-month RS all confirm the setup.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the exemption and verifies ordinary weak-RS confirmed NEW rows remain capped.
+  - `CHANGELOG.md` ->records the broker-artifact-driven policy refinement.
+- symbols_added:
+  - `CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_SCORE_THRESHOLD` ->minimum AlphaOps score for the cap exemption.
+  - `CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_SEC_THRESHOLD` ->minimum SEC evidence score for the cap exemption.
+  - `CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_ATR_MAX` ->maximum ATR for stable-leader exemption.
+  - `CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_RS_1M_MIN` ->minimum positive one-month benchmark-relative strength for exemption.
+- symbols_changed:
+  - `apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(weighted, portfolio_kind)` ->keeps the 12% cap for weak confirmed leaders unless the row is a high-conviction stable leader.
+  - `test_concentrated_green_confirmed_market_leader_weak_rs_cap_applies_to_new_entries_only()` ->adds a high-conviction stable leader exemption case.
+- config_fields_added:
+  - `concentrated_green_confirmed_ml_weak_rs_new_entry_cap_status=exempt_high_conviction_stable_leader` ->audit marker for rows spared by the exemption.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show the exemption marker on qualifying rows instead of capping them to 12%.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+- risks_or_notes:
+  - Broker artifact drift from run `27059277165` versus fast replay `27056579679` showed concentrated underweight/missed-winner drag in MU/WDC/GEV and current-overweight loser drag in RUN/BEAM/NTLA/PENN. This patch targets the GEV-style winner-miss without broadening parabolic-entry exposure.
+
 ### 22:40 KST - refresh-price-cache-before-full-rebuild-sidecars
 
 - scope: Ensure full rebuild sidecars create an observed-bar replay price manifest before operating target books, broker replay, and data readiness.

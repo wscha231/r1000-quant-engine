@@ -101,6 +101,10 @@ CONCENTRATED_GREEN_CONSUMER_OVERHEAT_RS_1M_THRESHOLD = 0.25
 CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP = 0.12
 CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_1M_THRESHOLD = 0.12
 CONCENTRATED_GREEN_CONFIRMED_ML_CONFIRMATION_THRESHOLD = 1.0
+CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_SCORE_THRESHOLD = 5.0
+CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_SEC_THRESHOLD = 0.30
+CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_ATR_MAX = 0.04
+CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_RS_1M_MIN = 0.05
 CONCENTRATED_HIGH_VOL_WEAK_TIMING_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_HIGH_VOL_WEAK_TIMING_ATR_THRESHOLD = 0.05
 CONCENTRATED_HIGH_VOL_WEAK_TIMING_CONFIRMATION_THRESHOLD = 0.50
@@ -1260,7 +1264,16 @@ def apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(
         crisis_state = str(item.get("crisis_state") or "").upper()
         confirmation = safe_float(item.get("selection_confirmation_score"), 0.0)
         rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), 1.0)
+        score = safe_float(item.get("score"))
+        sec_evidence = safe_float(item.get("sec_combined_evidence_score"))
+        atr14 = safe_float(item.get("atr14_pct"))
         weight = safe_float(item.get("weight"))
+        high_conviction_stable_leader = (
+            score >= CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_SCORE_THRESHOLD
+            and sec_evidence >= CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_SEC_THRESHOLD
+            and atr14 <= CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_ATR_MAX
+            and rs_benchmark_1m >= CONCENTRATED_GREEN_CONFIRMED_ML_EXEMPT_RS_1M_MIN
+        )
         if (
             ticker not in CASH_TICKERS
             and lane == "MARKET_LEADER"
@@ -1268,6 +1281,7 @@ def apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(
             and crisis_state == "GREEN"
             and confirmation >= CONCENTRATED_GREEN_CONFIRMED_ML_CONFIRMATION_THRESHOLD
             and rs_benchmark_1m < CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_1M_THRESHOLD
+            and not high_conviction_stable_leader
             and weight > CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP
         ):
             item["pre_concentrated_green_confirmed_ml_weak_rs_new_entry_cap_weight"] = weight
@@ -1280,6 +1294,10 @@ def apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(
             item["selection_reason"] = (
                 str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
                 + "|concentrated_green_confirmed_ml_weak_rs_new_entry_cap"
+            )
+        elif high_conviction_stable_leader:
+            item["concentrated_green_confirmed_ml_weak_rs_new_entry_cap_status"] = (
+                "exempt_high_conviction_stable_leader"
             )
         else:
             item["concentrated_green_confirmed_ml_weak_rs_new_entry_cap_status"] = "not_applicable"

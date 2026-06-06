@@ -1722,6 +1722,21 @@ def test_concentrated_green_confirmed_market_leader_weak_rs_cap_applies_to_new_e
             "primary_lane": "MARKET_LEADER",
             "selection_reason": "MARKET_LEADER",
         },
+        {
+            "ticker": "HIGH_CONVICTION_STABLE",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "selection_confirmation_score": 1.0,
+            "rs_benchmark_1m": 0.06,
+            "score": 5.8,
+            "sec_combined_evidence_score": 0.31,
+            "atr14_pct": 0.03,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
     ]
     capped = apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(
         selected,
@@ -1734,6 +1749,11 @@ def test_concentrated_green_confirmed_market_leader_weak_rs_cap_applies_to_new_e
     assert by_ticker["STRONG_RS"]["weight"] == 0.24
     assert by_ticker["UNCONFIRMED"]["weight"] == 0.24
     assert by_ticker["HOLD"]["weight"] == 0.24
+    assert by_ticker["HIGH_CONVICTION_STABLE"]["weight"] == 0.30
+    assert (
+        by_ticker["HIGH_CONVICTION_STABLE"]["concentrated_green_confirmed_ml_weak_rs_new_entry_cap_status"]
+        == "exempt_high_conviction_stable_leader"
+    )
     main = apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(selected, "main")
     assert main[0]["weight"] == 0.24
 
