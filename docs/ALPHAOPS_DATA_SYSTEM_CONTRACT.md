@@ -69,20 +69,22 @@ Current broker metrics from that run:
 
 Current acceptance targets:
 
-- Main: CAGR at or above `30%`, MDD no worse than `-25%`
-- Concentrated: CAGR at or above `45%`, MDD no worse than `-25%`
+- Main: CAGR at or above `35%`, MDD no worse than `-25%`
+- Concentrated: CAGR at or above `50%`, MDD no worse than `-25%`
 - Official evidence: broker trade / broker ledger next-close only
 
 Remaining performance gaps:
 
 - Main CAGR passes, but MDD needs about `2.0180pp` additional improvement.
-- Concentrated passes both CAGR and MDD targets.
+- Concentrated MDD passes, but CAGR needs about `1.1245pp` additional
+  improvement.
 
 Current blocker:
 
 - No hard data blocker is active for fast policy replay.
 - Remaining work is to reduce main broker MDD without sacrificing the main
-  CAGR pass or breaking the concentrated pass.
+  CAGR pass, and to recover concentrated CAGR without losing the concentrated
+  MDD pass.
 - Run `27052007532` shows the official main max-DD window is `2021-11-08`
   through `2023-03-13`. The next data-backed research focus must move back to
   the 2021-2023 drawdown and identify PIT-safe entry/size/hold rules that
@@ -325,8 +327,8 @@ When resuming AlphaOps work, agents must follow this order:
 Once the data gate passes, CAGR/MDD improvement should restart from broker
 trade evidence, not research-only metrics:
 
-- main target: CAGR at or above 30%, MDD no worse than -25%
-- concentrated target: CAGR at or above 45%, MDD no worse than -25%
+- main target: CAGR at or above 35%, MDD no worse than -25%
+- concentrated target: CAGR at or above 50%, MDD no worse than -25%
 - metric source: broker ledger next-close fills with costs and cash
 
 Priority research after data-valid replay:

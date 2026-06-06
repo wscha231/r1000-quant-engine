@@ -36,6 +36,36 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_VERSION = "trade-attribution-findings-v1"
 
 
+TARGET_CONTEXT_COLUMNS = [
+    "rebalance_date",
+    "ticker",
+    "weight",
+    "target_weight",
+    "sector",
+    "industry_group",
+    "primary_lane",
+    "holding_state",
+    "hold_replace_decision",
+    "crisis_state",
+    "market_style_regime_label",
+    "regime_state",
+    "regime_capacity_regime",
+    "selection_confirmation_score",
+    "breakout_setup_quality_score",
+    "volatility_contraction_score",
+    "rs_benchmark_1m",
+    "ticker_ret_1m",
+    "rs_benchmark_3m",
+    "ticker_ret_3m",
+    "atr14_pct",
+    "price_above_ma50",
+    "price_above_ma200",
+    "spy_1m_return",
+    "qqq_1m_return",
+    "benchmark_risk_score",
+]
+
+
 def repo_path(path_like: str | Path) -> Path:
     path = Path(path_like)
     return path if path.is_absolute() else REPO_ROOT / path
@@ -215,6 +245,230 @@ def holdings_pnl_contributors(
     sector_loss = loss_by_group(by_ticker[by_ticker["position_pnl_usd"] < 0], "sector", "position_pnl_usd")
     industry_loss = loss_by_group(by_ticker[by_ticker["position_pnl_usd"] < 0], "industry_group", "position_pnl_usd")
     return records, sector_loss, industry_loss
+
+
+def target_book_file(latest_run: Path, portfolio_kind: str) -> Path:
+    name = "operating_main_target_book.csv" if portfolio_kind == "main" else "operating_concentrated_target_book.csv"
+    return latest_run / "reports" / name
+
+
+def mdd_target_rows(
+    latest_run: Path,
+    portfolio_kind: str,
+    mdd_info: dict[str, Any],
+    contributors: list[dict[str, Any]],
+    lookback_days: int = 45,
+) -> pd.DataFrame:
+    if not mdd_info or not contributors:
+        return pd.DataFrame()
+    target = read_csv(target_book_file(latest_run, portfolio_kind))
+    if target.empty or "ticker" not in target.columns or "rebalance_date" not in target.columns:
+        return pd.DataFrame()
+    loss_map = {
+        str(row.get("ticker") or "").upper().strip(): safe_float(row.get("position_pnl_usd"))
+        for row in contributors
+        if safe_float(row.get("position_pnl_usd")) < 0
+    }
+    loss_map = {ticker: pnl for ticker, pnl in loss_map.items() if ticker and ticker not in {"CASH", "__CASH__"}}
+    if not loss_map:
+        return pd.DataFrame()
+    peak = pd.Timestamp(mdd_info.get("peak_date")) - pd.Timedelta(days=lookback_days)
+    trough = pd.Timestamp(mdd_info.get("trough_date"))
+    d = target.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
+    d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+    d = d.dropna(subset=["rebalance_date"])
+    d = d[d["ticker"].isin(loss_map)]
+    d = d[(d["rebalance_date"] >= peak.normalize()) & (d["rebalance_date"] <= trough.normalize())].copy()
+    if d.empty:
+        return pd.DataFrame()
+    for col in ["weight", "target_weight", "selection_confirmation_score", "breakout_setup_quality_score", "rs_benchmark_1m", "ticker_ret_1m"]:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+    d["linked_mdd_position_pnl_usd"] = d["ticker"].map(loss_map)
+    keep = [col for col in TARGET_CONTEXT_COLUMNS if col in d.columns]
+    keep.extend(["linked_mdd_position_pnl_usd"])
+    return d[keep].sort_values(["rebalance_date", "linked_mdd_position_pnl_usd", "ticker"]).reset_index(drop=True)
+
+
+def summarize_target_context(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    if rows.empty:
+        return []
+    d = rows.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    numeric_cols = [
+        "weight",
+        "target_weight",
+        "selection_confirmation_score",
+        "breakout_setup_quality_score",
+        "rs_benchmark_1m",
+        "ticker_ret_1m",
+        "rs_benchmark_3m",
+        "ticker_ret_3m",
+        "atr14_pct",
+        "price_above_ma50",
+        "price_above_ma200",
+        "spy_1m_return",
+        "qqq_1m_return",
+        "benchmark_risk_score",
+        "linked_mdd_position_pnl_usd",
+    ]
+    for col in numeric_cols:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+    out: list[dict[str, Any]] = []
+    for ticker, group in d.groupby("ticker", sort=False):
+        group = group.sort_values("rebalance_date")
+        row: dict[str, Any] = {
+            "ticker": ticker,
+            "first_rebalance_date": group["rebalance_date"].min().date().isoformat(),
+            "last_rebalance_date": group["rebalance_date"].max().date().isoformat(),
+            "target_row_count": int(len(group)),
+            "linked_mdd_position_pnl_usd": float(group["linked_mdd_position_pnl_usd"].dropna().iloc[0]),
+        }
+        for col in ["sector", "industry_group", "primary_lane", "crisis_state", "market_style_regime_label", "regime_state", "regime_capacity_regime"]:
+            if col in group.columns:
+                values = group[col].dropna().astype(str)
+                row[col] = values.iloc[-1] if not values.empty else ""
+        for col in ["weight", "target_weight", "selection_confirmation_score", "breakout_setup_quality_score", "rs_benchmark_1m", "ticker_ret_1m", "atr14_pct"]:
+            if col in group.columns:
+                values = pd.to_numeric(group[col], errors="coerce")
+                row[f"avg_{col}"] = float(values.mean()) if values.notna().any() else None
+                row[f"max_{col}"] = float(values.max()) if values.notna().any() else None
+                row[f"min_{col}"] = float(values.min()) if values.notna().any() else None
+        out.append(row)
+    return sorted(out, key=lambda row: safe_float(row.get("linked_mdd_position_pnl_usd")))
+
+
+def mdd_policy_bucket_summary(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    if rows.empty:
+        return []
+    d = rows.copy()
+    for col in [
+        "weight",
+        "target_weight",
+        "selection_confirmation_score",
+        "breakout_setup_quality_score",
+        "rs_benchmark_1m",
+        "ticker_ret_1m",
+        "atr14_pct",
+        "spy_1m_return",
+        "qqq_1m_return",
+        "price_above_ma50",
+        "price_above_ma200",
+        "linked_mdd_position_pnl_usd",
+    ]:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+        else:
+            d[col] = np.nan
+    text = {
+        col: d[col].astype(str).str.upper()
+        for col in ["primary_lane", "crisis_state", "market_style_regime_label", "regime_state", "regime_capacity_regime", "sector"]
+        if col in d.columns
+    }
+    buckets = [
+        (
+            "high_weight_market_leader",
+            "MARKET_LEADER rows above 8% target weight",
+            text.get("primary_lane", pd.Series("", index=d.index)).eq("MARKET_LEADER") & d["weight"].ge(0.08),
+        ),
+        (
+            "negative_short_rs_weighted",
+            "Rows above 4% where 1m absolute or benchmark-relative return is negative",
+            d["weight"].ge(0.04) & (d["rs_benchmark_1m"].lt(0.0) | d["ticker_ret_1m"].lt(0.0)),
+        ),
+        (
+            "high_vol_weighted",
+            "Rows above 6% with ATR14 at or above 6%",
+            d["weight"].ge(0.06) & d["atr14_pct"].ge(0.06),
+        ),
+        (
+            "weak_confirmation_weighted",
+            "Rows above 6% with confirmation below 0.50 or breakout quality below 0.60",
+            d["weight"].ge(0.06) & (d["selection_confirmation_score"].lt(0.50) | d["breakout_setup_quality_score"].lt(0.60)),
+        ),
+        (
+            "qqq_underperforms_spy_weighted",
+            "Rows above 6% where QQQ one-month return is below SPY",
+            d["weight"].ge(0.06) & d["qqq_1m_return"].lt(d["spy_1m_return"]),
+        ),
+        (
+            "below_ma50_weighted",
+            "Rows above 4% with price below the 50-day average flag",
+            d["weight"].ge(0.04) & d["price_above_ma50"].le(0.0),
+        ),
+        (
+            "information_technology_loss_cluster",
+            "Information Technology MDD loss rows",
+            text.get("sector", pd.Series("", index=d.index)).eq("INFORMATION TECHNOLOGY"),
+        ),
+    ]
+    out: list[dict[str, Any]] = []
+    for bucket_id, description, mask in buckets:
+        selected = d[mask.fillna(False)].copy()
+        if selected.empty:
+            continue
+        unique = selected.sort_values("linked_mdd_position_pnl_usd").drop_duplicates("ticker", keep="first")
+        linked_loss = float(unique["linked_mdd_position_pnl_usd"].sum())
+        tickers = unique["ticker"].astype(str).head(12).tolist() if "ticker" in unique.columns else []
+        out.append(
+            {
+                "bucket_id": bucket_id,
+                "description": description,
+                "target_row_count": int(len(selected)),
+                "ticker_count": int(unique["ticker"].nunique()) if "ticker" in unique.columns else 0,
+                "linked_mdd_position_pnl_usd": linked_loss,
+                "avg_weight": float(selected["weight"].mean()) if selected["weight"].notna().any() else None,
+                "max_weight": float(selected["weight"].max()) if selected["weight"].notna().any() else None,
+                "tickers": tickers,
+                "research_note": "diagnostic bucket only; convert to policy only after broker replay validates a PIT-safe rule",
+            }
+        )
+    return sorted(out, key=lambda row: safe_float(row.get("linked_mdd_position_pnl_usd")))
+
+
+def target_bucket_findings(
+    portfolio_kind: str,
+    target_context: list[dict[str, Any]],
+    policy_buckets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not policy_buckets or not target_context:
+        return []
+    total_context_loss = abs(
+        sum(
+            safe_float(row.get("linked_mdd_position_pnl_usd"))
+            for row in target_context
+            if safe_float(row.get("linked_mdd_position_pnl_usd")) < 0
+        )
+    )
+    if total_context_loss <= 0:
+        return []
+    top_bucket = min(policy_buckets, key=lambda row: safe_float(row.get("linked_mdd_position_pnl_usd")))
+    bucket_loss = abs(safe_float(top_bucket.get("linked_mdd_position_pnl_usd")))
+    bucket_share = bucket_loss / max(total_context_loss, 1e-12)
+    if bucket_share < 0.30:
+        return []
+    return [
+        {
+            "finding_id": f"F8_mdd_target_book_feature_bucket_{portfolio_kind}_{top_bucket.get('bucket_id')}",
+            "severity": "medium",
+            "evidence": (
+                f"Operating target-book rows linked to MDD losers show bucket "
+                f"`{top_bucket.get('bucket_id')}` with ${-bucket_loss:,.0f} linked position P&L "
+                f"({bucket_share:.0%} of top context loss), "
+                f"{top_bucket.get('ticker_count')} tickers, avg weight "
+                f"{safe_float(top_bucket.get('avg_weight')):.1%}, max weight "
+                f"{safe_float(top_bucket.get('max_weight')):.1%}. Top tickers: "
+                f"{', '.join(top_bucket.get('tickers') or [])}."
+            ),
+            "candidate_fix": (
+                "Use the emitted mdd_policy_bucket_summary.csv and mdd_target_rows.csv "
+                "to design one narrow PIT-safe entry/hold sizing rule. Do not promote "
+                "the bucket itself; validate any rule through broker-ledger fast replay."
+            ),
+        }
+    ]
 
 
 def worst_n(frame: pd.DataFrame, pnl_col: str, n: int) -> list[dict[str, Any]]:
@@ -415,6 +669,9 @@ def analyze_portfolio(
             metadata,
         ) if mdd_info else ([], {}, {})
         if mdd_info and contributors:
+            target_rows = mdd_target_rows(latest_run, portfolio_kind, mdd_info, contributors)
+            target_context = summarize_target_context(target_rows)
+            policy_buckets = mdd_policy_bucket_summary(target_rows)
             findings: list[dict[str, Any]] = []
             peak_eq = safe_float(mdd_info.get("peak_equity_usd"))
             trough_eq = safe_float(mdd_info.get("trough_equity_usd"))
@@ -464,6 +721,7 @@ def analyze_portfolio(
                         ),
                     }
                 )
+            findings.extend(target_bucket_findings(portfolio_kind, target_context, policy_buckets))
             payload = {
                 "schema_version": SCHEMA_VERSION,
                 "portfolio_kind": portfolio_kind,
@@ -493,6 +751,14 @@ def analyze_portfolio(
                     "broker_trades_in_window": trade_window,
                     "top_position_pnl_contributors": contributors[:15],
                 },
+                "mdd_target_context": {
+                    "target_book": str(target_book_file(latest_run, portfolio_kind)),
+                    "lookback_days_before_peak": 45,
+                    "covered_ticker_count": len(target_context),
+                    "target_row_count": int(len(target_rows)),
+                    "top_context_by_ticker": target_context[:20],
+                    "policy_buckets": policy_buckets[:12],
+                },
                 "loss_by_sector": sector_loss,
                 "loss_by_industry_group": industry_loss,
                 "top_10_losers": contributors[:10],
@@ -504,6 +770,12 @@ def analyze_portfolio(
             out_dir = output_dir / portfolio_kind
             write_json(out_dir / "findings.json", payload)
             pd.DataFrame(contributors).to_csv(out_dir / "mdd_position_pnl_by_ticker.csv", index=False)
+            if not target_rows.empty:
+                target_rows.to_csv(out_dir / "mdd_target_rows.csv", index=False)
+            if target_context:
+                pd.DataFrame(target_context).to_csv(out_dir / "mdd_target_context_by_ticker.csv", index=False)
+            if policy_buckets:
+                pd.DataFrame(policy_buckets).to_csv(out_dir / "mdd_policy_bucket_summary.csv", index=False)
             write_text(out_dir / "attribution_report.md", render_report(payload))
             return payload
         return {
@@ -521,6 +793,17 @@ def analyze_portfolio(
     winners = trade_journal[trade_journal[pnl_col] > 0].copy()
     mdd_info = mdd_window(equity)
     in_window = trades_in_window(trade_journal, mdd_info.get("peak_date", ""), mdd_info.get("trough_date", ""), pnl_col) if mdd_info else {}
+    metadata = target_metadata(latest_run, portfolio_kind)
+    trade_window = broker_trades_in_window(broker_trades, mdd_info.get("peak_date", ""), mdd_info.get("trough_date", "")) if mdd_info else {}
+    contributors, sector_loss, industry_loss = holdings_pnl_contributors(
+        holdings,
+        mdd_info.get("peak_date", ""),
+        mdd_info.get("trough_date", ""),
+        metadata,
+    ) if mdd_info else ([], {}, {})
+    target_rows = mdd_target_rows(latest_run, portfolio_kind, mdd_info, contributors)
+    target_context = summarize_target_context(target_rows)
+    policy_buckets = mdd_policy_bucket_summary(target_rows)
     loss_by_regime = loss_by_group(losers, "entry_regime_state", pnl_col)
     loss_by_exit_reason = loss_by_group(losers, "exit_reason", pnl_col)
 
@@ -536,6 +819,7 @@ def analyze_portfolio(
         loss_by_regime=loss_by_regime,
         loss_by_exit_reason=loss_by_exit_reason,
     )
+    findings.extend(target_bucket_findings(portfolio_kind, target_context, policy_buckets))
 
     win_rate = float(len(winners) / max(len(winners) + len(losers), 1))
     avg_winner = float(winners[pnl_col].mean()) if not winners.empty else 0.0
@@ -567,9 +851,21 @@ def analyze_portfolio(
             "trades_exited_in_window": in_window.get("exit_count", 0),
             "trades_exited_pnl_usd": in_window.get("exit_pnl_usd", 0.0),
             "worst_5_exits_in_window": in_window.get("worst_5_exits", []),
+            "broker_trades_in_window": trade_window,
+            "top_position_pnl_contributors": contributors[:15],
+        },
+        "mdd_target_context": {
+            "target_book": str(target_book_file(latest_run, portfolio_kind)),
+            "lookback_days_before_peak": 45,
+            "covered_ticker_count": len(target_context),
+            "target_row_count": int(len(target_rows)),
+            "top_context_by_ticker": target_context[:20],
+            "policy_buckets": policy_buckets[:12],
         },
         "loss_by_regime": loss_by_regime,
         "loss_by_exit_reason": loss_by_exit_reason,
+        "loss_by_sector": sector_loss,
+        "loss_by_industry_group": industry_loss,
         "top_10_losers": worst_n(trade_journal, pnl_col, 10),
         "top_10_winners": best_n(trade_journal, pnl_col, 10),
         "findings": findings,
@@ -578,6 +874,14 @@ def analyze_portfolio(
     }
     out_dir = output_dir / portfolio_kind
     write_json(out_dir / "findings.json", payload)
+    if contributors:
+        pd.DataFrame(contributors).to_csv(out_dir / "mdd_position_pnl_by_ticker.csv", index=False)
+    if not target_rows.empty:
+        target_rows.to_csv(out_dir / "mdd_target_rows.csv", index=False)
+    if target_context:
+        pd.DataFrame(target_context).to_csv(out_dir / "mdd_target_context_by_ticker.csv", index=False)
+    if policy_buckets:
+        pd.DataFrame(policy_buckets).to_csv(out_dir / "mdd_policy_bucket_summary.csv", index=False)
     write_text(out_dir / "attribution_report.md", render_report(payload))
     return payload
 
@@ -649,6 +953,53 @@ def render_report(payload: dict[str, Any]) -> str:
                     avg=safe_float(row.get("avg_weight")),
                     maxw=safe_float(row.get("max_weight")),
                     days=int(safe_float(row.get("days_held"))),
+                )
+            )
+        lines.append("")
+    target_context = payload.get("mdd_target_context") or {}
+    buckets = target_context.get("policy_buckets") or []
+    if isinstance(buckets, list) and buckets:
+        lines.extend(
+            [
+                "## MDD Target-Book Feature Buckets",
+                "",
+                "| Bucket | Linked P&L | Tickers | Avg weight | Max weight | Top tickers |",
+                "| --- | ---: | ---: | ---: | ---: | --- |",
+            ]
+        )
+        for row in buckets[:8]:
+            lines.append(
+                "| {bucket} | ${pnl:,.0f} | {count} | {avg:.1%} | {maxw:.1%} | {tickers} |".format(
+                    bucket=row.get("bucket_id", ""),
+                    pnl=safe_float(row.get("linked_mdd_position_pnl_usd")),
+                    count=int(safe_float(row.get("ticker_count"))),
+                    avg=safe_float(row.get("avg_weight")),
+                    maxw=safe_float(row.get("max_weight")),
+                    tickers=", ".join((row.get("tickers") or [])[:8]),
+                )
+            )
+        lines.append("")
+    context_rows = target_context.get("top_context_by_ticker") or []
+    if isinstance(context_rows, list) and context_rows:
+        lines.extend(
+            [
+                "## MDD Target-Book Context By Ticker",
+                "",
+                "| Ticker | Linked P&L | Date range | Rows | Max weight | Lane | Regime |",
+                "| --- | ---: | --- | ---: | ---: | --- | --- |",
+            ]
+        )
+        for row in context_rows[:10]:
+            lines.append(
+                "| {ticker} | ${pnl:,.0f} | {start} to {end} | {rows} | {maxw:.1%} | {lane} | {regime} |".format(
+                    ticker=row.get("ticker", ""),
+                    pnl=safe_float(row.get("linked_mdd_position_pnl_usd")),
+                    start=row.get("first_rebalance_date", ""),
+                    end=row.get("last_rebalance_date", ""),
+                    rows=int(safe_float(row.get("target_row_count"))),
+                    maxw=safe_float(row.get("max_weight")),
+                    lane=row.get("primary_lane", ""),
+                    regime=row.get("regime_capacity_regime") or row.get("regime_state") or "",
                 )
             )
         lines.append("")

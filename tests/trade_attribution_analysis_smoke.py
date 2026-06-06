@@ -204,8 +204,44 @@ def test_broker_ledger_fallback_uses_trades_and_holdings_daily() -> None:
         reports.mkdir()
         pd.DataFrame(
             [
-                {"rebalance_date": "2024-01-02", "ticker": "AAA", "weight": 0.60, "sector": "Tech", "industry_group": "Software"},
-                {"rebalance_date": "2024-01-02", "ticker": "BBB", "weight": 0.30, "sector": "Tech", "industry_group": "Hardware"},
+                {
+                    "rebalance_date": "2024-01-02",
+                    "ticker": "AAA",
+                    "weight": 0.60,
+                    "target_weight": 0.60,
+                    "sector": "Information Technology",
+                    "industry_group": "Software",
+                    "primary_lane": "MARKET_LEADER",
+                    "crisis_state": "GREEN",
+                    "regime_state": "neutral",
+                    "selection_confirmation_score": 0.30,
+                    "breakout_setup_quality_score": 0.50,
+                    "rs_benchmark_1m": -0.05,
+                    "ticker_ret_1m": -0.02,
+                    "atr14_pct": 0.08,
+                    "price_above_ma50": 0.0,
+                    "spy_1m_return": 0.02,
+                    "qqq_1m_return": 0.01,
+                },
+                {
+                    "rebalance_date": "2024-01-02",
+                    "ticker": "BBB",
+                    "weight": 0.30,
+                    "target_weight": 0.30,
+                    "sector": "Information Technology",
+                    "industry_group": "Hardware",
+                    "primary_lane": "MARKET_LEADER",
+                    "crisis_state": "GREEN",
+                    "regime_state": "neutral",
+                    "selection_confirmation_score": 0.80,
+                    "breakout_setup_quality_score": 0.80,
+                    "rs_benchmark_1m": 0.02,
+                    "ticker_ret_1m": 0.04,
+                    "atr14_pct": 0.03,
+                    "price_above_ma50": 1.0,
+                    "spy_1m_return": 0.02,
+                    "qqq_1m_return": 0.03,
+                },
             ]
         ).to_csv(reports / "operating_main_target_book.csv", index=False)
 
@@ -214,8 +250,16 @@ def test_broker_ledger_fallback_uses_trades_and_holdings_daily() -> None:
         assert report["status"] == "completed"
         assert report["analysis_mode"] == "broker_ledger_trades_holdings_fallback"
         assert (out_dir / "main" / "mdd_position_pnl_by_ticker.csv").exists()
+        assert (out_dir / "main" / "mdd_target_rows.csv").exists()
+        assert (out_dir / "main" / "mdd_target_context_by_ticker.csv").exists()
+        assert (out_dir / "main" / "mdd_policy_bucket_summary.csv").exists()
+        assert report["mdd_target_context"]["target_row_count"] == 2
+        bucket_ids = {row["bucket_id"] for row in report["mdd_target_context"]["policy_buckets"]}
+        assert "high_weight_market_leader" in bucket_ids
+        assert "negative_short_rs_weighted" in bucket_ids
         ids = {f["finding_id"] for f in report["findings"]}
         assert any(fid.startswith("F7_mdd_window_under_hedged") for fid in ids)
+        assert any(fid.startswith("F8_mdd_target_book_feature_bucket") for fid in ids)
 
 
 def test_run_wrapper_writes_summary_with_all_findings_flat() -> None:

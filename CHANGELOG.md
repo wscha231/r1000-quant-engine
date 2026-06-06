@@ -209,6 +209,49 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Keep the soft QQQ-damage cap because official broker CAGR, MDD, and Sharpe improved versus run `27050091396`, but the remaining MDD work must focus on the official `2021-11-08` to `2023-03-13` main max-DD window.
 
+### 14:18 KST - align-official-targets-and-mdd-attribution
+
+- scope:
+  - Align the official broker-ledger target contract to the current user goals and make MDD attribution join broker drawdown losers back to PIT operating target-book feature rows.
+- files:
+  - `r1000_config.py` ->raises the official main target to `35%` CAGR / `-25%` MDD and concentrated target to `50%` CAGR / `-25%` MDD.
+  - `tools/run_portfolio_system_guard.py` ->aligns the isolated fallback targets with the official `35%` / `50%` broker-ledger contract.
+  - `tools/run_portfolio_goal_search.py` ->updates the artifact-ranking docstring to the current target contract.
+  - `tools/run_trade_attribution_analysis.py` ->links MDD broker position losses to operating target-book feature context and writes feature bucket diagnostics.
+  - `tests/trade_attribution_analysis_smoke.py` ->covers target-book context CSVs and the new F8 finding.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->records the current remaining gaps as main MDD and concentrated CAGR, not the prior 30%/45% target pair.
+  - `CLAUDE.md` ->updates future-agent guidance to the current official broker-ledger targets.
+  - `CHANGELOG.md` ->records the target and attribution update.
+- symbols_added:
+  - `target_book_file(latest_run, portfolio_kind)` ->resolves the operating target book used for MDD context.
+  - `mdd_target_rows(latest_run, portfolio_kind, mdd_info, contributors, lookback_days)` ->extracts PIT target-book rows around the broker MDD window for MDD loser tickers.
+  - `summarize_target_context(rows)` ->summarizes linked target-book context by ticker.
+  - `mdd_policy_bucket_summary(rows)` ->groups linked MDD target rows into diagnostic feature buckets.
+  - `target_bucket_findings(portfolio_kind, target_context, policy_buckets)` ->emits F8 findings when a feature bucket dominates linked MDD losses.
+- symbols_changed:
+  - `analyze_portfolio(...)` ->adds broker MDD position contributors, target-book context, and policy bucket outputs in both normal and fallback analysis paths.
+  - `render_report(payload)` ->adds MDD target-book feature bucket and ticker-context report tables.
+  - `test_broker_ledger_fallback_uses_trades_and_holdings_daily()` ->asserts the new target-book context outputs and F8 finding.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Official pass/fail gates now use main `35%` CAGR / `-25%` MDD and concentrated `50%` CAGR / `-25%` MDD. Historical target-gap comparisons under the prior `30%`/`45%` contract are not comparable without noting the old contract.
+- outputs:
+  - `outputs/trade_attribution/<portfolio>/mdd_target_rows.csv` ->PIT target-book rows linked to MDD broker position losers.
+  - `outputs/trade_attribution/<portfolio>/mdd_target_context_by_ticker.csv` ->ticker-level context for MDD loser target-book rows.
+  - `outputs/trade_attribution/<portfolio>/mdd_policy_bucket_summary.csv` ->diagnostic feature buckets for MDD loser context.
+- validation:
+  - `py -3 -m py_compile tools\run_trade_attribution_analysis.py tests\trade_attribution_analysis_smoke.py tools\run_portfolio_system_guard.py tools\run_portfolio_goal_search.py r1000_config.py` ->PASS.
+  - `py -3 tests\trade_attribution_analysis_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+  - `py -3 tools\run_trade_attribution_analysis.py --latest-run tmp_artifacts\27052007532 --output-dir tmp_artifacts\mdd_attribution_27052007532 --portfolios main concentrated` ->PASS; generated F8 findings for main Information Technology MDD loss cluster and concentrated weak-confirmation weighted MDD loss bucket.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.
+- risks_or_notes:
+  - This commit changes target gates and diagnostics, not production target-book behavior; do not dispatch a fast replay solely for this commit.
+  - The new feature buckets are research diagnostics only. Convert them to policy only through a narrow PIT-safe rule and broker-ledger replay validation.
+
 ### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
 
 - scope:

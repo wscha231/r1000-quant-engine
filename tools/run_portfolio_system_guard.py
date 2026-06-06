@@ -29,7 +29,7 @@ try:
     from r1000_config import PORTFOLIO_GOAL_TARGETS
 except Exception:  # pragma: no cover - isolated smoke fallback
     PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.30, "max_dd": -0.20},
+        "main": {"cagr": 0.35, "max_dd": -0.25},
         "concentrated": {"cagr": 0.50, "max_dd": -0.25},
     }
 

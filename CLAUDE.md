@@ -8,7 +8,7 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 - Do not interpret CAGR/MDD as production-valid unless `outputs/data_readiness/summary.json`, `outputs/reports/dataset_coverage_audit.json`, `outputs/sec_enriched_candidate_replay/summary.json`, `outputs/alphaops_vnext/summary.json`, and `outputs/portfolio_system_guard/error_check.json` all support the run.
 - If SEC/Form4/13F/ETF/smart-money evidence exists, vNext production must use `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv`; summary-only evidence is not enough.
 - Fix data restore, PIT availability, enriched-candidate materialization, and guard wiring before resuming CAGR/MDD optimization.
-- Current official acceptance targets are broker-ledger next-close only: Main CAGR >= 30% and MDD no worse than -25%; Concentrated CAGR >= 45% and MDD no worse than -25%.
+- Current official acceptance targets are broker-ledger next-close only: Main CAGR >= 35% and MDD no worse than -25%; Concentrated CAGR >= 50% and MDD no worse than -25%.
 - If fullrun readiness is blocked by missing `data_raw/free/sec/companyfacts.zip`, refresh it through `free_data_lake_bootstrap.yml` or manual `free_data_daily_update.yml` with `sec_companyfacts=true` before trusting a new full rebuild.
 
 ## Key Files
