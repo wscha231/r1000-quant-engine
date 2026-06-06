@@ -1,11 +1,11 @@
 # Tactical Alpha Daily Review
 
 - run_status: review_ready
-- schedule_as_of: 2026-06-04
-- target_trading_day: 2026-06-04
-- data_as_of: 2026-06-04
+- schedule_as_of: 2026-06-06
+- target_trading_day: 2026-06-05
+- data_as_of: 2026-06-05
 - selected_count: 5
-- trade_count: 2
-- buys: 1 sells: 1
+- trade_count: 0
+- buys: 0 sells: 0
 
 This report is research/paper-trading output, not an order execution file.
