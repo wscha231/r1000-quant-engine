@@ -39,11 +39,11 @@ Before changing selection, sizing, cash, or risk rules, every agent must verify:
 
 Latest verified broker-ledger production replay:
 
-- GitHub Actions run: `27050091396`
-- Artifact: `7450603090`
-- Artifact size: `84,488,180` bytes
+- GitHub Actions run: `27052007532`
+- Artifact: `7451233709`
+- Artifact size: `84,534,339` bytes
 - Branch: `codex/alphaops-integrated-replay`
-- Commit: `72ced77e3234f7d76786b2a18bb367cb5740e073`
+- Commit: `2103b5a2854dd830cc6560314db6feff8d624d6a`
 - Source full rebuild replayed: `26992264956`
 - Metric mode: broker ledger next-close fills with costs and cash
 - Production flags:
@@ -62,8 +62,8 @@ Latest verified broker-ledger production replay:
 
 Current broker metrics from that run:
 
-- Main: CAGR `35.0539%`, MDD `-27.0536%`, Sharpe `1.3356`,
-  average cash `27.2099%`
+- Main: CAGR `35.9351%`, MDD `-27.0180%`, Sharpe `1.3730`,
+  average cash `27.5425%`
 - Concentrated: CAGR `48.8755%`, MDD `-23.6200%`, Sharpe `1.5139`,
   average cash `41.9792%`
 
@@ -75,7 +75,7 @@ Current acceptance targets:
 
 Remaining performance gaps:
 
-- Main CAGR passes, but MDD needs about `2.0536pp` additional improvement.
+- Main CAGR passes, but MDD needs about `2.0180pp` additional improvement.
 - Concentrated passes both CAGR and MDD targets.
 
 Current blocker:
@@ -83,10 +83,14 @@ Current blocker:
 - No hard data blocker is active for fast policy replay.
 - Remaining work is to reduce main broker MDD without sacrificing the main
   CAGR pass or breaking the concentrated pass.
-- Run `27050091396` shows the active main MDD window is `2025-02-18` through
-  `2025-04-04`. The next data-backed research focus is late-cycle
-  `GREEN`/neutral exposure in January-February 2025 where QQQ was positive
-  but underperforming SPY before high-weight leaders rolled over.
+- Run `27052007532` shows the official main max-DD window is `2021-11-08`
+  through `2023-03-13`. The next data-backed research focus must move back to
+  the 2021-2023 drawdown and identify PIT-safe entry/size/hold rules that
+  would have acted before the peak-to-trough loss.
+- The latest main soft QQQ-damage cap applied to five 2025-01-31 rows
+  (`DUOL`, `APP`, `AXON`, `HUBS`, `CORT`) and improved CAGR/Sharpe with only a
+  small MDD improvement; keep it unless later broker replay evidence reverses
+  it, but do not treat it as the main MDD solution.
 - Data maintenance run `26987903823` on commit
   `0bf0fdae6583c33ebae0af10071ecc620ba028f5` refreshed
   `data_raw/free/sec/companyfacts.zip` from SEC bulk companyfacts

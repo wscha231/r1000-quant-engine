@@ -184,6 +184,31 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a behavior change; keep only if official broker-ledger fast replay improves main MDD with acceptable CAGR and Sharpe impact.
 
+### 13:43 KST - record-soft-qqq-replay-baseline
+
+- scope:
+  - Record the official broker replay result for the main soft QQQ-damage cap and update the AlphaOps data-system acceptance baseline.
+- files:
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->updates the latest verified replay to run `27052007532`, artifact `7451233709`, commit `2103b5a2854dd830cc6560314db6feff8d624d6a`, and records the remaining main MDD gap.
+  - `CHANGELOG.md` ->records the official replay result.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->run `27052007532` applied `main_balanced_neutral_soft_qqq_damage_weak_leader_cap_status=applied` to five 2025-01-31 main rows.
+  - `outputs/portfolio_system_guard/target_gap.json` ->run `27052007532` reports main target fail due MDD only and concentrated target pass.
+- validation:
+  - `gh run view 27052007532 --repo wscha231/r1000-quant-engine --json databaseId,headSha,status,conclusion,url,createdAt,updatedAt` ->PASS; run succeeded on head SHA `2103b5a2854dd830cc6560314db6feff8d624d6a`.
+  - `gh run download 27052007532 --repo wscha231/r1000-quant-engine -n alphaops-replay-sidecars-26992264956-27052007532 -D tmp_artifacts\27052007532` ->PASS; artifact `7451233709`, `84,534,339` bytes.
+  - `py -3` artifact inspection script ->PASS; official main `35.9351%` CAGR / `-27.0180%` MDD / `1.3730` Sharpe / `27.5425%` cash; concentrated `48.8755%` CAGR / `-23.6200%` MDD / `1.5139` Sharpe / `41.9792%` cash.
+- risks_or_notes:
+  - Keep the soft QQQ-damage cap because official broker CAGR, MDD, and Sharpe improved versus run `27050091396`, but the remaining MDD work must focus on the official `2021-11-08` to `2023-03-13` main max-DD window.
+
 ### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
 
 - scope:
