@@ -53,6 +53,37 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
+
+- scope:
+  - Restore the verified 1% main residual caps after the 0% residual block failed to improve official main broker MDD, and add a narrow main-only balanced/bull QQQ-underperformance leader block for the new 2025 MDD cluster.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds a main balanced/bull low-confirmation MARKET_LEADER block when QQQ underperforms SPY, volatility contraction is negative, and the affected Industrials/Information Technology weight is above 4%; restores the three residual caps from `0.0` to `0.01`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->adds focused coverage for the QQQ-damage leader block and restores 1% expectations for the prior residual-cap tests.
+  - `CHANGELOG.md` ->records the revert-plus-new-rule handoff.
+- symbols_added:
+  - `apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap(weighted, portfolio_kind)` ->blocks main balanced/bull GREEN low-confirmation MARKET_LEADER positions in Industrials or Information Technology when QQQ underperforms SPY and volatility contraction is negative.
+  - `test_main_balanced_bull_qqq_damage_low_confirm_leader_cap_applies_narrowly()` ->verifies NEW and HOLD rows are capped only under the intended QQQ-damage conditions.
+- symbols_changed:
+  - `apply_main_quality_bull_low_confirm_new_entry_cap(weighted, portfolio_kind)` ->restores the verified 1% cap after the 0% test worsened official broker MDD.
+  - `apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)` ->restores the verified 1% trim after the 0% test worsened official broker MDD.
+  - `apply_main_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->restores the verified 1% cap after the 0% test worsened official broker MDD.
+- config_fields_added:
+  - `MAIN_BALANCED_BULL_QQQ_DAMAGE_LOW_CONFIRM_LEADER_CAP: float = 0.0` ->target exposure for the new main QQQ-damage leader block.
+  - `MAIN_BALANCED_BULL_QQQ_DAMAGE_MIN_WEIGHT: float = 0.04` ->minimum pre-cap weight required for the new block.
+  - `MAIN_BALANCED_BULL_QQQ_DAMAGE_CONFIRMATION_THRESHOLD: float = 0.50` ->maximum confirmation score for the new block.
+  - `MAIN_BALANCED_BULL_QQQ_DAMAGE_SECTORS: set[str] = {"Industrials", "Information Technology"}` ->sector scope for the new block.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show `main_balanced_bull_qqq_damage_low_confirm_leader_cap_status=applied` on the affected main target-book rows.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - The new rule is PIT and narrow in the current artifact proxy, but its official value must be judged only by the next broker-ledger fast replay; it is designed to catch the 2024-11-29 UAL/AXON/GTLS/MSTR cluster after run `27048687993` moved the main MDD window to 2025-02-18 through 2025-04-04.
+
 ### 10:22 KST - block-main-residual-risk-buckets
 
 - scope:

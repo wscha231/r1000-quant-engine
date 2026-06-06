@@ -28,6 +28,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap,
     apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap,
     apply_crisis_lane_policy,
+    apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap,
     apply_main_green_bull_low_confirm_high_vol_new_entry_cap,
     apply_main_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_main_high_volatility_new_entry_cap,
@@ -496,8 +497,8 @@ def test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_material
     ]
     capped = apply_main_green_neutral_cyclical_high_vol_new_entry_cap(selected, "main")
     by_ticker = {row["ticker"]: row for row in capped}
-    assert by_ticker["CAP"]["weight"] == 0.0
-    assert by_ticker["CAP"]["target_weight"] == 0.0
+    assert by_ticker["CAP"]["weight"] == 0.01
+    assert by_ticker["CAP"]["target_weight"] == 0.01
     assert by_ticker["CAP"]["main_green_neutral_cyclical_high_vol_new_entry_cap_status"] == "applied"
     assert by_ticker["LOW_VOL"]["weight"] == 0.08
     assert by_ticker["TECH"]["weight"] == 0.08
@@ -584,6 +585,142 @@ def test_main_green_bull_low_confirm_high_vol_cap_applies_to_new_market_leaders_
     assert by_ticker["NEUTRAL"]["weight"] == 0.08
     assert by_ticker["HOLD"]["weight"] == 0.08
     concentrated = apply_main_green_bull_low_confirm_high_vol_new_entry_cap(selected, "concentrated")
+    assert concentrated[0]["weight"] == 0.08
+
+
+def test_main_balanced_bull_qqq_damage_low_confirm_leader_cap_applies_narrowly() -> None:
+    selected = [
+        {
+            "ticker": "NEWCAP",
+            "weight": 0.08,
+            "target_weight": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "bull",
+            "sector": "Information Technology",
+            "selection_confirmation_score": 0.24,
+            "volatility_contraction_score": -0.20,
+            "spy_1m_return": 0.03,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "HOLDCAP",
+            "weight": 0.09,
+            "target_weight": 0.09,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_capacity_regime": "bull",
+            "sector": "Industrials",
+            "selection_confirmation_score": 0.24,
+            "volatility_contraction_score": -0.02,
+            "spy_1m_return": 0.03,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "QQQLEADS",
+            "weight": 0.08,
+            "target_weight": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "bull",
+            "sector": "Information Technology",
+            "selection_confirmation_score": 0.24,
+            "volatility_contraction_score": -0.20,
+            "spy_1m_return": 0.01,
+            "qqq_1m_return": 0.03,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "CONFIRMED",
+            "weight": 0.08,
+            "target_weight": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "bull",
+            "sector": "Information Technology",
+            "selection_confirmation_score": 1.0,
+            "volatility_contraction_score": -0.20,
+            "spy_1m_return": 0.03,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "SMALL",
+            "weight": 0.04,
+            "target_weight": 0.04,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "bull",
+            "sector": "Industrials",
+            "selection_confirmation_score": 0.24,
+            "volatility_contraction_score": -0.20,
+            "spy_1m_return": 0.03,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "SECTOR",
+            "weight": 0.08,
+            "target_weight": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "bull",
+            "sector": "Health Care",
+            "selection_confirmation_score": 0.24,
+            "volatility_contraction_score": -0.20,
+            "spy_1m_return": 0.03,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "NOBENCH",
+            "weight": 0.08,
+            "target_weight": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "bull",
+            "sector": "Information Technology",
+            "selection_confirmation_score": 0.24,
+            "volatility_contraction_score": -0.20,
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    capped = apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap(selected, "main")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["NEWCAP"]["weight"] == 0.0
+    assert by_ticker["NEWCAP"]["target_weight"] == 0.0
+    assert by_ticker["NEWCAP"]["main_balanced_bull_qqq_damage_low_confirm_leader_cap_status"] == "applied"
+    assert by_ticker["HOLDCAP"]["weight"] == 0.0
+    assert by_ticker["HOLDCAP"]["main_balanced_bull_qqq_damage_low_confirm_leader_cap_status"] == "applied"
+    assert by_ticker["QQQLEADS"]["weight"] == 0.08
+    assert by_ticker["CONFIRMED"]["weight"] == 0.08
+    assert by_ticker["SMALL"]["weight"] == 0.04
+    assert by_ticker["SECTOR"]["weight"] == 0.08
+    assert by_ticker["NOBENCH"]["weight"] == 0.08
+    concentrated = apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap(selected, "concentrated")
     assert concentrated[0]["weight"] == 0.08
 
 
@@ -683,10 +820,10 @@ def test_main_quality_bull_low_confirm_new_entry_cap_applies_narrowly() -> None:
     ]
     capped = apply_main_quality_bull_low_confirm_new_entry_cap(selected, "main")
     by_ticker = {row["ticker"]: row for row in capped}
-    assert by_ticker["LOWCONF"]["weight"] == 0.0
-    assert by_ticker["LOWCONF"]["target_weight"] == 0.0
+    assert by_ticker["LOWCONF"]["weight"] == 0.01
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.01
     assert by_ticker["LOWCONF"]["main_quality_bull_low_confirm_new_entry_cap_status"] == "applied"
-    assert by_ticker["CAPACITYBULL"]["weight"] == 0.0
+    assert by_ticker["CAPACITYBULL"]["weight"] == 0.01
     assert by_ticker["CAPACITYBULL"]["main_quality_bull_low_confirm_new_entry_cap_status"] == "applied"
     assert by_ticker["CONFIRMED"]["weight"] == 0.08
     assert by_ticker["WATCH"]["weight"] == 0.08
@@ -806,14 +943,14 @@ def test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only() -> Non
     ]
     trimmed = apply_main_quality_hold_weak_timing_trim(selected, "main")
     by_ticker = {row["ticker"]: row for row in trimmed}
-    assert by_ticker["LOWCONF"]["weight"] == 0.0
-    assert by_ticker["LOWCONF"]["target_weight"] == 0.0
+    assert by_ticker["LOWCONF"]["weight"] == 0.01
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.01
     assert by_ticker["LOWCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["WEAKRS"]["weight"] == 0.0
+    assert by_ticker["WEAKRS"]["weight"] == 0.01
     assert by_ticker["WEAKRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["MIDCONF"]["weight"] == 0.0
+    assert by_ticker["MIDCONF"]["weight"] == 0.01
     assert by_ticker["MIDCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["MIDRS"]["weight"] == 0.0
+    assert by_ticker["MIDRS"]["weight"] == 0.01
     assert by_ticker["MIDRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
     assert by_ticker["OKHOLD"]["weight"] == 0.12
     assert by_ticker["NEW"]["weight"] == 0.12
@@ -1667,6 +1804,7 @@ if __name__ == "__main__":
     test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only()
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
     test_main_green_bull_low_confirm_high_vol_cap_applies_to_new_market_leaders_only()
+    test_main_balanced_bull_qqq_damage_low_confirm_leader_cap_applies_narrowly()
     test_main_quality_bull_low_confirm_new_entry_cap_applies_narrowly()
     test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only()
     test_concentrated_hold_decay_trim_applies_to_decaying_holds_only()
