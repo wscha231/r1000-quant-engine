@@ -517,12 +517,14 @@ jobs:
             outputs/reports/operating_*_target_book_regime_capacity*.csv
             outputs/reports/operating_target_books_*
             outputs/reports/candidate_replay_book.csv
+            outputs/reports/dataset_coverage_audit.*
             outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
+            outputs/data_readiness/
             outputs/operating_snapshot/current_operating_holdings_latest.csv
             outputs/operating_snapshot/current_portfolio_snapshot_summary.json
-            outputs/portfolio_system_guard/error_check.json
+            outputs/portfolio_system_guard/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
@@ -1106,6 +1108,8 @@ jobs:
             copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+            copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+            copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
             mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
             for file in metrics.json account_state_latest.json positions_latest.csv trades.csv cash_ledger.csv equity_curve.csv target_vs_actual_weights.csv; do
               cp "outputs/broker_replay/main/$file" "$DEST/broker_replay/main/" 2>/dev/null || true
@@ -1123,6 +1127,7 @@ jobs:
             cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
             cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
             cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/" 2>/dev/null || true
           else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
