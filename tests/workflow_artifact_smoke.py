@@ -557,6 +557,7 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "CANDIDATE_SRC=\"$(dirname \"$(dirname \"$CANDIDATE_BOOK\")\")\"",
         "SOURCE_REPORT_CANDIDATE_BOOK=\"$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit)\"",
         "SOURCE_ENRICHED_CANDIDATE_BOOK=\"$(find source_artifacts -type f -path '*/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv' -print -quit)\"",
+        "CANDIDATE_BOOK=\"${SOURCE_ENRICHED_CANDIDATE_BOOK:-${SOURCE_REPORT_CANDIDATE_BOOK:-$REPO_FALLBACK_CANDIDATE_BOOK}}\"",
         "REPO_FALLBACK_CANDIDATE_BOOK=\"$(find cloud_results/full_rebuild/failed_runs -type f -path \"*/${{ inputs.source_run_id }}_*/reports/candidate_replay_book.csv\" -print -quit 2>/dev/null || true)\"",
         "selected source with replay candidate",
         "policy replay may restore archived target books",

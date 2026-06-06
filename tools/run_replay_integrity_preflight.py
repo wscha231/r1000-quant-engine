@@ -98,13 +98,18 @@ def date_text(value: Any) -> str:
 def infer_candidate_book(latest_run: Path, explicit: str | None) -> tuple[Path, str]:
     if explicit:
         return repo_path(explicit), "explicit"
-    candidate = latest_run / "reports" / "candidate_replay_book.csv"
-    if candidate.exists():
-        return candidate, "historical_candidate_book"
+    candidates = [
+        (latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv", "sec_enriched_candidate_book"),
+        (latest_run / "outputs" / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv", "sec_enriched_candidate_book"),
+        (latest_run / "reports" / "candidate_replay_book.csv", "historical_candidate_book"),
+    ]
+    for candidate, source_mode in candidates:
+        if candidate.exists():
+            return candidate, source_mode
     latest = latest_run / "scored_latest.csv"
     if latest.exists():
         return latest, "latest_only"
-    return candidate, "missing"
+    return latest_run / "reports" / "candidate_replay_book.csv", "missing"
 
 
 def expected_latest_market_close(asof: str | None = None) -> pd.Timestamp:

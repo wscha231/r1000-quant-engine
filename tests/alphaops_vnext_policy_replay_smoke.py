@@ -41,6 +41,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     enforce_pit_available,
     evidence_support_score,
 )
+from tools.run_market_leader_challenger import resolve_candidate_book
 from tools.run_weekly_evaluation import px_cache_name
 
 
@@ -148,6 +149,17 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         reports.mkdir(parents=True)
         candidates = candidate_rows()
         pd.DataFrame(candidates).to_csv(reports / "candidate_replay_book.csv", index=False)
+        enriched = pd.DataFrame(candidates)
+        enriched["sec_13f_smart_money_score"] = 0.0
+        enriched["smart_money_shadow_score"] = 0.0
+        enriched["evidence_fusion_score"] = 0.0
+        enriched.loc[enriched["ticker"].astype(str).eq("AAA"), "sec_13f_smart_money_score"] = 10.0
+        enriched.loc[enriched["ticker"].astype(str).eq("AAA"), "smart_money_shadow_score"] = 8.0
+        enriched.loc[enriched["ticker"].astype(str).eq("AAA"), "evidence_fusion_score"] = 6.0
+        enriched["latest_13f_available_from"] = enriched["rebalance_date"]
+        enriched_dir = latest / "sec_enriched_candidate_replay"
+        enriched_dir.mkdir(parents=True)
+        enriched.to_csv(enriched_dir / "candidate_replay_book_sec_enriched.csv", index=False)
         write_price_cache(
             root / "cache_prices",
             {str(row["ticker"]) for row in candidates if str(row["ticker"]) != "FUT"},
@@ -181,11 +193,26 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         )
         assert payload["status"] == "completed"
         assert payload["production_applied"] is True
+        assert payload["candidate_source_mode"] == "sec_enriched_candidate_book"
+        selected_candidate, source_mode = resolve_candidate_book(latest, None)
+        assert source_mode == "sec_enriched_candidate_book"
+        assert selected_candidate.name == "candidate_replay_book_sec_enriched.csv"
         activation = json.loads((latest / "alphaops_vnext" / "production_activation.json").read_text(encoding="utf-8"))
         assert activation["current_holdings_source"] == "alphaops_vnext_policy_target_book"
+        assert activation["candidate_source_mode"] == "sec_enriched_candidate_book"
+        assert activation["candidate_book"].endswith("candidate_replay_book_sec_enriched.csv")
 
         main = pd.read_csv(reports / "operating_main_target_book.csv")
         concentrated = pd.read_csv(reports / "operating_concentrated_target_book.csv")
+        for book in (main, concentrated):
+            assert "sec_13f_smart_money_score" in book.columns
+            assert "smart_money_shadow_score" in book.columns
+            assert "evidence_fusion_score" in book.columns
+            assert "evidence_support_score" in book.columns
+        assert pd.to_numeric(
+            main.loc[main["ticker"].astype(str).eq("AAA"), "sec_13f_smart_money_score"],
+            errors="coerce",
+        ).max() == 10.0
         assert "OLD" not in set(main["ticker"].astype(str))
         assert "OLD" not in set(concentrated["ticker"].astype(str))
         assert main["rebalance_date"].min() == "2026-01-31"

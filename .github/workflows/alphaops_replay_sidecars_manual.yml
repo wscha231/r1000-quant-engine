@@ -107,7 +107,7 @@ jobs:
           SOURCE_REPORT_CANDIDATE_BOOK="$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit)"
           SOURCE_ENRICHED_CANDIDATE_BOOK="$(find source_artifacts -type f -path '*/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv' -print -quit)"
           REPO_FALLBACK_CANDIDATE_BOOK="$(find cloud_results/full_rebuild/failed_runs -type f -path "*/${{ inputs.source_run_id }}_*/reports/candidate_replay_book.csv" -print -quit 2>/dev/null || true)"
-          CANDIDATE_BOOK="${SOURCE_REPORT_CANDIDATE_BOOK:-${SOURCE_ENRICHED_CANDIDATE_BOOK:-$REPO_FALLBACK_CANDIDATE_BOOK}}"
+          CANDIDATE_BOOK="${SOURCE_ENRICHED_CANDIDATE_BOOK:-${SOURCE_REPORT_CANDIDATE_BOOK:-$REPO_FALLBACK_CANDIDATE_BOOK}}"
           if [ -n "$BASE_SRC" ]; then
             echo "[replay] base source=$BASE_SRC"
             cp -R "$BASE_SRC"/. outputs/

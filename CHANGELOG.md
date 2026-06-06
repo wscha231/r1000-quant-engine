@@ -3,6 +3,43 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-06
+
+### 15:45 KST - prefer-sec-enriched-candidate-books
+
+- scope: Make AlphaOps replay consumers prefer SEC-enriched candidate books before base historical candidate books.
+- files:
+  - `tools/run_market_leader_challenger.py` ->prioritizes `sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` in shared candidate resolution.
+  - `tools/run_replay_integrity_preflight.py` ->prioritizes SEC-enriched replay candidate books in replay integrity preflight.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->selects source enriched candidate artifacts before base report candidate artifacts.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->adds an enriched-only evidence fixture and asserts operating target books preserve SEC/smart-money/evidence support columns.
+  - `tests/workflow_artifact_smoke.py` ->locks the replay workflow source-candidate precedence.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->documents SEC-enriched candidate precedence as a data-system contract.
+  - `CHANGELOG.md` ->records the candidate-source routing change.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `resolve_candidate_book(latest_run, explicit)` ->prefers SEC-enriched candidate replay books and reports `sec_enriched_candidate_book` source mode.
+  - `infer_candidate_book(latest_run, explicit)` ->prefers SEC-enriched candidate replay books for integrity preflight.
+  - `test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()` ->verifies enriched candidate selection and target-book evidence-column preservation.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future AlphaOps vNext policy replays should preserve SEC/smart-money evidence columns when an enriched candidate book is present.
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future AlphaOps vNext policy replays should preserve SEC/smart-money evidence columns when an enriched candidate book is present.
+- validation:
+  - `py -3 -m py_compile tools\run_market_leader_challenger.py tools\run_replay_integrity_preflight.py tests\alphaops_vnext_policy_replay_smoke.py tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.
+- risks_or_notes:
+  - This changes candidate-source precedence but not buy/sell policy thresholds; official broker metrics still require a fresh fast replay after validation.
+
 ## Agent Update Contract
 
 ### When to update

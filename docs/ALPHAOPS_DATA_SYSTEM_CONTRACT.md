@@ -112,6 +112,11 @@ Current blocker:
   use that snapshot for policy target decisions until operating books are
   rebuilt from the SEC-enriched candidate replay or the missing evidence is
   explicitly neutralized.
+- AlphaOps replay candidate resolution must prefer
+  `sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` before
+  `reports/candidate_replay_book.csv`. This keeps Form4, 13F, ETF, and
+  smart-money features available to `evidence_support_score` and preserved in
+  operating target books for data-readiness and guard audits.
 
 ## Storage Contract
 

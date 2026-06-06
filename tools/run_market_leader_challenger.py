@@ -86,14 +86,16 @@ def resolve_candidate_book(latest_run: Path, explicit: str | None) -> tuple[Path
     if explicit:
         return repo_path(explicit), "explicit"
     candidates = [
-        latest_run / "reports" / "candidate_replay_book.csv",
-        latest_run / "candidate_replay_book.csv",
-        latest_run / "reports" / "candidate_replay_book.parquet",
-        latest_run / "scored_history.csv",
+        (latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv", "sec_enriched_candidate_book"),
+        (latest_run / "outputs" / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv", "sec_enriched_candidate_book"),
+        (latest_run / "reports" / "candidate_replay_book.csv", "historical_candidate_book"),
+        (latest_run / "candidate_replay_book.csv", "historical_candidate_book"),
+        (latest_run / "reports" / "candidate_replay_book.parquet", "historical_candidate_book"),
+        (latest_run / "scored_history.csv", "historical_candidate_book"),
     ]
-    for path in candidates:
+    for path, source_mode in candidates:
         if path.exists():
-            return path, "historical_candidate_book"
+            return path, source_mode
     scored_latest = latest_run / "scored_latest.csv"
     if scored_latest.exists():
         return scored_latest, "latest_only_blocked"
