@@ -53,6 +53,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 09:38 KST - tighten-main-residual-risk-caps-to-one-percent
+
+- scope:
+  - Tighten already-verified main residual risk caps from 2% to 1% after broker artifact analysis showed both affected groups had positive all-period and main MDD target-book proxy deltas.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `MAIN_QUALITY_BULL_LOW_CONFIRM_NEW_ENTRY_CAP`, `MAIN_QUALITY_HOLD_WEAK_TIMING_CAP`, and `MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP` from `0.02` to `0.01`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects qualifying main quality and cyclical cap rows to retain only 1% exposure.
+  - `CHANGELOG.md` ->records the main residual cap tightening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_main_quality_bull_low_confirm_new_entry_cap(weighted, portfolio_kind)` ->qualifying main quality-compounder bull low-confirmation NEW rows now cap at 1%.
+  - `apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)` ->qualifying main quality-compounder bull weak-timing HOLD rows now trim to 1%.
+  - `apply_main_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->qualifying main GREEN neutral Energy/Materials high-volatility NEW rows now cap at 1%.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show qualifying main residual risk cap rows capped at `0.01`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27046361793`; official acceptance still requires fast replay broker-ledger metrics because local target-book proxy is not production evidence.
+
 ### 08:47 KST - tighten-main-cyclical-high-vol-entry-cap
 
 - scope:
