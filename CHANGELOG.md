@@ -154,6 +154,36 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Future `available_from` rows are now a guard error; missing source groups remain warnings because current production policy may not require every group on every artifact.
 
+### 12:57 KST - cap-main-soft-qqq-damage-leaders
+
+- scope:
+  - Add a narrow main-only cap for weak-quality MARKET_LEADER exposure when balanced/neutral GREEN conditions show soft QQQ damage before the 2025 drawdown window.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds a main balanced/neutral soft QQQ-damage weak-leader cap and applies it during AlphaOps vNext target-book generation.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the new cap and non-applicable guardrails.
+  - `CHANGELOG.md` ->records the policy replay candidate.
+- symbols_added:
+  - `apply_main_balanced_neutral_soft_qqq_damage_weak_leader_cap(weighted, portfolio_kind)` ->caps main GREEN balanced/neutral MARKET_LEADER NEW/HOLD positions to 4% when QQQ is positive but lagging SPY, SPY is below 3%, and confirmation or breakout quality is weak.
+  - `test_main_balanced_neutral_soft_qqq_damage_weak_leader_cap_applies_narrowly()` ->verifies the cap and skip conditions.
+- symbols_changed:
+  - `build(args)` ->applies the new main soft QQQ-damage cap after the balanced/bull QQQ-damage block and before existing quality/cyclical trims.
+- config_fields_added:
+  - `MAIN_BALANCED_NEUTRAL_SOFT_QQQ_DAMAGE_WEAK_LEADER_CAP: float = 0.04` ->target exposure for qualifying main soft QQQ-damage weak leaders.
+  - `MAIN_BALANCED_NEUTRAL_SOFT_QQQ_DAMAGE_MIN_WEIGHT: float = 0.08` ->minimum pre-cap weight required for the new cap.
+  - `MAIN_BALANCED_NEUTRAL_SOFT_QQQ_DAMAGE_SPY_MAX_RETURN: float = 0.03` ->maximum SPY one-month return for the soft-damage regime.
+  - `MAIN_BALANCED_NEUTRAL_SOFT_QQQ_DAMAGE_CONFIRMATION_THRESHOLD: float = 0.50` ->confirmation threshold for weak-quality classification.
+  - `MAIN_BALANCED_NEUTRAL_SOFT_QQQ_DAMAGE_BREAKOUT_QUALITY_THRESHOLD: float = 0.60` ->breakout quality threshold for weak-quality classification.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should include `main_balanced_neutral_soft_qqq_damage_weak_leader_cap_status`.
+- validation:
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - This is a behavior change; keep only if official broker-ledger fast replay improves main MDD with acceptable CAGR and Sharpe impact.
+
 ### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
 
 - scope:

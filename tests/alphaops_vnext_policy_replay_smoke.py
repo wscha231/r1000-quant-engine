@@ -29,6 +29,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap,
     apply_crisis_lane_policy,
     apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap,
+    apply_main_balanced_neutral_soft_qqq_damage_weak_leader_cap,
     apply_main_green_bull_low_confirm_high_vol_new_entry_cap,
     apply_main_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_main_high_volatility_new_entry_cap,
@@ -722,6 +723,154 @@ def test_main_balanced_bull_qqq_damage_low_confirm_leader_cap_applies_narrowly()
     assert by_ticker["NOBENCH"]["weight"] == 0.08
     concentrated = apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap(selected, "concentrated")
     assert concentrated[0]["weight"] == 0.08
+
+
+def test_main_balanced_neutral_soft_qqq_damage_weak_leader_cap_applies_narrowly() -> None:
+    selected = [
+        {
+            "ticker": "LOWCONF",
+            "weight": 0.10,
+            "target_weight": 0.10,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.40,
+            "breakout_setup_quality_score": 0.80,
+            "spy_1m_return": 0.02,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "WEAKBREAKOUT",
+            "weight": 0.11,
+            "target_weight": 0.11,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_capacity_regime": "neutral",
+            "selection_confirmation_score": 0.90,
+            "breakout_setup_quality_score": 0.50,
+            "spy_1m_return": 0.02,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "STRONGSPY",
+            "weight": 0.10,
+            "target_weight": 0.10,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.40,
+            "breakout_setup_quality_score": 0.50,
+            "spy_1m_return": 0.04,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "QQQDOWN",
+            "weight": 0.10,
+            "target_weight": 0.10,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.40,
+            "breakout_setup_quality_score": 0.50,
+            "spy_1m_return": 0.02,
+            "qqq_1m_return": -0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "QQQLEADS",
+            "weight": 0.10,
+            "target_weight": 0.10,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.40,
+            "breakout_setup_quality_score": 0.50,
+            "spy_1m_return": 0.02,
+            "qqq_1m_return": 0.025,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "CONFIRMED",
+            "weight": 0.10,
+            "target_weight": 0.10,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.80,
+            "breakout_setup_quality_score": 0.80,
+            "spy_1m_return": 0.02,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "BULL",
+            "weight": 0.10,
+            "target_weight": 0.10,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "bull",
+            "selection_confirmation_score": 0.40,
+            "breakout_setup_quality_score": 0.50,
+            "spy_1m_return": 0.02,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "SMALL",
+            "weight": 0.08,
+            "target_weight": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "balanced",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.40,
+            "breakout_setup_quality_score": 0.50,
+            "spy_1m_return": 0.02,
+            "qqq_1m_return": 0.01,
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    capped = apply_main_balanced_neutral_soft_qqq_damage_weak_leader_cap(selected, "main")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["LOWCONF"]["weight"] == 0.04
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.04
+    assert by_ticker["LOWCONF"]["main_balanced_neutral_soft_qqq_damage_weak_leader_cap_status"] == "applied"
+    assert by_ticker["WEAKBREAKOUT"]["weight"] == 0.04
+    assert by_ticker["WEAKBREAKOUT"]["main_balanced_neutral_soft_qqq_damage_weak_leader_cap_status"] == "applied"
+    assert by_ticker["STRONGSPY"]["weight"] == 0.10
+    assert by_ticker["QQQDOWN"]["weight"] == 0.10
+    assert by_ticker["QQQLEADS"]["weight"] == 0.10
+    assert by_ticker["CONFIRMED"]["weight"] == 0.10
+    assert by_ticker["BULL"]["weight"] == 0.10
+    assert by_ticker["SMALL"]["weight"] == 0.08
+    concentrated = apply_main_balanced_neutral_soft_qqq_damage_weak_leader_cap(selected, "concentrated")
+    assert concentrated[0]["weight"] == 0.10
 
 
 def test_main_quality_bull_low_confirm_new_entry_cap_applies_narrowly() -> None:
@@ -1805,6 +1954,7 @@ if __name__ == "__main__":
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
     test_main_green_bull_low_confirm_high_vol_cap_applies_to_new_market_leaders_only()
     test_main_balanced_bull_qqq_damage_low_confirm_leader_cap_applies_narrowly()
+    test_main_balanced_neutral_soft_qqq_damage_weak_leader_cap_applies_narrowly()
     test_main_quality_bull_low_confirm_new_entry_cap_applies_narrowly()
     test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only()
     test_concentrated_hold_decay_trim_applies_to_decaying_holds_only()
