@@ -201,6 +201,8 @@ Required audit dimensions:
   - replay price manifests must never report an end date after the audit date
   - replay price manifest `end` must come from actual cached bars, not the
     provider request end date
+  - a missing replay price manifest `end` is a data blocker, because fullrun
+    and policy replay freshness cannot be proven without an observed-bar date
   - SPY and QQQ are always present for regime and broker replay windows
 - Macro:
   - daily market stress features are available through the latest trading date

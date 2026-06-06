@@ -319,6 +319,65 @@ def test_data_readiness_blocks_future_price_manifest() -> None:
         assert any("future-dated price manifests" in item for item in payload["next_actions"])
 
 
+def test_data_readiness_blocks_missing_price_manifest_end() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        reports = latest / "reports"
+        cache = root / "cache_prices"
+        free = root / "data_raw" / "free"
+        pit = root / "data_pit" / "free"
+        manifests = root / "manifests" / "free_data"
+        cache.mkdir(parents=True)
+        reports.mkdir(parents=True)
+        for idx in range(3):
+            (cache / f"{idx}.parquet").write_bytes(b"placeholder")
+        write_json(
+            free / "prices" / "replay_price_cache_manifest.json",
+            {"start": "2019-01-01", "ticker_count": 3, "failed_count": 0, "status": "completed"},
+        )
+        (free / "sec").mkdir(parents=True)
+        (free / "sec" / "companyfacts.zip").write_bytes(b"zip")
+        (root / "data_pit" / "macro").mkdir(parents=True)
+        (root / "data_pit" / "macro" / "long_crisis_daily_features.parquet").write_bytes(b"macro")
+        write_pit_evidence_store(root)
+        write_json(pit / "coverage_audit.json", {"readiness": "ready_for_proxy_replay", "pit_label": "pit_proxy_universe", "known_gaps": []})
+        write_json(manifests / "latest_manifest.json", {"status": "completed", "generated_at_utc": "2026-05-12T00:00:00Z"})
+        pd.DataFrame({"ticker": ["AAA", "BBB"], "feature_date": ["2026-05-11", "2026-05-11"], "score": [1, 2]}).to_csv(
+            latest / "scored_latest.csv", index=False
+        )
+        pd.DataFrame({"ticker": ["AAA"], "weight": [1.0], "feature_date": ["2026-05-11"]}).to_csv(latest / "portfolio_latest.csv", index=False)
+        pd.DataFrame({"ticker": ["BBB"], "weight": [1.0], "feature_date": ["2026-05-11"]}).to_csv(
+            latest / "concentrated_portfolio_latest.csv", index=False
+        )
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
+            reports / "operating_main_target_book.csv", index=False
+        )
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
+            reports / "operating_concentrated_target_book.csv", index=False
+        )
+        write_json(latest / "target_snapshots" / "latest_manifest.json", {"snapshot_date": "2026-05-11"})
+
+        args = Namespace(
+            latest_run=str(latest),
+            price_cache=str(cache),
+            free_data_root=str(free),
+            coverage=str(pit / "coverage_audit.json"),
+            manifest=str(manifests / "latest_manifest.json"),
+            output_dir=str(root / "audit"),
+            max_stale_days=999,
+            min_price_files=3,
+            min_scored_rows=2,
+            strict=False,
+        )
+        payload = build_payload(args)
+        assert payload["status"] == "blocked"
+        assert payload["ready_for_fullrun"] is False
+        assert payload["ready_for_policy_replay"] is False
+        assert "price cache manifest end date is missing" in payload["blockers"]
+        assert any("actual observed cached bars" in item for item in payload["next_actions"])
+
+
 def test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfacts() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -418,6 +477,7 @@ if __name__ == "__main__":
     test_data_readiness_reports_feature_source_coverage_and_pit_dates()
     test_data_readiness_caps_target_freshness_to_observable_close()
     test_data_readiness_blocks_future_price_manifest()
+    test_data_readiness_blocks_missing_price_manifest_end()
     test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfacts()
     test_data_readiness_reports_stale_operating_book()
     print("data_readiness_smoke: PASS")

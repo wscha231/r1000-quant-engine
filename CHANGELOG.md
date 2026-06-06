@@ -5,6 +5,38 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 22:25 KST - target-book-drift-audit-and-price-manifest-end-blocker
+
+- scope: Explain the full rebuild performance regression against the latest broker replay baseline and prevent unverifiable price-cache freshness from passing data readiness.
+- files:
+  - `tools/audit_target_book_drift.py` ->new diagnostic that compares two run artifact directories for candidate-score drift, target-book weight drift, broker metric deltas, and worst date/ticker proxy attribution.
+  - `tests/target_book_drift_audit_smoke.py` ->covers candidate score drift, target weight drift, proxy delta return, and broker metric delta output.
+  - `tools/run_pr_validation.py` ->adds the target-book drift audit smoke test to Tier-1 validation.
+  - `tools/audit_data_readiness.py` ->treats missing replay price manifest `end` as a blocker instead of a warning.
+  - `tests/data_readiness_smoke.py` ->covers missing price manifest end blocking fullrun and policy replay readiness.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->documents that missing replay price manifest end is a data blocker.
+  - `CLAUDE.md` ->records the missing price manifest end rule for future agents.
+- symbols_added:
+  - `tools.audit_target_book_drift.build_payload(args)` ->returns candidate-score drift plus per-portfolio target-book drift summaries.
+  - `tests.target_book_drift_audit_smoke.test_target_book_drift_audit_detects_candidate_and_target_drift()` ->validates the new audit.
+  - `tests.data_readiness_smoke.test_data_readiness_blocks_missing_price_manifest_end()` ->validates the new readiness blocker.
+- symbols_changed:
+  - `tools.audit_data_readiness.build_payload(args)` ->moves missing selected price manifest end from `warnings` to `blockers` and adds a rebuild next action.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - A run with price cache files but no selected replay price manifest `end` now reports `ready_for_fullrun=false` and `ready_for_policy_replay=false`.
+- outputs:
+  - `outputs/target_book_drift_audit/summary.json` ->new optional diagnostic output from `tools/audit_target_book_drift.py`.
+  - `outputs/target_book_drift_audit/report.md` ->new optional human-readable drift report.
+- validation:
+  - `py -3 tests\target_book_drift_audit_smoke.py` ->PASS.
+  - `py -3 tools\audit_target_book_drift.py --baseline-run H:\codex\_tmp_replay_27056579679\alphaops-replay-sidecars-26992264956-27056579679 --current-run H:\codex\_tmp_full_rebuild_27059277165\user-operating-minimal-global_alpha_universe-27059277165 --output-dir outputs\target_book_drift_audit\27056579679_vs_27059277165 --cutoff-date 2026-04-30 --top-n 30` ->PASS.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 68/68 before the missing-manifest blocker patch.
+- risks_or_notes:
+  - Full Rebuild run `27059277165` succeeded but underperformed baseline run `27056579679`; the drift audit found identical candidate keys (`46781` rows) but changed candidate hashes and full-period score drift, with concentrated proxy delta `-0.467317` through `2026-04-30`.
+  - Main official broker metrics were `32.6894%` CAGR / `-28.4498%` MDD; concentrated was `38.6580%` CAGR / `-27.2567%` MDD. Both still miss the active targets.
+
 ### 18:23 KST - write-observed-price-manifest-end
 
 - scope: Stop replay price-cache generation from writing future request dates as manifest end dates.

@@ -671,7 +671,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     manifest_end = parse_date(prices.get("selected_manifest_end"))
     manifest_age = days_old(prices.get("selected_manifest_end"), today=audit_date)
     if manifest_end is None:
-        warnings.append("price cache manifest end date is missing")
+        blockers.append("price cache manifest end date is missing")
+        next_actions.append("Rebuild the replay price cache so its manifest end date comes from actual observed cached bars.")
     elif manifest_end > audit_date:
         blockers.append(f"price cache manifest end date {manifest_end.isoformat()} is after audit date {audit_date.isoformat()}")
         next_actions.append("Rebuild the replay price cache from actual observed bars; do not trust future-dated price manifests.")
