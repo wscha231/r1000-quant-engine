@@ -1073,12 +1073,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     plan = automation_plan(inputs, targets_pass)
     data_quality = data_quality_update_plan(inputs, latest_run)
     hard_errors = [row for row in checks if row["severity"] == "error" and not row["passed"]]
+    warning_count = sum(1 for row in checks if row["severity"] == "warn" and not row["passed"])
     overall_status = "target_pass" if targets_pass and not hard_errors else "blocked"
 
     payload = {
         "overall_status": overall_status,
         "strict_targets": args.strict_targets,
         "targets_pass": targets_pass,
+        "hard_error_count": len(hard_errors),
+        "warning_count": int(warning_count),
         "portfolio_status": statuses,
         "top_research_candidates": candidates,
         "goal_search_candidates": goal_candidates,

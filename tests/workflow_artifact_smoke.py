@@ -279,6 +279,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_alphaops_policy_fusion.py",
         "data_raw/free/sec/companyfacts.zip",
         "cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip",
+        "--max-age-days 3",
         "VALID_PRIMARY_OUTPUTS",
         "RUN_ARTIFACT_VALID",
         "GUARD_HARD_ERRORS",

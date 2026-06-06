@@ -205,6 +205,8 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         )
         assert result["overall_status"] == "blocked"
         assert result["targets_pass"] is False
+        assert result["hard_error_count"] == 0
+        assert result["warning_count"] >= 1
         assert len(result["portfolio_status"]) == 2
         main = result["portfolio_status"][0]
         concentrated = result["portfolio_status"][1]
@@ -304,6 +306,7 @@ def test_portfolio_system_guard_blocks_stale_historical_broker_replay() -> None:
         )
         checks = {row["check"]: row for row in result["error_checks"]}
         assert result["overall_status"] == "blocked"
+        assert result["hard_error_count"] >= 1
         assert checks["main_target_book_reaches_broker_end"]["severity"] == "error"
         assert checks["main_operating_target_book_available"]["severity"] == "error"
         assert checks["main_broker_replay_uses_operating_target_book"]["severity"] == "error"
@@ -383,6 +386,7 @@ def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
         )
         checks = {row["check"]: row for row in result["error_checks"]}
         assert result["overall_status"] == "blocked"
+        assert result["hard_error_count"] >= 1
         assert checks["data_readiness_ready_for_production_replay"]["severity"] == "error"
         assert checks["feature_source_coverage_pit_available_from_clean"]["severity"] == "error"
         assert checks["sec_enriched_candidate_materialized_for_audit"]["severity"] == "error"

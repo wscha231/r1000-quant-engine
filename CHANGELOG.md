@@ -5,6 +5,41 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 17:36 KST - refresh-data-contract-baseline
+
+- scope: Align the AlphaOps data contract with the latest verified broker replay and make full rebuild data freshness/guard status easier to audit.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->refreshes SEC companyfacts at a 3-day max age before full rebuilds, matching the data-system contract.
+  - `tools/run_portfolio_system_guard.py` ->adds `hard_error_count` and `warning_count` to `target_gap.json` so automation can read target and guard status from one file.
+  - `tests/portfolio_system_guard_smoke.py` ->covers the new target-gap hard-error and warning-count fields.
+  - `tests/workflow_artifact_smoke.py` ->locks the full rebuild SEC companyfacts refresh threshold at 3 days.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->updates the accepted broker-ledger baseline to run `27056579679`.
+  - `CLAUDE.md` ->records the latest AlphaOps broker-ledger baseline for future agents.
+  - `CHANGELOG.md` ->records the data contract and guard-output update.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `run(args)` ->includes `hard_error_count` and `warning_count` in `portfolio_system_guard/target_gap.json`.
+  - `test_portfolio_system_guard_reports_target_gaps()` ->asserts target-gap guard counts for data-valid target failures.
+  - `test_portfolio_system_guard_blocks_stale_historical_broker_replay()` ->asserts hard-error counts for stale broker replay evidence.
+  - `test_portfolio_system_guard_blocks_data_readiness_failures()` ->asserts hard-error counts for data-invalid replay evidence.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_system_guard/target_gap.json` ->future guard runs include top-level `hard_error_count` and `warning_count`.
+  - `data_raw/free/sec/companyfacts.zip` ->full rebuild refreshes when the SEC archive is older than 3 days instead of 7 days.
+- validation:
+  - `py -3 -m py_compile tools\run_portfolio_system_guard.py tests\portfolio_system_guard_smoke.py tests\workflow_artifact_smoke.py` ->PASS.
+  - `git diff --check` ->PASS with LF-to-CRLF warnings only.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.
+- risks_or_notes:
+  - This is a data/guard contract update, not a buy/sell policy change; it does not require a fast replay unless downstream workflow validation fails.
+
 ### 16:36 KST - cap-concentrated-damaged-weak-leaders
 
 - scope: Add a narrow concentrated-only cap for weak MARKET_LEADER exposure during WATCH/DEFENSE_REVIEW when QQQ damage or poor one-month ticker timing is already visible.
