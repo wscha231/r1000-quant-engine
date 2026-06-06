@@ -84,6 +84,49 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a guard/docs change only; do not rerun AlphaOps fast replay solely for this commit.
 
+### 12:28 KST - audit-feature-source-coverage
+
+- scope:
+  - Add full-period operating-target-book feature source coverage and PIT available-from diagnostics to the data readiness audit.
+- files:
+  - `tools/audit_data_readiness.py` ->emits `feature_source_coverage` in `summary.json`, writes `feature_source_coverage.csv`, and reports future `available_from` rows as audit warnings.
+  - `tests/data_readiness_smoke.py` ->covers feature group coverage reporting and future `available_from` detection.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->adds the feature-source coverage output to the data gate and guard-output contract.
+  - `AUTOMATION_STRATEGY.md` ->adds the coverage CSV to the standard data quality gate.
+  - `CHANGELOG.md` ->records the feature-source coverage audit update.
+- symbols_added:
+  - `non_empty_mask(series)` ->normalizes non-null and non-empty feature coverage masks.
+  - `first_existing_column(frame, columns)` ->selects the date column used for operating target-book coverage.
+  - `parse_datetime_series(series)` ->parses audit date columns into normalized timestamps.
+  - `feature_category_coverage(frame, columns)` ->summarizes present/missing columns and non-empty coverage for one feature group.
+  - `monthly_feature_coverage(frame, date_column)` ->summarizes source-group coverage by rebalance date.
+  - `available_from_columns(frame)` ->finds PIT evidence availability columns.
+  - `pit_available_from_check(frame, date_column)` ->detects target-book rows whose evidence availability date is after the rebalance date.
+  - `feature_source_coverage_for_book(path, portfolio)` ->audits one operating target book for source coverage and PIT availability.
+  - `feature_source_coverage_summary(latest_run)` ->audits main and concentrated operating target books together.
+  - `write_feature_source_coverage_csv(path, payload)` ->exports monthly source-group coverage to CSV for agents and Drive artifacts.
+  - `test_data_readiness_reports_feature_source_coverage_and_pit_dates()` ->regression test for source coverage and future available-from warnings.
+- symbols_changed:
+  - `build_payload(args)` ->adds feature-source coverage to `outputs/data_readiness/summary.json` and warning output.
+  - `render_report(payload)` ->adds a Feature Source Coverage section to the markdown report.
+  - `main()` ->writes `outputs/data_readiness/feature_source_coverage.csv`.
+- config_fields_added:
+  - `CASH_TICKERS: set[str] = {"CASH", "USD", "BIL", "SHV", "SGOV"}` ->cash-like rows excluded from feature coverage ratios.
+  - `FEATURE_SOURCE_GROUPS: dict[str, list[str]] = {...}` ->standard source groups for operating target-book coverage reporting.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/data_readiness/summary.json` ->now includes `feature_source_coverage`.
+  - `outputs/data_readiness/feature_source_coverage.csv` ->new monthly source-group coverage export.
+- validation:
+  - `py -3 -m py_compile tools\audit_data_readiness.py tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tools\audit_data_readiness.py --latest-run tmp_artifacts\27050091396 --price-cache cache_prices --output-dir tmp_artifacts\audit_27050091396 --min-price-files 0 --min-scored-rows 0` ->PASS; downloaded artifact `7450603090` target books had 0 future `available_from` rows.
+- risks_or_notes:
+  - Missing feature groups are reported for review but not yet promoted to hard blockers; future `available_from` rows are warnings until current artifacts are inspected.
+
 ### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
 
 - scope:

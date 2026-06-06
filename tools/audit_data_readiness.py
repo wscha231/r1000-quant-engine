@@ -37,6 +37,71 @@ DATE_COLUMNS = [
 ]
 
 
+CASH_TICKERS = {"CASH", "USD", "BIL", "SHV", "SGOV"}
+
+
+FEATURE_SOURCE_GROUPS = {
+    "price_momentum": [
+        "ticker_ret_1m",
+        "ticker_ret_3m",
+        "ticker_ret_6m",
+        "rs_benchmark_1m",
+        "rs_benchmark_3m",
+        "relative_strength_composite",
+        "mom_3m",
+        "mom_6m",
+        "mom_12m",
+        "atr14_pct",
+        "volatility_contraction",
+    ],
+    "macro_regime": [
+        "spy_1m_return",
+        "qqq_1m_return",
+        "market_style_regime_label",
+        "regime_state",
+        "regime_capacity_regime",
+        "crisis_state",
+        "macro_circuit_state",
+        "macro_risk_score",
+    ],
+    "theme_leadership": [
+        "theme_primary",
+        "leadership_theme",
+        "theme_phase_primary",
+        "theme_horizon_primary",
+        "theme_structural_growth_primary",
+        "theme_leadership_score",
+        "theme_state",
+        "theme_rank",
+    ],
+    "sec_smart_money": [
+        "smart_money_score",
+        "sec_evidence_score",
+        "sec_form4_score",
+        "form4_net_buy_score",
+        "institutional_13f_score",
+        "institutional_accumulation_score",
+        "rows_with_smart_money_evidence",
+    ],
+    "quality_confirmation": [
+        "selection_confirmation_score",
+        "breakout_setup_quality_score",
+        "leader_quality_score",
+        "quality_score",
+        "fundamental_quality_score",
+    ],
+    "broker_policy": [
+        "target_n",
+        "weighting_mode",
+        "action",
+        "action_status",
+        "entry_reason",
+        "policy_reason",
+        "rebalance_interval_months",
+    ],
+}
+
+
 def repo_path(path_like: str | Path) -> Path:
     path = Path(path_like)
     return path if path.is_absolute() else REPO_ROOT / path
@@ -195,6 +260,156 @@ def days_old(value: Any, today: date | None = None) -> int | None:
     return int((base - dt).days)
 
 
+def non_empty_mask(series: pd.Series) -> pd.Series:
+    mask = series.notna()
+    if series.dtype == object:
+        text = series.astype(str).str.strip().str.lower()
+        mask &= ~text.isin({"", "nan", "none", "null"})
+    return mask.fillna(False)
+
+
+def first_existing_column(frame: pd.DataFrame, columns: list[str]) -> str:
+    for column in columns:
+        if column in frame.columns:
+            return column
+    return ""
+
+
+def parse_datetime_series(series: pd.Series) -> pd.Series:
+    parsed = pd.to_datetime(series, errors="coerce", utc=True)
+    if not isinstance(parsed, pd.Series):
+        return pd.Series(dtype="datetime64[ns]")
+    return parsed.dt.tz_convert(None).dt.normalize()
+
+
+def feature_category_coverage(frame: pd.DataFrame, columns: list[str]) -> dict[str, Any]:
+    present = [column for column in columns if column in frame.columns]
+    missing = [column for column in columns if column not in frame.columns]
+    if frame.empty or not present:
+        return {
+            "present_columns": present,
+            "missing_columns": missing,
+            "present_count": int(len(present)),
+            "missing_count": int(len(missing)),
+            "row_any_feature_coverage_ratio": None,
+            "average_present_column_coverage_ratio": None,
+            "per_column_coverage_ratio": {},
+        }
+    coverage = pd.DataFrame({column: non_empty_mask(frame[column]) for column in present})
+    per_column = {column: float(coverage[column].mean()) for column in present}
+    return {
+        "present_columns": present,
+        "missing_columns": missing,
+        "present_count": int(len(present)),
+        "missing_count": int(len(missing)),
+        "row_any_feature_coverage_ratio": float(coverage.any(axis=1).mean()),
+        "average_present_column_coverage_ratio": float(coverage.mean().mean()),
+        "per_column_coverage_ratio": per_column,
+    }
+
+
+def monthly_feature_coverage(frame: pd.DataFrame, date_column: str) -> list[dict[str, Any]]:
+    if frame.empty or not date_column:
+        return []
+    dated = frame.copy()
+    dated["_coverage_date"] = parse_datetime_series(dated[date_column])
+    dated = dated.dropna(subset=["_coverage_date"])
+    if dated.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    for coverage_date, group in dated.groupby("_coverage_date", sort=True):
+        ticker_count = None
+        if "ticker" in group.columns:
+            ticker_count = int(group["ticker"].astype(str).str.upper().nunique())
+        category_rows = {}
+        for name, columns in FEATURE_SOURCE_GROUPS.items():
+            present = [column for column in columns if column in group.columns]
+            if present:
+                coverage = pd.DataFrame({column: non_empty_mask(group[column]) for column in present})
+                category_rows[name] = {
+                    "present_count": int(len(present)),
+                    "row_any_feature_coverage_ratio": float(coverage.any(axis=1).mean()),
+                    "average_present_column_coverage_ratio": float(coverage.mean().mean()),
+                }
+            else:
+                category_rows[name] = {
+                    "present_count": 0,
+                    "row_any_feature_coverage_ratio": None,
+                    "average_present_column_coverage_ratio": None,
+                }
+        rows.append(
+            {
+                "rebalance_date": pd.Timestamp(coverage_date).date().isoformat(),
+                "row_count": int(len(group)),
+                "ticker_count": ticker_count,
+                "categories": category_rows,
+            }
+        )
+    return rows
+
+
+def available_from_columns(frame: pd.DataFrame) -> list[str]:
+    columns: list[str] = []
+    for column in frame.columns:
+        lowered = column.lower()
+        if lowered in {"available_from", "latest_available_from", "evidence_available_from"} or lowered.endswith("_available_from"):
+            columns.append(column)
+    return columns
+
+
+def pit_available_from_check(frame: pd.DataFrame, date_column: str) -> dict[str, Any]:
+    columns = available_from_columns(frame)
+    if frame.empty or not date_column or not columns:
+        return {
+            "date_column": date_column,
+            "available_from_columns": columns,
+            "rows_with_any_future_available_from": 0,
+            "future_available_from_by_column": {},
+            "max_future_days": 0,
+            "examples": [],
+        }
+    rebalance_dates = parse_datetime_series(frame[date_column])
+    any_future = pd.Series(False, index=frame.index)
+    by_column: dict[str, int] = {}
+    max_future_days = 0
+    examples: list[dict[str, Any]] = []
+    for column in columns:
+        available_dates = parse_datetime_series(frame[column])
+        deltas = (available_dates - rebalance_dates).dt.days
+        future = deltas > 0
+        count = int(future.fillna(False).sum())
+        by_column[column] = count
+        if count <= 0:
+            continue
+        any_future |= future.fillna(False)
+        column_max = deltas[future].max()
+        if pd.notna(column_max):
+            max_future_days = max(max_future_days, int(column_max))
+        for idx in list(frame.index[future])[:5]:
+            row = frame.loc[idx]
+            examples.append(
+                {
+                    "column": column,
+                    "rebalance_date": pd.Timestamp(rebalance_dates.loc[idx]).date().isoformat()
+                    if pd.notna(rebalance_dates.loc[idx])
+                    else "",
+                    "available_from": pd.Timestamp(available_dates.loc[idx]).date().isoformat()
+                    if pd.notna(available_dates.loc[idx])
+                    else "",
+                    "days_future": int(deltas.loc[idx]) if pd.notna(deltas.loc[idx]) else None,
+                    "ticker": str(row.get("ticker", "")),
+                }
+            )
+    return {
+        "date_column": date_column,
+        "available_from_columns": columns,
+        "rows_with_any_future_available_from": int(any_future.sum()),
+        "future_available_from_by_column": by_column,
+        "max_future_days": int(max_future_days),
+        "examples": examples[:20],
+    }
+
+
 def price_cache_summary(price_cache: Path, free_data_root: Path) -> dict[str, Any]:
     files = sorted(path for path in price_cache.glob("*.parquet") if path.is_file()) if price_cache.exists() else []
     root_manifest = read_json(price_cache / "replay_price_cache_manifest.json")
@@ -318,6 +533,97 @@ def target_snapshot_summary(latest_run: Path) -> dict[str, Any]:
     }
 
 
+def feature_source_coverage_for_book(path: Path, portfolio: str) -> dict[str, Any]:
+    frame = read_csv_light(path)
+    date_column = first_existing_column(frame, DATE_COLUMNS)
+    if frame.empty:
+        return {
+            "portfolio": portfolio,
+            "path": str(path),
+            "exists": path.exists(),
+            "row_count": int(count_csv_rows(path)),
+            "non_cash_row_count": 0,
+            "date_column": date_column,
+            "min_date": "",
+            "max_date": "",
+            "categories": {
+                name: feature_category_coverage(pd.DataFrame(), columns)
+                for name, columns in FEATURE_SOURCE_GROUPS.items()
+            },
+            "monthly": [],
+            "pit_available_from_check": pit_available_from_check(pd.DataFrame(), date_column),
+        }
+    non_cash = frame
+    if "ticker" in frame.columns:
+        tickers = frame["ticker"].astype(str).str.upper().str.strip()
+        non_cash = frame.loc[~tickers.isin(CASH_TICKERS)].copy()
+    categories = {
+        name: feature_category_coverage(non_cash, columns)
+        for name, columns in FEATURE_SOURCE_GROUPS.items()
+    }
+    pit_check = pit_available_from_check(non_cash, date_column)
+    ticker_count = None
+    non_cash_ticker_count = None
+    if "ticker" in frame.columns:
+        ticker_count = int(frame["ticker"].astype(str).str.upper().nunique())
+        non_cash_ticker_count = int(non_cash["ticker"].astype(str).str.upper().nunique()) if not non_cash.empty else 0
+    return {
+        "portfolio": portfolio,
+        "path": str(path),
+        "exists": path.exists(),
+        "row_count": int(len(frame)),
+        "non_cash_row_count": int(len(non_cash)),
+        "ticker_count": ticker_count,
+        "non_cash_ticker_count": non_cash_ticker_count,
+        "date_column": date_column,
+        "min_date": min_date_from_columns(frame, [date_column] if date_column else DATE_COLUMNS),
+        "max_date": latest_date_from_columns(frame, [date_column] if date_column else DATE_COLUMNS),
+        "categories": categories,
+        "monthly": monthly_feature_coverage(non_cash, date_column),
+        "pit_available_from_check": pit_check,
+    }
+
+
+def feature_source_coverage_summary(latest_run: Path) -> dict[str, Any]:
+    books = {
+        "main": feature_source_coverage_for_book(latest_run / "reports" / "operating_main_target_book.csv", "main"),
+        "concentrated": feature_source_coverage_for_book(
+            latest_run / "reports" / "operating_concentrated_target_book.csv",
+            "concentrated",
+        ),
+    }
+    future_rows = sum(
+        int((book.get("pit_available_from_check") or {}).get("rows_with_any_future_available_from") or 0)
+        for book in books.values()
+    )
+    available_from_column_count = sum(
+        len((book.get("pit_available_from_check") or {}).get("available_from_columns") or [])
+        for book in books.values()
+    )
+    missing_by_category: dict[str, list[str]] = {}
+    for category in FEATURE_SOURCE_GROUPS:
+        missing_by_category[category] = [
+            portfolio
+            for portfolio, book in books.items()
+            if not ((book.get("categories") or {}).get(category) or {}).get("present_columns")
+        ]
+    return {
+        "schema_version": "feature-source-coverage-v1",
+        "status": "pit_review" if future_rows else "ok",
+        "books": books,
+        "overall": {
+            "pit_future_available_from_rows": int(future_rows),
+            "available_from_column_count": int(available_from_column_count),
+            "missing_feature_groups_by_portfolio": missing_by_category,
+        },
+        "rules": {
+            "coverage_scope": "operating target books, non-cash rows",
+            "pit_rule": "available_from/latest_available_from columns must be on or before rebalance_date",
+            "missing_feature_group_policy": "reported for review; not a blocker until a group is required by production policy",
+        },
+    }
+
+
 def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     price_cache = repo_path(args.price_cache)
@@ -341,6 +647,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     operating_concentrated = csv_summary(latest_run / "reports" / "operating_concentrated_target_book.csv")
     operating_summary = read_json(latest_run / "reports" / "operating_target_books_summary.json")
     snapshots = target_snapshot_summary(latest_run)
+    feature_source_coverage = feature_source_coverage_summary(latest_run)
 
     blockers: list[str] = []
     warnings: list[str] = []
@@ -404,6 +711,11 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     known_gaps = coverage.get("known_gaps") or []
     if known_gaps:
         warnings.extend(f"free-data gap: {gap}" for gap in known_gaps)
+    future_available_from_rows = int((feature_source_coverage.get("overall") or {}).get("pit_future_available_from_rows") or 0)
+    if future_available_from_rows:
+        warnings.append(
+            f"feature source coverage found {future_available_from_rows} target-book rows with available_from after rebalance_date"
+        )
 
     policy_replay_blockers = list(blockers)
     if sec_evidence_store.get("any_available") and companyfacts_blocker in policy_replay_blockers:
@@ -452,6 +764,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "operating_concentrated": operating_concentrated,
             "operating_summary": operating_summary,
         },
+        "feature_source_coverage": feature_source_coverage,
         "target_snapshots": snapshots,
         "blockers": blockers,
         "warnings": warnings,
@@ -497,6 +810,25 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.append(
             f"| {name} | {row.get('row_count', 0)} | {row.get('min_date') or ''} | {row.get('max_date') or ''} | {row.get('weight_sum') if row.get('weight_sum') is not None else ''} |"
         )
+    feature_coverage = payload.get("feature_source_coverage") or {}
+    feature_overall = feature_coverage.get("overall") or {}
+    lines.extend(
+        [
+            "",
+            "## Feature Source Coverage",
+            "",
+            f"- status: `{feature_coverage.get('status') or ''}`",
+            f"- pit_future_available_from_rows: `{feature_overall.get('pit_future_available_from_rows', 0)}`",
+            "",
+            "| Portfolio | Rows | Non-cash rows | Date range | Available-from columns |",
+            "| --- | ---: | ---: | --- | ---: |",
+        ]
+    )
+    for portfolio, book in (feature_coverage.get("books") or {}).items():
+        pit = book.get("pit_available_from_check") or {}
+        lines.append(
+            f"| {portfolio} | {book.get('row_count', 0)} | {book.get('non_cash_row_count', 0)} | {book.get('min_date') or ''} to {book.get('max_date') or ''} | {len(pit.get('available_from_columns') or [])} |"
+        )
     lines.extend(["", "## Blockers", ""])
     blockers = payload.get("blockers") or []
     lines.extend([f"- {item}" for item in blockers] if blockers else ["- none"])
@@ -508,6 +840,41 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.extend([f"- {item}" for item in actions] if actions else ["- none"])
     lines.append("")
     return "\n".join(lines)
+
+
+def write_feature_source_coverage_csv(path: Path, payload: dict[str, Any]) -> None:
+    feature_coverage = payload.get("feature_source_coverage") or {}
+    rows: list[dict[str, Any]] = []
+    for portfolio, book in (feature_coverage.get("books") or {}).items():
+        for month in book.get("monthly") or []:
+            for category, coverage in (month.get("categories") or {}).items():
+                rows.append(
+                    {
+                        "portfolio": portfolio,
+                        "rebalance_date": month.get("rebalance_date"),
+                        "row_count": month.get("row_count"),
+                        "ticker_count": month.get("ticker_count"),
+                        "category": category,
+                        "present_count": coverage.get("present_count"),
+                        "row_any_feature_coverage_ratio": coverage.get("row_any_feature_coverage_ratio"),
+                        "average_present_column_coverage_ratio": coverage.get("average_present_column_coverage_ratio"),
+                    }
+                )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "portfolio",
+        "rebalance_date",
+        "row_count",
+        "ticker_count",
+        "category",
+        "present_count",
+        "row_any_feature_coverage_ratio",
+        "average_present_column_coverage_ratio",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def parse_args() -> argparse.Namespace:
@@ -531,6 +898,7 @@ def main() -> int:
     output_dir = repo_path(args.output_dir)
     write_json(output_dir / "summary.json", payload)
     write_text(output_dir / "report.md", render_report(payload))
+    write_feature_source_coverage_csv(output_dir / "feature_source_coverage.csv", payload)
     print(json.dumps(payload, indent=2, sort_keys=True, default=json_default))
     if args.strict and payload.get("blockers"):
         return 2

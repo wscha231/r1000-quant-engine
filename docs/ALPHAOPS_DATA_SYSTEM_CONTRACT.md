@@ -16,6 +16,12 @@ Before changing selection, sizing, cash, or risk rules, every agent must verify:
   - `ready_for_policy_replay=true` is acceptable for fast production replay
     when PIT SEC/Form4/13F/ETF stores are already restored
   - no hard blockers for the run type being analyzed
+  - `feature_source_coverage` reports monthly operating-target-book coverage
+    for price/momentum, macro/regime, theme, SEC/smart-money, quality, and
+    broker-policy feature groups
+- `outputs/data_readiness/feature_source_coverage.csv`
+  - monthly source-group coverage extracted from operating target books
+  - inspect `available_from` warnings before treating a run as PIT-safe
 - `outputs/reports/dataset_coverage_audit.json`
   - candidate book coverage is current and full enough for the target run
   - SEC-enriched candidate materialization is reported when evidence exists
@@ -195,6 +201,8 @@ Required audit dimensions:
 
 Guard outputs:
 
+- `outputs/data_readiness/summary.json`
+- `outputs/data_readiness/feature_source_coverage.csv`
 - `outputs/portfolio_system_guard/data_quality_update_plan.json`
 - `outputs/portfolio_system_guard/error_check.json`
 - `outputs/portfolio_system_guard/system_guard_report.md`

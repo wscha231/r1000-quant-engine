@@ -66,6 +66,7 @@ Before reading performance, inspect:
 - `outputs/portfolio_system_guard/data_quality_update_plan.json`
 - `outputs/portfolio_system_guard/error_check.json`
 - `outputs/data_readiness/summary.json`
+- `outputs/data_readiness/feature_source_coverage.csv`
 - `outputs/reports/dataset_coverage_audit.json`
 - `outputs/sec_enriched_candidate_replay/summary.json`
 - `outputs/full_rebuild_logs/sec_evidence_restore_manifest.json`
