@@ -53,6 +53,37 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 12:19 KST - strengthen-alphaops-data-quality-contract
+
+- scope:
+  - Update the AlphaOps data-quality and PIT-leakage contract to the latest broker-valid run, and make the portfolio guard emit an explicit data quality update plan before further CAGR/MDD work.
+- files:
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->updates the current acceptance baseline to run `27050091396`, adds a full-period data quality audit plan, and records leadership/macro feature roadmap requirements.
+  - `AUTOMATION_STRATEGY.md` ->documents the data quality gate and expands weekly refresh ownership to PIT freshness, universe, and coverage review.
+  - `tools/run_portfolio_system_guard.py` ->adds production flag, official broker metric, Drive restore, theme tape, macro diagnostics checks, plus `data_quality_update_plan.json`.
+  - `tests/portfolio_system_guard_smoke.py` ->covers the new data-quality guard outputs and production flag checks.
+  - `CHANGELOG.md` ->records the data quality contract update.
+- symbols_added:
+  - `data_quality_contract_checks(inputs)` ->adds data-quality and PIT-evidence checks to portfolio system guard results.
+  - `data_quality_update_plan(inputs, latest_run)` ->emits metric contract, readiness, coverage, restore, update cadence, PIT rules, and next data work.
+- symbols_changed:
+  - `load_inputs(latest_run)` ->loads SEC restore manifest, theme leadership summary, and macro circuit diagnostics for guard reporting.
+  - `automation_plan(inputs, targets_pass)` ->prioritizes data checks, broker-trade attribution, theme leadership, macro regime, and reversible PIT-safe policy changes.
+  - `render_report(...)` ->adds a Data Quality Update Plan section to the guard report.
+  - `run(args)` ->writes `outputs/portfolio_system_guard/data_quality_update_plan.json`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_system_guard/data_quality_update_plan.json` ->new guard artifact with the data quality update cadence and PIT-leakage contract.
+- validation:
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_portfolio_system_guard.py tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - This is a guard/docs change only; do not rerun AlphaOps fast replay solely for this commit.
+
 ### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
 
 - scope:

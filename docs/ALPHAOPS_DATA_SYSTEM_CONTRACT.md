@@ -33,10 +33,12 @@ Before changing selection, sizing, cash, or risk rules, every agent must verify:
 
 Latest verified broker-ledger production replay:
 
-- GitHub Actions run: `26990030997`
+- GitHub Actions run: `27050091396`
+- Artifact: `7450603090`
+- Artifact size: `84,488,180` bytes
 - Branch: `codex/alphaops-integrated-replay`
-- Commit: `3ff15b4446eacc4cd6699701430e13cb6e340019`
-- Source full rebuild replayed: `26797935603`
+- Commit: `72ced77e3234f7d76786b2a18bb367cb5740e073`
+- Source full rebuild replayed: `26992264956`
 - Metric mode: broker ledger next-close fills with costs and cash
 - Production flags:
   - `production_applied=true`
@@ -45,18 +47,19 @@ Latest verified broker-ledger production replay:
   - `current_holdings_source=alphaops_vnext_policy_target_book`
   - `official_metric_mode=broker_ledger_next_close`
 - Data gate:
-  - `ready_for_policy_replay=true`
-  - `policy_replay_blockers=[]`
+  - Drive evidence restore manifest exists
+  - policy replay restored SEC/Form4/13F/ETF/macro evidence overlays where
+    available
   - `portfolio_system_guard.hard_error_count=0`
   - SEC-enriched candidate source:
     `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv`
 
 Current broker metrics from that run:
 
-- Main: CAGR `30.7638%`, MDD `-34.8303%`, Sharpe `1.1941`,
-  average cash `24.3092%`
-- Concentrated: CAGR `42.8243%`, MDD `-29.3356%`, Sharpe `1.2954`,
-  average cash `34.6905%`
+- Main: CAGR `35.0539%`, MDD `-27.0536%`, Sharpe `1.3356`,
+  average cash `27.2099%`
+- Concentrated: CAGR `48.8755%`, MDD `-23.6200%`, Sharpe `1.5139`,
+  average cash `41.9792%`
 
 Current acceptance targets:
 
@@ -66,14 +69,18 @@ Current acceptance targets:
 
 Remaining performance gaps:
 
-- Main CAGR passes, but MDD needs about `9.8303pp` additional improvement.
-- Concentrated CAGR needs about `2.1757pp` additional improvement and MDD
-  needs about `4.3356pp` additional improvement.
+- Main CAGR passes, but MDD needs about `2.0536pp` additional improvement.
+- Concentrated passes both CAGR and MDD targets.
 
-Current data blocker:
+Current blocker:
 
-- Fast policy replay is valid because restored PIT SEC/Form4/13F/ETF/macro
-  stores and the SEC-enriched candidate book are available.
+- No hard data blocker is active for fast policy replay.
+- Remaining work is to reduce main broker MDD without sacrificing the main
+  CAGR pass or breaking the concentrated pass.
+- Run `27050091396` shows the active main MDD window is `2025-02-18` through
+  `2025-04-04`. The next data-backed research focus is late-cycle
+  `GREEN`/neutral exposure in January-February 2025 where QQQ was positive
+  but underperforming SPY before high-weight leaders rolled over.
 - Data maintenance run `26987903823` on commit
   `0bf0fdae6583c33ebae0af10071ecc620ba028f5` refreshed
   `data_raw/free/sec/companyfacts.zip` from SEC bulk companyfacts
@@ -145,6 +152,90 @@ Minimum expected freshness:
   - after refresh, preserve the archive at
     `data_raw/free/sec/companyfacts.zip` so readiness audits and future agents
     share one canonical path
+
+## Full-Period Data Quality Audit Plan
+
+Run the audit before any new full rebuild, and inspect it before every policy
+replay that will be used for target decisions. The audit must cover the whole
+historical period, not only the latest holdings.
+
+Required audit dimensions:
+
+- Universe:
+  - monthly eligibility snapshot exists for every rebalance month
+  - ticker changes, delistings, ADR eligibility, and proxy Russell 1000 labels
+    are explicit
+  - current-universe-only tests are labelled research-only
+- Prices:
+  - adjusted OHLCV exists for every selected ticker through every broker exit
+  - split/dividend adjustments are internally consistent
+  - stale bars, missing next-close fills, and max fill lag are counted
+  - SPY and QQQ are always present for regime and broker replay windows
+- Macro:
+  - daily market stress features are available through the latest trading date
+  - release-lagged series use publication dates and are never backfilled into
+    earlier rebalance dates
+  - rate, credit, liquidity, volatility, breadth, and QQQ-vs-SPY damage fields
+    are available for every rebalance month used by production policy
+- SEC/Form4/13F:
+  - every event row has `available_from` or `latest_available_from`
+  - 13F availability is based on public filing accepted time, not report period
+  - future evidence is zeroed before scoring and missing evidence is neutral
+- ETF/theme:
+  - historical ETF holdings are PIT-only; latest ETF holdings are discovery
+    aids and cannot be used as historical production evidence
+  - theme taxonomy changes are versioned and linked to the rebalance date that
+    first used them
+  - daily theme leadership tape is retained separately from production target
+    books
+- Broker accounting:
+  - broker replay uses operating target books, integer shares, cash, costs, and
+    next-close fills
+  - target pass/fail is never taken from deprecated weight-level metrics
+
+Guard outputs:
+
+- `outputs/portfolio_system_guard/data_quality_update_plan.json`
+- `outputs/portfolio_system_guard/error_check.json`
+- `outputs/portfolio_system_guard/system_guard_report.md`
+
+If any required data source fails, fix the data store, restore step, or PIT
+normalization first. Do not compensate for missing data by adding selection or
+cash rules.
+
+## Leadership And Macro Feature Roadmap
+
+The system goal is not simply to hold more cash. It should find dominant themes
+early, concentrate into the true leaders, and exit before leadership changes.
+New features must be added as PIT data first, then evaluated through broker
+trade attribution.
+
+Priority feature families:
+
+- Theme leadership:
+  - theme-level relative strength versus SPY, QQQ, sector ETF, and equal-weight
+    peer basket
+  - theme breadth: percent of members above 20/50/200-day moving averages,
+    new highs, and volume-thrust participation
+  - leader concentration: top 1/3/5 names share of theme return and volume
+  - theme phase: emerging, confirmed, climax, fading, failed recovery
+- Leadership change / exit:
+  - QQQ-vs-SPY damage while nominal indexes are still positive
+  - leader underperformance versus its theme and benchmark over 1/2/4 weeks
+  - failed breakout / failed recovery after high-weight entry
+  - volume exhaustion and volatility expansion after a climax run
+- Macro regime:
+  - 2-year, 10-year, real-yield and yield-curve pressure
+  - credit spread and high-yield stress
+  - VIX/VVIX and realized-volatility regime
+  - dollar, oil, copper/gold, liquidity, inflation surprise, and Fed policy
+    pressure
+  - sector/theme sensitivity to rate, inflation, energy, and liquidity shocks
+- Data governance:
+  - every new feature column declares source, update cadence, publication lag,
+    PIT availability column, and fallback behavior when missing
+  - every feature experiment reports whether the signal helped in broker
+    trades, not only row-level or weight-level proxies
 
 ## Replay Gate
 

@@ -12,7 +12,7 @@ commit.
 | PR / push CI | `pr_validation.yml` | Tier-1 code-level smoke + leakage audit + topology guard via `tools/run_pr_validation.py` | No data, no model impact |
 | Manual long-run | `full_rebuild_manual.yml` | full data rebuild, backtests, verdicts, GDrive sync, auto-learning diagnostics | Generates production artifacts; no blind baseline rotation |
 | Daily after close | `after_close_daily.yml` | scanner, macro pulse, ETF leadership, explosive alerts, tactical review, paper dry-run, Layer 4 suggestions | Dry-run/report-only unless manual `execute=true` |
-| Weekly | `weekly_data_refresh.yml` | Finnhub substrate refresh and theme discovery | Data refresh only |
+| Weekly | `weekly_data_refresh.yml` | Finnhub substrate refresh, theme discovery, PIT data freshness review, and universe/coverage gap reporting | Data refresh only |
 | Monthly | `monthly_research.yml` | cycle-play universe refresh, ADR/macro IC, tactical sleeve backtest, explosive pattern model retrain | Research/model artifacts only |
 | Quarterly | `quarterly_auto_learning.yml` | trade insights, feature-gate proposals, promotion dry-run or gated manual promotion | Scheduled runs diagnostic; manual promotion only after gates pass |
 | Monthly legacy bridge | `unified_monthly.yml` | `scored_unified.csv` bridge for legacy advisors/tools | Data bridge only |
@@ -35,6 +35,10 @@ commit.
 6. Keep `full_rebuild_manual.yml` as the source of truth for artifact export:
    `outputs/reports/`, `outputs/trade_journal/`, and `outputs/auto_learning/`
    must reach artifacts, GDrive, and `cloud_results/`.
+7. Data-quality failures are fixed before policy tuning. A run that misses PIT
+   SEC/Form4/13F/ETF/macro restore, enriched candidate usage, operating target
+   books, or official broker metrics is not valid evidence for CAGR/MDD
+   promotion.
 
 ## Code-Level Validation Tiers
 
@@ -54,3 +58,18 @@ Tiers 0 and 1 do not depend on `cloud_results/` artifacts and do not
 download market data. Tier 2 requires a `source_run_id` from a prior
 Tier 3 run. Tier 3 is the only workflow that produces production
 artifacts.
+
+## Data Quality Gate
+
+Before reading performance, inspect:
+
+- `outputs/portfolio_system_guard/data_quality_update_plan.json`
+- `outputs/portfolio_system_guard/error_check.json`
+- `outputs/data_readiness/summary.json`
+- `outputs/reports/dataset_coverage_audit.json`
+- `outputs/sec_enriched_candidate_replay/summary.json`
+- `outputs/full_rebuild_logs/sec_evidence_restore_manifest.json`
+
+Target decisions use only broker-ledger next-close metrics. Deprecated
+weight-level backtests, screenshots, and research-only sidecars can suggest
+hypotheses but cannot pass production targets.

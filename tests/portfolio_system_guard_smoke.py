@@ -116,8 +116,21 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         )
         write_json(
             latest / "alphaops_vnext" / "production_activation.json",
-            {"production_policy": "alphaops_vnext_production"},
+            {
+                "production_policy": "alphaops_vnext_production",
+                "production_applied": True,
+                "sidecar_only": False,
+                "sidecar_applied_to_production": True,
+                "current_holdings_source": "alphaops_vnext_policy_target_book",
+            },
         )
+        write_json(
+            latest / "full_rebuild_logs" / "sec_evidence_restore_manifest.json",
+            {"restored": ["data_pit/sec", "data_pit/etf_holdings", "data_pit/macro"], "missing": [], "errors": []},
+        )
+        write_json(latest / "theme_leadership_tape" / "summary.json", {"top_theme": "ai_compute", "top_theme_state": "emerging_leader"})
+        write_json(latest / "macro_circuit_filter" / "main" / "diagnostics.json", {"status": "completed"})
+        write_json(latest / "macro_circuit_filter" / "concentrated" / "diagnostics.json", {"status": "completed"})
         write_csv(latest / "reports" / "main_monthly_weights.csv", [{"rebalance_date": "2025-12-31", "ticker": "AAA", "weight": 1.0}])
         write_csv(
             latest / "reports" / "concentrated_strategy_holdings.csv",
@@ -178,6 +191,12 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert checks["data_readiness_ready_for_production_replay"]["passed"] is True
         assert checks["sec_enriched_candidate_materialized_for_audit"]["passed"] is True
         assert checks["alphaops_vnext_uses_sec_enriched_candidate_book"]["passed"] is True
+        assert checks["alphaops_vnext_production_flags_correct"]["passed"] is True
+        assert checks["main_official_broker_metrics_valid_for_production"]["passed"] is True
+        assert checks["concentrated_official_broker_metrics_valid_for_production"]["passed"] is True
+        assert checks["sec_drive_restore_manifest_available"]["passed"] is True
+        assert checks["theme_leadership_tape_available"]["passed"] is True
+        assert checks["macro_circuit_diagnostics_available"]["passed"] is True
         assert checks["current_only_operating_holdings_available"]["passed"] is True
         assert checks["main_current_position_count_near_latest_target_count"]["passed"] is False
         assert checks["concentrated_replay_filter_matches_latest_target"]["passed"] is True
@@ -185,8 +204,12 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert cash_trap["main"]["cash_trap"] is True
         assert cash_trap["concentrated"]["cash_trap"] is True
         assert "avg_cash_high_without_mdd_target_pass" in cash_trap["main"]["reasons"]
+        assert result["data_quality_update_plan"]["metric_contract"]["official_source"] == "broker_ledger_next_close"
+        assert result["data_quality_update_plan"]["readiness"]["ready_for_policy_replay"] is True
+        assert result["data_quality_update_plan"]["large_data_restore"]["manifest_available"] is True
         assert (out_dir / "system_guard_report.md").exists()
         assert (out_dir / "target_gap.json").exists()
+        assert (out_dir / "data_quality_update_plan.json").exists()
 
 
 def test_portfolio_system_guard_blocks_stale_historical_broker_replay() -> None:

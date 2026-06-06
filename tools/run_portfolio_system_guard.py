@@ -277,6 +277,14 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
         or read_json(REPO_ROOT / "outputs" / "alphaops_vnext" / "summary.json"),
         "production_activation": read_json(latest_run / "alphaops_vnext" / "production_activation.json")
         or read_json(REPO_ROOT / "outputs" / "alphaops_vnext" / "production_activation.json"),
+        "sec_restore_manifest": read_json(latest_run / "full_rebuild_logs" / "sec_evidence_restore_manifest.json")
+        or read_json(REPO_ROOT / "outputs" / "full_rebuild_logs" / "sec_evidence_restore_manifest.json"),
+        "theme_leadership": read_json(latest_run / "theme_leadership_tape" / "summary.json")
+        or read_json(REPO_ROOT / "outputs" / "theme_leadership_tape" / "summary.json"),
+        "macro_circuit_main": read_json(latest_run / "macro_circuit_filter" / "main" / "diagnostics.json")
+        or read_json(REPO_ROOT / "outputs" / "macro_circuit_filter" / "main" / "diagnostics.json"),
+        "macro_circuit_concentrated": read_json(latest_run / "macro_circuit_filter" / "concentrated" / "diagnostics.json")
+        or read_json(REPO_ROOT / "outputs" / "macro_circuit_filter" / "concentrated" / "diagnostics.json"),
         "operating_event_backtest": read_json(latest_run / "operating_event_backtest" / "operating_event_backtest_summary.json")
         or read_json(REPO_ROOT / "outputs" / "operating_event_backtest" / "operating_event_backtest_summary.json"),
         "workflows": existing_workflows(),
@@ -543,7 +551,150 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
         }
     )
     out.extend(operating_alignment_checks(inputs, latest_run))
+    out.extend(data_quality_contract_checks(inputs))
     return out
+
+
+def data_quality_contract_checks(inputs: dict[str, Any]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    activation = inputs.get("production_activation") or {}
+    alphaops = inputs.get("alphaops_vnext") or {}
+    production_policy = str(activation.get("production_policy") or alphaops.get("production_policy") or "")
+    if production_policy == "alphaops_vnext_production":
+        flags = {
+            "production_applied": activation.get("production_applied"),
+            "sidecar_only": activation.get("sidecar_only"),
+            "sidecar_applied_to_production": activation.get("sidecar_applied_to_production"),
+            "current_holdings_source": activation.get("current_holdings_source"),
+        }
+        flags_present = any(value is not None for value in flags.values())
+        flags_correct = (
+            bool(flags.get("production_applied"))
+            and flags.get("sidecar_only") is False
+            and bool(flags.get("sidecar_applied_to_production"))
+            and flags.get("current_holdings_source") == "alphaops_vnext_policy_target_book"
+        )
+        checks.append(
+            {
+                "check": "alphaops_vnext_production_flags_correct",
+                "passed": flags_correct if flags_present else False,
+                "severity": "error" if flags_present and not flags_correct else ("warn" if not flags_present else "ok"),
+                "detail": json.dumps(flags, sort_keys=True),
+            }
+        )
+    for portfolio in ("main", "concentrated"):
+        metrics = inputs.get(f"{portfolio}_metrics") or {}
+        source = metrics.get("_metric_source")
+        valid = bool(metrics.get("valid_for_production", False))
+        checks.append(
+            {
+                "check": f"{portfolio}_official_broker_metrics_valid_for_production",
+                "passed": source == "broker_ledger_next_close" and valid,
+                "severity": "error" if metrics and (source != "broker_ledger_next_close" or not valid) else ("warn" if not metrics else "ok"),
+                "detail": f"metric_source={source or 'missing'}; valid_for_production={valid}; fill_mode={metrics.get('fill_mode') or 'missing'}",
+            }
+        )
+    restore_manifest = inputs.get("sec_restore_manifest") or {}
+    restored = restore_manifest.get("restored") or []
+    checks.append(
+        {
+            "check": "sec_drive_restore_manifest_available",
+            "passed": bool(restore_manifest),
+            "severity": "warn" if not restore_manifest else "ok",
+            "detail": f"restored_count={len(restored)}; missing={restore_manifest.get('missing') or []}; errors={restore_manifest.get('errors') or []}",
+        }
+    )
+    theme = inputs.get("theme_leadership") or {}
+    checks.append(
+        {
+            "check": "theme_leadership_tape_available",
+            "passed": bool(theme),
+            "severity": "warn" if not theme else "ok",
+            "detail": f"top_theme={theme.get('top_theme') or 'missing'}; top_theme_state={theme.get('top_theme_state') or 'missing'}",
+        }
+    )
+    macro_main = inputs.get("macro_circuit_main") or {}
+    macro_concentrated = inputs.get("macro_circuit_concentrated") or {}
+    checks.append(
+        {
+            "check": "macro_circuit_diagnostics_available",
+            "passed": bool(macro_main) and bool(macro_concentrated),
+            "severity": "warn" if not (macro_main and macro_concentrated) else "ok",
+            "detail": f"main_status={macro_main.get('status') or 'missing'}; concentrated_status={macro_concentrated.get('status') or 'missing'}",
+        }
+    )
+    return checks
+
+
+def data_quality_update_plan(inputs: dict[str, Any], latest_run: Path) -> dict[str, Any]:
+    data_readiness = inputs.get("data_readiness") or {}
+    dataset_coverage = inputs.get("dataset_coverage") or {}
+    sec_enriched = inputs.get("sec_enriched_candidate") or {}
+    restore_manifest = inputs.get("sec_restore_manifest") or {}
+    activation = inputs.get("production_activation") or {}
+    alphaops = inputs.get("alphaops_vnext") or {}
+    return {
+        "metric_contract": {
+            "official_source": "broker_ledger_next_close",
+            "main_target": PORTFOLIO_GOAL_TARGETS["main"],
+            "concentrated_target": PORTFOLIO_GOAL_TARGETS["concentrated"],
+            "legacy_weight_metrics_allowed_for": "research_hints_only",
+        },
+        "latest_run": str(latest_run),
+        "readiness": {
+            "ready_for_fullrun": bool(data_readiness.get("ready_for_fullrun")),
+            "ready_for_policy_replay": bool(data_readiness.get("ready_for_policy_replay")),
+            "blockers": data_readiness.get("blockers") or [],
+            "policy_replay_blockers": data_readiness.get("policy_replay_blockers") or [],
+            "warnings": data_readiness.get("warnings") or [],
+        },
+        "coverage": {
+            "sec_enriched_candidate_present": bool(dataset_coverage.get("sec_enriched_candidate_present")),
+            "rows_with_smart_money_evidence": int(
+                safe_float((dataset_coverage.get("sec_enriched_evidence_summary") or {}).get("rows_with_smart_money_evidence"), 0)
+            ),
+            "sec_enriched_rows_with_smart_money_evidence": int(safe_float(sec_enriched.get("rows_with_smart_money_evidence"), 0)),
+            "alphaops_candidate_book": str(alphaops.get("candidate_book") or ""),
+            "production_policy": activation.get("production_policy") or alphaops.get("production_policy"),
+        },
+        "large_data_restore": {
+            "manifest_available": bool(restore_manifest),
+            "restored": restore_manifest.get("restored") or [],
+            "missing": restore_manifest.get("missing") or [],
+            "errors": restore_manifest.get("errors") or [],
+            "must_remain_out_of_git": [
+                "data_raw/free/sec/companyfacts.zip",
+                "data_pit/sec/*.parquet",
+                "data_pit/etf_holdings/*.parquet",
+                "data_pit/macro/*",
+                "cache_prices/*",
+                "full replay artifacts",
+            ],
+        },
+        "update_cadence": {
+            "prices": "daily_after_close",
+            "macro": "daily_after_close_with_release_lag",
+            "form4": "daily_or_next_available",
+            "13f": "quarterly_after_public_filing_availability",
+            "etf_holdings": "weekly_or_provider_snapshot",
+            "universe": "monthly_snapshot_plus_delisting_and_symbol_map_audit",
+            "theme_leadership": "daily_tape_weekly_taxonomy_review",
+            "full_rebuild": "manual_only_after_data_schema_or_feature_generation_changes",
+        },
+        "pit_leakage_rules": [
+            "Every external evidence row must have available_from or latest_available_from before it can boost scoring.",
+            "SEC 13F must use public filing accepted/available time, never report_period as availability.",
+            "Macro release-lagged series must preserve publication lag and must not be backfilled into earlier rebalance dates.",
+            "ETF holdings are latest/discovery aids unless a point-in-time holding snapshot exists.",
+            "Missing evidence is neutral: no boost, no standalone penalty, and no buy rule.",
+        ],
+        "next_data_work": [
+            "Add a full-period feature-store coverage report by month, source, and portfolio target book.",
+            "Track universe membership, delistings, ADR eligibility, and symbol changes as monthly PIT snapshots.",
+            "Add macro regime features for QQQ-vs-SPY damage, credit/rate/liquidity stress, breadth, and theme rotation before changing production sizing.",
+            "Run broker-trade attribution first, then promote only PIT-safe rules that improve official broker MDD without losing target CAGR.",
+        ],
+    }
 
 
 def top_research_candidates(experiment_summary: dict[str, Any], orchestrator_replay: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -675,7 +826,7 @@ def automation_plan(inputs: dict[str, Any], targets_pass: bool) -> dict[str, Any
         },
         "data_refresh": {
             "owner": ".github/workflows/weekly_data_refresh.yml",
-            "role": "Refresh Finnhub/theme substrate before deeper rebuilds.",
+            "role": "Refresh substrate data, PIT freshness, universe, theme, and coverage diagnostics before deeper rebuilds.",
             "default_runtime": "medium",
         },
         "full_rebuild": {
@@ -686,7 +837,7 @@ def automation_plan(inputs: dict[str, Any], targets_pass: bool) -> dict[str, Any
         "aggressive_lab": {
             "owner": ".github/workflows/aggressive_lab_manual.yml and tools/run_aggressive_experiment_matrix.py",
             "role": "Discovery experiments; failures are retained as research artifacts.",
-            "next_change_needed": "Wire full historical replay for Main v2, concentrated policy, orchestrator, and Alpha Sprint.",
+            "next_change_needed": "Use only after data-quality and PIT coverage pass; broker replay must confirm any discovered policy.",
         },
         "auto_learning": {
             "owner": ".github/workflows/quarterly_auto_learning.yml and tools/run_auto_learning_v2.py",
@@ -698,10 +849,10 @@ def automation_plan(inputs: dict[str, Any], targets_pass: bool) -> dict[str, Any
             "concentrated_target": f"CAGR >= {PORTFOLIO_GOAL_TARGETS['concentrated']['cagr']:.0%}, MaxDD >= {PORTFOLIO_GOAL_TARGETS['concentrated']['max_dd']:.0%}",
             "current_target_pass": targets_pass,
             "recommended_next_focus": [
-                "Concentrated full orchestrator replay at 20-30% capacity with caps.",
-                "Main v2 historical replay with target N 12/15 and future_winner-heavy sleeve allocation.",
-                "Risk sensing Layer 1/3/4 position-aware exits to keep MaxDD improvement without CAGR drag.",
-                "Alpha Sprint bull-only replay using breakout/RS/catalyst fallback because explosion_* is dormant.",
+                "Run data quality and PIT coverage checks before interpreting CAGR/MDD.",
+                "Use broker-trade attribution to separate data gaps from policy errors across the full period.",
+                "Improve theme leadership and macro regime features before adding broad cash or sizing rules.",
+                "Promote only reversible PIT-safe rules that improve official broker MDD without losing target CAGR.",
             ],
         },
     }
@@ -715,6 +866,7 @@ def render_report(
     cash_trap: list[dict[str, Any]],
     checks: list[dict[str, Any]],
     plan: dict[str, Any],
+    data_quality: dict[str, Any],
     strict_targets: bool,
 ) -> str:
     lines = [
@@ -803,6 +955,41 @@ def render_report(
         lines.append(f"- `{marker}` {check['check']}: {check['detail']}")
     lines.append("")
 
+    lines.extend(["## Data Quality Update Plan", ""])
+    readiness = data_quality.get("readiness") or {}
+    coverage = data_quality.get("coverage") or {}
+    restore = data_quality.get("large_data_restore") or {}
+    lines.append(
+        "- Readiness: ready_for_fullrun=`{full}`, ready_for_policy_replay=`{policy}`, blockers={blockers}, policy_blockers={policy_blockers}".format(
+            full=str(readiness.get("ready_for_fullrun")).lower(),
+            policy=str(readiness.get("ready_for_policy_replay")).lower(),
+            blockers=readiness.get("blockers") or [],
+            policy_blockers=readiness.get("policy_replay_blockers") or [],
+        )
+    )
+    lines.append(
+        "- Coverage: sec_enriched_candidate_present=`{present}`, smart_money_rows={rows}, candidate_book=`{book}`".format(
+            present=str(coverage.get("sec_enriched_candidate_present")).lower(),
+            rows=coverage.get("rows_with_smart_money_evidence"),
+            book=coverage.get("alphaops_candidate_book") or "missing",
+        )
+    )
+    lines.append(
+        "- Large data restore: manifest_available=`{available}`, restored={restored}, missing={missing}, errors={errors}".format(
+            available=str(restore.get("manifest_available")).lower(),
+            restored=restore.get("restored") or [],
+            missing=restore.get("missing") or [],
+            errors=restore.get("errors") or [],
+        )
+    )
+    lines.append("- PIT rules:")
+    for rule in data_quality.get("pit_leakage_rules") or []:
+        lines.append(f"  - {rule}")
+    lines.append("- Next data work:")
+    for item in data_quality.get("next_data_work") or []:
+        lines.append(f"  - {item}")
+    lines.append("")
+
     lines.extend(["## Automation Plan", ""])
     lines.append(f"- Fast guard: {plan['fast_guard']['role']}")
     lines.append(f"- Data refresh: {plan['data_refresh']['role']}")
@@ -840,6 +1027,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     goal_candidates = goal_search_candidates(inputs.get("goal_search"))
     cash_trap = cash_trap_guard(statuses, inputs, latest_run)
     plan = automation_plan(inputs, targets_pass)
+    data_quality = data_quality_update_plan(inputs, latest_run)
     hard_errors = [row for row in checks if row["severity"] == "error" and not row["passed"]]
     overall_status = "target_pass" if targets_pass and not hard_errors else "blocked"
 
@@ -852,6 +1040,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "goal_search_candidates": goal_candidates,
         "cash_trap_guard": cash_trap,
         "error_checks": checks,
+        "data_quality_update_plan": data_quality,
         "automation_plan": plan,
     }
 
@@ -859,8 +1048,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_target_gap_csv(output_dir / "target_gap.csv", statuses)
     write_json(output_dir / "error_check.json", {"checks": checks, "hard_error_count": len(hard_errors)})
     write_json(output_dir / "automation_plan.json", plan)
+    write_json(output_dir / "data_quality_update_plan.json", data_quality)
     write_text(output_dir / "automation_plan.md", render_automation_plan(plan))
-    report = render_report(main_status, concentrated_status, candidates, goal_candidates, cash_trap, checks, plan, args.strict_targets)
+    report = render_report(
+        main_status,
+        concentrated_status,
+        candidates,
+        goal_candidates,
+        cash_trap,
+        checks,
+        plan,
+        data_quality,
+        args.strict_targets,
+    )
     write_text(output_dir / "system_guard_report.md", report)
 
     return payload
