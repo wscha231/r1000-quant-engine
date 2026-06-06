@@ -6,15 +6,15 @@
     "current holdings technical/RS deterioration",
     "no-add flags for warning/high-chase names"
   ],
-  "daily_exit_review_count": 17,
+  "daily_exit_review_count": 7,
   "daily_full_universe_rerank": false,
-  "daily_warning_or_no_add_count": 0,
+  "daily_warning_or_no_add_count": 7,
   "event_triggers_active": [
     "multiple_current_holdings_exit_review",
     "weekly_watchlist_has_multiple_add_candidates"
   ],
   "full_universe_rerank_frequency": "monthly_or_event_triggered",
-  "generated_at_utc": "2026-06-03T12:33:57.272160+00:00",
+  "generated_at_utc": "2026-06-06T14:05:00.097828+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "mid_month_reentry_allowed": true,
   "mid_month_reentry_requires_full_universe_rerank": false,
@@ -35,7 +35,7 @@
   "reentry_trigger": "",
   "schema_version": "alphaops-decision-cadence-plan-v1",
   "target_mutation_policy": "monthly base book plus crisis/reentry/event-triggered mutation dates",
-  "weekly_add_candidate_count": 23,
+  "weekly_add_candidate_count": 22,
   "weekly_decision_scope": [
     "current holdings and watchlist RS refresh",
     "technical confirmation",
