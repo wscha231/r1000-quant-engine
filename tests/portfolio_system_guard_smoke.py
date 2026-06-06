@@ -44,6 +44,36 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
+def feature_source_coverage_fixture() -> dict:
+    groups = [
+        "price_momentum",
+        "macro_regime",
+        "theme_leadership",
+        "sec_smart_money",
+        "quality_confirmation",
+        "broker_policy",
+    ]
+    books = {}
+    for portfolio in ("main", "concentrated"):
+        books[portfolio] = {
+            "categories": {group: {"present_columns": [f"{group}_field"]} for group in groups},
+            "pit_available_from_check": {
+                "available_from_columns": ["latest_available_from"],
+                "rows_with_any_future_available_from": 0,
+                "max_future_days": 0,
+            },
+        }
+    return {
+        "status": "ok",
+        "overall": {
+            "pit_future_available_from_rows": 0,
+            "available_from_column_count": 2,
+            "missing_feature_groups_by_portfolio": {group: [] for group in groups},
+        },
+        "books": books,
+    }
+
+
 def test_portfolio_system_guard_reports_target_gaps() -> None:
     with TestWorkspace("portfolio_system_guard") as tmp:
         out_dir = tmp / "guard"
@@ -92,7 +122,15 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         )
         write_json(
             latest / "data_readiness" / "summary.json",
-            {"status": "ready", "ready_for_fullrun": True, "ready_for_policy_replay": True, "blockers": [], "policy_replay_blockers": [], "warnings": []},
+            {
+                "status": "ready",
+                "ready_for_fullrun": True,
+                "ready_for_policy_replay": True,
+                "blockers": [],
+                "policy_replay_blockers": [],
+                "warnings": [],
+                "feature_source_coverage": feature_source_coverage_fixture(),
+            },
         )
         write_json(
             latest / "reports" / "dataset_coverage_audit.json",
@@ -197,6 +235,9 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert checks["sec_drive_restore_manifest_available"]["passed"] is True
         assert checks["theme_leadership_tape_available"]["passed"] is True
         assert checks["macro_circuit_diagnostics_available"]["passed"] is True
+        assert checks["feature_source_coverage_available"]["passed"] is True
+        assert checks["feature_source_coverage_pit_available_from_clean"]["passed"] is True
+        assert checks["feature_source_groups_present_for_target_books"]["passed"] is True
         assert checks["current_only_operating_holdings_available"]["passed"] is True
         assert checks["main_current_position_count_near_latest_target_count"]["passed"] is False
         assert checks["concentrated_replay_filter_matches_latest_target"]["passed"] is True
@@ -206,6 +247,7 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert "avg_cash_high_without_mdd_target_pass" in cash_trap["main"]["reasons"]
         assert result["data_quality_update_plan"]["metric_contract"]["official_source"] == "broker_ledger_next_close"
         assert result["data_quality_update_plan"]["readiness"]["ready_for_policy_replay"] is True
+        assert result["data_quality_update_plan"]["feature_source_coverage"]["pit_future_available_from_rows"] == 0
         assert result["data_quality_update_plan"]["large_data_restore"]["manifest_available"] is True
         assert (out_dir / "system_guard_report.md").exists()
         assert (out_dir / "target_gap.json").exists()
@@ -295,6 +337,9 @@ def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
         write_csv(latest / "reports" / "operating_concentrated_target_book.csv", [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0}])
         write_csv(latest / "portfolio_latest.csv", [{"ticker": "AAA", "weight": 1.0}])
         write_csv(latest / "concentrated_portfolio_latest.csv", [{"ticker": "AAA", "weight": 1.0}])
+        feature_coverage = feature_source_coverage_fixture()
+        feature_coverage["status"] = "pit_review"
+        feature_coverage["overall"]["pit_future_available_from_rows"] = 3
         write_json(
             latest / "data_readiness" / "summary.json",
             {
@@ -304,6 +349,7 @@ def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
                 "blockers": ["no SEC companyfacts archive was found"],
                 "policy_replay_blockers": ["macro data was not found"],
                 "warnings": ["canonical data_raw/free/sec/companyfacts.zip is missing"],
+                "feature_source_coverage": feature_coverage,
             },
         )
         write_json(
@@ -338,6 +384,7 @@ def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
         checks = {row["check"]: row for row in result["error_checks"]}
         assert result["overall_status"] == "blocked"
         assert checks["data_readiness_ready_for_production_replay"]["severity"] == "error"
+        assert checks["feature_source_coverage_pit_available_from_clean"]["severity"] == "error"
         assert checks["sec_enriched_candidate_materialized_for_audit"]["severity"] == "error"
         assert checks["alphaops_vnext_uses_sec_enriched_candidate_book"]["severity"] == "error"
 

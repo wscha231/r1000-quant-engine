@@ -127,6 +127,33 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Missing feature groups are reported for review but not yet promoted to hard blockers; future `available_from` rows are warnings until current artifacts are inspected.
 
+### 12:47 KST - surface-feature-coverage-in-guard
+
+- scope:
+  - Surface data-readiness feature-source coverage and PIT available-from diagnostics in the portfolio system guard.
+- files:
+  - `tools/run_portfolio_system_guard.py` ->adds guard checks for feature-source coverage availability, future `available_from` rows, and target-book source group presence; includes coverage status in `data_quality_update_plan.json`.
+  - `tests/portfolio_system_guard_smoke.py` ->covers successful feature-source coverage checks and hard error behavior when future `available_from` rows are present.
+  - `CHANGELOG.md` ->records the portfolio guard coverage surface.
+- symbols_added:
+  - `feature_source_coverage_fixture()` ->builds portfolio guard smoke-test coverage fixtures.
+- symbols_changed:
+  - `data_quality_contract_checks(inputs)` ->adds `feature_source_coverage_available`, `feature_source_coverage_pit_available_from_clean`, and `feature_source_groups_present_for_target_books` checks.
+  - `data_quality_update_plan(inputs, latest_run)` ->adds `feature_source_coverage` status and PIT counts to the guard plan.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_system_guard/error_check.json` ->now includes feature-source coverage and PIT available-from checks when data readiness emits them.
+  - `outputs/portfolio_system_guard/data_quality_update_plan.json` ->now includes `feature_source_coverage`.
+- validation:
+  - `py -3 -m py_compile tools\run_portfolio_system_guard.py tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Future `available_from` rows are now a guard error; missing source groups remain warnings because current production policy may not require every group on every artifact.
+
 ### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
 
 - scope:

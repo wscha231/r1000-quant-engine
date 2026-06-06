@@ -623,6 +623,41 @@ def data_quality_contract_checks(inputs: dict[str, Any]) -> list[dict[str, Any]]
             "detail": f"main_status={macro_main.get('status') or 'missing'}; concentrated_status={macro_concentrated.get('status') or 'missing'}",
         }
     )
+    data_readiness = inputs.get("data_readiness") or {}
+    feature_coverage = data_readiness.get("feature_source_coverage") or {}
+    checks.append(
+        {
+            "check": "feature_source_coverage_available",
+            "passed": bool(feature_coverage),
+            "severity": "warn" if not feature_coverage else "ok",
+            "detail": "outputs/data_readiness/summary.json::feature_source_coverage",
+        }
+    )
+    if feature_coverage:
+        overall = feature_coverage.get("overall") or {}
+        future_rows = int(safe_float(overall.get("pit_future_available_from_rows"), 0))
+        available_column_count = int(safe_float(overall.get("available_from_column_count"), 0))
+        checks.append(
+            {
+                "check": "feature_source_coverage_pit_available_from_clean",
+                "passed": future_rows == 0,
+                "severity": "error" if future_rows else "ok",
+                "detail": f"pit_future_available_from_rows={future_rows}; available_from_column_count={available_column_count}",
+            }
+        )
+        missing_groups: list[str] = []
+        for portfolio, book in (feature_coverage.get("books") or {}).items():
+            for group_name, category in (book.get("categories") or {}).items():
+                if not (category.get("present_columns") or []):
+                    missing_groups.append(f"{portfolio}:{group_name}")
+        checks.append(
+            {
+                "check": "feature_source_groups_present_for_target_books",
+                "passed": not missing_groups,
+                "severity": "warn" if missing_groups else "ok",
+                "detail": f"missing_groups={missing_groups}",
+            }
+        )
     return checks
 
 
@@ -633,6 +668,8 @@ def data_quality_update_plan(inputs: dict[str, Any], latest_run: Path) -> dict[s
     restore_manifest = inputs.get("sec_restore_manifest") or {}
     activation = inputs.get("production_activation") or {}
     alphaops = inputs.get("alphaops_vnext") or {}
+    feature_coverage = data_readiness.get("feature_source_coverage") or {}
+    feature_overall = feature_coverage.get("overall") or {}
     return {
         "metric_contract": {
             "official_source": "broker_ledger_next_close",
@@ -656,6 +693,13 @@ def data_quality_update_plan(inputs: dict[str, Any], latest_run: Path) -> dict[s
             "sec_enriched_rows_with_smart_money_evidence": int(safe_float(sec_enriched.get("rows_with_smart_money_evidence"), 0)),
             "alphaops_candidate_book": str(alphaops.get("candidate_book") or ""),
             "production_policy": activation.get("production_policy") or alphaops.get("production_policy"),
+        },
+        "feature_source_coverage": {
+            "available": bool(feature_coverage),
+            "status": feature_coverage.get("status"),
+            "pit_future_available_from_rows": int(safe_float(feature_overall.get("pit_future_available_from_rows"), 0)),
+            "available_from_column_count": int(safe_float(feature_overall.get("available_from_column_count"), 0)),
+            "missing_feature_groups_by_portfolio": feature_overall.get("missing_feature_groups_by_portfolio") or {},
         },
         "large_data_restore": {
             "manifest_available": bool(restore_manifest),
