@@ -137,6 +137,7 @@ def test_operating_minimal_artifact_is_phase_g_replay_ready() -> None:
         "outputs/reports/operating_target_books_*",
         "outputs/reports/candidate_replay_book.csv",
         "outputs/reports/dataset_coverage_audit.*",
+        "cache_prices/replay_price_cache_manifest.json",
         "outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
         "outputs/sec_enriched_candidate_replay/summary.json",
         "outputs/sec_enriched_candidate_replay/report.md",
@@ -152,6 +153,7 @@ def test_operating_minimal_artifact_is_phase_g_replay_ready() -> None:
         'cp outputs/reports/main_monthly_weights.csv "$DEST/reports/"',
         'cp outputs/reports/regime_by_month.csv "$DEST/reports/"',
         'cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/"',
+        'cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/"',
         'copy_dir_clean outputs/data_readiness "$DEST/data_readiness"',
         'copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"',
         "--target outputs/reports/operating_main_target_book.csv",
@@ -165,6 +167,7 @@ def test_official_artifact_keeps_market_leader_replay_source() -> None:
     for token in [
         "name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}",
         "outputs/reports/candidate_replay_book.csv",
+        "cache_prices/replay_price_cache_manifest.json",
         "outputs/sec_enriched_candidate_replay/",
         "outputs/integrated_theme_leader_crisis_replay/",
         "outputs/strategy_logic_ledger/",
@@ -235,6 +238,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_broker_crisis_reentry_replay.py",
         "tools/run_position_risk_weekly_validation.py",
         "tools/build_operating_target_books.py",
+        "tools/build_replay_price_cache.py",
         "tools/build_event_target_books.py",
         "tools/build_weekly_leader_target_books.py",
         "tools/archive_target_snapshots.py",
@@ -308,6 +312,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log",
         "outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log",
         "outputs/full_rebuild_logs/operating_target_books.log",
+        "outputs/full_rebuild_logs/replay_price_cache_refresh.log",
         "outputs/full_rebuild_logs/target_snapshot_archive.log",
         "outputs/full_rebuild_logs/data_readiness.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_main.log",
@@ -407,9 +412,12 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
 
 def test_sidecar_promotion_hook_runs_before_primary_broker_replay() -> None:
     sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    operating_idx = sidecar_tool.index('if [ "$SIDECAR_PROFILE" = "operating_minimal" ]')
+    refresh_idx = sidecar_tool.index("refresh_replay_price_cache", operating_idx)
     build_idx = sidecar_tool.index("tools/build_operating_target_books.py")
     hook_idx = sidecar_tool.index("run_sidecar_promotion_hook", build_idx)
     replay_idx = sidecar_tool.index("--target-book outputs/reports/operating_main_target_book.csv", build_idx)
+    assert refresh_idx < build_idx
     assert build_idx < hook_idx < replay_idx
     assert "build_long_crisis_inputs" in sidecar_tool
     assert "tools/run_long_crisis_dataset_builder.py" in sidecar_tool

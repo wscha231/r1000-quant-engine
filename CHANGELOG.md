@@ -5,6 +5,30 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 22:40 KST - refresh-price-cache-before-full-rebuild-sidecars
+
+- scope: Ensure full rebuild sidecars create an observed-bar replay price manifest before operating target books, broker replay, and data readiness.
+- files:
+  - `tools/run_full_rebuild_sidecars.py` ->adds `refresh_replay_price_cache()` and calls it before operating/official/research sidecars consume `cache_prices`.
+  - `.github/workflows/full_rebuild_manual.yml` ->includes `cache_prices/replay_price_cache_manifest.json` and `outputs/full_rebuild_logs/replay_price_cache_refresh.log` in artifacts and cloud-result copies.
+  - `tests/workflow_artifact_smoke.py` ->covers the new artifact paths and verifies price-cache refresh runs before operating target-book generation.
+- symbols_added:
+  - `refresh_replay_price_cache()` ->builds or refreshes the replay price cache from monthly books plus `scored_latest.csv`, always including `SPY` and `QQQ`, and writes the observed-bar manifest.
+- symbols_changed:
+  - `test_sidecar_promotion_hook_runs_before_primary_broker_replay()` ->now also asserts replay price-cache refresh precedes operating target-book generation.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cache_prices/replay_price_cache_manifest.json` ->now packaged as official run evidence.
+  - `outputs/full_rebuild_logs/replay_price_cache_refresh.log` ->new sidecar log.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_full_rebuild_sidecars.py tools\build_replay_price_cache.py tests\workflow_artifact_smoke.py` ->PASS.
+- risks_or_notes:
+  - This is the recovery-side companion to the missing-manifest blocker: production sidecars now try to create the manifest before readiness evaluates it.
+
 ### 22:25 KST - target-book-drift-audit-and-price-manifest-end-blocker
 
 - scope: Explain the full rebuild performance regression against the latest broker replay baseline and prevent unverifiable price-cache freshness from passing data readiness.

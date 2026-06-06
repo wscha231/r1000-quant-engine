@@ -74,6 +74,23 @@ build_sec_enriched_candidate_book() {
   fi
 }
 
+refresh_replay_price_cache() {
+  echo "[price-cache] refreshing replay price cache and observed-bar manifest"
+  mkdir -p outputs/full_rebuild_logs
+  local books=()
+  if [ -s outputs/reports/main_monthly_weights.csv ]; then
+    books+=(outputs/reports/main_monthly_weights.csv)
+  fi
+  if [ -s outputs/reports/concentrated_strategy_holdings.csv ]; then
+    books+=(outputs/reports/concentrated_strategy_holdings.csv)
+  fi
+  if [ "${#books[@]}" -eq 0 ]; then
+    echo "[price-cache] no monthly books available; cannot refresh replay price cache manifest" | tee outputs/full_rebuild_logs/replay_price_cache_refresh.log
+    return 0
+  fi
+  python tools/build_replay_price_cache.py --books "${books[@]}" --scored outputs/scored_latest.csv --output-dir cache_prices --required-tickers SPY QQQ --refresh-stale-days 2 2>&1 | tee outputs/full_rebuild_logs/replay_price_cache_refresh.log
+}
+
 run_alphaops_vnext_production() {
   if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
     echo "[alphaops-vnext] replacing operating target books before broker replay"
@@ -100,6 +117,7 @@ if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
   exit 0
 fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
+  refresh_replay_price_cache
   python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
   run_alphaops_vnext_production
   run_sidecar_promotion_hook
@@ -164,6 +182,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
   exit 0
 fi
+refresh_replay_price_cache
 python tools/run_main_v2_backtest.py --latest-run outputs --output-dir outputs/main_v2_backtest 2>&1 | tee outputs/full_rebuild_logs/main_v2_backtest.log || true
 python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay --price-cache cache_prices --run-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
 python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true

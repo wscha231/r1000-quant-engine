@@ -518,6 +518,7 @@ jobs:
             outputs/reports/operating_target_books_*
             outputs/reports/candidate_replay_book.csv
             outputs/reports/dataset_coverage_audit.*
+            cache_prices/replay_price_cache_manifest.json
             outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
@@ -532,6 +533,7 @@ jobs:
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
             outputs/full_rebuild_logs/metric_hygiene_report.log
+            outputs/full_rebuild_logs/replay_price_cache_refresh.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -564,6 +566,7 @@ jobs:
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/reports/candidate_replay_book.csv
+            cache_prices/replay_price_cache_manifest.json
             outputs/baseline_lock/
             outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
             outputs/sec_enriched_candidate_replay/summary.json
@@ -626,6 +629,7 @@ jobs:
             outputs/reports/regime_by_month.csv
             outputs/reports/sleeve_returns_by_month.csv
             outputs/reports/candidate_replay_book.csv
+            cache_prices/replay_price_cache_manifest.json
             outputs/sec_enriched_candidate_replay/
             outputs/reports/leader_drop_diagnostics_*.csv
             outputs/reports/leader_drop_diagnostics_summary.json
@@ -1110,6 +1114,8 @@ jobs:
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
+            mkdir -p "$DEST/manifests"
+            cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
             mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
             for file in metrics.json account_state_latest.json positions_latest.csv trades.csv cash_ledger.csv equity_curve.csv target_vs_actual_weights.csv; do
               cp "outputs/broker_replay/main/$file" "$DEST/broker_replay/main/" 2>/dev/null || true
@@ -1162,6 +1168,8 @@ jobs:
           cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/" 2>/dev/null || true
+          mkdir -p "$DEST/manifests"
+          cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
           copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
           copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
