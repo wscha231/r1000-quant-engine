@@ -5,6 +5,37 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 18:23 KST - write-observed-price-manifest-end
+
+- scope: Stop replay price-cache generation from writing future request dates as manifest end dates.
+- files:
+  - `tools/build_replay_price_cache.py` ->writes manifest `end` from actual cached bar dates and preserves provider request bounds as `requested_start` and `requested_end`.
+  - `tests/replay_price_cache_smoke.py` ->covers that future provider request end dates do not become manifest end dates.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->documents that price manifest end dates must come from observed cached bars.
+  - `CLAUDE.md` ->records the observed-bar manifest rule for future agents.
+  - `CHANGELOG.md` ->records the generator-side fix.
+- symbols_added:
+  - `cached_date_range(output_dir, tickers)` ->returns the observed cached price date range and cached ticker count for a requested ticker set.
+- symbols_changed:
+  - `run(args)` ->separates requested download bounds from the manifest's observed cached-bar `start` and `end`.
+  - `test_replay_price_cache_marks_stale_existing_tickers()` ->asserts observed manifest end, requested end, cached ticker count, and manifest end source.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cache_prices/replay_price_cache_manifest.json::end` ->now reports the latest observed cached bar date.
+  - `cache_prices/replay_price_cache_manifest.json::requested_end` ->new field preserving the provider request end date.
+  - `cache_prices/replay_price_cache_manifest.json::manifest_end_source` ->new field documenting observed-bar source.
+- validation:
+  - `py -3 -m py_compile tools\build_replay_price_cache.py tests\replay_price_cache_smoke.py tools\audit_data_readiness.py tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\replay_price_cache_smoke.py` ->PASS.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `git diff --check` ->PASS with LF-to-CRLF warnings only.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.
+- risks_or_notes:
+  - This is the generator-side companion to the data readiness blocker from run `27058254541`.
+
 ### 17:58 KST - block-future-price-manifests
 
 - scope: Prevent data readiness from passing when replay price manifests report dates after the audit date.

@@ -153,6 +153,28 @@ def cached_max_date(output_dir: Path, ticker: str) -> pd.Timestamp | None:
     return pd.Timestamp(idx.max()).tz_localize(None).normalize()
 
 
+def cached_date_range(output_dir: Path, tickers: set[str]) -> tuple[pd.Timestamp | None, pd.Timestamp | None, int]:
+    dates: list[pd.Timestamp] = []
+    for ticker in sorted(tickers):
+        path = output_dir / px_cache_name(ticker)
+        if not path.exists():
+            continue
+        try:
+            frame = pd.read_parquet(path)
+        except Exception:
+            continue
+        if frame.empty:
+            continue
+        idx = pd.to_datetime(frame.index, errors="coerce").dropna()
+        if idx.empty:
+            continue
+        dates.append(pd.Timestamp(idx.min()).tz_localize(None).normalize())
+        dates.append(pd.Timestamp(idx.max()).tz_localize(None).normalize())
+    if not dates:
+        return None, None, 0
+    return min(dates), max(dates), len(dates) // 2
+
+
 def stale_cache_tickers(
     output_dir: Path,
     tickers: set[str],
@@ -267,17 +289,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "stale_before": len(stale),
         "refresh_stale_days": int(args.refresh_stale_days),
         "download_target_count": len(download_targets),
-        "start": start_dt.date().isoformat(),
-        "end": end_dt.date().isoformat(),
+        "requested_start": start_dt.date().isoformat(),
+        "requested_end": end_dt.date().isoformat(),
         "output_dir": str(output_dir),
     }
     if args.dry_run or not download_targets:
         result.update({"downloaded": 0, "failed_count": 0, "failed": [], "status": "dry_run" if args.dry_run else "already_cached"})
     else:
-        download_result = download_prices(download_targets, result["start"], result["end"], output_dir, args.batch_size)
+        download_result = download_prices(download_targets, result["requested_start"], result["requested_end"], output_dir, args.batch_size)
         result.update(download_result)
         result["status"] = "completed"
     result["existing_cache_count_after"] = existing_cache_count(output_dir, set(tickers))
+    actual_start, actual_end, actual_ticker_count = cached_date_range(output_dir, set(tickers))
+    result["start"] = actual_start.date().isoformat() if actual_start is not None else result["requested_start"]
+    result["end"] = actual_end.date().isoformat() if actual_end is not None else ""
+    result["actual_cached_ticker_count"] = int(actual_ticker_count)
+    result["manifest_end_source"] = "actual_cached_bars" if actual_end is not None else "missing_cache"
     manifest = output_dir / "replay_price_cache_manifest.json"
     manifest.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result

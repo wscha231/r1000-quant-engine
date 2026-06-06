@@ -65,6 +65,10 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
         assert payload["missing_before"] == 1
         assert payload["stale_before"] == 1
         assert payload["download_target_count"] == 2
+        assert payload["requested_end"] > payload["end"]
+        assert payload["end"] == pd.Timestamp.utcnow().date().isoformat()
+        assert payload["actual_cached_ticker_count"] == 2
+        assert payload["manifest_end_source"] == "actual_cached_bars"
 
 
 def test_replay_price_cache_always_includes_required_tickers() -> None:

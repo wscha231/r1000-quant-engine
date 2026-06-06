@@ -199,6 +199,8 @@ Required audit dimensions:
   - split/dividend adjustments are internally consistent
   - stale bars, missing next-close fills, and max fill lag are counted
   - replay price manifests must never report an end date after the audit date
+  - replay price manifest `end` must come from actual cached bars, not the
+    provider request end date
   - SPY and QQQ are always present for regime and broker replay windows
 - Macro:
   - daily market stress features are available through the latest trading date
