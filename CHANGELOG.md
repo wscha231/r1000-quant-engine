@@ -282,9 +282,11 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 tests\data_readiness_smoke.py` ->PASS.
   - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
   - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.
+  - `gh workflow run data_readiness_preflight.yml --ref codex/alphaops-integrated-replay -f latest_run=cloud_results/full_rebuild/latest_global_alpha_universe -f strict=false` ->PASS; run `27054390871` succeeded on commit `0e1019683f5b5621094f6c7985f45fab4aa2baa9`.
 - risks_or_notes:
   - Data Readiness Preflight run `27053808633` on commit `64d970ac5989673bef1012a7e073faed2b833455` exposed the prior weakness: `ready_for_fullrun=true` while `sec_evidence_store.any_available=false` and `sec_smart_money` feature coverage was missing for both operating books.
-  - This is a data gate and workflow-restore change, not a target-book behavior change; rerun data preflight on the new commit before any full rebuild decision.
+  - Data Readiness Preflight run `27054390871` restored companyfacts, prices, macro, Form4, 13F, and ETF stores, then correctly set `ready_for_policy_replay=false` because the default `cloud_results/full_rebuild/latest_global_alpha_universe` operating books are missing `sec_smart_money` feature columns.
+  - This is a data gate and workflow-restore change, not a target-book behavior change; next work is to rebuild operating target books from the SEC-enriched candidate replay before policy target decisions.
 
 ### 11:20 KST - block-main-balanced-bull-qqq-damage-leaders
 

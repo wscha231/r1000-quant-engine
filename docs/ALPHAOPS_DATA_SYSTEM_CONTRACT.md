@@ -103,6 +103,15 @@ Current blocker:
   companyfacts refresh. Before judging a new full rebuild, run
   `data_readiness_preflight.yml` or a new full rebuild after Drive restore and
   verify `ready_for_fullrun=true`.
+- Data Readiness Preflight run `27054390871` on commit
+  `0e1019683f5b5621094f6c7985f45fab4aa2baa9` restored companyfacts, price,
+  macro, Form4, 13F, and ETF stores, but correctly reported
+  `ready_for_policy_replay=false` for the default
+  `cloud_results/full_rebuild/latest_global_alpha_universe` snapshot because
+  both operating target books lacked `sec_smart_money` feature columns. Do not
+  use that snapshot for policy target decisions until operating books are
+  rebuilt from the SEC-enriched candidate replay or the missing evidence is
+  explicitly neutralized.
 
 ## Storage Contract
 
