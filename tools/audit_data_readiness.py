@@ -672,6 +672,9 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         blockers.append(companyfacts_blocker)
     if not macro.get("any_available"):
         blockers.append("macro data was not found in data_raw/free/macro, data_pit/macro, cache_macro, or latest-run outputs")
+    if not sec_evidence_store.get("any_available"):
+        blockers.append("SEC/Form4/13F/ETF PIT evidence store was not found in data_pit or latest-run outputs")
+        next_actions.append("Restore data_pit/sec, data_pit/etf_holdings, and SEC-enriched candidate outputs from Google Drive before a production fullrun or policy replay.")
 
     if int(scored.get("row_count") or 0) < int(args.min_scored_rows):
         blockers.append(f"scored_latest.csv row count is below threshold: {scored.get('row_count')}")
@@ -716,10 +719,20 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         warnings.append(
             f"feature source coverage found {future_available_from_rows} target-book rows with available_from after rebalance_date"
         )
+    missing_feature_groups = (feature_source_coverage.get("overall") or {}).get("missing_feature_groups_by_portfolio") or {}
+    missing_sec_smart_money = list(missing_feature_groups.get("sec_smart_money") or [])
+    if missing_sec_smart_money:
+        portfolios = ",".join(sorted(str(item) for item in missing_sec_smart_money))
+        warnings.append(f"operating target books are missing sec_smart_money feature columns for portfolios: {portfolios}")
+        next_actions.append("Build operating target books from the SEC-enriched candidate replay so Form4/13F/ETF/smart-money evidence is present or explicitly neutralized.")
 
     policy_replay_blockers = list(blockers)
     if sec_evidence_store.get("any_available") and companyfacts_blocker in policy_replay_blockers:
         policy_replay_blockers.remove(companyfacts_blocker)
+    if sec_evidence_store.get("any_available") and missing_sec_smart_money:
+        policy_replay_blockers.append(
+            "SEC evidence store exists but operating target books are missing sec_smart_money feature columns"
+        )
     ready_for_fullrun = not blockers
     ready_for_policy_replay = not policy_replay_blockers and price_file_count >= int(args.min_price_files)
     status = "ready" if ready_for_fullrun and not warnings else ("blocked" if blockers else "warn")

@@ -53,6 +53,9 @@ jobs:
             cache_prices
             data_raw/free
             data_pit/free
+            data_pit/sec
+            data_pit/etf_holdings
+            data_pit/macro
             manifests/free_data
           key: collector-cache-${{ runner.os }}-${{ github.ref_name }}-preflight-${{ github.run_id }}
           restore-keys: |
@@ -121,6 +124,9 @@ jobs:
           restore_dir cache_prices cache_prices
           restore_dir data_raw/free data_raw/free
           restore_dir data_pit/free data_pit/free
+          restore_dir data_pit/sec data_pit/sec
+          restore_dir data_pit/etf_holdings data_pit/etf_holdings
+          restore_dir data_pit/macro data_pit/macro
           restore_dir manifests/free_data manifests/free_data
           restore_requested_latest_run "$LATEST_RUN_INPUT"
           mkdir -p data_raw/free/sec

@@ -21,6 +21,16 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def write_pit_evidence_store(root: Path) -> None:
+    sec = root / "data_pit" / "sec"
+    etf = root / "data_pit" / "etf_holdings"
+    sec.mkdir(parents=True, exist_ok=True)
+    etf.mkdir(parents=True, exist_ok=True)
+    (sec / "form4_transactions.parquet").write_bytes(b"pit")
+    (sec / "institutional_13f_holdings.parquet").write_bytes(b"pit")
+    (etf / "etf_holdings.parquet").write_bytes(b"pit")
+
+
 def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -42,6 +52,7 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
         (free / "sec" / "companyfacts.zip").write_bytes(b"zip")
         (root / "data_pit" / "macro").mkdir(parents=True)
         (root / "data_pit" / "macro" / "long_crisis_daily_features.parquet").write_bytes(b"macro")
+        write_pit_evidence_store(root)
         write_json(pit / "coverage_audit.json", {"readiness": "ready_for_proxy_replay", "pit_label": "pit_proxy_universe", "known_gaps": []})
         write_json(manifests / "latest_manifest.json", {"status": "completed", "generated_at_utc": "2026-05-12T00:00:00Z"})
         pd.DataFrame({"ticker": ["AAA", "BBB"], "feature_date": ["2026-05-11", "2026-05-11"], "score": [1, 2]}).to_csv(
@@ -57,10 +68,10 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
         pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0]}).to_csv(
             reports / "concentrated_strategy_holdings.csv", index=False
         )
-        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0]}).to_csv(
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
             reports / "operating_main_target_book.csv", index=False
         )
-        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0]}).to_csv(
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
             reports / "operating_concentrated_target_book.csv", index=False
         )
         write_json(latest / "target_snapshots" / "latest_manifest.json", {"snapshot_date": "2026-05-11"})
@@ -105,6 +116,7 @@ def test_data_readiness_reports_feature_source_coverage_and_pit_dates() -> None:
         (free / "sec" / "companyfacts.zip").write_bytes(b"zip")
         (root / "data_pit" / "macro").mkdir(parents=True)
         (root / "data_pit" / "macro" / "long_crisis_daily_features.parquet").write_bytes(b"macro")
+        write_pit_evidence_store(root)
         write_json(pit / "coverage_audit.json", {"readiness": "ready_for_proxy_replay", "pit_label": "pit_proxy_universe", "known_gaps": []})
         write_json(manifests / "latest_manifest.json", {"status": "completed", "generated_at_utc": "2026-05-31T00:00:00Z"})
         pd.DataFrame({"ticker": ["AAA", "BBB"], "feature_date": ["2026-05-31", "2026-05-31"], "score": [1, 2]}).to_csv(
@@ -196,6 +208,7 @@ def test_data_readiness_caps_target_freshness_to_observable_close() -> None:
         (free / "sec" / "companyfacts.zip").write_bytes(b"zip")
         (root / "data_pit" / "macro").mkdir(parents=True)
         (root / "data_pit" / "macro" / "long_crisis_daily_features.parquet").write_bytes(b"macro")
+        write_pit_evidence_store(root)
         write_json(pit / "coverage_audit.json", {"readiness": "ready_for_proxy_replay", "pit_label": "pit_proxy_universe", "known_gaps": []})
         write_json(manifests / "latest_manifest.json", {"status": "completed", "generated_at_utc": "2026-05-12T00:00:00Z"})
         pd.DataFrame({"ticker": ["AAA", "BBB"], "feature_date": ["2026-05-12", "2026-05-12"], "score": [1, 2]}).to_csv(
@@ -205,10 +218,10 @@ def test_data_readiness_caps_target_freshness_to_observable_close() -> None:
         pd.DataFrame({"ticker": ["BBB"], "weight": [1.0], "feature_date": ["2026-05-12"]}).to_csv(
             latest / "concentrated_portfolio_latest.csv", index=False
         )
-        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0]}).to_csv(
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
             reports / "operating_main_target_book.csv", index=False
         )
-        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0]}).to_csv(
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
             reports / "operating_concentrated_target_book.csv", index=False
         )
         write_json(
@@ -266,6 +279,7 @@ def test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfact
         (pit / "sec" / "institutional_13f_holdings.parquet").write_bytes(b"pit")
         (pit / "macro").mkdir(parents=True)
         (pit / "macro" / "long_crisis_daily_features.parquet").write_bytes(b"macro")
+        write_pit_evidence_store(root)
         write_json(root / "data_pit" / "free" / "coverage_audit.json", {"readiness": "ready_for_proxy_replay", "known_gaps": []})
         write_json(manifests / "latest_manifest.json", {"status": "completed", "generated_at_utc": "2026-05-12T00:00:00Z"})
         pd.DataFrame({"ticker": ["AAA", "BBB"], "feature_date": ["2026-05-11", "2026-05-11"], "score": [1, 2]}).to_csv(
@@ -275,10 +289,10 @@ def test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfact
         pd.DataFrame({"ticker": ["BBB"], "weight": [1.0], "feature_date": ["2026-05-11"]}).to_csv(
             latest / "concentrated_portfolio_latest.csv", index=False
         )
-        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0]}).to_csv(
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
             reports / "operating_main_target_book.csv", index=False
         )
-        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0]}).to_csv(
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0], "smart_money_score": [0.0]}).to_csv(
             reports / "operating_concentrated_target_book.csv", index=False
         )
         write_json(latest / "target_snapshots" / "latest_manifest.json", {"snapshot_date": "2026-05-11"})
