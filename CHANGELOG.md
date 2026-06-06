@@ -5,6 +5,36 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 17:58 KST - block-future-price-manifests
+
+- scope: Prevent data readiness from passing when replay price manifests report dates after the audit date.
+- files:
+  - `tools/audit_data_readiness.py` ->adds a blocker and next action when the selected price manifest end date is future-dated.
+  - `tests/data_readiness_smoke.py` ->covers a future-dated price manifest that must block fullrun and policy replay readiness.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->documents that replay price manifests must not extend past the audit date.
+  - `CLAUDE.md` ->adds the future-dated price manifest rule for future agents.
+  - `CHANGELOG.md` ->records the data integrity blocker.
+- symbols_added:
+  - `test_data_readiness_blocks_future_price_manifest()` ->verifies that future price manifest ends block readiness.
+- symbols_changed:
+  - `build_payload(args)` ->blocks fullrun and policy replay readiness when the selected price manifest end date is after the audit date.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/data_readiness/summary.json::blockers` ->future-dated price manifests now produce a blocker.
+  - `outputs/data_readiness/summary.json::next_actions` ->reports that the replay price cache must be rebuilt from observed bars.
+- validation:
+  - `py -3 -m py_compile tools\audit_data_readiness.py tests\data_readiness_smoke.py tools\run_portfolio_system_guard.py tests\portfolio_system_guard_smoke.py tests\workflow_artifact_smoke.py` ->PASS.
+  - `git diff --check` ->PASS with LF-to-CRLF warnings only.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 67/67.
+- risks_or_notes:
+  - This was motivated by Data Readiness Preflight run `27057789182`, which restored canonical SEC companyfacts and PIT evidence but reported `selected_manifest_end=2026-06-08` during a 2026-06-06 audit.
+
 ### 17:36 KST - refresh-data-contract-baseline
 
 - scope: Align the AlphaOps data contract with the latest verified broker replay and make full rebuild data freshness/guard status easier to audit.

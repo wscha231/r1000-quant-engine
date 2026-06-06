@@ -198,6 +198,7 @@ Required audit dimensions:
   - adjusted OHLCV exists for every selected ticker through every broker exit
   - split/dividend adjustments are internally consistent
   - stale bars, missing next-close fills, and max fill lag are counted
+  - replay price manifests must never report an end date after the audit date
   - SPY and QQQ are always present for regime and broker replay windows
 - Macro:
   - daily market stress features are available through the latest trading date

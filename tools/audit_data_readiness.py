@@ -667,9 +667,14 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     if price_file_count < int(args.min_price_files):
         warnings.append(f"price cache has only {price_file_count} parquet files; collector or Drive restore is required before skip_collector runs")
         next_actions.append("Restore/cache price parquet files from Google Drive or run tools/build_replay_price_cache.py before replay.")
-    manifest_age = days_old(prices.get("selected_manifest_end"))
-    if manifest_age is None:
+    audit_date = datetime.now(timezone.utc).date()
+    manifest_end = parse_date(prices.get("selected_manifest_end"))
+    manifest_age = days_old(prices.get("selected_manifest_end"), today=audit_date)
+    if manifest_end is None:
         warnings.append("price cache manifest end date is missing")
+    elif manifest_end > audit_date:
+        blockers.append(f"price cache manifest end date {manifest_end.isoformat()} is after audit date {audit_date.isoformat()}")
+        next_actions.append("Rebuild the replay price cache from actual observed bars; do not trust future-dated price manifests.")
     elif manifest_age > int(args.max_stale_days):
         warnings.append(f"price cache manifest is stale by {manifest_age} calendar days")
         next_actions.append("Run free_data_daily_update or a collector refresh after the latest market close.")
