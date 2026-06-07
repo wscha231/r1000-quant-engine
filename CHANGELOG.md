@@ -5,6 +5,40 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 10:28 KST - exempt-high-conviction-post-mdd-leaders-from-cagr-drag-caps
+
+- scope: Recover broker-ledger CAGR without weakening broad drawdown defenses by exempting only high-conviction stable leaders from two existing cap rules.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds high-conviction stable-leader exemptions to the main high-volatility MARKET_LEADER NEW-entry cap and concentrated unconfirmed quality-bull NEW-entry cap.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers both exemptions while preserving ordinary cap behavior.
+  - `CHANGELOG.md` ->records the artifact-backed CAGR recovery hypothesis.
+- symbols_added:
+  - `MAIN_HIGH_VOL_EXEMPT_SCORE_THRESHOLD` ->minimum AlphaOps score for the main high-vol exemption.
+  - `MAIN_HIGH_VOL_EXEMPT_SEC_THRESHOLD` ->minimum SEC evidence score for the main high-vol exemption.
+  - `MAIN_HIGH_VOL_EXEMPT_ATR_MAX` ->maximum ATR for the main stable-leader exemption.
+  - `MAIN_HIGH_VOL_EXEMPT_RS_1M_MIN` ->minimum one-month benchmark-relative strength for the main stable-leader exemption.
+  - `CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_SCORE_THRESHOLD` ->minimum AlphaOps score for the concentrated quality-bull exemption.
+  - `CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_SEC_THRESHOLD` ->minimum SEC evidence score for the concentrated quality-bull exemption.
+  - `CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_ATR_MAX` ->maximum ATR for the concentrated stable-leader exemption.
+  - `CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_RS_1M_MIN` ->minimum one-month benchmark-relative strength for the concentrated stable-leader exemption.
+- symbols_changed:
+  - `apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)` ->keeps the 8% cap unless a GREEN quality-compounder MARKET_LEADER NEW row has strong score, SEC evidence, stable ATR, and strong one-month RS.
+  - `apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)` ->keeps the 3% cap unless the low-confirmation quality-bull NEW row has strong score, SEC evidence, stable ATR, and strong one-month RS.
+- config_fields_added:
+  - `main_high_vol_new_entry_cap_status=exempt_high_conviction_stable_leader` ->audit marker for main rows spared by the exemption.
+  - `concentrated_unconfirmed_quality_bull_new_entry_cap_status=exempt_high_conviction_stable_leader` ->audit marker for concentrated rows spared by the exemption.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should exempt qualifying SMCI/ALAB-style rows instead of capping them to 8%.
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should exempt qualifying WDC-style rows instead of capping them to 3%.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
+  - `py -3 tools\run_pr_validation.py --quiet` ->pass, 68/68 tests.
+- risks_or_notes:
+  - Latest verified broker replay `27078384953` still missed main by CAGR `1.9163pp` and MDD `1.7665pp`, and concentrated by CAGR `2.9761pp` while passing MDD. Reconstructed pre-cap proxy on the latest `2026-06-05` target books matched only main SMCI `2024-01-31`, main ALAB `2025-07-31`, and concentrated WDC `2025-07-31`, with proxy deltas `+0.05294` main and `+0.01002` concentrated. These rows are post-MDD and should primarily address cash/CAGR drag; official broker fast replay remains required before keeping the change.
+
 ### 09:48 KST - revert-main-watch-hold-cap
 
 - scope: Revert the attempted extension of the main WATCH low-confirmation MARKET_LEADER cap from NEW rows to HOLD rows.

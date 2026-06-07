@@ -389,6 +389,22 @@ def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
             "atr14_pct": 0.04,
             "selection_reason": "MARKET_LEADER",
         },
+        {
+            "ticker": "EXEMPT",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.07,
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "quality_compounder",
+            "selection_confirmation_score": 1.0,
+            "alphaops_vnext_score": 4.90,
+            "sec_combined_evidence_score": 0.25,
+            "rs_benchmark_1m": 0.50,
+            "selection_reason": "MARKET_LEADER",
+        },
     ]
     capped = apply_main_high_volatility_new_entry_cap(selected, "main")
     by_ticker = {row["ticker"]: row for row in capped}
@@ -398,6 +414,8 @@ def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
     assert by_ticker["KEEP"]["weight"] == 0.12
     assert by_ticker["QUALITY"]["weight"] == 0.12
     assert by_ticker["LOWVOL"]["weight"] == 0.12
+    assert by_ticker["EXEMPT"]["weight"] == 0.12
+    assert by_ticker["EXEMPT"]["main_high_vol_new_entry_cap_status"] == "exempt_high_conviction_stable_leader"
     concentrated = apply_main_high_volatility_new_entry_cap(selected, "concentrated")
     assert concentrated[0]["weight"] == 0.12
 
@@ -1349,6 +1367,22 @@ def test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only()
             "primary_lane": "MARKET_LEADER",
             "selection_reason": "MARKET_LEADER",
         },
+        {
+            "ticker": "EXEMPT",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "bull",
+            "selection_confirmation_score": 0.24,
+            "primary_lane": "MARKET_LEADER",
+            "alphaops_vnext_score": 4.95,
+            "sec_combined_evidence_score": 0.21,
+            "atr14_pct": 0.025,
+            "rs_benchmark_1m": 0.21,
+            "selection_reason": "MARKET_LEADER",
+        },
     ]
     capped = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(selected, "concentrated")
     by_ticker = {row["ticker"]: row for row in capped}
@@ -1359,6 +1393,10 @@ def test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only()
     assert by_ticker["NEUTRAL"]["weight"] == 0.30
     assert by_ticker["BALANCED"]["weight"] == 0.30
     assert by_ticker["HOLD"]["weight"] == 0.30
+    assert by_ticker["EXEMPT"]["weight"] == 0.30
+    assert by_ticker["EXEMPT"]["concentrated_unconfirmed_quality_bull_new_entry_cap_status"] == (
+        "exempt_high_conviction_stable_leader"
+    )
     main = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(selected, "main")
     assert main[0]["weight"] == 0.30
 

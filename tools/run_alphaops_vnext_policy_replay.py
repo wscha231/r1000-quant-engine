@@ -88,6 +88,10 @@ CONCENTRATED_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP = 0.12
 CONCENTRATED_UNCONFIRMED_HIGH_VOL_ATR_THRESHOLD = 0.06
 CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP = 0.03
 CONCENTRATED_UNCONFIRMED_QUALITY_BULL_CONFIRMATION_THRESHOLD = 0.50
+CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_SCORE_THRESHOLD = 4.90
+CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_SEC_THRESHOLD = 0.20
+CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_ATR_MAX = 0.03
+CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_RS_1M_MIN = 0.20
 CONCENTRATED_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
 CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CAP = 0.08
@@ -116,6 +120,10 @@ CONCENTRATED_DEFENSE_NEUTRAL_QUALITY_NEW_ENTRY_CAP = 0.12
 MAIN_HIGH_VOL_NEW_ENTRY_CAP = 0.08
 MAIN_HIGH_VOL_NEW_ENTRY_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_LANES = {"MARKET_LEADER"}
+MAIN_HIGH_VOL_EXEMPT_SCORE_THRESHOLD = 4.80
+MAIN_HIGH_VOL_EXEMPT_SEC_THRESHOLD = 0.20
+MAIN_HIGH_VOL_EXEMPT_ATR_MAX = 0.08
+MAIN_HIGH_VOL_EXEMPT_RS_1M_MIN = 0.45
 MAIN_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.04
 MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
@@ -618,13 +626,29 @@ def apply_main_high_volatility_new_entry_cap(
         is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
         weight = safe_float(item.get("weight"))
         atr14 = safe_float(item.get("atr14_pct"))
-        if (
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        style_regime = str(item.get("market_style_regime_label") or "")
+        confirmation = safe_float(item.get("selection_confirmation_score"), 0.0)
+        score = max(safe_float(item.get("alphaops_vnext_score")), safe_float(item.get("score")))
+        sec_evidence = safe_float(item.get("sec_combined_evidence_score"))
+        rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), -1.0)
+        high_conviction_stable_leader = (
+            crisis_state == "GREEN"
+            and style_regime == "quality_compounder"
+            and confirmation >= 1.0
+            and score >= MAIN_HIGH_VOL_EXEMPT_SCORE_THRESHOLD
+            and sec_evidence >= MAIN_HIGH_VOL_EXEMPT_SEC_THRESHOLD
+            and atr14 <= MAIN_HIGH_VOL_EXEMPT_ATR_MAX
+            and rs_benchmark_1m >= MAIN_HIGH_VOL_EXEMPT_RS_1M_MIN
+        )
+        should_cap = (
             ticker not in CASH_TICKERS
             and lane in MAIN_HIGH_VOL_NEW_ENTRY_LANES
             and is_new_entry
             and atr14 >= MAIN_HIGH_VOL_NEW_ENTRY_ATR_THRESHOLD
             and weight > MAIN_HIGH_VOL_NEW_ENTRY_CAP
-        ):
+        )
+        if should_cap and not high_conviction_stable_leader:
             item["pre_main_high_vol_new_entry_cap_weight"] = weight
             item["weight"] = MAIN_HIGH_VOL_NEW_ENTRY_CAP
             item["target_weight"] = MAIN_HIGH_VOL_NEW_ENTRY_CAP
@@ -634,6 +658,8 @@ def apply_main_high_volatility_new_entry_cap(
                 str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
                 + "|main_high_vol_new_entry_cap"
             )
+        elif should_cap and high_conviction_stable_leader:
+            item["main_high_vol_new_entry_cap_status"] = "exempt_high_conviction_stable_leader"
         else:
             item["main_high_vol_new_entry_cap_status"] = "not_applicable"
         capped.append(item)
@@ -1457,14 +1483,25 @@ def apply_concentrated_unconfirmed_quality_bull_new_entry_cap(
         capacity_regime = str(item.get("regime_capacity_regime") or item.get("regime_state") or "")
         confirmation = safe_float(item.get("selection_confirmation_score"), 1.0)
         weight = safe_float(item.get("weight"))
-        if (
+        score = max(safe_float(item.get("alphaops_vnext_score")), safe_float(item.get("score")))
+        sec_evidence = safe_float(item.get("sec_combined_evidence_score"))
+        atr14 = safe_float(item.get("atr14_pct"), 999.0)
+        rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), -1.0)
+        high_conviction_stable_leader = (
+            score >= CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_SCORE_THRESHOLD
+            and sec_evidence >= CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_SEC_THRESHOLD
+            and atr14 <= CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_ATR_MAX
+            and rs_benchmark_1m >= CONCENTRATED_UNCONFIRMED_QUALITY_BULL_EXEMPT_RS_1M_MIN
+        )
+        should_cap = (
             ticker not in CASH_TICKERS
             and is_new_entry
             and style_regime == "quality_compounder"
             and capacity_regime == "bull"
             and confirmation < CONCENTRATED_UNCONFIRMED_QUALITY_BULL_CONFIRMATION_THRESHOLD
             and weight > CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP
-        ):
+        )
+        if should_cap and not high_conviction_stable_leader:
             item["pre_concentrated_unconfirmed_quality_bull_new_entry_cap_weight"] = weight
             item["weight"] = CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP
             item["target_weight"] = CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP
@@ -1473,6 +1510,10 @@ def apply_concentrated_unconfirmed_quality_bull_new_entry_cap(
             item["selection_reason"] = (
                 str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
                 + "|concentrated_unconfirmed_quality_bull_new_entry_cap"
+            )
+        elif should_cap and high_conviction_stable_leader:
+            item["concentrated_unconfirmed_quality_bull_new_entry_cap_status"] = (
+                "exempt_high_conviction_stable_leader"
             )
         else:
             item["concentrated_unconfirmed_quality_bull_new_entry_cap_status"] = "not_applicable"
