@@ -177,6 +177,10 @@ Minimum expected freshness:
   - do not download the 1GB+ archive in every scheduled daily run
   - use the explicit `sec_companyfacts=true` workflow input when readiness
     reports `data_raw/free/sec/companyfacts.zip` missing
+  - for a readiness-only recovery, dispatch `data_readiness_preflight.yml`
+    with `sec_companyfacts=true`; it refreshes
+    `data_raw/free/sec/companyfacts.zip`, reruns the audit, and syncs the
+    archive back to Drive canonical paths without spending a full rebuild
   - after refresh, preserve the archive at
     `data_raw/free/sec/companyfacts.zip` so readiness audits and future agents
     share one canonical path
@@ -335,9 +339,9 @@ When resuming AlphaOps work, agents must follow this order:
    current holdings, and target-book changes.
 5. Prefer fast replay for policy-only changes. Use full rebuild only when
    collectors, feature generation, universe construction, or schemas change.
-6. If full rebuild readiness is blocked only by missing companyfacts, refresh
-   `data_raw/free/sec/companyfacts.zip` through the data workflow before
-   spending another full rebuild run.
+6. If full rebuild readiness is blocked only by missing companyfacts, dispatch
+   `data_readiness_preflight.yml` with `sec_companyfacts=true` or run the free
+   data workflow with the same input before spending another full rebuild run.
 7. Keep large data in Drive/object storage and commit only code, docs, tests,
    and small manifests.
 8. Update `CHANGELOG.md` in the same commit as any material pipeline or data

@@ -5,6 +5,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 13:35 KST - add-companyfacts-recovery-to-data-readiness-preflight
+
+- scope: Let the lightweight data readiness preflight repair the canonical SEC companyfacts blocker without spending a full rebuild.
+- files:
+  - `.github/workflows/data_readiness_preflight.yml` ->adds manual `sec_companyfacts` and `sec_max_age_days` inputs, refreshes `data_raw/free/sec/companyfacts.zip` when requested, uploads the refresh log, and syncs the refreshed archive to Drive canonical paths.
+  - `tests/workflow_artifact_smoke.py` ->requires the preflight workflow to expose the SEC refresh input, run `tools/refresh_companyfacts_bulk.py`, keep `sec_companyfacts_refresh.log`, and copy the refreshed archive back to Drive.
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->documents readiness-only companyfacts recovery before the next full rebuild.
+  - `CHANGELOG.md` ->records this data-system recovery path.
+- symbols_added:
+  - none
+- config_fields_added:
+  - `data_readiness_preflight.workflow_dispatch.sec_companyfacts: boolean = false` ->manual-only switch for refreshing the SEC bulk archive during readiness audit.
+  - `data_readiness_preflight.workflow_dispatch.sec_max_age_days: string = 3` ->freshness threshold used by the requested SEC refresh.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/full_rebuild_logs/sec_companyfacts_refresh.log` ->new preflight log when `sec_companyfacts=true`.
+  - `data_raw/free/sec/companyfacts.zip` ->refreshed canonical archive in the runner workspace and synced to Drive when credentials are configured.
+- validation:
+  - `py -3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.github/workflows/data_readiness_preflight.yml').read_text(encoding='utf-8')); print('yaml ok')"` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `git diff --check` ->PASS with LF-to-CRLF warnings only.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 68/68.
+- risks_or_notes:
+  - Latest verified replay `27081816650` has policy readiness true but fullrun readiness blocked only by missing canonical companyfacts. This patch does not change portfolio policy or broker metrics; it makes the next data maintenance run capable of clearing that blocker before another full rebuild.
+
 ### 13:10 KST - verify-main-neutral-churn-filter-fast-replay
 
 - scope: Record official fast replay evidence for the promoted main neutral-regime churn filter and mark the policy as kept.
