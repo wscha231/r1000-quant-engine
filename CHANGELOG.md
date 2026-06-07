@@ -5,6 +5,30 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 13:10 KST - verify-main-neutral-churn-filter-fast-replay
+
+- scope: Record official fast replay evidence for the promoted main neutral-regime churn filter and mark the policy as kept.
+- files:
+  - `CHANGELOG.md` ->records run `27081816650` evidence, target gaps, and next analysis focus.
+- symbols_added:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `alphaops-replay-sidecars-27076153505-27081816650` ->artifact `7460575162`, `84,290,354` bytes.
+  - `alphaops_vnext/main_neutral_churn_filter.json` ->completed, blocked `31` main neutral re-entries, removed `31` stock rows, dropped `1.9792781133071207` target weight into explicit CASH, rebuilt CASH rows, and left concentrated unchanged.
+  - `user_current/05_action_summary.md` ->current holdings display the official broker-rule backtest row using `broker_ledger_next_close`; action status remains `DO_NOT_TRADE`.
+- validation:
+  - `gh run view 27081816650 --repo wscha231/r1000-quant-engine --json databaseId,headSha,headBranch,status,conclusion,url,createdAt,updatedAt` ->PASS; run succeeded on head SHA `723957ec3c2acddeda0f50c33dfef0016b378f91`.
+  - `gh run download 27081816650 --repo wscha231/r1000-quant-engine -n alphaops-replay-sidecars-27076153505-27081816650 -D H:\codex\_tmp_replay_27081816650` ->PASS.
+  - artifact parse ->PASS; official broker main `33.6661%` CAGR / `-25.9314%` MDD / Sharpe `1.3194` / cash `29.9593%`, concentrated `48.0326%` CAGR / `-23.6471%` MDD / Sharpe `1.5612` / cash `45.4622%`.
+- risks_or_notes:
+  - Keep the main neutral churn filter: versus latest verified pre-promotion run `27080800380`, main improved from `33.5372%` CAGR / `-26.7020%` MDD / Sharpe `1.2916` / cash `27.6866%` to `33.6661%` CAGR / `-25.9314%` MDD / Sharpe `1.3194` / cash `29.9593%`; concentrated stayed unchanged at `48.0326%` CAGR / `-23.6471%` MDD.
+  - Targets still fail: main misses CAGR by `1.3339pp` and MDD by `0.9314pp`; concentrated passes MDD but misses CAGR by `1.9674pp`.
+  - Data readiness inside the replay artifact remains blocked for fullrun because no SEC companyfacts archive was found in canonical/root/latest-run paths, although policy replay readiness is true. Do not use this as a reason to rerun a policy-only fast replay; fix the canonical data path before the next full rebuild.
+
 ### 12:20 KST - promote-main-neutral-churn-filter-to-vnext-production
 
 - scope: Move the validated main neutral-regime churn filter from research sidecar into the AlphaOps vNext production target-book bridge to reduce broker-ledger Main MDD without broad cash throttling.
