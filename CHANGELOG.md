@@ -5,6 +5,39 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 15:30 KST - concentrated-green-benchmark-risk-cyclicals-replay-result
+
+- scope: Record official fast replay evidence for the concentrated GREEN benchmark-risk cyclical NEW-entry block.
+- run:
+  - GitHub Actions run `27084571192`
+  - head SHA `d20dac77a19469c470110dec5df43ad048cb950d`
+  - source full run `27076153505`
+  - artifact `7461440086`, `83,913,943` bytes
+- official_broker_metrics:
+  - main: `34.2907%` CAGR / `-25.5685%` MDD / Sharpe `1.3498` / avg cash `30.4130%`
+  - concentrated: `48.9101%` CAGR / `-22.0305%` MDD / Sharpe `1.5934` / avg cash `45.2350%`
+- delta_vs_run_27083544785:
+  - main: unchanged
+  - concentrated: CAGR `+0.4575pp`, MDD `+1.0778pp`, Sharpe `+0.0207`, avg cash `-0.4061pp`, broker trade count `-3`
+- policy_diagnostics:
+  - `alphaops_vnext/concentrated_green_benchmark_risk_cyclical_new_entry_block.json` status `completed`
+  - blocked concentrated rows: `MOS`, `BKR`, `SQM` on `2022-03-31`
+  - total dropped weight `16.20%`, rebuilt as explicit CASH
+- production_checks:
+  - `production_applied=true`
+  - `sidecar_only=false`
+  - `sidecar_applied_to_production=true`
+  - `current_holdings_source=alphaops_vnext_policy_target_book`
+  - `official_metric_mode=broker_ledger_next_close`
+  - `portfolio_system_guard hard_error_count=0`
+- decision:
+  - Keep this policy; it improved official concentrated CAGR, MDD, and Sharpe without changing main.
+- remaining_target_gap:
+  - main still misses by `0.7093pp` CAGR and `0.5685pp` MDD.
+  - concentrated MDD passes, but CAGR still misses by `1.0899pp`.
+- risks_or_notes:
+  - `data_readiness` remains blocked for full rebuild readiness because canonical `data_raw/free/sec/companyfacts.zip` is missing, but `ready_for_policy_replay=true`; do not treat this as a policy replay blocker.
+
 ### 14:55 KST - block-concentrated-green-benchmark-risk-cyclicals
 
 - scope: Add a concentrated-only PIT-safe filter for GREEN cyclical NEW entries where benchmark damage and volatility were already visible before losses.
