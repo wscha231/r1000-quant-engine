@@ -3,32 +3,33 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
-## 2026-06-06
+## 2026-06-07
 
-### 23:55 KST - extend-main-watch-low-confirm-leader-cap-to-holds
+### 09:48 KST - revert-main-watch-hold-cap
 
-- scope: Reduce the remaining main broker daily MDD gap by extending the WATCH low-confirmation market-leader cap from new entries to high-weight existing holdings.
+- scope: Revert the attempted extension of the main WATCH low-confirmation MARKET_LEADER cap from NEW rows to HOLD rows.
 - files:
-  - `tools/run_alphaops_vnext_policy_replay.py` ->allows `apply_main_watch_unconfirmed_market_leader_new_entry_cap()` to cap high-weight WATCH/neutral/quality MARKET_LEADER rows regardless of NEW/HOLD state.
-  - `tests/alphaops_vnext_policy_replay_smoke.py` ->renames and extends the smoke test to verify HOLD rows cap while sub-8% holds are left alone.
-  - `CHANGELOG.md` ->records the artifact-backed MDD refinement.
+  - `tools/run_alphaops_vnext_policy_replay.py` ->restores the cap to NEW entries only.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->restores the NEW-entry-only smoke coverage.
+  - `CHANGELOG.md` ->records why the policy was rejected.
 - symbols_added:
-  - `MAIN_WATCH_UNCONFIRMED_ML_MIN_WEIGHT` ->minimum target weight before the WATCH low-confirmation cap can apply.
+  - none
 - symbols_changed:
-  - `apply_main_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)` ->now also covers high-weight HOLD rows in WATCH/neutral/quality conditions; the function name is retained to avoid broad call-site churn.
-  - `test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_high_weight_rows()` ->covers NEW, HOLD, and small-HOLD skip behavior.
+  - `apply_main_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)` ->again requires NEW/new_entry semantics before capping.
 - config_fields_added:
   - none
 - breaking_changes:
   - none
 - outputs:
-  - `outputs/reports/operating_main_target_book.csv` ->future replay should cap qualifying WATCH low-confirmation high-weight MARKET_LEADER HOLD rows to 4%.
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should no longer cap existing WATCH low-confirmation MARKET_LEADER HOLD rows through this rule.
 - validation:
   - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
   - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
   - `py -3 tools\run_pr_validation.py --quiet` ->pass, 68/68 tests.
 - risks_or_notes:
-  - Fast replay `27076804774` still missed main target by CAGR `0.5219pp` and MDD `1.7702pp`; trade attribution showed main MDD losses concentrated in high-weight MARKET_LEADER rows. Row-proxy analysis found the narrow WATCH + low-confirmation + high-weight rule positive for all-period and MDD windows, mainly reducing the 2021-11 TSLA/NVDA HOLD exposure. DEFENSE_REVIEW rows are intentionally excluded because the matching SHOP row was a winner in the artifact proxy.
+  - Fast replay `27077700213` on `73e9d1e056feba8ea639f3cbaba72c110cd9c4db` did not prove the HOLD extension. Official broker metrics fell to main `32.9025%` CAGR / `-26.7304%` MDD / Sharpe `1.2822`, and concentrated `47.0239%` CAGR / `-23.6113%` MDD / Sharpe `1.5368`. The run also used a fresher `2026-06-05` target book than run `27076804774`, so a revert replay is required to separate data refresh drift from policy effect.
+
+## 2026-06-06
 
 ### 23:14 KST - exempt-high-conviction-stable-concentrated-leaders
 
