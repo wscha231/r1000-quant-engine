@@ -36,7 +36,6 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_high_volatility_new_entry_cap,
     apply_main_quality_bull_low_confirm_new_entry_cap,
     apply_main_quality_hold_weak_timing_trim,
-    apply_main_watch_fragile_market_leader_cap,
     apply_main_watch_unconfirmed_market_leader_new_entry_cap,
     build,
     crisis_new_buy_allowed,
@@ -346,97 +345,6 @@ def test_concentrated_risk_state_caps_new_entries_only() -> None:
     assert by_ticker["KEEP"]["weight"] == 0.30
     main = apply_concentrated_risk_state_new_entry_cap(selected, "main")
     assert main[0]["weight"] == 0.30
-
-
-def test_main_watch_fragile_market_leader_cap_applies_to_weak_contraction_rows_only() -> None:
-    selected = [
-        {
-            "ticker": "CAP",
-            "weight": 0.12,
-            "target_weight": 0.12,
-            "primary_lane": "MARKET_LEADER",
-            "holding_state": "HOLD",
-            "hold_replace_decision": "keep_prior_holding",
-            "crisis_state": "WATCH",
-            "market_style_regime_label": "quality_compounder",
-            "regime_state": "neutral",
-            "volatility_contraction_score": -0.40,
-            "rs_benchmark_1m": 0.20,
-            "atr14_pct": 0.05,
-            "selection_reason": "MARKET_LEADER",
-        },
-        {
-            "ticker": "STRONG_RS",
-            "weight": 0.12,
-            "target_weight": 0.12,
-            "primary_lane": "MARKET_LEADER",
-            "holding_state": "HOLD",
-            "hold_replace_decision": "keep_prior_holding",
-            "crisis_state": "WATCH",
-            "market_style_regime_label": "quality_compounder",
-            "regime_state": "neutral",
-            "volatility_contraction_score": -0.40,
-            "rs_benchmark_1m": 0.35,
-            "atr14_pct": 0.05,
-            "selection_reason": "MARKET_LEADER",
-        },
-        {
-            "ticker": "STABLE",
-            "weight": 0.12,
-            "target_weight": 0.12,
-            "primary_lane": "MARKET_LEADER",
-            "holding_state": "HOLD",
-            "hold_replace_decision": "keep_prior_holding",
-            "crisis_state": "WATCH",
-            "market_style_regime_label": "quality_compounder",
-            "regime_state": "neutral",
-            "volatility_contraction_score": -0.10,
-            "rs_benchmark_1m": 0.20,
-            "atr14_pct": 0.05,
-            "selection_reason": "MARKET_LEADER",
-        },
-        {
-            "ticker": "GREEN",
-            "weight": 0.12,
-            "target_weight": 0.12,
-            "primary_lane": "MARKET_LEADER",
-            "holding_state": "HOLD",
-            "hold_replace_decision": "keep_prior_holding",
-            "crisis_state": "GREEN",
-            "market_style_regime_label": "quality_compounder",
-            "regime_state": "neutral",
-            "volatility_contraction_score": -0.40,
-            "rs_benchmark_1m": 0.20,
-            "atr14_pct": 0.05,
-            "selection_reason": "MARKET_LEADER",
-        },
-        {
-            "ticker": "LOW_WEIGHT",
-            "weight": 0.06,
-            "target_weight": 0.06,
-            "primary_lane": "MARKET_LEADER",
-            "holding_state": "HOLD",
-            "hold_replace_decision": "keep_prior_holding",
-            "crisis_state": "WATCH",
-            "market_style_regime_label": "quality_compounder",
-            "regime_state": "neutral",
-            "volatility_contraction_score": -0.40,
-            "rs_benchmark_1m": 0.20,
-            "atr14_pct": 0.05,
-            "selection_reason": "MARKET_LEADER",
-        },
-    ]
-    capped = apply_main_watch_fragile_market_leader_cap(selected, "main")
-    by_ticker = {row["ticker"]: row for row in capped}
-    assert by_ticker["CAP"]["weight"] == 0.08
-    assert by_ticker["CAP"]["target_weight"] == 0.08
-    assert by_ticker["CAP"]["main_watch_fragile_leader_cap_status"] == "applied"
-    assert by_ticker["STRONG_RS"]["weight"] == 0.12
-    assert by_ticker["STABLE"]["weight"] == 0.12
-    assert by_ticker["GREEN"]["weight"] == 0.12
-    assert by_ticker["LOW_WEIGHT"]["weight"] == 0.06
-    concentrated = apply_main_watch_fragile_market_leader_cap(selected, "concentrated")
-    assert concentrated[0]["weight"] == 0.12
 
 
 def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
@@ -2232,7 +2140,6 @@ if __name__ == "__main__":
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_concentrated_risk_state_caps_new_entries_only()
-    test_main_watch_fragile_market_leader_cap_applies_to_weak_contraction_rows_only()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
     test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only()
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()

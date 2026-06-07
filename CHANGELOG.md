@@ -5,33 +5,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
-### 11:02 KST - cap-fragile-main-watch-market-leaders
+### 11:36 KST - reject-fragile-main-watch-market-leader-cap
 
-- scope: Reduce the remaining main broker-ledger MDD gap by capping only fragile high-weight WATCH MARKET_LEADER rows where volatility contraction, weak one-month RS, and elevated ATR agree before the loss.
+- scope: Revert the attempted main-only fragile WATCH MARKET_LEADER cap because official broker replay worsened the main MDD objective.
 - files:
-  - `tools/run_alphaops_vnext_policy_replay.py` ->adds a main-only fragile WATCH leader cap after the existing WATCH unconfirmed NEW-entry cap and before GREEN/bull entry caps.
-  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the cap and verifies stronger-RS, stable-volatility, GREEN, low-weight, and concentrated rows are untouched.
-  - `CHANGELOG.md` ->records the broker-artifact-driven Main MDD reduction hypothesis.
-- symbols_added:
-  - `MAIN_WATCH_FRAGILE_LEADER_CAP` ->caps qualifying main rows to 8%.
-  - `MAIN_WATCH_FRAGILE_LEADER_VOL_CONTRACTION_MAX` ->requires materially negative volatility contraction.
-  - `MAIN_WATCH_FRAGILE_LEADER_RS_1M_MAX` ->requires weak one-month benchmark-relative strength.
-  - `MAIN_WATCH_FRAGILE_LEADER_ATR_MIN` ->requires elevated ATR before the cap can apply.
-  - `apply_main_watch_fragile_market_leader_cap(weighted, portfolio_kind)` ->main-only cap for fragile WATCH quality-compounder neutral MARKET_LEADER rows.
-- config_fields_added:
-  - `main_watch_fragile_leader_cap_status=applied` ->audit marker for capped rows.
-  - `pre_main_watch_fragile_leader_cap_weight` ->pre-cap row weight for capped rows.
-  - `main_watch_fragile_leader_cap` ->cap value used for capped rows.
+  - `tools/run_alphaops_vnext_policy_replay.py` ->removes `apply_main_watch_fragile_market_leader_cap` and its constants from the production replay path.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->removes the reverted cap smoke test.
+  - `CHANGELOG.md` ->records the failed broker-ledger evidence so the same rule is not reintroduced without stronger proof.
+- symbols_removed:
+  - `MAIN_WATCH_FRAGILE_LEADER_CAP`
+  - `MAIN_WATCH_FRAGILE_LEADER_VOL_CONTRACTION_MAX`
+  - `MAIN_WATCH_FRAGILE_LEADER_RS_1M_MAX`
+  - `MAIN_WATCH_FRAGILE_LEADER_ATR_MIN`
+  - `apply_main_watch_fragile_market_leader_cap(weighted, portfolio_kind)`
+- config_fields_removed:
+  - `main_watch_fragile_leader_cap_status`
+  - `pre_main_watch_fragile_leader_cap_weight`
+  - `main_watch_fragile_leader_cap`
 - breaking_changes:
   - none
 - outputs:
-  - `outputs/reports/operating_main_target_book.csv` ->future replay should cap only qualifying fragile WATCH market leaders and leave concentrated books unchanged.
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should no longer emit `main_watch_fragile_leader_cap_status` or cap the five tested fragile WATCH leader rows through this rule.
 - validation:
   - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
   - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
   - `py -3 tools\run_pr_validation.py --quiet` ->pass, 68/68 tests.
 - risks_or_notes:
-  - Latest verified broker replay `27079095962` still missed the refreshed main target by CAGR `1.3217pp` and MDD `1.7665pp`; concentrated missed CAGR by `2.6173pp` while passing MDD. Reconstructed latest target-book proxy matched five main rows: TSLA `2021-11-30`, NVDA `2021-11-30`, CIEN `2024-12-31`, PLTR `2025-02-28`, and SCCO `2026-02-27`, with four losses and one tiny gain and proxy delta about `+0.01952`. Official broker fast replay remains required before keeping the change.
+  - Fast replay `27079939108` on `995d173cd03b750fe2c4e59092de56fd61c68a1a` applied the cap to five main rows: TSLA `2021-11-30`, NVDA `2021-11-30`, CIEN `2024-12-31`, PLTR `2025-02-28`, and SCCO `2026-02-27`. Official broker metrics were main `33.7783%` CAGR / `-26.9135%` MDD / Sharpe `1.3052` / cash `27.8920%`, concentrated `47.3827%` CAGR / `-23.6113%` MDD / Sharpe `1.5452` / cash `45.4926%`. Versus kept run `27079095962`, main CAGR improved by about `+0.1000pp` and Sharpe by about `+0.0099`, but main MDD worsened by about `0.1470pp`; reject the rule because the objective was MDD reduction.
 
 ### 10:28 KST - exempt-high-conviction-post-mdd-leaders-from-cagr-drag-caps
 
