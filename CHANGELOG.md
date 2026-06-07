@@ -5,6 +5,28 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 15:55 KST - block-main-defense-review-turnaround-new-entries
+
+- scope: Add a main-only PIT-safe filter that blocks NEW `QUALITY_COMPOUNDER` entries during `DEFENSE_REVIEW` when the style regime is `turnaround_accumulation` and the market regime is `neutral`; existing HOLD rows are preserved.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->drops matching main NEW rows and rebuilds explicit CASH.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers main-only behavior, HOLD preservation, GREEN preservation, and CASH rebuild.
+  - `CHANGELOG.md` ->records the policy candidate and replay requirement.
+- config_fields_added:
+  - `alphaops_vnext/main_defense_review_turnaround_new_entry_block.json`
+  - `production_activation.json::main_defense_review_turnaround_new_entry_block`
+  - `summary.json::main_defense_review_turnaround_new_entry_block`
+- outputs:
+  - pending fast replay from source full run `27076153505`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py`
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py`
+  - `git diff --check`
+  - `py -3 tools\run_pr_validation.py --quiet`
+  - Local shadow-only dry-run against the downloaded replay artifact timed out after 120 seconds before the policy replay reached official target-book writes; process was stopped. Use GitHub fast replay as the official verification path.
+- risks_or_notes:
+  - Motivating artifact was run `27084571192`: the rule matched 9 main target-book NEW rows on `2022-11-30`; linked broker round trips were 9 losers / 2 winners with about `-5,221.77` USD net PnL, all inside the main MDD window `2021-11-08` to `2023-03-13`. Keep only if official broker-ledger replay improves main CAGR/MDD without unexpectedly harming concentrated.
+
 ### 15:30 KST - concentrated-green-benchmark-risk-cyclicals-replay-result
 
 - scope: Record official fast replay evidence for the concentrated GREEN benchmark-risk cyclical NEW-entry block.

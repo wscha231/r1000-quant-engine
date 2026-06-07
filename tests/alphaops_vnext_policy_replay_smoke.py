@@ -34,6 +34,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_balanced_neutral_soft_qqq_damage_weak_leader_cap,
     apply_main_green_bull_low_confirm_high_vol_new_entry_cap,
     apply_main_green_neutral_cyclical_high_vol_new_entry_cap,
+    apply_main_defense_review_turnaround_new_entry_block,
     apply_main_high_volatility_new_entry_cap,
     apply_main_neutral_regime_churn_filter,
     apply_main_quality_bull_low_confirm_new_entry_cap,
@@ -578,6 +579,91 @@ def test_concentrated_green_benchmark_risk_cyclical_block_is_narrow() -> None:
     main, main_payload = apply_concentrated_green_benchmark_risk_cyclical_new_entry_block(book, "main")
     assert len(main) == len(book)
     assert main_payload["status"] == "skipped"
+
+
+def test_main_defense_review_turnaround_new_entry_block_preserves_holds() -> None:
+    book = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2022-11-30",
+                "ticker": "BLOCK",
+                "weight": 0.05,
+                "target_weight": 0.05,
+                "sector": "Communication",
+                "industry_group": "Internet Content & Information",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "market_style_regime_label": "turnaround_accumulation",
+                "regime_state": "neutral",
+                "crisis_state": "DEFENSE_REVIEW",
+                "holding_state": "NEW",
+                "hold_replace_decision": "new_entry",
+                "prior_weight": 0.0,
+                "selection_reason": "QUALITY_COMPOUNDER",
+            },
+            {
+                "rebalance_date": "2022-11-30",
+                "ticker": "KEEPHOLD",
+                "weight": 0.10,
+                "target_weight": 0.10,
+                "sector": "Information Technology",
+                "industry_group": "Semiconductors",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "market_style_regime_label": "turnaround_accumulation",
+                "regime_state": "neutral",
+                "crisis_state": "DEFENSE_REVIEW",
+                "holding_state": "HOLD",
+                "hold_replace_decision": "keep_prior_holding",
+                "prior_weight": 0.03,
+                "selection_reason": "QUALITY_COMPOUNDER",
+            },
+            {
+                "rebalance_date": "2022-11-30",
+                "ticker": "KEEPGREEN",
+                "weight": 0.05,
+                "target_weight": 0.05,
+                "sector": "Information Technology",
+                "industry_group": "Software",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "market_style_regime_label": "turnaround_accumulation",
+                "regime_state": "neutral",
+                "crisis_state": "GREEN",
+                "holding_state": "NEW",
+                "hold_replace_decision": "new_entry",
+                "prior_weight": 0.0,
+                "selection_reason": "QUALITY_COMPOUNDER",
+            },
+            {
+                "rebalance_date": "2022-11-30",
+                "ticker": "CASH",
+                "weight": 0.80,
+                "target_weight": 0.80,
+                "sector": "Cash",
+                "industry_group": "",
+                "primary_lane": "CASH",
+                "market_style_regime_label": "turnaround_accumulation",
+                "regime_state": "neutral",
+                "crisis_state": "DEFENSE_REVIEW",
+                "holding_state": "CASH",
+                "hold_replace_decision": "",
+                "prior_weight": 0.80,
+                "selection_reason": "cash",
+            },
+        ]
+    )
+    filtered, payload = apply_main_defense_review_turnaround_new_entry_block(book, "main")
+    tickers = set(filtered["ticker"].astype(str))
+    assert "BLOCK" not in tickers
+    assert "KEEPHOLD" in tickers
+    assert "KEEPGREEN" in tickers
+    cash_weight = float(filtered.loc[filtered["ticker"].astype(str).eq("CASH"), "weight"].iloc[0])
+    assert abs(cash_weight - 0.85) < 1e-12
+    assert payload["status"] == "completed"
+    assert payload["blocked_new_entries"] == 1
+    assert payload["weight_dropped_total"] == 0.05
+
+    concentrated, concentrated_payload = apply_main_defense_review_turnaround_new_entry_block(book, "concentrated")
+    assert len(concentrated) == len(book)
+    assert concentrated_payload["status"] == "skipped"
 
 
 def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
@@ -2376,6 +2462,7 @@ if __name__ == "__main__":
     test_main_neutral_churn_filter_blocks_reentries_and_rebuilds_cash()
     test_neutral_metals_new_entry_block_removes_new_entries_and_rebuilds_cash()
     test_concentrated_green_benchmark_risk_cyclical_block_is_narrow()
+    test_main_defense_review_turnaround_new_entry_block_preserves_holds()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
     test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only()
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
