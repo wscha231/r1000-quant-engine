@@ -5,6 +5,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 23:55 KST - extend-main-watch-low-confirm-leader-cap-to-holds
+
+- scope: Reduce the remaining main broker daily MDD gap by extending the WATCH low-confirmation market-leader cap from new entries to high-weight existing holdings.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->allows `apply_main_watch_unconfirmed_market_leader_new_entry_cap()` to cap high-weight WATCH/neutral/quality MARKET_LEADER rows regardless of NEW/HOLD state.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->renames and extends the smoke test to verify HOLD rows cap while sub-8% holds are left alone.
+  - `CHANGELOG.md` ->records the artifact-backed MDD refinement.
+- symbols_added:
+  - `MAIN_WATCH_UNCONFIRMED_ML_MIN_WEIGHT` ->minimum target weight before the WATCH low-confirmation cap can apply.
+- symbols_changed:
+  - `apply_main_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)` ->now also covers high-weight HOLD rows in WATCH/neutral/quality conditions; the function name is retained to avoid broad call-site churn.
+  - `test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_high_weight_rows()` ->covers NEW, HOLD, and small-HOLD skip behavior.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should cap qualifying WATCH low-confirmation high-weight MARKET_LEADER HOLD rows to 4%.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->pass.
+  - `py -3 tools\run_pr_validation.py --quiet` ->pass, 68/68 tests.
+- risks_or_notes:
+  - Fast replay `27076804774` still missed main target by CAGR `0.5219pp` and MDD `1.7702pp`; trade attribution showed main MDD losses concentrated in high-weight MARKET_LEADER rows. Row-proxy analysis found the narrow WATCH + low-confirmation + high-weight rule positive for all-period and MDD windows, mainly reducing the 2021-11 TSLA/NVDA HOLD exposure. DEFENSE_REVIEW rows are intentionally excluded because the matching SHOP row was a winner in the artifact proxy.
+
 ### 23:14 KST - exempt-high-conviction-stable-concentrated-leaders
 
 - scope: Reduce concentrated CAGR drag from over-tight confirmed MARKET_LEADER weak-RS caps while keeping the weak-leader defense active.

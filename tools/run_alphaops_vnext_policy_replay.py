@@ -118,6 +118,7 @@ MAIN_HIGH_VOL_NEW_ENTRY_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_LANES = {"MARKET_LEADER"}
 MAIN_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.04
 MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
+MAIN_WATCH_UNCONFIRMED_ML_MIN_WEIGHT = 0.08
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -651,9 +652,6 @@ def apply_main_watch_unconfirmed_market_leader_new_entry_cap(
         item = dict(rec)
         ticker = clean_ticker(item.get("ticker"))
         lane = str(item.get("primary_lane") or "").upper()
-        holding_state_text = str(item.get("holding_state") or "").upper()
-        replace_decision = str(item.get("hold_replace_decision") or "")
-        is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
         crisis_state = str(item.get("crisis_state") or "").upper()
         style_regime = str(item.get("market_style_regime_label") or "")
         capacity_regime = str(item.get("regime_capacity_regime") or item.get("regime_state") or "")
@@ -662,11 +660,11 @@ def apply_main_watch_unconfirmed_market_leader_new_entry_cap(
         if (
             ticker not in CASH_TICKERS
             and lane in MAIN_HIGH_VOL_NEW_ENTRY_LANES
-            and is_new_entry
-            and crisis_state in CONCENTRATED_RISK_STATE_CAP_STATES
+            and crisis_state == "WATCH"
             and style_regime == "quality_compounder"
             and capacity_regime == "neutral"
             and confirmation < MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD
+            and weight >= MAIN_WATCH_UNCONFIRMED_ML_MIN_WEIGHT
             and weight > MAIN_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP
         ):
             item["pre_main_watch_unconfirmed_ml_new_entry_cap_weight"] = weight

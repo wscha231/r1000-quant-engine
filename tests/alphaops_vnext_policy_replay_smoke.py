@@ -402,7 +402,7 @@ def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
     assert concentrated[0]["weight"] == 0.12
 
 
-def test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only() -> None:
+def test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_high_weight_rows() -> None:
     selected = [
         {
             "ticker": "CAP",
@@ -456,6 +456,45 @@ def test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_e
             "selection_confirmation_score": 0.24,
             "selection_reason": "QUALITY_COMPOUNDER",
         },
+        {
+            "ticker": "HOLD_CAP",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "WATCH",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.24,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "SMALL_HOLD",
+            "weight": 0.06,
+            "target_weight": 0.06,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "WATCH",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.24,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "DEFENSE_HOLD",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "DEFENSE_REVIEW",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.24,
+            "selection_reason": "MARKET_LEADER",
+        },
     ]
     capped = apply_main_watch_unconfirmed_market_leader_new_entry_cap(selected, "main")
     by_ticker = {row["ticker"]: row for row in capped}
@@ -465,6 +504,10 @@ def test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_e
     assert by_ticker["CONFIRMED"]["weight"] == 0.12
     assert by_ticker["BULL"]["weight"] == 0.12
     assert by_ticker["QUALITY"]["weight"] == 0.12
+    assert by_ticker["HOLD_CAP"]["weight"] == 0.04
+    assert by_ticker["HOLD_CAP"]["main_watch_unconfirmed_ml_new_entry_cap_status"] == "applied"
+    assert by_ticker["SMALL_HOLD"]["weight"] == 0.06
+    assert by_ticker["DEFENSE_HOLD"]["weight"] == 0.12
     concentrated = apply_main_watch_unconfirmed_market_leader_new_entry_cap(selected, "concentrated")
     assert concentrated[0]["weight"] == 0.12
 
@@ -2103,7 +2146,7 @@ if __name__ == "__main__":
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_concentrated_risk_state_caps_new_entries_only()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
-    test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only()
+    test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_high_weight_rows()
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
     test_main_green_bull_low_confirm_high_vol_cap_applies_to_new_market_leaders_only()
     test_main_balanced_bull_qqq_damage_low_confirm_leader_cap_applies_narrowly()
