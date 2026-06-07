@@ -5,6 +5,27 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 17:15 KST - block-main-defense-review-balanced-weak-new-entries
+
+- scope: Add a main-only PIT-safe filter that blocks weak-breakout NEW `QUALITY_COMPOUNDER` entries during `DEFENSE_REVIEW` when the style regime is `balanced` and market regime is `neutral`; existing HOLD/WARNING rows are preserved.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->drops matching main NEW rows when `breakout_setup_quality_score < 0.50`, then rebuilds explicit CASH.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers main-only behavior, weak-breakout NEW removal, HOLD/WARNING preservation, GREEN preservation, and CASH rebuild.
+  - `CHANGELOG.md` ->records the policy candidate and replay requirement.
+- config_fields_added:
+  - `alphaops_vnext/main_defense_review_balanced_new_entry_block.json`
+  - `production_activation.json::main_defense_review_balanced_new_entry_block`
+  - `summary.json::main_defense_review_balanced_new_entry_block`
+- outputs:
+  - pending fast replay from source full run `27076153505`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py`
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py`
+  - `git diff --check`
+  - `py -3 tools\run_pr_validation.py --quiet`
+- risks_or_notes:
+  - Motivating artifact was run `27085981940`: the rule matched main 2023-04-28 weak-breakout NEW rows in the post-MDD defense-review rebound attempt; linked broker round trips were negative by about `-3.2k` USD with no current main MDD-window overlap. Keep only if official broker-ledger replay lifts main CAGR above `35%` while preserving MDD no worse than `-25%` and without unexpectedly harming concentrated.
+
 ### 16:55 KST - concentrated-neutral95-replay-result
 
 - scope: Record official fast replay evidence for raising concentrated neutral capacity from `0.90` to `0.95`.

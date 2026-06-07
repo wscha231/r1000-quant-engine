@@ -32,6 +32,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_crisis_lane_policy,
     apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap,
     apply_main_balanced_neutral_soft_qqq_damage_weak_leader_cap,
+    apply_main_defense_review_balanced_new_entry_block,
     apply_main_green_bull_low_confirm_high_vol_new_entry_cap,
     apply_main_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_main_defense_review_turnaround_new_entry_block,
@@ -662,6 +663,113 @@ def test_main_defense_review_turnaround_new_entry_block_preserves_holds() -> Non
     assert payload["weight_dropped_total"] == 0.05
 
     concentrated, concentrated_payload = apply_main_defense_review_turnaround_new_entry_block(book, "concentrated")
+    assert len(concentrated) == len(book)
+    assert concentrated_payload["status"] == "skipped"
+
+
+def test_main_defense_review_balanced_new_entry_block_preserves_existing_positions() -> None:
+    book = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2023-04-28",
+                "ticker": "BLOCK",
+                "weight": 0.05,
+                "target_weight": 0.05,
+                "sector": "Consumer Discretionary",
+                "industry_group": "Hotels Restaurants & Leisure",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "market_style_regime_label": "balanced",
+                "regime_state": "neutral",
+                "crisis_state": "DEFENSE_REVIEW",
+                "breakout_setup_quality_score": 0.20,
+                "holding_state": "NEW",
+                "hold_replace_decision": "new_entry",
+                "prior_weight": 0.0,
+                "selection_reason": "QUALITY_COMPOUNDER",
+            },
+            {
+                "rebalance_date": "2023-04-28",
+                "ticker": "KEEPWARNING",
+                "weight": 0.05,
+                "target_weight": 0.05,
+                "sector": "Financials",
+                "industry_group": "Consumer Finance",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "market_style_regime_label": "balanced",
+                "regime_state": "neutral",
+                "crisis_state": "DEFENSE_REVIEW",
+                "breakout_setup_quality_score": 0.20,
+                "holding_state": "WARNING",
+                "hold_replace_decision": "keep_prior_holding",
+                "prior_weight": 0.02,
+                "selection_reason": "QUALITY_COMPOUNDER",
+            },
+            {
+                "rebalance_date": "2023-04-28",
+                "ticker": "KEEPGOOD",
+                "weight": 0.05,
+                "target_weight": 0.05,
+                "sector": "Information Technology",
+                "industry_group": "Software",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "market_style_regime_label": "balanced",
+                "regime_state": "neutral",
+                "crisis_state": "DEFENSE_REVIEW",
+                "breakout_setup_quality_score": 0.70,
+                "holding_state": "NEW",
+                "hold_replace_decision": "new_entry",
+                "prior_weight": 0.0,
+                "selection_reason": "QUALITY_COMPOUNDER",
+            },
+            {
+                "rebalance_date": "2023-04-28",
+                "ticker": "KEEPGREEN",
+                "weight": 0.05,
+                "target_weight": 0.05,
+                "sector": "Information Technology",
+                "industry_group": "Software",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "market_style_regime_label": "balanced",
+                "regime_state": "neutral",
+                "crisis_state": "GREEN",
+                "breakout_setup_quality_score": 0.20,
+                "holding_state": "NEW",
+                "hold_replace_decision": "new_entry",
+                "prior_weight": 0.0,
+                "selection_reason": "QUALITY_COMPOUNDER",
+            },
+            {
+                "rebalance_date": "2023-04-28",
+                "ticker": "CASH",
+                "weight": 0.80,
+                "target_weight": 0.80,
+                "sector": "Cash",
+                "industry_group": "",
+                "primary_lane": "CASH",
+                "market_style_regime_label": "balanced",
+                "regime_state": "neutral",
+                "crisis_state": "DEFENSE_REVIEW",
+                "breakout_setup_quality_score": 1.0,
+                "holding_state": "CASH",
+                "hold_replace_decision": "",
+                "prior_weight": 0.80,
+                "selection_reason": "cash",
+            },
+        ]
+    )
+    filtered, payload = apply_main_defense_review_balanced_new_entry_block(book, "main")
+    tickers = set(filtered["ticker"].astype(str))
+    assert "BLOCK" not in tickers
+    assert "KEEPWARNING" in tickers
+    assert "KEEPGOOD" in tickers
+    assert "KEEPGREEN" in tickers
+    cash_weight = float(filtered.loc[filtered["ticker"].astype(str).eq("CASH"), "weight"].iloc[0])
+    assert abs(cash_weight - 0.85) < 1e-12
+    assert payload["status"] == "completed"
+    assert payload["blocked_new_entries"] == 1
+    assert payload["weight_dropped_total"] == 0.05
+
+    concentrated, concentrated_payload = apply_main_defense_review_balanced_new_entry_block(book, "concentrated")
     assert len(concentrated) == len(book)
     assert concentrated_payload["status"] == "skipped"
 
@@ -2463,6 +2571,7 @@ if __name__ == "__main__":
     test_neutral_metals_new_entry_block_removes_new_entries_and_rebuilds_cash()
     test_concentrated_green_benchmark_risk_cyclical_block_is_narrow()
     test_main_defense_review_turnaround_new_entry_block_preserves_holds()
+    test_main_defense_review_balanced_new_entry_block_preserves_existing_positions()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
     test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only()
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()

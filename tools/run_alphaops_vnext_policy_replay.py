@@ -140,6 +140,11 @@ MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_LANE = "QUALITY_COMPOUNDER"
 MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_STYLE = "turnaround_accumulation"
 MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_REGIME = "neutral"
 MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_CRISIS = "DEFENSE_REVIEW"
+MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_LANE = "QUALITY_COMPOUNDER"
+MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_STYLE = "balanced"
+MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_REGIME = "neutral"
+MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_CRISIS = "DEFENSE_REVIEW"
+MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_BREAKOUT_THRESHOLD = 0.50
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_MIN_WEIGHT = 0.04
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BENCHMARK_RISK_THRESHOLD = 0.70
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_ATR_THRESHOLD = 0.10
@@ -2246,6 +2251,133 @@ def apply_main_defense_review_turnaround_new_entry_block(
     return filtered, payload
 
 
+def apply_main_defense_review_balanced_new_entry_block(
+    book: pd.DataFrame,
+    portfolio_kind: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    schema_version = "alphaops-vnext-main-defense-review-balanced-new-entry-block-v1"
+    if portfolio_kind != "main":
+        return book, {
+            "status": "skipped",
+            "reason": "main_only_filter",
+            "portfolio": portfolio_kind,
+            "schema_version": schema_version,
+        }
+    if book.empty:
+        return book, {
+            "status": "skipped",
+            "reason": "empty_book",
+            "portfolio": portfolio_kind,
+            "schema_version": schema_version,
+        }
+    required = {
+        "rebalance_date",
+        "ticker",
+        "weight",
+        "primary_lane",
+        "market_style_regime_label",
+        "regime_state",
+        "crisis_state",
+        "breakout_setup_quality_score",
+        "prior_weight",
+        "holding_state",
+        "hold_replace_decision",
+    }
+    missing = sorted(required - set(book.columns))
+    if missing:
+        return book, {
+            "status": "blocked",
+            "reason": "missing_required_columns",
+            "missing_columns": missing,
+            "portfolio": portfolio_kind,
+            "schema_version": schema_version,
+        }
+
+    working = book.copy()
+    working["rebalance_date"] = pd.to_datetime(working["rebalance_date"], errors="coerce")
+    working = working.dropna(subset=["rebalance_date"])
+    working["ticker"] = working["ticker"].map(clean_ticker)
+    working["weight"] = pd.to_numeric(working["weight"], errors="coerce").fillna(0.0)
+    working["target_weight"] = pd.to_numeric(working.get("target_weight", working["weight"]), errors="coerce").fillna(
+        working["weight"]
+    )
+
+    ticker = working["ticker"]
+    lane = working["primary_lane"].astype(str).str.upper().str.strip()
+    style = working["market_style_regime_label"].astype(str).str.strip().str.lower()
+    regime = working["regime_state"].astype(str).str.strip().str.lower()
+    crisis = working["crisis_state"].astype(str).str.upper().str.strip()
+    breakout = pd.to_numeric(working["breakout_setup_quality_score"], errors="coerce").fillna(1.0)
+    holding = working["holding_state"].astype(str).str.upper().str.strip()
+    decision = working["hold_replace_decision"].astype(str).str.lower().str.strip()
+    prior_weight = pd.to_numeric(working["prior_weight"], errors="coerce").fillna(0.0)
+
+    explicit_hold = holding.isin({"HOLD", "KEEP", "PRIOR", "WARNING"}) | decision.isin(
+        {"keep_prior", "keep_prior_holding", "hold", "held"}
+    )
+    is_new_entry = (~explicit_hold) & (
+        holding.eq("NEW") | decision.eq("new_entry") | prior_weight.le(1e-12)
+    )
+    block_mask = (
+        ~ticker.isin(CASH_TICKERS)
+        & lane.eq(MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_LANE)
+        & style.eq(MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_STYLE)
+        & regime.eq(MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_REGIME)
+        & crisis.eq(MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_CRISIS)
+        & breakout.lt(MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_BREAKOUT_THRESHOLD)
+        & is_new_entry
+    )
+
+    blocked_rows = working.loc[block_mask].copy()
+    kept = working.loc[~block_mask].copy()
+    filtered = rebuild_cash_rows(
+        kept,
+        portfolio_kind,
+        "cash_from_main_defense_review_balanced_new_entry_block",
+    )
+    top_blocked = Counter(blocked_rows["ticker"].astype(str).str.upper()) if not blocked_rows.empty else Counter()
+    blocked_sample = []
+    for _, row in blocked_rows.head(30).iterrows():
+        blocked_sample.append(
+            {
+                "rebalance_date": date_text(row.get("rebalance_date")),
+                "ticker": clean_ticker(row.get("ticker")),
+                "weight_dropped": safe_float(row.get("weight")),
+                "sector": str(row.get("sector") or ""),
+                "industry_group": str(row.get("industry_group") or ""),
+                "primary_lane": str(row.get("primary_lane") or ""),
+                "market_style_regime_label": str(row.get("market_style_regime_label") or ""),
+                "regime_state": str(row.get("regime_state") or ""),
+                "crisis_state": str(row.get("crisis_state") or ""),
+                "breakout_setup_quality_score": safe_float(row.get("breakout_setup_quality_score")),
+                "holding_state": str(row.get("holding_state") or ""),
+                "hold_replace_decision": str(row.get("hold_replace_decision") or ""),
+                "prior_weight": safe_float(row.get("prior_weight")),
+            }
+        )
+    payload = {
+        "schema_version": schema_version,
+        "status": "completed",
+        "portfolio": portfolio_kind,
+        "lane": MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_LANE,
+        "style_regime": MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_STYLE,
+        "regime_state": MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_REGIME,
+        "crisis_state": MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_CRISIS,
+        "breakout_threshold": MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_BREAKOUT_THRESHOLD,
+        "input_row_count": int(len(book)),
+        "output_row_count": int(len(filtered)),
+        "stock_rows_removed": int(len(blocked_rows)),
+        "blocked_new_entries": int(len(blocked_rows)),
+        "weight_dropped_total": float(blocked_rows["weight"].sum()) if not blocked_rows.empty else 0.0,
+        "top_blocked_tickers": [{"ticker": t, "count": c} for t, c in top_blocked.most_common(15)],
+        "blocked_entries_sample": blocked_sample,
+        "cash_rebuilt_explicitly": True,
+        "research_only": False,
+        "production_activation_allowed": True,
+    }
+    return filtered, payload
+
+
 def apply_concentrated_green_benchmark_risk_cyclical_new_entry_block(
     book: pd.DataFrame,
     portfolio_kind: str,
@@ -2685,6 +2817,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     main_churn_filter_summary: dict[str, Any] = {}
     neutral_metals_block_summaries: dict[str, dict[str, Any]] = {}
     main_defense_review_turnaround_block_summary: dict[str, Any] = {}
+    main_defense_review_balanced_block_summary: dict[str, Any] = {}
     concentrated_green_benchmark_risk_block_summary: dict[str, Any] = {}
     if not main_book.empty:
         main_book, main_churn_filter_summary = apply_main_neutral_regime_churn_filter(main_book, "main")
@@ -2695,11 +2828,20 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "main",
             )
         )
+        main_book, main_defense_review_balanced_block_summary = (
+            apply_main_defense_review_balanced_new_entry_block(
+                main_book,
+                "main",
+            )
+        )
         variants[main_key] = main_book
         operating_append_summaries.setdefault(main_key, {})["main_neutral_churn_filter"] = main_churn_filter_summary
         operating_append_summaries[main_key]["neutral_metals_new_entry_block"] = neutral_metals_block_summaries["main"]
         operating_append_summaries[main_key]["main_defense_review_turnaround_new_entry_block"] = (
             main_defense_review_turnaround_block_summary
+        )
+        operating_append_summaries[main_key]["main_defense_review_balanced_new_entry_block"] = (
+            main_defense_review_balanced_block_summary
         )
         operating_append_summaries[main_key]["output_row_count"] = int(len(main_book))
         write_csv(output_dir / "variants" / f"{main_key}_target_book.csv", main_book)
@@ -2728,6 +2870,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     write_json(
         output_dir / "main_defense_review_turnaround_new_entry_block.json",
         main_defense_review_turnaround_block_summary,
+    )
+    write_json(
+        output_dir / "main_defense_review_balanced_new_entry_block.json",
+        main_defense_review_balanced_block_summary,
     )
     write_json(
         output_dir / "concentrated_green_benchmark_risk_cyclical_new_entry_block.json",
@@ -2800,6 +2946,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "main_neutral_churn_filter": main_churn_filter_summary,
         "neutral_metals_new_entry_block": neutral_metals_block_summaries,
         "main_defense_review_turnaround_new_entry_block": main_defense_review_turnaround_block_summary,
+        "main_defense_review_balanced_new_entry_block": main_defense_review_balanced_block_summary,
         "concentrated_green_benchmark_risk_cyclical_new_entry_block": (
             concentrated_green_benchmark_risk_block_summary
         ),
@@ -2846,6 +2993,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "main_neutral_churn_filter": main_churn_filter_summary,
         "neutral_metals_new_entry_block": neutral_metals_block_summaries,
         "main_defense_review_turnaround_new_entry_block": main_defense_review_turnaround_block_summary,
+        "main_defense_review_balanced_new_entry_block": main_defense_review_balanced_block_summary,
         "concentrated_green_benchmark_risk_cyclical_new_entry_block": (
             concentrated_green_benchmark_risk_block_summary
         ),
