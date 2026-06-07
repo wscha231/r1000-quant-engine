@@ -81,13 +81,21 @@ Current blocker:
 
 - No hard policy-replay blocker is active; both official broker target gates
   pass on run `27086825471`.
-- The remaining active blocker is full data-readiness: replay artifacts can
-  still report `data_readiness_status=blocked` when the source fullrun cannot
-  prove canonical `data_raw/free/sec/companyfacts.zip` availability.
+- Full data-readiness was rechecked by Data Readiness Preflight run
+  `27087662969` on commit `61034902aec6916f94eed99fea377fda8f1c59dc` with
+  `sec_companyfacts=true`; it reported `ready_for_fullrun=true`,
+  `ready_for_skip_collector_replay=true`, `ready_for_policy_replay=true`, and
+  no blockers.
+- The SEC companyfacts refresh path found the canonical archive fresh at
+  `2.34` days versus the `3.0` day threshold and skipped the 1GB+ download.
+- Remaining readiness warnings are not hard blockers:
+  - dated target snapshot archive is missing for this run
+  - free-data gap: historical Russell 1000 membership is not proven PIT-safe in
+    the free tier
 - Do not dispatch another policy replay unless code or policy behavior changes.
-  The next non-policy action is to run `data_readiness_preflight.yml` with
-  `sec_companyfacts=true` and verify `ready_for_fullrun=true` before spending a
-  new full rebuild.
+  A fresh full rebuild is justified only when canonical cloud/current outputs
+  need to be republished from the latest accepted policy and verified data
+  lake.
 - If a later full rebuild or replay misses targets again, use run
   `27086825471` as the official broker-ledger acceptance baseline and compare
   daily broker equity/trade/cash paths before adding any new selection or cash

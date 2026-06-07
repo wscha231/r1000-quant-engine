@@ -39,33 +39,29 @@ Latest code/docs commits on branch `codex/alphaops-integrated-replay`:
 
 - `7b635cb1` - `Block main defense balanced entries`
 - `b36d0712` - `Record main defense balanced replay result`
-- Current handoff/docs patch updates `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md`,
-  `CLAUDE.md`, `SESSION_HANDOFF.md`, and `CHANGELOG.md` to stop future agents
-  from using stale run `27056579679` as the current baseline.
+- `61034902` - `Sync AlphaOps acceptance baseline docs`
 
 Important blocker:
 
 - Do not run more policy replay solely for performance. Targets pass.
-- The remaining blocker is full data-readiness. Some replay artifacts still
-  report `data_readiness_status=blocked` because canonical
-  `data_raw/free/sec/companyfacts.zip` is not proven in the source fullrun.
-- Next operational action is a readiness-only recovery, not another policy
-  experiment:
-
-```powershell
-gh workflow run data_readiness_preflight.yml `
-  --repo wscha231/r1000-quant-engine `
-  --ref codex/alphaops-integrated-replay `
-  -f latest_run=cloud_results/full_rebuild/latest_global_alpha_universe `
-  -f strict=false `
-  -f sec_companyfacts=true `
-  -f sec_max_age_days=3
-```
-
-Accept the preflight only if `outputs/data_readiness/summary.json` shows
-`ready_for_fullrun=true` or no fullrun blockers. If that passes, then decide
-whether a fresh full rebuild is worth the 3-5h runtime. If it fails, patch the
-specific restore/audit blocker first.
+- Data Readiness Preflight run `27087662969` on commit `61034902` succeeded.
+  Artifact `data-readiness-preflight-27087662969` reports:
+  - `ready_for_fullrun=true`
+  - `ready_for_skip_collector_replay=true`
+  - `ready_for_policy_replay=true`
+  - `blockers=[]`
+  - `policy_replay_blockers=[]`
+  - `status=warn`
+- SEC companyfacts refresh log: canonical
+  `data_raw/free/sec/companyfacts.zip` age `2.34` days, threshold `3.0` days,
+  fresh, download skipped.
+- Remaining non-hard warnings:
+  - dated target snapshot archive is missing for this run
+  - free-tier historical Russell 1000 membership is not proven PIT-safe
+- Next operational decision: either archive target snapshots after operating
+  books are built, or dispatch one fresh Full Rebuild on the latest SHA to
+  publish canonical cloud/current outputs from the accepted policy. Do not run
+  another fast policy replay unless behavior changes.
 
 Local validation already run for the policy patch chain:
 

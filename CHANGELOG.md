@@ -5,6 +5,34 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 18:05 KST - data-readiness-preflight-result
+
+- scope: Record readiness-only recovery evidence after the latest broker-ledger target pass.
+- run:
+  - GitHub Actions run `27087662969`
+  - workflow `data_readiness_preflight.yml`
+  - head SHA `61034902aec6916f94eed99fea377fda8f1c59dc`
+  - inputs: `latest_run=cloud_results/full_rebuild/latest_global_alpha_universe`, `strict=false`, `sec_companyfacts=true`, `sec_max_age_days=3`
+- artifact:
+  - `data-readiness-preflight-27087662969`
+  - downloaded locally to `H:\codex\_tmp_data_readiness_27087662969`
+- readiness_result:
+  - `status=warn`
+  - `ready_for_fullrun=true`
+  - `ready_for_skip_collector_replay=true`
+  - `ready_for_policy_replay=true`
+  - `blockers=[]`
+  - `policy_replay_blockers=[]`
+- companyfacts:
+  - canonical `data_raw/free/sec/companyfacts.zip` was found fresh at age `2.34` days versus threshold `3.0` days.
+  - SEC refresh skipped the 1GB+ download and confirmed the restore path works.
+- warnings:
+  - dated target snapshot archive is missing for this run.
+  - free-data gap: historical Russell 1000 membership is not proven PIT-safe in the free tier.
+- next_action:
+  - Do not run more policy replay unless behavior changes.
+  - A fresh Full Rebuild is now data-ready if canonical cloud/current outputs need to be republished from the accepted policy.
+
 ### 17:55 KST - sync-acceptance-baseline-docs
 
 - scope: Update handoff documents so future agents use the latest official broker-ledger acceptance baseline instead of stale run `27056579679`.
