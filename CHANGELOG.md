@@ -5,6 +5,38 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 17:40 KST - main-defense-balanced-replay-result
+
+- scope: Record official fast replay evidence for the main DEFENSE_REVIEW balanced weak-breakout NEW-entry block.
+- run:
+  - GitHub Actions run `27086825471`
+  - head SHA `7b635cb1f4a3cf984b044bf2ce2a2fdf25701779`
+  - source full run `27076153505`
+  - artifact `7462319137`, `83,533,903` bytes
+- official_broker_metrics:
+  - main: `35.2189%` CAGR / `-23.2403%` MDD / Sharpe `1.3814` / avg cash `31.0751%`
+  - concentrated: `50.7545%` CAGR / `-22.9944%` MDD / Sharpe `1.5937` / avg cash `43.5393%`
+- delta_vs_run_27085981940:
+  - main: CAGR `+0.3286pp`, MDD unchanged, Sharpe `+0.0110`, avg cash `+0.2570pp`
+  - concentrated: unchanged
+- production_checks:
+  - `production_applied=true`
+  - `sidecar_only=false`
+  - `sidecar_applied_to_production=true`
+  - `current_holdings_source=alphaops_vnext_policy_target_book`
+  - `official_metric_mode=broker_ledger_next_close`
+  - `portfolio_system_guard hard_error_count=0`
+  - `portfolio_system_guard targets_pass=true`
+  - PR Validation run `27086819898` passed.
+- decision:
+  - Keep this policy; both main and concentrated now pass official broker target gates.
+- target_margin:
+  - main: CAGR margin `+0.2189pp` versus `35%`, MDD margin `+1.7597pp` versus `-25%`.
+  - concentrated: CAGR margin `+0.7545pp` versus `50%`, MDD margin `+2.0056pp` versus `-25%`.
+- risks_or_notes:
+  - Replay `data_readiness_status` is still blocked by the missing canonical SEC companyfacts archive, which is a full data-readiness blocker but not a policy replay blocker.
+  - Do not dispatch another replay unless code or policy behavior changes.
+
 ### 17:15 KST - block-main-defense-review-balanced-weak-new-entries
 
 - scope: Add a main-only PIT-safe filter that blocks weak-breakout NEW `QUALITY_COMPOUNDER` entries during `DEFENSE_REVIEW` when the style regime is `balanced` and market regime is `neutral`; existing HOLD/WARNING rows are preserved.
