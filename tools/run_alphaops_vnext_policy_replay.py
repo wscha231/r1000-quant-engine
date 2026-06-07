@@ -124,6 +124,10 @@ MAIN_HIGH_VOL_EXEMPT_SCORE_THRESHOLD = 4.80
 MAIN_HIGH_VOL_EXEMPT_SEC_THRESHOLD = 0.20
 MAIN_HIGH_VOL_EXEMPT_ATR_MAX = 0.08
 MAIN_HIGH_VOL_EXEMPT_RS_1M_MIN = 0.45
+MAIN_WATCH_FRAGILE_LEADER_CAP = 0.08
+MAIN_WATCH_FRAGILE_LEADER_VOL_CONTRACTION_MAX = -0.35
+MAIN_WATCH_FRAGILE_LEADER_RS_1M_MAX = 0.30
+MAIN_WATCH_FRAGILE_LEADER_ATR_MIN = 0.04
 MAIN_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.04
 MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
@@ -706,6 +710,50 @@ def apply_main_watch_unconfirmed_market_leader_new_entry_cap(
             )
         else:
             item["main_watch_unconfirmed_ml_new_entry_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
+def apply_main_watch_fragile_market_leader_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "main" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        lane = str(item.get("primary_lane") or "").upper()
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        style_regime = str(item.get("market_style_regime_label") or "")
+        capacity_regime = str(item.get("regime_capacity_regime") or item.get("regime_state") or "")
+        weight = safe_float(item.get("weight"))
+        volatility_contraction = safe_float(item.get("volatility_contraction_score"), 0.0)
+        rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), 1.0)
+        atr14 = safe_float(item.get("atr14_pct"))
+        if (
+            ticker not in CASH_TICKERS
+            and lane in MAIN_HIGH_VOL_NEW_ENTRY_LANES
+            and crisis_state == "WATCH"
+            and style_regime == "quality_compounder"
+            and capacity_regime == "neutral"
+            and volatility_contraction < MAIN_WATCH_FRAGILE_LEADER_VOL_CONTRACTION_MAX
+            and rs_benchmark_1m < MAIN_WATCH_FRAGILE_LEADER_RS_1M_MAX
+            and atr14 >= MAIN_WATCH_FRAGILE_LEADER_ATR_MIN
+            and weight > MAIN_WATCH_FRAGILE_LEADER_CAP
+        ):
+            item["pre_main_watch_fragile_leader_cap_weight"] = weight
+            item["weight"] = MAIN_WATCH_FRAGILE_LEADER_CAP
+            item["target_weight"] = MAIN_WATCH_FRAGILE_LEADER_CAP
+            item["main_watch_fragile_leader_cap"] = MAIN_WATCH_FRAGILE_LEADER_CAP
+            item["main_watch_fragile_leader_cap_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|main_watch_fragile_leader_cap"
+            )
+        else:
+            item["main_watch_fragile_leader_cap_status"] = "not_applicable"
         capped.append(item)
     return capped
 
@@ -1687,6 +1735,7 @@ def build_variant_book(
         weighted = apply_concentrated_risk_state_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_main_watch_fragile_market_leader_cap(weighted, portfolio_kind)
         weighted = apply_main_green_bull_low_confirm_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_balanced_bull_qqq_damage_low_confirm_leader_cap(weighted, portfolio_kind)
         weighted = apply_main_balanced_neutral_soft_qqq_damage_weak_leader_cap(weighted, portfolio_kind)
