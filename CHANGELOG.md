@@ -5,6 +5,40 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 16:15 KST - main-defense-review-turnaround-replay-result
+
+- scope: Record official fast replay evidence for the main defense-review turnaround NEW-entry block.
+- run:
+  - GitHub Actions run `27085243133`
+  - head SHA `fa3f5e479bf95019a50d9bdcabb505a592ce266b`
+  - source full run `27076153505`
+  - artifact `7461739718`, `83,693,245` bytes
+- official_broker_metrics:
+  - main: `34.8903%` CAGR / `-23.2403%` MDD / Sharpe `1.3704` / avg cash `30.8181%`
+  - concentrated: `48.9101%` CAGR / `-22.0305%` MDD / Sharpe `1.5934` / avg cash `45.2350%`
+- delta_vs_run_27084571192:
+  - main: CAGR `+0.5995pp`, MDD `+2.3283pp`, Sharpe `+0.0206`, avg cash `+0.4051pp`, broker trade count `-13`
+  - concentrated: unchanged
+- policy_diagnostics:
+  - `alphaops_vnext/main_defense_review_turnaround_new_entry_block.json` status `completed`
+  - blocked main rows: `CPRT`, `LVS`, `ORLY`, `MSFT`, `GOOG`, `GOOGL`, `V`, `EXPE`, `MTSI` on `2022-11-30`
+  - total dropped weight `41.8024%`, rebuilt as explicit CASH
+- production_checks:
+  - `production_applied=true`
+  - `sidecar_only=false`
+  - `sidecar_applied_to_production=true`
+  - `current_holdings_source=alphaops_vnext_policy_target_book`
+  - `official_metric_mode=broker_ledger_next_close`
+  - `portfolio_system_guard hard_error_count=0`
+  - PR Validation run `27085238040` passed.
+- decision:
+  - Keep this policy; it moved main MDD through the target and improved official main CAGR and Sharpe without changing concentrated.
+- remaining_target_gap:
+  - main MDD now passes, but CAGR still misses by `0.1097pp`.
+  - concentrated MDD passes, but CAGR still misses by `1.0899pp`.
+- risks_or_notes:
+  - Both portfolios now show cash-trap warnings because MDD passes while CAGR is still short; further work should focus on PIT-safe alpha/re-entry improvements rather than additional broad cash raises.
+
 ### 15:55 KST - block-main-defense-review-turnaround-new-entries
 
 - scope: Add a main-only PIT-safe filter that blocks NEW `QUALITY_COMPOUNDER` entries during `DEFENSE_REVIEW` when the style regime is `turnaround_accumulation` and the market regime is `neutral`; existing HOLD rows are preserved.
