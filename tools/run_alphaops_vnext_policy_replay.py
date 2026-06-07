@@ -64,7 +64,7 @@ DEFAULT_REGIME_CAPACITY_MULTIPLIERS = {
         "exceptional_bull": 1.0,
         "strong_bull": 1.0,
         "bull": 1.0,
-        "neutral": 0.90,
+        "neutral": 0.95,
         "bear": 0.50,
         "deep_bear": 0.25,
         "unknown": 1.0,

@@ -5,6 +5,24 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 16:35 KST - raise-concentrated-neutral-capacity-to-95
+
+- scope: Raise the AlphaOps vNext concentrated neutral-regime capacity multiplier from `0.90` to `0.95` to reduce the remaining CAGR cash drag after both portfolios passed the MDD target in run `27085243133`.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->changes `DEFAULT_REGIME_CAPACITY_MULTIPLIERS["concentrated"]["neutral"]` from `0.90` to `0.95`.
+  - `CHANGELOG.md` ->records the policy candidate and replay requirement.
+- outputs:
+  - pending fast replay from source full run `27076153505`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py`
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py`
+  - `git diff --check`
+  - `py -3 tools\run_pr_validation.py --quiet`
+- risks_or_notes:
+  - Motivating artifact was run `27085243133`: concentrated official broker MDD passed with `-22.0305%` versus the `-25%` target, while CAGR still missed by `1.0899pp` and avg cash was `45.2350%`.
+  - Target-book forward-return proxy for concentrated neutral rows was positive overall; estimated neutral `0.90 -> 0.95` exposure delta was positive with 28 positive dates and 15 negative dates.
+  - Keep only if official broker replay improves concentrated CAGR enough without pushing concentrated MDD beyond `-25%` or unexpectedly hurting main.
+
 ### 16:15 KST - main-defense-review-turnaround-replay-result
 
 - scope: Record official fast replay evidence for the main defense-review turnaround NEW-entry block.
