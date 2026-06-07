@@ -28,8 +28,13 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
   - `git diff --check` ->PASS with LF-to-CRLF warnings only.
   - `py -3 tools\run_pr_validation.py --quiet` ->PASS 68/68.
+  - `gh workflow run data_readiness_preflight.yml --repo wscha231/r1000-quant-engine --ref codex/alphaops-integrated-replay -f latest_run=cloud_results/full_rebuild/latest_global_alpha_universe -f strict=false -f sec_companyfacts=true -f sec_max_age_days=3` ->PASS; run `27082594892` succeeded on head SHA `fc5a57d61eff08764e6a86adfeb44915598f85a3`.
+  - `gh run download 27082594892 --repo wscha231/r1000-quant-engine -n data-readiness-preflight-27082594892 -D H:\codex\_tmp_data_readiness_27082594892` ->PASS; artifact `7460744095`, `21,262` bytes.
+  - artifact parse ->PASS; `outputs/data_readiness/summary.json` reports `status=warn`, `ready_for_fullrun=true`, `ready_for_skip_collector_replay=true`, `ready_for_policy_replay=true`, `blockers=[]`, and `policy_replay_blockers=[]`.
 - risks_or_notes:
-  - Latest verified replay `27081816650` has policy readiness true but fullrun readiness blocked only by missing canonical companyfacts. This patch does not change portfolio policy or broker metrics; it makes the next data maintenance run capable of clearing that blocker before another full rebuild.
+  - Latest verified replay `27081816650` had policy readiness true but fullrun readiness blocked only by missing canonical companyfacts. This patch does not change portfolio policy or broker metrics; it makes the next data maintenance run capable of clearing that blocker before another full rebuild.
+  - Preflight run `27082594892` restored canonical `data_raw/free/sec/companyfacts.zip` from Drive/cache, found it fresh at age `2.17` days versus threshold `3.0`, skipped re-download, and confirmed the canonical archive size at `1,385,363,633` bytes.
+  - Remaining data warnings are non-blocking: dated target snapshot archive missing for this audited cloud mirror, and historical Russell 1000 membership not proven PIT-safe in the free tier.
 
 ### 13:10 KST - verify-main-neutral-churn-filter-fast-replay
 
