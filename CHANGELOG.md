@@ -5,6 +5,37 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 14:55 KST - block-concentrated-green-benchmark-risk-cyclicals
+
+- scope: Add a concentrated-only PIT-safe filter for GREEN cyclical NEW entries where benchmark damage and volatility were already visible before losses.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->drops concentrated `MARKET_LEADER` NEW rows in `GREEN` + `quality_compounder` + `neutral` regimes when sector is Energy/Materials, weight is at least `4%`, `benchmark_risk_score >= 0.70`, `atr14_pct >= 0.10`, and `breakout_setup_quality_score < 0.40`, then rebuilds explicit CASH.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers concentrated-only behavior, HOLD/low-risk preservation, and CASH rebuild.
+  - `CHANGELOG.md` ->records the policy candidate and replay requirement.
+- symbols_added:
+  - `CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_MIN_WEIGHT`
+  - `CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BENCHMARK_RISK_THRESHOLD`
+  - `CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_ATR_THRESHOLD`
+  - `CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BREAKOUT_THRESHOLD`
+  - `CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_SECTORS`
+  - `apply_concentrated_green_benchmark_risk_cyclical_new_entry_block(book, portfolio_kind)`
+- config_fields_added:
+  - `alphaops_vnext/concentrated_green_benchmark_risk_cyclical_new_entry_block.json`
+  - `production_activation.json::concentrated_green_benchmark_risk_cyclical_new_entry_block`
+  - `summary.json::concentrated_green_benchmark_risk_cyclical_new_entry_block`
+- breaking_changes:
+  - none
+- outputs:
+  - pending fast replay from source full run `27076153505`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py`
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py`
+  - `git diff --check`
+  - `py -3 tools\run_pr_validation.py --quiet`
+  - Shadow replay dry-run completed without crashing, but local downloaded replay artifacts did not include all latest close/crisis inputs needed to reproduce the exact GitHub production target-book rows; official fast replay is still required before judging this policy.
+- risks_or_notes:
+  - Motivating artifact was run `27083544785`: the rule matched concentrated target rows `BKR`, `MOS`, and `SQM` on `2022-03-31`; linked round trips were `6/6` losers with about `-6,274.81` USD net PnL. Keep only if official broker-ledger replay improves concentrated CAGR/MDD without hurting main.
+
 ### 14:20 KST - block-neutral-metals-new-entries
 
 - scope: Add a narrow PIT-safe AlphaOps vNext production filter for a negative broker-rule trade bucket found in run `27081816650` target-book/trade attribution analysis.

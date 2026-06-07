@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from tools.run_alphaops_vnext_policy_replay import (
     DEFAULT_CONCENTRATED_TARGET_N,
     apply_concentrated_defense_neutral_quality_new_entry_cap,
+    apply_concentrated_green_benchmark_risk_cyclical_new_entry_block,
     apply_concentrated_hold_decay_trim,
     apply_concentrated_risk_state_new_entry_cap,
     apply_concentrated_green_bull_qqq_down_new_entry_cap,
@@ -480,6 +481,103 @@ def test_neutral_metals_new_entry_block_removes_new_entries_and_rebuilds_cash() 
     assert "BLOCK" not in set(concentrated["ticker"].astype(str))
     assert concentrated_payload["portfolio"] == "concentrated"
     assert concentrated_payload["blocked_new_entries"] == 1
+
+
+def test_concentrated_green_benchmark_risk_cyclical_block_is_narrow() -> None:
+    book = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2022-03-31",
+                "ticker": "BLOCK",
+                "weight": 0.08,
+                "target_weight": 0.08,
+                "sector": "Materials",
+                "industry_group": "Chemicals",
+                "primary_lane": "MARKET_LEADER",
+                "market_style_regime_label": "quality_compounder",
+                "regime_state": "neutral",
+                "crisis_state": "GREEN",
+                "benchmark_risk_score": 2.0,
+                "atr14_pct": 0.12,
+                "breakout_setup_quality_score": 0.30,
+                "holding_state": "NEW",
+                "hold_replace_decision": "new_entry",
+                "prior_weight": 0.0,
+                "selection_reason": "MARKET_LEADER",
+            },
+            {
+                "rebalance_date": "2022-03-31",
+                "ticker": "KEEPHOLD",
+                "weight": 0.12,
+                "target_weight": 0.12,
+                "sector": "Materials",
+                "industry_group": "Chemicals",
+                "primary_lane": "MARKET_LEADER",
+                "market_style_regime_label": "quality_compounder",
+                "regime_state": "neutral",
+                "crisis_state": "GREEN",
+                "benchmark_risk_score": 2.0,
+                "atr14_pct": 0.12,
+                "breakout_setup_quality_score": 0.30,
+                "holding_state": "HOLD",
+                "hold_replace_decision": "keep_prior_holding",
+                "prior_weight": 0.12,
+                "selection_reason": "MARKET_LEADER",
+            },
+            {
+                "rebalance_date": "2022-03-31",
+                "ticker": "KEEPLOWRISK",
+                "weight": 0.08,
+                "target_weight": 0.08,
+                "sector": "Materials",
+                "industry_group": "Chemicals",
+                "primary_lane": "MARKET_LEADER",
+                "market_style_regime_label": "quality_compounder",
+                "regime_state": "neutral",
+                "crisis_state": "GREEN",
+                "benchmark_risk_score": 0.30,
+                "atr14_pct": 0.12,
+                "breakout_setup_quality_score": 0.30,
+                "holding_state": "NEW",
+                "hold_replace_decision": "new_entry",
+                "prior_weight": 0.0,
+                "selection_reason": "MARKET_LEADER",
+            },
+            {
+                "rebalance_date": "2022-03-31",
+                "ticker": "CASH",
+                "weight": 0.72,
+                "target_weight": 0.72,
+                "sector": "Cash",
+                "industry_group": "",
+                "primary_lane": "CASH",
+                "market_style_regime_label": "quality_compounder",
+                "regime_state": "neutral",
+                "crisis_state": "GREEN",
+                "benchmark_risk_score": 0.0,
+                "atr14_pct": 0.0,
+                "breakout_setup_quality_score": 1.0,
+                "holding_state": "CASH",
+                "hold_replace_decision": "",
+                "prior_weight": 0.72,
+                "selection_reason": "cash",
+            },
+        ]
+    )
+    filtered, payload = apply_concentrated_green_benchmark_risk_cyclical_new_entry_block(book, "concentrated")
+    tickers = set(filtered["ticker"].astype(str))
+    assert "BLOCK" not in tickers
+    assert "KEEPHOLD" in tickers
+    assert "KEEPLOWRISK" in tickers
+    cash_weight = float(filtered.loc[filtered["ticker"].astype(str).eq("CASH"), "weight"].iloc[0])
+    assert abs(cash_weight - 0.80) < 1e-12
+    assert payload["status"] == "completed"
+    assert payload["blocked_new_entries"] == 1
+    assert payload["weight_dropped_total"] == 0.08
+
+    main, main_payload = apply_concentrated_green_benchmark_risk_cyclical_new_entry_block(book, "main")
+    assert len(main) == len(book)
+    assert main_payload["status"] == "skipped"
 
 
 def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
@@ -2277,6 +2375,7 @@ if __name__ == "__main__":
     test_concentrated_risk_state_caps_new_entries_only()
     test_main_neutral_churn_filter_blocks_reentries_and_rebuilds_cash()
     test_neutral_metals_new_entry_block_removes_new_entries_and_rebuilds_cash()
+    test_concentrated_green_benchmark_risk_cyclical_block_is_narrow()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
     test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only()
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
