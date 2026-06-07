@@ -3,10 +3,10 @@
   "cash_policy_flag": "below_combined_cash_target",
   "cash_policy_review_action": "RESERVE_CASH",
   "cash_row_count": 2,
-  "combined_cash_gap_weight": 0.006806381687353993,
-  "combined_current_cash_weight": 0.09534644168558988,
-  "combined_target_cash_weight": 0.10215282337294387,
-  "generated_at_utc": "2026-06-07T02:36:58.744949+00:00",
+  "combined_cash_gap_weight": 0.012290372257864945,
+  "combined_current_cash_weight": 0.11280991667292842,
+  "combined_target_cash_weight": 0.12510028893079336,
+  "generated_at_utc": "2026-06-07T12:35:12.534760+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "macro_cash_raise_confirmation_count": 0.0,
   "macro_cash_raise_gate": "none",
@@ -26,18 +26,18 @@
     "current_operating_holdings_concentrated_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_concentrated_latest.csv",
     "current_operating_holdings_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv",
     "current_operating_holdings_main_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_main_latest.csv",
-    "current_operating_row_count": 22,
+    "current_operating_row_count": 20,
     "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_summary.json",
-    "proposed_target_delta_row_count": 22,
+    "proposed_target_delta_row_count": 20,
     "proposed_target_deltas_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/proposed_target_deltas_latest.csv",
     "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_report.md"
   },
   "portfolio_position_counts": {
     "concentrated": 5,
-    "main": 15
+    "main": 13
   },
   "primary_user_view": "current_operating_holdings_latest.csv",
-  "row_count": 22,
+  "row_count": 20,
   "schema_version": "current-portfolio-snapshot-v2",
   "snapshot_semantics": "current_broker_ledger_mark_to_market",
   "status": "completed"

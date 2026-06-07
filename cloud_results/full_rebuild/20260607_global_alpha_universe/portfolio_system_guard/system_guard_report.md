@@ -6,8 +6,8 @@ Fast integrated check from existing artifacts. Production defaults are not chang
 
 | Portfolio | CAGR | Target | Gap | MaxDD | Target | DD improvement needed | Pass |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 32.38% | 35.00% | 2.62pp | -28.45% | -25.00% | 3.45pp | false |
-| concentrated | 37.34% | 50.00% | 12.66pp | -31.72% | -25.00% | 6.72pp | false |
+| main | 33.46% | 35.00% | 1.54pp | -26.23% | -25.00% | 1.23pp | false |
+| concentrated | 40.61% | 50.00% | 9.39pp | -29.94% | -25.00% | 4.94pp | false |
 
 Metric sources:
 - `main`: `broker_ledger_next_close`
@@ -17,8 +17,8 @@ Strict target mode: `false`
 
 ## Cash Trap Guard
 
-- `main`: severity=`warn`, avg_cash=23.36%, latest_cash=6.49%, reasons=cash_drag_with_cagr_gap
-- `concentrated`: severity=`warn`, avg_cash=44.25%, latest_cash=11.88%, reasons=avg_cash_high_without_mdd_target_pass, cash_drag_with_cagr_gap
+- `main`: severity=`warn`, avg_cash=27.25%, latest_cash=17.18%, reasons=cash_drag_with_cagr_gap
+- `concentrated`: severity=`warn`, avg_cash=41.93%, latest_cash=7.19%, reasons=cash_drag_with_cagr_gap
 
 ## Candidate Priority
 
@@ -35,8 +35,8 @@ Strict target mode: `false`
 
 | Portfolio | Best candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `main_rebalance_interval_fixed_interval_I1` | 32.26% | 2.74pp | -18.82% | 0.00pp | false | `needs_alpha_boost` |
-| concentrated | `concentrated_grid_N3_score_power_I1` | 44.83% | 5.17pp | -21.36% | 0.00pp | false | `needs_alpha_boost` |
+| main | `main_broker_ledger_replay` | 33.46% | 1.54pp | -26.23% | 1.23pp | false | `blocked_both` |
+| concentrated | `concentrated_grid_N3_score_power_I1` | 44.01% | 5.99pp | -21.58% | 0.00pp | false | `needs_alpha_boost` |
 
 ## Error Checks
 
@@ -58,16 +58,16 @@ Strict target mode: `false`
 - `PASS` sec_enriched_candidate_materialized_for_audit: sec_enriched_candidate_present=True; rows_with_smart_money_evidence=34265
 - `PASS` alphaops_vnext_uses_sec_enriched_candidate_book: candidate_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv; rows_with_smart_money_evidence=34265
 - `WARN` orchestrator_replay_valid_for_promotion: status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings
-- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=1345; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=1345; max_date=2026-06-05
-- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-03-31; broker_end=2026-06-05; rows=2200; operating_book_max=2026-06-05; operating_rows=1345
+- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=1281; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
+- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=1281; max_date=2026-06-05
+- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-03-31; broker_end=2026-06-05; rows=2240; operating_book_max=2026-06-05; operating_rows=1281
 - `PASS` main_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=501; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=501; max_date=2026-06-05
-- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-03-31; broker_end=2026-06-05; rows=23202; operating_book_max=2026-06-05; operating_rows=501
+- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=496; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
+- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=496; max_date=2026-06-05
+- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-03-31; broker_end=2026-06-05; rows=23223; operating_book_max=2026-06-05; operating_rows=496
 - `PASS` concentrated_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=22; legacy_snapshot_exists=True
-- `PASS` main_current_position_count_near_latest_target_count: main_positions=15; latest_target_rows=18; excess=0
+- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=20; legacy_snapshot_exists=True
+- `PASS` main_current_position_count_near_latest_target_count: main_positions=13; latest_target_rows=18; excess=0
 - `PASS` concentrated_replay_filter_matches_latest_target: broker_filter_n=operating_book; latest_operating_target_n=5; broker_mode=operating_book; latest_mode=alphaops_vnext_score_power
 - `PASS` alphaops_vnext_production_flags_correct: {"current_holdings_source": "alphaops_vnext_policy_target_book", "production_applied": true, "sidecar_applied_to_production": true, "sidecar_only": false}
 - `PASS` main_official_broker_metrics_valid_for_production: metric_source=broker_ledger_next_close; valid_for_production=True; fill_mode=next_close

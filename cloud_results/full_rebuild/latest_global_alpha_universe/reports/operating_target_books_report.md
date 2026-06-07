@@ -4,5 +4,5 @@ AlphaOps vNext production books are held forward to the latest observable close 
 
 | Portfolio | Rows | Policy max | Latest close | Output max | Appended | Current |
 | --- | ---: | --- | --- | --- | ---: | ---: |
-| main | 1345 | 2026-04-30 | 2026-06-05 | 2026-06-05 | true | true |
-| concentrated | 501 | 2026-04-30 | 2026-06-05 | 2026-06-05 | true | true |
+| main | 1281 | 2026-04-30 | 2026-06-05 | 2026-06-05 | true | true |
+| concentrated | 496 | 2026-04-30 | 2026-06-05 | 2026-06-05 | true | true |

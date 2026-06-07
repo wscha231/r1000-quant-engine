@@ -7,8 +7,8 @@ Legacy/proxy/weight-level metrics are retained as deprecated research context an
 
 | Portfolio | CAGR | Target | MDD | Target | Sharpe | Avg Cash | Target Pass | Production Valid | Cash Trap |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 32.38% | 35.00% | -28.45% | -25.00% | 1.183 | 23.36% | false | true | false |
-| concentrated | 37.34% | 50.00% | -31.72% | -25.00% | 1.271 | 44.25% | false | true | true |
+| main | 33.46% | 35.00% | -26.23% | -25.00% | 1.251 | 27.25% | false | true | false |
+| concentrated | 40.61% | 50.00% | -29.94% | -25.00% | 1.325 | 41.93% | false | true | false |
 
 ## Deprecated Metrics
 
@@ -18,4 +18,4 @@ Legacy/proxy/weight-level metrics are retained as deprecated research context an
 ## Cash Trap Guard
 
 - `main`: severity=`ok`, reasons=cash_drag_with_cagr_gap
-- `concentrated`: severity=`warn`, reasons=avg_cash_high_without_mdd_target_pass, cash_drag_with_cagr_gap
+- `concentrated`: severity=`ok`, reasons=cash_drag_with_cagr_gap

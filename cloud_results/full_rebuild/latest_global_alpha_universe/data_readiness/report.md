@@ -19,17 +19,17 @@
 | File | Rows | Max date | Weight sum |
 | --- | ---: | --- | ---: |
 | scored_latest | 739 | 2026-06-05 |  |
-| portfolio_latest | 18 |  | 0.9999999999999996 |
-| concentrated_portfolio_latest | 4 | 2026-06-05 | 1.0 |
+| portfolio_latest | 18 |  | 0.9999999999999993 |
+| concentrated_portfolio_latest | 4 | 2026-06-05 | 0.9999999999999998 |
 
 ## Target Books
 
 | Book | Rows | Min date | Max date | Weight sum |
 | --- | ---: | --- | --- | ---: |
-| main_history | 2200 | 2019-05-31 | 2026-03-31 | 82.99999999999991 |
-| concentrated_history | 23202 | 2019-05-31 | 2026-03-31 | 4999.499999999999 |
-| operating_main | 1345 | 2019-05-31 | 2026-06-05 | 84.99999999999996 |
-| operating_concentrated | 501 | 2019-05-31 | 2026-06-05 | 85.0 |
+| main_history | 2240 | 2019-05-31 | 2026-03-31 | 82.9999999999999 |
+| concentrated_history | 23223 | 2019-05-31 | 2026-03-31 | 4999.499999999999 |
+| operating_main | 1281 | 2019-05-31 | 2026-06-05 | 84.99999999999996 |
+| operating_concentrated | 496 | 2019-05-31 | 2026-06-05 | 85.0 |
 
 ## Feature Source Coverage
 
@@ -38,8 +38,8 @@
 
 | Portfolio | Rows | Non-cash rows | Date range | Available-from columns |
 | --- | ---: | ---: | --- | ---: |
-| main | 1345 | 1260 | 2019-05-31 to 2026-06-05 | 3 |
-| concentrated | 501 | 416 | 2019-05-31 to 2026-06-05 | 3 |
+| main | 1281 | 1196 | 2019-05-31 to 2026-06-05 | 3 |
+| concentrated | 496 | 411 | 2019-05-31 to 2026-06-05 | 3 |
 
 ## Blockers
 
