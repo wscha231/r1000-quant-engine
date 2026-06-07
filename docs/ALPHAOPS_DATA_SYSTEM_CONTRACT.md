@@ -39,12 +39,12 @@ Before changing selection, sizing, cash, or risk rules, every agent must verify:
 
 Latest verified broker-ledger production replay:
 
-- GitHub Actions run: `27056579679`
-- Artifact: `7452834410`
-- Artifact size: `84,692,304` bytes
+- GitHub Actions run: `27086825471`
+- Artifact: `7462319137`
+- Artifact size: `83,533,903` bytes
 - Branch: `codex/alphaops-integrated-replay`
-- Commit: `b1f25d735f35d023504168258986a34d56dd2a10`
-- Source full rebuild replayed: `26992264956`
+- Commit: `7b635cb1f4a3cf984b044bf2ce2a2fdf25701779`
+- Source full rebuild replayed: `27076153505`
 - Metric mode: broker ledger next-close fills with costs and cash
 - Production flags:
   - `production_applied=true`
@@ -53,19 +53,18 @@ Latest verified broker-ledger production replay:
   - `current_holdings_source=alphaops_vnext_policy_target_book`
   - `official_metric_mode=broker_ledger_next_close`
 - Data gate:
-  - Drive evidence restore manifest exists
-  - policy replay restored SEC/Form4/13F/ETF/macro evidence overlays where
-    available
   - `portfolio_system_guard.hard_error_count=0`
-  - SEC-enriched candidate source:
-    `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv`
+  - `portfolio_system_guard.targets_pass=true`
+  - replay `data_readiness_status` may still report the missing canonical SEC
+    companyfacts archive inherited from the source fullrun; that is a full
+    data-readiness blocker, not a policy-replay blocker.
 
 Current broker metrics from that run:
 
-- Main: CAGR `35.9351%`, MDD `-27.0180%`, Sharpe `1.3730`,
-  average cash `27.5425%`
-- Concentrated: CAGR `49.1663%`, MDD `-23.5557%`, Sharpe `1.5957`,
-  average cash `45.8038%`
+- Main: CAGR `35.2189%`, MDD `-23.2403%`, Sharpe `1.3814`,
+  average cash `31.0751%`
+- Concentrated: CAGR `50.7545%`, MDD `-22.9944%`, Sharpe `1.5937`,
+  average cash `43.5393%`
 
 Current acceptance targets:
 
@@ -73,28 +72,26 @@ Current acceptance targets:
 - Concentrated: CAGR at or above `50%`, MDD no worse than `-25%`
 - Official evidence: broker trade / broker ledger next-close only
 
-Remaining performance gaps:
+Current target margins:
 
-- Main CAGR passes, but MDD needs about `2.0180pp` additional improvement.
-- Concentrated MDD passes, but CAGR needs about `0.8337pp` additional
-  improvement.
+- Main CAGR passes by `0.2189pp`; MDD passes by `1.7597pp`.
+- Concentrated CAGR passes by `0.7545pp`; MDD passes by `2.0056pp`.
 
 Current blocker:
 
-- No hard data blocker is active for fast policy replay.
-- Remaining work is to reduce main broker MDD without sacrificing the main
-  CAGR pass, and to recover concentrated CAGR without losing the concentrated
-  MDD pass.
-- Run `27056579679` shows the official main max-DD window is `2021-11-08`
-  through `2023-03-13`, and the concentrated max-DD window is `2021-11-18`
-  through `2023-08-17`. The next data-backed research focus must distinguish
-  PIT-safe rules that reduce the main drawdown from rules that simply park
-  cash and suppress concentrated CAGR.
-- The latest concentrated damaged weak MARKET_LEADER cap applied to 31
-  concentrated operating rows and improved official concentrated CAGR, MDD,
-  and Sharpe, but the event concentrated replay weakened. Keep it as a narrow
-  official-broker improvement unless later evidence reverses it; do not stack
-  additional broad cash caps on top of it.
+- No hard policy-replay blocker is active; both official broker target gates
+  pass on run `27086825471`.
+- The remaining active blocker is full data-readiness: replay artifacts can
+  still report `data_readiness_status=blocked` when the source fullrun cannot
+  prove canonical `data_raw/free/sec/companyfacts.zip` availability.
+- Do not dispatch another policy replay unless code or policy behavior changes.
+  The next non-policy action is to run `data_readiness_preflight.yml` with
+  `sec_companyfacts=true` and verify `ready_for_fullrun=true` before spending a
+  new full rebuild.
+- If a later full rebuild or replay misses targets again, use run
+  `27086825471` as the official broker-ledger acceptance baseline and compare
+  daily broker equity/trade/cash paths before adding any new selection or cash
+  rule.
 - Data maintenance run `26987903823` on commit
   `0bf0fdae6583c33ebae0af10071ecc620ba028f5` refreshed
   `data_raw/free/sec/companyfacts.zip` from SEC bulk companyfacts

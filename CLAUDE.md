@@ -12,8 +12,8 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 - `tools/build_replay_price_cache.py` must write manifest `end` from actual cached bars, not from the provider request end bound.
 - Treat missing replay price manifest `end` as a data blocker; a price cache without an observed-bar end date is not production-ready evidence.
 - Current official acceptance targets are broker-ledger next-close only: Main CAGR >= 35% and MDD no worse than -25%; Concentrated CAGR >= 50% and MDD no worse than -25%.
-- Latest verified AlphaOps broker-ledger replay baseline is run `27056579679` on commit `b1f25d735f35d023504168258986a34d56dd2a10`: Main `35.9351%` CAGR / `-27.0180%` MDD; Concentrated `49.1663%` CAGR / `-23.5557%` MDD.
-- If fullrun readiness is blocked by missing `data_raw/free/sec/companyfacts.zip`, refresh it through `free_data_lake_bootstrap.yml` or manual `free_data_daily_update.yml` with `sec_companyfacts=true` before trusting a new full rebuild.
+- Latest verified AlphaOps broker-ledger replay baseline is run `27086825471` on commit `7b635cb1f4a3cf984b044bf2ce2a2fdf25701779`: Main `35.2189%` CAGR / `-23.2403%` MDD; Concentrated `50.7545%` CAGR / `-22.9944%` MDD.
+- If fullrun readiness is blocked by missing `data_raw/free/sec/companyfacts.zip`, refresh it through `data_readiness_preflight.yml` with `sec_companyfacts=true` or manual `free_data_daily_update.yml` with `sec_companyfacts=true` before trusting a new full rebuild.
 
 ## Key Files
 - `SESSION_HANDOFF.md` — **다른 기기/세션에서 이어 작업할 때 제일 먼저 읽을 파일. "방금 뭐 했고 다음에 뭐 해야 하는지" 단일 inbox. Phase 하나 끝날 때마다 덮어씀.**

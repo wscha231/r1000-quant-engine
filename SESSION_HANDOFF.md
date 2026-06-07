@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-11 05:29 KST (Free data performance loop)
+# Session Handoff - 2026-06-07 17:50 KST (AlphaOps broker target pass + data readiness)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,99 +6,74 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-11 05:29 KST) - Free data performance loop
+## ACTIVE INBOX (2026-06-07 17:50 KST) - Broker targets pass; fix full data readiness next
 
-User approved proceeding with the free-first path: collect data, design
-backtests on the new data, and plan learning/engine strengthening.
-User clarified the real objective: data exists to validate and improve engine
-performance with CAGR, MDD/MaxDD, Sharpe, current portfolio realism, and
-continuous updates.
+User's active objective is still the full AlphaOps production loop:
 
-Latest patch adds the first executable bootstrap path:
+- broker-like daily/account evaluation over the roughly 8-year official
+  backtest window
+- official broker-ledger next-close metrics only: integer shares, costs, cash
+  ledger, and daily drawdown
+- Main target: CAGR `>=35%`, MDD no worse than `-25%`
+- Concentrated target: CAGR `>=50%`, MDD no worse than `-25%`
+- reliable data storage/update system for prices, macro, universe,
+  fundamentals, SEC/Form4/13F/ETF evidence, and sidecars
 
-- `tools/run_free_data_lake_bootstrap.py`
-  - Coordinates existing helpers instead of building a parallel engine.
-  - Optionally refreshes SEC `companyfacts.zip` into `data_raw/free/sec/`.
-  - Optionally runs a macro snapshot into `data_raw/free/macro/`.
-  - Builds or dry-runs `cache_prices` from current target books via
-    `tools/build_replay_price_cache.py`.
-  - Treats partial price caches as `manifest_only` until all required
-    target-book tickers are cached, so partial 80-name test runs cannot be
-    mistaken for engine evidence.
-  - Writes:
-    - `manifests/free_data/latest_manifest.json`
-    - `data_pit/free/coverage_audit.json`
-    - `outputs/free_data_lake_bootstrap/summary.json`
-  - Labels results as `pit_safe`, `pit_proxy_universe`, or
-    `research_proxy`.
-- `tools/run_free_data_engine_validation.py`
-  - Reads main/concentrated broker replay metrics from the latest full rebuild
-    and the free-data proxy replay.
-  - Writes CAGR, Sharpe, MaxDD, ending capital, cash, trade-count, known data
-    gaps, policy-fusion queue, and next action gates.
-  - Outputs:
-    - `outputs/free_data_engine_validation/summary.json`
-    - `outputs/free_data_engine_validation/report.md`
-- `.github/workflows/free_data_lake_bootstrap.yml`
-  - Manual workflow.
-  - Restores Drive-backed `data_raw/free`, `data_pit/free`,
-    `manifests/free_data`, and `cache_prices` through rclone when auth exists.
-  - Runs the bootstrap.
-  - Optionally runs broker-ledger proxy replays into
-    `outputs/free_data_proxy_backtest/`.
-  - Runs `tools/run_free_data_engine_validation.py` so every bootstrap reports
-    performance readiness, not just data presence.
-  - Syncs free data, manifests, price cache, and per-run proxy outputs back to
-    Google Drive.
-  - Defaults are conservative:
-    - `sec_companyfacts=false`
-    - `price_mode=dry_run`
-    - `max_price_tickers=80`
-    - `run_proxy_replay=true`
-- `.github/workflows/free_data_daily_update.yml`
-  - Scheduled continuous update workflow.
-  - Runs at `23:30 UTC Mon-Fri` (`08:30 KST Tue-Sat`) after the prior US close.
-  - Uses `pandas_market_calendars` to skip stale/holiday windows unless
-    manually forced.
-  - Restores Drive data, refreshes free prices/macros, reruns broker-ledger
-    proxy replay, and writes the free-data engine validation report.
-- `docs/FREE_BACKTEST_LEARNING_PLAN.md`
-  - Defines phases from free ingestion to PIT normalization, daily-decision
-    broker replay, AutoLearning, policy fusion, and engine promotion gates.
-- `tests/free_data_lake_bootstrap_smoke.py`
-  - Dry-run smoke without network downloads.
-- `tests/workflow_artifact_smoke.py`
-  - Static workflow contract checks.
+Latest verified official broker-ledger acceptance baseline:
 
-Recommended execution:
+- Fast replay run `27086825471`
+- Policy commit `7b635cb1f4a3cf984b044bf2ce2a2fdf25701779`
+- Source full rebuild `27076153505`
+- Artifact `7462319137`, `83,533,903` bytes
+- Main: `35.2189%` CAGR / `-23.2403%` MDD / Sharpe `1.3814` /
+  average cash `31.0751%`
+- Concentrated: `50.7545%` CAGR / `-22.9944%` MDD / Sharpe `1.5937` /
+  average cash `43.5393%`
+- Production checks: `production_applied=true`, `sidecar_only=false`,
+  `sidecar_applied_to_production=true`,
+  `current_holdings_source=alphaops_vnext_policy_target_book`,
+  `official_metric_mode=broker_ledger_next_close`,
+  `portfolio_system_guard.hard_error_count=0`, `targets_pass=true`
 
-1. Run `gdrive_smoke_test.yml` if credentials changed.
-2. Run `free_data_lake_bootstrap.yml` with default dry-run inputs.
-3. If Drive sync works, rerun with `price_mode=target_books`,
-   `max_price_tickers=80`.
-4. If stable, rerun with `max_price_tickers=0`.
-5. Then enable `sec_companyfacts=true` to store the 1GB+ SEC bulk archive in
-   Drive.
-6. Use `free_data_daily_update.yml` for recurring after-close validation once
-   Drive and price cache are confirmed.
-7. Next development patch should add the actual PIT normalizer that turns
-   `data_raw/free/*` into `data_pit/free/*.parquet`.
+Latest code/docs commits on branch `codex/alphaops-integrated-replay`:
 
-Validation completed in this patch:
+- `7b635cb1` - `Block main defense balanced entries`
+- `b36d0712` - `Record main defense balanced replay result`
+- Current handoff/docs patch updates `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md`,
+  `CLAUDE.md`, `SESSION_HANDOFF.md`, and `CHANGELOG.md` to stop future agents
+  from using stale run `27056579679` as the current baseline.
 
-- `py -3 -m py_compile tools\run_free_data_lake_bootstrap.py`
-- `py -3 -m py_compile tools\run_free_data_engine_validation.py`
-- `py -3 tests\free_data_lake_bootstrap_smoke.py`
-- `py -3 tests\free_data_engine_validation_smoke.py`
-- `py -3 tests\workflow_artifact_smoke.py`
-- YAML parse check for free-data workflows
-- Local validation against latest cloud results returned
-  `validation_status=missing_coverage`, expected until the first
-  `free_data_lake_bootstrap.yml` run creates `data_pit/free/coverage_audit.json`.
-- Local bootstrap with `price_mode=target_books --max-price-tickers=80`
-  downloaded/cached 80 tickers and correctly stayed `manifest_only` because
-  target books require 386 tickers. A partial replay showed high cash and weak
-  CAGR, so it must not be used as engine evidence.
+Important blocker:
+
+- Do not run more policy replay solely for performance. Targets pass.
+- The remaining blocker is full data-readiness. Some replay artifacts still
+  report `data_readiness_status=blocked` because canonical
+  `data_raw/free/sec/companyfacts.zip` is not proven in the source fullrun.
+- Next operational action is a readiness-only recovery, not another policy
+  experiment:
+
+```powershell
+gh workflow run data_readiness_preflight.yml `
+  --repo wscha231/r1000-quant-engine `
+  --ref codex/alphaops-integrated-replay `
+  -f latest_run=cloud_results/full_rebuild/latest_global_alpha_universe `
+  -f strict=false `
+  -f sec_companyfacts=true `
+  -f sec_max_age_days=3
+```
+
+Accept the preflight only if `outputs/data_readiness/summary.json` shows
+`ready_for_fullrun=true` or no fullrun blockers. If that passes, then decide
+whether a fresh full rebuild is worth the 3-5h runtime. If it fails, patch the
+specific restore/audit blocker first.
+
+Local validation already run for the policy patch chain:
+
+- `py -3 tests\alphaops_vnext_policy_replay_smoke.py`
+- `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py`
+- `git diff --check`
+- `py -3 tools\run_pr_validation.py --quiet` -> `68/68` passed
+- GitHub PR Validation `27086819898` passed for policy commit `7b635cb1`
 
 ---
 

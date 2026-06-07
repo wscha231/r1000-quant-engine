@@ -5,6 +5,20 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 17:55 KST - sync-acceptance-baseline-docs
+
+- scope: Update handoff documents so future agents use the latest official broker-ledger acceptance baseline instead of stale run `27056579679`.
+- files:
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->promotes run `27086825471` as the current acceptance baseline, records target margins, and redirects next work to full data-readiness recovery instead of more policy replay.
+  - `CLAUDE.md` ->updates the latest verified broker replay line and adds `data_readiness_preflight.yml sec_companyfacts=true` as the preferred companyfacts recovery path.
+  - `SESSION_HANDOFF.md` ->rewrites the active inbox for the current AlphaOps objective, official metrics, blockers, and next operational command.
+  - `CHANGELOG.md` ->records this handoff sync.
+- validation:
+  - `git diff --check` ->PASS with CRLF conversion warnings only.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS, `68/68`.
+- risks_or_notes:
+  - This is a documentation/handoff patch only; it does not change policy behavior or broker metrics.
+
 ### 17:40 KST - main-defense-balanced-replay-result
 
 - scope: Record official fast replay evidence for the main DEFENSE_REVIEW balanced weak-breakout NEW-entry block.
