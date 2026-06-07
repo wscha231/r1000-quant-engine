@@ -26,15 +26,20 @@ All entries must be written in English. Entries must be predictable and machine-
 - breaking_changes:
   - none
 - outputs:
-  - pending fast replay from source full run `27076153505`.
+  - `alphaops-replay-sidecars-27076153505-27083544785` ->artifact `7461134139`, `83,947,893` bytes.
+  - `alphaops_vnext/neutral_metals_new_entry_block.json` ->completed, removed `9` main NEW metals/mining rows (`0.38997817576355676` target weight) and `3` concentrated NEW metals/mining rows (`0.16648972204076234` target weight), then rebuilt explicit CASH.
 - validation:
   - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
   - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
   - `git diff --check` ->PASS with LF-to-CRLF warnings only.
   - `py -3 tools\run_pr_validation.py --quiet` ->PASS 68/68.
   - `py -3 tools\run_alphaops_vnext_policy_replay.py --latest-run H:\codex\_tmp_replay_27081816650 --output-dir H:\codex\_tmp_metals_policy_dryrun --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode shadow_only --skip-broker-replay` ->PASS; generated `neutral_metals_new_entry_block` diagnostics against the latest verified replay artifact.
+  - `gh workflow run alphaops_replay_sidecars_manual.yml --repo wscha231/r1000-quant-engine --ref codex/alphaops-integrated-replay -f source_run_id=27076153505 -f portfolio_policy=alphaops_vnext_production -f sync_replay_to_gdrive=false -f run_extended_research_sidecars=false` ->PASS; run `27083544785` succeeded on head SHA `235585d7ef46a9f65a5590c40e88e5a666d13f23`.
+  - artifact parse ->PASS; official broker main `34.2907%` CAGR / `-25.5685%` MDD / Sharpe `1.3498` / cash `30.4130%`, concentrated `48.4526%` CAGR / `-23.1084%` MDD / Sharpe `1.5727` / cash `45.6411%`.
 - risks_or_notes:
-  - This must be judged only by official broker-ledger next-close replay. The row-level evidence was negative in both main and concentrated, but broad Materials/Energy or market-leader caps were previously too blunt and should not be inferred from this narrow rule.
+  - Keep the filter: versus run `27081816650`, main improved by `+0.6247pp` CAGR, `+0.3628pp` MDD, and `+0.0304` Sharpe; concentrated improved by `+0.4200pp` CAGR, `+0.5387pp` MDD, and `+0.0116` Sharpe.
+  - Targets still fail: main misses CAGR by `0.7093pp` and MDD by `0.5685pp`; concentrated passes MDD but misses CAGR by `1.5474pp`.
+  - This must be judged only by official broker-ledger next-close replay. Broad Materials/Energy or market-leader caps were previously too blunt and should not be inferred from this narrow rule.
 
 ### 13:35 KST - add-companyfacts-recovery-to-data-readiness-preflight
 
