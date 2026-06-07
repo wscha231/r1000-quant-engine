@@ -5,6 +5,36 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 16:55 KST - concentrated-neutral95-replay-result
+
+- scope: Record official fast replay evidence for raising concentrated neutral capacity from `0.90` to `0.95`.
+- run:
+  - GitHub Actions run `27085981940`
+  - head SHA `cc28cfa8f5fd4e0ba9062babe94ec5561926ffa4`
+  - source full run `27076153505`
+  - artifact `7462032882`, `83,655,257` bytes
+- official_broker_metrics:
+  - main: `34.8903%` CAGR / `-23.2403%` MDD / Sharpe `1.3704` / avg cash `30.8181%`
+  - concentrated: `50.7545%` CAGR / `-22.9944%` MDD / Sharpe `1.5937` / avg cash `43.5393%`
+- delta_vs_run_27085243133:
+  - main: unchanged
+  - concentrated: CAGR `+1.8643pp`, MDD `-0.9638pp`, Sharpe `+0.0003`, avg cash `-1.6958pp`, broker trade count `-1`
+- production_checks:
+  - `production_applied=true`
+  - `sidecar_only=false`
+  - `sidecar_applied_to_production=true`
+  - `current_holdings_source=alphaops_vnext_policy_target_book`
+  - `official_metric_mode=broker_ledger_next_close`
+  - `portfolio_system_guard hard_error_count=0`
+  - PR Validation run `27085976250` passed.
+- decision:
+  - Keep this policy; concentrated now passes both official broker CAGR and MDD targets.
+- remaining_target_gap:
+  - main MDD passes, but CAGR still misses by `0.1097pp`.
+  - concentrated now passes both targets.
+- risks_or_notes:
+  - Overall `targets_pass=false` only because main CAGR is still slightly below `35%`.
+
 ### 16:35 KST - raise-concentrated-neutral-capacity-to-95
 
 - scope: Raise the AlphaOps vNext concentrated neutral-regime capacity multiplier from `0.90` to `0.95` to reduce the remaining CAGR cash drag after both portfolios passed the MDD target in run `27085243133`.
