@@ -5,6 +5,37 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 14:20 KST - block-neutral-metals-new-entries
+
+- scope: Add a narrow PIT-safe AlphaOps vNext production filter for a negative broker-rule trade bucket found in run `27081816650` target-book/trade attribution analysis.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->drops NEW `MARKET_LEADER` Materials / Metals & Mining rows in `quality_compounder` + `neutral` regimes from selected main and concentrated production books, then rebuilds explicit CASH rows.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers NEW row removal, HOLD/non-metal preservation, cash rebuild, and both main/concentrated application.
+  - `CHANGELOG.md` ->records the policy candidate and replay requirement.
+- symbols_added:
+  - `NEUTRAL_METALS_NEW_ENTRY_BLOCK_SECTOR`
+  - `NEUTRAL_METALS_NEW_ENTRY_BLOCK_INDUSTRY_TERMS`
+  - `NEUTRAL_METALS_NEW_ENTRY_BLOCK_LANES`
+  - `NEUTRAL_METALS_NEW_ENTRY_BLOCK_REGIMES`
+  - `NEUTRAL_METALS_NEW_ENTRY_BLOCK_STYLE_REGIME`
+  - `apply_neutral_metals_new_entry_block(book, portfolio_kind)`
+- config_fields_added:
+  - `alphaops_vnext/neutral_metals_new_entry_block.json` ->per-portfolio diagnostics for removed rows and cash rebuild.
+  - `production_activation.json::neutral_metals_new_entry_block`
+  - `summary.json::neutral_metals_new_entry_block`
+- breaking_changes:
+  - none
+- outputs:
+  - pending fast replay from source full run `27076153505`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `git diff --check` ->PASS with LF-to-CRLF warnings only.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 68/68.
+  - `py -3 tools\run_alphaops_vnext_policy_replay.py --latest-run H:\codex\_tmp_replay_27081816650 --output-dir H:\codex\_tmp_metals_policy_dryrun --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode shadow_only --skip-broker-replay` ->PASS; generated `neutral_metals_new_entry_block` diagnostics against the latest verified replay artifact.
+- risks_or_notes:
+  - This must be judged only by official broker-ledger next-close replay. The row-level evidence was negative in both main and concentrated, but broad Materials/Energy or market-leader caps were previously too blunt and should not be inferred from this narrow rule.
+
 ### 13:35 KST - add-companyfacts-recovery-to-data-readiness-preflight
 
 - scope: Let the lightweight data readiness preflight repair the canonical SEC companyfacts blocker without spending a full rebuild.
