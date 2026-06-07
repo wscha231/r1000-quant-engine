@@ -5,6 +5,37 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-07
 
+### 12:20 KST - promote-main-neutral-churn-filter-to-vnext-production
+
+- scope: Move the validated main neutral-regime churn filter from research sidecar into the AlphaOps vNext production target-book bridge to reduce broker-ledger Main MDD without broad cash throttling.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->applies the main-only neutral churn filter to the selected production `main_N15` book before official/copy outputs and rebuilds explicit CASH rows for removed entry weight.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers blocked re-entry behavior, explicit cash rebuild, and concentrated no-op behavior in the production bridge wrapper.
+  - `CHANGELOG.md` ->records the sidecar evidence and replay requirement.
+- symbols_added:
+  - `MAIN_NEUTRAL_CHURN_FILTER_SWAP_THRESHOLD` ->minimum prior in/out transitions for blocking a neutral-regime re-entry.
+  - `MAIN_NEUTRAL_CHURN_FILTER_WINDOW_MONTHS` ->lookback rebalance window for transition counting.
+  - `MAIN_NEUTRAL_CHURN_FILTER_TARGET_REGIMES` ->regimes where the filter can block new entries.
+  - `rebuild_cash_rows(book, portfolio_kind, selection_reason)` ->makes cash explicit after row-level entry filters.
+  - `apply_main_neutral_regime_churn_filter(book, portfolio_kind)` ->production wrapper around the validated neutral churn sidecar.
+- config_fields_added:
+  - `alphaops_vnext/main_neutral_churn_filter.json` ->production diagnostics for blocked entries and cash rebuild.
+  - `production_activation.json::main_neutral_churn_filter` ->activation metadata for the promoted filter.
+  - `summary.json::main_neutral_churn_filter` ->run summary metadata for the promoted filter.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future production books should omit repeated neutral-regime high-churn re-entries and carry the removed weight as explicit CASH.
+  - `outputs/reports/operating_concentrated_target_book.csv` ->unchanged by this filter.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `git diff --check` ->PASS with LF-to-CRLF warnings only.
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS 68/68.
+  - `py -3 tools\run_alphaops_vnext_policy_replay.py --latest-run H:\codex\_tmp_full_27076153505\user-operating-minimal-global_alpha_universe-27076153505\outputs --price-cache H:\codex\_tmp_full_27076153505\user-operating-minimal-global_alpha_universe-27076153505\cache_prices --output-dir H:\codex\_tmp_alphaops_churn_sanity --portfolio-kind both --production-output-mode shadow_only --skip-broker-replay` ->PASS; wrapper removed 23 main stock rows, blocked 23 neutral re-entries, dropped 1.6083982551244582 target weight into explicit CASH, and left concentrated unchanged.
+- risks_or_notes:
+  - Latest verified source `27080800380` showed the research sidecar `churn_filtered_broker_replay/main` at `33.67%` CAGR / `-25.93%` MDD / Sharpe `1.3194` / cash `29.96%`, versus official main `33.5372%` CAGR / `-26.7020%` MDD / Sharpe `1.2916` / cash `27.6866%`. This improves the main MDD gap by about `0.77pp` without hurting CAGR in sidecar replay, but official production fast replay is still required before considering it kept.
+
 ### 11:36 KST - reject-fragile-main-watch-market-leader-cap
 
 - scope: Revert the attempted main-only fragile WATCH MARKET_LEADER cap because official broker replay worsened the main MDD objective.

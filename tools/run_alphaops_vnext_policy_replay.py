@@ -12,6 +12,7 @@ import argparse
 import json
 import math
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
     defense_multiplier,
 )
 from tools.run_market_leader_challenger import normalize_candidate_frame, read_table, resolve_candidate_book  # noqa: E402
+from tools.run_neutral_regime_churn_filter import apply_churn_filter, compute_swap_counts  # noqa: E402
 from tools.run_user_current_report import build_report as build_user_current_report  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series, price_on_or_before  # noqa: E402
 
@@ -126,6 +128,9 @@ MAIN_HIGH_VOL_EXEMPT_ATR_MAX = 0.08
 MAIN_HIGH_VOL_EXEMPT_RS_1M_MIN = 0.45
 MAIN_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.04
 MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
+MAIN_NEUTRAL_CHURN_FILTER_SWAP_THRESHOLD = 2
+MAIN_NEUTRAL_CHURN_FILTER_WINDOW_MONTHS = 6
+MAIN_NEUTRAL_CHURN_FILTER_TARGET_REGIMES = ("neutral",)
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -1869,6 +1874,114 @@ def capacity_cash_row(date: pd.Timestamp, portfolio_kind: str, cash_weight: floa
     return row
 
 
+def rebuild_cash_rows(book: pd.DataFrame, portfolio_kind: str, selection_reason: str) -> pd.DataFrame:
+    if book.empty or "rebalance_date" not in book.columns or "ticker" not in book.columns:
+        return book
+    out = book.copy()
+    out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce")
+    out = out.dropna(subset=["rebalance_date"])
+    out["ticker"] = out["ticker"].astype(str).str.upper().str.strip()
+    out["weight"] = pd.to_numeric(out.get("weight", 0.0), errors="coerce").fillna(0.0)
+    if "target_weight" in out.columns:
+        out["target_weight"] = pd.to_numeric(out["target_weight"], errors="coerce").fillna(out["weight"])
+    else:
+        out["target_weight"] = out["weight"]
+    rebuilt: list[pd.DataFrame] = []
+    for raw_dt in sorted(out["rebalance_date"].dropna().unique()):
+        dt = pd.Timestamp(raw_dt).normalize()
+        day = out[out["rebalance_date"].dt.normalize().eq(dt)].copy()
+        stock_mask = ~day["ticker"].isin(CASH_TICKERS)
+        stock_weight = float(day.loc[stock_mask, "weight"].sum())
+        cash_weight = max(0.0, 1.0 - stock_weight)
+        cash_mask = day["ticker"].isin(CASH_TICKERS)
+        if cash_mask.any():
+            first_cash_idx = day.index[cash_mask][0]
+            day.loc[cash_mask, ["weight", "target_weight"]] = 0.0
+            day.loc[first_cash_idx, "weight"] = cash_weight
+            day.loc[first_cash_idx, "target_weight"] = cash_weight
+            if "selection_reason" in day.columns:
+                day.loc[first_cash_idx, "selection_reason"] = selection_reason
+        elif cash_weight > 1e-10:
+            template = day.iloc[0] if not day.empty else None
+            cash = capacity_cash_row(dt, portfolio_kind, cash_weight, template)
+            cash["selection_reason"] = selection_reason
+            day = pd.concat([day, pd.DataFrame([cash])], ignore_index=True)
+        rebuilt.append(day)
+    result = pd.concat(rebuilt, ignore_index=True) if rebuilt else out
+    result["rebalance_date"] = pd.to_datetime(result["rebalance_date"], errors="coerce").dt.date.astype(str)
+    return result.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
+
+
+def apply_main_neutral_regime_churn_filter(
+    book: pd.DataFrame,
+    portfolio_kind: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if portfolio_kind != "main":
+        return book, {
+            "status": "skipped",
+            "reason": "main_only_filter",
+            "portfolio": portfolio_kind,
+            "schema_version": "alphaops-vnext-main-neutral-churn-filter-v1",
+        }
+    if book.empty:
+        return book, {
+            "status": "skipped",
+            "reason": "empty_book",
+            "portfolio": portfolio_kind,
+            "schema_version": "alphaops-vnext-main-neutral-churn-filter-v1",
+        }
+    required = {"rebalance_date", "ticker", "weight", "regime_state"}
+    missing = sorted(required - set(book.columns))
+    if missing:
+        return book, {
+            "status": "blocked",
+            "reason": "missing_required_columns",
+            "missing_columns": missing,
+            "portfolio": portfolio_kind,
+            "schema_version": "alphaops-vnext-main-neutral-churn-filter-v1",
+        }
+    working = book.copy()
+    working["rebalance_date"] = pd.to_datetime(working["rebalance_date"], errors="coerce")
+    working = working.dropna(subset=["rebalance_date"])
+    working["ticker"] = working["ticker"].astype(str).str.upper().str.strip()
+    cash_rows = working[working["ticker"].isin(CASH_TICKERS)].copy()
+    stock_rows = working[~working["ticker"].isin(CASH_TICKERS)].copy()
+    swap_counts = compute_swap_counts(stock_rows, MAIN_NEUTRAL_CHURN_FILTER_WINDOW_MONTHS)
+    filtered_stock, decisions = apply_churn_filter(
+        stock_rows,
+        swap_counts,
+        swap_threshold=MAIN_NEUTRAL_CHURN_FILTER_SWAP_THRESHOLD,
+        target_regimes=MAIN_NEUTRAL_CHURN_FILTER_TARGET_REGIMES,
+    )
+    filtered = pd.concat([filtered_stock, cash_rows], ignore_index=True) if not cash_rows.empty else filtered_stock
+    filtered = rebuild_cash_rows(
+        filtered,
+        portfolio_kind,
+        "cash_from_main_neutral_churn_filter",
+    )
+    blocked = [d for d in decisions if d.get("action") == "blocked_entry"]
+    top_blocked = Counter(str(d.get("ticker") or "").upper() for d in blocked if d.get("ticker"))
+    payload = {
+        "schema_version": "alphaops-vnext-main-neutral-churn-filter-v1",
+        "status": "completed",
+        "portfolio": portfolio_kind,
+        "swap_threshold": MAIN_NEUTRAL_CHURN_FILTER_SWAP_THRESHOLD,
+        "window_months": MAIN_NEUTRAL_CHURN_FILTER_WINDOW_MONTHS,
+        "target_regimes": list(MAIN_NEUTRAL_CHURN_FILTER_TARGET_REGIMES),
+        "input_row_count": int(len(book)),
+        "output_row_count": int(len(filtered)),
+        "stock_rows_removed": int(len(stock_rows) - len(filtered_stock)),
+        "neutral_entries_blocked": int(len(blocked)),
+        "weight_dropped_total": float(sum(safe_float(d.get("weight_dropped")) for d in blocked)),
+        "top_blocked_tickers": [{"ticker": t, "count": c} for t, c in top_blocked.most_common(15)],
+        "blocked_entries_sample": blocked[:30],
+        "cash_rebuilt_explicitly": True,
+        "research_only": False,
+        "production_activation_allowed": True,
+    }
+    return filtered, payload
+
+
 def apply_regime_capacity_overlay(
     book: pd.DataFrame,
     *,
@@ -2166,6 +2279,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     concentrated_key = f"concentrated_N{int(args.concentrated_target_n)}"
     main_book = variants.get(main_key, pd.DataFrame()) if "main" in portfolios else pd.DataFrame()
     concentrated_book = variants.get(concentrated_key, pd.DataFrame()) if "concentrated" in portfolios else pd.DataFrame()
+    main_churn_filter_summary: dict[str, Any] = {}
+    if not main_book.empty:
+        main_book, main_churn_filter_summary = apply_main_neutral_regime_churn_filter(main_book, "main")
+        variants[main_key] = main_book
+        operating_append_summaries.setdefault(main_key, {})["main_neutral_churn_filter"] = main_churn_filter_summary
+        operating_append_summaries[main_key]["output_row_count"] = int(len(main_book))
+        write_csv(output_dir / "variants" / f"{main_key}_target_book.csv", main_book)
+    write_json(output_dir / "main_neutral_churn_filter.json", main_churn_filter_summary)
     write_csv(output_dir / "official_main_target_book.csv", main_book)
     write_csv(output_dir / "official_concentrated_target_book.csv", concentrated_book)
     lane_history = pd.concat(lane_frames, ignore_index=True) if lane_frames else pd.DataFrame()
@@ -2230,6 +2351,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "summaries": regime_capacity_summaries,
             "audit_path": str(output_dir / "regime_capacity_overlay_audit.csv"),
         },
+        "main_neutral_churn_filter": main_churn_filter_summary,
     }
     write_json(output_dir / "production_activation.json", activation)
     if production_applied:
@@ -2270,6 +2392,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "summaries": regime_capacity_summaries,
             "audit_path": str(output_dir / "regime_capacity_overlay_audit.csv"),
         },
+        "main_neutral_churn_filter": main_churn_filter_summary,
         "broker_replay_ran": not bool(args.skip_broker_replay),
         "broker_metrics": broker_metrics,
         "official_target_books": copied,

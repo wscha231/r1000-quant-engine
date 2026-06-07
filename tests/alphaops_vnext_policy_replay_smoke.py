@@ -34,6 +34,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_green_bull_low_confirm_high_vol_new_entry_cap,
     apply_main_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_main_high_volatility_new_entry_cap,
+    apply_main_neutral_regime_churn_filter,
     apply_main_quality_bull_low_confirm_new_entry_cap,
     apply_main_quality_hold_weak_timing_trim,
     apply_main_watch_unconfirmed_market_leader_new_entry_cap,
@@ -345,6 +346,55 @@ def test_concentrated_risk_state_caps_new_entries_only() -> None:
     assert by_ticker["KEEP"]["weight"] == 0.30
     main = apply_concentrated_risk_state_new_entry_cap(selected, "main")
     assert main[0]["weight"] == 0.30
+
+
+def test_main_neutral_churn_filter_blocks_reentries_and_rebuilds_cash() -> None:
+    rows = [
+        ("2024-01-31", "CHURNY", 0.30, "neutral"),
+        ("2024-01-31", "STABLE", 0.30, "neutral"),
+        ("2024-01-31", "CASH", 0.40, "neutral"),
+        ("2024-02-29", "STABLE", 0.30, "neutral"),
+        ("2024-02-29", "CASH", 0.70, "neutral"),
+        ("2024-03-31", "CHURNY", 0.30, "neutral"),
+        ("2024-03-31", "STABLE", 0.30, "neutral"),
+        ("2024-03-31", "CASH", 0.40, "neutral"),
+        ("2024-04-30", "STABLE", 0.30, "neutral"),
+        ("2024-04-30", "CASH", 0.70, "neutral"),
+        ("2024-05-31", "CHURNY", 0.30, "neutral"),
+        ("2024-05-31", "STABLE", 0.30, "neutral"),
+        ("2024-05-31", "CASH", 0.40, "neutral"),
+        ("2024-06-28", "STABLE", 0.30, "neutral"),
+        ("2024-06-28", "CASH", 0.70, "neutral"),
+        ("2024-07-31", "CHURNY", 0.30, "neutral"),
+        ("2024-07-31", "STABLE", 0.50, "neutral"),
+        ("2024-07-31", "CASH", 0.20, "neutral"),
+    ]
+    book = pd.DataFrame(
+        [
+            {
+                "rebalance_date": date,
+                "ticker": ticker,
+                "weight": weight,
+                "target_weight": weight,
+                "regime_state": regime,
+                "primary_lane": "MARKET_LEADER" if ticker != "CASH" else "CASH",
+                "selection_reason": "test",
+            }
+            for date, ticker, weight, regime in rows
+        ]
+    )
+    filtered, payload = apply_main_neutral_regime_churn_filter(book, "main")
+    last = filtered[filtered["rebalance_date"].astype(str).eq("2024-07-31")]
+    assert "CHURNY" not in set(last["ticker"].astype(str))
+    assert "STABLE" in set(last["ticker"].astype(str))
+    assert float(last.loc[last["ticker"].astype(str).eq("CASH"), "weight"].iloc[0]) == 0.50
+    assert payload["status"] == "completed"
+    assert payload["stock_rows_removed"] == 2
+    assert payload["neutral_entries_blocked"] == 2
+    assert payload["cash_rebuilt_explicitly"] is True
+    concentrated, concentrated_payload = apply_main_neutral_regime_churn_filter(book, "concentrated")
+    assert len(concentrated) == len(book)
+    assert concentrated_payload["status"] == "skipped"
 
 
 def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
@@ -2140,6 +2190,7 @@ if __name__ == "__main__":
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_concentrated_risk_state_caps_new_entries_only()
+    test_main_neutral_churn_filter_blocks_reentries_and_rebuilds_cash()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
     test_main_watch_unconfirmed_market_leader_cap_applies_to_neutral_watch_new_entries_only()
     test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
