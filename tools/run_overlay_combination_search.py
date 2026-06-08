@@ -72,6 +72,13 @@ DEFAULT_GRID: dict[str, Any] = {
         "neutral_mult_main": [1.0],
         "neutral_mult_concentrated": [0.85],
     },
+    "main_top_n": {
+        # Post-hoc concentration of the main book. 0 = passthrough (~18 names);
+        # 6/8/10 = keep only top-N by weight per rebalance, residual -> CASH.
+        # Sweeps only main; concentrated ignores this knob.
+        "values": [0, 6, 8, 10],
+        "keep_cash_floor": True,
+    },
     "primary_cost_bps": 25.0,
     "cost_sweep_bps": [25, 50, 75, 100],
     "stress_windows": {
@@ -123,6 +130,7 @@ class Combo:
     regime_bear_mult: float
     regime_deep_bear_mult: float
     regime_neutral_mult: float
+    main_top_n: int     # 0 = passthrough (main only; concentrated stays 0)
     cost_bps: float
 
     def signature(self) -> str:
@@ -132,6 +140,8 @@ class Combo:
         bits.append(f"churn{int(self.churn_enabled)}_st{self.churn_swap_threshold}_w{self.churn_window_months}")
         bits.append(f"macro{int(self.macro_enabled)}_ma{self.macro_ma_window}_c{self.macro_confirm_days}_h{self.macro_halve_factor}")
         bits.append(f"regcap{int(self.regime_enabled)}_b{self.regime_bear_mult}_db{self.regime_deep_bear_mult}_n{self.regime_neutral_mult}")
+        if self.portfolio_kind == "main" and self.main_top_n > 0:
+            bits.append(f"topN{self.main_top_n}")
         bits.append(f"cost{int(self.cost_bps)}bp")
         return "__".join(bits)
 
@@ -153,6 +163,9 @@ def expand_grid(grid: dict[str, Any], portfolio_kind: str, max_combos: int) -> l
     else:
         champion_choices = [(0, "", 0)]
 
+    mt = grid.get("main_top_n", {"values": [0]})
+    main_top_n_choices = list(mt.get("values", [0])) if portfolio_kind == "main" else [0]
+
     combos: list[Combo] = []
     idx = 0
     for (n, w, r) in champion_choices:
@@ -169,28 +182,30 @@ def expand_grid(grid: dict[str, Any], portfolio_kind: str, max_combos: int) -> l
                                                 neutral_key = "neutral_mult_concentrated" if portfolio_kind == "concentrated" else "neutral_mult_main"
                                                 nm_default = rc.get(neutral_key, [1.0])[0]
                                                 for nm in (rc.get(neutral_key, [nm_default]) if re_ else [1.0]):
-                                                    combos.append(Combo(
-                                                        idx=idx,
-                                                        portfolio_kind=portfolio_kind,
-                                                        conc_n=n,
-                                                        conc_weighting=w,
-                                                        conc_rebal=r,
-                                                        churn_enabled=bool(ce),
-                                                        churn_swap_threshold=int(st),
-                                                        churn_window_months=int(wm),
-                                                        macro_enabled=bool(me),
-                                                        macro_ma_window=int(ma),
-                                                        macro_confirm_days=int(cd),
-                                                        macro_halve_factor=float(hf),
-                                                        regime_enabled=bool(re_),
-                                                        regime_bear_mult=float(bm),
-                                                        regime_deep_bear_mult=float(dbm),
-                                                        regime_neutral_mult=float(nm),
-                                                        cost_bps=primary_cost,
-                                                    ))
-                                                    idx += 1
-                                                    if idx >= max_combos:
-                                                        return combos
+                                                    for tn in main_top_n_choices:
+                                                        combos.append(Combo(
+                                                            idx=idx,
+                                                            portfolio_kind=portfolio_kind,
+                                                            conc_n=n,
+                                                            conc_weighting=w,
+                                                            conc_rebal=r,
+                                                            churn_enabled=bool(ce),
+                                                            churn_swap_threshold=int(st),
+                                                            churn_window_months=int(wm),
+                                                            macro_enabled=bool(me),
+                                                            macro_ma_window=int(ma),
+                                                            macro_confirm_days=int(cd),
+                                                            macro_halve_factor=float(hf),
+                                                            regime_enabled=bool(re_),
+                                                            regime_bear_mult=float(bm),
+                                                            regime_deep_bear_mult=float(dbm),
+                                                            regime_neutral_mult=float(nm),
+                                                            main_top_n=int(tn),
+                                                            cost_bps=primary_cost,
+                                                        ))
+                                                        idx += 1
+                                                        if idx >= max_combos:
+                                                            return combos
     return combos
 
 
@@ -207,10 +222,30 @@ def _run(cmd: list[str], cwd: Path) -> tuple[int, str]:
 
 def apply_filter_chain(combo: Combo, base_book: Path, work_dir: Path, price_cache: Path) -> tuple[Path, list[str]]:
     """Apply enabled filters in order and return the path to the final book.
-    Each filter writes a new book; non-enabled filters are skipped."""
+    Each filter writes a new book; non-enabled filters are skipped.
+
+    Order matters: top-N concentration runs FIRST when the kind is main, so the
+    downstream regime/churn/macro filters reshape the narrower book."""
     cur = base_book
     log: list[str] = []
     work_dir.mkdir(parents=True, exist_ok=True)
+
+    if combo.portfolio_kind == "main" and combo.main_top_n > 0:
+        nxt = work_dir / "book_after_topn.csv"
+        diag = work_dir / "topn_diag.json"
+        cmd = [
+            sys.executable, str(TOOLS / "run_main_top_n_concentration_filter.py"),
+            "--input-book", str(cur), "--output-book", str(nxt),
+            "--diagnostics", str(diag),
+            "--top-n", str(combo.main_top_n),
+        ]
+        if DEFAULT_GRID["main_top_n"].get("keep_cash_floor"):
+            cmd.append("--keep-cash-floor")
+        rc, tail = _run(cmd, cwd=REPO_ROOT)
+        log.append(f"topn rc={rc}")
+        if rc != 0 or not nxt.exists():
+            return cur, log + [f"topn FAILED, kept previous book; tail={tail}"]
+        cur = nxt
 
     if combo.churn_enabled:
         nxt = work_dir / "book_after_churn.csv"

@@ -42,7 +42,54 @@ def test_grid_expansion_main_is_passthrough() -> None:
     assert all(c.conc_n == 0 and c.conc_weighting == "" for c in combos), (
         "main combos must not carry concentrated champion knobs"
     )
-    print(f"PASS test_grid_expansion_main_is_passthrough  n={len(combos)}")
+    # All four main_top_n values (0, 6, 8, 10) must be represented.
+    seen_top_n = {c.main_top_n for c in combos}
+    assert seen_top_n == {0, 6, 8, 10}, f"expected {{0,6,8,10}}, got {seen_top_n}"
+    print(f"PASS test_grid_expansion_main_is_passthrough  n={len(combos)}  top_n={sorted(seen_top_n)}")
+
+
+def test_main_top_n_does_not_leak_to_concentrated() -> None:
+    grid = ocs.DEFAULT_GRID
+    combos = ocs.expand_grid(grid, "concentrated", grid["max_combos"])
+    assert all(c.main_top_n == 0 for c in combos), "concentrated combos must NOT carry main_top_n"
+    print(f"PASS test_main_top_n_does_not_leak_to_concentrated  n={len(combos)}")
+
+
+def test_main_top_n_filter_keeps_top_n_and_rebuilds_cash() -> None:
+    # Real test of the filter against a synthetic monthly book.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "topn",
+        str(Path(__file__).resolve().parent.parent / "tools" / "run_main_top_n_concentration_filter.py"),
+    )
+    topn = importlib.util.module_from_spec(spec); spec.loader.exec_module(topn)
+    book = pd.DataFrame([
+        {"rebalance_date": "2024-01-31", "ticker": "AAA", "weight": 0.30, "sector": "X"},
+        {"rebalance_date": "2024-01-31", "ticker": "BBB", "weight": 0.25, "sector": "X"},
+        {"rebalance_date": "2024-01-31", "ticker": "CCC", "weight": 0.20, "sector": "Y"},
+        {"rebalance_date": "2024-01-31", "ticker": "DDD", "weight": 0.10, "sector": "Y"},
+        {"rebalance_date": "2024-01-31", "ticker": "EEE", "weight": 0.10, "sector": "Z"},
+        {"rebalance_date": "2024-01-31", "ticker": "FFF", "weight": 0.05, "sector": "Z"},
+        {"rebalance_date": "2024-02-29", "ticker": "AAA", "weight": 0.50, "sector": "X"},
+        {"rebalance_date": "2024-02-29", "ticker": "BBB", "weight": 0.30, "sector": "X"},
+        {"rebalance_date": "2024-02-29", "ticker": "CCC", "weight": 0.20, "sector": "Y"},
+    ])
+    filtered, decisions = topn.apply_top_n(book, top_n=3, keep_cash_floor=True)
+    # Per date: only top-3 stocks + a CASH row, weights sum to 1.0
+    for date, sub in filtered.groupby("rebalance_date"):
+        stocks = sub[sub["ticker"] != "CASH"]
+        cash = sub[sub["ticker"] == "CASH"]
+        assert len(stocks) <= 3, f"date {date}: kept {len(stocks)} stocks, expected <=3"
+        assert len(cash) == 1, f"date {date}: expected exactly 1 CASH row, got {len(cash)}"
+        total = float(sub["weight"].sum())
+        assert abs(total - 1.0) < 1e-6, f"date {date}: sum {total} != 1.0"
+    # First date: stocks summed to 1.00, top-3 = 0.30+0.25+0.20 = 0.75 -> cash 0.25
+    d1 = filtered[filtered["rebalance_date"].astype(str).str.startswith("2024-01")]
+    cash_w = float(d1.loc[d1["ticker"] == "CASH", "weight"].iloc[0])
+    assert abs(cash_w - 0.25) < 1e-6, f"date1 cash {cash_w} != 0.25"
+    # Decisions log includes both dates
+    assert len(decisions) == 2
+    print("PASS test_main_top_n_filter_keeps_top_n_and_rebuilds_cash")
 
 
 def test_max_combos_caps_growth() -> None:
@@ -119,6 +166,8 @@ def main() -> int:
     tests = [
         test_grid_expansion_concentrated,
         test_grid_expansion_main_is_passthrough,
+        test_main_top_n_does_not_leak_to_concentrated,
+        test_main_top_n_filter_keeps_top_n_and_rebuilds_cash,
         test_max_combos_caps_growth,
         test_stress_window_mdd_basic,
         test_stress_window_mdd_handles_missing,
