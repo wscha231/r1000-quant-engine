@@ -1,0 +1,174 @@
+name: Gate Ablation Study (Manual)
+
+# Research-only. For a single FROZEN full-rebuild artifact (source_run_id),
+# evaluate the baseline broker-daily replay + one replay per cap gate (each
+# restoring that gate's pre_<gate>_weight only) + an optional ALL_RESTORE
+# upper-bound. Ranks every gate by CAGR-lift vs MDD-change vs the baseline so
+# we can identify PURE_DRAG gates safe to strip versus EARNED gates whose CAGR
+# cost buys real MDD protection. Never mutates production / target books /
+# live policy.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Completed full_rebuild_manual run id (frozen base)'
+        type: string
+        required: true
+      portfolio_kind:
+        description: 'Which portfolio book to ablate'
+        type: choice
+        options: [concentrated, main]
+        default: concentrated
+      cost_bps:
+        description: 'Per-side cost (bps) for each broker replay'
+        type: string
+        default: '25'
+      workers:
+        description: 'Parallel broker-replay workers'
+        type: string
+        default: '3'
+      include_all_restore:
+        description: 'Add the ALL_RESTORE upper-bound variant'
+        type: choice
+        options: ['true', 'false']
+        default: 'true'
+      concentrated_target_stock_n:
+        description: 'Override concentrated champion target_stock_names (0 = use book/default)'
+        type: string
+        default: '0'
+      concentrated_weighting_mode:
+        description: 'Override concentrated champion weighting_mode (empty = use book/default)'
+        type: string
+        default: ''
+      concentrated_rebalance_interval_months:
+        description: 'Override concentrated champion rebalance interval months (0 = use book/default)'
+        type: string
+        default: '0'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gate_ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore price cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache_prices
+            aggressive/cache/bars
+          key: gate-ablation-price-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            overlay-search-price-cache-${{ runner.os }}-
+            replay-price-cache-${{ runner.os }}-
+            collector-cache--${{ runner.os }}-
+            collector-cache-${{ runner.os }}-
+
+      - name: Download source full rebuild artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          for tool in tools/build_replay_price_cache.py tools/run_broker_ledger_replay.py tools/run_gate_ablation_filter.py tools/run_gate_ablation_study.py; do
+            if [ ! -f "$tool" ]; then
+              echo "[ablation] ERROR: missing $tool. Run from a branch that contains the ablation tools."
+              exit 4
+            fi
+          done
+          mkdir -p source_artifacts outputs
+          gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
+          SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
+          if [ -z "$SRC" ]; then
+            echo "[ablation] ERROR: could not locate backtest_metrics.json in source artifacts"
+            find source_artifacts -maxdepth 3 -type f | head -100
+            exit 2
+          fi
+          echo "[ablation] source=$SRC"
+          cp -R "$SRC"/. outputs/
+          test -s "outputs/reports/operating_${{ inputs.portfolio_kind }}_target_book.csv"
+
+      - name: Build replay price cache
+        run: |
+          set -e
+          python tools/build_replay_price_cache.py \
+            --books "outputs/reports/operating_${{ inputs.portfolio_kind }}_target_book.csv" \
+            --scored outputs/scored_latest.csv \
+            --max-scored 200 \
+            --output-dir cache_prices \
+            --batch-size 40 \
+            --refresh-stale-days 2
+          PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "[ablation] price cache files=$PRICE_FILES"
+          if [ "${PRICE_FILES:-0}" -lt 10 ]; then
+            echo "[ablation] ERROR: price cache build did not produce enough files."
+            exit 3
+          fi
+
+      - name: Run gate ablation study
+        run: |
+          set -e
+          set -o pipefail
+          EXTRA=""
+          if [ "${{ inputs.include_all_restore }}" = "true" ]; then EXTRA="--include-all-restore"; fi
+          if [ "${{ inputs.concentrated_target_stock_n }}" != "0" ]; then
+            EXTRA="$EXTRA --concentrated-target-stock-n ${{ inputs.concentrated_target_stock_n }}"
+          fi
+          if [ -n "${{ inputs.concentrated_weighting_mode }}" ]; then
+            EXTRA="$EXTRA --concentrated-weighting-mode ${{ inputs.concentrated_weighting_mode }}"
+          fi
+          if [ "${{ inputs.concentrated_rebalance_interval_months }}" != "0" ]; then
+            EXTRA="$EXTRA --concentrated-rebalance-interval-months ${{ inputs.concentrated_rebalance_interval_months }}"
+          fi
+          python tools/run_gate_ablation_study.py \
+            --base-artifact outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/gate_ablation_study \
+            --portfolio-kind "${{ inputs.portfolio_kind }}" \
+            --cost-bps "${{ inputs.cost_bps }}" \
+            --workers "${{ inputs.workers }}" \
+            $EXTRA 2>&1 | tee outputs/gate_ablation_study_run.log
+
+      - name: Summarise findings
+        if: always()
+        run: |
+          if [ -s outputs/gate_ablation_study/gate_ablation_report.md ]; then
+            echo "===== gate_ablation_report.md ====="
+            cat outputs/gate_ablation_study/gate_ablation_report.md
+            echo
+            echo "===== ranking head ====="
+            head -10 outputs/gate_ablation_study/gate_ablation_ranking.csv 2>/dev/null || true
+          else
+            echo "[ablation] no report produced — check the run log."
+          fi
+
+      - name: Upload ablation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-ablation-${{ inputs.portfolio_kind }}-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: |
+            outputs/gate_ablation_study/
+            outputs/gate_ablation_study_run.log
+          retention-days: 30
