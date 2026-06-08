@@ -1488,7 +1488,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-29-phase17v3-l11-explosion"
+ENGINE_REUSE_VERSION = "2026-06-08-main-concentrate-top10"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1542,7 +1542,10 @@ class EngineConfig:
     end_date: str = datetime.utcnow().strftime("%Y-%m-%d")
 
     universe_size: int = 1000
-    top_n: int = 30
+    # 2026-06-08: shrink main from ~18 to <10 holdings per user request.
+    # top_n is the hard upper bound for build_target_portfolio; the
+    # dynamic regime adjustment can pull below it but never exceed it.
+    top_n: int = 10
     min_price: float = 5.0
     min_dollar_vol_20d: float = 20_000_000
     min_mktcap: float = 2_000_000_000
@@ -1591,7 +1594,10 @@ class EngineConfig:
     random_seed: int = 42
 
     stock_weight_min: float = 0.01
-    stock_weight_max: float = 0.20
+    # 2026-06-08: with ~8 names the per-name allocation must rise; 0.20 -> 0.25
+    # leaves room for top names to absorb the freed weight without forcing a
+    # high-conviction override (stock_weight_max_high_conviction still 0.50).
+    stock_weight_max: float = 0.25
     stock_weight_max_high_conviction: float = 0.50
     stock_weight_max_no_ttm: float = 0.14
     stock_weight_max_no_ttm_confirmed: float = 0.20
@@ -1771,7 +1777,9 @@ class EngineConfig:
     roundtrip_cost_bps: float = 50.0
     starting_capital_usd: float = 100000.0
     min_port_names: int = 5
-    min_dynamic_port_names: int = 12
+    # 2026-06-08: lowered from 12 -> 8 so the regime-conditioned dynamic count
+    # can land below 10 (paired with top_n=10).
+    min_dynamic_port_names: int = 8
     alert_review_days: int = 7
 
     cap_leader_weight: float = 0.60
