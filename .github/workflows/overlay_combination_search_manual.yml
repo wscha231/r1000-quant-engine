@@ -1,0 +1,151 @@
+name: Overlay Combination Search (Manual)
+
+# Research-only. Sweeps the replay-overlay knob grid (concentrated champion
+# N/weighting/rebalance + churn / macro circuit / regime capacity + cost) on a
+# FROZEN base full-rebuild artifact, ranks every combo by the official
+# run_broker_ledger_replay next-close broker-daily metric under stress + cost +
+# stability gates, and emits champion.json. Never mutates production / target
+# books / live policy. Mirrors alphaops_replay_sidecars_manual.yml's
+# download-source + build-price-cache preamble.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Completed full_rebuild_manual run id to use as the frozen base'
+        type: string
+        required: true
+      portfolio_kind:
+        description: 'Which portfolio to sweep'
+        type: choice
+        options: [concentrated, main, both]
+        default: concentrated
+      max_combos:
+        description: 'Safety cap on the cartesian product (0 = use grid default 800)'
+        type: string
+        default: '160'
+      workers:
+        description: 'Parallel broker-replay workers'
+        type: string
+        default: '3'
+      primary_cost_bps:
+        description: 'Per-side cost (bps) for the pass-1 primary screen'
+        type: string
+        default: '25'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  overlay_search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore price cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache_prices
+            aggressive/cache/bars
+          key: overlay-search-price-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            replay-price-cache-${{ runner.os }}-
+            collector-cache--${{ runner.os }}-
+            collector-cache-${{ runner.os }}-
+
+      - name: Download source full rebuild artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          for tool in tools/build_replay_price_cache.py tools/run_broker_ledger_replay.py tools/run_neutral_regime_churn_filter.py tools/run_macro_circuit_breaker_filter.py tools/run_regime_capacity_filter.py tools/run_overlay_combination_search.py; do
+            if [ ! -f "$tool" ]; then
+              echo "[overlay-search] ERROR: missing $tool. Run from a branch that contains the AlphaOps replay tools + the overlay search orchestrator."
+              exit 4
+            fi
+          done
+          mkdir -p source_artifacts outputs
+          gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
+          SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
+          if [ -z "$SRC" ]; then
+            echo "[overlay-search] ERROR: could not locate backtest_metrics.json in source artifacts"
+            find source_artifacts -maxdepth 3 -type f | head -100
+            exit 2
+          fi
+          echo "[overlay-search] source=$SRC"
+          cp -R "$SRC"/. outputs/
+          test -s outputs/reports/operating_concentrated_target_book.csv
+          test -s outputs/reports/operating_main_target_book.csv
+
+      - name: Build replay price cache
+        run: |
+          set -e
+          python tools/build_replay_price_cache.py \
+            --books outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv \
+            --scored outputs/scored_latest.csv \
+            --max-scored 200 \
+            --output-dir cache_prices \
+            --batch-size 40 \
+            --refresh-stale-days 2
+          PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "[overlay-search] price cache files=$PRICE_FILES"
+          if [ "${PRICE_FILES:-0}" -lt 10 ]; then
+            echo "[overlay-search] ERROR: price cache build did not produce enough files."
+            exit 3
+          fi
+
+      - name: Run overlay combination search
+        run: |
+          set -e
+          set -o pipefail
+          EXTRA=""
+          if [ "${{ inputs.max_combos }}" != "0" ]; then EXTRA="--max-combos ${{ inputs.max_combos }}"; fi
+          python tools/run_overlay_combination_search.py \
+            --base-artifact outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/overlay_combination_search \
+            --portfolio-kind "${{ inputs.portfolio_kind }}" \
+            --workers "${{ inputs.workers }}" \
+            $EXTRA 2>&1 | tee outputs/overlay_combination_search_run.log
+
+      - name: Summarise champion
+        if: always()
+        run: |
+          if [ -s outputs/overlay_combination_search/champion.json ]; then
+            echo "===== champion.json ====="
+            cat outputs/overlay_combination_search/champion.json
+            echo
+            echo "===== top of ranking ====="
+            head -5 outputs/overlay_combination_search/overlay_search_ranking.csv 2>/dev/null || true
+          else
+            echo "[overlay-search] no champion.json produced — check the run log."
+          fi
+
+      - name: Upload search artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overlay-combination-search-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: |
+            outputs/overlay_combination_search/
+            outputs/overlay_combination_search_run.log
+          retention-days: 30
