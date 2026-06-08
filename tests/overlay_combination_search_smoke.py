@@ -45,7 +45,10 @@ def test_grid_expansion_main_is_passthrough() -> None:
     # All four main_top_n values (0, 6, 8, 10) must be represented.
     seen_top_n = {c.main_top_n for c in combos}
     assert seen_top_n == {0, 6, 8, 10}, f"expected {{0,6,8,10}}, got {seen_top_n}"
-    print(f"PASS test_grid_expansion_main_is_passthrough  n={len(combos)}  top_n={sorted(seen_top_n)}")
+    # redeploy must be A/B'd (both False and True present).
+    seen_rd = {c.redeploy for c in combos}
+    assert seen_rd == {False, True}, f"expected redeploy {{False,True}}, got {seen_rd}"
+    print(f"PASS test_grid_expansion_main_is_passthrough  n={len(combos)}  top_n={sorted(seen_top_n)}  redeploy={sorted(seen_rd)}")
 
 
 def test_main_top_n_does_not_leak_to_concentrated() -> None:

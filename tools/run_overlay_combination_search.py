@@ -79,6 +79,13 @@ DEFAULT_GRID: dict[str, Any] = {
         "values": [0, 6, 8, 10],
         "keep_cash_floor": True,
     },
+    "redeploy": {
+        # Crisis-aware residual-cash redeploy: on NORMAL dates push idle cash
+        # into the held leaders up to caps (CAGR), on DEFENSE dates preserve the
+        # governor's cash (MDD). False vs True so the broker replay A/Bs it.
+        "values": [False, True],
+        "min_cash_floor": 0.0,
+    },
     "primary_cost_bps": 25.0,
     "cost_sweep_bps": [25, 50, 75, 100],
     "stress_windows": {
@@ -131,6 +138,7 @@ class Combo:
     regime_deep_bear_mult: float
     regime_neutral_mult: float
     main_top_n: int     # 0 = passthrough (main only; concentrated stays 0)
+    redeploy: bool      # crisis-aware residual-cash redeploy on normal dates
     cost_bps: float
 
     def signature(self) -> str:
@@ -142,6 +150,7 @@ class Combo:
         bits.append(f"regcap{int(self.regime_enabled)}_b{self.regime_bear_mult}_db{self.regime_deep_bear_mult}_n{self.regime_neutral_mult}")
         if self.portfolio_kind == "main" and self.main_top_n > 0:
             bits.append(f"topN{self.main_top_n}")
+        bits.append(f"redeploy{int(self.redeploy)}")
         bits.append(f"cost{int(self.cost_bps)}bp")
         return "__".join(bits)
 
@@ -165,6 +174,8 @@ def expand_grid(grid: dict[str, Any], portfolio_kind: str, max_combos: int) -> l
 
     mt = grid.get("main_top_n", {"values": [0]})
     main_top_n_choices = list(mt.get("values", [0])) if portfolio_kind == "main" else [0]
+    rdp = grid.get("redeploy", {"values": [False]})
+    redeploy_choices = list(rdp.get("values", [False]))
 
     combos: list[Combo] = []
     idx = 0
@@ -183,29 +194,31 @@ def expand_grid(grid: dict[str, Any], portfolio_kind: str, max_combos: int) -> l
                                                 nm_default = rc.get(neutral_key, [1.0])[0]
                                                 for nm in (rc.get(neutral_key, [nm_default]) if re_ else [1.0]):
                                                     for tn in main_top_n_choices:
-                                                        combos.append(Combo(
-                                                            idx=idx,
-                                                            portfolio_kind=portfolio_kind,
-                                                            conc_n=n,
-                                                            conc_weighting=w,
-                                                            conc_rebal=r,
-                                                            churn_enabled=bool(ce),
-                                                            churn_swap_threshold=int(st),
-                                                            churn_window_months=int(wm),
-                                                            macro_enabled=bool(me),
-                                                            macro_ma_window=int(ma),
-                                                            macro_confirm_days=int(cd),
-                                                            macro_halve_factor=float(hf),
-                                                            regime_enabled=bool(re_),
-                                                            regime_bear_mult=float(bm),
-                                                            regime_deep_bear_mult=float(dbm),
-                                                            regime_neutral_mult=float(nm),
-                                                            main_top_n=int(tn),
-                                                            cost_bps=primary_cost,
-                                                        ))
-                                                        idx += 1
-                                                        if idx >= max_combos:
-                                                            return combos
+                                                        for rd in redeploy_choices:
+                                                            combos.append(Combo(
+                                                                idx=idx,
+                                                                portfolio_kind=portfolio_kind,
+                                                                conc_n=n,
+                                                                conc_weighting=w,
+                                                                conc_rebal=r,
+                                                                churn_enabled=bool(ce),
+                                                                churn_swap_threshold=int(st),
+                                                                churn_window_months=int(wm),
+                                                                macro_enabled=bool(me),
+                                                                macro_ma_window=int(ma),
+                                                                macro_confirm_days=int(cd),
+                                                                macro_halve_factor=float(hf),
+                                                                regime_enabled=bool(re_),
+                                                                regime_bear_mult=float(bm),
+                                                                regime_deep_bear_mult=float(dbm),
+                                                                regime_neutral_mult=float(nm),
+                                                                main_top_n=int(tn),
+                                                                redeploy=bool(rd),
+                                                                cost_bps=primary_cost,
+                                                            ))
+                                                            idx += 1
+                                                            if idx >= max_combos:
+                                                                return combos
     return combos
 
 
@@ -224,8 +237,10 @@ def apply_filter_chain(combo: Combo, base_book: Path, work_dir: Path, price_cach
     """Apply enabled filters in order and return the path to the final book.
     Each filter writes a new book; non-enabled filters are skipped.
 
-    Order matters: top-N concentration runs FIRST when the kind is main, so the
-    downstream regime/churn/macro filters reshape the narrower book."""
+    Order matters: top-N concentration runs FIRST when the kind is main, then
+    redeploy fills idle cash on normal dates, then the regime/churn/macro
+    filters reshape the result. Redeploy before the capacity filters so those
+    still get the final say on defense-date exposure."""
     cur = base_book
     log: list[str] = []
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -245,6 +260,21 @@ def apply_filter_chain(combo: Combo, base_book: Path, work_dir: Path, price_cach
         log.append(f"topn rc={rc}")
         if rc != 0 or not nxt.exists():
             return cur, log + [f"topn FAILED, kept previous book; tail={tail}"]
+        cur = nxt
+
+    if combo.redeploy:
+        nxt = work_dir / "book_after_redeploy.csv"
+        diag = work_dir / "redeploy_diag.json"
+        rc, tail = _run([
+            sys.executable, str(TOOLS / "run_residual_cash_redeploy_filter.py"),
+            "--input-book", str(cur), "--output-book", str(nxt),
+            "--diagnostics", str(diag),
+            "--portfolio-kind", combo.portfolio_kind,
+            "--min-cash-floor", str(DEFAULT_GRID["redeploy"].get("min_cash_floor", 0.0)),
+        ], cwd=REPO_ROOT)
+        log.append(f"redeploy rc={rc}")
+        if rc != 0 or not nxt.exists():
+            return cur, log + [f"redeploy FAILED, kept previous book; tail={tail}"]
         cur = nxt
 
     if combo.churn_enabled:
