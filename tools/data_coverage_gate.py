@@ -43,17 +43,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_FLOORS = {
     "etf": 0.30,
-    "available_from": 0.30,
+    "sec_v1_evidence": 0.20,   # Form4 v1 leader_onset detection rate — naturally sparse
     "13f": 0.50,
     "smart_money": 0.50,
+    "top_manager": 0.05,       # Top-7 discovery is naturally sparse (few names per date)
 }
 
 # Map a layer -> the summary.json key that carries its materialised coverage.
+# coverage_ratio = rows with evidence_confidence_score > 0 (Form4 v1 onset hits).
+# It is NOT the fraction of rows with an available_from PIT stamp — that signal
+# lives in data_readiness/summary.json::pit_available_from_check and is checked
+# separately below (any future-dated stamp -> hard fail).
 SEC_ENRICHED_KEYS = {
     "etf": "coverage_etf_ratio",
-    "available_from": "coverage_ratio",
+    "sec_v1_evidence": "coverage_ratio",
     "13f": "coverage_13f_ratio",
     "smart_money": "coverage_smart_money_ratio",
+    "top_manager": "coverage_top_manager_ratio",
 }
 
 

@@ -52,6 +52,28 @@ build_long_crisis_inputs() {
 }
 
 SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
+
+# Walk-forward Top-7 manager discovery signals, materialised before SEC
+# enrichment so the TOP7_MANAGER_DISCOVERY lane has data to score. The follow
+# study (6-month-rolling PIT cohorts) is also invoked later in the sidecar flow;
+# we run it here only if its output parquet is missing so there is no double
+# work, then aggregate per (rebalance_date, ticker).
+ensure_top_manager_discovery_signals() {
+  local candidate_book="$1"
+  local follow_events="data_pit/sec/top_manager_13f_follow_events.parquet"
+  local discovery="data_pit/sec/top_manager_discovery_signals.parquet"
+  mkdir -p outputs/full_rebuild_logs
+  if [ ! -s "$follow_events" ]; then
+    echo "[top7-discovery] follow events missing; running PIT top-manager follow study first"
+    python tools/run_pit_top_manager_follow_study.py --events data_pit/sec/13f_position_events.parquet --labels data_pit/sec/post_disclosure_alpha_labels.parquet --output-dir outputs/pit_top_manager_follow_study --cohort-pit data_pit/sec/pit_top_manager_cohorts.parquet --follow-events-pit "$follow_events" --horizons 21,63,126,252 --ranking-horizon 63 --ranking-lookback-days 1095 --cohort-refresh-months 6 --top-n 10 --min-manager-events 8 --history-years 8 2>&1 | tee outputs/full_rebuild_logs/pit_top_manager_follow_study.log || true
+  fi
+  if [ ! -s "$follow_events" ]; then
+    echo "[top7-discovery] follow events still missing; lane will be zero-filled"
+    return 0
+  fi
+  python tools/build_top_manager_discovery_signals.py --follow-events "$follow_events" --candidate-book "$candidate_book" --output "$discovery" --lookback-days 252 2>&1 | tee outputs/full_rebuild_logs/top_manager_discovery_signals.log || true
+}
+
 build_sec_enriched_candidate_book() {
   SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
   local enriched="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
@@ -65,6 +87,7 @@ build_sec_enriched_candidate_book() {
     echo "[sec-enrich] missing base candidate replay book; sidecars will use default resolver"
     return 0
   fi
+  ensure_top_manager_discovery_signals "$SIDECAR_CANDIDATE_BOOK"
   python tools/run_sec_enriched_candidate_replay.py --candidate-book "$SIDECAR_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay.log || true
   if [ -s "$enriched" ]; then
     SIDECAR_CANDIDATE_BOOK="$enriched"
@@ -318,7 +341,11 @@ python tools/run_winner_lifecycle_reports.py --latest-run outputs --output-dir o
 python tools/run_winner_onset_study.py --scored outputs/scored_latest.csv --top-tickers 80 --limit 80 --years 10 --output-dir outputs/winner_onset_study 2>&1 | tee outputs/full_rebuild_logs/winner_onset_study.log || true
 python tools/run_shakeout_breakdown_study.py --scored outputs/scored_latest.csv --top-tickers 80 --limit 80 --years 10 --output-dir outputs/shakeout_breakdown_study 2>&1 | tee outputs/full_rebuild_logs/shakeout_breakdown_study.log || true
 python tools/run_shakeout_disclosure_reversal_study.py --events data_pit/sec/13f_position_events.parquet --events data_pit/sec/form4_transaction_events.parquet --events data_pit/etf_holdings/etf_holding_events.parquet --price-cache cache_prices --output-dir outputs/shakeout_disclosure_reversal_study 2>&1 | tee outputs/full_rebuild_logs/shakeout_disclosure_reversal_study.log || true
+if [ ! -s data_pit/sec/top_manager_13f_follow_events.parquet ]; then
 python tools/run_pit_top_manager_follow_study.py --events data_pit/sec/13f_position_events.parquet --labels data_pit/sec/post_disclosure_alpha_labels.parquet --output-dir outputs/pit_top_manager_follow_study --cohort-pit data_pit/sec/pit_top_manager_cohorts.parquet --follow-events-pit data_pit/sec/top_manager_13f_follow_events.parquet --horizons 21,63,126,252 --ranking-horizon 63 --ranking-lookback-days 1095 --cohort-refresh-months 6 --top-n 10 --min-manager-events 8 --history-years 8 2>&1 | tee outputs/full_rebuild_logs/pit_top_manager_follow_study.log || true
+else
+echo "[pit-top-manager] follow events already built during sec-enrich prerequisite; skipping duplicate run"
+fi
 python tools/run_autolearning_winner_challenger.py --latest-run outputs --autolearning-dir outputs/auto_learning_v2 --lifecycle-dir outputs/winner_lifecycle --onset-dir outputs/winner_onset_study --shakeout-dir outputs/shakeout_breakdown_study --cash-drag-dir outputs/main_cash_drag_replay --main-v2-replay-dir outputs/main_v2_backtest --concentrated-replay-dir outputs/concentrated_policy_replay --alpha-sprint-replay-dir outputs/alpha_sprint_backtest --position-risk-replay-dir outputs/position_aware_risk_replay --monster-lifecycle-replay-dir outputs/monster_lifecycle_replay --output-dir outputs/autolearning_winner_challenger 2>&1 | tee outputs/full_rebuild_logs/autolearning_winner_challenger.log || true
 python tools/run_alphaops_policy_fusion.py --latest-run outputs --output-dir outputs/policy_fusion 2>&1 | tee outputs/full_rebuild_logs/policy_fusion.log || true
 python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true

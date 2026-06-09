@@ -470,7 +470,7 @@ jobs:
           python tools/data_coverage_gate.py \
             --run-dir outputs \
             --output outputs/coverage_gate.json \
-            --warn-only etf,available_from,smart_money,13f \
+            --warn-only etf,sec_v1_evidence,smart_money,13f,top_manager \
             --no-fail 2>&1 | tee outputs/full_rebuild_logs/coverage_gate.log || true
 
       - name: Upload artifact (user operating minimal)
