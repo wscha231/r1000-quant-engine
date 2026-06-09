@@ -61,6 +61,9 @@ DATASETS: list[dict[str, Any]] = [
     {"name": "etf_holdings", "path": "data_pit/etf_holdings/etf_holdings.parquet",
      "kind": "parquet", "ticker_col": "holding_ticker", "date_col": "available_from",
      "layer": "etf", "owner_workflow": "etf_holdings_monthly_refresh.yml", "cadence_days": 40},
+    {"name": "etf_nport_history", "path": "data_pit/etf_holdings/etf_holdings_nport_history.parquet",
+     "kind": "parquet", "ticker_col": "holding_ticker", "date_col": "available_from",
+     "layer": "etf", "owner_workflow": "etf_holdings_monthly_refresh.yml", "cadence_days": 40},
     # --- prices ---
     {"name": "price_cache_manifest", "path": "data_raw/free/prices/replay_price_cache_manifest.json",
      "kind": "json", "layer": "prices", "owner_workflow": "after_close_daily.yml", "cadence_days": 4},

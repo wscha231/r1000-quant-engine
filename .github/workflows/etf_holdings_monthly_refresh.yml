@@ -11,6 +11,10 @@ on:
         description: 'Sleep between ETF requests'
         type: string
         default: '0.25'
+      max_filings_per_etf:
+        description: 'N-PORT filings to pull per ETF (~24 = 6y quarterly)'
+        type: string
+        default: '24'
   schedule:
     # 08:55 KST on the first calendar day of each month.
     - cron: '55 23 1 * *'
@@ -112,6 +116,20 @@ jobs:
             --max-holdings "${{ github.event.inputs.max_holdings || '25' }}" \
             --sleep "${{ github.event.inputs.sleep_seconds || '0.25' }}" \
             2>&1 | tee outputs/full_rebuild_logs/etf_holdings_refresh.log
+
+      - name: Build ETF N-PORT historical PIT series
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          # The snapshot above stamps available_from = today, which matches NO
+          # past rebalance date in historical replay (ETF coverage 0%). N-PORT
+          # filings give a true PIT holdings series stamped with the SEC accepted
+          # timestamp, merged back into etf_holdings.parquet for the rebuild.
+          python tools/build_etf_nport_history.py \
+            --max-filings-per-etf "${{ github.event.inputs.max_filings_per_etf || '24' }}" \
+            --max-holdings "${{ github.event.inputs.max_holdings || '25' }}" \
+            --merge-into data_pit/etf_holdings/etf_holdings.parquet \
+            2>&1 | tee outputs/full_rebuild_logs/etf_nport_history.log
 
       - name: Upload ETF holdings artifact
         if: always()
