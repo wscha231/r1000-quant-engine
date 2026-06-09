@@ -56,11 +56,11 @@ on:
         type: boolean
         default: false
       phase11_multibagger_enabled:
-        description: 'enable Phase 11 multibagger ML sleeve (5x-episode-trained entry/tp/sl classifiers; validated standalone CAGR 31.1%)'
+        description: 'Phase 11 multibagger ML sleeve. CHANGELOG 13448: A/B REJECT (CAGR -1.73pp, sleeve_cap_policy_compare bug). Default OFF — keep OFF unless you are explicitly experimenting and accept regression risk.'
         type: boolean
-        default: true
+        default: false
       phase11_episodes_source:
-        description: 'multibagger training episodes (v1=55 episodes, v2=163 episodes — larger statistical power)'
+        description: 'multibagger training episodes source if you DO experiment with Phase 11 (v1=55 ep / v2=162 ep)'
         type: choice
         options:
           - v2
