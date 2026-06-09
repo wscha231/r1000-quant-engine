@@ -1,8 +1,46 @@
-# Session Handoff - 2026-06-07 17:50 KST (AlphaOps broker target pass + data readiness)
+# Session Handoff - 2026-06-09 KST (Data-hole program: visibility + feed repairs shipped)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
 > **LIFETIME**: rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
+
+---
+
+## ACTIVE INBOX (2026-06-09 KST) - Data-hole program shipped; needs LIVE-RUN proof
+
+Branch `codex/alphaops-integrated-replay`. Root finding: run 27088007617's coverage
+audit showed silent dead feeds (ETF 0%, Top7 lane unwired) hidden by "missing
+data = fill 0" fallbacks. Built visibility instruments + repaired feeds. All
+offline-tested + committed; **none proven on a live rebuild yet**.
+
+Commits (in order): `be2dea5` coverage gate, `37d4791` data catalog, `3630d47`
+wire both into full rebuild (warn-only), `9771b99` Top7 lane join, `2a5405b`
+readiness blockers in gate, `39b1378` ETF N-PORT historical PIT series, `ffcfdff`
+PR-validation registration + lockdown runbook.
+
+What landed:
+- `tools/data_coverage_gate.py` -> `outputs/coverage_gate.json`: hard-fail on
+  coverage floors, PIT lookahead, readiness blockers. Runs warn-only in
+  `full_rebuild_manual.yml`.
+- `tools/build_data_catalog.py` -> `data/catalog.json`: inventory+freshness for
+  all data stores.
+- `tools/build_top_manager_discovery_signals.py`: walk-forward Top7 (6-mo
+  cohorts) -> per-(date,ticker) signals; merged into sec_enriched book so the
+  TOP7_MANAGER_DISCOVERY lane finally scores (was constant 0).
+- `tools/build_etf_nport_history.py`: SEC N-PORT historical PIT holdings
+  (available_from = SEC accepted ts, no lookahead); fixes ETF 0%. Wired into
+  `etf_holdings_monthly_refresh.yml`.
+
+NEXT (operational, can't do offline):
+1. Dispatch `etf_holdings_monthly_refresh.yml` (now builds N-PORT history).
+2. Dispatch one Full Rebuild on latest SHA.
+3. Read `outputs/coverage_gate.json` + `sec_enriched_candidate_replay/summary.json`:
+   confirm `coverage_etf_ratio >= 0.30` and `coverage_top_manager_ratio >= 0.05`.
+4. Flip proven layers off `--warn-only` per `docs/DATA_COVERAGE_GATE_LOCKDOWN.md`,
+   then drop `--no-fail` to enforce.
+
+Prior AlphaOps acceptance baseline (still valid, see below) is unchanged by this
+work — these are research/shadow evidence layers, not production score_total.
 
 ---
 
