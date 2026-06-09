@@ -55,6 +55,17 @@ on:
         description: 'guarded: if candidate gates pass promotion checks, commit research/auto_feature_gates.yaml for the next run'
         type: boolean
         default: false
+      phase11_multibagger_enabled:
+        description: 'enable Phase 11 multibagger ML sleeve (5x-episode-trained entry/tp/sl classifiers; validated standalone CAGR 31.1%)'
+        type: boolean
+        default: true
+      phase11_episodes_source:
+        description: 'multibagger training episodes (v1=55 episodes, v2=163 episodes — larger statistical power)'
+        type: choice
+        options:
+          - v2
+          - v1
+        default: v2
       sidecar_profile:
         description: 'sidecar generation profile: operating_minimal avoids heavy research sidecars'
         type: choice
@@ -359,6 +370,8 @@ jobs:
           BACKTEST_YEARS: ${{ inputs.backtest_years }}
           LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
           PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
+          PHASE_PHASE11_MULTIBAGGER_ENABLED: ${{ inputs.phase11_multibagger_enabled && '1' || '0' }}
+          PHASE11_EPISODES_PATH: ${{ inputs.phase11_episodes_source == 'v2' && 'research/multibagger_episodes_v2.csv' || 'research/multibagger_episodes.csv' }}
         run: |
           set -e
           set -o pipefail   # ← critical: catch python failures through tee pipe

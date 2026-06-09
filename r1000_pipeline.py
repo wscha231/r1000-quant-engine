@@ -8548,11 +8548,18 @@ def _prep_phase11_features(
 
 
 def _load_phase11_episodes() -> Optional[pd.DataFrame]:
-    """Load historical 5x+ multibagger episodes. Returns None if CSV missing."""
-    p = Path(__file__).resolve().parent / PHASE11_EPISODES_REL
+    """Load historical 5x+ multibagger episodes. Returns None if CSV missing.
+
+    Honors PHASE11_EPISODES_PATH env var to swap in larger training sets
+    (e.g. multibagger_episodes_v2.csv = 163 episodes vs default 55).
+    """
+    override = os.environ.get("PHASE11_EPISODES_PATH", "").strip()
+    rel = override if override else PHASE11_EPISODES_REL
+    p = Path(__file__).resolve().parent / rel
     if not p.exists():
         log(f"[Phase 11] episodes CSV not found at {p}; skipping training")
         return None
+    log(f"[Phase 11] loading episodes from {p.name}")
     try:
         df = pd.read_csv(p)
     except Exception as exc:
