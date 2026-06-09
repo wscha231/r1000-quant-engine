@@ -41,6 +41,20 @@ def test_all_healthy_passes() -> None:
     print("PASS test_all_healthy_passes")
 
 
+def test_readiness_blockers_fail() -> None:
+    sec = {"coverage_etf_ratio": 0.9, "coverage_ratio": 0.9, "coverage_13f_ratio": 0.9, "coverage_smart_money_ratio": 0.9, "coverage_top_manager_ratio": 0.9}
+    rdy = {"blockers": ["price cache manifest end date is missing"],
+           "feature_source_coverage": {"books": {"concentrated": {"pit_available_from_check": {"rows_with_any_future_available_from": 0}}}}}
+    r = dcg.evaluate(sec_enriched=sec, readiness=rdy, floors=dcg.DEFAULT_FLOORS, warn_only=set())
+    assert r["verdict"] == "FAIL", r["verdict"]
+    blk = [l for l in r["layers"] if l["layer"] == "readiness_blockers"][0]
+    assert blk["status"] == "FAIL" and "manifest end" in blk["action"], blk
+    # and it can be downgraded while repairing
+    r2 = dcg.evaluate(sec_enriched=sec, readiness=rdy, floors=dcg.DEFAULT_FLOORS, warn_only={"readiness_blockers"})
+    assert r2["verdict"] == "WARN", r2["verdict"]
+    print("PASS test_readiness_blockers_fail")
+
+
 def test_future_available_from_hard_fails() -> None:
     sec = {"coverage_etf_ratio": 0.9, "coverage_ratio": 0.9, "coverage_13f_ratio": 0.9, "coverage_smart_money_ratio": 0.9, "coverage_top_manager_ratio": 0.9}
     rdy = {"feature_source_coverage": {"books": {"concentrated": {"pit_available_from_check": {"rows_with_any_future_available_from": 5}}}}}
@@ -62,6 +76,7 @@ def test_missing_key_treated_as_below_floor() -> None:
 
 def main() -> int:
     tests = [test_dead_etf_fails, test_warn_only_downgrades, test_all_healthy_passes,
+             test_readiness_blockers_fail,
              test_future_available_from_hard_fails, test_missing_key_treated_as_below_floor]
     failed = 0
     for t in tests:

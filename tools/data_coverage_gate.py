@@ -132,6 +132,30 @@ def evaluate(
             "action": "" if status == "ok" else f"{layer} coverage {value} < floor {floor}: feed dead or unmaterialised",
         })
 
+    # Readiness blockers (e.g. missing/future-dated price-cache manifest end,
+    # PIT availability gaps) are surfaced by audit_data_readiness.py. Fold them
+    # into the gate so it is the single hard-fail enforcer rather than letting a
+    # blocked readiness run pass silently here.
+    blockers = readiness.get("blockers", []) or []
+    blockers = [str(b) for b in blockers if str(b).strip()]
+    readiness_severity = "warn" if "readiness_blockers" in warn_only else "fail"
+    readiness_ok = len(blockers) == 0
+    if not readiness_ok:
+        if readiness_severity == "warn":
+            overall_warn = True
+        else:
+            overall_fail = True
+    layers.append({
+        "layer": "readiness_blockers",
+        "source_key": "blockers",
+        "coverage": len(blockers),
+        "floor": 0,
+        "present": "blockers" in readiness,
+        "status": "ok" if readiness_ok else ("WARN" if readiness_severity == "warn" else "FAIL"),
+        "severity": readiness_severity,
+        "action": "" if readiness_ok else f"data_readiness reported {len(blockers)} blocker(s): {'; '.join(blockers[:5])}",
+    })
+
     # Future-dated available_from is a hard PIT violation regardless of floors.
     pit_check = (
         readiness.get("feature_source_coverage", {})
