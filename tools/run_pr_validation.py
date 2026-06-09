@@ -115,6 +115,12 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/regime_capacity_filter_smoke.py", []),
     ("tests/audit_features.py", ["--no-runtime"]),
     ("tests/workflow_artifact_smoke.py", []),
+    # Data-first contract: visibility (catalog + coverage gate) and the feed
+    # repairs (Top7 lane join, ETF N-PORT historical PIT series).
+    ("tests/data_catalog_smoke.py", []),
+    ("tests/data_coverage_gate_smoke.py", []),
+    ("tests/top_manager_discovery_signals_smoke.py", []),
+    ("tests/etf_nport_history_smoke.py", []),
 ]
 
 
