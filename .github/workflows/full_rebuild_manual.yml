@@ -458,6 +458,21 @@ jobs:
         run: |
           python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}" --artifact-profile "${{ inputs.artifact_profile }}" --gdrive-sync-mode "${{ inputs.gdrive_sync_mode }}" --portfolio-policy "${{ inputs.portfolio_policy }}" --approved-target-policy-path "${{ inputs.approved_target_policy_path }}"
 
+      - name: Data health (catalog + coverage gate, warn-only)
+        if: always()
+        run: |
+          # Inventory every data store with freshness; never fails the run.
+          python tools/build_data_catalog.py --output data/catalog.json 2>&1 | tee outputs/full_rebuild_logs/data_catalog.log || true
+          # Coverage gate in WARN-ONLY mode while the dead feeds (ETF history,
+          # SEC available_from, Top7 lane) are being repaired. Flip these layers
+          # off --warn-only (-> hard fail) once Steps 2-4 land and the next
+          # rebuild proves them >= floor. --no-fail keeps it non-blocking today.
+          python tools/data_coverage_gate.py \
+            --run-dir outputs \
+            --output outputs/coverage_gate.json \
+            --warn-only etf,available_from,smart_money,13f \
+            --no-fail 2>&1 | tee outputs/full_rebuild_logs/coverage_gate.log || true
+
       - name: Upload artifact (user operating minimal)
         if: always()
         uses: actions/upload-artifact@v4
@@ -523,6 +538,8 @@ jobs:
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
             outputs/data_readiness/
+            data/catalog.json
+            outputs/coverage_gate.json
             outputs/operating_snapshot/current_operating_holdings_latest.csv
             outputs/operating_snapshot/current_portfolio_snapshot_summary.json
             outputs/portfolio_system_guard/
@@ -624,6 +641,8 @@ jobs:
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            data/catalog.json
+            outputs/coverage_gate.json
             outputs/reports/tactical_monthly_weights.csv
             outputs/reports/alpha_sprint_monthly_weights.csv
             outputs/reports/regime_by_month.csv
