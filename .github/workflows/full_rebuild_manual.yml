@@ -15,21 +15,72 @@ on:
   workflow_dispatch:
     inputs:
       universe_mode:
-        description: 'r1000 (baseline) | r1000+adr (Phase 14 + ADR test) | r1000+adr+phase14_off (control)'
+        description: 'r1000 baseline | r1000+adr | global_alpha_universe (R1000+ADR+cycle play) | r1000+cycle | r1000+adr_phase14_off control'
         type: choice
         options:
+          - global_alpha_universe
           - r1000
           - r1000+adr
+          - r1000+cycle
           - r1000+adr_phase14_off
-        default: r1000+adr
+        default: global_alpha_universe
+      backtest_years:
+        description: 'official out-of-sample backtest window years (8 = current SHIP standard; 10 remains research/partial until full coverage)'
+        type: choice
+        options:
+          - '8'
+          - '10'
+        default: '8'
       skip_collector:
         description: 'skip data collection (use cached prices/SEC/macro). Saves ~1-2h.'
         type: boolean
         default: true
+      fast_mode:
+        description: 'fast_mode=True (5 backtests, 2-3h total) vs False (FULL, 5-6h, may timeout)'
+        type: boolean
+        default: true
+      leader_rescue_mode:
+        description: 'leader rescue validation: latest_only=PIT-safe default, full_proxy=research/survivorship proxy, off=control'
+        type: choice
+        options:
+          - latest_only
+          - full_proxy
+          - off
+        default: latest_only
       cache_key_suffix:
         description: 'optional cache key suffix (e.g. "phase14-baseline" to keep separate caches)'
         type: string
         default: ''
+      auto_learning_promote_live:
+        description: 'guarded: if candidate gates pass promotion checks, commit research/auto_feature_gates.yaml for the next run'
+        type: boolean
+        default: false
+      sidecar_profile:
+        description: 'sidecar generation profile: operating_minimal avoids heavy research sidecars'
+        type: choice
+        options:
+          - operating_minimal
+          - official
+          - research_full
+          - phase_g_only
+        default: operating_minimal
+      artifact_profile:
+        description: 'artifact upload profile'
+        type: choice
+        options:
+          - minimal
+          - official
+          - research_full
+        default: minimal
+      gdrive_sync_mode:
+        description: 'Google Drive sync allowlist mode'
+        type: choice
+        options:
+          - minimal
+          - official
+          - research
+          - off
+        default: minimal
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -57,7 +108,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements_github.txt
           # Heavy ML deps for full rebuild (not in requirements_github.txt by default)
-          pip install catboost>=1.2 lightgbm>=4.0 xgboost>=2.0 scikit-learn>=1.4
+          pip install "catboost>=1.2" "lightgbm>=4.0" "xgboost>=2.0" "scikit-learn>=1.4"
 
       # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
       # These are slow to fetch (rate limits) and rarely change.
@@ -68,8 +119,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            cache_prices
+            cache_fsds
+            cache_macro
+            cache_sec_actual
+            cache_misc
+            cache_live_fund
+            aggressive/cache/universe
             aggressive/cache/bars
             aggressive/cache/finnhub
+            aggressive/state/finnhub
             outputs/sec_companyfacts
             outputs/macro
             outputs/companyfacts.zip
@@ -78,11 +137,13 @@ jobs:
             collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
             collector-cache-${{ runner.os }}-
 
-      # Refresh SEC companyfacts.zip bulk archive if missing or older than 14d.
+      # Refresh SEC companyfacts.zip bulk archive if missing or older than 7d.
       # Without this, the pipeline silently falls back to per-CIK API calls
       # which respect companyfacts_refresh_days, but with --no-collector that
       # path never executes either — fundamentals lane goes stale →
       # fundamental_coverage_ok=False → portfolio_latest.csv blocked.
+      # 7-day threshold = weekly refresh. Runs less than 7 days apart reuse
+      # cache; longer gaps trigger re-download (~1GB once).
       - name: Refresh SEC companyfacts bulk archive
         env:
           SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
@@ -90,7 +151,7 @@ jobs:
           mkdir -p outputs
           python tools/refresh_companyfacts_bulk.py \
             --base-dir "$(pwd)/outputs" \
-            --max-age-days 14 \
+            --max-age-days 7 \
             --required
 
       # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
@@ -111,6 +172,164 @@ jobs:
           python tests/smoke_test.py
           python tests/audit_features.py --no-runtime
 
+      - name: Phase 15-D data preflight
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          import pandas as pd
+
+          from aggressive.universe import load_cycle_play_universe
+          from r1000_helpers import px_cache_name
+
+          cycle_tickers, _ = load_cycle_play_universe()
+          missing_prices = [
+              t for t in sorted(cycle_tickers)
+              if not (Path("cache_prices") / px_cache_name(t)).exists()
+          ]
+          print(
+              "[cycle] active=%d missing_price_cache_before_collector=%d"
+              % (len(cycle_tickers), len(missing_prices))
+          )
+          if missing_prices:
+              print("[cycle] missing sample: " + ", ".join(missing_prices[:30]))
+
+          p = Path("aggressive/state/finnhub/r1000_features.parquet")
+          if p.exists():
+              df = pd.read_parquet(p)
+              print(
+                  "[finnhub] fallback parquet present rows=%d cols=%d"
+                  % (len(df), len(df.columns))
+              )
+          else:
+              print("[finnhub] WARN fallback parquet missing; Phase 15-D fallback will degrade")
+          PY
+
+      - name: Restore SEC evidence overlays from Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings
+          MANIFEST="outputs/full_rebuild_logs/sec_evidence_restore_manifest.json"
+          python - <<'PY' > "$MANIFEST"
+          import json
+          print(json.dumps({"gdrive_ready": False, "restored": [], "missing": [], "errors": []}, indent=2))
+          PY
+
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[sec-restore] no Google Drive auth configured; SEC overlay will use local/cache files only"
+            exit 0
+          fi
+
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -qo /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+
+          RESTORED=""
+          MISSING=""
+          ERRORS=""
+          restore_dir() {
+            local d="$1"
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              if timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+                RESTORED="${RESTORED}${d}"$'\n'
+              else
+                ERRORS="${ERRORS}${d}"$'\n'
+                echo "[sec-restore] warning: restore for $d failed or timed out"
+              fi
+            else
+              MISSING="${MISSING}${d}"$'\n'
+              echo "[sec-restore] no Drive path for $d"
+            fi
+          }
+
+          restore_dir outputs/sec_institutional_signals
+          restore_dir outputs/sec_ownership_signals
+          restore_dir data_pit/sec
+          restore_dir outputs/etf_thematic_signals
+          restore_dir data_pit/etf_holdings
+
+          python - <<PY > "$MANIFEST"
+          import json
+          from pathlib import Path
+          import pandas as pd
+          restored = [x for x in """$RESTORED""".splitlines() if x]
+          missing = [x for x in """$MISSING""".splitlines() if x]
+          errors = [x for x in """$ERRORS""".splitlines() if x]
+          def table_stats(path, ticker_col="ticker", date_col="latest_available_from"):
+              p = Path(path)
+              out = {"exists": p.exists(), "rows": 0, "ticker_count": 0, "latest_available_from": ""}
+              if not p.exists():
+                  return out
+              try:
+                  if p.suffix == ".parquet":
+                      df = pd.read_parquet(p)
+                  else:
+                      df = pd.read_csv(p, low_memory=False)
+                  out["rows"] = int(len(df))
+                  if ticker_col in df.columns:
+                      out["ticker_count"] = int(df[ticker_col].astype(str).str.upper().str.strip().replace("", pd.NA).nunique(dropna=True))
+                  if date_col in df.columns:
+                      dt = pd.to_datetime(df[date_col], errors="coerce", utc=True)
+                      out["latest_available_from"] = dt.max().isoformat() if dt.notna().any() else ""
+              except Exception as exc:
+                  out["error"] = str(exc)
+              return out
+          checks = {
+              "institutional_13f_latest": Path("outputs/sec_institutional_signals/13f_latest.csv").exists() or Path("outputs/sec_institutional_signals/13f_latest.parquet").exists(),
+              "institutional_signals_latest": Path("outputs/sec_institutional_signals/signals_latest.csv").exists() or Path("outputs/sec_institutional_signals/signals_latest.parquet").exists(),
+              "ownership_form4_latest": Path("outputs/sec_ownership_signals/form4_latest.csv").exists() or Path("outputs/sec_ownership_signals/form4_latest.parquet").exists(),
+              "ownership_signals_latest": Path("outputs/sec_ownership_signals/signals_latest.csv").exists() or Path("outputs/sec_ownership_signals/signals_latest.parquet").exists(),
+              "data_pit_sec_ownership_signals": Path("data_pit/sec/sec_ownership_signals.parquet").exists(),
+              "data_pit_13f_holdings": Path("data_pit/sec/institutional_13f_holdings.parquet").exists(),
+              "etf_thematic_latest": Path("outputs/etf_thematic_signals/etf_latest.csv").exists() or Path("outputs/etf_thematic_signals/etf_latest.parquet").exists(),
+              "data_pit_etf_holdings": Path("data_pit/etf_holdings/etf_holdings.parquet").exists(),
+          }
+          stats = {
+              "form4_latest_csv": table_stats("outputs/sec_ownership_signals/form4_latest.csv"),
+              "form4_canonical_signals": table_stats("data_pit/sec/sec_ownership_signals.parquet"),
+              "form4_transactions": table_stats("data_pit/sec/form4_transactions.parquet", ticker_col="issuer_ticker", date_col="available_from"),
+              "institutional_latest_csv": table_stats("outputs/sec_institutional_signals/13f_latest.csv"),
+              "institutional_holdings": table_stats("data_pit/sec/institutional_13f_holdings.parquet", ticker_col="ticker_mapped", date_col="available_from"),
+              "etf_latest_csv": table_stats("outputs/etf_thematic_signals/etf_latest.csv"),
+              "etf_holdings": table_stats("data_pit/etf_holdings/etf_holdings.parquet", ticker_col="holding_ticker", date_col="available_from"),
+          }
+          print(json.dumps({
+              "gdrive_ready": True,
+              "restored": restored,
+              "missing": missing,
+              "errors": errors,
+              "checks": checks,
+              "stats": stats,
+          }, indent=2, sort_keys=True))
+          PY
+          cat "$MANIFEST"
+
       - name: Run FULL rebuild
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
@@ -120,9 +339,12 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           # Per Phase 14 wiring + Phase 1 backtest validation
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
-          PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
+          BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
+          PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
         run: |
           set -e
+          set -o pipefail   # ← critical: catch python failures through tee pipe
           mkdir -p outputs/full_rebuild_logs
           LOG="outputs/full_rebuild_logs/$(date +%Y%m%d_%H%M%S)_${{ inputs.universe_mode }}.log"
 
@@ -132,6 +354,21 @@ jobs:
           # reuse_existing_artifacts=True hitting empty parquet/csv paths.
           SKIP_COLLECTOR=""
           CACHE_PRESENT="no"
+          has_cache_files() {
+            [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]
+          }
+          if has_cache_files cache_prices; then
+            CACHE_PRESENT="yes"
+          fi
+          if has_cache_files cache_sec_actual; then
+            CACHE_PRESENT="yes"
+          fi
+          if has_cache_files cache_fsds; then
+            CACHE_PRESENT="yes"
+          fi
+          if has_cache_files cache_macro; then
+            CACHE_PRESENT="yes"
+          fi
           if [ -d aggressive/cache/finnhub ] && [ -n "$(ls -A aggressive/cache/finnhub 2>/dev/null)" ]; then
             CACHE_PRESENT="yes"
           fi
@@ -152,69 +389,596 @@ jobs:
             fi
           fi
 
+          # fast_mode: true = 5 backtests + 6m retrain (~2-3h total, fits in 6h GHA limit)
+          # fast_mode: false = full walk-forward (~5-6h, may TIMEOUT on first cloud run)
+          # Previous run (24950857695) was cancelled at 7h+ — fast_mode now exposed.
+          FAST_MODE_FLAG="${{ inputs.fast_mode }}"
+
           echo "=========================================="
           echo "FULL REBUILD START"
           echo "  universe_mode:    $UNIVERSE_MODE"
           echo "  skip_collector:   ${{ inputs.skip_collector }} (effective: $([ -n "$SKIP_COLLECTOR" ] && echo SKIP || echo RUN))"
           echo "  cache_present:    $CACHE_PRESENT"
+          echo "  fast_mode:        $FAST_MODE_FLAG"
+          echo "  backtest_years:   $BACKTEST_YEARS"
+          echo "  leader_rescue:    $LEADER_RESCUE_MODE"
           echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
           echo "=========================================="
 
           # Use --base-dir to override Drive path with repo-local outputs/
-          python run_local.py --full $SKIP_COLLECTOR --base-dir "$(pwd)/outputs" 2>&1 | tee "$LOG"
+          # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
+          python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --leader-rescue-mode "$LEADER_RESCUE_MODE" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
 
       - name: Verdict (Cell E equivalent)
         if: always()
         run: |
-          python run_local.py --verdict-only --base-dir "$(pwd)/outputs" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
+          python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
 
-      - name: Upload artifact (logs + scored CSVs)
+      - name: Auto-learning diagnostics (sidecar)
+        if: always()
+        run: |
+          mkdir -p outputs/auto_learning
+          CANDIDATE_GATES="outputs/auto_learning/auto_feature_gates_candidate.yaml"
+          rm -f "$CANDIDATE_GATES"
+          python tools/build_concentrated_trade_journal.py --latest-run outputs --output-dir outputs/concentrated_trade_journal 2>&1 | tee outputs/auto_learning/concentrated_trade_journal.log || true
+          EXTRA_TRADES=""
+          if [ -f outputs/concentrated_trade_journal/trades.csv ]; then
+            EXTRA_TRADES="--extra-trades outputs/concentrated_trade_journal/trades.csv"
+          fi
+          python tools/trade_insights.py --no-shap $EXTRA_TRADES 2>&1 | tee outputs/auto_learning/trade_insights.log || true
+          python tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/feature_gate_proposal.log || true
+          if [ "${{ inputs.auto_learning_promote_live }}" = "true" ]; then
+            python tools/auto_learning_promote.py --candidate-gates "$CANDIDATE_GATES" --active-gates research/auto_feature_gates.yaml 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+          else
+            python tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES" --active-gates research/auto_feature_gates.yaml 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+          fi
+          python tools/auto_policy_proposal.py --latest-run outputs --candidate-out outputs/auto_learning/auto_learning_policy_candidate.yaml --diff-out outputs/auto_learning/policy_proposal_diff.md --evidence-out outputs/auto_learning/evidence_snapshot.json --summary-out outputs/auto_learning/policy_candidate_summary.md 2>&1 | tee outputs/auto_learning/auto_policy_proposal.log || true
+          python tools/auto_policy_challenger.py --policy outputs/auto_learning/auto_learning_policy_candidate.yaml --latest-run outputs --out-dir outputs/auto_learning/challenger 2>&1 | tee outputs/auto_learning/auto_policy_challenger.log || true
+          python tools/auto_policy_promote.py --candidate-policy outputs/auto_learning/auto_learning_policy_candidate.yaml --challenger-decision outputs/auto_learning/challenger/challenger_decision.json --out-dir outputs/auto_learning/promotion 2>&1 | tee outputs/auto_learning/auto_policy_promotion.log || true
+
+      - name: Portfolio target replay + goal search (sidecar)
+        if: always()
+        run: |
+          python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}"
+
+      - name: Upload artifact (user operating minimal)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-rebuild-${{ inputs.universe_mode }}-${{ github.run_id }}
+          name: user-operating-minimal-${{ inputs.universe_mode }}-${{ github.run_id }}
+          path: |
+            outputs/user_current/
+            outputs/daily_crisis_monitor/
+            outputs/account_evaluation/official_metrics.json
+            outputs/broker_replay/main/metrics.json
+            outputs/broker_replay/concentrated/metrics.json
+            outputs/backtest_metrics.json
+            outputs/concentrated_backtest_metrics.json
+            outputs/portfolio_latest.csv
+            outputs/concentrated_portfolio_latest.csv
+            outputs/scored_latest.csv
+            outputs/reports/main_monthly_weights.csv
+            outputs/reports/concentrated_strategy_holdings.csv
+            outputs/reports/regime_by_month.csv
+            outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_target_books_*
+            outputs/operating_snapshot/current_operating_holdings_latest.csv
+            outputs/operating_snapshot/current_portfolio_snapshot_summary.json
+            outputs/portfolio_system_guard/error_check.json
+            outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
+            outputs/full_rebuild_logs/user_current_report.log
+            outputs/full_rebuild_logs/daily_crisis_monitor.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload artifact (official broker-ledger evidence)
+        if: always() && inputs.artifact_profile != 'minimal'
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
+          path: |
+            outputs/account_evaluation/
+            outputs/broker_replay/
+            outputs/operating_snapshot/
+            outputs/account_ledger_preview/
+            outputs/broker_position_risk_replay/
+            outputs/broker_execution_policy_replay/
+            outputs/operator_review/
+            outputs/reports/candidate_replay_book.csv
+            outputs/baseline_lock/
+            outputs/market_leader_challenger/
+            outputs/live_trading_safety/
+            outputs/live_trading_risk_controls/
+            outputs/portfolio_system_guard/
+          if-no-files-found: warn
+          retention-days: 365
+
+      - name: Upload artifact (research full diagnostics)
+        if: always() && inputs.artifact_profile == 'research_full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-full-${{ inputs.universe_mode }}-${{ github.run_id }}
+          # Explicit legacy diagnostics preserved for research_full:
+          # outputs/target_snapshots/latest_manifest.json
+          # outputs/data_readiness/summary.json
           path: |
             outputs/full_rebuild_logs/
             outputs/scored_*.csv
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
+            outputs/equity_curve.csv
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
+            outputs/run_summary.json
+            outputs/orchestrator/
+            outputs/reports/baseline_registry.*
+            outputs/reports/config_audit.*
+            outputs/reports/backtest_window_comparison.csv
+            outputs/reports/global_alpha_sleeve_audit_*.csv
+            outputs/reports/concentrated_strategy_*.csv
+            outputs/reports/main_monthly_weights.csv
+            outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_target_books_*
+            outputs/reports/event_*_target_book.csv
+            outputs/reports/weekly_leader_*_target_book.csv
+            outputs/target_snapshots/
+            outputs/data_readiness/
+            outputs/reports/tactical_monthly_weights.csv
+            outputs/reports/alpha_sprint_monthly_weights.csv
+            outputs/reports/regime_by_month.csv
+            outputs/reports/sleeve_returns_by_month.csv
+            outputs/reports/candidate_replay_book.csv
+            outputs/reports/leader_drop_diagnostics_*.csv
+            outputs/reports/leader_drop_diagnostics_summary.json
+            outputs/reports/leader_drop_diagnostics_report.md
+            outputs/reports/leader_rescue_backtest_filter_summary.json
+            outputs/reports/dataset_coverage_audit.*
+            outputs/trade_journal/
+            outputs/concentrated_trade_journal/
+            outputs/auto_learning/
+            outputs/orchestrator_replay/
+            outputs/portfolio_goal_search/
+            outputs/main_v2_backtest/
+            outputs/concentrated_policy_replay/
+            outputs/concentrated_position_risk_replay/
+            outputs/alpha_sprint_backtest/
+            outputs/position_aware_risk_replay/
+            outputs/position_risk_weekly_validation/
+            outputs/broker_replay/
+            outputs/event_target_books/
+            outputs/event_broker_replay/
+            outputs/weekly_leader_snapshots/
+            outputs/weekly_leader_broker_replay/
+            outputs/cost_sensitivity/
+            outputs/trade_attribution/
+            outputs/churn_filter/
+            outputs/churn_filtered_broker_replay/
+            outputs/macro_circuit_filter/
+            outputs/macro_circuit_broker_replay/
+            outputs/regime_capacity_filter/
+            outputs/regime_capacity_broker_replay/
+            outputs/broker_position_risk_replay/
+            outputs/broker_execution_policy_replay/
+            outputs/operating_event_backtest/
+            outputs/broker_gap_attribution/
+            outputs/broker_trade_journal/
+            outputs/account_ledger_preview/
+            outputs/live_trading_safety/
+            outputs/live_trading_risk_controls/
+            outputs/monster_recommendations/
+            outputs/operating_snapshot/
+            outputs/user_portfolio_reports/
+            outputs/portfolio_system_guard/
+            outputs/account_evaluation/
+            outputs/governance_catalyst/
+            outputs/style_regime_report/
+            outputs/macro_policy_engine/
+            outputs/cash_policy/
+            outputs/main_cash_drag_replay/
+            outputs/crisis_reentry_replay/
+            outputs/broker_crisis_reentry_replay/
+            outputs/monster_lifecycle_replay/
+            outputs/lifecycle_review_overlay_main/
+            outputs/monster_lifecycle_review_main/
+            outputs/monster_lifecycle_review_concentrated/
+            outputs/historical_trade_journey/
+            outputs/selection_audit/
+            outputs/ten_year_backtest_readiness/
+            outputs/weekly_evaluation/
+            outputs/theme_leadership_tape/
+            outputs/theme_concentration_challenger/
+            outputs/baseline_lock/
+            outputs/market_leader_challenger/
+            outputs/auto_learning_v2/
+            outputs/winner_lifecycle/
+            outputs/winner_onset_study/
+            outputs/shakeout_breakdown_study/
+            outputs/shakeout_disclosure_reversal_study/
+            outputs/pit_top_manager_follow_study/
+            outputs/autolearning_winner_challenger/
+            outputs/policy_fusion/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
-      - name: Telegram alert
+      - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
+        if: always()
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
+        run: |
+          # Auth method selection
+          AUTH=""
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            AUTH="oauth"
+          elif [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            AUTH="service_account"
+          else
+            echo "[gdrive-sync] No auth secret set (need GOOGLE_SERVICE_ACCOUNT_KEY or RCLONE_CONFIG_GDRIVE)"
+            echo "[gdrive-sync] Mobile-only setup: see GDRIVE_MOBILE_SETUP.md"
+            exit 0
+          fi
+          echo "[gdrive-sync] auth=$AUTH"
+
+          # Install rclone (~5MB, ~3s)
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -qo /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+
+          mkdir -p ~/.config/rclone
+
+          if [ "$AUTH" = "service_account" ]; then
+            # Mobile-friendly path: service account JSON in secret
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          else
+            # OAuth fallback (legacy, PC-required setup)
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          fi
+
+          # Sync FULL rebuild outputs. Only master may update canonical
+          # GDrive outputs/. Branch experiments are isolated under
+          # research_runs/<branch>/<run_id>/ so research cannot overwrite the
+          # production operating view.
+          BRANCH_NAME="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-unknown}}"
+          SAFE_BRANCH=$(printf '%s' "$BRANCH_NAME" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')
+          if [ -z "$SAFE_BRANCH" ]; then
+            SAFE_BRANCH="unknown"
+          fi
+          GDRIVE_SCOPE="research"
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            if [ "$BRANCH_NAME" = "master" ]; then
+              GDRIVE_SCOPE="production"
+              DEST="gdrive:outputs"
+              LOG_DEST="gdrive:full_rebuild_logs"
+            else
+              DEST="gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/outputs"
+              LOG_DEST="gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/full_rebuild_logs"
+            fi
+          else
+            if [ "$BRANCH_NAME" = "master" ]; then
+              GDRIVE_SCOPE="production"
+              DEST="gdrive:${GDRIVE_FOLDER_NAME}/outputs"
+              LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs"
+            else
+              DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/outputs"
+              LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/full_rebuild_logs"
+            fi
+          fi
+          GUARD_HARD_ERRORS="999"
+          if [ -s outputs/portfolio_system_guard/error_check.json ]; then
+            GUARD_HARD_ERRORS="$(python -c 'import json; from pathlib import Path; p=Path("outputs/portfolio_system_guard/error_check.json"); print(int(json.loads(p.read_text()).get("hard_error_count", 999))) if p.exists() else print(999)' 2>/dev/null || echo 999)"
+          else
+            echo "[gdrive-sync] WARN: portfolio_system_guard/error_check.json missing; preserving canonical outputs."
+          fi
+          # Universe-collapse guard (Full Rebuild #82 regression): a starved
+          # universe (R1000 base dropped after a failed live IWB fetch) must NOT
+          # overwrite the production GDrive outputs/ either. Mirror the
+          # cloud_results rotation gate so master runs with < 400 scored R1000
+          # base are routed to failed_runs/ instead of canonical outputs.
+          UNIVERSE_HEALTHY="yes"
+          if [ "${{ inputs.universe_mode }}" != "adr" ]; then
+            UNIVERSE_HEALTHY="$(python -c 'import csv; from pathlib import Path; p=Path("outputs/scored_latest.csv"); rows=(list(csv.DictReader(p.open())) if p.exists() else []); base=sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))); print("yes" if (rows and "universe_source" in rows[0] and base>=400) else "no")' 2>/dev/null || echo no)"
+            echo "[gdrive-sync] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
+          fi
+          VALID_PRIMARY_OUTPUTS="no"
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ] && [ "$UNIVERSE_HEALTHY" = "yes" ]; then
+            VALID_PRIMARY_OUTPUTS="yes"
+          else
+            if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
+              echo "[gdrive-sync] WARN: INVALID_UNIVERSE (R1000 base collapsed); preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            else
+              echo "[gdrive-sync] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            fi
+            if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+              if [ "$BRANCH_NAME" = "master" ]; then
+                DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              else
+                DEST="gdrive:research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              fi
+            else
+              if [ "$BRANCH_NAME" = "master" ]; then
+                DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              else
+                DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              fi
+            fi
+          fi
+          SYNC_MODE="${{ inputs.gdrive_sync_mode }}"
+          if [ "$SYNC_MODE" = "off" ]; then
+            echo "[gdrive-sync] gdrive_sync_mode=off; skipping"
+            exit 0
+          fi
+          echo "[gdrive-sync] branch=$BRANCH_NAME safe_branch=$SAFE_BRANCH scope=$GDRIVE_SCOPE mode=$SYNC_MODE valid_primary_outputs=$VALID_PRIMARY_OUTPUTS"
+          # Manifest field: portfolio_system_guard_hard_errors
+          python tools/build_gdrive_sync_manifest.py \
+            --latest-run outputs \
+            --mode "$SYNC_MODE" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --head-sha "${GITHUB_SHA}" \
+            --branch-name "$BRANCH_NAME" \
+            --safe-branch "$SAFE_BRANCH" \
+            --auth "$AUTH" \
+            --dest "$DEST" \
+            --portfolio-system-guard-hard-errors "$GUARD_HARD_ERRORS" \
+            --strict-primary
+
+          : > outputs/gdrive_copy_status.jsonl
+          while IFS=$'\t' read -r src rel required semantic production_valid metric_mode; do
+            if [ -z "$src" ]; then
+              continue
+            fi
+            if [ ! -e "$src" ]; then
+              echo "[gdrive-sync] skip missing: $src"
+              python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": True, "copied": False, "failed": False}) + "\n")
+          PY
+              continue
+            fi
+            echo "[gdrive-sync] copy $src -> $DEST/$rel [$semantic]"
+            if rclone copyto "$src" "$DEST/$rel" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+              python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": False, "copied": True, "failed": False}) + "\n")
+          PY
+            else
+              if [ "$required" = "true" ]; then
+                python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": False, "copied": False, "failed": True, "error": "rclone copyto failed"}) + "\n")
+          PY
+                exit 2
+              fi
+              python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": False, "copied": False, "failed": True, "error": "optional rclone copyto failed"}) + "\n")
+          PY
+            fi
+          done < outputs/gdrive_sync_files.tsv
+
+          python tools/build_gdrive_sync_manifest.py \
+            --latest-run outputs \
+            --mode "$SYNC_MODE" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --head-sha "${GITHUB_SHA}" \
+            --branch-name "$BRANCH_NAME" \
+            --safe-branch "$SAFE_BRANCH" \
+            --auth "$AUTH" \
+            --dest "$DEST" \
+            --portfolio-system-guard-hard-errors "$GUARD_HARD_ERRORS" \
+            --copy-status outputs/gdrive_copy_status.jsonl \
+            --strict-primary
+          rclone copyto outputs/gdrive_sync_manifest.json "$DEST/gdrive_sync_manifest.json"
+          echo "[gdrive-sync] manifest allowlist sync complete: $DEST"
+
+          # Cleanup secret file
+          rm -f /tmp/sa.json
+
+          echo "[gdrive-sync] done — check Google Drive destination: $DEST"
+
+      - name: Telegram alert + zip results (mobile-friendly)
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          UNIVERSE_MODE: ${{ inputs.universe_mode }}
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
             echo "[telegram] secrets unset, skipping"
             exit 0
           fi
           STATUS="${{ job.status }}"
-          # Try to extract verdict line from log (SHIP / PARTIAL / REGRESS)
-          VERDICT="(verdict unavailable)"
-          if [ -f outputs/full_rebuild_logs/verdict.log ]; then
-            VERDICT=$(grep -E "SHIP|PARTIAL|REGRESS" outputs/full_rebuild_logs/verdict.log | head -1 || echo "(no verdict line)")
+
+          # Phase A automation: rich verdict via auto_verdict_summary.py
+          # Includes ΔCAGR/ΔSharpe/ΔMaxDD vs CURRENT_BASELINE, sleeve composition,
+          # top 5 holdings, concentrated portfolio, and recommended action.
+          set +e
+          SUMMARY=$(python3 tools/auto_verdict_summary.py --mode "$UNIVERSE_MODE" 2>&1)
+          set -e
+
+          # Build Telegram message: [status header] + [rich summary] + [run URL]
+          MSG_HEADER="🔁 FULL rebuild status: ${STATUS}"
+          # URL-encode (one-liner — multiline heredoc with indent caused IndentationError)
+          ENCODED_SUMMARY=$(printf '%s' "$SUMMARY" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+          ENCODED_HEADER=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$MSG_HEADER'))")
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MSG="${ENCODED_HEADER}%0A%0A${ENCODED_SUMMARY}%0A%0Arun:%20${RUN_URL}"
+
+          # Telegram message limit = 4096 chars. Truncate if too long.
+          MSG_LEN=${#MSG}
+          if [ "$MSG_LEN" -gt 3900 ]; then
+            MSG="${MSG:0:3900}%0A%0A...truncated"
           fi
-          MSG="🔁 FULL rebuild [${{ inputs.universe_mode }}] ${STATUS}%0A"
-          MSG+="verdict: ${VERDICT}%0A"
-          MSG+="run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${MSG}" \
             -d "disable_web_page_preview=true" > /dev/null \
-            || echo "[telegram] notification failed"
+            || echo "[telegram] rich notification failed (length=$MSG_LEN)"
 
-      - name: Commit verdict + portfolio CSVs
-        if: success()
+          # Mobile-friendly: send a small curated set of result files as
+          # individual Telegram documents. The previous full-output ZIP
+          # bundle frequently exceeded Telegram's 50MB sendDocument
+          # limit (run 25713620719 produced a 54.4MB bundle). Sending
+          # individual high-signal files avoids the size ceiling and
+          # gives the operator the most useful numbers on phone. A
+          # richer bundling story can be revisited later.
+          TG_FILES=(
+            "outputs/user_current/README_FIRST.md"
+            "outputs/user_current/01_current_holdings.csv"
+            "outputs/user_current/03_period_returns.csv"
+            "outputs/user_current/04_official_metrics.json"
+            "outputs/user_current/05_action_summary.md"
+            "outputs/user_current/06_benchmark_comparison.csv"
+            "outputs/daily_crisis_monitor/crisis_action_status.md"
+            "outputs/broker_replay/main/metrics.json"
+            "outputs/broker_replay/concentrated/metrics.json"
+          )
+          MAX_TG_FILE_BYTES=5000000
+          for FILE in "${TG_FILES[@]}"; do
+            if [ ! -s "$FILE" ]; then
+              echo "[telegram] skip missing: $FILE"
+              continue
+            fi
+            FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
+            if [ "$FILE_SIZE" -gt "$MAX_TG_FILE_BYTES" ]; then
+              echo "[telegram] skip oversized $FILE ($FILE_SIZE bytes > $MAX_TG_FILE_BYTES)"
+              continue
+            fi
+            CAPTION_TG="r1000 ${{ inputs.universe_mode }} ${STATUS} :: $FILE"
+            if curl -sf -F "document=@${FILE}" \
+                 -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                 -F "caption=${CAPTION_TG}" \
+                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+                 > /dev/null 2>&1; then
+              echo "[telegram] sent $FILE ($FILE_SIZE bytes)"
+            else
+              echo "[telegram] failed to send $FILE ($FILE_SIZE bytes)"
+            fi
+          done
+
+      - name: Commit verdict + portfolio CSVs (always — diagnostics on fail)
+        if: always()    # ← changed from success() to capture fail-state logs
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
+          RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+          if [ -z "$RESULT_BRANCH" ] || [ "$RESULT_BRANCH" = "HEAD" ]; then
+            RESULT_BRANCH="${{ github.ref_name }}"
+          fi
+          echo "[push] result branch: $RESULT_BRANCH"
+          fetch_result_branch() {
+            git fetch --prune --depth=100 origin "+refs/heads/${RESULT_BRANCH}:refs/remotes/origin/${RESULT_BRANCH}" 2>&1
+          }
+          if fetch_result_branch && git rev-parse --verify "origin/${RESULT_BRANCH}" >/dev/null 2>&1; then
+            if ! git rebase --autostash "origin/${RESULT_BRANCH}" 2>&1; then
+              git rebase --abort 2>&1 || true
+              echo "[push] pre-stage rebase failed; artifacts and GDrive sync are already preserved, skipping cloud_results commit."
+              exit 0
+            fi
+          else
+            echo "[push] WARN: could not fetch origin/${RESULT_BRANCH}; continuing without pre-stage rebase."
+          fi
           mkdir -p cloud_results/full_rebuild
-          DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
+          GUARD_HARD_ERRORS="999"
+          if [ -s outputs/portfolio_system_guard/error_check.json ]; then
+            GUARD_HARD_ERRORS="$(python -c 'import json; from pathlib import Path; p=Path("outputs/portfolio_system_guard/error_check.json"); print(int(json.loads(p.read_text()).get("hard_error_count", 999))) if p.exists() else print(999)' 2>/dev/null || echo 999)"
+          else
+            echo "[push] WARN: portfolio_system_guard/error_check.json missing; preserving latest pointer."
+          fi
+          # Universe-collapse guard (Full Rebuild #82 regression, 2026-05-26).
+          # Even when metrics exist and the system guard is clean, a starved
+          # universe (R1000 base dropped after a failed live IWB fetch -> ~58
+          # whitelist-only names) must NOT overwrite the shipped baseline.
+          # Require the scored set to carry the R1000 base for non-adr modes.
+          UNIVERSE_HEALTHY="yes"
+          if [ "${{ inputs.universe_mode }}" != "adr" ]; then
+            UNIVERSE_HEALTHY="$(python -c 'import csv; from pathlib import Path; p=Path("outputs/scored_latest.csv"); rows=(list(csv.DictReader(p.open())) if p.exists() else []); base=sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))); print("yes" if (rows and "universe_source" in rows[0] and base>=400) else "no")' 2>/dev/null || echo no)"
+            echo "[push] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
+          fi
+          RUN_ARTIFACT_VALID="no"
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ] && [ "$UNIVERSE_HEALTHY" = "yes" ]; then
+            RUN_ARTIFACT_VALID="yes"
+            DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
+          else
+            DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_${{ inputs.universe_mode }}"
+            if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
+              echo "[push] WARN: INVALID_UNIVERSE (R1000 base collapsed); writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+            else
+              echo "[push] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+            fi
+          fi
           mkdir -p "$DEST"
+          if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
+            echo "INVALID_UNIVERSE: scored R1000 base below floor (starved universe; likely failed IWB fetch)" > "$DEST/INVALID_UNIVERSE.txt" 2>/dev/null || true
+          fi
+          copy_dir_clean() {
+            local src="$1"
+            local dst="$2"
+            if [ -d "$src" ]; then
+              rm -rf "$dst"
+              mkdir -p "$dst"
+              cp -R "$src"/. "$dst"/ 2>/dev/null || true
+            fi
+          }
+          copy_if_exists() {
+            local src="$1"
+            local dst="$2"
+            if [ -e "$src" ]; then
+              mkdir -p "$dst"
+              cp "$src" "$dst"/ 2>/dev/null || true
+            fi
+          }
+          # Capture run log tail (last 300 lines) for diagnostics regardless of outcome
+          if ls outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log 1>/dev/null 2>&1; then
+            LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log | head -1)
+            tail -300 "$LATEST_LOG" > "$DEST/run_log_tail.txt"
+            echo "Captured tail of: $LATEST_LOG ($(wc -l < $LATEST_LOG) total lines)" >> "$DEST/run_log_tail.txt"
+          fi
+          # Job status indicator
+          echo "job_status: ${{ job.status }}" > "$DEST/job_status.txt"
+          if [ "${{ inputs.artifact_profile }}" != "research_full" ]; then
+            echo "[push] artifact_profile=${{ inputs.artifact_profile }}; writing minimal cloud_results bundle."
+            copy_dir_clean outputs/user_current "$DEST/user_current"
+            copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
+            copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+            copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
+            copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+            mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
+            cp outputs/broker_replay/main/metrics.json "$DEST/broker_replay/main/" 2>/dev/null || true
+            cp outputs/broker_replay/concentrated/metrics.json "$DEST/broker_replay/concentrated/" 2>/dev/null || true
+            cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
+            cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+            cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
+            cp outputs/concentrated_portfolio_latest.csv "$DEST/" 2>/dev/null || true
+            cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
+            mkdir -p "$DEST/reports"
+            cp outputs/reports/main_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
+          else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
           cp outputs/scored_unified.csv "$DEST/" 2>/dev/null || true
@@ -224,12 +988,123 @@ jobs:
           # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+          cp outputs/equity_curve.csv "$DEST/" 2>/dev/null || true
+          copy_dir_clean outputs/orchestrator "$DEST/orchestrator"
+          # Diagnostic reports for post-run analysis
+          mkdir -p "$DEST/reports"
+          cp outputs/reports/baseline_registry.* "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/config_audit.* "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_comparison.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/main_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/event_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/weekly_leader_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/tactical_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/" 2>/dev/null || true
+          copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
+          copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+          copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
+          copy_dir_clean outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"
+          copy_dir_clean outputs/auto_learning "$DEST/auto_learning"
+          copy_dir_clean outputs/orchestrator_replay "$DEST/orchestrator_replay"
+          copy_dir_clean outputs/portfolio_goal_search "$DEST/portfolio_goal_search"
+          copy_dir_clean outputs/main_v2_backtest "$DEST/main_v2_backtest"
+          copy_dir_clean outputs/event_target_books "$DEST/event_target_books"
+          copy_dir_clean outputs/event_broker_replay "$DEST/event_broker_replay"
+          copy_dir_clean outputs/weekly_leader_snapshots "$DEST/weekly_leader_snapshots"
+          copy_dir_clean outputs/weekly_leader_broker_replay "$DEST/weekly_leader_broker_replay"
+          copy_dir_clean outputs/cost_sensitivity "$DEST/cost_sensitivity"
+          copy_dir_clean outputs/concentrated_policy_replay "$DEST/concentrated_policy_replay"
+          copy_dir_clean outputs/concentrated_position_risk_replay "$DEST/concentrated_position_risk_replay"
+          copy_dir_clean outputs/alpha_sprint_backtest "$DEST/alpha_sprint_backtest"
+          copy_dir_clean outputs/position_aware_risk_replay "$DEST/position_aware_risk_replay"
+          copy_dir_clean outputs/position_risk_weekly_validation "$DEST/position_risk_weekly_validation"
+          copy_dir_clean outputs/broker_replay "$DEST/broker_replay"
+          copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
+          copy_dir_clean outputs/broker_execution_policy_replay "$DEST/broker_execution_policy_replay"
+          copy_dir_clean outputs/operating_event_backtest "$DEST/operating_event_backtest"
+          copy_dir_clean outputs/broker_gap_attribution "$DEST/broker_gap_attribution"
+          copy_dir_clean outputs/broker_trade_journal "$DEST/broker_trade_journal"
+          copy_dir_clean outputs/account_ledger_preview "$DEST/account_ledger_preview"
+          copy_dir_clean outputs/live_trading_safety "$DEST/live_trading_safety"
+          copy_dir_clean outputs/live_trading_risk_controls "$DEST/live_trading_risk_controls"
+          copy_dir_clean outputs/monster_recommendations "$DEST/monster_recommendations"
+          copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
+          copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
+          copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+          copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+          copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
+          copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"
+          copy_dir_clean outputs/macro_policy_engine "$DEST/macro_policy_engine"
+          copy_dir_clean outputs/cash_policy "$DEST/cash_policy"
+          copy_dir_clean outputs/main_cash_drag_replay "$DEST/main_cash_drag_replay"
+          copy_dir_clean outputs/crisis_reentry_replay "$DEST/crisis_reentry_replay"
+          copy_dir_clean outputs/broker_crisis_reentry_replay "$DEST/broker_crisis_reentry_replay"
+          copy_dir_clean outputs/monster_lifecycle_replay "$DEST/monster_lifecycle_replay"
+          copy_dir_clean outputs/lifecycle_review_overlay_main "$DEST/lifecycle_review_overlay_main"
+          copy_dir_clean outputs/monster_lifecycle_review_main "$DEST/monster_lifecycle_review_main"
+          copy_dir_clean outputs/monster_lifecycle_review_concentrated "$DEST/monster_lifecycle_review_concentrated"
+          copy_dir_clean outputs/historical_trade_journey "$DEST/historical_trade_journey"
+          copy_dir_clean outputs/selection_audit "$DEST/selection_audit"
+          copy_dir_clean outputs/ten_year_backtest_readiness "$DEST/ten_year_backtest_readiness"
+          copy_dir_clean outputs/weekly_evaluation "$DEST/weekly_evaluation"
+          copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"
+          copy_dir_clean outputs/theme_concentration_challenger "$DEST/theme_concentration_challenger"
+          copy_dir_clean outputs/baseline_lock "$DEST/baseline_lock"
+          copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
+          copy_dir_clean outputs/auto_learning_v2 "$DEST/auto_learning_v2"
+          copy_dir_clean outputs/winner_lifecycle "$DEST/winner_lifecycle"
+          copy_dir_clean outputs/winner_onset_study "$DEST/winner_onset_study"
+          copy_dir_clean outputs/shakeout_breakdown_study "$DEST/shakeout_breakdown_study"
+          copy_dir_clean outputs/shakeout_disclosure_reversal_study "$DEST/shakeout_disclosure_reversal_study"
+          copy_dir_clean outputs/pit_top_manager_follow_study "$DEST/pit_top_manager_follow_study"
+          copy_dir_clean outputs/autolearning_winner_challenger "$DEST/autolearning_winner_challenger"
+          copy_dir_clean outputs/policy_fusion "$DEST/policy_fusion"
+          fi
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
-          # Symlink/copy to "latest" pointer for sync helper convenience
-          rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
-          cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
-          git add cloud_results/ 2>/dev/null || true
+          # Symlink/copy to "latest" pointer only when the run has complete
+          # core metrics. Failed/cancelled partial runs must not overwrite the
+          # last valid analysis baseline.
+          if [ "$RUN_ARTIFACT_VALID" = "yes" ]; then
+            rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
+            cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
+          else
+            echo "[push] latest_${{ inputs.universe_mode }} preserved because RUN_ARTIFACT_VALID=$RUN_ARTIFACT_VALID"
+          fi
+          git add -f cloud_results/ 2>/dev/null || true
+          if [ "${{ inputs.auto_learning_promote_live }}" = "true" ] && [ -f research/auto_feature_gates.yaml ]; then
+            git add research/auto_feature_gates.yaml 2>/dev/null || true
+          fi
           git diff --cached --quiet || \
             git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
-          git push || true
+
+          # Push with rebase-on-conflict (race condition guard). Use the
+          # dispatch branch, not master, so branch test runs do not replay
+          # master-only commits and conflict after a long rebuild.
+          PUSHED="no"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:$RESULT_BRANCH" 2>&1; then
+              echo "[push] attempt $attempt: success"
+              PUSHED="yes"
+              break
+            fi
+            echo "[push] attempt $attempt: failed — fetch+rebase and retry"
+            if fetch_result_branch && git rev-parse --verify "origin/${RESULT_BRANCH}" >/dev/null 2>&1; then
+              git rebase --autostash "origin/${RESULT_BRANCH}" 2>&1 || git rebase --abort 2>&1 || true
+            fi
+            sleep $((attempt * 2))
+          done
+          if [ "$PUSHED" != "yes" ]; then
+            echo "[push] WARN: result commit was not pushed after retries."
+          fi

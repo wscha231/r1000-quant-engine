@@ -1,0 +1,9 @@
+ticker,Name,sector,portfolio_sleeve_label,score,style_row_breakout_fit,market_style_regime_label
+LRCX,LAM RESEARCH CORP,Information Technology,core_compounder,6.7572283594179705,0.1597767412620582,balanced
+GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.748142275343269,0.1597767412620582,balanced
+GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.593887737736339,0.1597767412620582,balanced
+TXN,TEXAS INSTRUMENT INC,Information Technology,core_compounder,6.129368132962235,0.1597767412620582,balanced
+AMAT,APPLIED MATERIAL INC,Information Technology,core_compounder,5.89952414266222,0.1597767412620582,balanced
+WDC,WESTERN DIGITAL CORP,Information Technology,future_winner,5.2207223486496055,0.1597767412620582,balanced
+QCOM,QUALCOMM INC,Information Technology,unassigned,4.644771887108796,0.1597767412620582,balanced
+ADI,ANALOG DEVICES INC,Information Technology,future_winner,4.580092882535752,0.1597767412620582,balanced

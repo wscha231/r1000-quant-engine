@@ -170,39 +170,33 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
   - `industry_group_strength_score`, `industry_within_leader_rank`
   - `oneil_leadership_score`, `industry_rotation_signal`
 
-## Current Production Baseline — Phase 9 C3 + CE v2 (SHIPPED 2026-04-18 21:22 KST)
-- **Main diversified: CAGR 22.91% / Sharpe 1.1721 / MaxDD -26.26% / IR 0.9474 / excess_cagr +9.42%**
-- 18 positions, avg_stock_names 20.43, beat_month_ratio 57.83%, turnover 43.1%
-- Sleeve counts: core 8 / future 5 / early 4 (defensive_drawdown_control 60/25/15)
-- Top 5: NVDA 14%, GOOG 14%, AVGO 8.2%, AAPL 7.8%, JNJ 7.8%
-- Defined in `run_local.py` `CURRENT_BASELINE` dict, `colab_run.ipynb` Cell 10 `BASELINE` dict, and this section.
+## Current Production Baseline — Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
+- **Main diversified: CAGR 24.51% / Sharpe 1.2453 / MaxDD -25.79% / IR 1.0244 / excess_cagr +11.02%**
+- 18 current positions, avg_stock_names 24.33, beat_month_ratio 56.63%, turnover 48.5%
+- Sleeve counts: core 6 / future 7 / early 4 (run d6bc807 verdict.log)
+- Lifetime CAGR: **24.53% over 6.84y, +348.7%** (vs Phase 14 baseline +0.95pp)
+- Top holdings: GOOG 12%, GEV 12%, NVDA 7.4%, TSM 7%, ASML 7%, ZTO 7%, CASH 5%, ADI 4.8%, MRVL 4.7%, LRCX 4.5%
+- Universe: R1000 + 26 ADR + 5 cycle plays (BE/ALAB/ONTO/HIMX/INSM)
+- Verdict: SHIP (dCAGR +0.93pp ≥ +0.5pp gate, dSharpe +0.067 ≥ -0.05, dMaxDD -2.62pp ≥ -3pp, early_scout=4 ≥ 4)
+- Defined in `run_local.py` `CURRENT_BASELINE` dict (this section). Prior Phase 14 baseline preserved as `PHASE14_HYBRID_ALPHA_BASELINE` for historical delta calculations.
 
-## 🟢 Phase 14 hybrid alpha + r1000+adr universe — SHIP VERIFIED, BASELINE ROTATION PENDING (2026-04-27)
-- Code shipped (`5a41219` Phase 14 + `d62fbb6` ADR + Phase 1-6 follow-ups + `c6887c8` import requests fix).
+## Prior Production Baseline (archived) — Phase 14 hybrid alpha (SHIPPED 2026-04-27)
+- Main diversified: CAGR 23.58% / Sharpe 1.1783 / MaxDD -23.17% / IR 0.9955 / excess_cagr +10.08%
+- 19 positions, avg_stock_names 21.99, sleeve core 7 / future 7 / early 4 (run 24961673988)
+
+## Phase 14 verdict note — ADR universe contribution still pending
+- Phase 14 hybrid alpha SHIP verdict confirmed via GitHub Actions run 24961673988: CAGR +0.67pp, Sharpe +0.006, MaxDD +3.09pp better vs Phase 9 C3 + CE v2.
 - New cfg.features (6): rs_acceleration_score, h1_oversold_value_score, h6_dynamic_leader_score, stage2_overext_penalty, theme_phase_multiplier_primary, theme_phase_multiplier_max.
-- New universe option: `r1000+adr` (1008 R1000 + 26 ADRs incl. ASML, TSM, BABA, NVO).
-- 8 GitHub Actions workflows operational.
-- **Cloud Full Rebuild (run 24961673988, 2026-04-26 7h)**:
-  - Verdict: **--> SHIP vs Phase 9 C3 + CE v2 (SHIPPED 2026-04-18)**
-  - Lifetime CAGR: **23.48%** over 6.84 years (+0.57pp vs 22.91% baseline)
-  - Lifetime total: **+323.45%** ($100k → $423k)
-  - Ship gate (ΔCAGR ≥ +0.5pp) PASSED.
-- **BUT**: results in GitHub Actions artifact only (365d retention). Push race
-  + Telegram URL bug prevented `cloud_results/` commit. Both fixed in `b6c8bf8`.
-- **Next step (pick A or B)**:
-  - **A**: Download artifact (run 24961673988) → extract → rotate CURRENT_BASELINE
-    in `run_local.py` + CLAUDE.md + CHANGELOG. See `ARTIFACT_DOWNLOAD_GUIDE.md`.
-  - **B**: Re-trigger `full_rebuild_manual.yml` (b6c8bf8 has push retry + Telegram
-    fix + fast_mode input). Cache from prior run reused. ~2-3h with fast_mode=true.
-    Result auto-publishes to cloud_results + Telegram + (optional) gdrive.
-- Pre-flight verified: smoke 61/61, audit 238 features 0 leakage, PIT-safe.
+- Critical caveat: `r1000+adr` did not actually exercise ADRs in that run (0/26 ADRs in `scored_latest.csv`; all rows came from `historical_membership_file`).
+- Follow-up run 24974747494 proved ADR injection worked mechanically, but only 5 ADR/global-alpha rows reached `scored_latest.csv` and 0 were selected. ADR v2 expands the whitelist and adds `adr_global_alpha_fallback` for sparse foreign-issuer fundamentals; rerun full rebuild to measure contribution.
+- Next open task: debug `.github/workflows/full_rebuild_manual.yml` input handling and `r1000_data_collector.py build_candidate_universe` before treating ADR alpha as tested.
+- Artifacts are archived in `research/phase14_artifact/`.
 
 ## 🎯 Concentrated Champion — CAGR 30%+ goal achieved
-- **N=5 / monthly rebalance / score_power weighting → CAGR 34.75% / Sharpe 1.254 / MaxDD -26.74% / IR 1.073**
-- $100k → $786k in 83 months (6.9 years, 7.87x)
-- Holdings (by score_power weight): PR 30.3% (Permian Resources), ETR 27.8% (Entergy), GEV 15.2% (GE Vernova), FTI 14.5% (TechnipFMC), AKAM 12.3% (Akamai)
-- 10 concentrated combos > 30% CAGR in the 63-combo CE v2 grid (run via `py -3 run_local.py --no-collector`)
-- Full grid: `outputs/reports/concentrated_strategy_comparison.csv`
+- **N=5 / monthly rebalance / score_power weighting → CAGR 33.40% / Sharpe 1.284 / MaxDD -25.29%**
+- Holdings (by score_power weight): MRVL 26.2%, AMKR 22.5%, WDC 18.7%, CIEN 18.3%, FTI 14.3%
+- Prior Phase 9 C3 + CE v2 champion remains historical reference in `run_local.py PHASE9_C3_CE_V2_BASELINE`.
+- Full grid/reference outputs live under Drive `outputs/` and archived Phase 14 artifacts under `research/phase14_artifact/`.
 
 ## Ship gate (for any next change)
 - **ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp** (MaxDD positive delta = less drawdown = better)
@@ -210,6 +204,7 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - Check via `py -3 run_local.py --verdict-only` after any run.
 
 ## Historical baselines (reference only — do not use for verdict)
+- Phase 9 C3 + CE v2 (prior production): CAGR 22.91%, Sharpe 1.1721, MaxDD -26.26%, IR 0.9474 — kept in `run_local.py PHASE9_C3_CE_V2_BASELINE`
 - Phase 9 C1+C2 (prior): CAGR 21.69%, Sharpe 1.073, MaxDD -23.97%, IR 0.799 — kept in `run_local.py PHASE9_C1C2_BASELINE`
 - Phase 8 pre-Phase-9: CAGR 21.86%, Sharpe 0.9856, MaxDD -32.08%, early_scout = 0 (sleeve collapsed)
 - 2026-04-15 pre-Phase-1+2: CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%, 2 names (extreme concentration)

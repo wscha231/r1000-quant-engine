@@ -1,0 +1,294 @@
+name: Post-Disclosure Alpha Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'Event lookback window for current candidates'
+        type: string
+        default: '180'
+      top_n:
+        description: 'Number of current candidates to publish'
+        type: string
+        default: '30'
+      run_overlay_challenger:
+        description: 'Run post-disclosure overlay challenger after candidates'
+        type: boolean
+        default: false
+      run_broker_grid:
+        description: 'Run broker-ledger grid inside overlay challenger'
+        type: boolean
+        default: false
+      cost_bps:
+        description: 'Broker grid cost bps when enabled'
+        type: string
+        default: '25'
+  schedule:
+    # 09:45 KST Tue-Sat, after Form 4 and Smart Money daily windows.
+    - cron: '45 0 * * 2-6'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: post-disclosure-alpha-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  post_disclosure_alpha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore local caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            data_pit/sec
+            data_pit/etf_holdings
+            cache_prices
+          key: post-disclosure-alpha-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            post-disclosure-alpha-${{ runner.os }}-
+            sec-evidence-learning-${{ runner.os }}-
+            sec-evidence-${{ runner.os }}-
+            replay-price-cache-${{ runner.os }}-
+
+      - name: Configure rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore evidence data lake from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals; do
+            mkdir -p "$d"
+            if timeout 45s rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+            else
+              echo "[gdrive] $d unavailable or listing timed out; continuing"
+            fi
+          done
+
+      - name: Build disclosure event tables
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs data_pit/sec data_pit/etf_holdings
+          python tools/run_13f_position_event_builder.py \
+            --output-dir outputs/post_disclosure_alpha_pipeline/13f_position_events \
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_13f_events.log || true
+          python tools/run_form4_transaction_event_builder.py \
+            --output-dir outputs/post_disclosure_alpha_pipeline/form4_transaction_events \
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_form4_events.log || true
+          python tools/run_etf_holding_event_builder.py \
+            --output-dir outputs/post_disclosure_alpha_pipeline/etf_holding_events \
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_etf_events.log || true
+
+      - name: Restore targeted price cache from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          mkdir -p cache_prices outputs/full_rebuild_logs
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          import pandas as pd
+
+          paths = [
+              Path("data_pit/sec/13f_position_events.parquet"),
+              Path("data_pit/sec/form4_transaction_events.parquet"),
+              Path("data_pit/etf_holdings/etf_holding_events.parquet"),
+          ]
+          tickers = set()
+          for path in paths:
+              if not path.exists():
+                  continue
+              frame = pd.read_parquet(path)
+              if "ticker" in frame.columns:
+                  tickers.update(str(t).strip().upper() for t in frame["ticker"].dropna() if str(t).strip())
+          tickers.add("SPY")
+          files = [hashlib.sha1(t.encode("utf-8")).hexdigest()[:16] + ".parquet" for t in sorted(tickers)]
+          Path("outputs/full_rebuild_logs/post_disclosure_price_cache_files.txt").write_text("\n".join(files) + ("\n" if files else ""), encoding="utf-8")
+          Path("outputs/full_rebuild_logs/post_disclosure_price_cache_restore.json").write_text(json.dumps({
+              "unique_tickers": len(tickers),
+              "requested_price_cache_files": len(files),
+              "restored_price_cache_files": 0,
+              "research_only": True,
+              "production_activation_allowed": False,
+          }, indent=2), encoding="utf-8")
+          print(f"[price-cache] requested {len(files)} files for {len(tickers)} tickers")
+          PY
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if timeout 45s rclone lsf "${BASE}cache_prices" >/dev/null 2>&1; then
+            timeout 8m rclone copy "${BASE}cache_prices" cache_prices/ \
+              --files-from outputs/full_rebuild_logs/post_disclosure_price_cache_files.txt \
+              --transfers 8 --checkers 16 --stats 30s --stats-one-line || true
+          else
+            echo "[price-cache] remote cache_prices unavailable or listing timed out; continuing without restored prices"
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = Path("outputs/full_rebuild_logs/post_disclosure_price_cache_restore.json")
+          payload = json.loads(summary.read_text(encoding="utf-8"))
+          files = Path("outputs/full_rebuild_logs/post_disclosure_price_cache_files.txt").read_text(encoding="utf-8").splitlines()
+          restored = sum(1 for name in files if (Path("cache_prices") / name).exists())
+          payload["restored_price_cache_files"] = int(restored)
+          payload["missing_price_cache_files"] = int(max(0, len(files) - restored))
+          summary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+          print(f"[price-cache] restored {restored}/{len(files)}")
+          PY
+
+      - name: Run post-disclosure alpha pipeline
+        env:
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '180' }}
+          TOP_N: ${{ github.event.inputs.top_n || '30' }}
+          RUN_OVERLAY: ${{ github.event.inputs.run_overlay_challenger || 'false' }}
+          RUN_BROKER_GRID: ${{ github.event.inputs.run_broker_grid || 'false' }}
+          COST_BPS: ${{ github.event.inputs.cost_bps || '25' }}
+        run: |
+          set -euo pipefail
+          OVERLAY_FLAG=""
+          if [ "$RUN_OVERLAY" = "true" ]; then
+            OVERLAY_FLAG="--run-overlay-challenger"
+          fi
+          BROKER_FLAG="--no-run-broker-grid"
+          if [ "$RUN_BROKER_GRID" = "true" ]; then
+            BROKER_FLAG="--run-broker-grid"
+          fi
+          python tools/run_post_disclosure_alpha_pipeline.py \
+            --skip-event-builders \
+            --output-dir outputs/post_disclosure_alpha_pipeline \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --top-n "$TOP_N" \
+            --cost-bps "$COST_BPS" \
+            $OVERLAY_FLAG \
+            $BROKER_FLAG \
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_alpha_pipeline.log || true
+
+      - name: Run PIT top-manager follow study
+        run: |
+          set -euo pipefail
+          python tools/run_pit_top_manager_follow_study.py \
+            --events data_pit/sec/13f_position_events.parquet \
+            --labels data_pit/sec/post_disclosure_alpha_labels.parquet \
+            --output-dir outputs/pit_top_manager_follow_study \
+            --cohort-pit data_pit/sec/pit_top_manager_cohorts.parquet \
+            --follow-events-pit data_pit/sec/top_manager_13f_follow_events.parquet \
+            --horizons 21,63,126,252 \
+            --ranking-horizon 63 \
+            --ranking-lookback-days 1095 \
+            --cohort-refresh-months 6 \
+            --top-n 10 \
+            --min-manager-events 8 \
+            --history-years 8 \
+            2>&1 | tee outputs/full_rebuild_logs/pit_top_manager_follow_study.log || true
+
+      - name: Upload post-disclosure alpha artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-disclosure-alpha-${{ github.run_id }}
+          path: |
+            data_pit/sec/13f_position_events.*
+            data_pit/sec/form4_transaction_events.*
+            data_pit/sec/post_disclosure_events_all.*
+            data_pit/sec/post_disclosure_alpha_labels.*
+            data_pit/sec/manager_disclosure_alpha_scores.*
+            data_pit/sec/pit_top_manager_cohorts.*
+            data_pit/sec/top_manager_13f_follow_events.*
+            data_pit/etf_holdings/etf_holding_events.*
+            outputs/post_disclosure_alpha_pipeline/
+            outputs/pit_top_manager_follow_study/
+            outputs/full_rebuild_logs/post_disclosure_*.log
+            outputs/full_rebuild_logs/pit_top_manager_follow_study.log
+            outputs/full_rebuild_logs/post_disclosure_price_cache_*
+          retention-days: 30
+
+      - name: Sync post-disclosure outputs to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_pit/sec data_pit/etf_holdings outputs/post_disclosure_alpha_pipeline outputs/pit_top_manager_follow_study; do
+            if [ -d "$d" ]; then
+              timeout 8m rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+            fi
+          done

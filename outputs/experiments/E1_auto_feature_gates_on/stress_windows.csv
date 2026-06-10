@@ -1,0 +1,4 @@
+stress_window,status,reason
+2020,not_backtested,E1 normalizes auto-learning dry-run outputs; no isolated historical challenger backtest was executed
+2022,not_backtested,E1 normalizes auto-learning dry-run outputs; no isolated historical challenger backtest was executed
+2025-2026 momentum,not_backtested,E1 normalizes auto-learning dry-run outputs; no isolated historical challenger backtest was executed

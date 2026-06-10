@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+"""Smoke checks for alpha selector broker grid."""
+from __future__ import annotations
+
+import argparse
+import sys
+import tempfile
+from pathlib import Path
+
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tools.run_alpha_selector_broker_grid import run  # noqa: E402
+from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+
+
+def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2026-01-02") -> None:
+    idx = pd.bdate_range(start=start, periods=len(closes))
+    pd.DataFrame(
+        {
+            "Open": closes,
+            "Close": closes,
+            "Adj Close": closes,
+            "Volume": [1_000_000] * len(closes),
+        },
+        index=idx,
+    ).to_parquet(cache_dir / px_cache_name(ticker))
+
+
+def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "alpha_grid"
+        cache.mkdir()
+        _write_px(cache, "AAA", [100, 101, 102, 103, 104, 105])
+        _write_px(cache, "BBB", [50, 51, 52, 53, 54, 55])
+        _write_px(cache, "LEAK", [10, 9, 8, 7, 6, 5])
+        candidate = root / "candidate_replay_book.csv"
+        rows = []
+        for dt in ["2026-01-02", "2026-01-05"]:
+            rows.extend(
+                [
+                    {
+                        "rebalance_date": dt,
+                        "ticker": "AAA",
+                        "Name": "Leader A",
+                        "sector": "Tech",
+                        "score": 9.0,
+                        "portfolio_sleeve_label": "future_winner",
+                        "portfolio_candidate_gate_label": "future_relaxed",
+                        "portfolio_future_winner_engine_score": 0.95,
+                        "portfolio_early_scout_engine_score": 0.85,
+                        "portfolio_monster_early_score": 0.80,
+                        "h6_dynamic_leader_score": 0.75,
+                        "rs_acceleration_score": 0.60,
+                        "industry_group_strength_score": 0.50,
+                        "selection_market_confirmation_score": 0.80,
+                        "entry_quality_score": 0.70,
+                        "early_evidence_score": 0.90,
+                        "evidence_confidence_score": 0.80,
+                        "institutional_evidence_score": 0.70,
+                        "institutional_evidence_confidence_score": 0.80,
+                        "etf_holdings_score": 0.60,
+                        "etf_evidence_confidence": 0.70,
+                        "sec_combined_evidence_score": 0.75,
+                        "smart_money_shadow_score": 0.85,
+                        "smart_money_evidence_source_count": 3,
+                        "evidence_fusion_score": 0.82,
+                        "leader_onset_sec_v2_score": 0.95,
+                        "leader_onset_sec_v3_score": 0.95,
+                        "portfolio_risk_entry_block_score": 0.0,
+                        "portfolio_stale_mega_leader_score": 0.0,
+                        "px": 100.0,
+                        "dollar_vol_20d": 50_000_000,
+                        "mktcap": 5_000_000_000,
+                        "period_forward_return": 0.10,
+                    },
+                    {
+                        "rebalance_date": dt,
+                        "ticker": "BBB",
+                        "Name": "Leader B",
+                        "sector": "Tech",
+                        "score": 8.0,
+                        "portfolio_sleeve_label": "early_scout",
+                        "portfolio_candidate_gate_label": "early_relaxed",
+                        "portfolio_future_winner_engine_score": 0.15,
+                        "portfolio_early_scout_engine_score": 0.10,
+                        "portfolio_monster_early_score": 0.10,
+                        "h6_dynamic_leader_score": 0.10,
+                        "rs_acceleration_score": 0.05,
+                        "industry_group_strength_score": 0.05,
+                        "selection_market_confirmation_score": 0.20,
+                        "entry_quality_score": 0.20,
+                        "early_evidence_score": 0.00,
+                        "evidence_confidence_score": 0.00,
+                        "institutional_evidence_score": 0.00,
+                        "institutional_evidence_confidence_score": 0.00,
+                        "etf_holdings_score": 0.00,
+                        "etf_evidence_confidence": 0.00,
+                        "sec_combined_evidence_score": 0.00,
+                        "smart_money_shadow_score": 0.00,
+                        "smart_money_evidence_source_count": 0,
+                        "evidence_fusion_score": 0.00,
+                        "leader_onset_sec_v2_score": 0.10,
+                        "leader_onset_sec_v3_score": 0.10,
+                        "portfolio_risk_entry_block_score": 0.0,
+                        "portfolio_stale_mega_leader_score": 0.0,
+                        "px": 50.0,
+                        "dollar_vol_20d": 40_000_000,
+                        "mktcap": 4_000_000_000,
+                        "period_forward_return": 0.08,
+                    },
+                    {
+                        "rebalance_date": dt,
+                        "ticker": "LEAK",
+                        "Name": "Forward Label Only",
+                        "sector": "Tech",
+                        "score": 0.1,
+                        "portfolio_sleeve_label": "unassigned",
+                        "portfolio_candidate_gate_label": "rejected",
+                        "portfolio_future_winner_engine_score": 0.0,
+                        "portfolio_early_scout_engine_score": 0.0,
+                        "portfolio_monster_early_score": 0.0,
+                        "h6_dynamic_leader_score": 0.0,
+                        "rs_acceleration_score": 0.0,
+                        "industry_group_strength_score": 0.0,
+                        "selection_market_confirmation_score": 0.0,
+                        "entry_quality_score": 0.0,
+                        "early_evidence_score": 0.0,
+                        "evidence_confidence_score": 0.0,
+                        "institutional_evidence_score": 0.0,
+                        "institutional_evidence_confidence_score": 0.0,
+                        "etf_holdings_score": 0.0,
+                        "etf_evidence_confidence": 0.0,
+                        "sec_combined_evidence_score": 0.0,
+                        "smart_money_shadow_score": 0.0,
+                        "smart_money_evidence_source_count": 0,
+                        "evidence_fusion_score": 0.0,
+                        "leader_onset_sec_v2_score": 0.0,
+                        "leader_onset_sec_v3_score": 0.0,
+                        "portfolio_risk_entry_block_score": 0.0,
+                        "portfolio_stale_mega_leader_score": 0.0,
+                        "px": 10.0,
+                        "dollar_vol_20d": 100_000_000,
+                        "mktcap": 10_000_000_000,
+                        "period_forward_return": 9.99,
+                    },
+                    {
+                        "rebalance_date": dt,
+                        "ticker": "MISS",
+                        "Name": "Missing Price Cache",
+                        "sector": "Tech",
+                        "score": 10.0,
+                        "portfolio_sleeve_label": "future_winner",
+                        "portfolio_candidate_gate_label": "future_relaxed",
+                        "portfolio_future_winner_engine_score": 1.0,
+                        "portfolio_early_scout_engine_score": 1.0,
+                        "portfolio_monster_early_score": 1.0,
+                        "h6_dynamic_leader_score": 1.0,
+                        "rs_acceleration_score": 1.0,
+                        "industry_group_strength_score": 1.0,
+                        "selection_market_confirmation_score": 1.0,
+                        "entry_quality_score": 1.0,
+                        "early_evidence_score": 1.0,
+                        "evidence_confidence_score": 1.0,
+                        "institutional_evidence_score": 1.0,
+                        "institutional_evidence_confidence_score": 1.0,
+                        "etf_holdings_score": 1.0,
+                        "etf_evidence_confidence": 1.0,
+                        "sec_combined_evidence_score": 1.0,
+                        "smart_money_shadow_score": 1.0,
+                        "smart_money_evidence_source_count": 3,
+                        "evidence_fusion_score": 1.0,
+                        "leader_onset_sec_v2_score": 1.0,
+                        "leader_onset_sec_v3_score": 1.0,
+                        "portfolio_risk_entry_block_score": 0.0,
+                        "portfolio_stale_mega_leader_score": 0.0,
+                        "px": 20.0,
+                        "dollar_vol_20d": 100_000_000,
+                        "mktcap": 20_000_000_000,
+                        "period_forward_return": 99.99,
+                    },
+                ]
+            )
+        pd.DataFrame(rows).to_csv(candidate, index=False)
+        payload = run(
+            argparse.Namespace(
+                candidate_book=str(candidate),
+                price_cache=str(cache),
+                output_dir=str(out),
+                portfolio_kind="main",
+                starting_capital=10_000.0,
+                fill_mode="next_close",
+                cost_bps=0.0,
+                no_integer_shares=False,
+                max_fill_lag_days=7,
+                styles="future_heavy,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow",
+                target_ns="1",
+                single_name_caps="1.00",
+                max_variants=5,
+                min_market_cap_usd=1_000_000_000.0,
+                min_dollar_volume_usd=1_000_000.0,
+                min_price=5.0,
+            )
+        )
+        assert payload["status"] == "completed"
+        assert payload["valid_for_production"] is True
+        summary = pd.read_csv(out / "summary.csv")
+        assert len(summary) == 5
+        targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
+        assert set(targets["ticker"]) == {"AAA"}
+        assert float(targets["weight"].max()) > 0.99
+        assert "BBB" not in set(targets["ticker"])
+        assert "LEAK" not in set(targets["ticker"])
+        assert "MISS" not in set(targets["ticker"])
+        confirm_targets = pd.read_csv(next(out.glob("future_winner_smart_money_N1_cap*/target_book.csv")))
+        assert set(confirm_targets["ticker"]) == {"AAA"}
+        assert "smart_money_shadow_score" in confirm_targets.columns
+        assert "evidence_fusion_score" in confirm_targets.columns
+        onset_targets = pd.read_csv(next(out.glob("leader_onset_shadow_N1_cap*/target_book.csv")))
+        assert set(onset_targets["ticker"]) == {"AAA"}
+        assert "leader_onset_score" in onset_targets.columns
+        sec_targets = pd.read_csv(next(out.glob("sec_evidence_shadow_N1_cap*/target_book.csv")))
+        assert set(sec_targets["ticker"]) == {"AAA"}
+        assert "leader_onset_sec_v2_score" in sec_targets.columns
+        assert "early_evidence_score" in sec_targets.columns
+        smart_targets = pd.read_csv(next(out.glob("smart_money_shadow_N1_cap*/target_book.csv")))
+        assert set(smart_targets["ticker"]) == {"AAA"}
+        assert "smart_money_shadow_score" in smart_targets.columns
+        assert "evidence_fusion_score" in smart_targets.columns
+        assert payload.get("require_price_cache") is True
+
+
+def main() -> int:
+    test_alpha_selector_grid_runs_broker_replay_without_forward_selection()
+    print("alpha_selector_broker_grid_smoke: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

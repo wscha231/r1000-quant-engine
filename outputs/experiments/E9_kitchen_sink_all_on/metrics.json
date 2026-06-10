@@ -1,0 +1,22 @@
+{
+  "artifact_mode": "all_on_latest_snapshot",
+  "avg_stock_names": 25.50602409638554,
+  "avg_turnover_monthly": 0.4858881015027757,
+  "backtest_executed": false,
+  "cagr": 0.21403316158616126,
+  "cash_target": 0.19999999999999996,
+  "control": false,
+  "experiment_id": "E9_kitchen_sink_all_on",
+  "generated_at_utc": "2026-05-03T19:23:14.913405+00:00",
+  "matrix_version": "aggressive_lab_202605_v1",
+  "max_dd": -0.2727261662085777,
+  "metric_mode": "baseline_performance_metrics_plus_all_on_snapshot",
+  "n_conflicts": 3,
+  "n_positions": 13,
+  "never_promote_to_production": true,
+  "production_activation_allowed": false,
+  "production_defaults_mutable": false,
+  "requires_full_challenger_backtest": true,
+  "sharpe": 1.1831414285357171,
+  "status": "snapshot_discovery_only"
+}

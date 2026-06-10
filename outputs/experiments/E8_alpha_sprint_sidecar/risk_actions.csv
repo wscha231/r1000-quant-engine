@@ -1,0 +1,6 @@
+ticker,alpha_sprint_score,target_weight,action,reason,hard_stop,trailing_stop,time_stop_days
+LNG,0.9757599258929502,0.0,paper_candidate,capacity_zero_or_insufficient_candidates,-0.07,-0.12,30
+NXPI,0.9552514219288538,0.0,paper_candidate,capacity_zero_or_insufficient_candidates,-0.07,-0.12,30
+MTDR,0.8457335337147373,0.0,paper_candidate,capacity_zero_or_insufficient_candidates,-0.07,-0.12,30
+QCOM,0.8117009780343237,0.0,paper_candidate,capacity_zero_or_insufficient_candidates,-0.07,-0.12,30
+OKE,0.7979623942002035,0.0,paper_candidate,capacity_zero_or_insufficient_candidates,-0.07,-0.12,30

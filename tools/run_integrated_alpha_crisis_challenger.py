@@ -724,6 +724,12 @@ def main() -> int:
     if all_stress:
         pd.concat(all_stress, ignore_index=True).to_csv(out_dir / "stress_window_matrix.csv", index=False)
     audit_payload = {
+        "stage": "G1_research_only_counterfactual",
+        "research_only": True,
+        "valid_for_production": False,
+        "official_metric_required": "broker_ledger_next_close",
+        "promotion_allowed_without_human_approval": False,
+        "g2_next_step": "Run tools/build_crisis_governed_target_books.py and replay the generated target books with tools/run_broker_ledger_replay.py.",
         "base_dir": str(inp.base_dir),
         "inputs": {k: (str(v) if v else None) for k, v in inp.__dict__.items() if k != "base_dir"},
         "grid_dims": {

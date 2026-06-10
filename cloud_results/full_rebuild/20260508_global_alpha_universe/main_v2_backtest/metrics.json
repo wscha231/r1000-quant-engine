@@ -1,0 +1,18 @@
+{
+  "avg_cash_weight": 0.19323871937824064,
+  "avg_turnover_monthly": 0.48294211594741965,
+  "cagr": 0.21214179400142252,
+  "calmar": 0.7875397299804043,
+  "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "data_mode": "historical_candidate_replay_book",
+  "ending_equity": 3.8448020065294544,
+  "experiment_id": "main_v2_historical_replay",
+  "max_dd": -0.26937281501556887,
+  "months": 84,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "return_column": "period_forward_return",
+  "sharpe": 0.9939476049338214,
+  "status": "completed",
+  "vol_ann": 0.21846145057049396
+}

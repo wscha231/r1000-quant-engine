@@ -1,0 +1,9 @@
+ticker,Name,sector,portfolio_sleeve_label,score,style_row_breakout_fit,market_style_regime_label
+AMAT,APPLIED MATERIAL INC,Information Technology,core_compounder,6.5052730640496055,0.6932313272731533,breakout_growth
+GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.331567283637763,0.6932313272731533,breakout_growth
+GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.24194416658588,0.6932313272731533,breakout_growth
+ADI,ANALOG DEVICES INC,Information Technology,future_winner,5.472297604616683,0.6932313272731533,breakout_growth
+QCOM,QUALCOMM INC,Information Technology,unassigned,4.7272380381743,0.6932313272731533,breakout_growth
+AVGO,BROADCOM INC,Information Technology,core_compounder,4.334471725717819,0.6932313272731533,breakout_growth
+MU,MICRON TECHNOLOGY INC,Information Technology,core_compounder,4.1911612983658255,0.6932313272731533,breakout_growth
+CBOE,CBOE GLOBAL MARKETS INC,Financials,future_winner,1.9999132578045973,0.6932313272731533,breakout_growth

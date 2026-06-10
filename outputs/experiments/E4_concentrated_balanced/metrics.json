@@ -1,0 +1,23 @@
+{
+  "artifact_mode": "concentrated_metrics_plus_latest_policy_audit",
+  "avg_turnover_monthly": null,
+  "backtest_executed": false,
+  "cagr": 0.3484912610130364,
+  "cap_violations": 2,
+  "control": false,
+  "entry_blocked": 5,
+  "experiment_id": "E4_concentrated_balanced",
+  "generated_at_utc": "2026-05-03T19:23:11.715638+00:00",
+  "matrix_version": "aggressive_lab_202605_v1",
+  "max_dd": -0.22940113109440408,
+  "metric_mode": "standalone_concentrated_not_full_portfolio",
+  "production_activation_allowed": false,
+  "production_defaults_mutable": false,
+  "recommended_capacity": 0.2,
+  "recommended_target_n": 5,
+  "requires_orchestrator_backtest": true,
+  "risk_blocked": 3,
+  "selected_names": 5,
+  "sharpe": 1.4286886669635341,
+  "status": "standalone_sleeve_policy_audit"
+}

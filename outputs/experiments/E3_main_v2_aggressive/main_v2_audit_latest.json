@@ -1,0 +1,30 @@
+{
+  "actual_invested_after_cap": 0.98,
+  "cap_excess_to_cash": 0.020000000000000018,
+  "cash_target": 0.020000000000000018,
+  "expected_cash": 0.0,
+  "expected_invested_before_cap": 1.0,
+  "generated_at_utc": "2026-05-03T19:23:10Z",
+  "merge_mode": "sum_then_cap",
+  "n_conflicts": 0,
+  "n_positions": 11,
+  "policy_name": "E3_main_v2_aggressive",
+  "production_activation_allowed": false,
+  "raw_scaled_sleeve_sums": {
+    "core": 0.20000000000000004,
+    "early": 0.2,
+    "future": 0.6
+  },
+  "research_only": true,
+  "selected_n_by_sleeve": {
+    "core": 3,
+    "early": 1,
+    "future": 7
+  },
+  "single_name_cap": 0.18,
+  "target_n_by_sleeve": {
+    "core": 3,
+    "early": 2,
+    "future": 7
+  }
+}

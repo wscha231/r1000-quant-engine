@@ -1,0 +1,46 @@
+{
+  "control": false,
+  "deltas": {
+    "cagr_improvement_pp": 0.0,
+    "maxdd_improvement_pp": 0.0,
+    "sharpe_improvement": 0.0,
+    "turnover_worsening_pp": 0.0
+  },
+  "experiment_id": "E2_main_v2_balanced",
+  "passed_discovery": false,
+  "primary_checks": {
+    "cagr": false,
+    "maxdd": false,
+    "sharpe": false
+  },
+  "reason": "gate_failed",
+  "required_outputs": {
+    "equity_curve.csv": true,
+    "experiment_report.md": true,
+    "metrics.json": true,
+    "monthly_allocations.csv": true,
+    "regression_attribution.md": true,
+    "sleeve_returns.csv": true,
+    "stress_windows.csv": true,
+    "trade_journal_summary.md": true,
+    "turnover.csv": true
+  },
+  "safety_checks": {
+    "required_outputs_exist": true,
+    "turnover_ok": true
+  },
+  "thresholds": {
+    "primary_improvements": {
+      "cagr_improvement_pp_min": 2.0,
+      "maxdd_improvement_pp_min": 2.0,
+      "sharpe_improvement_min": 0.08
+    },
+    "required_safety_checks": {
+      "active_gate_files_unchanged": true,
+      "min_trades": 250,
+      "production_defaults_unchanged": true,
+      "required_outputs_exist": true,
+      "turnover_worsening_pp_max": 10.0
+    }
+  }
+}

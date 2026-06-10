@@ -1,0 +1,80 @@
+{
+  "best_by_cagr": {
+    "avg_cash_weight": 0.08602409638554219,
+    "avg_monthly_return": 0.022646732590737136,
+    "avg_turnover_monthly": 0.5126754377214244,
+    "cagr": 0.2951784507410329,
+    "max_dd": -0.11064963001488515,
+    "months": 83,
+    "policy_id": "fast_reentry",
+    "production_activation_allowed": false,
+    "research_only": true,
+    "sharpe": 1.8726022014698096,
+    "terminal_multiple": 5.983378396888468,
+    "vol_ann": 0.1451246777748846
+  },
+  "cash_alignment": {
+    "avg_cash_gap_before_alignment": 0.1596134874417473,
+    "avg_explicit_cash_before_alignment": 0.04288237756077516,
+    "avg_reported_cash_weight": 0.20249586500252248,
+    "cash_source": "reported_regime_by_month",
+    "regime_rows": 83
+  },
+  "experiment_id": "crisis_reentry_replay",
+  "generated_at_utc": "2026-05-10T11:00:04.540770+00:00",
+  "production_activation_allowed": false,
+  "production_metrics": {
+    "avg_cash_weight": 0.20249586500252248,
+    "avg_turnover_monthly": 0.5237195604954387,
+    "cagr": 0.2847134251245682,
+    "max_dd": -0.1542379649695952,
+    "months": 83,
+    "sharpe": 1.6505880825201922
+  },
+  "ranking": [
+    {
+      "avg_cash_weight": 0.08602409638554219,
+      "avg_monthly_return": 0.022646732590737136,
+      "avg_turnover_monthly": 0.5126754377214244,
+      "cagr": 0.2951784507410329,
+      "max_dd": -0.11064963001488515,
+      "months": 83,
+      "policy_id": "fast_reentry",
+      "production_activation_allowed": false,
+      "research_only": true,
+      "sharpe": 1.8726022014698096,
+      "terminal_multiple": 5.983378396888468,
+      "vol_ann": 0.1451246777748846
+    },
+    {
+      "avg_cash_weight": 0.1157831325301205,
+      "avg_monthly_return": 0.021837876330869983,
+      "avg_turnover_monthly": 0.5013243251014539,
+      "cagr": 0.28388884904999223,
+      "max_dd": -0.10259733604020638,
+      "months": 83,
+      "policy_id": "bargain_reentry",
+      "production_activation_allowed": false,
+      "research_only": true,
+      "sharpe": 1.8776385131207003,
+      "terminal_multiple": 5.631810537371847,
+      "vol_ann": 0.13956601025130025
+    },
+    {
+      "avg_cash_weight": 0.12566265060240966,
+      "avg_monthly_return": 0.021629560492553747,
+      "avg_turnover_monthly": 0.4925256806987652,
+      "cagr": 0.2808501410027653,
+      "max_dd": -0.1005305146589367,
+      "months": 83,
+      "policy_id": "crisis_ladder",
+      "production_activation_allowed": false,
+      "research_only": true,
+      "sharpe": 1.8674835716930747,
+      "terminal_multiple": 5.540258766172725,
+      "vol_ann": 0.13898635031917883
+    }
+  ],
+  "research_only": true,
+  "status": "completed"
+}

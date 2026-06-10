@@ -1,0 +1,80 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        9b4f7c3 (DIRTY)
+  started:       2026-04-29 00:41:07 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-04-29
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+OK: companyfacts.zip 0.5d old, 1306 MB
+
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 623
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         379
+early_scout        112
+future_winner       80
+core_compounder     52
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=623
+  phase9_core_eligible                      mean=0.087  sum=54
+  phase9_future_eligible                    mean=0.119  sum=74
+  phase9_early_eligible                     mean=0.180  sum=112
+  phase9_unassigned                         mean=0.615  sum=383
+  phase9_mktcap_percentile                  mean=0.501  sum=312
+
+Final portfolio: 0 positions
+  Top 10 by weight: n/a (no numeric position weights)
+
+======================================================================
+METRICS vs baseline: Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.2405     0.2358        +0.47pp
+  sharpe                       1.2618     1.1783        +0.0835
+  max_dd                      -0.2620    -0.2317        -3.03pp
+  ir                           1.0174     0.9955        +0.0219
+  avg_turnover_monthly         0.4783     0.4550        +2.33pp
+  avg_stock_names             24.1566    21.9900        +2.1666
+  beat_month_ratio             0.5422     0.6265        -0.0843
+  excess_cagr                  0.1055     0.1008        +0.47pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.0, 'future_winner': 0.0, 'early_scout': 0.0}
+  actual:  {'core_compounder': 0.0, 'future_winner': 0.0, 'early_scout': 0.0}
+  counts:  {'core_compounder': 0, 'future_winner': 0, 'early_scout': 0}
+
+=== VERDICT ===
+  dCAGR    +0.47pp   (gate >= +0.5pp)
+  dSharpe  +0.0835    (gate >= -0.05)
+  dMaxDD   -3.03pp   (gate >= -3pp; positive better)
+  early_scout selected: 0    (gate >= 4)
+
+  --> REGRESS vs Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective). See SESSION_HANDOFF.md §3c (rollback).
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-01-30 at equity 4.4396
+  Lifetime CAGR:   24.09% over 6.84 years
+  Lifetime total:  337.79%
+  vs baseline CAGR (23.58%): +0.51pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.

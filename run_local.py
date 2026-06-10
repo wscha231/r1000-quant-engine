@@ -53,19 +53,87 @@ DEFAULT_BASE_DIR = r"G:\내 드라이브\r1000_top30_institutional"
 # ------------------------------------------------------------------
 # Baseline metrics — used for Cell E verdict delta comparison.
 #
-# CURRENT BASELINE: Phase 9 C1+C2 (SHIPPED 2026-04-18). Rotated from
-# Phase 8 after SHIP decision on commit 79d6fe8 verdict PARTIAL (user
-# accepted -0.74pp CAGR trade for +0.08 Sharpe, +5.78pp MaxDD, and
-# sleeve taxonomy restoration with 8 early_scout names).
+# CURRENT BASELINE: Phase 14 hybrid alpha (SHIPPED 2026-04-27).
+# Verdict source: GitHub Actions run 24961673988 artifact archived under
+# research/phase14_artifact/. Important: that run did not actually exercise
+# ADRs (0/26 ADRs in scored_latest.csv); this baseline reflects the Phase 14
+# six-feature hybrid-alpha contribution on the R1000-only effective universe.
 #
 # HISTORICAL BASELINES (kept as reference; do not use for verdict):
+#   Phase 9 C3 + CE v2: cagr 0.2291, sharpe 1.1721, max_dd -0.2626
 #   Phase 8  (pre-Phase-9): cagr 0.2186, sharpe 0.9856, max_dd -0.3208
 #   2026-04-15 concentrated: cagr 0.2180, sharpe 0.73, max_dd -0.3686
 #
-# When next phase (C3 / refactor / etc.) SHIPs, rotate CURRENT_BASELINE
-# again per SESSION_HANDOFF.md §7 rotation rule.
+# When next phase SHIPs, rotate CURRENT_BASELINE again per SESSION_HANDOFF.md.
 # ------------------------------------------------------------------
 CURRENT_BASELINE = {
+    # Phase 15-D SHIPPED 2026-04-29 12:22 KST. Cloud run d6bc807 (date=20260429,
+    # universe_mode=global_alpha_universe = R1000 + 26 ADR + 5 cycle plays).
+    # Verdict: SHIP (dCAGR +0.93pp, dSharpe +0.067, dMaxDD -2.62pp, early_scout=4
+    # all gates passed). Lifetime CAGR 24.53% over 6.84y (+348.7%).
+    #
+    # Phase 15-D adds 7 ML features (cycle_recovery_score, eps_revision_score,
+    # early_cycle_inflection_score, entry_quality_score, ml_technical_agreement_score,
+    # sub_industry_rs_score, insider_cluster_boost_score) + cycle_play_universe.yaml
+    # 36-entry small-mid cap whitelist + monthly auto-refresh.
+    "name": "Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)",
+    "cagr": 0.2451,
+    "sharpe": 1.2453,
+    "max_dd": -0.2579,
+    "ir": 1.0244,
+    "avg_turnover_monthly": 0.4854,
+    "avg_stock_names": 24.33,
+    "beat_month_ratio": 0.5663,
+    "excess_cagr": 0.1102,
+    # Sleeve counts from run d6bc807 verdict.log (final portfolio: 18 positions).
+    "sleeve_counts_reference": {"core_compounder": 6, "future_winner": 7, "early_scout": 4},
+    # Top 10 holdings (informational): GOOG/GEV 12%, NVDA 7.4%, TSM/ASML/ZTO 7%,
+    # CASH 5%, ADI 4.8%, MRVL 4.7%, LRCX 4.5%.
+    # Alternate policy metrics (not used for verdict; informational)
+    "alt_policies": {
+        "concentrated_champion": {
+            "target_stock_names": 4,
+            "rebalance_interval_months": 1,
+            "weighting_mode": "score_power",
+            "cagr_estimated": 0.30,    # est from concentrated_score weighting
+            "holdings": ["WDC (28%)", "CIEN (26%)", "MRVL (25%)", "AMKR (20%)"],
+            "note": "D2b continuation override admits these high-momentum winners despite entry_quality=0",
+        },
+        "tactical_5name": {
+            "from_workflow": "tactical_after_close.yml",
+            "rebalance": "daily after US close (22:30 UTC)",
+            "current_holdings": ["WDC (26%)", "MRVL (24%)", "AMKR (22%)", "FTI (17%)", "ONTO (11%)"],
+        },
+    },
+}
+
+# Prior production baseline (pre-Phase-15-D) — kept for historical delta calc
+PHASE14_HYBRID_ALPHA_BASELINE = {
+    "name": "Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective)",
+    "cagr": 0.2358,
+    "sharpe": 1.1783,
+    "max_dd": -0.2317,
+    "ir": 0.9955,
+    "avg_turnover_monthly": 0.4550,
+    "avg_stock_names": 21.99,
+    "beat_month_ratio": 0.6265,
+    "excess_cagr": 0.1008,
+    "sleeve_counts_reference": {"core_compounder": 7, "future_winner": 7, "early_scout": 4},
+    "alt_policies": {
+        "concentrated_champion": {
+            "target_stock_names": 5,
+            "rebalance_interval_months": 1,
+            "weighting_mode": "score_power",
+            "cagr": 0.3340,
+            "sharpe": 1.284,
+            "max_dd": -0.2529,
+            "holdings": ["MRVL (26.2%)", "AMKR (22.5%)", "WDC (18.7%)", "CIEN (18.3%)", "FTI (14.3%)"],
+        },
+    },
+}
+
+# Prior production baseline (pre-Phase-14) — kept for historical delta calc
+PHASE9_C3_CE_V2_BASELINE = {
     # Phase 9 C3 + CE v2 SHIPPED 2026-04-18 21:22 KST on commit d3d3a91.
     # Measured via `py -3 run_local.py --no-collector` QUICK_RESCORE (which
     # re-did Phase 3 + 4 due to config_fingerprint change after CE v2 commit).
@@ -161,6 +229,16 @@ def parse_args() -> argparse.Namespace:
                    help=f"Drive mirror path (default: {DEFAULT_BASE_DIR!r}).")
     p.add_argument("--fast-mode", default="true", choices=["true", "false"],
                    help="fast_mode flag for collector/pipeline (default: true).")
+    p.add_argument("--universe-mode", default=None,
+                   help="Universe mode override. Defaults to UNIVERSE_MODE env when set. "
+                        "Supported: r1000, r1000+adr, global_alpha_universe, adr, "
+                        "r1000+adr_phase14_off.")
+    p.add_argument("--backtest-years", type=int, default=None,
+                   help="Default out-of-sample backtest window in years. Defaults to "
+                        "BACKTEST_YEARS env when set, otherwise EngineConfig default.")
+    p.add_argument("--leader-rescue-mode", choices=["auto", "latest_only", "full_proxy", "off"], default="auto",
+                   help="Leader-rescue validation mode. latest_only keeps rescue-only names out of "
+                        "historical OOS months; full_proxy is research-only; off disables rescue.")
     p.add_argument("--ab-quick", action="store_true",
                    help="A/B fast-iter mode: disable 7 expensive grid comparisons "
                         "(portfolio_size, rebalance_interval, backtest_window, sleeve_regime, "
@@ -243,6 +321,61 @@ def apply_phase_toggle(env_name: str, value: str) -> None:
         os.environ[env_name] = str(value)
 
 
+def resolve_universe_mode(raw: Optional[str]) -> str:
+    """Resolve CLI/env universe mode into the EngineConfig value."""
+    value = (raw or os.environ.get("UNIVERSE_MODE") or "").strip()
+    if not value:
+        return ""
+    # Historical docs used both spellings; keep both accepted but normalize.
+    aliases = {
+        "r1000+adr+phase14_off": "r1000+adr_phase14_off",
+        "global-alpha": "global_alpha_universe",
+        "global_alpha": "global_alpha_universe",
+        "global+adr": "global_alpha_universe",
+    }
+    value = aliases.get(value, value)
+    allowed = {
+        "historical_snapshot_preferred",
+        "current_constituents",
+        "r1000",
+        "r1000+adr",
+        "global_alpha_universe",
+        "adr",
+        "r1000+adr_phase14_off",
+    }
+    if value not in allowed:
+        raise ValueError(f"unsupported universe mode: {value!r}")
+    return value
+
+
+def resolve_backtest_years(raw: Optional[int]) -> Optional[int]:
+    """Resolve CLI/env backtest window into an EngineConfig override."""
+    if raw is not None:
+        value = raw
+    else:
+        env_value = (os.environ.get("BACKTEST_YEARS") or "").strip()
+        if not env_value:
+            return None
+        try:
+            value = int(env_value)
+        except ValueError as exc:
+            raise ValueError(f"BACKTEST_YEARS must be an integer, got {env_value!r}") from exc
+    if int(value) < 1:
+        raise ValueError(f"backtest years must be >= 1, got {value!r}")
+    return int(value)
+
+
+def resolve_leader_rescue_mode(raw: Optional[str]) -> str:
+    """Resolve CLI/env leader-rescue validation mode."""
+    value = (raw or os.environ.get("LEADER_RESCUE_MODE") or "").strip()
+    if not value or value.lower() == "auto":
+        return ""
+    value = value.lower()
+    if value not in {"latest_only", "full_proxy", "off"}:
+        raise ValueError(f"LEADER_RESCUE_MODE must be latest_only, full_proxy, or off; got {value!r}")
+    return value
+
+
 def resolve_commit_sha() -> tuple[str, bool]:
     """Return (short_sha, is_dirty). Is dirty when working tree has uncommitted changes."""
     try:
@@ -316,10 +449,16 @@ def print_verdict(base_dir: Path) -> int:
     if "portfolio_sleeve_label" in pf.columns:
         print(f"  Sleeve dist: {pf.groupby('portfolio_sleeve_label').size().to_dict()}")
     if "weight" in pf.columns and "ticker" in pf.columns:
-        top = pf.nlargest(10, "weight")
-        keep = [c for c in ["ticker", "portfolio_sleeve_label", "weight"] if c in top.columns]
-        print(f"  Top 10 by weight:")
-        print(top[keep].to_string(index=False))
+        top_source = pf.copy()
+        top_source["weight"] = pd.to_numeric(top_source["weight"], errors="coerce")
+        top_source = top_source.dropna(subset=["weight"])
+        if top_source.empty:
+            print("  Top 10 by weight: n/a (no numeric position weights)")
+        else:
+            top = top_source.nlargest(10, "weight")
+            keep = [c for c in ["ticker", "portfolio_sleeve_label", "weight"] if c in top.columns]
+            print(f"  Top 10 by weight:")
+            print(top[keep].to_string(index=False))
 
     print("\n" + "=" * 70)
     print(f"METRICS vs baseline: {CURRENT_BASELINE['name']}")
@@ -446,11 +585,32 @@ def main() -> int:
     base_dir = Path(args.base_dir)
     end_date = args.end_date or datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
     fast_mode = args.fast_mode.lower() == "true"
+    try:
+        universe_mode = resolve_universe_mode(args.universe_mode)
+        backtest_years = resolve_backtest_years(args.backtest_years)
+        leader_rescue_mode = resolve_leader_rescue_mode(args.leader_rescue_mode)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     # Phase toggles
     apply_phase_toggle("PHASE_PHASE9_C1_REBALANCE_ENABLED", args.phase9_c1)
     apply_phase_toggle("PHASE_PHASE9_THESIS_GATE_ENABLED", args.phase9_c2)
     apply_phase_toggle("PHASE_PHASE9_C3_TURNAROUND_ENABLED", args.phase9_c3)
+    # Backward compatibility for the first Phase 14 GHA workflow wiring.
+    if os.environ.get("PHASE14_HYBRID_ALPHA_ENABLED") and not os.environ.get("PHASE_PHASE14_HYBRID_ALPHA_ENABLED"):
+        os.environ["PHASE_PHASE14_HYBRID_ALPHA_ENABLED"] = os.environ["PHASE14_HYBRID_ALPHA_ENABLED"]
+    if universe_mode == "r1000+adr_phase14_off":
+        os.environ["PHASE_PHASE14_HYBRID_ALPHA_ENABLED"] = "0"
+    runtime_overrides = dict(COMMON_CFG_OVERRIDES)
+    if universe_mode:
+        runtime_overrides["universe_mode"] = universe_mode
+    if backtest_years is not None:
+        runtime_overrides["default_backtest_years"] = int(backtest_years)
+        runtime_overrides["backtest_window_comparison_years"] = sorted({5, 8, 10, int(backtest_years)})
+    if leader_rescue_mode:
+        runtime_overrides["leader_rescue_backtest_mode"] = leader_rescue_mode
+        runtime_overrides["leader_rescue_universe_enabled"] = leader_rescue_mode != "off"
 
     # Banner
     sha, dirty = resolve_commit_sha()
@@ -464,11 +624,15 @@ def main() -> int:
     print(f"  end_date:      {end_date}")
     print(f"  mode:          {'FULL REBUILD' if args.full else 'QUICK_RESCORE'}")
     print(f"  fast_mode:     {fast_mode}")
+    print(f"  universe_mode: {universe_mode or '(cfg default)'}")
+    print(f"  backtest_years: {backtest_years or '(cfg default)'}")
+    print(f"  leader_rescue: {leader_rescue_mode or '(cfg default)'}")
     print(f"  collector:     {'skipped' if args.no_collector else 'run'}")
     print(f"  verdict_only:  {args.verdict_only}")
     print(f"  Phase 9 C1:    {args.phase9_c1}")
     print(f"  Phase 9 C2:    {args.phase9_c2}")
     print(f"  Phase 9 C3:    {args.phase9_c3}")
+    print(f"  Phase 14:      {os.environ.get('PHASE_PHASE14_HYBRID_ALPHA_ENABLED', 'auto')}")
     print("=" * 70)
 
     # Prereqs
@@ -502,7 +666,7 @@ def main() -> int:
         print(f"\n[{now_kst()}] >>> Step 1: Collector ({('FULL' if args.full else 'lean')}, fast_mode={fast_mode})")
         t0 = time.perf_counter()
         collector_cfg = collector_lean_full_run_cfg(str(base_dir), end_date=end_date)
-        collector_cfg.update(COMMON_CFG_OVERRIDES)
+        collector_cfg.update(runtime_overrides)
         collector_cfg["fast_mode"] = fast_mode
         try:
             collector_summary = run_data_collection(collector_cfg)
@@ -523,7 +687,7 @@ def main() -> int:
         pipeline_cfg = collector_lean_full_run_cfg(str(base_dir), end_date=end_date)
     else:
         pipeline_cfg = pipeline_quick_rescore_cfg(str(base_dir), end_date=end_date)
-    pipeline_cfg.update(COMMON_CFG_OVERRIDES)
+    pipeline_cfg.update(runtime_overrides)
     pipeline_cfg["fast_mode"] = fast_mode if args.full else True
     if args.full:
         pipeline_cfg["reuse_existing_artifacts"] = True

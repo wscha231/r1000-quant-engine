@@ -1,0 +1,107 @@
+{
+  "audit": {
+    "generated_at": "2026-05-03T19:23:14Z",
+    "input_weights_sum": {
+      "alpha_sprint": 0,
+      "concentrated": 1.0,
+      "main": 1.0,
+      "tactical": 0
+    },
+    "merge_mode": "sum_then_cap",
+    "n_conflicts": 3,
+    "n_unique_tickers": 13,
+    "policy_capacity": {
+      "actual_total_invested_after_merge": 0.8,
+      "alpha_sprint": 0.0,
+      "concentrated": 0.25,
+      "expected_total_invested": 0.8,
+      "main": 0.55,
+      "merged_below_expected_due_to_conflicts": 0.0,
+      "tactical": 0.0
+    },
+    "research_only_arbitrary_mandates": true,
+    "scaled_weights_sum": {
+      "alpha_sprint": 0,
+      "concentrated": 0.25,
+      "main": 0.55,
+      "tactical": 0
+    },
+    "unified_single_name_cap": 0.2
+  },
+  "by_mandate_capacity": {
+    "alpha_sprint": 0.0,
+    "concentrated": 0.25,
+    "main": 0.55,
+    "tactical": 0.0
+  },
+  "cash_target": 0.19999999999999996,
+  "conflicts": [
+    {
+      "cap_excess_to_cash": 0.0,
+      "mandates": [
+        "concentrated",
+        "main"
+      ],
+      "max_weight_used": 0.05015876039989085,
+      "merge_mode": "sum_then_cap",
+      "merged_weight": 0.09677965470000052,
+      "raw_sum_weight": 0.09677965470000052,
+      "ticker": "CIEN",
+      "weights_per_mandate": {
+        "concentrated": 0.046620894300109676,
+        "main": 0.05015876039989085
+      },
+      "winning_mandate": "sum_then_cap"
+    },
+    {
+      "cap_excess_to_cash": 0.0,
+      "mandates": [
+        "concentrated",
+        "main"
+      ],
+      "max_weight_used": 0.03663248404620357,
+      "merge_mode": "sum_then_cap",
+      "merged_weight": 0.058615175296912875,
+      "raw_sum_weight": 0.058615175296912875,
+      "ticker": "GLW",
+      "weights_per_mandate": {
+        "concentrated": 0.03663248404620357,
+        "main": 0.021982691250709303
+      },
+      "winning_mandate": "sum_then_cap"
+    },
+    {
+      "cap_excess_to_cash": 0.0,
+      "mandates": [
+        "concentrated",
+        "main"
+      ],
+      "max_weight_used": 0.08426098967752424,
+      "merge_mode": "sum_then_cap",
+      "merged_weight": 0.13495815446343545,
+      "raw_sum_weight": 0.13495815446343545,
+      "ticker": "MRVL",
+      "weights_per_mandate": {
+        "concentrated": 0.05069716478591121,
+        "main": 0.08426098967752424
+      },
+      "winning_mandate": "sum_then_cap"
+    }
+  ],
+  "regime_state": "neutral",
+  "unified_weights": {
+    "AAPL": 0.013389050862212449,
+    "AMKR": 0.05043895085039828,
+    "CIEN": 0.09677965470000052,
+    "CW": 0.01745339570924652,
+    "FTI": 0.037429860678036796,
+    "GLW": 0.058615175296912875,
+    "MRVL": 0.13495815446343545,
+    "NVDA": 0.08949910407817158,
+    "PR": 0.06561050601737725,
+    "UI": 0.08570765998953075,
+    "VRT": 0.03063045388676393,
+    "WDC": 0.02998892938974206,
+    "ZTO": 0.08949910407817158
+  }
+}

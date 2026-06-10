@@ -1,0 +1,42 @@
+{
+  "jeongseok_v1": {
+    "original": {
+      "name": "jeongseok_v1 (original)",
+      "n_months": 83,
+      "cagr_pct": 22.945382779380008,
+      "sharpe": 1.1694186021190283,
+      "max_dd_pct": -26.207302746731877,
+      "calmar": 0.8755339304133983,
+      "vol_ann_pct": 19.40890446082804
+    },
+    "with_risk_sensing": {
+      "name": "jeongseok_v1 (+ risk sensing L2)",
+      "n_months": 83,
+      "cagr_pct": 18.46609658361189,
+      "sharpe": 1.1194872875548136,
+      "max_dd_pct": -21.62517256738774,
+      "calmar": 0.85391672718765,
+      "vol_ann_pct": 16.46337566522794
+    }
+  },
+  "concentrated_3": {
+    "original": {
+      "name": "concentrated_3 (original)",
+      "n_months": 83,
+      "cagr_pct": 33.172864161847926,
+      "sharpe": 1.1796840072485648,
+      "max_dd_pct": -27.102739867972158,
+      "calmar": 1.2239671827809908,
+      "vol_ann_pct": 27.723844752891004
+    },
+    "with_risk_sensing": {
+      "name": "concentrated_3 (+ risk sensing L2)",
+      "n_months": 83,
+      "cagr_pct": 22.976268036339743,
+      "sharpe": 0.9921293551006768,
+      "max_dd_pct": -27.102739867972158,
+      "calmar": 0.8477470598273812,
+      "vol_ann_pct": 23.848564479371433
+    }
+  }
+}

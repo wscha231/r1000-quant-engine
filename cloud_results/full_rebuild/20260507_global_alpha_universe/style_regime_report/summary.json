@@ -1,0 +1,241 @@
+{
+  "candidate_replay_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "latest": {
+    "market_style_regime_label": "quality_compounder",
+    "style_breakout_preference": 0.1485132223220742,
+    "style_cash_defense_preference": 0.1773777560059668,
+    "style_inflation_pressure_score": 0.0,
+    "style_liquidity_tailwind_score": 0.0714398518711192,
+    "style_overheat_risk_score": 0.12048525387533579,
+    "style_quality_compounder_preference": 0.46722712758762824,
+    "style_rate_pressure_score": 0.0,
+    "style_turnaround_preference": 0.3032029248109084,
+    "top_breakout": [
+      {
+        "Name": "LAM RESEARCH CORP",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.711274777014702,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "LRCX"
+      },
+      {
+        "Name": "APPLIED MATERIAL INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.969267287980819,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "AMAT"
+      },
+      {
+        "Name": "ALPHABET INC CLASS C",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.967571040729327,
+        "sector": "Communication",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "GOOG"
+      },
+      {
+        "Name": "ALPHABET INC CLASS A",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.922779748037136,
+        "sector": "Communication",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "GOOGL"
+      },
+      {
+        "Name": "TEXAS INSTRUMENT INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.462080150615641,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "TXN"
+      },
+      {
+        "Name": "WESTERN DIGITAL CORP",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 5.271943832965327,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "WDC"
+      },
+      {
+        "Name": "MONOLITHIC POWER SYSTEMS INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.846859490167318,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "MPWR"
+      },
+      {
+        "Name": "ANALOG DEVICES INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 4.7414350065786754,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1485132223220742,
+        "ticker": "ADI"
+      }
+    ],
+    "top_compounder": [
+      {
+        "Name": "UBIQUITI INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 1.1720395731094504,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.9556647716452354,
+        "ticker": "UI"
+      },
+      {
+        "Name": "NVIDIA CORP",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.054955248822722,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8991544941351585,
+        "ticker": "NVDA"
+      },
+      {
+        "Name": "NetEase",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 2.3741558094442503,
+        "sector": "Internet",
+        "style_row_compounder_fit": 0.8892677917531872,
+        "ticker": "NTES"
+      },
+      {
+        "Name": "VERISK ANALYTICS INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "early_scout",
+        "score": -0.5848211625186494,
+        "sector": "Industrials",
+        "style_row_compounder_fit": 0.8573587757935925,
+        "ticker": "VRSK"
+      },
+      {
+        "Name": "CURTISS WRIGHT CORP",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 1.4061099314218897,
+        "sector": "Industrials",
+        "style_row_compounder_fit": 0.8528851505377103,
+        "ticker": "CW"
+      },
+      {
+        "Name": "COSTCO WHOLESALE CORP",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.967369928058132,
+        "sector": "Consumer Staples",
+        "style_row_compounder_fit": 0.8519770564517886,
+        "ticker": "COST"
+      },
+      {
+        "Name": "SIMON PROPERTY GROUP REIT INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 2.4862541736316737,
+        "sector": "Real Estate",
+        "style_row_compounder_fit": 0.8377844708049043,
+        "ticker": "SPG"
+      },
+      {
+        "Name": "APPLE INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.104728593185771,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8326817753528374,
+        "ticker": "AAPL"
+      }
+    ],
+    "top_turnaround": [
+      {
+        "Name": "PDD Holdings (Pinduoduo / Temu)",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "unassigned",
+        "score": 3.2149739702697078,
+        "sector": "Internet",
+        "style_row_turnaround_fit": 0.336221456820259,
+        "ticker": "PDD"
+      },
+      {
+        "Name": "APPLOVIN CORP CLASS A",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 3.3394154636018114,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.1882143156896555,
+        "ticker": "APP"
+      },
+      {
+        "Name": "AMAZON.COM INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.01903733215326,
+        "sector": "Consumer Discretionary",
+        "style_row_turnaround_fit": 0.1801006338494519,
+        "ticker": "AMZN"
+      },
+      {
+        "Name": "NetEase",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 2.3741558094442503,
+        "sector": "Internet",
+        "style_row_turnaround_fit": 0.1740796128347502,
+        "ticker": "NTES"
+      },
+      {
+        "Name": "MercadoLibre",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "unassigned",
+        "score": 1.0063921252995198,
+        "sector": "Internet",
+        "style_row_turnaround_fit": 0.1685448498447259,
+        "ticker": "MELI"
+      },
+      {
+        "Name": "PALANTIR TECHNOLOGIES INC CLASS A",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.759325789757984,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.167212781225858,
+        "ticker": "PLTR"
+      },
+      {
+        "Name": "UDR REIT INC",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "early_scout",
+        "score": 1.499758726553272,
+        "sector": "Real Estate",
+        "style_row_turnaround_fit": 0.1603272452187693,
+        "ticker": "UDR"
+      },
+      {
+        "Name": "ALPHABET INC CLASS A",
+        "market_style_regime_label": "quality_compounder",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.922779748037136,
+        "sector": "Communication",
+        "style_row_turnaround_fit": 0.1597499571165645,
+        "ticker": "GOOGL"
+      }
+    ]
+  },
+  "latest_scored": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
+  "months": 84,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "status": "completed"
+}

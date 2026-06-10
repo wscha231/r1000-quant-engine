@@ -1,0 +1,34 @@
+{
+  "active_gates": "research/auto_feature_gates.yaml",
+  "approved": true,
+  "candidate_gates": "outputs/auto_learning/auto_feature_gates_candidate.yaml",
+  "checks": {
+    "candidate_exists": true,
+    "concentrated_cagr_floor": true,
+    "main_cagr_floor": true,
+    "main_max_dd_floor": true,
+    "main_sharpe_floor": true,
+    "trade_count_floor": true
+  },
+  "dry_run": true,
+  "generated_at": "2026-05-09T11:07:19Z",
+  "metrics": {
+    "concentrated_cagr": 0.4590237764170235,
+    "main_cagr": 0.2785562961963095,
+    "main_max_dd": -0.16837112497240136,
+    "main_sharpe": 1.6498608070881968,
+    "trade_count": 751
+  },
+  "promoted": false,
+  "reasons": [],
+  "thresholds": {
+    "baseline_cagr": 0.2451,
+    "baseline_max_dd": -0.2579,
+    "baseline_sharpe": 1.2453,
+    "concentrated_cagr_floor": 0.3,
+    "max_cagr_regression_pp": 1.0,
+    "max_dd_worsening_pp": 1.0,
+    "max_sharpe_regression": 0.08,
+    "min_trades": 250
+  }
+}

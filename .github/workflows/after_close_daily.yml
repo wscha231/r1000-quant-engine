@@ -1,0 +1,365 @@
+name: After-Close Daily Automation
+
+# Consolidated daily workflow for market-close intelligence.
+# Schedule runs are dry-run/report-only. Live paper execution still requires
+# workflow_dispatch with execute=true.
+
+on:
+  schedule:
+    - cron: '45 22 * * 1-5'  # Weekdays after US close, DST-safe buffer
+    - cron: '0 6 * * 6'      # Saturday KST weekend review
+  workflow_dispatch:
+    inputs:
+      advisor:
+        description: 'advisor to use for paper dry-run'
+        type: choice
+        options:
+          - concentrated
+          - core
+          - v3
+          - v1
+          - v4
+        default: concentrated
+      execute:
+        description: 'place LIVE paper orders (manual dispatch only)'
+        type: boolean
+        default: false
+      override_regime_halt:
+        description: 'bypass Layer 3 HALT_NEW when execute=true'
+        type: boolean
+        default: false
+      allow_legacy_execute:
+        description: 'acknowledge old Alpaca paper executor bypasses account-ledger safety audit'
+        type: boolean
+        default: false
+      scanner_top:
+        description: 'scanner top-N output'
+        type: string
+        default: '25'
+      scanner_min_score:
+        description: 'scanner minimum score'
+        type: string
+        default: '70'
+      scored_path:
+        description: 'override scored_latest.csv path for explosive scan'
+        type: string
+        default: ''
+      top_n:
+        description: 'max fresh explosive alerts per day'
+        type: string
+        default: '10'
+      entry_threshold:
+        description: 'min explosion_entry_score'
+        type: string
+        default: '0.65'
+      reset_seen:
+        description: 'clear 24h explosive-alert dedup state'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  after_close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore market-data caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            aggressive/cache/bars
+            aggressive/cache/finnhub
+            aggressive/state/finnhub
+            cache_prices
+            cache_misc
+            cache_macro
+            cache_fsds
+            cache_sec_actual
+          key: daily-market-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            collector-cache-${{ runner.os }}-
+            alpaca-bars-${{ runner.os }}-
+            finnhub-cache-${{ runner.os }}-
+            tactical-cache-${{ runner.os }}-
+            daily-market-cache-${{ runner.os }}-
+
+      - name: Quick regression guard
+        run: |
+          python tests/smoke_test.py --quick
+          python tests/audit_features.py --no-runtime
+
+      - name: R1000 scanner digest
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          SCANNER_TOP="${{ github.event.inputs.scanner_top || '25' }}"
+          SCANNER_MIN_SCORE="${{ github.event.inputs.scanner_min_score || '70' }}"
+          set +e
+          python aggressive/scanner.py \
+            --universe r1000 \
+            --top "$SCANNER_TOP" \
+            --min-score "$SCANNER_MIN_SCORE"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" != "0" ]; then
+            echo "::warning::scanner failed with status $STATUS"
+          fi
+
+      - name: Macro regime snapshot
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python tools/macro_daily_snapshot.py --telegram || \
+            echo "::warning::macro snapshot failed"
+
+      - name: ETF leadership snapshot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python tools/etf_leadership_snapshot.py --telegram || \
+            echo "::warning::ETF leadership snapshot failed"
+
+      - name: Theme leadership tape
+        run: |
+          SCORED_CSV=""
+          for p in \
+            outputs/scored_latest.csv \
+            cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv \
+            cloud_results/full_rebuild/latest/scored_latest.csv
+          do
+            if [ -f "$p" ]; then SCORED_CSV="$p"; break; fi
+          done
+          if [ -n "$SCORED_CSV" ]; then
+            python tools/run_theme_leadership_tape.py \
+              --scored "$SCORED_CSV" \
+              --price-cache cache_prices \
+              --output-dir cloud_results/theme_leadership_tape || \
+              echo "::warning::theme leadership tape failed"
+          else
+            echo "::warning::theme leadership tape skipped: no scored_latest.csv found"
+          fi
+
+      - name: Explosive mover scan
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          ARGS="--telegram --top-n ${{ github.event.inputs.top_n || '10' }}"
+          ARGS="$ARGS --entry-threshold ${{ github.event.inputs.entry_threshold || '0.65' }}"
+          OVERRIDE="${{ github.event.inputs.scored_path }}"
+          if [ -n "$OVERRIDE" ]; then
+            ARGS="$ARGS --scored $OVERRIDE"
+          fi
+          if [ "${{ github.event.inputs.reset_seen }}" = "true" ]; then
+            ARGS="$ARGS --reset-seen"
+          fi
+          python tools/explosive_mover_scan_daily.py $ARGS || \
+            echo "::warning::explosive mover scan failed"
+
+      - name: Tactical alpha after-close review
+        run: |
+          python r1000_tactical_alpha.py \
+            --base-dir "$(pwd)" \
+            --target-n 5 \
+            --preliminary-limit 240 \
+            --update-prices \
+            --max-price-updates 160 \
+            --mirror-cloud-results || \
+            echo "::warning::tactical alpha review failed"
+
+      - name: Regime snapshot for paper executor
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          mkdir -p outputs
+          python r1000_regime_data.py --no-cache | tee outputs/regime_snapshot.txt
+
+      - name: Paper executor dry-run
+        id: paper
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          ADVISOR="${{ github.event.inputs.advisor }}"
+          ADVISOR="${ADVISOR:-concentrated}"
+          EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.execute }}" = "true" ]; then
+            EXECUTE_FLAG="--execute --confirm"
+          fi
+          OVERRIDE_FLAG=""
+          if [ "${{ github.event.inputs.override_regime_halt }}" = "true" ]; then
+            OVERRIDE_FLAG="--override-regime-halt"
+          fi
+          LEGACY_EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.allow_legacy_execute }}" = "true" ]; then
+            LEGACY_EXECUTE_FLAG="--allow-legacy-execute"
+          fi
+          DEPRECATED_FLAG=""
+          if [ "$ADVISOR" = "v4" ]; then
+            DEPRECATED_FLAG="--allow-deprecated-v4"
+          fi
+
+          mkdir -p outputs/paper_runs
+          OUT="outputs/paper_runs/$(date +%Y%m%d_%H%M%S)_${ADVISOR}.log"
+          echo "Running paper executor: advisor=$ADVISOR"
+
+          set +e
+          python r1000_paper_executor.py \
+            --advisor "$ADVISOR" \
+            $EXECUTE_FLAG \
+            $OVERRIDE_FLAG \
+            $LEGACY_EXECUTE_FLAG \
+            $DEPRECATED_FLAG \
+            2>&1 | tee "$OUT"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+
+          echo "advisor=$ADVISOR" >> "$GITHUB_OUTPUT"
+          echo "log_path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "exit_status=$STATUS" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
+
+      - name: Layer 4 swap suggestions
+        if: always()
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          PORTFOLIO_CSV=""
+          for p in \
+            outputs/portfolio_latest.csv \
+            cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv \
+            cloud_results/full_rebuild/latest/portfolio_latest.csv \
+            outputs_advisor_v3/new_top12_proposed.csv
+          do
+            if [ -f "$p" ]; then PORTFOLIO_CSV="$p"; break; fi
+          done
+
+          SCORED_CSV=""
+          for p in \
+            outputs/scored_unified.csv \
+            outputs/scored_latest.csv \
+            cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv \
+            cloud_results/full_rebuild/latest/scored_latest.csv
+          do
+            if [ -f "$p" ]; then SCORED_CSV="$p"; break; fi
+          done
+
+          if [ -n "$PORTFOLIO_CSV" ] && [ -n "$SCORED_CSV" ]; then
+            mkdir -p outputs/paper_runs
+            python r1000_layer4_swap.py \
+              --portfolio "$PORTFOLIO_CSV" \
+              --scored-csv "$SCORED_CSV" \
+              | tee outputs/paper_runs/layer4_$(date +%Y%m%d_%H%M%S).log
+          else
+            echo "[layer4] skipped: portfolio or scored CSV unavailable"
+          fi
+
+      - name: Upload daily artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: after-close-daily-${{ github.run_id }}
+          path: |
+            aggressive/state/scanner/latest.json
+            cloud_results/scanner/
+            cloud_results/macro_daily/
+            cloud_results/etf_leadership/
+            cloud_results/theme_leadership_tape/
+            cloud_results/explosive_movers/
+            cloud_results/tactical_alpha/
+            outputs/tactical_alpha/
+            outputs/paper_runs/
+            outputs/regime_snapshot.txt
+          retention-days: 90
+
+      - name: Commit daily cloud results
+        if: always()
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+
+          mkdir -p cloud_results/scanner cloud_results/paper_runs
+          if [ -f aggressive/state/scanner/latest.json ]; then
+            cp aggressive/state/scanner/latest.json \
+              "cloud_results/scanner/$(date +%Y%m%d).json"
+          fi
+          if ls outputs/paper_runs/*.log 1>/dev/null 2>&1; then
+            cp -r outputs/paper_runs/* cloud_results/paper_runs/ 2>/dev/null || true
+          fi
+          if [ -f outputs/regime_snapshot.txt ]; then
+            cp outputs/regime_snapshot.txt cloud_results/paper_runs/latest_regime.txt
+          fi
+
+          git pull --rebase --autostash || true
+          git add cloud_results/scanner/ \
+                  cloud_results/macro_daily/ \
+                  cloud_results/etf_leadership/ \
+                  cloud_results/theme_leadership_tape/ \
+                  cloud_results/explosive_movers/ \
+                  cloud_results/tactical_alpha/ \
+                  cloud_results/paper_runs/ 2>/dev/null || true
+          git add -f aggressive/state/finnhub/r1000_features.parquet 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): after-close daily $(date +%Y-%m-%d) [skip ci]"
+          for i in 1 2 3 4; do
+            if git push; then
+              break
+            fi
+            sleep $((2 ** i))
+          done
+
+      - name: Telegram final status
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "[telegram] secrets not set, skipping"
+            exit 0
+          fi
+          ADVISOR="${{ steps.paper.outputs.advisor }}"
+          ADVISOR="${ADVISOR:-concentrated}"
+          MODE="DRY-RUN"
+          if [ "${{ github.event.inputs.execute }}" = "true" ]; then
+            MODE="LIVE"
+          fi
+          MSG="r1000 after-close daily [${MODE}] advisor=${ADVISOR} status=${{ job.status }}%0A"
+          MSG+="run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MSG}" \
+            -d "disable_web_page_preview=true" \
+            > /dev/null || echo "[telegram] notification failed"

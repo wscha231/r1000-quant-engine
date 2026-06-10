@@ -1,29 +1,14 @@
 #!/usr/bin/env python3
-"""macro_daily_snapshot — Phase 17 v3 Layer 12 (2026-04-30) daily macro pulse.
+"""macro_daily_snapshot - Phase 17 v3 Layer 12 daily macro pulse.
 
-User insight (2026-04-29):
-  "메크로 분석 빠르게 반영. 시장 메크로 지표도 빠르게 반영하게.
-   자동화가능?"
+Computes daily changes in macro inputs used by regime_state, including VIX,
+SPY trend, SPY 3m return, high-yield OAS, and breadth. It can post a concise
+Telegram digest when indicators cross regime boundaries.
 
-Computes velocity-style deltas of the macro inputs that drive
-regime_state (VIX, SPY MA200, SPY 3m return, HY OAS, market breadth)
-on a daily cadence so the engine has a fresh read between monthly
-rebalance dates. Posts a short Telegram digest if any indicator
-crosses a regime boundary in the last 24h.
-
-Output
-======
+Outputs
+-------
     cloud_results/macro_daily/snapshot_YYYY-MM-DD.json
-    cloud_results/macro_daily/latest.json   (symlink-equivalent: overwritten)
-
-Design notes
-============
-* No reliance on r1000 main pipeline state — purely fetches from
-  yfinance + FRED. Self-contained.
-* Stateless wrt regime_state: the snapshot is a candidate input. The
-  L1 classifier (compute_regime_state_classifier) consumes the same
-  raw indicators during the next pipeline run. This script's role is
-  alerting + history.
+    cloud_results/macro_daily/latest.json
 """
 from __future__ import annotations
 
@@ -126,7 +111,7 @@ def compute_snapshot() -> dict:
     else:
         snap["vix_error"] = "no VIX history"
 
-    # ---- FRED block (HY OAS, DGS10) — optional, only if FRED_API_KEY set
+    # ---- FRED block (HY OAS, DGS10) - optional, only if FRED_API_KEY set
     api = os.getenv("FRED_API_KEY")
     if api:
         snap["hy_oas"] = fetch_fred_series("BAMLH0A0HYM2", api)

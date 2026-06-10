@@ -1,0 +1,440 @@
+rebalance_date,ticker,Name,sector,weight,raw_score,portfolio_sleeve_label,portfolio_sleeve_role,portfolio_selection_path,period_forward_return,weighted_forward_return,target_n,cash_target,regime_state,regime_state_score
+2022-02-28,ENB,Enbridge,Energy,0.12,1.6282996473516187,core_compounder,core_compounder,,0.06424148782776729,0.007708978539332074,12,0.0,bear,-1
+2022-02-28,SQM,Sociedad Quimica y Minera de Chile,Materials,0.12,0.15636111172180006,core_compounder,core_compounder,,0.32061067182812275,0.03847328061937473,12,0.0,bear,-1
+2022-02-28,U,Unity Software,Communication Services,0.06,1.6105983688152674,core_compounder,core_compounder,,-0.07615216111028411,-0.004569129666617046,12,0.0,bear,-1
+2022-02-28,HDB,HDFC Bank,Financial,0.08,-0.21240602454816754,core_compounder,core_compounder,,0.01548641673897766,0.0012389133391182128,12,0.0,bear,-1
+2022-02-28,CASH,Cash,Cash,0.62,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2022-03-31,ENPH,Enphase Energy,Information Technology,0.17254401391661167,1.909818030106922,core_compounder,core_compounder,,-0.08,-0.013803521113328934,12,0.0,neutral,0
+2022-03-31,SQM,Sociedad Quimica y Minera de Chile,Materials,0.14293636307348428,0.6918035857043897,core_compounder,core_compounder,,-0.08,-0.011434909045878744,12,0.0,neutral,0
+2022-03-31,U,Unity Software,Communication Services,0.10711635655310008,-0.07752692946905965,core_compounder,core_compounder,,-0.08,-0.008569308524248006,12,0.0,neutral,0
+2022-03-31,HDB,HDFC Bank,Financial,0.07990496650399406,-0.5254503924193187,core_compounder,core_compounder,,-0.08,-0.006392397320319525,12,0.0,neutral,0
+2022-03-31,CP,Canadian Pacific Kansas City,Industrials,0.1145676809048789,2.454971703858225,core_compounder,core_compounder,,-0.08,-0.009165414472390313,12,0.0,neutral,0
+2022-03-31,WPM,Wheaton Precious Metals,Materials,0.052665299502604235,0.7175453583375008,core_compounder,core_compounder,,-0.07505279176842305,-0.00395267775699059,12,0.0,neutral,0
+2022-03-31,GTLS,Chart Industries,Industrials,0.052665299502604235,0.9320905863561342,core_compounder,core_compounder,,-0.027846652730100452,-0.0014665523061757522,12,0.0,neutral,0
+2022-03-31,ACLS,Axcelis Technologies,Information Technology,0.03749673440899965,1.3537662399313262,core_compounder,core_compounder,,-0.08,-0.002999738752719972,12,0.0,neutral,0
+2022-03-31,ENB,Enbridge,Energy,0.030062537308111634,1.108350463677871,core_compounder,core_compounder,,-0.05884910704381208,-0.0017691534760536558,12,0.0,neutral,0
+2022-03-31,STM,STMicroelectronics,Semiconductors,0.2100407483256113,1.6294230615231613,core_compounder,core_compounder,,-0.08,-0.016803259866048904,12,0.0,neutral,0
+2022-04-29,ENPH,Enphase Energy,Information Technology,0.11238627156408311,3.2217810147802983,core_compounder,core_compounder,,0.17782526488653527,0.019985118510493165,12,0.28,bear,-1
+2022-04-29,JD,JD.com,Internet,0.11238627156408311,3.814995459303488,core_compounder,core_compounder,,-0.05477224820148219,-0.00615564876054714,12,0.28,bear,-1
+2022-04-29,SQM,Sociedad Quimica y Minera de Chile,Materials,0.11238627156408311,1.6015004543025286,core_compounder,core_compounder,,0.4099506686047607,0.04607282716969208,12,0.28,bear,-1
+2022-04-29,HDB,HDFC Bank,Financial,0.07492418104272208,-0.2549187900992332,core_compounder,core_compounder,,0.05726315795425663,0.004290395213642714,12,0.28,bear,-1
+2022-04-29,LI,Li Auto,Auto,0.056193135782041555,-0.8284096913916381,core_compounder,core_compounder,,0.14356438490708623,0.008067332974549174,12,0.28,bear,-1
+2022-04-29,WPM,Wheaton Precious Metals,Materials,0.13446352892837757,0.7804321847927167,core_compounder,core_compounder,,-0.04664799960743016,-0.00627245464466463,12,0.28,bear,-1
+2022-04-29,GTLS,,Unknown,0.003516991313939802,,core_compounder,core_compounder,,0.05420471862365028,0.00019063752457392907,12,0.28,nan,0
+2022-04-29,CASH,Cash,Cash,0.3917997931611373,,cash,cash,,0.0,0.0,12,0.28,nan,0
+2022-04-29,ENB,,Unknown,0.0019435550795323803,,core_compounder,core_compounder,,0.0863291276216529,0.0001677854145006626,12,0.28,nan,0
+2022-05-31,SQM,Sociedad Quimica y Minera de Chile,Materials,0.1237338366847852,2.2394130238265615,core_compounder,core_compounder,,-0.08,-0.009898706934782816,12,0.0,bear,-1
+2022-05-31,ENB,Enbridge,Energy,0.19409384485231795,2.035786425678985,core_compounder,core_compounder,,-0.08,-0.015527507588185437,12,0.0,bear,-1
+2022-05-31,GTLS,Chart Industries,Industrials,0.19364200094449735,1.4969894117186051,core_compounder,core_compounder,,-0.06947564821313956,-0.013453403536908336,12,0.0,bear,-1
+2022-05-31,ENPH,Enphase Energy,Information Technology,0.19314570213378415,1.2418902699021501,core_compounder,core_compounder,,0.030845416222048838,0.0059576595738164385,12,0.0,bear,-1
+2022-05-31,JD,JD.com,Internet,0.1078645347055268,1.534735826238642,core_compounder,core_compounder,,0.12458197416409278,0.013437976675905829,12,0.0,bear,-1
+2022-05-31,HDB,HDFC Bank,Financial,0.08,-0.7357915005370528,core_compounder,core_compounder,,-0.05950123927028006,-0.004760099141622405,12,0.0,bear,-1
+2022-05-31,LI,Li Auto,Auto,0.10752008067908858,-1.157856697963457,core_compounder,core_compounder,,0.5072805772157933,0.054542848589176726,12,0.0,bear,-1
+2022-06-30,ENPH,Enphase Energy,Information Technology,0.22000000000000003,4.588180144952991,core_compounder,core_compounder,,0.46206720238816223,0.10165478452539571,12,0.0,bear,-1
+2022-06-30,JD,JD.com,Internet,0.08,3.9421217682512006,core_compounder,core_compounder,,-0.08,-0.0064,12,0.0,bear,-1
+2022-06-30,LI,Li Auto,Auto,0.12,2.640501789800911,core_compounder,core_compounder,,-0.08,-0.0096,12,0.0,bear,-1
+2022-06-30,SQM,Sociedad Quimica y Minera de Chile,Materials,0.12,2.407474737370841,core_compounder,core_compounder,,0.20238532056788783,0.024286238468146537,12,0.0,bear,-1
+2022-06-30,ENB,Enbridge,Energy,0.12,1.5582024263161762,core_compounder,core_compounder,,0.05055496137718385,0.006066595365262062,12,0.0,bear,-1
+2022-06-30,HDB,HDFC Bank,Financial,0.08,-0.8657514917527908,core_compounder,core_compounder,,0.1504384187987795,0.012035073503902361,12,0.0,bear,-1
+2022-06-30,CASH,Cash,Cash,0.26,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2022-07-29,ENPH,Enphase Energy,Information Technology,0.2223412050201845,3.0881859915707395,core_compounder,core_compounder,,-0.009260878312089216,-0.0020590748434552086,12,0.0,bear,-1
+2022-07-29,JD,JD.com,Internet,0.05933136726001247,1.1761098054624644,core_compounder,core_compounder,,0.07242086541837067,0.004296828963425287,12,0.0,bear,-1
+2022-07-29,RGEN,Repligen,Health Care,0.05933136726001247,0.15777686517320436,core_compounder,core_compounder,,0.01774730589139395,0.0010529719237180775,12,0.0,bear,-1
+2022-07-29,SQM,Sociedad Quimica y Minera de Chile,Materials,0.13986525368646704,2.2623759825987735,core_compounder,core_compounder,,-0.011336117045660732,-0.0015855288864108216,12,0.0,bear,-1
+2022-07-29,HDB,HDFC Bank,Financial,0.21845755664397745,0.6333094428055699,core_compounder,core_compounder,,-0.019913243359565014,-0.004350198489187482,12,0.0,bear,-1
+2022-07-29,LI,Li Auto,Auto,0.059331367260012466,2.4384727867477696,core_compounder,core_compounder,,-0.08,-0.004746509380800997,12,0.0,bear,-1
+2022-07-29,CP,Canadian Pacific Kansas City,Industrials,0.11866273452002495,1.9469912841203305,core_compounder,core_compounder,,-0.05336409311824997,-0.006332329214592786,12,0.0,bear,-1
+2022-07-29,GTLS,Chart Industries,Industrials,0.059331367260012466,-0.6059604712368816,core_compounder,core_compounder,,-0.026712120582790377,-0.0015848666365912741,12,0.0,bear,-1
+2022-07-29,ACLS,Axcelis Technologies,Information Technology,0.059331367260012466,0.5934220734236386,core_compounder,core_compounder,,-0.07782221249820032,-0.004617298270717455,12,0.0,bear,-1
+2022-07-29,ENB,Enbridge,Energy,0.0040164138292837215,1.13315187797943,core_compounder,core_compounder,,-0.06377983154279276,-0.000256166197437859,12,0.0,bear,-1
+2022-08-31,ENPH,Enphase Energy,Information Technology,0.1946179019766358,3.113961971549454,core_compounder,core_compounder,,-0.0026757999826447776,-0.0005207585787314451,12,0.0,bear,-1
+2022-08-31,CP,Canadian Pacific Kansas City,Industrials,0.19235088085988514,2.583874314421153,core_compounder,core_compounder,,-0.08,-0.015388070468790812,12,0.0,bear,-1
+2022-08-31,SQM,Sociedad Quimica y Minera de Chile,Materials,0.12303121716347903,2.9906524120243487,core_compounder,core_compounder,,-0.03022822302199324,-0.0037190150710849266,12,0.0,bear,-1
+2022-08-31,JD,JD.com,Internet,0.08,3.8238106842169346,core_compounder,core_compounder,,-0.08,-0.0064,12,0.0,bear,-1
+2022-08-31,RGEN,Repligen,Health Care,0.10230565383540412,-0.3604940667336199,core_compounder,core_compounder,,-0.08,-0.008184452306832329,12,0.0,bear,-1
+2022-08-31,HDB,HDFC Bank,Financial,0.08,-0.10465028420921407,core_compounder,core_compounder,,-0.04735382774322816,-0.0037883062194582528,12,0.0,bear,-1
+2022-08-31,ACLS,Axcelis Technologies,Information Technology,0.10227471296554426,-0.14630150923371507,core_compounder,core_compounder,,-0.04744970672228699,-0.004852905135321157,12,0.0,bear,-1
+2022-08-31,LI,Li Auto,Auto,0.051135405157671836,-0.03913350617808409,core_compounder,core_compounder,,-0.08,-0.004090832412613747,12,0.0,bear,-1
+2022-08-31,INSM,Insmed,Health Care,0.05115935058621918,-0.9267299199005131,core_compounder,core_compounder,,-0.08,-0.004092748046897534,12,0.0,bear,-1
+2022-08-31,CASH,Cash,Cash,0.023124877455160522,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2022-09-30,ENPH,Enphase Energy,Information Technology,0.22000000000000003,4.375403297353496,core_compounder,core_compounder,,0.12524139006177637,0.027553105813590804,12,0.0,bear,-1
+2022-09-30,SQM,Sociedad Quimica y Minera de Chile,Materials,0.14,3.2795540098097526,core_compounder,core_compounder,,0.033372853029835614,0.004672199424176986,12,0.0,bear,-1
+2022-09-30,JD,JD.com,Internet,0.06,1.4585511018970385,core_compounder,core_compounder,,-0.08,-0.0048,12,0.0,bear,-1
+2022-09-30,HDB,HDFC Bank,Financial,0.08,0.36524965687103683,core_compounder,core_compounder,,0.09236332736604491,0.007389066189283593,12,0.0,bear,-1
+2022-09-30,LI,Li Auto,Auto,0.06,-0.354772066671557,core_compounder,core_compounder,,-0.08,-0.0048,12,0.0,bear,-1
+2022-09-30,CASH,Cash,Cash,0.43999999999999995,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2022-10-31,CNI,Canadian National Railway,Industrials,0.05739130434782608,1.807201811825663,core_compounder,core_compounder,,0.07086464659695979,0.0040670145003472566,12,0.0,bear,-1
+2022-10-31,CP,Canadian Pacific Kansas City,Industrials,0.10521739130434783,2.999748821627991,core_compounder,core_compounder,,0.08692761822260708,0.009146297221683006,12,0.0,bear,-1
+2022-10-31,SQM,Sociedad Quimica y Minera de Chile,Materials,0.14,2.689725424068967,core_compounder,core_compounder,,0.04531725469534753,0.006344415657348655,12,0.0,bear,-1
+2022-10-31,GTLS,Chart Industries,Industrials,0.05739130434782608,0.234990700633659,core_compounder,core_compounder,,-0.08,-0.0045913043478260866,12,0.0,bear,-1
+2022-10-31,HDB,HDFC Bank,Financial,0.08,0.27169460010957813,core_compounder,core_compounder,,0.10927403281170145,0.008741922624936116,12,0.0,bear,-1
+2022-10-31,CASH,Cash,Cash,0.56,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2022-11-30,CP,Canadian Pacific Kansas City,Industrials,0.13444444444444445,3.2023893438487576,core_compounder,core_compounder,,-0.08,-0.010755555555555556,12,0.0,neutral,0
+2022-11-30,CNI,Canadian National Railway,Industrials,0.08555555555555555,1.6029084545550865,core_compounder,core_compounder,,-0.07696579356246913,-0.0065848512270112475,12,0.0,neutral,0
+2022-11-30,JD,JD.com,Internet,0.06,2.834846129309441,core_compounder,core_compounder,,0.04771365230927316,0.0028628191385563894,12,0.0,neutral,0
+2022-11-30,SQM,Sociedad Quimica y Minera de Chile,Materials,0.14,2.1624109903820967,core_compounder,core_compounder,,-0.08,-0.011200000000000002,12,0.0,neutral,0
+2022-11-30,HDB,HDFC Bank,Financial,0.08,0.586925912320325,core_compounder,core_compounder,,-0.016465406764432977,-0.0013172325411546382,12,0.0,neutral,0
+2022-11-30,STM,STMicroelectronics,Semiconductors,0.06,0.6302701402760625,core_compounder,core_compounder,,-0.07007892580937936,-0.004204735548562761,12,0.0,neutral,0
+2022-11-30,WPM,Wheaton Precious Metals,Materials,0.06,0.4542649653979756,core_compounder,core_compounder,,0.0025127478288518024,0.00015076486973110813,12,0.0,neutral,0
+2022-11-30,ACLS,Axcelis Technologies,Information Technology,0.06,-0.25077562230276323,core_compounder,core_compounder,,0.003857130123178232,0.00023142780739069389,12,0.0,neutral,0
+2022-11-30,CASH,Cash,Cash,0.31999999999999995,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2022-12-30,CP,Canadian Pacific Kansas City,Industrials,0.11523809523809524,3.274915890293049,core_compounder,core_compounder,,0.05208469371812141,0.0060021408951358955,12,0.0,bear,-1
+2022-12-30,JD,JD.com,Internet,0.12,2.023822499577771,core_compounder,core_compounder,,0.037260698438571715,0.004471283812628605,12,0.0,bear,-1
+2022-12-30,HDB,HDFC Bank,Financial,0.08,1.0326907549082982,core_compounder,core_compounder,,-0.0236686706492234,-0.001893493651937872,12,0.0,bear,-1
+2022-12-30,CNI,Canadian National Railway,Industrials,0.07333333333333333,1.9831699205490754,core_compounder,core_compounder,,-0.0010129326777839065,-7.428172970415314e-05,12,0.0,bear,-1
+2022-12-30,WPM,Wheaton Precious Metals,Materials,0.08,0.4224481909996378,core_compounder,core_compounder,,0.1406011832448093,0.011248094659584745,12,0.0,bear,-1
+2022-12-30,SQM,Sociedad Quimica y Minera de Chile,Materials,0.11,1.4219027123745644,core_compounder,core_compounder,,0.1998523568197632,0.021983759250173953,12,0.0,bear,-1
+2022-12-30,ZTO,ZTO Express,Industrials,0.031428571428571424,-0.712223223468594,core_compounder,core_compounder,,0.06574644169565835,0.002066316739006405,12,0.0,bear,-1
+2022-12-30,CASH,Cash,Cash,0.39,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-01-31,CP,Canadian Pacific Kansas City,Industrials,0.3239278318320615,3.164962002812814,core_compounder,core_compounder,,-0.038743785691424004,-0.012550190495989025,12,0.0,neutral,0
+2023-01-31,JD,JD.com,Internet,0.08,3.4504865771576543,core_compounder,core_compounder,,-0.08,-0.0064,12,0.0,neutral,0
+2023-01-31,SQM,Sociedad Quimica y Minera de Chile,Materials,0.13066153016300305,2.664866979896495,core_compounder,core_compounder,,-0.07378899947275586,-0.009641383580307306,12,0.0,neutral,0
+2023-01-31,STM,STMicroelectronics,Semiconductors,0.04607545355429328,0.779731577247857,core_compounder,core_compounder,,0.0348099455314268,0.0016038840285607344,12,0.0,neutral,0
+2023-01-31,WPM,Wheaton Precious Metals,Materials,0.08,0.6235714267651533,core_compounder,core_compounder,,-0.07690625123540784,-0.006152500098832628,12,0.0,neutral,0
+2023-01-31,ACLS,Axcelis Technologies,Information Technology,0.1162950915207041,0.46034357442614404,core_compounder,core_compounder,,0.16885922956316723,0.019637499556164117,12,0.0,neutral,0
+2023-01-31,ZTO,ZTO Express,Industrials,0.07607216816793849,-0.18593626559042953,core_compounder,core_compounder,,-0.08,-0.0060857734534350795,12,0.0,neutral,0
+2023-01-31,HDB,HDFC Bank,Financial,0.07999999999999999,0.41233770299954203,core_compounder,core_compounder,,-0.00029586266109438153,-2.366901288755052e-05,12,0.0,neutral,0
+2023-01-31,INSM,Insmed,Health Care,0.04393422010108411,-0.849101489533807,core_compounder,core_compounder,,-0.05304790143276583,-0.002330618177447749,12,0.0,neutral,0
+2023-01-31,CASH,Cash,Cash,0.023033704660915436,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-02-28,ACLS,Axcelis Technologies,Information Technology,0.12,0.957518232281263,core_compounder,core_compounder,,0.01927227857288205,0.002312673428745846,12,0.0,neutral,0
+2023-02-28,HDB,HDFC Bank,Financial,0.08,0.8037389928386692,core_compounder,core_compounder,,-0.015229803308153045,-0.0012183842646522436,12,0.0,neutral,0
+2023-02-28,RGEN,Repligen,Health Care,0.06,1.0085911101204261,core_compounder,core_compounder,,-0.03915239566864037,-0.0023491437401184224,12,0.0,neutral,0
+2023-02-28,SQM,Sociedad Quimica y Minera de Chile,Materials,0.12,1.3483795517201835,core_compounder,core_compounder,,-0.08,-0.0096,12,0.0,neutral,0
+2023-02-28,MP,MP Materials,Materials,0.06,-0.48140122704164134,core_compounder,core_compounder,,-0.08,-0.0048,12,0.0,neutral,0
+2023-02-28,CASH,Cash,Cash,0.56,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-03-31,ENPH,Enphase Energy,Information Technology,0.05538461538461538,4.873400019716282,core_compounder,core_compounder,,-0.08,-0.00443076923076923,12,0.0,bull,1
+2023-03-31,ACLS,Axcelis Technologies,Information Technology,0.07384615384615384,1.2843208108541448,core_compounder,core_compounder,,-0.08,-0.005907692307692307,12,0.0,bull,1
+2023-03-31,STM,STMicroelectronics,Semiconductors,0.05538461538461538,1.2181575879458382,core_compounder,core_compounder,,-0.08,-0.00443076923076923,12,0.0,bull,1
+2023-03-31,WPM,Wheaton Precious Metals,Materials,0.05538461538461538,0.41716735364242763,core_compounder,core_compounder,,0.04356840682912044,0.0024130194551512858,12,0.0,bull,1
+2023-03-31,RGEN,Repligen,Health Care,0.12,0.6907783936202752,core_compounder,core_compounder,,-0.08,-0.0096,12,0.0,bull,1
+2023-03-31,HDB,HDFC Bank,Financial,0.08,0.13808435324722718,core_compounder,core_compounder,,0.04369363674676041,0.003495490939740833,12,0.0,bull,1
+2023-03-31,SQM,Sociedad Quimica y Minera de Chile,Materials,0.12,0.5465287853932077,core_compounder,core_compounder,,-0.08,-0.0096,12,0.0,bull,1
+2023-03-31,CASH,Cash,Cash,0.44000000000000006,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-04-28,CP,Canadian Pacific Kansas City,Industrials,0.22000000000000003,2.601688806930535,core_compounder,core_compounder,,-0.03550671917886994,-0.007811478219351388,12,0.0,neutral,0
+2023-04-28,HDB,HDFC Bank,Financial,0.08,0.9586505579228518,core_compounder,core_compounder,,-0.06175880827812952,-0.004940704662250362,12,0.0,neutral,0
+2023-04-28,RGEN,Repligen,Health Care,0.06,-0.7566475618658011,core_compounder,core_compounder,,0.1042354061280979,0.006254124367685874,12,0.0,neutral,0
+2023-04-28,CASH,Cash,Cash,0.6399999999999999,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-05-31,ACLS,Axcelis Technologies,Information Technology,0.11,1.840690818980479,core_compounder,core_compounder,,0.16527300289507152,0.018180030318457868,12,0.0,bull,1
+2023-05-31,ONTO,Onto Innovation,Information Technology,0.11,0.18575695602482878,core_compounder,core_compounder,,0.08396161796000512,0.009235777975600563,12,0.0,bull,1
+2023-05-31,RGEN,Repligen,Health Care,0.12,0.3790438350990579,core_compounder,core_compounder,,-0.08,-0.0096,12,0.0,bull,1
+2023-05-31,HDB,HDFC Bank,Financial,0.08,1.03259445379242,core_compounder,core_compounder,,0.09312062619829997,0.007449650095863998,12,0.0,bull,1
+2023-05-31,CASH,Cash,Cash,0.5800000000000001,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-06-30,RGEN,Repligen,Health Care,0.053225806451612914,-0.6043142462690011,core_compounder,core_compounder,,0.1957997652377763,0.010421600407817129,12,0.0,bull,1
+2023-06-30,HDB,,Unknown,0.009630040211218674,,core_compounder,core_compounder,,-0.030900026192364094,-0.00029756849476017647,12,0.0,nan,0
+2023-06-30,CP,Canadian Pacific Kansas City,Industrials,0.10645161290322583,3.2335066877742027,core_compounder,core_compounder,,0.004563449535523567,0.00048578656345896047,12,0.0,bull,1
+2023-06-30,TM,Toyota Motor,Auto,0.12419354838709681,1.0758099728786628,core_compounder,core_compounder,,0.06364991318530588,0.007904908573013798,12,0.0,bull,1
+2023-06-30,ONTO,Onto Innovation,Information Technology,0.10645161290322583,0.05171583420427317,core_compounder,core_compounder,,0.054014607817662874,0.005749942122525404,12,0.0,bull,1
+2023-06-30,GTLS,Chart Industries,Industrials,0.053225806451612914,-1.5130755322186755,core_compounder,core_compounder,,0.12284649381690427,0.006538603703157809,12,0.0,bull,1
+2023-06-30,CASH,Cash,Cash,0.4403699597887812,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-06-30,ACLS,Axcelis Technologies,Information Technology,0.10645161290322583,1.5618992321443748,core_compounder,core_compounder,,0.06768141970529751,0.007204796291209091,12,0.0,bull,1
+2023-07-31,RGEN,Repligen,Health Care,0.07964966833500571,0.8328015175013035,core_compounder,core_compounder,,0.03849562109479088,0.003066163452550143,12,0.0,bull,1
+2023-07-31,HDB,HDFC Bank,Financial,0.07866848917340857,0.3698309041156482,core_compounder,core_compounder,,-0.06672393107065722,-0.005249070849039257,12,0.0,bull,1
+2023-07-31,TM,,Unknown,0.002386309638540876,,core_compounder,core_compounder,,0.016304335159362138,3.890719214078676e-05,12,0.0,nan,0
+2023-07-31,GTLS,Chart Industries,Industrials,0.05668272426747045,-0.3671623620440784,core_compounder,core_compounder,,0.01306421381441214,0.0007405152294136017,12,0.0,bull,1
+2023-07-31,MELI,MercadoLibre,Internet,0.11774985229895635,2.190936818639291,core_compounder,core_compounder,,0.13398008523900629,0.015776135247894573,12,0.0,bull,1
+2023-07-31,ACLS,Axcelis Technologies,Information Technology,0.2179278900993239,1.7499424481200279,core_compounder,core_compounder,,-0.014969385305412808,-0.0032622465556924364,12,0.0,bull,1
+2023-07-31,STM,STMicroelectronics,Semiconductors,0.058874926149478174,1.4760472815385575,core_compounder,core_compounder,,-0.08,-0.004709994091958254,12,0.0,bull,1
+2023-07-31,CP,Canadian Pacific Kansas City,Industrials,0.10563372520268292,2.4439113704774083,core_compounder,core_compounder,,-0.021854160461730165,-0.0023085363807497424,12,0.0,bull,1
+2023-07-31,CNI,Canadian National Railway,Industrials,0.056569686116909136,1.8210635404188242,core_compounder,core_compounder,,-0.05643678199262292,-0.0031926110427711084,12,0.0,bull,1
+2023-07-31,ONTO,Onto Innovation,Information Technology,0.058874926149478174,0.3790634545692695,core_compounder,core_compounder,,0.13540820462640668,0.007972148047413122,12,0.0,bull,1
+2023-07-31,INSM,Insmed,Health Care,0.058874926149478174,-1.563302269112668,core_compounder,core_compounder,,0.0004539368393163823,2.6725497891279548e-05,12,0.0,bull,1
+2023-07-31,CASH,Cash,Cash,0.10810687641926758,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-08-31,RGEN,,Unknown,0.0045306455186798905,,core_compounder,core_compounder,,-0.08,-0.00036245164149439126,12,0.0,nan,0
+2023-08-31,UBS,UBS Group,Financial,0.07557911977067032,1.3666860440096975,core_compounder,core_compounder,,-0.06608428684128032,-0.004994592230136458,12,0.0,bull,1
+2023-08-31,HDB,,Unknown,0.004021447302491266,,core_compounder,core_compounder,,-0.06413308483308244,-0.0002579078210024429,12,0.0,nan,0
+2023-08-31,CP,,Unknown,0.005659494604432824,,core_compounder,core_compounder,,-0.07014755225000513,-0.00039699969347307365,12,0.0,nan,0
+2023-08-31,TM,,Unknown,0.0001328379045256482,,core_compounder,core_compounder,,0.042441151961764234,5.6377936922553635e-06,12,0.0,nan,0
+2023-08-31,CNI,,Unknown,0.0029236556141513173,,core_compounder,core_compounder,,-0.03977865626900079,-0.00011629909172425965,12,0.0,nan,0
+2023-08-31,ONTO,Onto Innovation,Information Technology,0.13592491582297683,0.42394762775613737,core_compounder,core_compounder,,-0.08,-0.010873993265838147,12,0.0,bull,1
+2023-08-31,GTLS,,Unknown,0.0031452786857398204,,core_compounder,core_compounder,,-0.0763320459279262,-0.00024008555709601932,12,0.0,nan,0
+2023-08-31,MELI,MercadoLibre,Internet,0.2151562810396621,4.0850640378082375,core_compounder,core_compounder,,-0.08,-0.017212502483172968,12,0.0,bull,1
+2023-08-31,INSM,Insmed,Health Care,0.11659493632672842,-2.064578818044617,core_compounder,core_compounder,,0.14564423553227668,0.016981380368240834,12,0.0,bull,1
+2023-08-31,ACLS,,Unknown,0.011758014335555622,,core_compounder,core_compounder,,-0.08,-0.0009406411468444498,12,0.0,nan,0
+2023-08-31,CASH,Cash,Cash,0.4245733730743859,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-09-29,MELI,MercadoLibre,Internet,0.12,3.118884590445793,core_compounder,core_compounder,,-0.013212884995838392,-0.001585546199500607,12,0.4,bear,-1
+2023-09-29,INSM,Insmed,Health Care,0.21000000000000002,-1.6151807342354654,core_compounder,core_compounder,,-0.0019801678043780413,-0.0004158352389193887,12,0.4,bear,-1
+2023-09-29,HDB,HDFC Bank,Financial,0.08,0.9074887509506171,core_compounder,core_compounder,,-0.03976301590975739,-0.0031810412727805914,12,0.4,bear,-1
+2023-09-29,CASH,Cash,Cash,0.59,,cash,cash,,0.0,0.0,12,0.4,nan,0
+2023-10-31,VALE,Vale,Materials,0.14,2.8906327098262636,core_compounder,core_compounder,,0.12251028125667607,0.017151439375934652,12,0.0,bear,-1
+2023-10-31,UEC,Uranium Energy,Energy,0.12,-1.7598650495797288,core_compounder,core_compounder,,0.09348922220612432,0.011218706664734918,12,0.0,bear,-1
+2023-10-31,HDB,HDFC Bank,Financial,0.08,0.1706082639212413,core_compounder,core_compounder,,0.048458180443850196,0.0038766544355080157,12,0.0,bear,-1
+2023-10-31,CASH,Cash,Cash,0.6599999999999999,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-11-30,VALE,Vale,Materials,0.14,3.1670635264282,core_compounder,core_compounder,,0.05026442709678247,0.007037019793549547,12,0.0,neutral,0
+2023-11-30,MELI,MercadoLibre,Internet,0.12,2.354767500114885,core_compounder,core_compounder,,-0.029030697233561886,-0.0034836836680274264,12,0.0,neutral,0
+2023-11-30,STM,STMicroelectronics,Semiconductors,0.06,1.0133219301669152,core_compounder,core_compounder,,0.033730460703127685,0.002023827642187661,12,0.0,neutral,0
+2023-11-30,WPM,Wheaton Precious Metals,Materials,0.06,0.2353953221102058,core_compounder,core_compounder,,0.0055103510453629045,0.00033062106272177424,12,0.0,neutral,0
+2023-11-30,UEC,Uranium Energy,Energy,0.14,-1.9156785829261558,core_compounder,core_compounder,,-0.021374097594804353,-0.0029923736632726096,12,0.0,neutral,0
+2023-11-30,HDB,HDFC Bank,Financial,0.08,-0.6841590170788039,core_compounder,core_compounder,,0.11663867706762177,0.009331094165409741,12,0.0,neutral,0
+2023-11-30,CASH,Cash,Cash,0.4,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2023-12-29,VALE,Vale,Materials,0.11846153846153847,2.353444589412862,core_compounder,core_compounder,,-0.08,-0.009476923076923077,12,0.0,bull,1
+2023-12-29,MELI,MercadoLibre,Internet,0.14,2.1512890656486183,core_compounder,core_compounder,,0.1210922574903126,0.016952916048643768,12,0.0,bull,1
+2023-12-29,STM,STMicroelectronics,Semiconductors,0.08,0.4983598811239151,core_compounder,core_compounder,,-0.08,-0.0064,12,0.0,bull,1
+2023-12-29,WPM,Wheaton Precious Metals,Materials,0.08,0.4999784493113877,core_compounder,core_compounder,,-0.04038986820400159,-0.0032311894563201273,12,0.0,bull,1
+2023-12-29,RGEN,Repligen,Health Care,0.06,-0.5408517336766698,core_compounder,core_compounder,,0.07788904799704532,0.0046733428798227195,12,0.0,bull,1
+2023-12-29,HDB,HDFC Bank,Financial,0.08,0.21549360915176563,core_compounder,core_compounder,,-0.08,-0.0064,12,0.0,bull,1
+2023-12-29,INSM,Insmed,Health Care,0.06,-1.8636087851226846,core_compounder,core_compounder,,-0.08,-0.0048,12,0.0,bull,1
+2023-12-29,CASH,Cash,Cash,0.3815384615384615,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-01-31,MELI,MercadoLibre,Internet,0.14,1.9144103659914513,core_compounder,core_compounder,,-0.08,-0.011200000000000002,12,0.0,neutral,0
+2024-01-31,ONTO,Onto Innovation,Information Technology,0.06,0.727459517396899,core_compounder,core_compounder,,0.1446517986418654,0.008679107918511923,12,0.0,neutral,0
+2024-01-31,ENB,Enbridge,Energy,0.06,1.2581684313218913,core_compounder,core_compounder,,-0.015609038874186965,-0.0009365423324512179,12,0.0,neutral,0
+2024-01-31,NVS,Novartis,Pharma,0.14,1.626372215715296,core_compounder,core_compounder,,-0.02912343299149256,-0.004077280618808959,12,0.0,neutral,0
+2024-01-31,RGEN,Repligen,Health Care,0.08,-0.08367840901461868,core_compounder,core_compounder,,0.008501233931268226,0.0006800987145014581,12,0.0,neutral,0
+2024-01-31,STM,STMicroelectronics,Semiconductors,0.06,0.49877239235287424,core_compounder,core_compounder,,0.042976710475561175,0.0025786026285336706,12,0.0,neutral,0
+2024-01-31,HDB,HDFC Bank,Financial,0.08,0.11831611964693067,core_compounder,core_compounder,,-0.017732426130851686,-0.001418594090468135,12,0.0,neutral,0
+2024-01-31,CASH,Cash,Cash,0.37999999999999995,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-02-29,INSM,Insmed,Health Care,0.025629495369997334,-0.43566250559095043,core_compounder,core_compounder,,-0.036187754726035415,-0.0009274738922015238,12,0.0,neutral,0
+2024-02-29,RGEN,Repligen,Health Care,0.045155594061435815,-0.7294583539761943,core_compounder,core_compounder,,-0.037464862226262,-0.0016917481102567073,12,0.0,neutral,0
+2024-02-29,HDB,HDFC Bank,Financial,0.06448332065543523,-0.1311952990911493,core_compounder,core_compounder,,0.02279358624881267,0.0014698061309695064,12,0.0,neutral,0
+2024-02-29,LI,Li Auto,Auto,0.025629495369997334,1.140152600501889,core_compounder,core_compounder,,-0.08,-0.0020503596295997867,12,0.0,neutral,0
+2024-02-29,CP,Canadian Pacific Kansas City,Industrials,0.38412026264572613,2.5759332619331277,core_compounder,core_compounder,,0.037765773453325435,0.014506598817910358,12,0.0,neutral,0
+2024-02-29,ONTO,Onto Innovation,Information Technology,0.17455398018481302,0.9691161716753318,core_compounder,core_compounder,,-0.025123725232789273,-0.004385446236452986,12,0.0,neutral,0
+2024-02-29,NVS,,Unknown,0.04811584540078698,,core_compounder,core_compounder,,-0.014883544226544254,-0.0007161343130201789,12,0.0,nan,0
+2024-02-29,MELI,MercadoLibre,Internet,0.18925143046337173,2.989904183990976,core_compounder,core_compounder,,-0.0484779732553573,-0.009174525784541447,12,0.0,neutral,0
+2024-02-29,ENB,,Unknown,0.02090811757523565,,core_compounder,core_compounder,,0.052295307855788176,0.0010933964452819638,12,0.0,nan,0
+2024-02-29,STM,,Unknown,0.022152458273200736,,core_compounder,core_compounder,,-0.05512286096358343,-0.0012211068773952277,12,0.0,nan,0
+2024-03-28,CP,Canadian Pacific Kansas City,Industrials,0.22000000000000003,2.4237610286392313,core_compounder,core_compounder,,-0.08,-0.0176,12,0.0,bull,1
+2024-03-28,ONTO,Onto Innovation,Information Technology,0.22000000000000003,0.24020766559019835,core_compounder,core_compounder,,0.015396463676193406,0.0033872220087625498,12,0.0,bull,1
+2024-03-28,UBS,UBS Group,Financial,0.08,1.0891701664242157,core_compounder,core_compounder,,-0.08,-0.0064,12,0.0,bull,1
+2024-03-28,GTLS,Chart Industries,Industrials,0.06,-0.7224224147429672,core_compounder,core_compounder,,-0.08,-0.0048,12,0.0,bull,1
+2024-03-28,INSM,Insmed,Health Care,0.08,-0.4625292596388741,core_compounder,core_compounder,,-0.06654271500233244,-0.005323417200186595,12,0.0,bull,1
+2024-03-28,NTES,NetEase,Internet,0.06,-0.3337701401508339,core_compounder,core_compounder,,-0.08,-0.0048,12,0.0,bull,1
+2024-03-28,HDB,HDFC Bank,Financial,0.08,-0.6245737873593342,core_compounder,core_compounder,,0.030843210366797935,0.0024674568293438347,12,0.0,bull,1
+2024-03-28,CASH,Cash,Cash,0.1999999999999999,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-04-30,PBR,Petrobras,Energy,0.11666666666666668,3.602753160661772,core_compounder,core_compounder,,-0.05386553949861317,-0.006284312941504871,12,0.0,neutral,0
+2024-04-30,NXPI,NXP Semiconductors,Semiconductors,0.18333333333333338,3.286964199450523,core_compounder,core_compounder,,0.08790212252527319,0.01611538912963342,12,0.0,neutral,0
+2024-04-30,NTES,NetEase,Internet,0.05,0.3282994674773531,core_compounder,core_compounder,,-0.0401024398933334,-0.00200512199466667,12,0.0,neutral,0
+2024-04-30,HDB,HDFC Bank,Financial,0.08088130289110887,-0.2511776781569852,core_compounder,core_compounder,,0.033725395191477325,0.0027277539036042243,12,0.0,neutral,0
+2024-04-30,WPM,Wheaton Precious Metals,Materials,0.1,0.7787495246223741,core_compounder,core_compounder,,0.055960967618250645,0.005596096761825065,12,0.0,neutral,0
+2024-04-30,ONTO,,Unknown,0.038504498866920284,,core_compounder,core_compounder,,0.19815221040145214,0.007629751560880463,12,0.0,nan,0
+2024-04-30,GTLS,Chart Industries,Industrials,0.05,-1.1533276570091646,core_compounder,core_compounder,,0.10282453189414809,0.0051412265947074045,12,0.0,neutral,0
+2024-04-30,CASH,Cash,Cash,0.3306141982419708,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-04-30,INSM,Insmed,Health Care,0.05,-0.6133745145361695,core_compounder,core_compounder,,1.1788131324026545,0.05894065662013273,12,0.0,neutral,0
+2024-05-31,PBR,Petrobras,Energy,0.137718868631427,2.5018960362847467,core_compounder,core_compounder,,-0.028240562242326295,-0.003889258281528572,12,0.0,neutral,0
+2024-05-31,FLNC,Fluence Energy,Industrials,0.05644800775302049,-1.3894879996288754,core_compounder,core_compounder,,-0.08,-0.004515840620241639,12,0.0,neutral,0
+2024-05-31,INSM,Insmed,Health Care,0.05644800775302049,-1.2872449998308504,core_compounder,core_compounder,,0.21458596344779468,0.012112950128390485,12,0.0,neutral,0
+2024-05-31,NXPI,,Unknown,0.010853715526130098,,core_compounder,core_compounder,,-0.020071843332777894,-0.0002178540776190223,12,0.0,nan,0
+2024-05-31,NTES,NetEase,Internet,0.0026118129319075006,-0.11119256891884532,core_compounder,core_compounder,,0.07710749399197137,0.00020139034995521072,12,0.0,neutral,0
+2024-05-31,HDB,HDFC Bank,Financial,0.0798138961759444,-0.9973082741419259,core_compounder,core_compounder,,0.08265020097026299,0.006596634559161508,12,0.0,neutral,0
+2024-05-31,CP,Canadian Pacific Kansas City,Industrials,0.11289601550604098,2.0449339021619393,core_compounder,core_compounder,,-0.010947580667162171,-0.0012359382367535749,12,0.0,neutral,0
+2024-05-31,WPM,Wheaton Precious Metals,Materials,0.11864240475721988,0.8516359247844771,core_compounder,core_compounder,,-0.05097606441291169,-0.006047922867006781,12,0.0,neutral,0
+2024-05-31,ONTO,Onto Innovation,Information Technology,0.0025105602280684897,0.928639285304815,core_compounder,core_compounder,,-9.07387818730454e-05,-2.2780517691384982e-07,12,0.0,neutral,0
+2024-05-31,ZTO,ZTO Express,Industrials,0.05644800775302049,0.05399288852056108,core_compounder,core_compounder,,-0.08,-0.004515840620241639,12,0.0,neutral,0
+2024-05-31,GTLS,Chart Industries,Industrials,0.0030007070480582293,-0.6836599424089843,core_compounder,core_compounder,,-0.08,-0.00024005656384465835,12,0.0,neutral,0
+2024-05-31,MELI,MercadoLibre,Internet,0.20697602842774182,3.636321951304271,core_compounder,core_compounder,,-0.04798466932485146,-0.009931676282276246,12,0.0,neutral,0
+2024-05-31,CASH,Cash,Cash,0.15563196750840017,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-06-28,MELI,MercadoLibre,Internet,0.22000000000000003,2.539415213320874,core_compounder,core_compounder,,0.024382343737184176,0.005364115622180519,12,0.0,neutral,0
+2024-06-28,PBR,Petrobras,Energy,0.14,2.148301689477923,core_compounder,core_compounder,,-0.013689266268619438,-0.0019164972776067215,12,0.0,neutral,0
+2024-06-28,INSM,Insmed,Health Care,0.08,-0.9726261468738087,core_compounder,core_compounder,,0.09631304469229485,0.007705043575383588,12,0.0,neutral,0
+2024-06-28,HDB,HDFC Bank,Financial,0.08,0.5412709241091146,core_compounder,core_compounder,,-0.05578747154101216,-0.004462997723280972,12,0.0,neutral,0
+2024-06-28,ACLS,Axcelis Technologies,Information Technology,0.06,0.303099346222411,core_compounder,core_compounder,,-0.08,-0.0048,12,0.0,neutral,0
+2024-06-28,CASH,Cash,Cash,0.42,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-07-31,MELI,MercadoLibre,Internet,0.046313659422569056,3.9957203146159608,core_compounder,core_compounder,,0.22352267811115767,0.010352153187260687,12,0.4,neutral,0
+2024-07-31,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.072,3.090330901845013,core_compounder,core_compounder,,-0.08,-0.0057599999999999995,12,0.4,neutral,0
+2024-07-31,CP,Canadian Pacific Kansas City,Industrials,0.06854006761560148,1.9658052703466984,core_compounder,core_compounder,,-0.01821856318133752,-0.0012487015523079813,12,0.4,neutral,0
+2024-07-31,PBR,Petrobras,Energy,0.084,1.4486051490660088,core_compounder,core_compounder,,0.08126954313562562,0.0068266416233925525,12,0.4,neutral,0
+2024-07-31,GTLS,Chart Industries,Industrials,0.06345993238439851,-1.4972873712616543,core_compounder,core_compounder,,-0.08,-0.0050767945907518805,12,0.4,neutral,0
+2024-07-31,HSBC,HSBC Holdings,Financial,0.12884657284181744,-0.7328843832992415,core_compounder,core_compounder,,0.03255250963881662,0.00419427930436175,12,0.4,neutral,0
+2024-07-31,ACLS,Axcelis Technologies,Information Technology,0.05983972416040798,-0.8386704252766589,core_compounder,core_compounder,,-0.05925793907471555,-0.00354597872854524,12,0.4,neutral,0
+2024-07-31,RIO,Rio Tinto,Materials,0.0770000435752055,-0.1466278797618334,core_compounder,core_compounder,,-0.03161711081287466,-0.0024345189103134497,12,0.4,neutral,0
+2024-07-31,CASH,Cash,Cash,0.4,,cash,cash,,0.0,0.0,12,0.4,nan,0
+2024-08-30,PBR,,Unknown,0.004153989982248876,,core_compounder,core_compounder,,-0.05339488926948699,-0.00022180183512873698,12,0.0,nan,0
+2024-08-30,RIO,,Unknown,0.0034102817955488224,,core_compounder,core_compounder,,0.16163937387322558,0.0005512358141637711,12,0.0,nan,0
+2024-08-30,HSBC,,Unknown,0.0060846724833955035,,core_compounder,core_compounder,,0.025108383823837066,0.00015277629215543418,12,0.0,nan,0
+2024-08-30,INSM,Insmed,Health Care,0.11449360563861301,-0.5461361413022252,core_compounder,core_compounder,,-0.05867186167254035,-0.006717552992419088,12,0.0,neutral,0
+2024-08-30,CP,Canadian Pacific Kansas City,Industrials,0.16800290835092585,1.7595117414564712,core_compounder,core_compounder,,0.041981304037954414,0.0070529811747408085,12,0.0,neutral,0
+2024-08-30,BHP,BHP Group,Materials,0.13357587324504852,1.1798205265749904,core_compounder,core_compounder,,0.20422913613932336,0.027280085201892016,12,0.0,neutral,0
+2024-08-30,ZTO,ZTO Express,Industrials,0.04497963078659797,-0.38826235000470916,core_compounder,core_compounder,,0.14856336524093816,0.006682325316951901,12,0.0,neutral,0
+2024-08-30,MELI,MercadoLibre,Internet,0.10754410369263437,3.5185827368235536,core_compounder,core_compounder,,0.004878048780487809,0.0005246053838665096,12,0.0,neutral,0
+2024-08-30,CASH,Cash,Cash,0.3102278469620814,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-08-30,ACLS,,Unknown,0.002574615227510506,,core_compounder,core_compounder,,-0.01878506669374269,-4.8364318759510364e-05,12,0.0,nan,0
+2024-08-30,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.10495247183539526,0.7609595673971402,core_compounder,core_compounder,,0.4129908857687894,0.04334441430692381,12,0.0,neutral,0
+2024-09-30,MELI,MercadoLibre,Internet,0.0968,3.964544061356721,core_compounder,core_compounder,,-0.014349543006674792,-0.0013890357630461198,12,0.0,neutral,0
+2024-09-30,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.09680000000000001,3.206217436982297,core_compounder,core_compounder,,-0.08,-0.007744000000000001,12,0.0,neutral,0
+2024-09-30,CP,Canadian Pacific Kansas City,Industrials,0.121,2.0186621537639624,core_compounder,core_compounder,,-0.08,-0.00968,12,0.0,neutral,0
+2024-09-30,ZTO,ZTO Express,Industrials,0.066,0.07371631317910354,core_compounder,core_compounder,,-0.06240004836782609,-0.0041184031922765225,12,0.0,neutral,0
+2024-09-30,NTES,NetEase,Internet,0.0264,0.9301210689014625,core_compounder,core_compounder,,-0.08,-0.002112,12,0.0,neutral,0
+2024-09-30,HDB,HDFC Bank,Financial,0.08,0.4109613434269958,core_compounder,core_compounder,,0.0007915337746979834,6.332270197583866e-05,12,0.0,neutral,0
+2024-09-30,FLNC,Fluence Energy,Industrials,0.033,-1.7439411765434238,core_compounder,core_compounder,,0.0004555043820355653,1.5031644607173656e-05,12,0.0,neutral,0
+2024-09-30,CASH,Cash,Cash,0.48,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-10-31,MELI,MercadoLibre,Internet,0.14,3.1702158827995297,core_compounder,core_compounder,,-0.020901845231066862,-0.002926258332349361,12,0.0,neutral,0
+2024-10-31,HDB,HDFC Bank,Financial,0.08,0.2855226946321655,core_compounder,core_compounder,,0.05631119781224747,0.004504895824979798,12,0.0,neutral,0
+2024-10-31,UEC,Uranium Energy,Energy,0.12,-1.3156799260738092,core_compounder,core_compounder,,0.09801321224154003,0.011761585468984802,12,0.0,neutral,0
+2024-10-31,CASH,Cash,Cash,0.6599999999999999,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-11-29,ENB,Enbridge,Energy,0.08,2.153703206052297,core_compounder,core_compounder,,-0.014328683224628103,-0.0011462946579702483,12,0.0,bull,1
+2024-11-29,GTLS,Chart Industries,Industrials,0.06,0.9448622209565362,core_compounder,core_compounder,,0.0036269271929647573,0.00021761563157788542,12,0.0,bull,1
+2024-11-29,MELI,MercadoLibre,Internet,0.14,2.9154516219455235,core_compounder,core_compounder,,-0.08,-0.011200000000000002,12,0.0,bull,1
+2024-11-29,HDB,HDFC Bank,Financial,0.08,0.6500778473332858,core_compounder,core_compounder,,-0.03908352953242533,-0.0031266823625940264,12,0.0,bull,1
+2024-11-29,UEC,Uranium Energy,Energy,0.14953104579869442,-0.14722463632626948,core_compounder,core_compounder,,-0.08,-0.011962483663895554,12,0.0,bull,1
+2024-11-29,NTES,NetEase,Internet,0.06,0.5223986308322399,core_compounder,core_compounder,,0.0001131485607612781,6.788913645676686e-06,12,0.0,bull,1
+2024-11-29,LI,Li Auto,Auto,0.06,-0.7921278509007457,core_compounder,core_compounder,,0.05260865584663721,0.0031565193507982325,12,0.0,bull,1
+2024-11-29,CASH,Cash,Cash,0.37046895420130554,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2024-12-31,ENB,Enbridge,Energy,0.08,1.7909945987739686,core_compounder,core_compounder,,-0.025791249330936794,-0.0020632999464749438,12,0.0,neutral,0
+2024-12-31,NTES,NetEase,Internet,0.08,0.5146836109297168,core_compounder,core_compounder,,0.14167888305355336,0.011334310644284269,12,0.0,neutral,0
+2024-12-31,HIMX,Himax Technologies,Information Technology,0.06,-0.9616907171174749,core_compounder,core_compounder,,0.17139332079666691,0.010283599247800014,12,0.0,neutral,0
+2024-12-31,CASH,Cash,Cash,0.78,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2025-01-31,NXT,Nextracker,Industrials,0.04201695492991414,0.23616177287767412,core_compounder,core_compounder,,-0.08,-0.0033613563943931312,12,0.0,neutral,0
+2025-01-31,HIMX,Himax Technologies,Information Technology,0.07080531498444569,-1.7596398511000537,core_compounder,core_compounder,,0.05894741274413273,0.004173790126866446,12,0.0,neutral,0
+2025-01-31,INSM,Insmed,Health Care,0.051566262868531,-0.5935585688122993,core_compounder,core_compounder,,0.08068395493296499,0.004160570029345981,12,0.0,neutral,0
+2025-01-31,RGEN,Repligen,Health Care,0.103132525737062,-0.6910463957085051,core_compounder,core_compounder,,-0.020036844302295798,-0.002066450360696025,12,0.0,neutral,0
+2025-01-31,NTES,NetEase,Internet,0.0737074999943923,0.8854824545939,core_compounder,core_compounder,,-0.026917317843511368,-0.00198400820479967,12,0.0,neutral,0
+2025-01-31,CP,Canadian Pacific Kansas City,Industrials,0.09453814859230683,1.6304203464682463,core_compounder,core_compounder,,0.054919949341357466,0.005192030331515216,12,0.0,neutral,0
+2025-01-31,GTLS,Chart Industries,Industrials,0.04201695492991414,0.889989089486361,core_compounder,core_compounder,,-0.08,-0.0033613563943931312,12,0.0,neutral,0
+2025-01-31,NVS,Novartis,Pharma,0.12032128002657234,0.5262930055862481,core_compounder,core_compounder,,0.050062121135509674,0.006023538495869845,12,0.0,neutral,0
+2025-01-31,MELI,MercadoLibre,Internet,0.09453814859230683,3.042262223465148,core_compounder,core_compounder,,0.14017572146876556,0.013251953185247974,12,0.0,neutral,0
+2025-01-31,ENB,Enbridge,Energy,0.010744849347838287,1.1824916387409068,core_compounder,core_compounder,,0.04964914420140376,0.0005334725746931823,12,0.0,neutral,0
+2025-01-31,CASH,Cash,Cash,0.2966120599967164,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2025-02-28,MELI,MercadoLibre,Internet,0.08,5.0664668183051775,core_compounder,core_compounder,,-0.08,-0.0064,12,0.28,neutral,0
+2025-02-28,AEM,Agnico Eagle Mines,Materials,0.06,1.6867700808488673,core_compounder,core_compounder,,0.1177973619513395,0.007067841717080369,12,0.28,neutral,0
+2025-02-28,SAN,Banco Santander,Financial,0.12,0.052759325573056376,core_compounder,core_compounder,,0.03048784423052342,0.00365854130766281,12,0.28,neutral,0
+2025-02-28,LI,Li Auto,Auto,0.06,-0.2835760115753978,core_compounder,core_compounder,,-0.08,-0.0048,12,0.28,neutral,0
+2025-02-28,HDB,HDFC Bank,Financial,0.08,0.4008957362793707,core_compounder,core_compounder,,0.06061603707803531,0.004849282966242825,12,0.28,neutral,0
+2025-02-28,INSM,Insmed,Health Care,0.12,-2.1523396483352824,core_compounder,core_compounder,,-0.06860325027289937,-0.008232390032747925,12,0.28,neutral,0
+2025-02-28,CASH,Cash,Cash,0.48,,cash,cash,,0.0,0.0,12,0.28,nan,0
+2025-03-31,MELI,MercadoLibre,Internet,0.21000000000000002,4.655092817847309,core_compounder,core_compounder,,0.19538390537369277,0.041030620128475484,12,0.28,bear,-1
+2025-03-31,AEM,Agnico Eagle Mines,Materials,0.14,2.289754405790826,core_compounder,core_compounder,,0.04880727854762479,0.006833018996667471,12,0.28,bear,-1
+2025-03-31,CASH,Cash,Cash,0.6499999999999999,,cash,cash,,0.0,0.0,12,0.28,nan,0
+2025-04-30,MELI,MercadoLibre,Internet,0.10999999999999999,4.404910622503913,core_compounder,core_compounder,,0.0963016956674978,0.010593186523424756,12,0.0,bear,-1
+2025-04-30,AEM,Agnico Eagle Mines,Materials,0.14,2.8719054531080292,core_compounder,core_compounder,,0.050964854294973216,0.007135079601296251,12,0.0,bear,-1
+2025-04-30,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.10999999999999999,1.3925151412285943,core_compounder,core_compounder,,-0.08,-0.008799999999999999,12,0.0,bear,-1
+2025-04-30,LI,Li Auto,Auto,0.06,-0.7608768719393081,core_compounder,core_compounder,,0.13727091421437043,0.008236254852862225,12,0.0,bear,-1
+2025-04-30,CASH,Cash,Cash,0.5800000000000001,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2025-05-30,CCJ,Cameco,Energy,0.040525399703626896,-0.07349137075480633,core_compounder,core_compounder,,0.2511904913573644,0.010179595064007629,12,0.0,neutral,0
+2025-05-30,SMR,NuScale Power,Industrials,0.040457567281574944,-2.0630626747593377,core_compounder,core_compounder,,0.233981982751847,0.009466341809859159,12,0.0,neutral,0
+2025-05-30,MFC,Manulife Financial,Financial,0.05572877959282643,-0.05208080490068928,core_compounder,core_compounder,,0.0031416765960894377,0.00017508180257540948,12,0.0,neutral,0
+2025-05-30,NTES,NetEase,Internet,0.08518988476730105,0.5803888168062118,core_compounder,core_compounder,,0.10031897433049486,0.008546161863188689,12,0.0,neutral,0
+2025-05-30,LI,Li Auto,Auto,0.07983311009184314,0.4551450189561616,core_compounder,core_compounder,,-0.04835244906091429,-0.003860126389090208,12,0.0,neutral,0
+2025-05-30,HDB,HDFC Bank,Financial,0.07896624375437379,-0.008351480263016103,core_compounder,core_compounder,,0.020744805668286626,0.0016381393810390367,12,0.0,neutral,0
+2025-05-30,MELI,MercadoLibre,Internet,0.1651673814432395,3.335594288311279,core_compounder,core_compounder,,0.032079582794820594,0.005298500688012116,12,0.0,neutral,0
+2025-05-30,SLF,Sun Life Financial,Financial,0.040564590537849776,0.2668388476201692,core_compounder,core_compounder,,0.02861555487950307,0.0011607782667004112,12,0.0,neutral,0
+2025-05-30,AEM,Agnico Eagle Mines,Materials,0.11283219161505523,2.0032068913868333,core_compounder,core_compounder,,0.001913617906856846,0.00021591770234447255,12,0.0,neutral,0
+2025-05-30,NTR,Nutrien,Materials,0.04061400807890144,0.2758639882917086,core_compounder,core_compounder,,-0.0011062382000794901,-4.49287671952178e-05,12,0.0,neutral,0
+2025-05-30,ZTO,ZTO Express,Industrials,0.040459769073860716,-0.7301373512621536,core_compounder,core_compounder,,0.03290996960813852,0.001331529770573059,12,0.0,neutral,0
+2025-05-30,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.21715717032452794,2.267935072997775,core_compounder,core_compounder,,0.08025643097422064,0.017428259450707553,12,0.0,neutral,0
+2025-05-30,CASH,Cash,Cash,0.0025039037350191307,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2025-06-30,MELI,MercadoLibre,Internet,0.05970195362732535,2.992386601579331,core_compounder,core_compounder,,-0.08,-0.004776156290186028,12,0.0,strong_bull,2
+2025-06-30,INSM,Insmed,Health Care,0.0524528896745452,1.7835749605865452,core_compounder,core_compounder,,0.07201277744730938,0.003777278270601296,12,0.0,strong_bull,2
+2025-06-30,CCJ,Cameco,Energy,0.08,1.6207341319718194,core_compounder,core_compounder,,-0.00897100094951131,-0.0007176800759609048,12,0.0,strong_bull,2
+2025-06-30,NTES,NetEase,Internet,0.05970195362732535,0.020207215367620046,core_compounder,core_compounder,,-0.050527641012790614,-0.003016598880643768,12,0.0,strong_bull,2
+2025-06-30,AEM,Agnico Eagle Mines,Materials,0.14,1.5699371111147993,core_compounder,core_compounder,,0.059375569511169735,0.008312579731563763,12,0.0,strong_bull,2
+2025-06-30,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.1805960927453493,2.799553746638254,core_compounder,core_compounder,,0.06462422400399692,0.011670882351822056,12,0.0,strong_bull,2
+2025-06-30,KGC,Kinross Gold,Materials,0.0524528896745452,0.7260216901529868,core_compounder,core_compounder,,0.03150600547672555,0.0016525810293563023,12,0.0,strong_bull,2
+2025-06-30,SLF,Sun Life Financial,Financial,0.06806231174022753,-0.08774302776308399,core_compounder,core_compounder,,-0.08,-0.005444984939218202,12,0.0,strong_bull,2
+2025-06-30,LI,Li Auto,Auto,0.05155579583050311,-0.5959988766618085,core_compounder,core_compounder,,-0.04986822998906271,-0.0025709962837446895,12,0.0,strong_bull,2
+2025-06-30,HDB,HDFC Bank,Financial,0.08,0.04576401714772532,core_compounder,core_compounder,,0.011290338860823645,0.0009032271088658916,12,0.0,strong_bull,2
+2025-06-30,SU,Suncor Energy,Energy,0.05106944077755419,0.4255283565060486,core_compounder,core_compounder,,0.04325904623455368,0.0022092152997690174,12,0.0,strong_bull,2
+2025-06-30,ZTO,ZTO Express,Industrials,0.09950089295353444,-1.4677260955077005,core_compounder,core_compounder,,0.14141985111355426,0.014071401467154541,12,0.0,strong_bull,2
+2025-06-30,CASH,Cash,Cash,0.0249057793490904,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2025-07-31,MELI,MercadoLibre,Internet,0.09337626286799053,1.7846073140025889,core_compounder,core_compounder,,0.01872279243887154,0.0017482643883948942,12,0.0,bull,1
+2025-07-31,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.27,1.741878280907254,core_compounder,core_compounder,,0.07365110311305378,0.01988579784052452,12,0.0,bull,1
+2025-07-31,CCJ,Cameco,Energy,0.06440360476694765,0.2379789633187176,core_compounder,core_compounder,,0.020573332042955306,0.001324996745633673,12,0.0,bull,1
+2025-07-31,NTES,NetEase,Internet,0.06042493872727017,-0.27275280047115946,core_compounder,core_compounder,,0.0649102445146168,0.003922197547567845,12,0.0,bull,1
+2025-07-31,GTLS,Chart Industries,Industrials,0.09470349941017789,0.4173259021897758,core_compounder,core_compounder,,0.000452697869764096,4.287207244219285e-05,12,0.0,bull,1
+2025-07-31,ARGX,argenx,Biotech,0.034312449863393685,0.8162162604182893,core_compounder,core_compounder,,0.05862498390360904,0.002011566820934847,12,0.0,bull,1
+2025-07-31,KGC,Kinross Gold,Materials,0.06062157492457265,-0.4516821115461349,core_compounder,core_compounder,,0.3056570534743963,0.018529411968422227,12,0.0,bull,1
+2025-07-31,INSM,Insmed,Health Care,0.05991954038637126,-0.5151629606207344,core_compounder,core_compounder,,0.3165239633468224,0.018965970405014222,12,0.0,bull,1
+2025-07-31,HDB,HDFC Bank,Financial,0.08,-0.029515186681015812,core_compounder,core_compounder,,-0.07971095583824084,-0.006376876467059267,12,0.0,bull,1
+2025-07-31,LI,Li Auto,Auto,0.03060360561715892,-0.6621599820699534,core_compounder,core_compounder,,-0.08,-0.002448288449372714,12,0.0,bull,1
+2025-07-31,SHEL,Shell plc,Energy,0.08,-0.026745692634088804,core_compounder,core_compounder,,0.02150913218383188,0.0017207305747065505,12,0.0,bull,1
+2025-07-31,UEC,Uranium Energy,Energy,0.07163452343611733,-1.2841134517359598,core_compounder,core_compounder,,0.28836632991419053,0.020656984618425224,12,0.0,bull,1
+2025-08-29,ARGX,,Unknown,0.001226214324465909,,core_compounder,core_compounder,,0.08975993633231183,0.00011006491969382875,12,0.0,nan,0
+2025-08-29,CCJ,,Unknown,0.002218844721999361,,core_compounder,core_compounder,,0.11665083097168116,0.00025883008061835437,12,0.0,nan,0
+2025-08-29,SHOP,Shopify,Software,0.06860423723738368,2.475963363258839,core_compounder,core_compounder,,0.06812706855759032,0.004673805573612429,12,0.0,bull,1
+2025-08-29,SHEL,,Unknown,0.002758701806228309,,core_compounder,core_compounder,,-0.015671834182040323,-4.3233917264905196e-05,12,0.0,nan,0
+2025-08-29,NTES,,Unknown,0.0021722096684480417,,core_compounder,core_compounder,,0.12154985742838464,0.00026403177550441814,12,0.0,nan,0
+2025-08-29,HDB,HDFC Bank,Financial,0.07483005053544496,0.14527817548020203,core_compounder,core_compounder,,-0.016439853640181523,-0.001230195078690102,12,0.0,bull,1
+2025-08-29,LI,Li Auto,Auto,0.0323876652433535,-0.9296206477998832,core_compounder,core_compounder,,0.1069099982617514,0.003462565234869109,12,0.0,bull,1
+2025-08-29,GTLS,Chart Industries,Industrials,0.11598424301138653,1.802363527443331,core_compounder,core_compounder,,0.005128484466746075,0.0005948233886711978,12,0.0,bull,1
+2025-08-29,MELI,MercadoLibre,Internet,0.07409728376149277,3.69561584173253,core_compounder,core_compounder,,-0.03310305341167019,-0.0024528463420163777,12,0.0,bull,1
+2025-08-29,NXT,Nextracker,Industrials,0.0365634669823133,-0.07780834000702769,core_compounder,core_compounder,,0.13936692439514076,0.005095737938548284,12,0.0,bull,1
+2025-08-29,KGC,,Unknown,0.002671953235988831,,core_compounder,core_compounder,,0.17057166908323396,0.00045575952317496296,12,0.0,nan,0
+2025-08-29,TRP,TC Energy,Energy,0.03469332137357832,0.7297370362989893,core_compounder,core_compounder,,0.05273351509148316,0.0018295007862272677,12,0.0,bull,1
+2025-08-29,ZTO,ZTO Express,Industrials,0.03236566652056738,-0.7237418535809359,core_compounder,core_compounder,,0.06771116328963145,0.002191516930751896,12,0.0,bull,1
+2025-08-29,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.3479756842346201,3.5374145152384844,core_compounder,core_compounder,,0.11399615277602226,0.03966788926235064,12,0.0,bull,1
+2025-08-29,INSM,Insmed,Health Care,0.1329850070411259,0.6800766234301329,core_compounder,core_compounder,,0.022614819422206223,0.0030074319200958854,12,0.0,bull,1
+2025-08-29,UEC,,Unknown,0.0031155466694812455,,core_compounder,core_compounder,,0.2776177123615615,0.0008649309391370654,12,0.0,nan,0
+2025-08-29,SU,Suncor Energy,Energy,0.03534990363212196,0.6185492526303087,core_compounder,core_compounder,,0.011146116277860552,0.0003940141362947964,12,0.0,bull,1
+2025-09-30,MELI,MercadoLibre,Internet,0.06812143407893548,3.2492581308205435,core_compounder,core_compounder,,-0.005583817562036741,-0.0003803776599610881,12,0.0,neutral,0
+2025-09-30,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.23187856592106454,3.623054992926346,core_compounder,core_compounder,,0.01533829538445719,0.0035566219374216167,12,0.0,neutral,0
+2025-09-30,FUTU,Futu Holdings,Financial,0.04249425695286315,1.7336562462936342,core_compounder,core_compounder,,0.15450881326756338,0.00656573721247379,12,0.0,neutral,0
+2025-09-30,SHOP,Shopify,Software,0.22,2.0506254195316522,core_compounder,core_compounder,,0.19975390664850523,0.04394585946267115,12,0.0,neutral,0
+2025-09-30,TRP,TC Energy,Energy,0.07836564510921587,0.5951036689860969,core_compounder,core_compounder,,-0.07624308051567297,-0.005974838189724599,12,0.0,neutral,0
+2025-09-30,OKLO,Oklo,Utilities,0.040477041250829876,0.08538517008031254,core_compounder,core_compounder,,0.17326822735894143,0.007013385186266042,12,0.0,neutral,0
+2025-09-30,PBA,Pembina Pipeline,Energy,0.03924588847643676,0.4046360040728688,core_compounder,core_compounder,,-0.0666666960769603,-0.0026163937193288875,12,0.0,neutral,0
+2025-09-30,GTLS,Chart Industries,Industrials,0.08233000618027815,0.1552131876952658,core_compounder,core_compounder,,-0.0013506291206781817,-0.00011119730385269835,12,0.0,neutral,0
+2025-09-30,NXT,Nextracker,Industrials,0.04101211023012484,0.1530405343290857,core_compounder,core_compounder,,0.4043155105947749,0.016581832288262117,12,0.0,neutral,0
+2025-09-30,LI,Li Auto,Auto,0.03919738959023239,-0.005684529776284836,core_compounder,core_compounder,,-0.08,-0.003135791167218591,12,0.0,neutral,0
+2025-09-30,ZTO,ZTO Express,Industrials,0.07789622284718487,-0.0587211711608841,core_compounder,core_compounder,,-0.020964369821429463,-0.0016330452234608666,12,0.0,neutral,0
+2025-09-30,TECK,Teck Resources,Materials,0.03898143936283406,-0.4126796829618915,core_compounder,core_compounder,,-0.0416477983216198,-0.0016234911248697644,12,0.0,neutral,0
+2025-10-31,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.10546879373282741,2.123189148538526,core_compounder,core_compounder,,-0.08,-0.008437503498626193,12,0.0,neutral,0
+2025-10-31,CCJ,Cameco,Energy,0.09706325375550105,1.692627516690108,core_compounder,core_compounder,,-0.08,-0.007765060300440084,12,0.0,neutral,0
+2025-10-31,SHOP,Shopify,Software,0.21600000000000003,2.963081295344699,core_compounder,core_compounder,,-0.08,-0.017280000000000004,12,0.0,neutral,0
+2025-10-31,MELI,MercadoLibre,Internet,0.21600000000000003,4.297204075764304,core_compounder,core_compounder,,-0.08,-0.017280000000000004,12,0.0,neutral,0
+2025-10-31,AEM,Agnico Eagle Mines,Materials,0.08746795251167151,1.7043303096841145,core_compounder,core_compounder,,0.09949665760899618,0.008702768922813717,12,0.0,neutral,0
+2025-10-31,NXT,Nextracker,Industrials,0.04036520723729707,1.240089064706971,core_compounder,core_compounder,,-0.08,-0.003229216578983766,12,0.0,neutral,0
+2025-10-31,INSM,Insmed,Health Care,0.03867761583365201,0.11468700137836407,core_compounder,core_compounder,,0.10058546976688887,0.003890406158091146,12,0.0,neutral,0
+2025-10-31,FUTU,Futu Holdings,Financial,0.05042578261147697,0.18305790462514993,core_compounder,core_compounder,,-0.08,-0.004034062608918158,12,0.0,neutral,0
+2025-10-31,MFC,Manulife Financial,Financial,0.03742086515972814,0.2525431475234988,core_compounder,core_compounder,,0.0877084530194896,0.0032821261938106704,12,0.0,neutral,0
+2025-10-31,SLF,Sun Life Financial,Financial,0.03726013857994401,0.05420774760194802,core_compounder,core_compounder,,-0.028956809053905408,-0.001078934718181493,12,0.0,neutral,0
+2025-10-31,TECK,Teck Resources,Materials,0.07385039057790174,-0.5646501310663663,core_compounder,core_compounder,,0.042513029307551076,0.0031396038190124307,12,0.0,neutral,0
+2025-11-28,SHOP,Shopify,Software,0.09095671684910833,1.662836214937958,core_compounder,core_compounder,,0.06145287435935298,0.005589551692667499,12,0.0,bull,1
+2025-11-28,CNQ,Canadian Natural Resources,Energy,0.09213126546147173,1.8068789704342996,core_compounder,core_compounder,,-0.007363760938573161,-0.0006784326138265,12,0.0,bull,1
+2025-11-28,MFC,Manulife Financial,Financial,0.06173191004311304,0.38780900111380767,core_compounder,core_compounder,,0.03321972814676544,0.0020507172696127944,12,0.0,bull,1
+2025-11-28,HDB,HDFC Bank,Financial,0.07379492646819133,0.05409111008906636,core_compounder,core_compounder,,-0.0013623770033006632,-0.0001005365107805273,12,0.0,bull,1
+2025-11-28,GTLS,Chart Industries,Industrials,0.043633466479136025,-1.4798444713271868,core_compounder,core_compounder,,0.011327959882972971,0.0004942781578306988,12,0.0,bull,1
+2025-11-28,SOFI,SoFi Technologies,Financials,0.06242128067395762,0.9789191892939942,core_compounder,core_compounder,,-0.0752688200498266,-0.004698376142327835,12,0.0,bull,1
+2025-11-28,SLF,Sun Life Financial,Financial,0.012195206413687702,-0.6775378737773643,core_compounder,core_compounder,,0.05676035397190504,0.0006922042328013606,12,0.0,bull,1
+2025-11-28,AEM,Agnico Eagle Mines,Materials,0.1369119841985961,3.0126997200502643,core_compounder,core_compounder,,-0.032177296001801414,-0.004405457441752185,12,0.0,bull,1
+2025-11-28,KGC,Kinross Gold,Materials,0.044841555619660724,1.481696811256102,core_compounder,core_compounder,,0.0031589503787181616,0.00014165224910703874,12,0.0,bull,1
+2025-11-28,TECK,Teck Resources,Materials,0.0259501833340404,-0.35116720988405475,core_compounder,core_compounder,,0.10444035978327304,0.0027102464838490753,12,0.0,bull,1
+2025-11-28,ZTO,ZTO Express,Industrials,0.04381653903354403,-0.2622287962268458,core_compounder,core_compounder,,0.024566523074987412,0.001076420017233646,12,0.0,bull,1
+2025-11-28,PDD,PDD Holdings (Pinduoduo / Temu),Internet,0.12914112131933483,2.548166707810321,core_compounder,core_compounder,,-0.0016321831065115866,-0.00021078195657338162,12,0.0,bull,1
+2025-11-28,INSM,Insmed,Health Care,0.11271365240499077,2.002471149436344,core_compounder,core_compounder,,-0.08,-0.009017092192399262,12,0.0,bull,1
+2025-11-28,SU,Suncor Energy,Energy,0.044841555619660724,1.3351899970650813,core_compounder,core_compounder,,-0.02188807407385518,-0.0009814952909900309,12,0.0,bull,1
+2025-11-28,CASH,Cash,Cash,0.024918636081506684,,cash,cash,,0.0,0.0,12,0.0,nan,0
+2025-12-31,FUTU,Futu Holdings,Financial,0.04030534562816045,-1.5910030296365822,core_compounder,core_compounder,,-0.04880268370827334,-0.001967009034443752,12,0.0,neutral,0
+2025-12-31,SHOP,Shopify,Software,0.16946893134671534,2.137278547324246,core_compounder,core_compounder,,-0.08,-0.013557514507737227,12,0.0,neutral,0
+2025-12-31,CNQ,Canadian Natural Resources,Energy,0.1718954703128804,1.5303165861756478,core_compounder,core_compounder,,0.07151332835323765,0.012292817210919231,12,0.0,neutral,0
+2025-12-31,MFC,Manulife Financial,Financial,0.05526621647522484,0.21741840553396902,core_compounder,core_compounder,,0.047265741772310355,0.0026121987166505814,12,0.0,neutral,0
+2025-12-31,HDB,HDFC Bank,Financial,0.07992280249245352,0.9502153515163478,core_compounder,core_compounder,,-0.08,-0.006393824199396282,12,0.0,neutral,0
+2025-12-31,GTLS,Chart Industries,Industrials,0.002416626306652972,-1.0562682095024818,core_compounder,core_compounder,,0.0038791789183505454,9.37452582229955e-06,12,0.0,neutral,0
+2025-12-31,SOFI,SoFi Technologies,Financials,0.07970719905149934,1.0757226626197989,core_compounder,core_compounder,,-0.08,-0.006376575924119947,12,0.0,neutral,0
+2025-12-31,SLF,Sun Life Financial,Financial,0.05388676297275214,-0.39837400290621455,core_compounder,core_compounder,,0.016354039727433545,0.0008812662624391835,12,0.0,neutral,0
+2025-12-31,AEM,Agnico Eagle Mines,Materials,0.13812396816500558,2.9345072436426385,core_compounder,core_compounder,,0.10332466096977111,0.01427161218244866,12,0.0,neutral,0
+2025-12-31,KGC,Kinross Gold,Materials,0.0416866212718465,1.5296399172491042,core_compounder,core_compounder,,0.08292524077557806,0.0034568731060882047,12,0.0,neutral,0
+2025-12-31,TRP,TC Energy,Energy,0.04062305421126405,0.948932355195865,core_compounder,core_compounder,,0.06580628989135073,0.002673252481698498,12,0.0,neutral,0
+2025-12-31,CNI,Canadian National Railway,Industrials,0.04036741280578055,0.15290958168492708,core_compounder,core_compounder,,-0.03851598552838309,-0.0015547906874457099,12,0.0,neutral,0
+2025-12-31,ZTO,,Unknown,0.002458532760242639,,core_compounder,core_compounder,,0.022566957524536857,5.548160437307799e-05,12,0.0,nan,0
+2025-12-31,TECK,Teck Resources,Materials,0.08146908944428319,0.18190650841622497,core_compounder,core_compounder,,0.12287184394357431,0.010010257244423061,12,0.0,neutral,0
+2025-12-31,SU,,Unknown,0.0024019667552385923,,core_compounder,core_compounder,,0.16274857659173048,0.0003909166704357384,12,0.0,nan,0
+2026-01-30,BE,Bloom Energy,Industrials,0.09523277668694725,1.123119836679406,core_compounder,core_compounder,,0.01596028915304215,0.0015199426527707698,12,0.0,neutral,0
+2026-01-30,CNQ,Canadian Natural Resources,Energy,0.17800006073195293,1.7382061783860014,core_compounder,core_compounder,,0.25533091429649524,0.04544891825152122,12,0.0,neutral,0
+2026-01-30,CCJ,Cameco,Energy,0.03182518060861067,1.2446111506473392,core_compounder,core_compounder,,-0.027416368250929968,-0.0008725308712180256,12,0.0,neutral,0
+2026-01-30,SHOP,Shopify,Software,0.21269626450489704,-0.17274859536648657,core_compounder,core_compounder,,-0.08,-0.017015701160391764,12,0.0,neutral,0
+2026-01-30,MFC,Manulife Financial,Financial,0.004329819073499789,-0.4659582207402906,core_compounder,core_compounder,,-0.0782617016789291,-0.00033885900865397766,12,0.0,neutral,0
+2026-01-30,HDB,HDFC Bank,Financial,0.07734409618359893,0.20822243130390472,core_compounder,core_compounder,,-0.02948481461661223,-0.00228047633766284,12,0.0,neutral,0
+2026-01-30,GTLS,Chart Industries,Industrials,0.00018148639077201787,-1.2473671752785656,core_compounder,core_compounder,,0.0010626538279492337,1.9285720787457526e-07,12,0.0,neutral,0
+2026-01-30,SLF,Sun Life Financial,Financial,0.004097134602154982,-0.7258190632281943,core_compounder,core_compounder,,0.030864760575543437,0.00012645707854128793,12,0.0,neutral,0
+2026-01-30,CIB,Bancolombia,Financial,0.03192427317014646,0.9559198680483654,core_compounder,core_compounder,,-0.08,-0.002553941853611717,12,0.0,neutral,0
+2026-01-30,PBA,Pembina Pipeline,Energy,0.028858971285564066,0.5636462318163329,core_compounder,core_compounder,,0.08658534906933468,0.002498764102542471,12,0.0,neutral,0
+2026-01-30,AEM,Agnico Eagle Mines,Materials,0.14075130352909565,2.377095525706403,core_compounder,core_compounder,,0.35268285360756524,0.04964057137762602,12,0.0,neutral,0
+2026-01-30,NXT,Nextracker,Industrials,0.03187523273852517,0.6517800509835117,core_compounder,core_compounder,,-0.08,-0.0025500186190820133,12,0.0,neutral,0
+2026-01-30,KGC,Kinross Gold,Materials,0.06532248747626303,1.0704781725019075,core_compounder,core_compounder,,0.21518577495433222,0.01405647008952432,12,0.0,neutral,0
+2026-01-30,TRP,TC Energy,Energy,0.05910324919114008,0.9177909610060349,core_compounder,core_compounder,,0.09875481934714125,0.005836730696700111,12,0.0,neutral,0
+2026-01-30,CNI,Canadian National Railway,Industrials,0.0029035285604035667,-0.3905068030757455,core_compounder,core_compounder,,0.1691724950479716,0.0004911971710065165,12,0.0,neutral,0
+2026-01-30,ZTO,ZTO Express,Industrials,0.00018807058401442868,-0.5346935846052384,core_compounder,core_compounder,,0.10252871413728504,1.9282635146047606e-05,12,0.0,neutral,0
+2026-01-30,ONTO,Onto Innovation,Information Technology,0.0283136652914247,-0.9280383178670437,core_compounder,core_compounder,,0.07062432331021995,0.001999633451638931,12,0.0,neutral,0
+2026-01-30,TECK,Teck Resources,Materials,0.006843466926503895,-0.37788099587728863,core_compounder,core_compounder,,0.0489586366014203,0.00033504681034854286,12,0.0,neutral,0
+2026-01-30,SU,Suncor Energy,Energy,0.00020893246448537228,1.3368695756605553,core_compounder,core_compounder,,0.13044327600987948,2.725383513228976e-05,12,0.0,neutral,0
+2026-02-27,TRP,TC Energy,Energy,0.06800759543812686,1.6305293232440083,core_compounder,core_compounder,,-0.018909943376877236,-0.0012860197789325534,12,0.28,neutral,0
+2026-02-27,CNI,Canadian National Railway,Industrials,0.0751294229662972,0.9609937346449984,core_compounder,core_compounder,,-0.065388169041391,-0.004912575408902404,12,0.28,neutral,0
+2026-02-27,BE,Bloom Energy,Industrials,0.10128595164014777,2.3421835340659323,core_compounder,core_compounder,,-0.08,-0.008102876131211821,12,0.28,neutral,0
+2026-02-27,KGC,Kinross Gold,Materials,0.10697379623834127,1.697536033862713,core_compounder,core_compounder,,-0.08,-0.008557903699067303,12,0.28,neutral,0
+2026-02-27,AEM,Agnico Eagle Mines,Materials,0.03576072589013435,1.7742853699731393,core_compounder,core_compounder,,-0.08,-0.0028608580712107478,12,0.28,neutral,0
+2026-02-27,CNQ,Canadian Natural Resources,Energy,0.05957944273993914,1.652212777678285,core_compounder,core_compounder,,0.06228614181700842,0.003710973619878182,12,0.28,neutral,0
+2026-02-27,SU,Suncor Energy,Energy,0.059028290395375486,1.5584437796856374,core_compounder,core_compounder,,0.1248935211571065,0.0073722510353626544,12,0.28,neutral,0
+2026-02-27,GTLS,Chart Industries,Industrials,0.03958462539355504,0.6536669640596148,core_compounder,core_compounder,,-0.0018335579387817047,-7.25807041440527e-05,12,0.28,neutral,0
+2026-02-27,MFC,Manulife Financial,Financial,0.04602832533475269,1.010745446742264,core_compounder,core_compounder,,0.002875281550552833,0.00013234439463785796,12,0.28,neutral,0
+2026-02-27,NTR,Nutrien,Materials,0.026012698954854828,0.2750113797470101,core_compounder,core_compounder,,-0.034731339562864116,-0.0009034558803476235,12,0.28,neutral,0
+2026-02-27,SLF,Sun Life Financial,Financial,0.04500912500847534,-0.13472909916627154,core_compounder,core_compounder,,-0.027369672076415275,-0.0012318849919283519,12,0.28,neutral,0
+2026-02-27,HDB,HDFC Bank,Financial,0.0576,-0.6453096853578263,core_compounder,core_compounder,,-0.08,-0.004608,12,0.28,neutral,0
+2026-02-27,CASH,Cash,Cash,0.28,,cash,cash,,0.0,0.0,12,0.28,nan,0

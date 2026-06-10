@@ -1,0 +1,241 @@
+{
+  "candidate_replay_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "latest": {
+    "market_style_regime_label": "balanced",
+    "style_breakout_preference": 0.1598293510806099,
+    "style_cash_defense_preference": 0.113698537018975,
+    "style_inflation_pressure_score": 0.0,
+    "style_liquidity_tailwind_score": 0.0995420693702773,
+    "style_overheat_risk_score": 0.1183190696904361,
+    "style_quality_compounder_preference": 0.425775462970102,
+    "style_rate_pressure_score": 0.0,
+    "style_turnaround_preference": 0.3226034768005019,
+    "top_breakout": [
+      {
+        "Name": "ALPHABET INC CLASS C",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.497196146130775,
+        "sector": "Communication",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "GOOG"
+      },
+      {
+        "Name": "ALPHABET INC CLASS A",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.312940920602991,
+        "sector": "Communication",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "GOOGL"
+      },
+      {
+        "Name": "APPLIED MATERIAL INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.733372811026276,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "AMAT"
+      },
+      {
+        "Name": "ANALOG DEVICES INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 5.362916697888617,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "ADI"
+      },
+      {
+        "Name": "MICRON TECHNOLOGY INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.86901338406449,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "MU"
+      },
+      {
+        "Name": "QUALCOMM INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "unassigned",
+        "score": 4.479972351699996,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "QCOM"
+      },
+      {
+        "Name": "BROADCOM INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.397826992952037,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "AVGO"
+      },
+      {
+        "Name": "CBOE GLOBAL MARKETS INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 2.1450505648085048,
+        "sector": "Financials",
+        "style_row_breakout_fit": 0.1598293510806099,
+        "ticker": "CBOE"
+      }
+    ],
+    "top_compounder": [
+      {
+        "Name": "NVIDIA CORP",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.009719076651271,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8219888671490657,
+        "ticker": "NVDA"
+      },
+      {
+        "Name": "UBIQUITI INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "future_winner",
+        "score": -0.7418054813936519,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8128560377027255,
+        "ticker": "UI"
+      },
+      {
+        "Name": "NetEase",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 2.0881660411927307,
+        "sector": "Internet",
+        "style_row_compounder_fit": 0.8076904875210784,
+        "ticker": "NTES"
+      },
+      {
+        "Name": "VERISK ANALYTICS INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "early_scout",
+        "score": -0.18760543684077,
+        "sector": "Industrials",
+        "style_row_compounder_fit": 0.7915792462530451,
+        "ticker": "VRSK"
+      },
+      {
+        "Name": "COSTCO WHOLESALE CORP",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.126887565498855,
+        "sector": "Consumer Staples",
+        "style_row_compounder_fit": 0.7738566762540191,
+        "ticker": "COST"
+      },
+      {
+        "Name": "APPLE INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.685757806138713,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.773110776859273,
+        "ticker": "AAPL"
+      },
+      {
+        "Name": "SIMON PROPERTY GROUP REIT INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 2.325725275076654,
+        "sector": "Real Estate",
+        "style_row_compounder_fit": 0.7671241168047608,
+        "ticker": "SPG"
+      },
+      {
+        "Name": "WESTERN DIGITAL CORP",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 5.44161494097616,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.7646404700176506,
+        "ticker": "WDC"
+      }
+    ],
+    "top_turnaround": [
+      {
+        "Name": "PDD Holdings (Pinduoduo / Temu)",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "unassigned",
+        "score": 2.2259350934094124,
+        "sector": "Internet",
+        "style_row_turnaround_fit": 0.3528048757933413,
+        "ticker": "PDD"
+      },
+      {
+        "Name": "APPLOVIN CORP CLASS A",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 3.306095379518451,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.2281738954215693,
+        "ticker": "APP"
+      },
+      {
+        "Name": "PALANTIR TECHNOLOGIES INC CLASS A",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.455517956897906,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.2064025604893571,
+        "ticker": "PLTR"
+      },
+      {
+        "Name": "AMAZON.COM INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.208655931519202,
+        "sector": "Consumer Discretionary",
+        "style_row_turnaround_fit": 0.2013066649286111,
+        "ticker": "AMZN"
+      },
+      {
+        "Name": "MAPLEBEAR INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "unassigned",
+        "score": -0.6132167569597982,
+        "sector": "Consumer Staples",
+        "style_row_turnaround_fit": 0.1929503789610863,
+        "ticker": "CART"
+      },
+      {
+        "Name": "ALPHABET INC CLASS A",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.312940920602991,
+        "sector": "Communication",
+        "style_row_turnaround_fit": 0.1850316452943491,
+        "ticker": "GOOGL"
+      },
+      {
+        "Name": "ALPHABET INC CLASS C",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.497196146130775,
+        "sector": "Communication",
+        "style_row_turnaround_fit": 0.1822711195258816,
+        "ticker": "GOOG"
+      },
+      {
+        "Name": "UDR REIT INC",
+        "market_style_regime_label": "balanced",
+        "portfolio_sleeve_label": "early_scout",
+        "score": 1.4961481438800412,
+        "sector": "Real Estate",
+        "style_row_turnaround_fit": 0.178138039540753,
+        "ticker": "UDR"
+      }
+    ]
+  },
+  "latest_scored": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
+  "months": 84,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "status": "completed"
+}

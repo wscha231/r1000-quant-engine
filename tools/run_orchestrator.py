@@ -1,38 +1,15 @@
 #!/usr/bin/env python3
-"""run_orchestrator -- Phase 19a (2026-04-30) CLI for portfolio orchestrator.
+"""run_orchestrator - Phase 19a CLI for portfolio orchestrator.
 
-Pulls the most recent per-mandate weight outputs and composes a unified
-target dict via r1000_orchestrator.compose_unified_portfolio. Useful for
-manual inspection between rebalances. Phase 19b will integrate this
-into the main backtest loop.
-
-Sources (first existing wins per mandate)
-=========================================
-
-main:
-    outputs/holdings_history.parquet               (latest rebalance row)
-    cloud_results/full/holdings_history.parquet
-    fallback: --main-csv path
-
-concentrated:
-    outputs/reports/concentrated_strategy_holdings.csv  (latest)
-    outputs/concentrated_holdings.csv
-    fallback: --concentrated-csv path
-
-tactical:
-    outputs/tactical_backtest/weekly_returns.parquet (latest holdings col)
-    fallback: --tactical-csv path
-
-regime:
-    cloud_results/macro_daily/latest.json (regime_state)
-    fallback: --regime arg
+Pulls the most recent per-mandate weight outputs and composes a unified target
+dict via r1000_orchestrator.compose_unified_portfolio. Useful for manual
+inspection between rebalances.
 
 Usage
-=====
+-----
     python tools/run_orchestrator.py
     python tools/run_orchestrator.py --regime bull
     python tools/run_orchestrator.py --dry-run
-    python tools/run_orchestrator.py --main-csv my_main.csv --concentrated-csv conc.csv
 """
 from __future__ import annotations
 

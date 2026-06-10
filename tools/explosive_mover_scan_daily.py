@@ -1,41 +1,25 @@
 #!/usr/bin/env python3
-"""explosive_mover_scan_daily — Phase 17 v3 Layer 9 (2026-04-30) daily scanner.
+"""explosive_mover_scan_daily - Phase 17 v3 Layer 9 daily scanner.
 
-User insight (2026-04-29):
-  "BE 가 오늘 27% 상승중이다. 몇달간 수백% 상승중인데 우리포트에 없다.
-   소형주 트래킹 ... 급등주 원리도 일찍 찾아내는걸 early sleeve 에 추가."
-
-Reads the latest scored output, ranks candidates by Phase 17 L11
-explosion scores, dedupes against already-alerted tickers (24h TTL),
-and posts a Telegram digest of the top fresh candidates.
-
-This is a NEW-ALERT scanner, not a re-rank of the whole universe -- the
-goal is "what name appeared on the radar TODAY that we should look at
-before tomorrow's open".
+Reads the latest scored output, ranks fresh candidates by explosion scores,
+dedupes against already-alerted tickers, and can post a Telegram digest.
+This is a new-alert scanner, not a re-rank of the full universe.
 
 Filters
-=======
-    explosion_entry_score    >= 0.65      (high entry probability)
-    explosion_net_score      >= 0.40      (net buy signal)
-    explosion_exit_score     <= 0.50      (not a peak)
-    regime_state             in {bull, strong_bull}  (gate by L1 regime)
-    mktcap                   >= $300M     (mirror L11 mining floor)
-    excluded                 not in seen.json (24h TTL dedup)
-
-Output
-======
-    cloud_results/explosive_movers/scan_YYYY-MM-DD.json
-    cloud_results/explosive_movers/seen.json   (rolling dedupe state)
-    cloud_results/explosive_movers/latest.json
-    Telegram: top 10 fresh candidates with score breakdown
+-------
+    explosion_entry_score    >= 0.65
+    explosion_net_score      >= 0.40
+    explosion_exit_score     <= 0.50
+    regime_state             in {bull, strong_bull, neutral}
+    mktcap                   >= $300M
+    excluded                 not in seen.json within TTL
 
 Usage
-=====
+-----
     python tools/explosive_mover_scan_daily.py
     python tools/explosive_mover_scan_daily.py --scored cloud_results/scored_latest.csv
-    python tools/explosive_mover_scan_daily.py --dry-run    # no telegram, no commit
+    python tools/explosive_mover_scan_daily.py --dry-run
     python tools/explosive_mover_scan_daily.py --top-n 15
-    python tools/explosive_mover_scan_daily.py --reset-seen # clear dedup state
 """
 from __future__ import annotations
 

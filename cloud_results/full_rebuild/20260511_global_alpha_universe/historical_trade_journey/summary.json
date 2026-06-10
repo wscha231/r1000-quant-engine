@@ -1,0 +1,34 @@
+{
+  "avg_run_months": 2.89937106918239,
+  "book_summary_count": 6,
+  "exit_reason_counts": {
+    "scheduled_rebalance": 456,
+    "single_period_hold": 295
+  },
+  "historical_priority_count": 320,
+  "holding_books": [
+    "concentrated_grid_presence",
+    "lifecycle_review_overlay_main",
+    "main_v2_research",
+    "monster_lifecycle_concentrated",
+    "monster_lifecycle_main",
+    "production_main"
+  ],
+  "holding_rows": 6454,
+  "holding_run_count": 2226,
+  "journey_tag_summary_count": 27,
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "max_run_months": 31,
+  "median_run_months": 2.0,
+  "open_stale_watch_count": 3,
+  "p90_run_months": 6.0,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "runs_ge_12m": 31,
+  "runs_ge_6m": 255,
+  "short_big_win_review_count": 104,
+  "status": "completed",
+  "trade_count": 751,
+  "trade_summary_ticker_count": 338,
+  "unique_held_tickers": 450
+}

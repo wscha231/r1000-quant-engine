@@ -1,0 +1,775 @@
+{
+  "anomalies": [
+    {
+      "breaks_assumption": "High alpha sources should be tested with dynamic risk budgets instead of permanently small fixed capacity.",
+      "category": "capital_allocation_mismatch",
+      "confidence": 0.8,
+      "id": "concentrated_alpha_underallocated",
+      "observation": "Concentrated has materially stronger standalone return/Sharpe but the orchestrator keeps it small.",
+      "severity": "high"
+    },
+    {
+      "breaks_assumption": "A broad one-flow main portfolio is not guaranteed to be the best carrier for sleeve-specific alpha.",
+      "category": "portfolio_construction_drag",
+      "confidence": 0.78,
+      "id": "main_broad_high_turnover",
+      "observation": "Main remains broad while monthly turnover is high, which can dilute future_winner alpha.",
+      "severity": "high"
+    },
+    {
+      "breaks_assumption": "Creative policy generation is unsafe without counterfactual replay for each capital-allocation change.",
+      "category": "research_infrastructure_gap",
+      "confidence": 0.76,
+      "id": "sidecar_without_counterfactual_replay",
+      "observation": "Several high-impact sidecars produce snapshots but still lack historical challenger replay.",
+      "severity": "high"
+    },
+    {
+      "breaks_assumption": "A blunt portfolio breaker may protect capital but suppress upside without position-aware exits and swaps.",
+      "category": "risk_policy_tradeoff",
+      "confidence": 0.72,
+      "id": "risk_sensing_defense_return_tradeoff",
+      "observation": "Simplified risk sensing improves drawdown but reduces CAGR/Sharpe in the aggressive matrix.",
+      "severity": "medium"
+    },
+    {
+      "breaks_assumption": "Alpha Sprint cannot depend on explosion_* alone until the feature stack produces usable nonzero evidence.",
+      "category": "dormant_signal_stack",
+      "confidence": 0.68,
+      "id": "explosion_stack_dormant",
+      "observation": "Explosion entry/exit rows exist in the trade journal IC matrix but have no numeric IC evidence.",
+      "severity": "medium"
+    }
+  ],
+  "counterfactuals": [
+    {
+      "backtest_executed": false,
+      "cagr_delta_pp": 0.0,
+      "experiment_id": "E2_main_v2_balanced",
+      "hypothesis_id": "main_future_alpha_concentration_v1",
+      "maxdd_delta_pp": 0.0,
+      "notes": "Only snapshot_report_only evidence exists; run full historical replay before promotion.",
+      "passed_discovery": false,
+      "production_ready": false,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": 0.0,
+      "status": "needs_full_challenger_backtest"
+    },
+    {
+      "backtest_executed": false,
+      "cagr_delta_pp": 13.445809942687514,
+      "experiment_id": "E4_concentrated_balanced",
+      "hypothesis_id": "concentrated_neutral_25_v1",
+      "maxdd_delta_pp": 4.332503511417363,
+      "notes": "Only standalone_sleeve_policy_audit evidence exists; run full historical replay before promotion.",
+      "passed_discovery": true,
+      "production_ready": false,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": 0.245547238427817,
+      "status": "needs_full_challenger_backtest"
+    },
+    {
+      "backtest_executed": true,
+      "cagr_delta_pp": -2.937219575004235,
+      "experiment_id": "E6_risk_sensing_on",
+      "hypothesis_id": "risk_governor_layered_exit_v1",
+      "maxdd_delta_pp": 5.64744405347003,
+      "notes": "Historical replay exists; review discovery/production gates.",
+      "passed_discovery": true,
+      "production_ready": false,
+      "requires_full_challenger_backtest": false,
+      "sharpe_delta": -0.0636541409809035,
+      "status": "counterfactual_available"
+    },
+    {
+      "backtest_executed": false,
+      "cagr_delta_pp": 0.0,
+      "experiment_id": "E8_alpha_sprint_sidecar",
+      "hypothesis_id": "alpha_sprint_breakout_fallback_v1",
+      "maxdd_delta_pp": 0.0,
+      "notes": "Only sidecar_latest_only evidence exists; run full historical replay before promotion.",
+      "passed_discovery": false,
+      "production_ready": false,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": 0.0,
+      "status": "needs_full_challenger_backtest"
+    },
+    {
+      "backtest_executed": null,
+      "cagr_delta_pp": null,
+      "experiment_id": null,
+      "hypothesis_id": "counterfactual_replay_priority_v1",
+      "maxdd_delta_pp": null,
+      "notes": "Governance/infrastructure hypothesis; blocks promotion until replay coverage improves.",
+      "passed_discovery": false,
+      "production_ready": false,
+      "requires_full_challenger_backtest": false,
+      "sharpe_delta": null,
+      "status": "infrastructure_or_guardrail"
+    }
+  ],
+  "expires_at": "2026-08-08",
+  "generated_at": "2026-05-10T11:00:42Z",
+  "generated_by": "auto_learning_v2.alpha_scientist",
+  "guardrails": {
+    "kill_switch": {
+      "candidate_drawdown": -0.05,
+      "loss_rate_spike": true,
+      "rolling_3m_underperformance": -0.03
+    },
+    "max_initial_exploration_stage": "shadow",
+    "max_micro_capital_weight": 0.02,
+    "max_shadow_capital_weight": 0.0,
+    "max_small_capital_weight": 0.05,
+    "mode": "proposal_only",
+    "production_activation_allowed": false,
+    "requires_challenger_backtest": true,
+    "requires_counterfactual_report": true,
+    "requires_human_approval": true,
+    "ttl_days": 90
+  },
+  "hypotheses": [
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Main alpha is diluted by broad target N; an internal sleeve orchestrator can concentrate future_winner while capping early_scout.",
+      "id": "main_future_alpha_concentration_v1",
+      "novelty_context": {
+        "flags": [
+          "leadership_concentration",
+          "sprint_signal_gap",
+          "defense_return_tradeoff"
+        ],
+        "known_regime_confidence": 0.4769,
+        "status": "novel_regime_watch"
+      },
+      "observation_ids": [
+        "main_broad_high_turnover"
+      ],
+      "rules": [
+        {
+          "if": {
+            "avg_stock_names_gt": 20,
+            "mandate": "main"
+          },
+          "limits": {
+            "max_target_n_delta": 5,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "target_n",
+          "then": {
+            "target_n": {
+              "bear": 18,
+              "bull": 12,
+              "neutral": 15
+            }
+          }
+        },
+        {
+          "if": {
+            "mandate": "main_v2",
+            "regime": "neutral"
+          },
+          "limits": {
+            "max_weight_delta": 0.1,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "sleeve_allocation",
+          "then": {
+            "cash": 0.05,
+            "core": 0.25,
+            "early_scout": 0.15,
+            "future_winner": 0.55
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "turnover_not_reduced",
+          "future_winner_contribution_not_positive"
+        ],
+        "metrics": [
+          "CAGR",
+          "MaxDD",
+          "Sharpe",
+          "turnover",
+          "sleeve_attribution"
+        ],
+        "windows": [
+          "all_months",
+          "2022",
+          "2024_ai_bull"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Concentrated should use a dynamic 20-30% risk budget when caps, entry quality, and weekly exits pass.",
+      "id": "concentrated_neutral_25_v1",
+      "novelty_context": {
+        "flags": [
+          "leadership_concentration",
+          "sprint_signal_gap",
+          "defense_return_tradeoff"
+        ],
+        "known_regime_confidence": 0.4769,
+        "status": "novel_regime_watch"
+      },
+      "observation_ids": [
+        "concentrated_alpha_underallocated"
+      ],
+      "rules": [
+        {
+          "if": {
+            "concentrated_gate": "pass",
+            "regime": "neutral"
+          },
+          "limits": {
+            "max_weight_delta": 0.15,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "orchestrator_allocation",
+          "then": {
+            "alpha_sprint": 0.0,
+            "cash": 0.2,
+            "concentrated": 0.25,
+            "main": 0.55
+          }
+        },
+        {
+          "if": {
+            "mandate": "concentrated"
+          },
+          "limits": {
+            "max_stop_delta": 0.03,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "exit_timing",
+          "then": {
+            "better_replacement_swap": true,
+            "hard_stop": -0.1,
+            "trailing_stop": -0.15,
+            "weekly_review": true
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "unified_maxdd_below_floor",
+          "single_name_cap_violation",
+          "stress_window_worsens"
+        ],
+        "metrics": [
+          "portfolio_CAGR",
+          "portfolio_MaxDD",
+          "cap_violations",
+          "cash_drag",
+          "turnover"
+        ],
+        "windows": [
+          "all_months",
+          "all_bear_months",
+          "2022",
+          "2024_ai_bull"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Risk sensing needs position-aware exits and better-replacement swaps rather than blunt portfolio cash cuts.",
+      "id": "risk_governor_layered_exit_v1",
+      "novelty_context": {
+        "flags": [
+          "leadership_concentration",
+          "sprint_signal_gap",
+          "defense_return_tradeoff"
+        ],
+        "known_regime_confidence": 0.4769,
+        "status": "novel_regime_watch"
+      },
+      "observation_ids": [
+        "risk_sensing_defense_return_tradeoff"
+      ],
+      "rules": [
+        {
+          "if": {
+            "drawdown_breaker": "active",
+            "strong_alternate_available": true
+          },
+          "limits": {
+            "max_shadow_capital_weight": 0.0,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "risk_governor",
+          "then": {
+            "avoid": "blanket_cash_cut",
+            "prefer": "weak_to_strong_swap"
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "cagr_delta_pp < -1.0",
+          "sharpe_delta < 0.0"
+        ],
+        "metrics": [
+          "MaxDD",
+          "CAGR",
+          "Sharpe",
+          "late_exit_rate",
+          "swap_hit_rate"
+        ],
+        "windows": [
+          "2020",
+          "2022",
+          "all_drawdown_windows"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Alpha Sprint should use breakout/RS/catalyst fallback signals until explosion_* features become nonzero and validated.",
+      "id": "alpha_sprint_breakout_fallback_v1",
+      "novelty_context": {
+        "flags": [
+          "leadership_concentration",
+          "sprint_signal_gap",
+          "defense_return_tradeoff"
+        ],
+        "known_regime_confidence": 0.4769,
+        "status": "novel_regime_watch"
+      },
+      "observation_ids": [
+        "explosion_stack_dormant"
+      ],
+      "rules": [
+        {
+          "if": {
+            "mandate": "alpha_sprint",
+            "regime": [
+              "bull",
+              "strong_bull"
+            ]
+          },
+          "limits": {
+            "max_shadow_capital_weight": 0.0,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "entry_timing",
+          "then": {
+            "hard_stop": -0.07,
+            "require_any": [
+              "rs_acceleration_score",
+              "breakout_fresh_20d",
+              "entry_quality_score",
+              "volatility_contraction_score"
+            ],
+            "staged_entry": true
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "hit_rate < 0.45",
+          "maxdd_worsens_by_more_than_2pp"
+        ],
+        "metrics": [
+          "standalone_CAGR",
+          "hit_rate",
+          "avg_loss",
+          "portfolio_contribution"
+        ],
+        "windows": [
+          "bull_months",
+          "strong_bull_months",
+          "2024_ai_bull"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Policy creativity should be blocked from promotion until each sidecar has historical replay evidence.",
+      "id": "counterfactual_replay_priority_v1",
+      "novelty_context": {
+        "flags": [
+          "leadership_concentration",
+          "sprint_signal_gap",
+          "defense_return_tradeoff"
+        ],
+        "known_regime_confidence": 0.4769,
+        "status": "novel_regime_watch"
+      },
+      "observation_ids": [
+        "sidecar_without_counterfactual_replay"
+      ],
+      "rules": [
+        {
+          "limits": {
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "counterfactual_required",
+          "then": {
+            "block_promotion_until": [
+              "main_v2_replay",
+              "orchestrator_replay",
+              "alpha_sprint_replay"
+            ]
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "none"
+        ],
+        "metrics": [
+          "artifact_completeness",
+          "backtest_executed",
+          "stress_window_coverage"
+        ],
+        "windows": [
+          "all_months"
+        ]
+      }
+    }
+  ],
+  "mode": "proposal_only",
+  "novelty_regime": {
+    "category_counts": {
+      "capital_allocation_mismatch": 1,
+      "dormant_signal_stack": 1,
+      "portfolio_construction_drag": 1,
+      "research_infrastructure_gap": 1,
+      "risk_policy_tradeoff": 1
+    },
+    "flags": [
+      "leadership_concentration",
+      "sprint_signal_gap",
+      "defense_return_tradeoff"
+    ],
+    "known_regime_confidence": 0.4769,
+    "novelty_score": 16.74,
+    "production_activation_allowed": false,
+    "recommended_mode": "shadow_only",
+    "regime_counts": {
+      "system": 5
+    },
+    "status": "novel_regime_watch"
+  },
+  "policy_candidates": [
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Main alpha is diluted by broad target N; an internal sleeve orchestrator can concentrate future_winner while capping early_scout.",
+      "id": "main_future_alpha_concentration_v1",
+      "rules": [
+        {
+          "if": {
+            "avg_stock_names_gt": 20,
+            "mandate": "main"
+          },
+          "limits": {
+            "max_target_n_delta": 5,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "target_n",
+          "then": {
+            "target_n": {
+              "bear": 18,
+              "bull": 12,
+              "neutral": 15
+            }
+          }
+        },
+        {
+          "if": {
+            "mandate": "main_v2",
+            "regime": "neutral"
+          },
+          "limits": {
+            "max_weight_delta": 0.1,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "sleeve_allocation",
+          "then": {
+            "cash": 0.05,
+            "core": 0.25,
+            "early_scout": 0.15,
+            "future_winner": 0.55
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "turnover_not_reduced",
+          "future_winner_contribution_not_positive"
+        ],
+        "metrics": [
+          "CAGR",
+          "MaxDD",
+          "Sharpe",
+          "turnover",
+          "sleeve_attribution"
+        ],
+        "windows": [
+          "all_months",
+          "2022",
+          "2024_ai_bull"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Concentrated should use a dynamic 20-30% risk budget when caps, entry quality, and weekly exits pass.",
+      "id": "concentrated_neutral_25_v1",
+      "rules": [
+        {
+          "if": {
+            "concentrated_gate": "pass",
+            "regime": "neutral"
+          },
+          "limits": {
+            "max_weight_delta": 0.15,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "orchestrator_allocation",
+          "then": {
+            "alpha_sprint": 0.0,
+            "cash": 0.2,
+            "concentrated": 0.25,
+            "main": 0.55
+          }
+        },
+        {
+          "if": {
+            "mandate": "concentrated"
+          },
+          "limits": {
+            "max_stop_delta": 0.03,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "exit_timing",
+          "then": {
+            "better_replacement_swap": true,
+            "hard_stop": -0.1,
+            "trailing_stop": -0.15,
+            "weekly_review": true
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "unified_maxdd_below_floor",
+          "single_name_cap_violation",
+          "stress_window_worsens"
+        ],
+        "metrics": [
+          "portfolio_CAGR",
+          "portfolio_MaxDD",
+          "cap_violations",
+          "cash_drag",
+          "turnover"
+        ],
+        "windows": [
+          "all_months",
+          "all_bear_months",
+          "2022",
+          "2024_ai_bull"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Risk sensing needs position-aware exits and better-replacement swaps rather than blunt portfolio cash cuts.",
+      "id": "risk_governor_layered_exit_v1",
+      "rules": [
+        {
+          "if": {
+            "drawdown_breaker": "active",
+            "strong_alternate_available": true
+          },
+          "limits": {
+            "max_shadow_capital_weight": 0.0,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "risk_governor",
+          "then": {
+            "avoid": "blanket_cash_cut",
+            "prefer": "weak_to_strong_swap"
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "cagr_delta_pp < -1.0",
+          "sharpe_delta < 0.0"
+        ],
+        "metrics": [
+          "MaxDD",
+          "CAGR",
+          "Sharpe",
+          "late_exit_rate",
+          "swap_hit_rate"
+        ],
+        "windows": [
+          "2020",
+          "2022",
+          "all_drawdown_windows"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Alpha Sprint should use breakout/RS/catalyst fallback signals until explosion_* features become nonzero and validated.",
+      "id": "alpha_sprint_breakout_fallback_v1",
+      "rules": [
+        {
+          "if": {
+            "mandate": "alpha_sprint",
+            "regime": [
+              "bull",
+              "strong_bull"
+            ]
+          },
+          "limits": {
+            "max_shadow_capital_weight": 0.0,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "entry_timing",
+          "then": {
+            "hard_stop": -0.07,
+            "require_any": [
+              "rs_acceleration_score",
+              "breakout_fresh_20d",
+              "entry_quality_score",
+              "volatility_contraction_score"
+            ],
+            "staged_entry": true
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "hit_rate < 0.45",
+          "maxdd_worsens_by_more_than_2pp"
+        ],
+        "metrics": [
+          "standalone_CAGR",
+          "hit_rate",
+          "avg_loss",
+          "portfolio_contribution"
+        ],
+        "windows": [
+          "bull_months",
+          "strong_bull_months",
+          "2024_ai_bull"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Policy creativity should be blocked from promotion until each sidecar has historical replay evidence.",
+      "id": "counterfactual_replay_priority_v1",
+      "rules": [
+        {
+          "limits": {
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "counterfactual_required",
+          "then": {
+            "block_promotion_until": [
+              "main_v2_replay",
+              "orchestrator_replay",
+              "alpha_sprint_replay"
+            ]
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "none"
+        ],
+        "metrics": [
+          "artifact_completeness",
+          "backtest_executed",
+          "stress_window_coverage"
+        ],
+        "windows": [
+          "all_months"
+        ]
+      }
+    }
+  ],
+  "policy_version": "2026-05-alpha-scientist-v1",
+  "promotion_gates": {
+    "discovery_gate": {
+      "max_turnover_worsening_pp": 10.0,
+      "min_cagr_delta_pp_or": 2.0,
+      "min_maxdd_improvement_pp_or": 2.0,
+      "min_sharpe_delta_or": 0.08
+    },
+    "production_gate": {
+      "cap_violations_allowed": 0,
+      "max_dd_floor": -0.25,
+      "max_monthly_turnover": 0.35,
+      "min_cagr_improvement_pp": 3.0,
+      "min_sharpe": 1.2,
+      "stress_window_must_pass": true
+    }
+  },
+  "validation": {
+    "issues": [],
+    "valid": true
+  }
+}

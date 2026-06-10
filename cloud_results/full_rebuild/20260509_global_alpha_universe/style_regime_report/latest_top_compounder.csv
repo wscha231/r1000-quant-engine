@@ -1,0 +1,9 @@
+ticker,Name,sector,portfolio_sleeve_label,score,style_row_compounder_fit,market_style_regime_label
+NVDA,NVIDIA CORP,Information Technology,core_compounder,4.8965909460740615,0.775842506541633,breakout_growth
+UI,UBIQUITI INC,Information Technology,future_winner,-0.6170381487274615,0.7679925905069326,breakout_growth
+NTES,NetEase,Internet,core_compounder,1.8743202039147224,0.7651587963404174,breakout_growth
+VRSK,VERISK ANALYTICS INC,Industrials,early_scout,-0.2488334276753869,0.7469346135669389,breakout_growth
+COST,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,4.872683386152216,0.7302137080131883,breakout_growth
+AAPL,APPLE INC,Information Technology,core_compounder,5.407905805751848,0.7288944283612815,breakout_growth
+SPG,SIMON PROPERTY GROUP REIT INC,Real Estate,future_winner,2.430942077109398,0.7217062875947262,breakout_growth
+WDC,WESTERN DIGITAL CORP,Information Technology,future_winner,5.465381537552259,0.7207617487169196,breakout_growth

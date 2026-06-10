@@ -1,0 +1,21 @@
+{
+  "active": false,
+  "artifact_mode": "alpha_sprint_latest_sidecar",
+  "avg_turnover_monthly": null,
+  "backtest_executed": false,
+  "cagr": null,
+  "candidate_count": 5,
+  "capacity": 0.0,
+  "control": false,
+  "experiment_id": "E8_alpha_sprint_sidecar",
+  "generated_at_utc": "2026-05-03T19:23:14.116554+00:00",
+  "matrix_version": "aggressive_lab_202605_v1",
+  "max_dd": null,
+  "metric_mode": "no_historical_performance",
+  "production_activation_allowed": false,
+  "production_defaults_mutable": false,
+  "regime_state": "neutral",
+  "requires_weekly_historical_backtest": true,
+  "sharpe": null,
+  "status": "sidecar_latest_only"
+}

@@ -1,0 +1,32 @@
+{
+  "run_timestamp_utc": "2026-06-06T08:44:23.837220+00:00",
+  "run_status": "review_ready",
+  "schedule_as_of": "2026-06-06",
+  "target_trading_day": "2026-06-05",
+  "data_as_of": "2026-06-05",
+  "latest_scored_rebalance_date": "2026-05-27",
+  "scored_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",
+  "previous_holdings_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cloud_results/tactical_alpha/latest/tactical_portfolio_latest.csv",
+  "candidate_count": 148,
+  "selected_count": 5,
+  "trade_count": 0,
+  "buy_count": 0,
+  "sell_count": 0,
+  "target_n": 5,
+  "max_single_weight": 0.35,
+  "min_price": 5.0,
+  "min_dollar_vol": 20000000.0,
+  "price_refresh": {
+    "requested": 240,
+    "max_updates": 160,
+    "updated": 0,
+    "skipped_fresh": 160,
+    "failed": 0,
+    "failures": []
+  },
+  "notes": [
+    "Weekends and NYSE holidays map to the last valid NYSE trading day.",
+    "No trade is forced: existing positions are kept unless rank/exit rules fail or a stronger candidate clears the upgrade gap.",
+    "This is a separate tactical sleeve; it does not change the core portfolio export."
+  ]
+}

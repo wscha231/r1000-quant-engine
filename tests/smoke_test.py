@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import csv
 import json
 import re
 import sys
@@ -55,6 +56,8 @@ FEATURES_PATH = ROOT / "r1000_features.py"  # Refactor Phase A Stage 3a onwards
 SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
 PIPELINE_PATH = ROOT / "r1000_pipeline.py"  # Refactor Phase A Stage 5 onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
+TACTICAL_PATH = ROOT / "r1000_tactical_alpha.py"
+ALPHAOPS_REPORTING_PATH = ROOT / "r1000_alphaops_reporting.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
 # --- tiny test framework ---
@@ -110,6 +113,18 @@ def test_collector_syntax() -> None:
 @_test("syntax.run_local_py_parses")
 def test_run_local_syntax() -> None:
     src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    ast.parse(src)
+
+
+@_test("syntax.tactical_alpha_py_parses")
+def test_tactical_alpha_syntax() -> None:
+    src = TACTICAL_PATH.read_text(encoding="utf-8")
+    ast.parse(src)
+
+
+@_test("syntax.alphaops_reporting_py_parses")
+def test_alphaops_reporting_syntax() -> None:
+    src = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
     ast.parse(src)
 
 
@@ -460,28 +475,30 @@ def test_phase15_r3_cfg() -> None:
 
 @_test("structural.phase15_r1_trailing_stop_cfg_fields")
 def test_phase15_r1_trailing_stop_cfg() -> None:
-    """Phase 15-R1 (2026-04-21): trailing stop config fields + safe defaults.
+    """Phase 15-R1 (2026-04-21): trailing stop config fields + per-sleeve thresholds.
 
-    The trailing stop extends the -25% hard stop with a peak-relative exit for
-    early_scout. To keep it A/B-gated, the toggle (`trailing_stop_enabled`) must
-    default to False — enabling happens only when both the cfg flag AND the
-    PHASE_PHASE15_R1_TRAILING_ENABLED env var are on (dual-gate).
+    Phase 15-C (2026-04-28) update: default flipped from False -> True after
+    backtest validation. The 3 per-sleeve thresholds must still exist and be
+    non-negative, but absolute values are now config-driven (early_scout 0.15,
+    future_winner 0.18, core_compounder 0.22 default — let winners run).
 
-    This test locks: (a) the fields exist, (b) enable flag defaults to False,
-    (c) future_winner pct defaults to 0.0 (i.e. only early_scout trails out of
-    the box — A/B cell D has to opt-in).
+    This test locks: (a) all 3 sleeve fields exist with non-negative defaults,
+    (b) enable flag exists (value can be True or False — operators can toggle).
     """
     src = _combined_src()
     # Field existence (check for the full typed declaration to catch typos)
-    assert re.search(r"^\s*trailing_stop_enabled\s*:\s*bool\s*=\s*False",
+    assert re.search(r"^\s*trailing_stop_enabled\s*:\s*bool\s*=\s*(True|False)",
                      src, re.MULTILINE), \
-        "trailing_stop_enabled: bool = False missing from EngineConfig"
+        "trailing_stop_enabled: bool field missing from EngineConfig"
     assert re.search(r"^\s*trailing_stop_early_scout_pct\s*:\s*float\s*=",
                      src, re.MULTILINE), \
         "trailing_stop_early_scout_pct field missing"
-    assert re.search(r"^\s*trailing_stop_future_winner_pct\s*:\s*float\s*=\s*0\.0",
+    assert re.search(r"^\s*trailing_stop_future_winner_pct\s*:\s*float\s*=",
                      src, re.MULTILINE), \
-        "trailing_stop_future_winner_pct must default to 0.0 (opt-in for cell D)"
+        "trailing_stop_future_winner_pct field missing"
+    assert re.search(r"^\s*trailing_stop_core_compounder_pct\s*:\s*float\s*=",
+                     src, re.MULTILINE), \
+        "trailing_stop_core_compounder_pct field missing (Phase 15-C added)"
 
 
 @_test("structural.phase15_a1_drop_negative_features_dual_gate")
@@ -682,6 +699,140 @@ def test_hard_sanitize_overlap() -> None:
     assert result["a"].abs().max() <= 1e12
 
 
+@_test("logic.defensive_rotation_trims_stale_broad_leaders")
+def test_defensive_rotation_trims_stale_broad_leaders() -> None:
+    """Former leaders should be reduced when relative leadership breaks,
+    while confirmed new monster leaders remain eligible.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_signals import compute_defensive_monster_rotation_overlay
+
+    cfg = EngineConfig()
+    df = pd.DataFrame(
+        {
+            "ticker": ["OLD", "NEW", "WEAK_NO_BREAK"],
+            "portfolio_sleeve_label": ["core_compounder", "core_compounder", "core_compounder"],
+            "market_cap_live": [300_000_000_000.0, 200_000_000_000.0, 300_000_000_000.0],
+            "mktcap": [300_000_000_000.0, 200_000_000_000.0, 300_000_000_000.0],
+            "rs_acceleration_score": [-0.80, 1.25, -0.90],
+            "relative_strength_composite": [0.70, 5.0, 0.70],
+            "near_52w_high_pct": [-0.20, 0.01, -0.20],
+            "oneil_leadership_score": [-0.20, 1.5, -0.20],
+            "industry_group_strength_score": [-0.25, 3.0, -0.25],
+            "price_above_ma50": [0.0, 1.0, 1.0],
+            "price_above_ma200": [0.0, 1.0, 1.0],
+            "trend_template_relaxed": [0.0, 1.0, 1.0],
+            "portfolio_future_winner_engine_score": [0.0, 1.0, 0.0],
+            "portfolio_early_scout_engine_score": [0.0, 0.8, 0.0],
+            "selection_confirmation_score": [0.0, 1.0, 0.0],
+            "risk_penalty": [0.0, 0.0, 0.0],
+            "broken_momentum_penalty": [0.8, 0.0, 0.0],
+            "breakout_setup_quality_score": [0.0, 1.0, 0.0],
+        }
+    )
+    out = compute_defensive_monster_rotation_overlay(df, cfg)
+    old = out.loc[out["ticker"].eq("OLD")].iloc[0]
+    new = out.loc[out["ticker"].eq("NEW")].iloc[0]
+    weak_no_break = out.loc[out["ticker"].eq("WEAK_NO_BREAK")].iloc[0]
+    assert float(old["portfolio_stale_mega_leader_score"]) > 0.0
+    assert str(old["portfolio_defensive_rotation_action"]) == "rotate_out_stale_core"
+    assert str(old["portfolio_stale_leader_reason"]) == "broad_relative_breakdown"
+    assert float(new["portfolio_stale_mega_leader_score"]) == 0.0
+    assert str(new["portfolio_defensive_rotation_action"]) == "promote_monster_early"
+    assert float(weak_no_break["portfolio_stale_mega_leader_score"]) == 0.0
+    assert str(weak_no_break["portfolio_defensive_rotation_action"]) != "rotate_out_stale_core"
+
+
+@_test("logic.leader_rescue_latest_only_filters_historical_proxy")
+def test_leader_rescue_latest_only_filter() -> None:
+    """Leader rescue latest_only must not leak today's broad constituents
+    into historical OOS months, while full_proxy keeps them for research.
+    """
+    if _args.quick:
+        return
+    import tempfile
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_helpers import get_paths
+    from r1000_pipeline import apply_leader_rescue_backtest_mode_filter
+
+    monthly = pd.DataFrame(
+        {
+            "rebalance_date": pd.to_datetime(["2026-03-31", "2026-04-30", "2026-03-31", "2026-04-30", "2026-03-31"]),
+            "ticker": ["RSQ", "RSQ", "HW", "HW", "BASE"],
+            "universe_source": [
+                "leader_rescue_sp500",
+                "leader_rescue_sp500",
+                "strategic_global_hardware",
+                "strategic_global_hardware",
+                "current_constituents_proxy+leader_rescue_sp500",
+            ],
+        }
+    )
+    with tempfile.TemporaryDirectory() as td:
+        cfg = EngineConfig(base_dir=td)
+        cfg.leader_rescue_backtest_mode = "latest_only"
+        out = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert set(out["ticker"]) == {"RSQ", "HW", "BASE"}
+        assert len(out[out["ticker"].eq("RSQ")]) == 1
+        assert pd.Timestamp(out[out["ticker"].eq("RSQ")]["rebalance_date"].iloc[0]) == pd.Timestamp("2026-04-30")
+        assert len(out[out["ticker"].eq("HW")]) == 1
+        assert pd.Timestamp(out[out["ticker"].eq("HW")]["rebalance_date"].iloc[0]) == pd.Timestamp("2026-04-30")
+
+        cfg.leader_rescue_backtest_mode = "full_proxy"
+        out_full = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert len(out_full) == 5
+
+        cfg.leader_rescue_backtest_mode = "off"
+        out_off = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert set(out_off["ticker"]) == {"BASE"}
+
+
+@_test("logic.strategic_global_hardware_universe_loader")
+def test_strategic_global_hardware_universe_loader() -> None:
+    """Strategic hardware overlay is a data-backed universe source, not a
+    portfolio instruction, and must include the missing-name diagnostics set.
+    """
+    if _args.quick:
+        return
+    from r1000_config import EngineConfig
+    from r1000_pipeline import load_strategic_global_hardware_universe_frame
+    from aggressive.universe import load_strategic_global_hardware_universe
+
+    out = load_strategic_global_hardware_universe_frame(EngineConfig())
+    tickers = set(out["ticker"].astype(str).str.upper().tolist())
+    for ticker in ("INTC", "AMD", "ARM", "ASML", "STX", "SNDK", "WDC", "LITE", "CIEN"):
+        assert ticker in tickers, ticker
+    assert set(out["universe_source"].astype(str)) == {"strategic_global_hardware"}
+    aggressive_tickers, aggressive_meta = load_strategic_global_hardware_universe()
+    aggressive_set = set(aggressive_tickers)
+    for ticker in ("INTC", "AMD", "ARM", "ASML", "STX", "SNDK", "WDC", "LITE", "CIEN"):
+        assert ticker in aggressive_set, ticker
+    assert aggressive_meta
+
+
+@_test("logic.cycle_play_power_materials_universe_loader")
+def test_cycle_play_power_materials_universe_loader() -> None:
+    """Cycle overlay must include power/materials names that may be outside R1000.
+
+    These are not buy instructions; they keep nuclear fuel-cycle, fuel-cell,
+    renewable equipment, and critical-mineral candidates visible for scoring
+    and theme-relative-strength diagnostics.
+    """
+    if _args.quick:
+        return
+    from aggressive.universe import load_cycle_play_universe
+
+    tickers, meta = load_cycle_play_universe()
+    ticker_set = set(tickers)
+    for ticker in ("LEU", "SMR", "OKLO", "GTLS", "FLNC", "NXT", "MP", "LAC"):
+        assert ticker in ticker_set, ticker
+    assert meta
+
+
 @_test("logic.phase_is_enabled_env_precedence")
 def test_phase_is_enabled_env() -> None:
     """phase_is_enabled honours PHASE_{KEY}_ENABLED env var overrides.
@@ -734,6 +885,156 @@ def test_mktcap_percentile() -> None:
     assert abs(pct.iloc[-1] - 1.0) < 0.01, f"largest pct wrong: {pct.iloc[-1]}"
     # Monotonic
     assert list(pct) == sorted(pct), "percentile rank must be monotonic"
+
+
+@_test("logic.adr_mktcap_proxy_normalizes_adr_ratio")
+def test_adr_mktcap_proxy_normalizes_adr_ratio() -> None:
+    """ADR price times ordinary-share count must not inflate market cap.
+
+    Regression: TSM ADR px * Taiwan ordinary shares made TSM appear larger
+    than NVDA. ADR rows must be normalized to USD company marketCap proxy.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    original = pipe.ensure_mktcap_proxy
+    try:
+        pipe.ensure_mktcap_proxy = lambda cfg, paths, tickers, max_new=500: pd.DataFrame(
+            {"ticker": ["TSM"], "mktcap_proxy": [2.0e12], "updated_at": ["2026-04-29T00:00:00"]}
+        )
+        df = pd.DataFrame(
+            {
+                "rebalance_date": pd.to_datetime(["2026-04-29", "2026-04-29"]),
+                "ticker": ["TSM", "NVDA"],
+                "universe_source": ["adr_whitelist", "current_constituents_proxy"],
+                "mktcap": [1.0e13, 5.0e12],
+            }
+        )
+        out = pipe.apply_adr_usd_mktcap_proxy(df, EngineConfig(), {})
+    finally:
+        pipe.ensure_mktcap_proxy = original
+
+    tsm = out.loc[out["ticker"].eq("TSM")].iloc[0]
+    nvda = out.loc[out["ticker"].eq("NVDA")].iloc[0]
+    assert abs(float(tsm["mktcap"]) - 2.0e12) < 1e6, f"TSM mktcap not normalized: {tsm['mktcap']}"
+    assert abs(float(nvda["mktcap"]) - 5.0e12) < 1e6, "non-ADR mktcap should not change"
+    assert str(tsm["mktcap_source"]) == "adr_yf_usd_proxy_ratio"
+
+
+@_test("logic.adr_mktcap_proxy_cache_dates_are_normalized")
+def test_adr_mktcap_proxy_cache_dates_are_normalized() -> None:
+    """Legacy ISO-string cache rows must coexist with new Timestamp rows.
+
+    Regression: GitHub full rebuild 25182904974 crashed while sorting
+    `yf_mktcap_proxy.parquet` because `updated_at` contained both strings and
+    pandas Timestamps after a cache refresh.
+    """
+    if _args.quick:
+        return
+    import tempfile
+
+    import pandas as pd
+    from pandas.api.types import is_datetime64_any_dtype
+
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp)
+        paths = {"cache_misc": cache_dir}
+        seed = pd.DataFrame(
+            {
+                "ticker": ["TSM"],
+                "mktcap_proxy": [2.0e12],
+                "updated_at": [pd.Timestamp.utcnow().tz_localize(None)],
+            }
+        )
+        seed.to_parquet(cache_dir / "yf_mktcap_proxy.parquet", index=False)
+
+        original = pipe.fetch_mktcap_proxy
+        try:
+            pipe.fetch_mktcap_proxy = lambda ticker: {
+                "ticker": ticker,
+                "mktcap_proxy": 1.5e12,
+                "price_currency": "USD",
+                "financial_currency": "USD",
+                "shares_outstanding_proxy": 1.0e9,
+                "implied_shares_outstanding_proxy": 1.0e9,
+                "updated_at": "2026-04-30T00:00:00",
+            }
+            out = pipe.ensure_mktcap_proxy(EngineConfig(), paths, ["TSM", "ASML"], max_new=5)
+        finally:
+            pipe.fetch_mktcap_proxy = original
+
+    assert set(out["ticker"].astype(str)) == {"TSM", "ASML"}
+    assert is_datetime64_any_dtype(out["updated_at"]), out["updated_at"].dtype
+
+
+@_test("logic.adr_valuation_uses_adr_equivalent_shares")
+def test_adr_valuation_uses_adr_equivalent_shares() -> None:
+    """ADR EPS/share math should use mktcap/ADR price, not ordinary local shares."""
+    if _args.quick:
+        return
+    import pandas as pd
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    df = pd.DataFrame(
+        {
+            "ticker": ["TSM"],
+            "universe_source": ["adr_whitelist"],
+            "mktcap": [2.0e12],
+            "px": [400.0],
+            "shares": [25.0e9],
+            "net_income_ttm": [40.0e9],
+        }
+    )
+    out = pipe.compute_valuation_columns(df, EngineConfig())
+    row = out.iloc[0]
+    assert abs(float(row["shares_effective"]) - 5.0e9) < 1e3, row["shares_effective"]
+    assert abs(float(row["forward_pe_final"]) - 50.0) < 1e-6, row["forward_pe_final"]
+
+
+@_test("logic.companyfacts_prefers_usd_units")
+def test_companyfacts_prefers_usd_units() -> None:
+    """When SEC companyfacts exposes USD and local currency, choose USD."""
+    if _args.quick:
+        return
+    import r1000_pipeline as pipe
+
+    payload = {
+        "facts": {
+            "ifrs-full": {
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "units": {
+                        "TWD": [
+                            {
+                                "end": "2026-03-31",
+                                "filed": "2026-04-20",
+                                "form": "20-F",
+                                "val": 3000.0,
+                            }
+                        ],
+                        "USD": [
+                            {
+                                "end": "2026-03-31",
+                                "filed": "2026-04-20",
+                                "form": "20-F",
+                                "val": 100.0,
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    }
+    out = pipe.extract_companyfacts_records(payload, "1046179", "revenues")
+    assert len(out) == 1, out
+    assert str(out.iloc[0]["unit"]) == "USD", out
+    assert abs(float(out.iloc[0]["value"]) - 100.0) < 1e-9, out
 
 
 # ======================================================================
@@ -899,6 +1200,73 @@ def test_ce_defaults_widened() -> None:
     )
 
 
+@_test("logic.concentrated_entry_quality_allows_continuation_winner")
+def test_concentrated_entry_quality_continuation_override() -> None:
+    """Phase 15-D2b: concentrated must not reject every extended winner.
+
+    Low entry_quality_score blocks weak/broken chase entries, but a high-rank
+    continuation winner with intact trend and low exit risk should remain
+    selectable for the CAGR-max sleeve.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "sage_composite_score": 1.0,
+            "breakout_setup_quality_score": 1.0,
+            "relative_strength_composite": 1.0,
+            "score_future_winner_model": 1.0,
+            "future_winner_scout_score": 1.0,
+            "trend_template_full": 1.0,
+            "price_above_ma50": 1.0,
+            "price_above_ma200": 1.0,
+            "portfolio_hold_policy_exit_risk": 0.0,
+            "broken_momentum_penalty": 0.0,
+        }
+        rows = [
+            {"ticker": "CONT", "score": 10.0, "entry_quality_score": 0.0, **base},
+            {
+                "ticker": "BROKEN",
+                "score": 9.0,
+                "entry_quality_score": 0.0,
+                "trend_template_full": 0.0,
+                "price_above_ma50": 0.0,
+                "portfolio_hold_policy_exit_risk": 0.80,
+                "broken_momentum_penalty": 0.80,
+                **{k: v for k, v in base.items() if k not in {
+                    "trend_template_full",
+                    "price_above_ma50",
+                    "portfolio_hold_policy_exit_risk",
+                    "broken_momentum_penalty",
+                }},
+            },
+            {"ticker": "GOOD", "score": 3.0, "entry_quality_score": 0.70, **base},
+        ]
+        selected = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 2)
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+
+    tickers = set(selected["ticker"].astype(str))
+    assert "CONT" in tickers, "continuation winner was blocked by entry_quality hard gate"
+    assert "BROKEN" not in tickers, "broken low-quality chase entry bypassed the gate"
+    cont = selected.set_index("ticker").loc["CONT"]
+    assert bool(cont.get("concentrated_entry_quality_override", False)), (
+        "continuation winner should be marked as entry-quality override"
+    )
+
+
 @_test("regression.phase9_c3_gate_wired_in_early_scout")
 def test_phase9_c3_gate_wired() -> None:
     """Phase 9 C2 early-scout gate must call _p9_c3_admit as an OR branch.
@@ -1051,49 +1419,69 @@ def test_paper_executor_layer3_preflight() -> None:
     assert "skip-regime-check" in pe_src, (
         "paper_executor missing --skip-regime-check escape flag"
     )
+    assert "allow-legacy-execute" in pe_src, (
+        "paper_executor missing --allow-legacy-execute lock for old Alpaca executor"
+    )
 
 
-@_test("regression.paper_executor_workflow_yaml_valid")
+@_test("regression.after_close_daily_workflow_yaml_valid")
 def test_paper_executor_workflow() -> None:
-    """The cloud workflow that runs r1000_paper_executor.py must exist with
-    workflow_dispatch + schedule, properly wire ALPACA secrets, and call
-    smoke_test as a pre-flight check.
-
-    History:
-      45d80f5 spam fix in data_alpaca
-      this    paper_executor_dryrun.yml — cloud-side dry-run / execute
-
-    Without this guard, a refactor that drops the workflow file silently
-    disables cloud paper trading.
+    """The consolidated daily cloud workflow must run paper execution
+    dry-runs plus scanner, tactical, macro, ETF, explosive, and Layer 4
+    review surfaces.
     """
-    wf_path = ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml"
-    assert wf_path.exists(), "paper_executor_dryrun.yml workflow missing"
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
     assert "workflow_dispatch" in wf, "manual trigger missing in paper_executor workflow"
     assert "secrets.ALPACA_API_KEY" in wf, "ALPACA_API_KEY secret not wired"
     assert "secrets.ALPACA_API_SECRET" in wf, "ALPACA_API_SECRET secret not wired"
-    assert "tests/smoke_test.py" in wf, (
+    assert "tests/smoke_test.py --quick" in wf, (
         "smoke_test pre-flight missing — workflow could ship code that fails guards"
     )
     assert "r1000_paper_executor.py" in wf, "paper_executor not actually invoked"
+    for token in (
+        "tests/audit_features.py --no-runtime",
+        "aggressive/scanner.py",
+        "tools/macro_daily_snapshot.py",
+        "tools/etf_leadership_snapshot.py",
+        "tools/run_theme_leadership_tape.py",
+        "tools/explosive_mover_scan_daily.py",
+        "r1000_tactical_alpha.py",
+        "r1000_layer4_swap.py",
+    ):
+        assert token in wf, f"after_close_daily.yml missing: {token}"
     assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
         "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
     )
 
 
-@_test("regression.paper_executor_weekday_schedule")
+@_test("regression.after_close_daily_schedule")
 def test_paper_executor_weekday() -> None:
-    """paper_executor_dryrun.yml must have weekday schedule (Mon-Fri 23:30 KST)
-    in addition to Saturday 15:00 KST. Phase 5 J — daily review enables user
-    to see regime + plan via Telegram each weekday before --execute decision.
+    """after_close_daily.yml must have weekday after-close schedule plus a
+    Saturday review pass. Live execution remains manual only.
     """
-    wf = (ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml").read_text(encoding="utf-8")
-    assert "30 14 * * 1-5" in wf, (
-        "weekday Mon-Fri 14:30 UTC schedule missing in paper_executor_dryrun.yml"
-    )
+    wf = (ROOT / ".github" / "workflows" / "after_close_daily.yml").read_text(encoding="utf-8")
+    assert "45 22 * * 1-5" in wf, "weekday after-close schedule missing"
     assert "0 6 * * 6" in wf, (
         "Saturday 06:00 UTC schedule must remain"
     )
+    assert "execute=true" in wf, "manual live execution guard not documented"
+
+
+@_test("regression.tactical_after_close_workflow")
+def test_tactical_after_close_workflow() -> None:
+    """Daily tactical alpha review must remain in the after-close workflow and
+    call the separate tactical engine, not the core monthly rebuild.
+    """
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    assert "45 22 * * 1-5" in wf, "after-close weekday schedule missing"
+    assert "r1000_tactical_alpha.py" in wf, "tactical workflow does not invoke tactical engine"
+    assert "--mirror-cloud-results" in wf, "tactical results are not mirrored to cloud_results"
+    req = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
+    assert "pandas_market_calendars" in req, "NYSE holiday calendar dependency missing"
 
 
 @_test("regression.advisor_v3_reads_cloud_scanner")
@@ -1125,8 +1513,8 @@ def test_advisor_v3_layer4_info() -> None:
 
 @_test("regression.monthly_ic_monitor_exists")
 def test_monthly_ic_monitor() -> None:
-    """Phase 6 L: tools/monthly_ic_monitor.py + workflow must exist with
-    monthly cadence (cron 0 2 1 * *) and Telegram alerting on threshold trips.
+    """Phase 6 L: tools/monthly_ic_monitor.py must remain wired through the
+    consolidated monthly research workflow.
 
     User mandate (2026-04-25): "1-2개월 cadence가 훨씬 합리적".
     Threshold trips: ADR avg IC < 0.01, China-IC > US-IC by 0.05+.
@@ -1139,12 +1527,80 @@ def test_monthly_ic_monitor() -> None:
                 "load_adr_universe"):
         assert tok in src, f"monthly_ic_monitor.py missing: {tok}"
 
-    wf = ROOT / ".github" / "workflows" / "monthly_ic_monitor.yml"
-    assert wf.exists(), "monthly_ic_monitor.yml workflow missing"
+    wf = ROOT / ".github" / "workflows" / "monthly_research.yml"
+    assert wf.exists(), "monthly_research.yml workflow missing"
     wf_src = wf.read_text(encoding="utf-8")
-    for tok in ("0 2 1 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
-                "FRED_API_KEY", "tests/smoke_test.py"):
-        assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
+    for tok in ("45 22 15 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
+                "FRED_API_KEY", "tests/smoke_test.py --quick",
+                "refresh_cycle_play_universe.py", "r1000_tactical_backtest.py",
+                "build_explosive_pattern_db.py", "train_explosion_classifier.py"):
+        assert tok in wf_src, f"monthly_research.yml missing: {tok}"
+
+
+@_test("regression.workflow_topology_consolidated")
+def test_workflow_topology_consolidated() -> None:
+    """Scheduled automation is compressed by cadence so future system changes
+    update one owner workflow instead of several stale duplicates.
+    """
+    wf_dir = ROOT / ".github" / "workflows"
+    expected = {
+        "after_close_daily.yml",
+        "weekly_data_refresh.yml",
+        "monthly_research.yml",
+        "quarterly_auto_learning.yml",
+        "full_rebuild_manual.yml",
+        "unified_monthly.yml",
+        "layer4_monthly_swap.yml",
+        "gdrive_smoke_test.yml",
+        "pr_validation.yml",
+    }
+    missing = sorted(name for name in expected if not (wf_dir / name).exists())
+    assert not missing, f"missing consolidated workflows: {missing}"
+
+    retired = {
+        "daily_review.yml",
+        "paper_executor_dryrun.yml",
+        "tactical_after_close.yml",
+        "macro_daily_snapshot.yml",
+        "etf_leadership_daily.yml",
+        "explosive_mover_daily.yml",
+        "finnhub_weekly.yml",
+        "theme_discovery.yml",
+        "cycle_play_refresh.yml",
+        "monthly_ic_monitor.yml",
+        "tactical_backtest_monthly.yml",
+        "explosive_pattern_train_monthly.yml",
+        "quarterly_trade_insights.yml",
+        "auto_feature_gate_proposal_quarterly.yml",
+    }
+    still_present = sorted(name for name in retired if (wf_dir / name).exists())
+    assert not still_present, f"retired duplicate workflows still present: {still_present}"
+
+    strategy = ROOT / "AUTOMATION_STRATEGY.md"
+    assert strategy.exists(), "AUTOMATION_STRATEGY.md missing"
+    text = strategy.read_text(encoding="utf-8")
+    for token in ("Cadence Matrix", "after_close_daily.yml", "full_rebuild_manual.yml",
+                  "update `tests/smoke_test.py`"):
+        assert token in text, f"AUTOMATION_STRATEGY.md missing: {token}"
+
+
+@_test("regression.helpers_imports_requests")
+def test_helpers_imports_requests() -> None:
+    """r1000_helpers.py:_http_get_inner uses requests.Response + requests.get
+    but module-level `import requests` was missing in early refactor commits.
+
+    Symptom: first cloud full_rebuild run with no historical_universe_membership
+    cache hit IWB live fetch path -> http_get -> _http_get_inner -> NameError
+    on `requests.Response`. Universe build failed, pipeline crashed, only logs
+    were committed.
+
+    Fixed 2026-04-26 by adding `import requests` at top of r1000_helpers.py.
+    """
+    src = (ROOT / "r1000_helpers.py").read_text(encoding="utf-8")
+    assert re.search(r"^import requests\b", src, re.MULTILINE), (
+        "r1000_helpers.py missing 'import requests' — _http_get_inner will "
+        "NameError when called. Symptom seen on cloud full_rebuild first run."
+    )
 
 
 @_test("regression.workflows_pip_cache_dependency_path")
@@ -1215,6 +1671,236 @@ def test_full_rebuild_commits_portfolios() -> None:
         assert needed in wf, f"full_rebuild_manual.yml missing: {needed}"
 
 
+@_test("regression.full_rebuild_preserves_auto_learning_artifacts")
+def test_full_rebuild_preserves_auto_learning_artifacts() -> None:
+    """Phase 20: full rebuild must preserve the training substrate for
+    automatic learning. If trade_journal/insights or the candidate gate YAML
+    disappear after a cloud run, challenger promotion has no data to learn from.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for needed in (
+        "outputs/trade_journal/",
+        "outputs/auto_learning/",
+        "auto_feature_gates_candidate.yaml",
+        "tools/trade_insights.py",
+        'tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES"',
+        'tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES"',
+        "copy_if_exists",
+    ):
+        assert needed in wf, f"full_rebuild_manual.yml missing auto-learning artifact token: {needed}"
+
+
+@_test("regression.full_rebuild_pushes_results_to_dispatch_branch")
+def test_full_rebuild_pushes_results_to_dispatch_branch() -> None:
+    """Full rebuild result commits must target the dispatched branch.
+
+    The Phase 20 branch rebuild succeeded but its cloud_results commit failed
+    because the workflow retried by rebasing a branch run onto master. That is
+    wrong for branch validation and can also mask the failure because the step
+    is intentionally best-effort.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert 'RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"' in wf
+    assert "refs/heads/${RESULT_BRANCH}:refs/remotes/origin/${RESULT_BRANCH}" in wf
+    assert 'git push origin "HEAD:$RESULT_BRANCH"' in wf
+    commit_section = wf.split("Commit verdict + portfolio CSVs", 1)[-1]
+    assert "git fetch origin master" not in commit_section
+    assert "git pull --rebase origin master" not in commit_section
+
+
+@_test("regression.phase18c_auto_learning_gate_wired")
+def test_phase18c_auto_learning_gate_wired() -> None:
+    """Phase 20: learned gates should apply automatically only when the
+    auto-promoted YAML exists; no YAML remains a no-op. scored_latest must keep
+    explosion/regime audit columns even when they are all zero.
+    """
+    pipe_src = _pipeline_src()
+    for token in (
+        "apply_phase18c_gates_to_frame",
+        "explosion_entry_score",
+        "explosion_exit_score",
+        "explosion_net_score",
+        "applied_gates_count",
+        "pattern_blocked",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing auto-learning wiring: {token}"
+    promote = ROOT / "tools" / "auto_learning_promote.py"
+    assert promote.exists(), "tools/auto_learning_promote.py missing"
+    promote_src = promote.read_text(encoding="utf-8")
+    for token in ("candidate_gates", "active_gates", "concentrated_cagr_floor", "min_trades"):
+        assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
+
+
+@_test("regression.alphaops_report_only_outputs_wired")
+def test_alphaops_report_only_outputs_wired() -> None:
+    """AlphaOps Stage 0-2 must remain report-only.
+
+    The reports provide baseline registry, config audit, and orchestrator shadow
+    targets for A/B governance. They must be exported and preserved by the full
+    rebuild workflow, but they must not replace portfolio_latest.csv.
+    """
+    reporting = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
+    for token in (
+        "write_baseline_registry",
+        "write_config_audit",
+        "write_orchestrator_shadow_outputs",
+        "write_alphaops_report_pack",
+        "active_auto_feature_gates_exists",
+    ):
+        assert token in reporting, f"r1000_alphaops_reporting.py missing: {token}"
+
+    orchestrator = (ROOT / "r1000_orchestrator.py").read_text(encoding="utf-8")
+    for token in ("write_orchestrator_output_bundle", "orchestrator_result_to_frame", "row_type"):
+        assert token in orchestrator, f"r1000_orchestrator.py missing CSV bundle token: {token}"
+
+    pipe_src = _pipeline_src()
+    assert "write_alphaops_report_pack" in pipe_src, "pipeline does not write AlphaOps reports"
+    assert "portfolio_latest.to_csv" not in reporting, "AlphaOps reporting must not write production portfolio_latest.csv"
+
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for token in (
+        "outputs/orchestrator/",
+        "outputs/reports/baseline_registry.*",
+        "outputs/reports/config_audit.*",
+        "outputs/orchestrator",
+    ):
+        assert token in wf, f"full_rebuild_manual.yml missing AlphaOps artifact token: {token}"
+
+
+@_test("logic.alphaops_adr_diagnostics_detect_universe_source")
+def test_alphaops_adr_diagnostics() -> None:
+    """AlphaOps baseline registry must count ADR rows from universe_source.
+
+    Cloud scored_latest currently exposes ADR membership through
+    universe_source=adr_whitelist and adr_global_alpha_fallback_pass, not a
+    generic is_adr column.
+    """
+    import pandas as pd
+    from r1000_alphaops_reporting import _scored_diagnostics
+
+    scored = pd.DataFrame({
+        "ticker": ["TSM", "NVDA", "ZTO"],
+        "universe_source": ["adr_whitelist", "current_constituents_proxy", "adr_whitelist"],
+        "adr_global_alpha_fallback_pass": [True, False, True],
+        "regime_state": ["neutral", "neutral", "neutral"],
+    })
+    portfolio = pd.DataFrame({"ticker": ["TSM", "NVDA"], "weight": [0.08, 0.12]})
+    diag = _scored_diagnostics(scored, portfolio)
+    assert diag["adr_rows"] == 2, diag
+    assert diag["adr_selected_count"] == 1, diag
+    assert "adr_global_alpha_fallback_pass" in diag["adr_indicator_columns"], diag
+
+
+@_test("regression.regime_low_support_growth_prefers_learned_fallback")
+def test_regime_low_support_growth_prefers_learned_fallback() -> None:
+    """Low-sample learned growth winners fall back to high-support learned maps.
+
+    Regression: a 7-month growth_reentry_alert sample learned core_only and
+    overrode the manual growth map, cutting future/early exposure in live runs.
+    The exact learned map is too small to trust, but the untested manual growth
+    map should not beat a high-support learned balanced fallback.
+    """
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    assert int(cfg.regime_conditioned_min_learned_months) >= 12
+    learned = {
+        "growth_reentry_alert": {
+            "core": 1.0,
+            "future": 0.0,
+            "early": 0.0,
+            "cash": 0.0,
+            "policy_label": "core_only",
+            "months": 7,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
+        },
+        "ALL": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 83,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "growth_reentry_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]) == "aggr_35_30_35", selected
+    assert meta["lookup_source"] == "learned", meta
+    assert meta["lookup_label"] == "balanced", meta
+    assert meta["manual_fallback_deferred"], meta
+
+
+@_test("regression.regime_low_support_risk_uses_manual_safety")
+def test_regime_low_support_risk_uses_manual_safety() -> None:
+    """Risk-off labels keep manual safety maps when learned samples are thin."""
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    learned = {
+        "risk_off_alert": {
+            "core": 0.40,
+            "future": 0.40,
+            "early": 0.20,
+            "cash": 0.0,
+            "policy_label": "growth_40_40_20",
+            "months": 9,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "risk_off_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]).startswith("manual_riskoff"), selected
+    assert meta["lookup_source"] == "manual", meta
+    assert meta["lookup_label"] == "risk_off_alert", meta
+
+
+@_test("regression.regime_guardrail_treats_cash_as_separate_sleeve")
+def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
+    """Guardrails operate on equity sleeve fractions, not equity * (1-cash)."""
+    import r1000_pipeline as pipe
+    from r1000_config import default_manual_regime_conditioned_sleeve_map
+
+    manual = pipe.normalize_regime_conditioned_sleeve_map(
+        default_manual_regime_conditioned_sleeve_map(),
+        fallback_source="manual",
+    )
+    selected = manual["growth_reentry_alert"]
+    guarded, meta = pipe.apply_regime_policy_guardrails("growth_reentry_alert", selected)
+    assert guarded is not None
+    assert not meta["guardrail_applied"], (guarded, meta)
+    assert abs(float(guarded["core"]) - float(selected["core"])) < 1e-12
+    assert abs(float(guarded["future"]) - float(selected["future"])) < 1e-12
+    assert abs(float(guarded["early"]) - float(selected["early"])) < 1e-12
+    assert abs(float(guarded["cash"]) - float(selected["cash"])) < 1e-12
+
+
 @_test("regression.paper_executor_advisor_path_fallbacks")
 def test_paper_executor_path_fallbacks() -> None:
     """ADVISOR_PATHS for concentrated/core must accept fallback paths so the
@@ -1269,17 +1955,17 @@ def test_layer4_executor_guards() -> None:
 
 @_test("regression.layer4_monthly_workflow_exists")
 def test_layer4_monthly_workflow() -> None:
-    """layer4_monthly_swap.yml workflow runs Layer 4 swap on 5th of each month.
-    Schedule + workflow_dispatch + ALPACA secrets + Telegram secrets must all
-    be wired or the auto-apply doesn't actually happen.
+    """layer4_monthly_swap.yml must stay proposal/dry-run by default, while
+    preserving manual execution wiring.
     """
     wf_path = ROOT / ".github" / "workflows" / "layer4_monthly_swap.yml"
     assert wf_path.exists(), "layer4_monthly_swap.yml missing"
     wf = wf_path.read_text(encoding="utf-8")
     for token in (
         "schedule:",
-        "0 14 5 * *",                  # 5th of month, 23:00 KST
+        "45 22 5 * *",
         "workflow_dispatch:",
+        "default: false",
         "secrets.ALPACA_API_KEY",
         "secrets.TELEGRAM_BOT_TOKEN",
         "r1000_layer4_swap.py",
@@ -1303,11 +1989,18 @@ def test_full_rebuild_workflow() -> None:
     for token in (
         "workflow_dispatch",
         "universe_mode",
+        "backtest_years",
         "skip_collector",
+        "leader_rescue_mode",
+        "UNIVERSE_MODE",
+        "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
+        "PHASE_PHASE14_HYBRID_ALPHA_ENABLED",
         "secrets.ALPACA_API_KEY",
         "secrets.FINNHUB_API_KEY",
         "tests/smoke_test.py",
         "ENGINE_REUSE_VERSION",
+        "leader_rescue_backtest_filter_summary.json",
         "run_local.py --full",
     ):
         assert token in wf, f"full_rebuild_manual.yml missing required token: {token}"
@@ -1419,6 +2112,224 @@ def test_theme_phase_multiplier_constant() -> None:
         assert f'"{phase}"' in src, f"THEME_PHASE_MULTIPLIER missing phase: {phase}"
 
 
+@_test("regression.theme_policy_metadata_surface")
+def test_theme_policy_metadata_surface() -> None:
+    """Theme metadata must distinguish structural growth from short-cycle events.
+
+    This guards the chameleon/lifecycle replay route: commodity/event themes
+    should be reviewed faster, while structural growth themes can tolerate
+    valid shakeouts in research-only replays.
+    """
+    from r1000_themes import attach_per_ticker_theme_features, load_themes
+    import pandas as pd
+
+    themes = load_themes(ROOT / "themes.yaml")
+    assert themes["oil_gas_services"]["theme_horizon"] == "commodity_cycle"
+    assert themes["ai_compute"]["theme_horizon"] == "structural_growth"
+    assert "LEU" in themes["nuclear_fuel_cycle"]["tickers"]
+    assert themes["nuclear_fuel_cycle"]["theme_horizon"] == "structural_growth"
+    assert themes["fuel_cell_distributed_power"]["theme_horizon"] == "product_cycle"
+    assert themes["critical_minerals_rare_earths"]["theme_horizon"] == "commodity_cycle"
+    df = pd.DataFrame(
+        [
+            {"ticker": "FTI", "mom_6m": 0.20},
+            {"ticker": "NVDA", "mom_6m": 0.10},
+            {"ticker": "LEU", "mom_6m": 0.30},
+            {"ticker": "BE", "mom_6m": 0.15},
+            {"ticker": "MP", "mom_6m": 0.05},
+        ]
+    )
+    out = attach_per_ticker_theme_features(df, themes)
+    by_ticker = {row["ticker"]: row for row in out.to_dict("records")}
+    assert by_ticker["FTI"]["theme_event_risk_sensitivity_max"] >= 0.75
+    assert by_ticker["FTI"]["theme_short_cycle_flag_max"] >= 0.5
+    assert by_ticker["NVDA"]["theme_structural_growth_max"] >= 0.85
+    assert by_ticker["LEU"]["theme_structural_growth_max"] >= 0.85
+    assert by_ticker["BE"]["theme_event_risk_sensitivity_max"] >= 0.55
+    assert by_ticker["MP"]["theme_short_cycle_flag_max"] >= 0.5
+
+
+@_test("regression.market_style_regime_router")
+def test_market_style_regime_router() -> None:
+    """Market style router must expose breakout/turnaround/cash preferences."""
+    from r1000_features import compute_market_style_regime_features
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {
+                "ticker": "AAA",
+                "rebalance_date": "2024-01-31",
+                "market_regime_score": 0.8,
+                "liquidity_regime_score": 0.8,
+                "growth_liquidity_reentry_score": 0.7,
+                "macro_risk_off_score": 0.1,
+                "market_breadth_regime_score": 0.7,
+                "market_sector_participation": 0.6,
+                "bench_above_ma200": 1.0,
+                "qqq_rel_spy_1m": 0.05,
+                "breakout_fresh_20d": 1.0,
+                "post_breakout_hold_score": 0.8,
+                "h6_dynamic_leader_score": 0.8,
+                "near_52w_high_pct": -0.03,
+            },
+            {
+                "ticker": "BBB",
+                "rebalance_date": "2024-01-31",
+                "market_regime_score": 0.2,
+                "liquidity_regime_score": 0.7,
+                "growth_liquidity_reentry_score": 0.6,
+                "macro_risk_off_score": 0.2,
+                "market_breadth_regime_score": 0.2,
+                "market_sector_participation": 0.2,
+                "bench_above_ma200": 1.0,
+                "value_inflection_score": 1.0,
+                "fundamental_turnaround_acceleration_score": 0.8,
+                "h1_oversold_value_score": 0.7,
+                "industry_rotation_signal": 0.6,
+            },
+        ]
+    )
+    out = compute_market_style_regime_features(df)
+    assert "market_style_regime_label" in out.columns
+    assert out.loc[0, "style_row_breakout_fit"] > out.loc[0, "style_row_turnaround_fit"]
+    assert out.loc[1, "style_row_turnaround_fit"] > out.loc[1, "style_row_breakout_fit"]
+    assert out.loc[0, "style_calendar_month"] == 1
+    assert out.loc[0, "style_calendar_weekday"] == 2
+
+
+@_test("regression.main_v2_style_aware_selector")
+def test_main_v2_style_aware_selector() -> None:
+    """Main v2 must use style regime metadata in research-only selection."""
+    from r1000_main_v2 import compose_main_sleeve_portfolio
+
+    breakout_rows = [
+        {
+            "ticker": "BREAK",
+            "score": 1.5,
+            "portfolio_future_winner_engine_score": 0.8,
+            "future_winner_scout_score": 0.8,
+            "multi_year_winner_score": 0.5,
+            "oneil_leadership_score": 0.8,
+            "industry_group_strength_score": 0.8,
+            "portfolio_monster_early_score": 0.4,
+            "portfolio_risk_entry_block_score": 0.1,
+            "price_above_ma200": 1,
+            "price_above_ma50": 1,
+            "market_style_regime_label": "breakout_growth",
+            "style_row_breakout_fit": 0.85,
+            "style_row_turnaround_fit": 0.05,
+            "style_row_compounder_fit": 0.2,
+            "style_breakout_preference": 0.85,
+            "style_turnaround_preference": 0.1,
+            "style_quality_compounder_preference": 0.2,
+            "style_cash_defense_preference": 0.05,
+        }
+    ]
+    breakout = compose_main_sleeve_portfolio(breakout_rows, regime_state="bull")
+    assert breakout["audit"]["style_aware_selection_enabled"] is True
+    assert breakout["style_regime"] == "breakout_growth"
+    assert breakout["audit"]["style_adjusted_capacity_by_sleeve"]["future"] > breakout["audit"]["base_capacity_by_sleeve"]["future"]
+    assert any(row["ticker"] == "BREAK" for row in breakout["selected_by_sleeve"]["future"])
+
+    turnaround_rows = [
+        {
+            "ticker": "TURN",
+            "score": 0.5,
+            "portfolio_early_scout_engine_score": 0.7,
+            "profitability_inflection_score": 0.8,
+            "cashflow_inflection_under_loss_score": 0.8,
+            "profit_turn_positive_4q": 1,
+            "cashflow_turn_positive_4q": 1,
+            "ni_loss_narrowing_4q": 1,
+            "any_profit_sign_flip_pos": 1,
+            "rs_acceleration_score": -0.05,
+            "h1_oversold_value_score": 0.8,
+            "fundamental_reliability_score": 0.8,
+            "portfolio_risk_entry_block_score": 0.1,
+            "price_above_ma200": 0,
+            "price_above_ma50": 0,
+            "market_style_regime_label": "turnaround_accumulation",
+            "style_row_breakout_fit": 0.05,
+            "style_row_turnaround_fit": 0.9,
+            "style_row_compounder_fit": 0.2,
+            "style_breakout_preference": 0.1,
+            "style_turnaround_preference": 0.9,
+            "style_quality_compounder_preference": 0.3,
+            "style_cash_defense_preference": 0.1,
+            "theme_event_risk_sensitivity_max": 0.2,
+        }
+    ]
+    turnaround = compose_main_sleeve_portfolio(turnaround_rows, regime_state="neutral")
+    assert turnaround["style_regime"] == "turnaround_accumulation"
+    assert turnaround["audit"]["style_adjusted_capacity_by_sleeve"]["early"] > turnaround["audit"]["base_capacity_by_sleeve"]["early"]
+    assert any(row["ticker"] == "TURN" for row in turnaround["selected_by_sleeve"]["early"])
+
+
+@_test("regression.main_v2_opportunity_cost_replacement")
+def test_main_v2_opportunity_cost_replacement() -> None:
+    """Main v2 must reward superior new leaders and penalize stale event-cycle names."""
+    from r1000_main_v2 import compose_main_sleeve_portfolio
+
+    rows = [
+        {
+            "ticker": "NEW",
+            "score": 1.2,
+            "portfolio_future_winner_engine_score": 0.95,
+            "portfolio_early_scout_engine_score": 0.85,
+            "future_winner_scout_score": 1.2,
+            "portfolio_monster_early_score": 0.58,
+            "portfolio_risk_entry_block_score": 0.12,
+            "price_above_ma50": 1,
+            "price_above_ma200": 1,
+            "event_revision_pillar_score": 1.2,
+            "event_reaction_score": 3.0,
+            "eps_revision_score": 1.0,
+            "live_event_growth_reentry_score": 0.8,
+            "macro_semis_cycle_interaction": 0.9,
+            "style_row_breakout_fit": 0.8,
+            "style_row_turnaround_fit": 0.2,
+            "style_row_compounder_fit": 0.3,
+            "market_style_regime_label": "breakout_growth",
+            "style_breakout_preference": 0.8,
+            "theme_structural_growth_max": 0.9,
+            "theme_event_risk_sensitivity_max": 0.15,
+            "industry_group_strength_score": 1.2,
+            "oneil_leadership_score": 0.7,
+            "sub_industry_rs_score": 0.9,
+        },
+        {
+            "ticker": "OLD",
+            "score": 2.4,
+            "portfolio_future_winner_engine_score": 0.65,
+            "future_winner_scout_score": 0.2,
+            "portfolio_monster_early_score": 0.2,
+            "portfolio_risk_entry_block_score": 0.55,
+            "portfolio_stale_mega_leader_score": 0.9,
+            "price_above_ma50": 1,
+            "price_above_ma200": 1,
+            "event_revision_pillar_score": 0.0,
+            "event_reaction_score": 0.0,
+            "eps_revision_score": 0.0,
+            "rs_acceleration_score": -2.0,
+            "risk_penalty": 1.0,
+            "stage2_overext_penalty": 0.5,
+            "style_row_breakout_fit": 0.1,
+            "market_style_regime_label": "breakout_growth",
+            "style_breakout_preference": 0.8,
+            "theme_event_risk_sensitivity_max": 0.85,
+            "theme_structural_growth_max": 0.2,
+        },
+    ]
+    out = compose_main_sleeve_portfolio(rows, regime_state="bull")
+    future = out["selected_by_sleeve"]["future"]
+    assert any(row["ticker"] == "NEW" for row in future)
+    assert not any(row["ticker"] == "OLD" for row in future)
+    new_row = next(row for row in future if row["ticker"] == "NEW")
+    assert new_row["main_v2_replacement_score"] > 0.60
+    assert new_row["main_v2_replacement_catalyst_score"] > new_row["main_v2_replacement_decay_score"]
+
+
 @_test("regression.scanner_has_stage2_breakout_guard")
 def test_stage2_breakout_guard() -> None:
     """aggressive/scanner.py compute_opus_h1_h6_multiplier must include the
@@ -1456,7 +2367,7 @@ def test_adr_universe_yaml() -> None:
 
     History (2026-04-25):
       User requested ASML/TSM + ADRs to compete fairly with R1000 names.
-      adr_universe.yaml is the canonical whitelist (mcap>=$30B, NYSE/NASDAQ).
+      adr_universe.yaml is the canonical whitelist (mcap>=$8B, NYSE/NASDAQ).
       themes.yaml was updated to include the same ADRs in semi/pharma themes.
 
     This guard ensures the file exists, parses cleanly, has minimum coverage,
@@ -1536,6 +2447,154 @@ def test_universe_r1000_plus_adr() -> None:
     assert '"adr"' in src or "'adr'" in src, (
         "adr-only source mode not handled in load_universe()"
     )
+
+
+@_test("regression.main_engine_adr_universe_mode_wired")
+def test_main_engine_adr_universe_mode_wired() -> None:
+    """full_rebuild_manual.yml universe_mode must reach the main engine.
+
+    History (2026-04-27):
+      Phase 14 verdict run used universe_mode=r1000+adr, but scored_latest.csv
+      had 0/26 ADRs because only aggressive/universe.py knew how to load ADRs.
+      run_local.py ignored UNIVERSE_MODE and main build_candidate_universe()
+      always fell back to historical R1000 membership.
+    """
+    run_src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    pipe_src = _pipeline_src()
+    wf_src = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+
+    for token in (
+        "--universe-mode",
+        "def resolve_universe_mode",
+        "UNIVERSE_MODE",
+        'runtime_overrides["universe_mode"] = universe_mode',
+    ):
+        assert token in run_src, f"run_local.py missing universe-mode wiring: {token}"
+
+    for token in (
+        "def load_adr_universe_frame",
+        "from aggressive.universe import load_adr_universe",
+        "adr_whitelist",
+        "adr_universe_min_mcap_usd_b",
+        "adr_global_alpha_fallback_pass",
+        "adr_global_alpha_fallback",
+        "include_adr =",
+        "Skipping historical membership auto-archive for global alpha / ADR-augmented universe run",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing ADR universe wiring: {token}"
+
+    for token in (
+        "external_universe_mask",
+        "external_after_merge",
+        "summarize_universe_source",
+    ):
+        assert token in pipe_src, (
+            f"r1000_pipeline.py membership filter can still drop ADR rows: {token}"
+        )
+
+    assert 'phase_is_enabled("phase14_hybrid_alpha"' in pipe_src, (
+        "Phase 14 compute block must honor phase_is_enabled() for control runs"
+    )
+    assert "PHASE_PHASE14_HYBRID_ALPHA_ENABLED" in wf_src, (
+        "full_rebuild_manual.yml must set the env var name consumed by phase_is_enabled()"
+    )
+    assert not re.search(r"^\s*PHASE14_HYBRID_ALPHA_ENABLED:", wf_src, re.MULTILINE), (
+        "workflow still uses legacy Phase 14 env var name; control run will not disable Phase 14"
+    )
+
+
+@_test("logic.adr_global_alpha_fallback_gate")
+def test_adr_global_alpha_fallback_gate() -> None:
+    """Sparse-fundamental ADRs can enter via price/RS confirmation instead
+    of being killed as unassigned by the Phase 9 thesis gate.
+    """
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_pipeline import annotate_portfolio_candidate_gate
+
+    df = pd.DataFrame(
+        {
+            "ticker": ["ADR1", "US1"],
+            "universe_source": ["adr_whitelist", "current_constituents_proxy"],
+            "portfolio_sleeve_label": ["unassigned", "unassigned"],
+            "score": [3.0, 2.0],
+            "mom_6m": [0.2, 0.2],
+            "mom_12m": [0.3, 0.3],
+            "rs_benchmark_6m": [0.1, 0.1],
+            "relative_strength_composite": [1.0, 1.0],
+            "price_above_ma50": [1, 1],
+            "price_above_ma200": [1, 1],
+            "trend_template_relaxed": [1, 1],
+            "dynamic_leader_score": [1, 1],
+        }
+    )
+    out = annotate_portfolio_candidate_gate(df, EngineConfig())
+    adr = out.loc[out["ticker"].eq("ADR1")].iloc[0]
+    us = out.loc[out["ticker"].eq("US1")].iloc[0]
+    assert bool(adr["portfolio_candidate_minimum_pass"])
+    assert str(adr["portfolio_sleeve_label"]) == "future_winner"
+    assert str(adr["portfolio_candidate_gate_label"]) == "adr_global_alpha_fallback"
+    assert not bool(us["portfolio_candidate_minimum_pass"])
+
+
+@_test("regression.global_alpha_universe_window_audit_wired")
+def test_global_alpha_universe_window_audit_wired() -> None:
+    """The shared global-alpha universe, official 8-year execution path, and
+    5/8/10-year sleeve audit outputs must be wired through entrypoints.
+    """
+    cfg_src = _config_src()
+    run_src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    pipe_src = _pipeline_src()
+    wf_src = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+
+    for token in (
+        "global_alpha_universe",
+        "--backtest-years",
+        "--leader-rescue-mode",
+        "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
+        'runtime_overrides["default_backtest_years"]',
+        'runtime_overrides["backtest_window_comparison_years"]',
+        'runtime_overrides["leader_rescue_backtest_mode"]',
+    ):
+        assert token in run_src, f"run_local.py missing global-alpha/window wiring: {token}"
+
+    for token in (
+        "default_backtest_years: int = 8",
+        'leader_rescue_backtest_mode: str = "latest_only"',
+        "strategic_global_hardware_universe_enabled: bool = True",
+        "compact_universe_train_sample_relax_enabled: bool = True",
+        "compact_universe_min_train_samples: int = 800",
+        "[5, 8, 10]",
+    ):
+        assert token in cfg_src, f"r1000_config.py missing 8y default or 5/8/10 comparison token: {token}"
+
+    for token in (
+        "global_alpha_universe",
+        "build_global_alpha_sleeve_audit_frames",
+        "global_alpha_sleeve_audit_by_month.csv",
+        "global_alpha_sleeve_audit_summary.csv",
+        "apply_leader_rescue_backtest_mode_filter",
+        "load_strategic_global_hardware_universe_frame",
+        "strategic_global_hardware",
+        "leader_rescue_backtest_filter_summary.json",
+        "effective_min_train_samples",
+        "No OOS rows were generated in walk-forward training.",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing global-alpha audit wiring: {token}"
+
+    for token in (
+        "global_alpha_universe",
+        "backtest_years",
+        "leader_rescue_mode",
+        "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
+        "--backtest-years",
+        "--leader-rescue-mode",
+        "outputs/reports/global_alpha_sleeve_audit_*.csv",
+        "outputs/reports/leader_rescue_backtest_filter_summary.json",
+    ):
+        assert token in wf_src, f"full_rebuild_manual.yml missing global-alpha/window token: {token}"
 
 
 @_test("regression.layer4_swap_bridge_wired")
@@ -1653,1037 +2712,602 @@ def test_production_exact_banned_full_coverage() -> None:
     )
 
 
-# ======================================================================
-# Plan C v3.5 / v3.6 — Kill switch regression tests
-# CODEX_HANDOFF_PLAN_C_V3_5_20260520.md §5.1 + §17
-# ======================================================================
+@_test("regression.short_rs_trap_columns_wired")
+def test_short_rs_trap_columns_wired() -> None:
+    """SHORT_RS_TRAP_COLUMNS must be exported + spliced into build_feature_store.
 
-
-@_test("regression.plan_c_kill_switch_config_fields_present")
-def test_plan_c_kill_switch_fields_in_config() -> None:
-    """Plan C v3.5 — master switches must exist as config fields."""
-    src = _config_src()
-    required_fields = [
-        "sec_evidence_apply_to_live_score: bool = False",
-        "pda_apply_to_live_score: bool = False",
-        "sec_evidence_bonus_cap: float = 0.20",
-        "pda_bonus_cap: float = 0.15",
-        "w_pda_13f: float = 0.0",
-        "w_pda_form4: float = 0.0",
-        "w_pda_13d: float = 0.0",
-        "w_pda_etf: float = 0.0",
-        "crisis_governor_apply_to_live: bool = False",
-    ]
-    missing = [f for f in required_fields if f not in src]
-    assert not missing, (
-        f"Plan C v3.5 kill switch fields missing from r1000_config.py: {missing}. "
-        f"See CODEX_HANDOFF §5.1 + §17. Production safety depends on these "
-        f"defaulting OFF."
-    )
-
-
-@_test("regression.plan_c_pipeline_overlay_gated")
-def test_plan_c_pipeline_evidence_gate_present() -> None:
-    """Plan C v3.5 — pipeline must gate SEC overlay with kill switch."""
-    global _PIPELINE_SRC
-    if _PIPELINE_SRC is None:
-        _PIPELINE_SRC = PIPELINE_PATH.read_text(encoding="utf-8")
-    src = _PIPELINE_SRC
-    # The helper must exist
-    assert "_apply_evidence_kill_switch" in src, (
-        "r1000_pipeline.py missing _apply_evidence_kill_switch helper. "
-        "Phase C0.1 kill switch not wired."
-    )
-    # The kill-switch guard pattern must be present
-    assert 'getattr(cfg, "sec_evidence_apply_to_live_score", False)' in src, (
-        "r1000_pipeline.py missing sec_evidence_apply_to_live_score guard. "
-        "SEC overlay would be added to score unconditionally."
-    )
-    assert 'getattr(cfg, "pda_apply_to_live_score", False)' in src, (
-        "r1000_pipeline.py missing pda_apply_to_live_score guard."
-    )
-
-
-@_test("logic.plan_c_kill_switch_off_keeps_score_unchanged")
-def test_plan_c_kill_switch_off_no_score_change() -> None:
-    """Plan C v3.5 — with switch OFF, synthetic SEC overlay input must NOT
-    modify final score. Overlay columns are still computed for diagnostics.
+    Adds protection for the 2026-05-13 PLTR/IONQ-class fix: short-term RS
+    breakdown + chase-extension penalty. The 4 columns must all reach the
+    feature_store_latest.parquet keep_cols + hard_sanitize whitelist, AND
+    the constant must be exported from r1000_features.py.
     """
+    features_src = _features_src() if "_features_src" in globals() else _combined_src()
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    combined = _combined_src()
+
+    expected = [
+        "rs_short_score",
+        "rs_long_score",
+        "rs_short_breakdown_penalty",
+        "short_extension_risk_penalty",
+    ]
+
+    # Constant must exist
+    assert "SHORT_RS_TRAP_COLUMNS" in combined, (
+        "SHORT_RS_TRAP_COLUMNS constant not found in r1000_features.py"
+    )
+    # All 4 columns must be in the constant list
+    m = re.search(r"SHORT_RS_TRAP_COLUMNS\s*=\s*\[(.*?)\]", combined, re.DOTALL)
+    assert m, "SHORT_RS_TRAP_COLUMNS list literal not found"
+    body = m.group(1)
+    missing = [c for c in expected if f'"{c}"' not in body]
+    assert not missing, (
+        f"SHORT_RS_TRAP_COLUMNS missing expected names: {missing}"
+    )
+    # Must be wired into build_feature_store
+    fs_m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fs_m, "build_feature_store not found"
+    assert "SHORT_RS_TRAP_COLUMNS" in fs_m.group(0), (
+        "SHORT_RS_TRAP_COLUMNS not referenced inside build_feature_store keep_cols"
+    )
+
+
+@_test("regression.short_rs_trap_compute_fns_invoked")
+def test_short_rs_trap_compute_fns_invoked() -> None:
+    """compute_rs_short_long_scores + compute_short_extension_risk_penalty
+    must be invoked in build_feature_store body.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "build_feature_store not found"
+    body = m.group(0)
+    assert "compute_rs_short_long_scores" in body, (
+        "compute_rs_short_long_scores() not invoked in build_feature_store"
+    )
+    assert "compute_short_extension_risk_penalty" in body, (
+        "compute_short_extension_risk_penalty() not invoked in build_feature_store"
+    )
+
+
+@_test("regression.strategic_turnaround_pass_wired")
+def test_strategic_turnaround_pass_wired() -> None:
+    """add_core_fundamental_minimum_flags must include strategic_turnaround_pass
+    as a 5th lane in core_fundamental_minimum_pass.
+
+    Without this, INTC-class megacap turnaround candidates (negative NI but
+    profitability_turn_positive / ni_loss_narrowing trending up) get cut at
+    the gate and never reach scoring.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def add_core_fundamental_minimum_flags\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "add_core_fundamental_minimum_flags not found"
+    body = m.group(0)
+    assert "strategic_turnaround_pass" in body, (
+        "strategic_turnaround_pass not defined in add_core_fundamental_minimum_flags"
+    )
+    # Must be unioned into the final core_fundamental_minimum_pass
+    final_line_m = re.search(
+        r'd\["core_fundamental_minimum_pass"\]\s*=\s*\(?\s*([^)\n]+)',
+        body,
+    )
+    assert final_line_m, "core_fundamental_minimum_pass assignment not found"
+    assert "strategic_turnaround_pass" in final_line_m.group(1), (
+        "core_fundamental_minimum_pass does not union strategic_turnaround_pass — "
+        "INTC-class turnaround bypass disabled"
+    )
+
+
+@_test("structural.short_rs_trap_weight_cfg_fields")
+def test_short_rs_trap_weight_cfg_fields() -> None:
+    """3 new EngineConfig fields must exist: w_rs_short_score,
+    w_rs_short_breakdown_penalty, w_short_extension_penalty.
+    """
+    src = _combined_src()
+    for field in [
+        "w_rs_short_score",
+        "w_rs_short_breakdown_penalty",
+        "w_short_extension_penalty",
+    ]:
+        assert re.search(rf"\b{field}\s*:\s*float\s*=", src), (
+            f"EngineConfig field {field} not declared with float default"
+        )
+
+
+@_test("regression.sec_evidence_columns_wired")
+def test_sec_evidence_columns_wired() -> None:
+    """SEC_EVIDENCE_COLUMNS must include both 13F + Form 4 columns and be
+    spliced into build_feature_store keep_cols.
+
+    Without this wiring, sec_13f_quarterly_refresh.yml + sec_form4_daily_refresh
+    .yml workflows produce signals that never reach feature_store_latest, so the
+    score overlay would be permanently zero even when the cron runs successfully.
+    """
+    src = _combined_src()
+    assert "SEC_EVIDENCE_COLUMNS" in src, "SEC_EVIDENCE_COLUMNS constant not found"
+    m = re.search(r"SEC_EVIDENCE_COLUMNS\s*=\s*\[(.*?)\]", src, re.DOTALL)
+    assert m, "SEC_EVIDENCE_COLUMNS list literal not found"
+    body = m.group(1)
+    # Spot-check both 13F + Form 4 signal columns are present
+    for required in [
+        "sec_13f_smart_money_score",
+        "institutional_evidence_score",
+        "sec_form4_cluster_buy_score",
+        "early_evidence_score",
+    ]:
+        assert f'"{required}"' in body, (
+            f"SEC_EVIDENCE_COLUMNS missing {required} — overlay incomplete"
+        )
+    # Must be wired into build_feature_store
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else src
+    fs_m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fs_m, "build_feature_store not found"
+    assert "SEC_EVIDENCE_COLUMNS" in fs_m.group(0), (
+        "SEC_EVIDENCE_COLUMNS not referenced inside build_feature_store keep_cols"
+    )
+
+
+@_test("regression.sec_evidence_score_overlay_wired")
+def test_sec_evidence_score_overlay_wired() -> None:
+    """add_total_score_columns must include the SEC institutional + insider
+    overlays (score_sec_institutional_overlay + score_sec_insider_overlay).
+
+    Without this, the 13F manager-tracking + Form 4 insider-buying signals
+    are computed by the SEC pipelines but never reach shadow evidence fusion
+    diagnostics.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def add_total_score_columns\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "add_total_score_columns not found"
+    body = m.group(0)
+    assert "score_sec_institutional_overlay" in body, (
+        "score_sec_institutional_overlay not added in add_total_score_columns"
+    )
+    assert "score_sec_insider_overlay" in body, (
+        "score_sec_insider_overlay not added in add_total_score_columns"
+    )
+    assert "w_sec_institutional_evidence" in body, (
+        "w_sec_institutional_evidence cfg field not read in add_total_score_columns"
+    )
+    assert "evidence_fusion_score" in body, (
+        "evidence_fusion_score not computed in add_total_score_columns"
+    )
+    assert "evidence_fusion_apply_to_live_score" in body, (
+        "SEC/ETF evidence must be live-score gated by evidence_fusion_apply_to_live_score"
+    )
+
+
+@_test("regression.sec_evidence_loader_matches_workflow_outputs")
+def test_sec_evidence_loader_matches_workflow_outputs() -> None:
+    """The loader must read the actual filenames emitted by SEC workflows.
+
+    The 13F/Form 4 refresh jobs currently emit ``13f_latest`` and
+    ``form4_latest`` files. If the full rebuild only looks for a generic
+    ``signals_latest`` name, SEC overlay scores silently zero-fill.
+    """
+    features_src = _features_src() if "_features_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def load_sec_evidence_overlay\b.*?(?=^def |\Z)",
+        features_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "load_sec_evidence_overlay not found"
+    body = m.group(0)
+    for required in [
+        "13f_latest.parquet",
+        "13f_latest.csv",
+        "form4_latest.parquet",
+        "form4_latest.csv",
+        "form4_transactions.parquet",
+    ]:
+        assert required in body, f"SEC overlay loader missing workflow output {required}"
+
+
+@_test("structural.sec_evidence_weight_cfg_fields")
+def test_sec_evidence_weight_cfg_fields() -> None:
+    """2 new EngineConfig fields must exist: w_sec_institutional_evidence,
+    w_sec_insider_evidence. Both default to 0.30 / 0.20 respectively.
+    """
+    src = _combined_src()
+    for field in [
+        "w_sec_institutional_evidence",
+        "w_sec_insider_evidence",
+    ]:
+        assert re.search(rf"\b{field}\s*:\s*float\s*=", src), (
+            f"EngineConfig field {field} not declared with float default"
+        )
+
+
+@_test("regression.sec_13f_manager_universe_csv_present")
+def test_sec_13f_manager_universe_csv_present() -> None:
+    """managers.csv must exist + contain at least 30 managers + verified
+    Whale Rock / Atreides (user-requested high-conviction picks).
+    """
+    import csv
+
+    repo_root = Path(__file__).resolve().parent.parent
+    csv_path = repo_root / "research" / "sec_13f_manager_universe_20260519" / "managers.csv"
+    assert csv_path.exists(), f"managers.csv missing at {csv_path}"
+    with csv_path.open(encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) >= 30, f"managers.csv has only {len(rows)} entries; expected >= 30"
+    labels = {r["label"].upper() for r in rows}
+    for expected in ["WHALEROCK", "ATREIDES", "SITUATIONAL", "DUQUESNE"]:
+        assert expected in labels, (
+            f"managers.csv missing required entry: {expected}"
+        )
+    by_label = {r["label"].upper(): r for r in rows}
+    assert by_label["WHALEROCK"]["cik10"] == "0001387322", "Whale Rock/Alex Sacerdote SEC CIK must be current"
+    assert by_label["ATREIDES"]["cik10"] == "0001777813", "Atreides/Gavin Baker SEC CIK must be current"
+
+
+@_test("regression.sec_13f_workflow_uses_manager_universe")
+def test_sec_13f_workflow_uses_manager_universe() -> None:
+    """13F refresh must not silently fall back to a BRK-only manager list."""
+    repo_root = Path(__file__).resolve().parent.parent
+    wf = (repo_root / ".github" / "workflows" / "sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
+    assert "tools/build_sec_13f_manager_universe.py" in wf
+    assert "tools/build_sec_13f_cusip_ticker_map.py" in wf
+    assert "--cusip-map data_pit/sec/cusip_ticker_map.parquet" in wf
+    assert "outputs/sec_institutional_signals/mapping_audit.json" in wf
+    assert "refusing to run BRK-only fallback" in wf
+    assert "BRK:0001067983' }}" not in wf
+
+
+@_test("regression.etf_holdings_overlay_wired")
+def test_etf_holdings_overlay_wired() -> None:
+    """Dynamic ETF holdings must have a PIT data lake, loader, and workflow."""
+    src = _combined_src()
+    for required in [
+        "ETF_HOLDINGS_EVIDENCE_COLUMNS",
+        "EVIDENCE_FUSION_COLUMNS",
+        "etf_holdings_score",
+        "evidence_fusion_score",
+    ]:
+        assert required in src, f"ETF/evidence fusion wiring missing {required}"
+    repo_root = Path(__file__).resolve().parent.parent
+    assert (repo_root / "tools" / "run_etf_holdings_refresh.py").exists()
+    assert (repo_root / ".github" / "workflows" / "etf_holdings_monthly_refresh.yml").exists()
+    assert (repo_root / "research" / "etf_holdings_universe_20260520" / "thematic_etfs.yaml").exists()
+
+
+@_test("regression.plan_c_v35_kill_switch_defaults")
+def test_plan_c_v35_kill_switch_defaults() -> None:
+    """CHANGELOG 2026-05-21: SEC/ETF/PDA live-score gates default OFF."""
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    assert cfg.evidence_fusion_apply_to_live_score is False
+    assert cfg.pda_apply_to_live_score is False
+    assert cfg.evidence_fusion_bonus_cap == 0.20
+    assert cfg.pda_bonus_cap == 0.15
+    assert cfg.w_pda_13f == cfg.w_pda_form4 == cfg.w_pda_13d == cfg.w_pda_etf == 0.0
+
+
+@_test("regression.plan_c_v35_evidence_switch_off_blocks_score")
+def test_plan_c_v35_evidence_switch_off_blocks_score() -> None:
+    """CHANGELOG 2026-05-21: switch OFF keeps score unchanged but shadows live."""
     import pandas as pd
     from r1000_config import EngineConfig
-    from r1000_pipeline import _apply_evidence_kill_switch
-
-    df = pd.DataFrame({
-        "score": [1.0, 1.0],
-        "institutional_evidence_score": [0.8, 0.0],
-        "institutional_evidence_confidence_score": [1.0, 0.0],
-        "early_evidence_score": [0.5, 0.0],
-        "evidence_confidence_score": [1.0, 0.0],
-        "post_13f_alpha_score": [0.7, 0.0],
-        "post_form4_alpha_score": [0.6, 0.0],
-    })
-    cfg = EngineConfig()  # all switches default OFF
-    score_before = df["score"].copy()
-    _apply_evidence_kill_switch(df, cfg)
-    # Score is unchanged
-    assert (df["score"] == score_before).all(), (
-        f"score mutated despite kill switch OFF: "
-        f"before={score_before.tolist()}, after={df['score'].tolist()}"
-    )
-    # Diagnostic columns still populated
-    assert "score_sec_institutional_overlay" in df.columns
-    assert "pda_total_score" in df.columns
-
-
-@_test("logic.plan_c_g_replay_cost_arithmetic")
-def test_plan_c_g_cost_arithmetic() -> None:
-    """Phase G replay_combo: cost is ANNUAL bps -> per-period drag = bps/12/1e4.
-    The 2026-05-24 review insisted cost units must be honest -- 50bps as
-    monthly drag (6%/yr) would unfairly fail every SHIP."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("r1000_crisis_governor", "run_crisis_governor_replay",
-                "run_integrated_alpha_crisis_challenger"):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    import pandas as _pd
-    import numpy as _np
-    from run_integrated_alpha_crisis_challenger import replay_combo
-
-    dates = _pd.date_range("2020-01-01", periods=60, freq="ME")
-    eq = _pd.DataFrame({
-        "rebalance_date": dates,
-        "net_return": _np.full(60, 0.01),
-        "cash_weight": _np.full(60, 0.05),
-    })
-    features = _pd.DataFrame()  # no governor input -> off
-    r0 = replay_combo(eq, features, "off", "off", 0.0, "rebalance_date", "net_return", "cash_weight")
-    r50 = replay_combo(eq, features, "off", "off", 50.0, "rebalance_date", "net_return", "cash_weight")
-    diff = r0["governed_return"].values - r50["governed_return"].values
-    expected = 50.0 / 12.0 / 1e4  # 0.000417
-    assert _np.allclose(diff, expected, atol=1e-7), (
-        f"cost drag mismatch: got {diff[0]:.6f}, expected {expected:.6f} per period"
-    )
-    # churn drag for hold_vs_replace=normal: +5bps/MONTH = 0.0005
-    r_off  = replay_combo(eq, features, "off", "off",    0.0, "rebalance_date", "net_return", "cash_weight")
-    r_nrm  = replay_combo(eq, features, "off", "normal", 0.0, "rebalance_date", "net_return", "cash_weight")
-    churn_diff = r_off["governed_return"].values - r_nrm["governed_return"].values
-    assert _np.allclose(churn_diff, 0.0005, atol=1e-7), (
-        f"normal churn drag mismatch: got {churn_diff[0]:.6f}, expected 0.0005"
-    )
-
-
-@_test("logic.plan_c_g_grid_size_and_status")
-def test_plan_c_g_grid() -> None:
-    """Phase G: 3 governors x 3 hold_vs_replace x 5 costs = 45 combos per
-    portfolio, every combo status='ok'."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("run_integrated_alpha_crisis_challenger",):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    import pandas as _pd
-    import numpy as _np
-    from run_integrated_alpha_crisis_challenger import (
-        run_grid, GOVERNOR_MODES, HOLD_VS_REPLACE_MODES, COST_BPS_GRID,
-    )
-
-    dates = _pd.date_range("2019-01-01", periods=48, freq="ME")
-    rng = _np.random.RandomState(7)
-    eq = _pd.DataFrame({
-        "rebalance_date": dates,
-        "net_return": rng.normal(0.01, 0.04, 48),
-        "cash_weight": _np.full(48, 0.05),
-    })
-    grid, replays = run_grid(eq, _pd.DataFrame(), "rebalance_date", "net_return", "cash_weight", "main")
-    expected_combos = len(GOVERNOR_MODES) * len(HOLD_VS_REPLACE_MODES) * len(COST_BPS_GRID)
-    assert len(grid) == expected_combos, f"expected {expected_combos} combos, got {len(grid)}"
-    assert (grid["status"] == "ok").sum() == expected_combos
-    # Off-governor + off-hr + 0bps must reproduce original CAGR exactly
-    baseline_row = grid[
-        (grid["governor"] == "off")
-        & (grid["hold_vs_replace"] == "off")
-        & (grid["cost_bps_annual"] == 0.0)
-    ].iloc[0]
-    assert abs(baseline_row["delta_cagr_pp"]) < 1e-9
-    assert abs(baseline_row["delta_mdd_pp"]) < 1e-9
-
-
-@_test("logic.plan_c_g_a1a2_audit_reader")
-def test_plan_c_g_a1a2_reader() -> None:
-    """Phase G read_a1_a2_audit: distinguishes both_passed / audit_failed /
-    audit_inconclusive / data_pending / audit_unreadable."""
-    import sys as _sys
-    import json as _json
-    import tempfile as _tempfile
-    from pathlib import Path as _Path
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("run_integrated_alpha_crisis_challenger",):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    from run_integrated_alpha_crisis_challenger import read_a1_a2_audit
-
-    assert read_a1_a2_audit(None)["status"] == "data_pending"
-    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        _json.dump({"gates": {"A1": {"passed": True}, "A2": {"passed": True}}}, f)
-        p = _Path(f.name)
-    assert read_a1_a2_audit(p)["status"] == "both_passed"
-    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        _json.dump({"gates": {"A1": {"passed": False}, "A2": {"passed": True}}}, f)
-        p = _Path(f.name)
-    assert read_a1_a2_audit(p)["status"] == "audit_failed"
-    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        _json.dump({"gates": {"A1": {"passed": None}, "A2": {"passed": None}}}, f)
-        p = _Path(f.name)
-    assert read_a1_a2_audit(p)["status"] == "audit_inconclusive"
-    # Unreadable
-    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        f.write("not json")
-        p = _Path(f.name)
-    assert read_a1_a2_audit(p)["status"] == "audit_unreadable"
-
-
-@_test("logic.plan_c_g_verdict_downgrade_logic")
-def test_plan_c_g_verdict_downgrade() -> None:
-    """Phase G: SHIP must downgrade to PARTIAL when A1/A2 unproven or
-    bootstrap CI lower bound fails -- this is the core safety property."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("run_integrated_alpha_crisis_challenger",):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    import pandas as _pd
-    import numpy as _np
-    from run_integrated_alpha_crisis_challenger import (
-        pick_best_and_verdict, MAIN_GATES,
-    )
-
-    # Construct a grid that passes ALL hard gates so the verdict depends on
-    # A1/A2 + bootstrap only
-    grid = _pd.DataFrame([{
-        "portfolio": "main", "governor": "conservative", "hold_vs_replace": "off",
-        "cost_bps_annual": 0.0,  "rows": 60, "status": "ok",
-        "original_cagr": 0.10, "governed_cagr": 0.12,
-        "delta_cagr_pp": 2.0, "original_mdd": -0.30, "governed_mdd": -0.20,
-        "delta_mdd_pp": 10.0, "original_sharpe": 0.80, "governed_sharpe": 1.00,
-        "delta_sharpe": 0.20, "original_avg_cash": 0.05, "governed_avg_cash": 0.10,
-    }, {
-        # Same combo at 50bps cost still positive dCAGR -> cost sensitivity passes
-        "portfolio": "main", "governor": "conservative", "hold_vs_replace": "off",
-        "cost_bps_annual": 50.0, "rows": 60, "status": "ok",
-        "original_cagr": 0.10, "governed_cagr": 0.115,
-        "delta_cagr_pp": 1.5, "original_mdd": -0.30, "governed_mdd": -0.20,
-        "delta_mdd_pp": 10.0, "original_sharpe": 0.80, "governed_sharpe": 0.95,
-        "delta_sharpe": 0.15, "original_avg_cash": 0.05, "governed_avg_cash": 0.10,
-    }])
-    # Tight, healthy bootstrap (high mean, narrow CI)
-    rng = _np.random.RandomState(0)
-    bs_input = rng.normal(0.012, 0.005, 200)  # very low vol -> tight CI
-    v1 = pick_best_and_verdict(
-        grid, MAIN_GATES,
-        {"status": "both_passed", "A1_passed": True, "A2_passed": True},
-        bootstrap_iter=200, bootstrap_input=bs_input,
-    )
-    # With everything passing, should be SHIP
-    assert v1["verdict"] == "SHIP", f"expected SHIP, got {v1['verdict']}"
-
-    # Same grid + bootstrap but A1/A2 data_pending -> downgrade to PARTIAL
-    v2 = pick_best_and_verdict(
-        grid, MAIN_GATES,
-        {"status": "data_pending", "A1_passed": None, "A2_passed": None},
-        bootstrap_iter=200, bootstrap_input=bs_input,
-    )
-    assert v2["verdict"] == "PARTIAL", f"data_pending must downgrade SHIP, got {v2['verdict']}"
-
-    # Same grid + A1/A2 passed but failing bootstrap (very volatile returns) -> PARTIAL
-    bad_bs = rng.normal(0.05, 0.20, 60)  # huge vol -> wide CI lower bound
-    v3 = pick_best_and_verdict(
-        grid, MAIN_GATES,
-        {"status": "both_passed", "A1_passed": True, "A2_passed": True},
-        bootstrap_iter=500, bootstrap_input=bad_bs,
-    )
-    assert v3["verdict"] in ("PARTIAL", "REJECT"), (
-        f"volatile bootstrap must downgrade SHIP, got {v3['verdict']}"
-    )
-
-
-@_test("logic.plan_c_f_g0a_pit_filter")
-def test_plan_c_f_g0a_pit() -> None:
-    """G0-A: candidates with available_from_ts > as_of_date must be filtered,
-    and candidates with missing available_from_ts must be ineligible when
-    as_of_date is provided. The 2026-05-24 review flagged this as the most
-    critical gap for Phase G broker-ledger integration."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_hold_vs_replace" in _sys.modules:
-        del _sys.modules["r1000_hold_vs_replace"]
-    import pandas as _pd
-    from r1000_hold_vs_replace import select_replacement_candidate
-
-    as_of = _pd.Timestamp("2024-06-30")
-    cands = _pd.DataFrame({
-        "ticker": ["FUTURE", "PAST", "TODAY", "NO_TS"],
-        "score_z": [3.0, 2.0, 1.5, 2.5],
-        "sector": ["x"] * 4,
-        "available_from_ts": [
-            _pd.Timestamp("2024-12-31"),  # future -> blocked
-            _pd.Timestamp("2024-06-29"),  # past -> eligible
-            _pd.Timestamp("2024-06-30"),  # exactly as_of -> eligible
-            _pd.NaT,                       # missing -> blocked when as_of given
-        ],
-    })
-    best = select_replacement_candidate(
-        held_score_z=0.0, candidates=cands, as_of_date=as_of, sector_policy="allow",
-    )
-    assert best is not None
-    assert best["ticker"] != "FUTURE", "PIT filter let a future candidate through"
-    assert best["ticker"] != "NO_TS", "missing-ts candidate must be ineligible under PIT"
-    assert best["ticker"] == "PAST", f"expected PAST (highest eligible), got {best['ticker']}"
-    # No as_of_date -> all eligible, FUTURE wins on score
-    best_no = select_replacement_candidate(
-        held_score_z=0.0, candidates=cands, sector_policy="allow",
-    )
-    assert best_no["ticker"] == "FUTURE"
-
-
-@_test("logic.plan_c_f_g0b_global_priority")
-def test_plan_c_f_g0b_priority() -> None:
-    """G0-B: replacement cap goes to the highest-priority position (broken +
-    heavy weight), NOT the first one in iteration order. Without this fix,
-    a small weakening position at the top of the holdings list would burn the
-    cap that should go to a big broken position lower down."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_hold_vs_replace" in _sys.modules:
-        del _sys.modules["r1000_hold_vs_replace"]
-    import pandas as _pd
-    from r1000_hold_vs_replace import evaluate_portfolio_holds_vs_replaces
-
-    holdings = _pd.DataFrame({
-        "ticker":        ["WEAK_SMALL_FIRST", "BROKEN_BIG_LAST"],
-        "current_price": [92.0, 75.0],
-        "entry_price":   [100.0, 100.0],
-        "weight":        [0.05, 0.40],
-        "score_z":       [0.5, 0.5],
-        "sector":        ["tech", "energy"],
-        "rs_rank":       [55, 40],
-        "ma200":         [90.0, 85.0],
-    })
-    strong = _pd.DataFrame({
-        "ticker": ["GOOD"], "score_z": [3.0], "sector": ["finance"],
-        "quality_growth_score": [0.9],
-    })
-    decs = evaluate_portfolio_holds_vs_replaces(
-        holdings, strong, max_replacements=1, sector_policy="allow",
-    )
-    replaced = decs[decs["action"] == "replace"]
-    assert len(replaced) == 1, f"expected exactly 1 replacement, got {len(replaced)}"
-    assert replaced["ticker"].iloc[0] == "BROKEN_BIG_LAST", (
-        f"global priority should pick BROKEN_BIG_LAST despite being later in "
-        f"input; got {replaced['ticker'].iloc[0]}"
-    )
-
-
-@_test("logic.plan_c_f_g0c_trim_sizing")
-def test_plan_c_f_g0c_sizing() -> None:
-    """G0-C: every output row must have trim_pct + weight_delta +
-    target_weight_after + cash_delta filled (the broker-ledger needs a
-    complete order book, not just an action label)."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_hold_vs_replace" in _sys.modules:
-        del _sys.modules["r1000_hold_vs_replace"]
-    import pandas as _pd
-    from r1000_hold_vs_replace import evaluate_portfolio_holds_vs_replaces
-
-    holdings = _pd.DataFrame({
-        "ticker":        ["WK", "BK"],
-        "current_price": [92.0, 75.0],
-        "entry_price":   [100.0, 100.0],
-        "weight":        [0.20, 0.30],
-        "score_z":       [1.5, 1.5],  # too high for weak cands to beat
-        "sector":        ["x", "x"],
-        "rs_rank":       [55, 40],
-        "ma200":         [90.0, 85.0],
-    })
-    weak_cands = _pd.DataFrame({
-        "ticker": ["LOW"], "score_z": [0.0], "sector": ["y"],
-        "quality_growth_score": [0.5],
-    })
-    decs = evaluate_portfolio_holds_vs_replaces(
-        holdings, weak_cands, crisis_zone="normal", sector_policy="allow",
-    )
-    required = {"trim_pct", "weight_delta", "target_weight_after", "cash_delta"}
-    missing = required - set(decs.columns)
-    assert not missing, f"sizing columns missing: {missing}"
-    wk = decs[decs["ticker"] == "WK"].iloc[0]
-    bk = decs[decs["ticker"] == "BK"].iloc[0]
-    # weakening + normal -> 25% trim
-    assert wk["action"] == "trim"
-    assert abs(wk["trim_pct"] - 0.25) < 1e-9
-    assert abs(wk["weight_delta"] - (-0.05)) < 1e-9
-    assert abs(wk["target_weight_after"] - 0.15) < 1e-9
-    assert abs(wk["cash_delta"] - 0.05) < 1e-9
-    # broken + normal -> 50% trim
-    assert bk["action"] == "trim"
-    assert abs(bk["trim_pct"] - 0.50) < 1e-9
-    assert abs(bk["weight_delta"] - (-0.15)) < 1e-9
-    assert abs(bk["target_weight_after"] - 0.15) < 1e-9
-
-
-@_test("logic.plan_c_f_g0d_sector_policy")
-def test_plan_c_f_g0d_sector_policy() -> None:
-    """G0-D: same-sector candidates should be allowed in normal mode
-    (so we can rotate to a stronger leader in the same sector), penalized
-    in crisis mode (lose 0.5 sigma), or blocked entirely if explicitly set."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_hold_vs_replace" in _sys.modules:
-        del _sys.modules["r1000_hold_vs_replace"]
-    import pandas as _pd
-    from r1000_hold_vs_replace import select_replacement_candidate
-
-    cands = _pd.DataFrame({
-        "ticker": ["SAME_STRONG", "OTHER_WEAK"],
-        "score_z": [2.0, 1.0],
-        "sector": ["tech", "finance"],
-        "quality_growth_score": [0.9, 0.85],
-    })
-    # Normal mode (default policy=allow) -> SAME_STRONG wins
-    b_normal = select_replacement_candidate(
-        held_score_z=0.0, candidates=cands, held_sector="tech", crisis_zone="normal",
-    )
-    assert b_normal["ticker"] == "SAME_STRONG", (
-        f"normal mode must ALLOW same-sector; got {b_normal['ticker']}"
-    )
-    # Crisis mode (default policy=block) -> OTHER_WEAK wins
-    b_crisis = select_replacement_candidate(
-        held_score_z=0.0, candidates=cands, held_sector="tech", crisis_zone="crisis",
-    )
-    assert b_crisis is None or b_crisis["ticker"] != "SAME_STRONG", (
-        f"crisis mode must block same-sector; got "
-        f"{b_crisis['ticker'] if b_crisis is not None else None}"
-    )
-    # Penalize policy: close scores can flip
-    close = _pd.DataFrame({
-        "ticker": ["SAME", "OTHER"],
-        "score_z": [1.2, 1.0],
-        "sector": ["tech", "finance"],
-        "quality_growth_score": [0.9, 0.9],
-    })
-    b_pen = select_replacement_candidate(
-        held_score_z=0.0, candidates=close, held_sector="tech",
-        crisis_zone="normal", sector_policy="penalize",
-    )
-    # SAME (1.2 - 0.5 = 0.7) vs OTHER (1.0) -> OTHER wins
-    assert b_pen["ticker"] == "OTHER", f"penalize should flip ranking; got {b_pen['ticker']}"
-
-
-@_test("logic.plan_c_f_g0e_missing_entry_price")
-def test_plan_c_f_g0e_data_quality() -> None:
-    """G0-E: positions with missing entry_price MUST be classified as
-    review_required (not silently dropped into neutral). The 2026-05-24
-    review flagged this as a hidden risk for broker-ledger replays where
-    avg_cost is sometimes unavailable."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_hold_vs_replace" in _sys.modules:
-        del _sys.modules["r1000_hold_vs_replace"]
-    import pandas as _pd
-    import numpy as _np
-    from r1000_hold_vs_replace import (
-        classify_position_state, evaluate_portfolio_holds_vs_replaces,
-    )
-    # Direct classifier
-    p1 = classify_position_state("X", current_price=100.0, entry_price=_np.nan)
-    assert p1.state == "review_required"
-    assert p1.data_quality_flag == "missing_entry_price"
-    p2 = classify_position_state("Y", current_price=100.0, entry_price=0.0)
-    assert p2.state == "review_required"
-    # Through batch evaluator
-    holdings = _pd.DataFrame({
-        "ticker":        ["MISSING", "OK"],
-        "current_price": [100.0, 110.0],
-        "entry_price":   [_np.nan, 100.0],
-        "weight":        [0.5, 0.5],
-        "score_z":       [0.0, 0.0],
-        "sector":        ["x", "x"],
-        "rs_rank":       [50, 70],
-        "ma200":         [95, 95],
-    })
-    decs = evaluate_portfolio_holds_vs_replaces(holdings, _pd.DataFrame(), crisis_zone="normal")
-    miss = decs[decs["ticker"] == "MISSING"].iloc[0]
-    assert miss["state"] == "review_required"
-    assert miss["action"] == "hold"
-    assert miss["data_quality_flag"] == "missing_entry_price"
-    assert "data_quality" in (miss["blocked_by"] or "")
-
-
-@_test("logic.plan_c_f_g0f_unified_zscore")
-def test_plan_c_f_g0f_unified_z() -> None:
-    """G0-F: candidate z-scores must be unified across smart_money + tenbagger
-    sources. The old per-source z-score made them non-comparable, e.g. SM's
-    raw=90 would tie with TB's raw=100 (both being source-max)."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("r1000_hold_vs_replace", "r1000_crisis_governor",
-                "run_hold_vs_replace_evaluator"):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    import pandas as _pd
-    from run_hold_vs_replace_evaluator import normalize_candidates
-
-    sm = _pd.DataFrame({
-        "ticker": ["SM_A", "SM_B", "SM_C"],
-        "composite_smart_money_score": [60, 75, 90],
-        "sector": ["t", "t", "t"],
-    })
-    tb = _pd.DataFrame({
-        "ticker": ["TB_A", "TB_B", "TB_C"],
-        "tenbagger_discovery_score": [10, 55, 100],
-        "sector": ["x", "x", "x"],
-    })
-    out = normalize_candidates(sm, tb)
-    assert "candidate_source" in out.columns
-    # Raw 100 (TB_C) must outrank raw 90 (SM_C) under unified z-score
-    top = out.sort_values("score_z", ascending=False).iloc[0]
-    sm_c = out[out["ticker"] == "SM_C"].iloc[0]
-    assert top["ticker"] == "TB_C", (
-        f"unified z-score should make TB_C (raw 100) > SM_C (raw 90), got {top['ticker']}"
-    )
-    assert top["score_z"] > sm_c["score_z"], "TB_C should have higher z than SM_C"
-
-
-@_test("logic.plan_c_f_hold_vs_replace_classifier")
-def test_plan_c_f_position_classifier() -> None:
-    """Plan C v3.6 Phase F1 -- position state classifier covers all paths."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_hold_vs_replace" in _sys.modules:
-        del _sys.modules["r1000_hold_vs_replace"]
-    from r1000_hold_vs_replace import classify_position_state
-
-    # winner_intact
-    p = classify_position_state("AAPL", 110, 100, rs_rank=75, ma200=95)
-    assert p.state == "winner_intact"
-    # weakening
-    p = classify_position_state("MSFT", 92, 100, rs_rank=55, ma200=88)
-    assert p.state == "weakening"
-    # broken via drawdown
-    p = classify_position_state("NVDA", 78, 100, rs_rank=45, ma200=85)
-    assert p.state == "broken"
-    # broken via MA200
-    p = classify_position_state("GOOG", 95, 100, rs_rank=55, ma200=98)
-    assert p.state == "broken"
-    # broken via RS
-    p = classify_position_state("META", 102, 100, rs_rank=25, ma200=98)
-    assert p.state == "broken"
-    # winner_overextended
-    p = classify_position_state("AMD", 140, 100, rs_rank=80, ma200=110, pe_zscore=2.5)
-    assert p.state == "winner_overextended"
-
-
-@_test("logic.plan_c_f_hold_vs_replace_evaluator")
-def test_plan_c_f_evaluator() -> None:
-    """Plan C v3.6 Phase F2+F3 -- end-to-end portfolio evaluator + caps."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_hold_vs_replace" in _sys.modules:
-        del _sys.modules["r1000_hold_vs_replace"]
-    import pandas as _pd
-    from r1000_hold_vs_replace import (
-        evaluate_portfolio_holds_vs_replaces,
-        select_replacement_candidate,
-        NORMAL_REPLACEMENT_SIGMA,
-        CRISIS_QUALITY_FLOOR,
-    )
-
-    # F2: same-sector + crisis filter
-    cands = _pd.DataFrame({
-        "ticker": ["A", "B", "C", "SAME"],
-        "score_z": [1.5, 0.5, 2.0, 1.8],
-        "sector": ["tech", "finance", "energy", "consumer"],
-        "quality_growth_score": [0.85, 0.6, 0.9, 0.75],
-    })
-    # Crisis mode filters out anything with quality < 0.70
-    best_c = select_replacement_candidate(0.0, cands, held_sector=None, crisis_zone="crisis")
-    assert best_c is not None
-    assert best_c["quality_growth_score"] >= CRISIS_QUALITY_FLOOR
-    # Same-sector blocked
-    best_s = select_replacement_candidate(1.0, cands, held_sector="consumer", crisis_zone="normal")
-    assert best_s["ticker"] != "SAME"
-
-    # F3: replacement cap + concentrated floor
-    all_broken = _pd.DataFrame({
-        "ticker": list("ABCDE"),
-        "current_price": [70] * 5,
-        "entry_price":   [100] * 5,
-        "weight":        [0.20] * 5,
-        "score_z":       [0.5] * 5,
-        "sector":        ["tech"] * 5,
-        "rs_rank":       [50] * 5,
-        "ma200":         [80] * 5,
-    })
-    # No candidates that meet threshold (all weak) -> all default to cash in crisis
-    weak = _pd.DataFrame({
-        "ticker": ["X"], "score_z": [0.6], "sector": ["energy"], "quality_growth_score": [0.5],
-    })
-    d_crisis = evaluate_portfolio_holds_vs_replaces(
-        all_broken, weak, crisis_zone="crisis", concentrated_floor=0.30,
-    )
-    # Floor 0.30 means at least 30% equity must remain
-    cash_w = d_crisis[d_crisis["action"] == "cash"]["weight"].sum()
-    remaining_equity = 1.0 - cash_w
-    assert remaining_equity >= 0.30 - 1e-6, (
-        f"concentrated_floor breached: equity={remaining_equity:.3f}"
-    )
-
-    # Replacement cap test: 5 broken positions, only top 2 replaced
-    strong = _pd.DataFrame({
-        "ticker": ["P", "Q", "R", "S", "T"],
-        "score_z": [2.0, 2.0, 2.0, 2.0, 2.0],
-        "sector": ["x", "x", "x", "x", "x"],
-        "quality_growth_score": [0.9] * 5,
-    })
-    d_normal = evaluate_portfolio_holds_vs_replaces(
-        all_broken, strong, crisis_zone="normal"
-    )
-    replaces = (d_normal["action"] == "replace").sum()
-    assert replaces <= 2, f"replacement cap (2) violated: {replaces}"
-
-
-@_test("logic.plan_c_e7_governor_replay_reduces_mdd")
-def test_plan_c_e7_governor_replay() -> None:
-    """Plan C v3.6 Phase E7 -- counterfactual replay reduces MDD without
-    sacrificing CAGR (CAGR-preserving target). Synthetic equity curve
-    with embedded 2020-style crisis."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("r1000_crisis_governor", "run_crisis_governor_replay"):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    from run_crisis_governor_replay import (
-        compute_governed_curve, stress_window_metrics, STRESS_WINDOWS,
-    )
-    import pandas as _pd
-    import numpy as _np
-
-    dates = _pd.date_range("2019-01-01", periods=72, freq="ME")
-    returns = _np.random.RandomState(42).normal(0.012, 0.04, len(dates))
-    returns[14] = -0.15  # 2020 crash months
-    returns[15] = -0.08
-    returns[16] = 0.10   # rebound
-    returns[17] = 0.08
-    eq_df = _pd.DataFrame({
-        "rebalance_date": dates,
-        "net_return": returns,
-        "cash_weight": _np.full(len(dates), 0.08),
-    })
-
-    feat_dates = _pd.date_range("2019-01-01", periods=2000, freq="D")
-    crisis_score = _np.zeros(len(feat_dates))
-    crisis_score[400:500] = 0.85
-    features = _pd.DataFrame({
-        "crisis_score": crisis_score,
-        "vix_zscore_60d": _np.where(crisis_score > 0.5, 3.0, 0.2),
-        "qqq_close": 100.0, "qqq_ma20": 95.0, "qqq_ma50": 98.0,
-        "spy_20d_dd": _np.where(crisis_score > 0.5, -0.25, 0.0),
-        "hy_oas_zscore_60d": _np.where(crisis_score > 0.5, 2.5, 0.0),
-        "spy_5d_dd": _np.where(crisis_score > 0.5, -0.10, 0.0),
-    }, index=feat_dates)
-
-    governed, summary = compute_governed_curve(
-        eq_df, features, "rebalance_date", "net_return", "cash_weight", "main"
-    )
-    # CAGR-preserving requirement: governor must NOT hurt CAGR
-    assert summary["governed_cagr"] >= summary["original_cagr"] - 0.005, (
-        f"governor sacrificed CAGR: orig={summary['original_cagr']:.4f} "
-        f"-> gov={summary['governed_cagr']:.4f}"
-    )
-    # MDD reduction requirement (more positive = less negative)
-    assert summary["governed_mdd"] > summary["original_mdd"] + 0.03, (
-        f"governor failed to reduce MDD by >=3pp: orig={summary['original_mdd']:.4f} "
-        f"-> gov={summary['governed_mdd']:.4f}"
-    )
-    # Normal-zone cash discipline: governed avg cash should NOT exceed original
-    # by more than a small margin (CAGR-preserving = no permanent drag)
-    assert summary["governed_avg_cash"] <= summary["original_avg_cash"] + 0.02, (
-        f"governor permanently raised cash: orig={summary['original_avg_cash']:.4f} "
-        f"-> gov={summary['governed_avg_cash']:.4f}"
-    )
-    # Crisis window: cash MUST rise above original during the crisis months
-    crisis_mask = (
-        (governed["rebalance_date"] >= "2020-02-01")
-        & (governed["rebalance_date"] <= "2020-04-30")
-    )
-    crisis_rows = governed.loc[crisis_mask]
-    assert (crisis_rows["governed_cash_weight"] > crisis_rows["original_cash_weight"]).all(), (
-        "governed cash never raised during 2020 crisis"
-    )
-    # Stress window per-event metric
-    sw = stress_window_metrics(governed, "rebalance_date", STRESS_WINDOWS)
-    covid_row = sw[sw["window"] == "covid_shock_2020"].iloc[0]
-    assert covid_row["delta_mdd_pp"] > 1.0, (
-        f"COVID stress window expected MDD improvement >=1pp, got {covid_row['delta_mdd_pp']:.2f}"
-    )
-
-
-@_test("logic.plan_c_e5_e6_governor_ladders")
-def test_plan_c_e5_e6_governor() -> None:
-    """Plan C v3.6 Phase E5+E6 -- exposure + re-entry ladders behave correctly."""
-    import sys as _sys
-    if str(ROOT) not in _sys.path:
-        _sys.path.insert(0, str(ROOT))
-    if "r1000_crisis_governor" in _sys.modules:
-        del _sys.modules["r1000_crisis_governor"]
-    from r1000_crisis_governor import (
-        crisis_zone, evaluate_exposure_target, apply_exposure_ladder,
-        compute_reentry_score, reentry_exposure_multiplier,
-    )
-    import pandas as _pd
-
-    # Zone mapping
-    assert crisis_zone(0.10) == "normal"
-    assert crisis_zone(0.35) == "caution"
-    assert crisis_zone(0.55) == "defense"
-    assert crisis_zone(0.85) == "crisis"
-
-    # Exposure target
-    t_normal = evaluate_exposure_target(0.10)
-    assert t_normal.target_cash_ceiling == 0.05
-    assert t_normal.block_new_buys is False
-    t_crisis = evaluate_exposure_target(0.85)
-    assert t_crisis.target_cash_floor == 0.25
-    assert t_crisis.block_new_buys is True
-
-    # Ladder: normal zone clips cash to ceiling, preserves non-cash ratio
-    weights = _pd.Series({"AAPL": 0.50, "MSFT": 0.30, "CASH": 0.20})
-    new_w = apply_exposure_ladder(weights, crisis_score=0.10)
-    assert new_w["CASH"] <= 0.05 + 1e-6
-    assert abs(new_w.sum() - 1.0) < 1e-6
-    # Crisis zone lifts cash from 0.05 to >=0.25, preserves ranking
-    weights2 = _pd.Series({"AAPL": 0.50, "MSFT": 0.45, "CASH": 0.05})
-    new_w2 = apply_exposure_ladder(weights2, crisis_score=0.85)
-    assert new_w2["CASH"] >= 0.25 - 1e-6
-    ratio_before = 0.50 / 0.95
-    ratio_after = new_w2["AAPL"] / (new_w2["AAPL"] + new_w2["MSFT"])
-    assert abs(ratio_before - ratio_after) < 1e-6, "non-cash ranking broken"
-
-    # Reentry score: healthy market high, crisis low
-    healthy = _pd.Series({
-        "vix_zscore_60d": 0.3, "qqq_close": 380.0, "qqq_ma20": 370.0,
-        "qqq_ma50": 365.0, "spy_20d_dd": -0.01, "hy_oas_zscore_60d": 0.4,
-        "spy_5d_dd": -0.005,
-    })
-    assert compute_reentry_score(healthy) > 0.65
-    crisis = _pd.Series({
-        "vix_zscore_60d": 2.8, "qqq_close": 280.0, "qqq_ma20": 340.0,
-        "qqq_ma50": 350.0, "spy_20d_dd": -0.18, "hy_oas_zscore_60d": 2.5,
-        "spy_5d_dd": -0.05,
-    })
-    assert compute_reentry_score(crisis) < 0.30
-
-    # Reentry multiplier ladder
-    assert reentry_exposure_multiplier(0.10, prior_multiplier=0.0) == 0.0
-    assert reentry_exposure_multiplier(0.50, prior_multiplier=0.0) == 0.25
-    assert reentry_exposure_multiplier(0.65, prior_multiplier=0.25) == 0.60
-    assert reentry_exposure_multiplier(0.80, prior_multiplier=0.60) == 1.00
-    # Monotonic: once at full risk, declining score keeps full risk
-    assert reentry_exposure_multiplier(0.50, prior_multiplier=1.0) == 1.0
-
-
-@_test("logic.plan_c_e3_crisis_classifier_pit_safe")
-def test_plan_c_e3_crisis_classifier() -> None:
-    """Plan C v3.6 Phase E3 -- classifier distinguishes 2020 shock_crash
-    from 2022 slow_bear AND is PIT-safe."""
-    import sys as _sys
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("run_crisis_signal_builder", "run_crisis_type_classifier"):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    import pandas as _pd
-    import numpy as _np
-    from run_crisis_signal_builder import (
-        compute_market_trend_features, compute_volatility_features,
-        compute_credit_features, compute_rate_features,
-    )
-    from run_crisis_type_classifier import classify_rows, Thresholds, consecutive_streak
-
-    # streak helper
-    s = _pd.Series([0, 0, 1, 1, 1, 0, 1, 1])
-    assert consecutive_streak(s).tolist() == [0, 0, 1, 2, 3, 0, 1, 2]
-
-    dates = _pd.date_range("2019-01-01", periods=1100, freq="D")
-    spy = _np.full(1100, 300.0)
-    for i in range(0, 250):
-        spy[i] = 300.0 + 40.0 * (i / 250.0)
-    peak1 = spy[250]
-    for i in range(250, 268):  # 2020 shock: 18 days -34%
-        spy[i] = peak1 * (1.0 - 0.34 * ((i - 250) / 18.0))
-    trough1 = spy[267]
-    for i in range(268, 518):
-        spy[i] = trough1 + (360.0 - trough1) * ((i - 267) / 250.0)
-    peak2 = spy[517]
-    for i in range(518, 800):  # 2022 slow drift -25%
-        spy[i] = peak2 * (1.0 - 0.25 * ((i - 517) / 282.0))
-    for i in range(800, 950):
-        spy[i] = spy[799] * (0.98 + 0.02 * _np.sin((i - 800) / 30.0))
-    for i in range(950, 1100):
-        spy[i] = spy[949] + (peak2 - spy[949]) * ((i - 949) / 150.0)
-
-    spy_s = _pd.Series(spy, index=dates)
-    qqq_s = _pd.Series(spy * 0.95, index=dates)
-    vix = _np.full(1100, 16.0)
-    vix[250:268] = _np.linspace(20, 80, 18)
-    vix[268:310] = _np.linspace(80, 18, 42)
-    vix[518:950] = 28.0
-    vix_s = _pd.Series(vix, index=dates)
-    hy = _np.full(1100, 400.0)
-    hy[250:280] = _np.linspace(400, 1100, 30)
-    hy[280:330] = _np.linspace(1100, 400, 50)
-    hy_s = _pd.Series(hy, index=dates)
-    y10 = _np.full(1100, 2.0)
-    y10[518:680] = _np.linspace(2.0, 4.5, 162)  # aggressive 2022 ramp
-    y10[680:950] = 4.5
-    dgs10_s = _pd.Series(y10, index=dates)
-
-    trend = compute_market_trend_features(spy_s, qqq_s)
-    vol = compute_volatility_features(vix_s, trend.index)
-    credit = compute_credit_features(hy_s, trend.index)
-    rates = compute_rate_features(dgs10_s, trend.index)
-    features = _pd.concat([trend, vol, credit, rates], axis=1)
-    classification = classify_rows(features, Thresholds())
-
-    shock_count = (classification.iloc[252:280]["crisis_type"] == "shock_crash").sum()
-    assert shock_count >= 5, f"2020 shock_crash days: {shock_count}"
-    slow_count = (classification.iloc[600:680]["crisis_type"] == "slow_bear").sum()
-    assert slow_count >= 20, f"2022 slow_bear days: {slow_count}"
-
-    # PIT: classification at past T must not change when future trimmed
-    half = features.iloc[:600]
-    classification_half = classify_rows(half, Thresholds())
-    diff = (
-        classification_half["crisis_type"]
-        != classification.iloc[:600]["crisis_type"]
-    ).sum()
-    assert diff == 0, f"PIT violation: {diff} rows differ between full + truncated"
-
-
-@_test("logic.plan_c_a1_a2_broker_accounting_audit")
-def test_plan_c_a1_a2_broker_audit() -> None:
-    """Plan C v3.6 A1/A2 -- broker accounting audit correctly detects
-    coverage gaps and delisted-ticker missing exit prices."""
-    import sys as _sys
-    import tempfile as _tempfile
-    from pathlib import Path as _Path
-    import pandas as _pd
-
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    if "run_broker_accounting_audit" in _sys.modules:
-        del _sys.modules["run_broker_accounting_audit"]
-    from run_broker_accounting_audit import (
-        load_membership, audit_a1, audit_a2, px_cache_name,
-    )
-
-    with _tempfile.TemporaryDirectory() as td:
-        base = _Path(td)
-        (base / "data_raw").mkdir()
-        (base / "cache_prices").mkdir()
-        paths = {
-            "base": base, "data_raw": base / "data_raw",
-            "cache_prices": base / "cache_prices", "research": base / "research",
-        }
-        dates = _pd.date_range("2024-01-01", periods=12, freq="ME")
-        rows = []
-        for d in dates:
-            rows.append({"ticker": "AAPL", "rebalance_date": d, "date_from": _pd.NaT, "date_to": _pd.NaT})
-            if d <= dates[5]:
-                rows.append({"ticker": "GOOG", "rebalance_date": d, "date_from": _pd.NaT, "date_to": _pd.NaT})
-        _pd.DataFrame(rows).to_csv(base / "data_raw" / "historical_universe_membership.csv", index=False)
-        full_dates = _pd.date_range("2024-01-01", periods=400, freq="D")
-        for t in ("AAPL", "GOOG"):
-            _pd.DataFrame({"Close": range(100, 100 + len(full_dates))}, index=full_dates).to_parquet(
-                base / "cache_prices" / px_cache_name(t)
-            )
-        mem = load_membership(paths)
-        assert len(mem) == 18, f"expected 18 membership rows, got {len(mem)}"
-        # GOOG is delisted (not in latest month)
-        a1_ok = audit_a1(paths, mem, exit_threshold=0.95)
-        assert a1_ok.delisted_candidates == 1, a1_ok
-        assert a1_ok.passed is True, f"A1 should pass when GOOG has exit price: {a1_ok}"
-        a2_ok = audit_a2(paths, mem, sample_per_year=200, coverage_min=0.95)
-        assert a2_ok.passed is True, f"A2 should pass at full coverage: {a2_ok}"
-        # Break A1 by removing GOOG price cache
-        (base / "cache_prices" / px_cache_name("GOOG")).unlink()
-        a1_bad = audit_a1(paths, mem, exit_threshold=0.95)
-        assert a1_bad.passed is False, "A1 must FAIL when delisted has no exit price"
-        # A2 also degrades (6 rows missing)
-        a2_bad = audit_a2(paths, mem, sample_per_year=200, coverage_min=0.95)
-        assert a2_bad.passed is False, "A2 must FAIL when coverage drops"
-
-
-@_test("logic.plan_c_e2_crisis_signal_pit_safe")
-def test_plan_c_e2_crisis_signals_pit() -> None:
-    """Plan C v3.6 Phase E2 -- crisis_score is PIT-safe and rises during crisis."""
-    import sys as _sys
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    for mod in ("run_crisis_signal_builder",):
-        if mod in _sys.modules:
-            del _sys.modules[mod]
-    from run_crisis_signal_builder import (
-        compute_market_trend_features,
-        compute_volatility_features,
-        compute_credit_features,
-        compute_composite_crisis_score,
-    )
-    import pandas as _pd
-    import numpy as _np
-
-    dates = _pd.date_range("2019-01-01", periods=400, freq="D")
-    spy = _np.linspace(280.0, 350.0, 400)
-    # Inject COVID-like crash days 200-230
-    for i in range(200, 230):
-        spy[i] = 350.0 * (1.0 - 0.30 * ((i - 200) / 30.0))
-    spy_s = _pd.Series(spy, index=dates)
-    qqq_s = _pd.Series(spy * 0.95, index=dates)
-
-    vix = _np.full(400, 18.0)
-    vix[200:230] = _np.linspace(20, 80, 30)
-    vix_s = _pd.Series(vix, index=dates)
-    hy = _np.full(400, 400.0)
-    hy[200:230] = _np.linspace(400, 1000, 30)
-    hy_s = _pd.Series(hy, index=dates)
-
-    trend = compute_market_trend_features(spy_s, qqq_s)
-    vol = compute_volatility_features(vix_s, trend.index)
-    credit = compute_credit_features(hy_s, trend.index)
-    features = _pd.concat([trend, vol, credit], axis=1)
-    features["crisis_score"] = compute_composite_crisis_score(features)
-
-    assert features.iloc[50]["crisis_score"] < 0.30, (
-        f"normal market crisis_score should be low: {features.iloc[50]['crisis_score']}"
-    )
-    assert features.iloc[225]["crisis_score"] > 0.45, (
-        f"crisis peak crisis_score should be elevated: {features.iloc[225]['crisis_score']}"
-    )
-    # PIT safety: truncated history gives identical score at past dates
-    truncated = features.iloc[:226]
-    trunc_score = compute_composite_crisis_score(truncated)
-    diff = abs(trunc_score.iloc[225] - features.iloc[225]["crisis_score"])
-    assert diff < 1e-9, f"PIT violation: score at T uses future data (diff={diff})"
-
-
-@_test("logic.plan_c_e1_drawdown_segment_classifier")
-def test_plan_c_e1_drawdown_classifier() -> None:
-    """Plan C v3.6 Phase E1 — drawdown segment classifier distinguishes
-    shock_crash from slow_bear by speed-to-10pct threshold."""
-    import sys as _sys
-    tools_dir = ROOT / "tools"
-    if str(tools_dir) not in _sys.path:
-        _sys.path.insert(0, str(tools_dir))
-    if "run_drawdown_segment_audit" in _sys.modules:
-        del _sys.modules["run_drawdown_segment_audit"]
-    from run_drawdown_segment_audit import compute_segments, EquitySource
-    import pandas as _pd
-    import numpy as _np
-
-    dates = _pd.date_range("2020-01-01", periods=200, freq="D")
-    eq = _np.ones(200)
-    # Two distinct DD patterns (above-threshold for clean classification)
-    for i in range(0, 21):
-        eq[i] = 1.0 + 0.15 * (i / 20.0)
-    peak1 = eq[20]
-    for i in range(21, 81):  # 60 days slow decline to -25% (clearly slow_bear)
-        eq[i] = peak1 * (1.0 - 0.25 * ((i - 20) / 60.0))
-    for i in range(81, 141):  # recovery
-        eq[i] = eq[80] + (peak1 - eq[80]) * ((i - 80) / 60.0)
-    peak2 = eq[140]
-    for i in range(141, 156):  # 15-day shock crash to -30%
-        eq[i] = peak2 * (1.0 - 0.30 * ((i - 140) / 15.0))
-    for i in range(156, 200):
-        eq[i] = eq[155] + (peak2 - eq[155]) * ((i - 155) / 44.0)
-    df = _pd.DataFrame({"rebalance_date": dates, "equity": eq})
-    src = EquitySource(
-        label="test", path=None, is_broker_ledger=False,
-        date_col="rebalance_date", equity_col="equity",
-        return_col=None, benchmark_col=None,
-        cash_weight_col=None, breaker_col=None,
-    )
-    segments = compute_segments(df, src, threshold=0.10)
-    assert len(segments) >= 2, f"expected >=2 segments, got {len(segments)}"
-    archetypes = segments["likely_archetype"].tolist()
-    assert "slow_bear" in archetypes, f"slow_bear missing from {archetypes}"
-    assert "shock_crash" in archetypes, f"shock_crash missing from {archetypes}"
-
-
-@_test("logic.plan_c_kill_switch_on_applies_capped_overlay")
-def test_plan_c_kill_switch_on_caps_bonus() -> None:
-    """Plan C v3.5 — when switch ON, SEC bonus is added but clipped at cap."""
+    from r1000_pipeline import add_total_score_columns
+
+    df = pd.DataFrame({"ticker": ["BASE"], "institutional_evidence_score": [0.0]})
+    rich = pd.DataFrame({"ticker": ["BASE"], "institutional_evidence_score": [1.0],
+                         "institutional_evidence_confidence_score": [1.0],
+                         "early_evidence_score": [1.0], "evidence_confidence_score": [1.0],
+                         "etf_holdings_score": [1.0], "etf_evidence_confidence": [1.0]})
+    cfg = EngineConfig(evidence_fusion_apply_to_live_score=False)
+    base_out = add_total_score_columns(df, cfg)
+    rich_out = add_total_score_columns(rich, cfg)
+    assert float(rich_out["evidence_fusion_score"].iloc[0]) > float(base_out["evidence_fusion_score"].iloc[0])
+    assert float(rich_out["score_evidence_fusion_overlay"].iloc[0]) == 0.0
+    assert abs(float(rich_out["score"].iloc[0]) - float(base_out["score"].iloc[0])) < 1e-12
+
+
+@_test("regression.plan_c_v35_evidence_switch_on_cap")
+def test_plan_c_v35_evidence_switch_on_cap() -> None:
+    """CHANGELOG 2026-05-21: switch ON applies only capped evidence bonus."""
     import pandas as pd
     from r1000_config import EngineConfig
-    from r1000_pipeline import _apply_evidence_kill_switch
+    from r1000_pipeline import add_total_score_columns
 
-    df = pd.DataFrame({
-        "score": [1.0],
-        "institutional_evidence_score": [0.8],
-        "institutional_evidence_confidence_score": [1.0],
-        "early_evidence_score": [0.5],
-        "evidence_confidence_score": [1.0],
+    df = pd.DataFrame({"ticker": ["X"], "institutional_evidence_score": [1.0],
+                       "institutional_evidence_confidence_score": [1.0],
+                       "early_evidence_score": [1.0], "evidence_confidence_score": [1.0],
+                       "etf_holdings_score": [1.0], "etf_evidence_confidence": [1.0]})
+    off = add_total_score_columns(df, EngineConfig(evidence_fusion_apply_to_live_score=False))
+    on = add_total_score_columns(df, EngineConfig(evidence_fusion_apply_to_live_score=True,
+                                                  evidence_fusion_bonus_cap=0.20,
+                                                  w_evidence_fusion_score=10.0))
+    delta = float(on["score"].iloc[0] - off["score"].iloc[0])
+    cap = 0.20 * abs(float(off["score"].iloc[0]))
+    assert abs(delta - float(on["score_evidence_fusion_overlay"].iloc[0])) < 1e-12
+    assert 0.0 <= delta <= cap + 1e-12
+
+
+@_test("regression.universe_collapse_guard_counts_r1000_base")
+def test_universe_collapse_guard_counts_r1000_base() -> None:
+    """Full Rebuild #82 regression: count_r1000_base_names must count only the
+    R1000 base sources (live IWB proxy or committed membership), so a starved
+    whitelist-only universe scores 0 and trips the guard."""
+    import pandas as pd
+    from r1000_pipeline import count_r1000_base_names, MIN_R1000_BASE_NAMES
+
+    # Healthy: ~693 R1000-base names (incl. combined-source labels) + whitelists
+    healthy = pd.DataFrame({
+        "universe_source": (
+            ["current_constituents_proxy"] * 690
+            + ["current_constituents_proxy+strategic_global_hardware"] * 3
+            + ["adr_whitelist"] * 28
+            + ["cycle_play_whitelist"] * 5
+        )
     })
-    # Manually construct cfg with switch ON + nonzero SEC weights
-    cfg = EngineConfig(
-        sec_evidence_apply_to_live_score=True,
-        sec_evidence_bonus_cap=0.20,
+    assert count_r1000_base_names(healthy) == 693
+    assert count_r1000_base_names(healthy) >= MIN_R1000_BASE_NAMES
+
+    # Starved (the #82 collapse): NO R1000 base, only static whitelists
+    starved = pd.DataFrame({
+        "universe_source": (
+            ["adr_whitelist"] * 28
+            + ["strategic_global_hardware"] * 22
+            + ["cycle_play_whitelist"] * 8
+        )
+    })
+    assert count_r1000_base_names(starved) == 0
+    assert count_r1000_base_names(starved) < MIN_R1000_BASE_NAMES
+
+    # Committed historical membership also counts as a healthy base
+    hist = pd.DataFrame({"universe_source": ["historical_membership_file"] * 500})
+    assert count_r1000_base_names(hist) == 500
+
+    # Robust to empty / missing-column frames
+    assert count_r1000_base_names(pd.DataFrame()) == 0
+    assert count_r1000_base_names(pd.DataFrame({"ticker": ["AAPL"]})) == 0
+
+
+@_test("regression.universe_collapse_guard_floor_threshold")
+def test_universe_collapse_guard_floor_threshold() -> None:
+    """The R1000 base floor must sit well above the 58-name starved collapse and
+    safely below the ~693 healthy base, so transient IWB failures fail loud."""
+    from r1000_pipeline import MIN_R1000_BASE_NAMES
+
+    assert 58 < MIN_R1000_BASE_NAMES < 693, (
+        f"MIN_R1000_BASE_NAMES={MIN_R1000_BASE_NAMES} must be between the 58-name "
+        f"starved collapse and the ~693 healthy base"
     )
-    # Inject weights via attribute (since this branch may not have the
-    # w_sec_* fields baked in yet, _apply_evidence_kill_switch reads via getattr)
-    object.__setattr__(cfg, "w_sec_institutional_evidence", 0.30)
-    object.__setattr__(cfg, "w_sec_insider_evidence", 0.20)
-    _apply_evidence_kill_switch(df, cfg)
-    # Raw bonus would be 0.30*0.8 + 0.20*0.5 = 0.34, capped at 0.20*|1.0| = 0.20
-    assert df["score"].iloc[0] <= 1.0 + 0.20 + 1e-6, (
-        f"score exceeded cap: {df['score'].iloc[0]} > 1.20"
+
+
+@_test("regression.iwb_static_seed_fallback_is_broad_base")
+def test_iwb_static_seed_fallback_is_broad_base() -> None:
+    """A tracked IWB seed keeps full rebuilds usable when live iShares/Wikipedia
+    fetches are blocked, while the universe-collapse guard still enforces a
+    broad R1000 base."""
+    from r1000_pipeline import MIN_R1000_BASE_NAMES, count_r1000_base_names, load_iwb_seed_universe_frame
+
+    seed_path = ROOT / "data_static" / "iwb_holdings_seed.csv"
+    assert seed_path.exists(), "tracked IWB seed missing"
+    with seed_path.open(newline="", encoding="utf-8") as fh:
+        seed_tickers = {row.get("ticker", "").strip().upper() for row in csv.DictReader(fh)}
+    assert len(seed_tickers - {""}) >= MIN_R1000_BASE_NAMES, "tracked IWB seed is too narrow"
+
+    seed = load_iwb_seed_universe_frame({"data_raw": ROOT / ".tmp_missing_data_raw"})
+    assert count_r1000_base_names(seed) >= MIN_R1000_BASE_NAMES
+    assert "current_constituents_proxy_static_seed" in set(seed["universe_source"].astype(str))
+
+
+@_test("structural.full_rebuild_workflow_blocks_starved_universe")
+def test_full_rebuild_workflow_blocks_starved_universe() -> None:
+    """full_rebuild_manual.yml must gate the latest_ baseline rotation on a
+    universe-health check (UNIVERSE_HEALTHY) so a starved run cannot overwrite
+    the shipped baseline (Full Rebuild #82 regression)."""
+    wf = (ROOT / ".github/workflows/full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert "UNIVERSE_HEALTHY" in wf, "universe-health gate missing from full rebuild workflow"
+    assert "current_constituents_proxy" in wf, "workflow gate must inspect R1000 base source"
+    # The validity gate that selects DEST + rotation must include UNIVERSE_HEALTHY
+    assert '[ "$UNIVERSE_HEALTHY" = "yes" ]' in wf, (
+        "RUN_ARTIFACT_VALID must require UNIVERSE_HEALTHY=yes"
     )
-    assert df["score"].iloc[0] >= 1.0 + 1e-9, (
-        f"score did not increase despite switch ON: {df['score'].iloc[0]}"
-    )
+    assert "INVALID_UNIVERSE" in wf, "workflow must mark starved runs INVALID_UNIVERSE"
+    assert "aggressive/cache/universe" in wf, "workflow must cache the offline IWB universe fallback"
+
+
+@_test("syntax.user_current_and_sync_tools_parse")
+def test_user_current_and_sync_tools_parse() -> None:
+    for rel in [
+        "tools/run_user_current_report.py",
+        "tools/build_gdrive_sync_manifest.py",
+        "tools/run_daily_crisis_monitor.py",
+        "tools/build_crisis_governed_target_books.py",
+        "tools/run_full_rebuild_sidecars.py",
+        "tools/run_execution_lag_review.py",
+        "tools/run_position_risk_review.py",
+        "tools/run_concentrated_broker_variant_review.py",
+        "tools/create_healthy_baseline_lock.py",
+        "tools/run_market_leader_challenger.py",
+        "tools/run_shakeout_disclosure_reversal_study.py",
+        "tools/run_pit_top_manager_follow_study.py",
+        "r1000_market_leader_engine.py",
+    ]:
+        ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+
+
+@_test("structural.workflow_profiles_operating_minimal_skip_research")
+def test_workflow_profiles_operating_minimal_skip_research() -> None:
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    for token in ["sidecar_profile:", "artifact_profile:", "gdrive_sync_mode:", "operating_minimal", "research_full"]:
+        assert token in wf, f"full_rebuild_manual.yml missing profile token {token}"
+    assert "run_full_rebuild_sidecars.py" in wf
+    assert 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then' in sidecar_tool
+    assert "heavy research sidecars skipped" in sidecar_tool
+    assert "run_user_current_report.py" in sidecar_tool
+    assert "run_daily_crisis_monitor.py" in sidecar_tool
+    assert 'if [ "$SIDECAR_PROFILE" = "official" ]; then' in sidecar_tool
+    assert "run_execution_lag_review.py" in sidecar_tool
+    assert "run_position_risk_review.py" in sidecar_tool
+    assert "run_concentrated_broker_variant_review.py" in sidecar_tool
+    assert "create_healthy_baseline_lock.py" in sidecar_tool
+    assert "run_market_leader_challenger.py" in sidecar_tool
+    assert "outputs/broker_position_risk_replay/" in wf
+    assert "outputs/broker_execution_policy_replay/" in wf
+    assert "outputs/operator_review/" in wf
+    assert "outputs/baseline_lock/" in wf
+    assert "outputs/market_leader_challenger/" in wf
+
+
+@_test("structural.pit_top_manager_follow_study_is_research_only")
+def test_pit_top_manager_follow_study_is_research_only() -> None:
+    src = (ROOT / "tools" / "run_pit_top_manager_follow_study.py").read_text(encoding="utf-8")
+    sidecar = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    post_wf = (ROOT / ".github" / "workflows" / "post_disclosure_alpha_pipeline.yml").read_text(encoding="utf-8")
+    manifest = (ROOT / "tools" / "build_gdrive_sync_manifest.py").read_text(encoding="utf-8")
+    for token in [
+        "completed post-disclosure labels",
+        "label_completion_ts",
+        "production_activation_allowed",
+        "score_total_changed",
+        "cohort_refresh_months",
+        "ranking_lookback_days",
+        "top_n",
+    ]:
+        assert token in src, f"PIT top-manager follow study missing {token}"
+    assert "run_pit_top_manager_follow_study.py" in sidecar
+    assert "outputs/pit_top_manager_follow_study/" in wf
+    assert "Run PIT top-manager follow study" in post_wf
+    assert "data_pit/sec/pit_top_manager_cohorts.*" in post_wf
+    assert "outputs/pit_top_manager_follow_study" in post_wf
+    assert "pit_top_manager_follow_study/bucket_performance.csv" in manifest
+
+
+@_test("structural.user_current_contains_no_research_metrics")
+def test_user_current_contains_no_research_metrics() -> None:
+    tool = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    for required in [
+        "01_current_holdings.csv",
+        "03_period_returns.csv",
+        "04_official_metrics.json",
+        "06_benchmark_comparison.csv",
+        "current simulated broker-ledger holdings only",
+    ]:
+        assert required in tool, f"user_current report missing {required}"
+    forbidden = ["portfolio_latest.csv", "concentrated_portfolio_latest.csv", "candidate_replay_book.csv"]
+    readme_block = re.search(r"def write_readme\b.*?def build_report", tool, re.DOTALL)
+    assert readme_block, "write_readme block not found"
+    for token in forbidden:
+        assert token not in readme_block.group(0), f"user_current README should not expose {token}"
+
+
+@_test("structural.gdrive_manifest_marks_deprecated_research")
+def test_gdrive_manifest_marks_deprecated_research() -> None:
+    src = (ROOT / "tools" / "build_gdrive_sync_manifest.py").read_text(encoding="utf-8")
+    for token in [
+        "semantic_type",
+        "production_valid",
+        "weight_level_research_deprecated",
+        "USER_CURRENT_FILES",
+        "strict-primary",
+        "gdrive_sync_manifest.json",
+        "execution_lag_review.json",
+        "position_risk_review.json",
+        "concentrated_broker_variant_review.json",
+    ]:
+        assert token in src, f"gdrive manifest tool missing {token}"
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert "build_gdrive_sync_manifest.py" in wf
+    assert "rclone copyto" in wf
+    assert "outputs/gdrive_sync_files.tsv" in wf
+
+
+@_test("structural.period_returns_include_mdd_and_benchmarks")
+def test_period_returns_include_mdd_and_benchmarks() -> None:
+    src = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    for token in ["max_drawdown", "BENCHMARKS = (\"SPY\", \"QQQ\")", "\"YTD\"", "\"2Y\"", "realized_volatility"]:
+        assert token in src, f"period return implementation missing {token}"
+
+
+@_test("structural.action_status_review_when_cash_policy_flag_present")
+def test_action_status_review_when_cash_policy_flag_present() -> None:
+    src = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    assert "cash_policy_flag" in src
+    assert "REVIEW_REQUIRED" in src
+    assert "DO_NOT_USE" in src
+    assert "official_metric_mode" in src
+    assert "broker_ledger_next_close" in src
+
+
+@_test("structural.evidence_nonzero_is_not_enough_without_selection_impact")
+def test_evidence_nonzero_is_not_enough_without_selection_impact() -> None:
+    src = (ROOT / "tools" / "audit_evidence_readiness.py").read_text(encoding="utf-8")
+    for token in [
+        "impact_audit",
+        "selection_impact",
+        "broker_impact",
+        "evidence_nonzero_ticker_count",
+        "Nonzero evidence is necessary but not sufficient",
+    ]:
+        assert token in src, f"evidence readiness audit missing {token}"
+
+
+@_test("structural.phase_g_requires_broker_ledger_official_metrics")
+def test_phase_g_requires_broker_ledger_official_metrics() -> None:
+    wf_path = ROOT / ".github" / "workflows" / "phase_g_crisis_evidence_liquidity_replay.yml"
+    assert wf_path.exists(), "Phase G crisis evidence liquidity workflow missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    tool = (ROOT / "tools" / "build_crisis_governed_target_books.py").read_text(encoding="utf-8")
+    for token in ["--run-broker-replay", "cost_bps", "phase_g_crisis_evidence_liquidity", "--require-learned-thresholds"]:
+        assert token in wf, f"Phase G workflow missing broker-ledger token {token}"
+    for token in ["decision_summary.json", "crisis_governed_broker_metrics.csv", "promotion_allowed_without_human_approval", "broker_ledger_next_close", "next_close", "learned_thresholds_required_but_missing"]:
+        assert token in tool, f"Phase G decision output missing {token}"
+
+
+@_test("structural.sec_13f_refresh_uses_historical_submissions")
+def test_sec_13f_refresh_uses_historical_submissions() -> None:
+    wf = (ROOT / ".github" / "workflows" / "sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
+    collector = (ROOT / "tools" / "run_sec_submissions_collector.py").read_text(encoding="utf-8")
+    for token in ["--include-older-submissions", "history_start", "2018-01-01", "max_filings", "1500"]:
+        assert token in wf, f"SEC 13F workflow missing historical backfill token {token}"
+    for token in ["SUBMISSIONS_ARCHIVE_URL", "filings.files", "include_older_submissions", "history_start"]:
+        assert token in collector, f"SEC submissions collector missing historical archive token {token}"
+
+
+@_test("structural.daily_crisis_monitor_has_hysteresis_and_shakeout_guard")
+def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
+    src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
+    wf = (ROOT / ".github" / "workflows" / "daily_crisis_monitor.yml").read_text(encoding="utf-8")
+    for token in [
+        "GREEN",
+        "WATCH",
+        "DEFENSE_REVIEW",
+        "REENTRY_READY",
+        "VIX-only cash raise is forbidden",
+        "single_name_shakeout_cash_raise_forbidden",
+        "long_crisis_daily_features.parquet",
+        "best_thresholds.json",
+        "future_labels_excluded",
+    ]:
+        assert token in src, f"daily crisis monitor missing {token}"
+    assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
+    assert "outputs/long_crisis_learning" in wf and "data_pit/macro" in wf
 
 
 # ======================================================================

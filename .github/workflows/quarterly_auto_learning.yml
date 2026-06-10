@@ -1,0 +1,216 @@
+name: Quarterly Auto-Learning Review
+
+# Scheduled runs are diagnostic by default. Manual dispatch can open a proposal
+# PR or promote gated rules once evidence thresholds are satisfied.
+
+on:
+  schedule:
+    - cron: '0 5 1 1,4,7,10 *'
+  workflow_dispatch:
+    inputs:
+      trades_path:
+        description: 'override trades.parquet path'
+        type: string
+        default: ''
+      clusters:
+        description: 'k-means cluster count'
+        type: string
+        default: '8'
+      dry_run:
+        description: 'print proposals only'
+        type: boolean
+        default: true
+      open_proposal_pr:
+        description: 'open a PR when feature-gate YAML changes'
+        type: boolean
+        default: false
+      promote_live:
+        description: 'promote candidate gates to active when thresholds pass'
+        type: boolean
+        default: false
+      ic_disable:
+        description: 'IC threshold for auto-disable'
+        type: string
+        default: '-0.05'
+      ic_amplify:
+        description: 'IC threshold for auto-amplify'
+        type: string
+        default: '0.10'
+      ic_min_n:
+        description: 'Min n trades for IC gate'
+        type: string
+        default: '25'
+      cluster_winrate_max:
+        description: 'Max win_rate for pattern_block'
+        type: string
+        default: '0.30'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto_learning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+          pip install "xgboost>=2.0" "scikit-learn>=1.4" shap
+
+      - name: Locate trade journal
+        id: locate_trades
+        run: |
+          OVERRIDE="${{ github.event.inputs.trades_path }}"
+          if [ -n "$OVERRIDE" ] && [ -f "$OVERRIDE" ]; then
+            echo "path=$OVERRIDE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for p in \
+            outputs/trade_journal/trades.parquet \
+            cloud_results/trade_journal/trades.parquet \
+            cloud_results/full/trade_journal/trades.parquet \
+            cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/trades.parquet
+          do
+            if [ -f "$p" ]; then
+              echo "path=$p" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "path=" >> "$GITHUB_OUTPUT"
+
+      - name: Run trade insights
+        if: steps.locate_trades.outputs.path != ''
+        run: |
+          mkdir -p outputs/trade_journal/insights
+          python tools/build_concentrated_trade_journal.py \
+            --latest-run cloud_results/full_rebuild/latest_global_alpha_universe \
+            --output-dir outputs/concentrated_trade_journal || true
+          ARGS="--trades ${{ steps.locate_trades.outputs.path }} --clusters ${{ github.event.inputs.clusters || '8' }}"
+          if [ -f outputs/concentrated_trade_journal/trades.csv ]; then
+            ARGS="$ARGS --extra-trades outputs/concentrated_trade_journal/trades.csv"
+          fi
+          python tools/trade_insights.py $ARGS
+
+      - name: Run feature-gate proposal
+        run: |
+          INSIGHTS=""
+          for d in \
+            outputs/trade_journal/insights \
+            cloud_results/trade_journal/insights \
+            cloud_results/full/trade_journal/insights \
+            cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights
+          do
+            if [ -f "$d/ic_matrix.csv" ] || [ -f "$d/cluster_winrate.csv" ]; then
+              INSIGHTS="$d"
+              break
+            fi
+          done
+          if [ -z "$INSIGHTS" ]; then
+            echo "[feature-gate] no insights available; skipping"
+            exit 0
+          fi
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          DRY_RUN="${DRY_RUN:-true}"
+          ARGS="--insights $INSIGHTS"
+          ARGS="$ARGS --ic-disable ${{ github.event.inputs.ic_disable || '-0.05' }}"
+          ARGS="$ARGS --ic-amplify ${{ github.event.inputs.ic_amplify || '0.10' }}"
+          ARGS="$ARGS --ic-min-n ${{ github.event.inputs.ic_min_n || '25' }}"
+          ARGS="$ARGS --cluster-winrate-max ${{ github.event.inputs.cluster_winrate_max || '0.30' }}"
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python tools/feature_gate_proposal.py $ARGS | tee proposal_output.txt
+
+      - name: Run auto-learning promotion gate
+        run: |
+          PROMOTE_LIVE="${{ github.event.inputs.promote_live }}"
+          if [ "$PROMOTE_LIVE" = "true" ]; then
+            python tools/auto_learning_promote.py | tee auto_learning_promote_output.txt
+          else
+            python tools/auto_learning_promote.py --dry-run | tee auto_learning_promote_output.txt
+          fi
+
+      - name: Open feature-gate proposal PR
+        if: github.event.inputs.open_proposal_pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet research/auto_feature_gates.yaml; then
+            echo "[proposal-pr] no feature-gate YAML changes"
+            exit 0
+          fi
+          BRANCH="auto-feature-gate-proposal-$(date +%Y%m%d)"
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          git checkout -b "$BRANCH"
+          git add research/auto_feature_gates.yaml
+          git add outputs/trade_journal/insights/proposal_diff.md 2>/dev/null || true
+          git commit -m "chore(phase18c): auto feature gate proposal $(date +%Y-%m-%d)"
+          for i in 1 2 3 4; do
+            if git push -u origin "$BRANCH"; then
+              break
+            fi
+            sleep $((2 ** i))
+          done
+          BODY=""
+          if [ -f outputs/trade_journal/insights/proposal_diff.md ]; then
+            BODY="$(cat outputs/trade_journal/insights/proposal_diff.md)"
+          fi
+          gh pr create \
+            --title "chore(phase18c): auto feature gate proposal $(date +%Y-%m-%d)" \
+            --body "$BODY" \
+            --base master \
+            --head "$BRANCH" \
+            --label "phase18c" \
+            --label "auto-proposal" || true
+
+      - name: Upload quarterly learning artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarterly-auto-learning-${{ github.run_id }}
+          path: |
+            outputs/trade_journal/insights/
+            outputs/concentrated_trade_journal/
+            outputs/auto_learning/
+            proposal_output.txt
+            auto_learning_promote_output.txt
+            research/auto_feature_gates.yaml
+          retention-days: 730
+
+      - name: Commit quarterly learning snapshots
+        if: always()
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          mkdir -p cloud_results/trade_journal/insights cloud_results/auto_learning cloud_results/concentrated_trade_journal
+          cp -v outputs/trade_journal/insights/* cloud_results/trade_journal/insights/ 2>/dev/null || true
+          cp -vr outputs/concentrated_trade_journal/* cloud_results/concentrated_trade_journal/ 2>/dev/null || true
+          cp -vr outputs/auto_learning/* cloud_results/auto_learning/ 2>/dev/null || true
+
+          git pull --rebase --autostash || true
+          git add cloud_results/trade_journal/insights/ cloud_results/concentrated_trade_journal/ cloud_results/auto_learning/ 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): quarterly auto-learning $(date +%Y-%m-%d) [skip ci]"
+          for i in 1 2 3 4; do
+            if git push; then
+              break
+            fi
+            sleep $((2 ** i))
+          done

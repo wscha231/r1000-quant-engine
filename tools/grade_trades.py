@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""grade_trades — Phase 18a (2026-04-30) ad-hoc trade grading CLI.
+"""grade_trades - Phase 18a ad-hoc trade grading CLI.
 
-Reads outputs/trade_journal/holdings_history.parquet (produced by the
-last backtest run), pairs entries with exits, applies grade rules,
-and writes outputs/trade_journal/{trades,grades}.parquet.
-
-Use this when:
-  * you want to re-grade with updated rule thresholds without re-running
-    the whole backtest
-  * you have a holdings_history.parquet downloaded from cloud_results/
-    and want a local digest
+Reads outputs/trade_journal/holdings_history.parquet, pairs entries with exits,
+applies grade rules, and writes trades.parquet plus grades.parquet.
 
 Usage
-=====
+-----
     python tools/grade_trades.py
     python tools/grade_trades.py --history outputs/trade_journal/holdings_history.parquet
-    python tools/grade_trades.py --history /path/to/file.parquet --out-dir /tmp/journal
     python tools/grade_trades.py --print-digest
 """
 from __future__ import annotations

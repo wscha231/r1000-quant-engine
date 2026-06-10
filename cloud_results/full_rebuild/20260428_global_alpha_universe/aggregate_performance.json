@@ -1,0 +1,43 @@
+{
+  "as_of": "2026-04-28T06:47:31.434158+00:00",
+  "sleeves": {
+    "core_ml": {
+      "allocation": 0.6,
+      "cagr": 0.2261860718365465,
+      "sharpe": 1.235603708090176,
+      "max_dd": -0.25084373571913887,
+      "ir": 0.7646820613312076,
+      "n_holdings": 0
+    },
+    "concentrated": {
+      "allocation": 0.3,
+      "cagr": 0.30491752609950784,
+      "sharpe": 1.3235686129046607,
+      "max_dd": -0.25652633941928205,
+      "ir": NaN,
+      "n_holdings": 10
+    },
+    "event_driven": {
+      "allocation": 0.1,
+      "cagr": NaN,
+      "sharpe": NaN,
+      "max_dd": NaN,
+      "ir": NaN,
+      "n_holdings": 0
+    }
+  },
+  "aggregate": {
+    "cagr_linear_approx": 0.22718690093178023,
+    "max_dd_proxy": -0.22746414325726794,
+    "sharpe_weighted": 1.2649253430283376,
+    "total_n_holdings": 10,
+    "allocations_sum": 0.9999999999999999
+  },
+  "notes": [
+    "cagr_linear_approx is the allocation-weighted average of sleeve CAGRs.",
+    "True compound aggregate is slightly higher when sleeves rebalance independently.",
+    "max_dd_proxy assumes simultaneous worst-case across sleeves (pessimistic).",
+    "Real DD depends on inter-sleeve correlation and is captured only in",
+    "  daily-NAV-level aggregation (TODO: P11b lifetime NAV ledger)."
+  ]
+}

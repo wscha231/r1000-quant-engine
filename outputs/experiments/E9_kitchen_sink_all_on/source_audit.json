@@ -1,0 +1,23 @@
+{
+  "alpha_sprint": {
+    "raw_weight_sum": 0,
+    "rows": 1,
+    "skipped_rows": 1,
+    "source": "outputs/alpha_sprint/portfolio_latest.csv",
+    "valid_positions": 0
+  },
+  "concentrated": {
+    "raw_weight_sum": 1.0,
+    "rows": 5,
+    "skipped_rows": 0,
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_portfolio_latest.csv",
+    "valid_positions": 5
+  },
+  "main_v2": {
+    "raw_weight_sum": 0.9217969369608625,
+    "rows": 12,
+    "skipped_rows": 1,
+    "source": "outputs/main_v2/main_v2_latest.csv",
+    "valid_positions": 11
+  }
+}

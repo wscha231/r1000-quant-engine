@@ -1,0 +1,4 @@
+stress_window,status,reason
+2020,not_backtested,E2_main_v2_balanced is latest-snapshot Main v2 only; historical backtest not executed
+2022,not_backtested,E2_main_v2_balanced is latest-snapshot Main v2 only; historical backtest not executed
+2025-2026 momentum,not_backtested,E2_main_v2_balanced is latest-snapshot Main v2 only; historical backtest not executed

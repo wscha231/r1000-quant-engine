@@ -1,0 +1,142 @@
+name: Daily AutoLearning Scan
+
+# Report-only daily scan after the US market close. This workflow detects
+# missed winners, stale holdings, and leadership rotations; it never changes
+# production portfolio behavior.
+
+on:
+  workflow_dispatch:
+    inputs:
+      latest_run:
+        description: 'artifact source path to inspect'
+        type: string
+        default: cloud_results/full_rebuild/latest_global_alpha_universe
+  schedule:
+    # 22:30 UTC is after the regular US close in both DST and standard time.
+    # In Korea this is 07:30 KST on the following day.
+    - cron: '30 22 * * 1-5'
+
+permissions:
+  contents: read
+
+jobs:
+  daily_scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install scan dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance pyyaml pyarrow
+
+      - name: Run winner lifecycle diagnostics
+        run: |
+          LATEST_RUN="${{ inputs.latest_run }}"
+          if [ -z "$LATEST_RUN" ]; then
+            LATEST_RUN="cloud_results/full_rebuild/latest_global_alpha_universe"
+          fi
+          python tools/run_winner_lifecycle_reports.py \
+            --latest-run "$LATEST_RUN" \
+            --output-dir outputs/winner_lifecycle
+
+          if [ -f "$LATEST_RUN/scored_latest.csv" ]; then
+            python tools/run_winner_onset_study.py \
+              --scored "$LATEST_RUN/scored_latest.csv" \
+              --top-tickers 120 \
+              --limit 80 \
+              --years 10 \
+              --sleep 0 \
+              --output-dir outputs/winner_onset_study
+
+            python tools/run_shakeout_breakdown_study.py \
+              --scored "$LATEST_RUN/scored_latest.csv" \
+              --top-tickers 120 \
+              --limit 80 \
+              --years 10 \
+              --sleep 0 \
+              --output-dir outputs/shakeout_breakdown_study
+          else
+            echo "WARN: $LATEST_RUN/scored_latest.csv missing; skipping onset and shakeout studies."
+          fi
+
+          if [ -f "$LATEST_RUN/reports/main_monthly_weights.csv" ]; then
+            python tools/run_main_cash_drag_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/main_cash_drag_replay
+            python tools/run_historical_trade_journey.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/historical_trade_journey
+          else
+            echo "WARN: $LATEST_RUN/reports/main_monthly_weights.csv missing; skipping cash drag replay and historical trade journey."
+          fi
+
+          if [ -f "$LATEST_RUN/reports/candidate_replay_book.csv" ]; then
+            python tools/run_main_v2_backtest.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/main_v2_backtest
+            python tools/run_concentrated_policy_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/concentrated_policy_replay
+            python tools/run_alpha_sprint_backtest.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/alpha_sprint_backtest
+            python tools/run_position_aware_risk_replay.py \
+              --holdings outputs/main_v2_backtest/monthly_holdings.csv \
+              --output-dir outputs/position_aware_risk_replay
+            python tools/run_monster_lifecycle_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy concentrated \
+              --output-dir outputs/monster_lifecycle_replay
+            python tools/run_lifecycle_review_overlay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy lifecycle_review_main \
+              --output-dir outputs/lifecycle_review_overlay_main
+            python tools/run_monster_lifecycle_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy lifecycle_review_main \
+              --output-dir outputs/monster_lifecycle_review_main
+            python tools/run_monster_lifecycle_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy lifecycle_review_concentrated \
+              --output-dir outputs/monster_lifecycle_review_concentrated
+          else
+            echo "WARN: $LATEST_RUN/reports/candidate_replay_book.csv missing; skipping historical challenger replays."
+          fi
+
+          python tools/run_autolearning_winner_challenger.py \
+            --latest-run "$LATEST_RUN" \
+            --lifecycle-dir outputs/winner_lifecycle \
+            --onset-dir outputs/winner_onset_study \
+            --shakeout-dir outputs/shakeout_breakdown_study \
+            --output-dir outputs/autolearning_winner_challenger
+
+      - name: Upload daily diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-autolearning-scan-${{ github.run_id }}
+          path: |
+            outputs/winner_lifecycle/
+            outputs/winner_onset_study/
+            outputs/shakeout_breakdown_study/
+            outputs/main_cash_drag_replay/
+            outputs/main_v2_backtest/
+            outputs/concentrated_policy_replay/
+            outputs/alpha_sprint_backtest/
+            outputs/position_aware_risk_replay/
+            outputs/monster_lifecycle_replay/
+            outputs/lifecycle_review_overlay_main/
+            outputs/monster_lifecycle_review_main/
+            outputs/monster_lifecycle_review_concentrated/
+            outputs/historical_trade_journey/
+            outputs/autolearning_winner_challenger/
+          retention-days: 90

@@ -1,0 +1,62 @@
+Traceback (most recent call last):
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/run_local.py", line 715, in main
+    result = run_default_pipeline(pipeline_cfg)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 452, in run_default_pipeline
+    return run_last_n_years_backtest(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 439, in run_last_n_years_backtest
+    return run_all(cfg_obj)
+           ^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 18816, in run_all
+    feature_store = build_feature_store(cfg)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 8108, in build_feature_store
+    universe = build_universe_monthly(cfg)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 7289, in build_universe_monthly
+    candidates = build_candidate_universe(cfg, paths)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 3784, in build_candidate_universe
+    raise RuntimeError(
+RuntimeError: R1000 base universe collapsed: only 0 current_constituents_proxy/historical_membership_file names (need >= 400). Live IWB (Russell 1000) fetch likely failed AND no healthy cached universe (prev base=0). Refusing to ship a starved 162-name universe that would REGRESS the baseline. Restore the data source / cached universe and re-run.
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        4e57eb6 (DIRTY)
+  started:       2026-05-26 10:57:49 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-05-26
+  mode:          FULL REBUILD
+  fast_mode:     True
+  universe_mode: global_alpha_universe
+  backtest_years: 8
+  leader_rescue: latest_only
+  collector:     skipped
+  verdict_only:  False
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+WARNING: feature_store missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+OK: companyfacts.zip 0.3d old, 1320 MB
+
+[2026-05-26 10:57:51 KST] >>> Step 1: Collector SKIPPED
+
+[2026-05-26 10:57:51 KST] >>> Step 2: Pipeline (FULL REBUILD)
+[01:57:51] [commit=4e57eb6] [engine_version=2026-05-20-sec-evidence-overlay-merge] Running default full pipeline with rolling window (years=8, end_date=2026-05-26, reuse_existing_artifacts=True, resume_partial_walkforward=False)
+[01:57:51] Running rolling backtest window 2018-05-26 -> 2026-05-26 (window_years=8, train_lookback_years=5)
+[01:57:51] [fast_mode] ON -- lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.
+[01:57:51] Phase 3: building feature store ...
+[01:57:51] Phase 1/2: building monthly universe ...
+[01:57:51] Building candidate universe from free sources ...
+[01:57:52] [WARN] IWB holdings fetch failed: No .ajax id found: https://www.ishares.com/us/products/239707/ishares-russell-1000-etf
+[01:57:52] [WARN] leader-rescue S&P500 fetch failed: HTTP Error 403: Forbidden
+[01:57:52] [WARN] leader-rescue Nasdaq-100 fetch failed: HTTP Error 403: Forbidden
+[01:57:52] Strategic global hardware universe injection: candidates=25, added_pre_dedup=25
+[01:57:52] Global alpha universe injection: mode=global_alpha_universe, whitelist=105, added=103
+[01:57:52] Cycle play universe injection: mode=global_alpha_universe, whitelist=35, added=34
+[01:57:52] Downloading SEC company_tickers.json ...
+[2026-05-26 10:57:53 KST] Pipeline FAILED:
+Captured tail of: outputs/full_rebuild_logs/20260526_015748_global_alpha_universe.log (61 total lines)

@@ -1,44 +1,21 @@
 #!/usr/bin/env python3
-"""feature_gate_proposal — Phase 18c (2026-04-30) auto feature-gate drafter.
+"""feature_gate_proposal - Phase 18c auto feature-gate drafter.
 
-User insight (2026-04-29):
-  "AlphaGo or 엔진처럼 개선을 구체적이고 자동화"
+Reads trade-journal insights and drafts proposed signal gates in
+research/auto_feature_gates.yaml. The intended flow is human-in-the-loop: open
+the YAML as a PR, review it, then merge only approved gates.
 
-Reads `outputs/trade_journal/insights/{ic_matrix,cluster_winrate,
-shap_importance}.csv` (produced by 18b) and drafts proposed gates in
-`research/auto_feature_gates.yaml`. Human-in-loop = the yaml is opened
-as a PR; merge applies the gates on the next FULL rebuild.
-
-Three gate categories
-=====================
-
-1. **signal_regime_disable** — when (signal × regime) IC < threshold
-   AND n >= min_n, propose multiplying that signal's contribution by
-   `factor` (default 0.0 = full disable) for trades originating in
-   that regime.
-
-2. **signal_regime_amplify** — when (signal × regime) IC > +threshold
-   AND n >= min_n, propose factor > 1.0 (eg 1.30) to lean into the edge.
-
-3. **pattern_block** — when a k-means cluster has win_rate < threshold
-   AND n >= min_n, propose an exclusion mask over that cluster's
-   centroid signature (top-3 dominant signals).
-
-The drafter is CONSERVATIVE by default: thresholds are stricter than
-those in 18b's summary.md so the auto-proposal yields only the most
-robust findings. Tunable via CLI flags.
-
-Output
-======
-    research/auto_feature_gates.yaml         (draft; human reviews via PR)
-    outputs/trade_journal/insights/proposal_diff.md  (human-readable diff)
+Gate categories
+---------------
+1. signal_regime_disable - weak signal x regime IC.
+2. signal_regime_amplify - strong signal x regime IC.
+3. pattern_block - weak trade cluster win rate.
 
 Usage
-=====
+-----
     python tools/feature_gate_proposal.py
     python tools/feature_gate_proposal.py --ic-disable -0.05 --ic-amplify 0.10
-    python tools/feature_gate_proposal.py --dry-run         # print only
-    python tools/feature_gate_proposal.py --insights /path/to/csvs
+    python tools/feature_gate_proposal.py --dry-run
 """
 from __future__ import annotations
 

@@ -1,0 +1,9 @@
+ticker,Name,sector,portfolio_sleeve_label,score,style_row_turnaround_fit,market_style_regime_label
+PDD,PDD Holdings (Pinduoduo / Temu),Internet,unassigned,2.2259350934094124,0.3528048757933413,balanced
+APP,APPLOVIN CORP CLASS A,Information Technology,core_compounder,3.306095379518451,0.2281738954215693,balanced
+PLTR,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,6.455517956897906,0.2064025604893571,balanced
+AMZN,AMAZON.COM INC,Consumer Discretionary,core_compounder,5.208655931519202,0.2013066649286111,balanced
+CART,MAPLEBEAR INC,Consumer Staples,unassigned,-0.6132167569597982,0.1929503789610863,balanced
+GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.312940920602991,0.1850316452943491,balanced
+GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.497196146130775,0.1822711195258816,balanced
+UDR,UDR REIT INC,Real Estate,early_scout,1.4961481438800412,0.178138039540753,balanced

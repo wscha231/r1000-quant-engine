@@ -1,0 +1,294 @@
+{
+  "timestamp": "2026-05-10T14:26:46.297725",
+  "n_proposals": 8,
+  "proposals": [
+    {
+      "cluster_id": "C_0194",
+      "n_members": 4,
+      "n_unknown_members": 2,
+      "unknown_ratio": 0.5,
+      "avg_intra_corr": 0.606786395614498,
+      "avg_rs_60d_pct": 105.61015356707117,
+      "avg_mom_3m_pct": 116.82167689347996,
+      "member_tickers": [
+        "INTC",
+        "MU",
+        "SNDK",
+        "WDC"
+      ],
+      "sector_breakdown": {
+        "Information Technology": 4
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Information Technology",
+      "dominant_sector_pct": 1.0,
+      "suggested_theme_name": "emerging_information_technology",
+      "suggested_theme_yaml": {
+        "emerging_information_technology": {
+          "description": "Auto-discovered cluster (corr 0.61, RS 60d +105.6%). Review before accepting.",
+          "tickers": [
+            "INTC",
+            "MU",
+            "SNDK",
+            "WDC"
+          ]
+        }
+      },
+      "rationale": "4 members, avg_corr=0.61, avg_RS_60d=+105.6%, avg_mom_3m=+116.8%, unknown=50% (2/4), dominant sector=Information Technology (100%)"
+    },
+    {
+      "cluster_id": "C_0057",
+      "n_members": 3,
+      "n_unknown_members": 3,
+      "unknown_ratio": 1.0,
+      "avg_intra_corr": 0.6200725867306,
+      "avg_rs_60d_pct": 25.56957088762306,
+      "avg_mom_3m_pct": 34.34240502125639,
+      "member_tickers": [
+        "DV",
+        "ROKU",
+        "XYZ"
+      ],
+      "sector_breakdown": {
+        "Communication": 2,
+        "Financials": 1
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Communication",
+      "dominant_sector_pct": 0.6666666666666666,
+      "suggested_theme_name": "emerging_communication_broad",
+      "suggested_theme_yaml": {
+        "emerging_communication_broad": {
+          "description": "Auto-discovered cluster (corr 0.62, RS 60d +25.6%). Review before accepting.",
+          "tickers": [
+            "DV",
+            "ROKU",
+            "XYZ"
+          ]
+        }
+      },
+      "rationale": "3 members, avg_corr=0.62, avg_RS_60d=+25.6%, avg_mom_3m=+34.3%, unknown=100% (3/3), dominant sector=Communication (67%)"
+    },
+    {
+      "cluster_id": "C_0072",
+      "n_members": 5,
+      "n_unknown_members": 5,
+      "unknown_ratio": 1.0,
+      "avg_intra_corr": 0.6096096149375367,
+      "avg_rs_60d_pct": 24.477763207600866,
+      "avg_mom_3m_pct": 30.346175735887556,
+      "member_tickers": [
+        "CNC",
+        "CVS",
+        "ELV",
+        "HUM",
+        "UNH"
+      ],
+      "sector_breakdown": {
+        "Health Care": 5
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Health Care",
+      "dominant_sector_pct": 1.0,
+      "suggested_theme_name": "emerging_health_care",
+      "suggested_theme_yaml": {
+        "emerging_health_care": {
+          "description": "Auto-discovered cluster (corr 0.61, RS 60d +24.5%). Review before accepting.",
+          "tickers": [
+            "CNC",
+            "CVS",
+            "ELV",
+            "HUM",
+            "UNH"
+          ]
+        }
+      },
+      "rationale": "5 members, avg_corr=0.61, avg_RS_60d=+24.5%, avg_mom_3m=+30.3%, unknown=100% (5/5), dominant sector=Health Care (100%)"
+    },
+    {
+      "cluster_id": "C_0124",
+      "n_members": 3,
+      "n_unknown_members": 3,
+      "unknown_ratio": 1.0,
+      "avg_intra_corr": 0.5065304494682149,
+      "avg_rs_60d_pct": 29.395802849337382,
+      "avg_mom_3m_pct": 40.20403621044886,
+      "member_tickers": [
+        "ECG",
+        "JAZZ",
+        "UTHR"
+      ],
+      "sector_breakdown": {
+        "Industrials": 1,
+        "Health Care": 2
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Health Care",
+      "dominant_sector_pct": 0.6666666666666666,
+      "suggested_theme_name": "emerging_health_care_broad",
+      "suggested_theme_yaml": {
+        "emerging_health_care_broad": {
+          "description": "Auto-discovered cluster (corr 0.51, RS 60d +29.4%). Review before accepting.",
+          "tickers": [
+            "ECG",
+            "JAZZ",
+            "UTHR"
+          ]
+        }
+      },
+      "rationale": "3 members, avg_corr=0.51, avg_RS_60d=+29.4%, avg_mom_3m=+40.2%, unknown=100% (3/3), dominant sector=Health Care (67%)"
+    },
+    {
+      "cluster_id": "C_0247",
+      "n_members": 3,
+      "n_unknown_members": 3,
+      "unknown_ratio": 1.0,
+      "avg_intra_corr": 0.663286889995314,
+      "avg_rs_60d_pct": 16.734819205469805,
+      "avg_mom_3m_pct": 21.648993204024936,
+      "member_tickers": [
+        "CZR",
+        "MGM",
+        "PENN"
+      ],
+      "sector_breakdown": {
+        "Consumer Discretionary": 3
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Consumer Discretionary",
+      "dominant_sector_pct": 1.0,
+      "suggested_theme_name": "emerging_consumer_discretionary",
+      "suggested_theme_yaml": {
+        "emerging_consumer_discretionary": {
+          "description": "Auto-discovered cluster (corr 0.66, RS 60d +16.7%). Review before accepting.",
+          "tickers": [
+            "CZR",
+            "MGM",
+            "PENN"
+          ]
+        }
+      },
+      "rationale": "3 members, avg_corr=0.66, avg_RS_60d=+16.7%, avg_mom_3m=+21.6%, unknown=100% (3/3), dominant sector=Consumer Discretionary (100%)"
+    },
+    {
+      "cluster_id": "C_0061",
+      "n_members": 7,
+      "n_unknown_members": 4,
+      "unknown_ratio": 0.5714285714285714,
+      "avg_intra_corr": 0.613113712620707,
+      "avg_rs_60d_pct": 17.18670190583472,
+      "avg_mom_3m_pct": 25.24579791716514,
+      "member_tickers": [
+        "BLSH",
+        "COIN",
+        "CRCL",
+        "HOOD",
+        "MSTR",
+        "QS",
+        "SOFI"
+      ],
+      "sector_breakdown": {
+        "Financials": 4,
+        "Information Technology": 2,
+        "Consumer Discretionary": 1
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Financials",
+      "dominant_sector_pct": 0.5714285714285714,
+      "suggested_theme_name": "emerging_financials_broad",
+      "suggested_theme_yaml": {
+        "emerging_financials_broad": {
+          "description": "Auto-discovered cluster (corr 0.61, RS 60d +17.2%). Review before accepting.",
+          "tickers": [
+            "BLSH",
+            "COIN",
+            "CRCL",
+            "HOOD",
+            "MSTR",
+            "QS",
+            "SOFI"
+          ]
+        }
+      },
+      "rationale": "7 members, avg_corr=0.61, avg_RS_60d=+17.2%, avg_mom_3m=+25.2%, unknown=57% (4/7), dominant sector=Financials (57%)"
+    },
+    {
+      "cluster_id": "C_0175",
+      "n_members": 5,
+      "n_unknown_members": 5,
+      "unknown_ratio": 1.0,
+      "avg_intra_corr": 0.5276576035969899,
+      "avg_rs_60d_pct": 8.168202461489948,
+      "avg_mom_3m_pct": 17.24839892918559,
+      "member_tickers": [
+        "AAON",
+        "COLD",
+        "LAMR",
+        "LINE",
+        "MIDD"
+      ],
+      "sector_breakdown": {
+        "Industrials": 2,
+        "Real Estate": 3
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Real Estate",
+      "dominant_sector_pct": 0.6,
+      "suggested_theme_name": "emerging_real_estate_broad",
+      "suggested_theme_yaml": {
+        "emerging_real_estate_broad": {
+          "description": "Auto-discovered cluster (corr 0.53, RS 60d +8.2%). Review before accepting.",
+          "tickers": [
+            "AAON",
+            "COLD",
+            "LAMR",
+            "LINE",
+            "MIDD"
+          ]
+        }
+      },
+      "rationale": "5 members, avg_corr=0.53, avg_RS_60d=+8.2%, avg_mom_3m=+17.2%, unknown=100% (5/5), dominant sector=Real Estate (60%)"
+    },
+    {
+      "cluster_id": "C_0161",
+      "n_members": 6,
+      "n_unknown_members": 5,
+      "unknown_ratio": 0.8333333333333334,
+      "avg_intra_corr": 0.5640216394998796,
+      "avg_rs_60d_pct": 8.29749126453305,
+      "avg_mom_3m_pct": 14.924955342326719,
+      "member_tickers": [
+        "CGNX",
+        "CROX",
+        "EQIX",
+        "IPGP",
+        "PFGC",
+        "USFD"
+      ],
+      "sector_breakdown": {
+        "Information Technology": 2,
+        "Consumer Discretionary": 1,
+        "Real Estate": 1,
+        "Consumer Staples": 2
+      },
+      "industry_breakdown": {},
+      "dominant_sector": "Information Technology",
+      "dominant_sector_pct": 0.3333333333333333,
+      "suggested_theme_name": "emerging_cluster_C_0161",
+      "suggested_theme_yaml": {
+        "emerging_cluster_C_0161": {
+          "description": "Auto-discovered cluster (corr 0.56, RS 60d +8.3%). Review before accepting.",
+          "tickers": [
+            "CGNX",
+            "CROX",
+            "EQIX",
+            "IPGP",
+            "PFGC",
+            "USFD"
+          ]
+        }
+      },
+      "rationale": "6 members, avg_corr=0.56, avg_RS_60d=+8.3%, avg_mom_3m=+14.9%, unknown=83% (5/6), dominant sector=Information Technology (33%)"
+    }
+  ]
+}

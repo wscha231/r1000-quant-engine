@@ -1,0 +1,191 @@
+version: 2026-05-02-alphaops-plan
+branch: codex/integrate-phase17-19
+baseline_controls:
+  phase15d:
+    cagr: 0.2451
+    sharpe: 1.2453
+    max_dd: -0.2579
+    notes: "Shipped global_alpha_universe baseline."
+  latest_phase17_19:
+    commit: "242f02f"
+    cagr: 0.23345
+    sharpe: 1.2949
+    max_dd: -0.2374
+    concentrated_cagr: 0.37328
+    concentrated_sharpe: 1.4471
+    concentrated_max_dd: -0.2306
+    notes: "PARTIAL vs Phase 15-D; stronger Sharpe/DD, weaker CAGR."
+
+global_assumptions:
+  starting_capital_usd: 100000
+  trade_cost_bps_per_side: 25
+  official_backtest_years: 8
+  comparison_windows_years: [5, 8, 10]
+  universe_mode: global_alpha_universe
+  leverage_default: 1.0
+  auto_feature_gates_default: proposal_only
+  broker_execution_default: disabled
+  require_audit_features: true
+
+experiments:
+  - id: baseline_control
+    objective: "Confirm no metric drift before behavior changes."
+    changes:
+      behavior: none
+    required_outputs:
+      - outputs/backtest_metrics.json
+      - outputs/concentrated_backtest_metrics.json
+      - outputs/scored_latest.csv
+      - outputs/reports/backtest_window_comparison.csv
+      - outputs/trade_journal/trades.parquet
+
+  - id: main_target_n_sweep
+    objective: "Test whether main CAGR is diluted by too many holdings."
+    parameters:
+      main_target_n: [8, 10, 12, 17, 20, 30]
+      rebalance_interval_months: [1]
+      leverage: [1.0]
+    constraints:
+      keep_default_features: true
+      keep_trade_cost_bps_per_side: 25
+      keep_concentrated_continuation_override: true
+    compare_to:
+      - phase15d
+      - latest_phase17_19
+
+  - id: concentrated_target_n_sweep
+    objective: "Find risk-adjusted concentrated size for 35%+ CAGR target."
+    parameters:
+      concentrated_target_n: [3, 4, 5, 7, 10]
+      concentrated_capacity: [0.05, 0.10, 0.15, 0.20]
+    constraints:
+      continuation_override: true
+      no_chase_penalty_without_ab: true
+      max_dd_floor: -0.25
+
+  - id: regime_capacity_sweep
+    objective: "Test whether regime-conditioned capital reduces drawdown."
+    parameters:
+      capacity_map:
+        current:
+          main: {deep_bear: 0.35, bear: 0.50, neutral: 0.65, bull: 0.75, strong_bull: 0.80}
+          concentrated: {deep_bear: 0.05, bear: 0.05, neutral: 0.10, bull: 0.10, strong_bull: 0.10}
+          tactical: {deep_bear: 0.00, bear: 0.00, neutral: 0.00, bull: 0.05, strong_bull: 0.10}
+        conservative:
+          main: {deep_bear: 0.25, bear: 0.40, neutral: 0.60, bull: 0.75, strong_bull: 0.80}
+          concentrated: {deep_bear: 0.00, bear: 0.00, neutral: 0.05, bull: 0.10, strong_bull: 0.15}
+          tactical: {deep_bear: 0.00, bear: 0.00, neutral: 0.00, bull: 0.03, strong_bull: 0.08}
+        aggressive:
+          main: {deep_bear: 0.30, bear: 0.45, neutral: 0.65, bull: 0.70, strong_bull: 0.70}
+          concentrated: {deep_bear: 0.00, bear: 0.05, neutral: 0.10, bull: 0.15, strong_bull: 0.20}
+          tactical: {deep_bear: 0.00, bear: 0.00, neutral: 0.00, bull: 0.05, strong_bull: 0.10}
+    preconditions:
+      - regime_classifier_health_passes
+
+  - id: rebalance_cadence_sweep
+    objective: "Reduce churn without missing inflection winners."
+    parameters:
+      global_rebalance_interval_months: [1, 2, 3, 6]
+      sleeve_specific:
+        - {core: 1, future: 2, early: 1}
+        - {core: 2, future: 2, early: 1}
+        - {core: 3, future: 2, early: 1}
+        - {core: 3, future: 3, early: 1}
+    constraints:
+      trade_cost_bps_per_side: 25
+
+  - id: tactical_sleeve_gate
+    objective: "Evaluate tactical sleeve as capped bull-only alpha."
+    parameters:
+      tactical_capacity:
+        off: {bull: 0.00, strong_bull: 0.00}
+        small: {bull: 0.03, strong_bull: 0.08}
+        current: {bull: 0.05, strong_bull: 0.10}
+        stretch: {bull: 0.05, strong_bull: 0.15}
+    constraints:
+      neutral_capacity: 0.0
+      bear_capacity: 0.0
+      requires_standalone_positive_after_cost: true
+      explosion_model_health_required_for_explosion_weight: true
+
+  - id: auto_feature_gate_challenger
+    objective: "Test trade-journal learning proposals without direct activation."
+    candidate_source: "latest trade_journal proposal"
+    candidate_rules:
+      - amplify rs_acceleration_score in bull if IC remains positive
+      - disable weak theme multipliers in bear/neutral only if challenger passes
+    constraints:
+      active_yaml_creation: false
+      production_promotion: manual_after_gate
+      require_baseline_comparison: true
+
+  - id: risk_profile_sweep
+    objective: "Lower MaxDD without forced selling of valid winners."
+    parameters:
+      profile: [current, loose, strict]
+      hard_stop_pct: [-0.08, -0.10, -0.12]
+      trailing_stop_pct: [-0.12, -0.15, -0.18]
+      portfolio_dd_cash_raise:
+        - {dd: -0.10, cash: 0.30}
+        - {dd: -0.15, cash: 0.40}
+        - {dd: -0.20, cash: 0.50}
+    constraints:
+      preserve_continuation_winner_override: true
+
+  - id: cost_sensitivity
+    objective: "Ensure alpha survives realistic execution cost."
+    parameters:
+      trade_cost_bps_per_side: [10, 25, 50, 100]
+    required_for:
+      - production_gate
+      - tactical_gate
+      - concentrated_gate
+
+  - id: dynamic_theme_sidecar
+    objective: "Improve early winner discovery through dynamic theme membership."
+    inputs:
+      - etf_holdings_overlap
+      - industry_relative_strength
+      - sec_keyword_exposure
+      - event_keyword_exposure
+      - price_comovement_cluster
+    constraints:
+      production_filter: false
+      sidecar_first: true
+    success_metrics:
+      - early_winner_recall
+      - theme_leader_precision
+      - stability_across_refreshes
+
+  - id: conditional_leverage_later
+    objective: "Research-only leverage after unlevered gates pass."
+    parameters:
+      leverage: [1.0, 1.15, 1.25, 1.35]
+      allowed_regime: [strong_bull]
+    preconditions:
+      - unlevered_production_gate_passes
+      - leverage_gate_passes
+    default_status: deferred
+
+required_report_fields:
+  metrics:
+    - cagr
+    - sharpe
+    - max_dd
+    - excess_cagr
+    - information_ratio
+    - beat_month_ratio
+    - avg_turnover_monthly
+    - avg_cash
+    - avg_stock_names
+  diagnostics:
+    - window_actual_months
+    - selected_adr_count
+    - selected_cycle_play_count
+    - regime_distribution
+    - explosion_model_health
+    - trade_journal_row_counts
+    - data_coverage_summary
+    - stress_2020
+    - stress_2022
+

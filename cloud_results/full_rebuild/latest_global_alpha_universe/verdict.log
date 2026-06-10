@@ -1,0 +1,93 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        0e2ea6b (DIRTY)
+  started:       2026-05-27 22:15:30 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-05-27
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  leader_rescue: (cfg default)
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+OK: companyfacts.zip 1.4d old, 1320 MB
+
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 727
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         469
+early_scout        100
+future_winner       95
+core_compounder     63
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=727
+  phase9_core_eligible                      mean=0.087  sum=63
+  phase9_future_eligible                    mean=0.127  sum=92
+  phase9_early_eligible                     mean=0.138  sum=100
+  phase9_unassigned                         mean=0.649  sum=472
+  phase9_mktcap_percentile                  mean=0.501  sum=364
+
+Final portfolio: 19 positions
+  Sleeve dist: {'core_compounder': 4, 'early_scout': 6, 'future_winner': 8}
+  Top 10 by weight:
+ticker portfolio_sleeve_label   weight
+  CASH                    NaN 0.091864
+   VRT        core_compounder 0.080000
+  MRVL          future_winner 0.059485
+   ARM        core_compounder 0.059485
+  LRCX        core_compounder 0.059485
+   UMC            early_scout 0.057046
+  CBOE          future_winner 0.055056
+   OKE          future_winner 0.054841
+    SU          future_winner 0.054601
+  RKLB          future_winner 0.051427
+
+======================================================================
+METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.2919     0.2451        +4.68pp
+  sharpe                       1.6798     1.2453        +0.4345
+  max_dd                      -0.1714    -0.2579        +8.65pp
+  ir                           1.2362     1.0244        +0.2118
+  avg_turnover_monthly         0.5396     0.4854        +5.42pp
+  avg_stock_names             25.9157    24.3300        +1.5857
+  beat_month_ratio             0.6627     0.5663        +0.0964
+  excess_cagr                  0.1675     0.1102        +5.73pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.25, 'future_winner': 0.35, 'early_scout': 0.4}
+  actual:  {'core_compounder': 0.2493684640098618, 'future_winner': 0.40352946065210576, 'early_scout': 0.255238164422222}
+  counts:  {'core_compounder': 4, 'future_winner': 8, 'early_scout': 6}
+
+=== VERDICT ===
+  dCAGR    +4.68pp   (gate >= +0.5pp)
+  dSharpe  +0.4345    (gate >= -0.05)
+  dMaxDD   +8.65pp   (gate >= -3pp; positive better)
+  early_scout selected: 6    (gate >= 4)
+
+  --> SHIP vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). Rotate baseline + next phase.
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-02-27 at equity 5.8783
+  Lifetime CAGR:   30.18% over 6.83 years
+  Lifetime total:  505.86%
+  vs baseline CAGR (24.51%): +5.67pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.

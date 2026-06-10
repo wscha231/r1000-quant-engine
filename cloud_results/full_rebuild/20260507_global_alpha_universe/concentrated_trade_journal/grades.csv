@@ -1,0 +1,155 @@
+trade_id,ticker,grade_label,grade_reason,realized_return,alpha_vs_benchmark,holding_days,regime_at_entry,entry_sleeve
+7803df5f-f03c-45c5-907e-5929c37f36c7,ABT,WIN,realized=+9.16% alpha=+4.43%,0.09158895756421948,0.044331356764208296,30,balanced,concentrated_alpha
+3273bf49-9589-4d26-b401-c9020366ced1,ACN,NEUTRAL,realized=-0.27%,-0.002721599510328021,0.0004870295377331635,31,balanced,concentrated_alpha
+21bb7b33-b07d-4afd-9ee7-7480166a8e15,AEE,NEUTRAL,realized=-2.84%,-0.02843004206159261,-0.10558987407611098,0,balanced,concentrated_alpha
+d860fbc2-76c2-47d7-9cf5-02f6e3964726,AEE,NEUTRAL,realized=-2.84%,-0.028379313300494924,-0.05683870980675254,0,balanced,concentrated_alpha
+f2f527b4-7ecf-4144-8b11-4bcb8cb48bdd,AEP,NEUTRAL,realized=+3.84%,0.038368639932577775,-0.016904958184596586,31,balanced,concentrated_alpha
+b1de2c21-3494-45e2-96fd-d7f463e8d030,ALSN,NEUTRAL,realized=+4.20%,0.0420261629179679,0.026925220692612273,0,systemic_alert,concentrated_alpha
+cbe561c3-ea14-4436-86bc-dc1403925e7f,AMAT,GOOD_EXIT,realized=+22.33% alpha=+18.94% (top quartile),0.22327427102380826,0.1893673428388729,0,risk_off_alert,concentrated_alpha
+26d8a241-59bf-459c-b1ec-60f5fad3c877,AMZN,NEUTRAL,realized=+4.76%,0.04758648889297512,-0.03190593526916086,0,balanced,concentrated_alpha
+1691c40f-d595-4b08-8047-518e2ea18dd2,ANET,NEUTRAL,realized=-1.19%,-0.011868826806394783,-0.006679871008407945,0,balanced,concentrated_alpha
+6524ca6e-d7f4-4843-8c6c-68bd21e8e169,AVGO,NEUTRAL,realized=-8.00%,-0.07999999999999996,0.005897937903938888,0,growth_reentry_alert,concentrated_alpha
+3e8353b3-ddae-4aba-a1d8-994b37c73c3f,AVGO,GOOD_EXIT,realized=+55.67% alpha=+39.16% (top quartile),0.5566952428643697,0.3915731500539601,152,balanced,concentrated_alpha
+2cfba9e9-c3c9-4b4c-86fb-d785d2bb211f,AXON,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.08645368432771161,0,balanced,concentrated_alpha
+4bb498a2-2b74-413b-bc15-2cb8d548ce82,BIO,NEUTRAL,realized=+0.72%,0.0072276951996093075,-0.03901058706650962,0,balanced,concentrated_alpha
+a734ef46-e258-46cf-81f5-9382d55fe866,BIO,GOOD_EXIT,realized=+14.60% alpha=+16.69% (top quartile),0.14601590400837772,0.16688670381907356,0,balanced,concentrated_alpha
+543390f2-0e1f-47d9-9288-15ab39f9ad78,BKNG,NEUTRAL,realized=-2.98%,-0.02982275270765733,-0.10125451919872663,62,balanced,concentrated_alpha
+e5a71373-f5e0-4f97-a29b-7e3664ba5124,BKNG,NEUTRAL,realized=-1.06%,-0.010624388486756953,-0.07886113555551,59,balanced,concentrated_alpha
+32a581fe-eb4a-497f-9c41-249afdae45ac,BKNG,GOOD_EXIT,realized=+20.74% alpha=+17.12% (top quartile),0.20738246320707954,0.17123261142744073,31,balanced,concentrated_alpha
+4dc3ecee-7bba-4f21-95ae-efd2c684c3e7,BKNG,WIN,realized=+9.95% alpha=+4.03%,0.09950085243844642,0.04029462275824591,0,balanced,concentrated_alpha
+3bf0aafc-fdfb-4d82-b4d0-e4c345f7c97e,BLDR,WIN,realized=+6.58% alpha=+7.88%,0.06575965764359593,0.07879095682682358,0,risk_off_alert,concentrated_alpha
+176f13f2-d645-485e-ba3d-0c4a1a3d2ab8,CBOE,WIN,realized=+7.66% alpha=+9.27%,0.07664297835072453,0.09265416485108346,0,balanced,concentrated_alpha
+ea5f2aa0-e73b-4a76-89c4-b4e0ca1a7aa8,CBRE,GOOD_EXIT,realized=+21.64% alpha=+11.00% (top quartile),0.2164443248068062,0.11004418463570076,0,risk_off_alert,concentrated_alpha
+84869284-056c-4167-8c68-14b8254da01c,CHRD,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.11628156111594812,0,balanced,concentrated_alpha
+315e57ff-b642-47ba-a646-3c22ddf934a6,CMG,NEUTRAL,realized=-0.59%,-0.005867471273775515,-0.09687275384448035,31,balanced,concentrated_alpha
+9a15c888-90bf-44e1-8f1f-3f2632ab14ce,CNM,GOOD_EXIT,realized=+14.32% alpha=+11.10% (top quartile),0.14322331284092082,0.11096826727686016,0,balanced,concentrated_alpha
+12033938-4eee-4a63-9e3d-37e912d8acfa,CNM,NEUTRAL,realized=-1.47%,-0.014657130212168634,0.02832339715649923,0,balanced,concentrated_alpha
+6c6ec399-8217-4bce-9751-9da532f430c5,COO,NEUTRAL,realized=-4.70%,-0.04696669492913097,0.05525239541895188,31,balanced,concentrated_alpha
+e2f4bbf5-5eaa-4788-a87a-7de8f3325466,COR,WIN,realized=+5.12% alpha=+10.41%,0.05123171327116993,0.10408069293482625,0,balanced,concentrated_alpha
+c4f92f8d-40f7-49d9-9a2e-aaa5a1b5503d,CPRT,WIN,realized=+6.03% alpha=+6.79%,0.06026157948597932,0.06785341858009675,63,balanced,concentrated_alpha
+ac54f64f-3354-450c-9f0c-df50769f9c74,CPRT,NEUTRAL,realized=+10.78%,0.10776039045140084,-0.0085020326437244,92,balanced,concentrated_alpha
+19c453b7-412b-45d7-abfd-e88ac9d6c15f,CPRT,WIN,realized=+5.87% alpha=+2.29%,0.058705488953373575,0.02290136505274387,29,risk_off_alert,concentrated_alpha
+75e29c9d-7fc2-4179-b9f2-e21bd7339c12,CRWD,WIN,realized=+12.44% alpha=+9.63%,0.12440086370093084,0.09634306320402941,0,balanced,concentrated_alpha
+7f877f3e-d97c-4abd-b5cc-d02a242f4b09,CTRA,NEUTRAL,realized=-3.99%,-0.039868988421870144,-0.1240553466309664,0,balanced,concentrated_alpha
+f64c07af-a076-4060-a370-d6711029761a,DASH,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.042964039304445256,0,risk_off_alert,concentrated_alpha
+4b0002d5-40cb-4a09-8481-e6af4c67161c,DASH,GOOD_EXIT,realized=+18.40% alpha=+13.31% (top quartile),0.1840168233217192,0.1331285057174305,31,balanced,concentrated_alpha
+08c0e9a9-184e-42d7-be90-c3a46d2e433a,DDOG,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.05912920018930412,0,balanced,concentrated_alpha
+85bfcebb-3dea-4cc1-8ca3-e7f0aae9de24,DKS,GOOD_EXIT,realized=+15.41% alpha=+19.01% (top quartile),0.15412440714492193,0.19010005532924956,91,balanced,concentrated_alpha
+7e31507e-3f3c-40bb-be2b-a80aa4eb655c,DKS,WIN,realized=+7.00% alpha=+4.28%,0.0700301447201308,0.04284182622583499,0,growth_reentry_alert,concentrated_alpha
+95a39e65-7316-4f5a-9c97-e6783a96ce43,DKS,GOOD_EXIT,realized=+72.65% alpha=+58.52% (top quartile),0.7264728606170965,0.5851905375573505,91,balanced,concentrated_alpha
+44a9d3d2-65c1-4c5d-b13b-faf0869cde2a,DKS,NEUTRAL,realized=+8.59%,0.08588751512677062,-0.05167851700704085,122,balanced,concentrated_alpha
+86d86385-1002-4304-910e-a85fb58e52e7,DKS,NEUTRAL,realized=-1.76%,-0.017583344177366733,-0.014374715129305549,31,balanced,concentrated_alpha
+03c7c55b-2d57-4a0a-9899-b9431c8de8c2,DUOL,GOOD_EXIT,realized=+56.00% alpha=+49.86% (top quartile),0.5599828015896311,0.49855681138899577,91,balanced,concentrated_alpha
+685ac445-f70d-4ce0-a5ce-0a6cfddb96b9,DXCM,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.11025511171709612,0,risk_off_alert,concentrated_alpha
+a012e975-8e48-42d6-a88b-094c79f2a512,DXCM,WIN,realized=+6.65% alpha=+7.34%,0.06649396640712069,0.07335945569859847,32,balanced,concentrated_alpha
+e1dffb10-5341-437c-bc5e-a5cccec8edb9,ETR,NEUTRAL,realized=-6.42%,-0.06423527253476202,0.0030372286417141847,0,balanced,concentrated_alpha
+237e0289-ff7d-4aee-9949-cab8ffd68765,ETR,NEUTRAL,realized=+3.43%,0.03428537781996854,0.019184435594612914,0,systemic_alert,concentrated_alpha
+842b2535-3bc4-4758-b501-59378fc4d120,ETR,NEUTRAL,realized=-2.34%,-0.02343006252173252,-0.018294319489957855,0,risk_off_alert,concentrated_alpha
+4f3c33c7-11fe-4c50-aa65-31fb6ab0bc8a,ETR,NEUTRAL,realized=-2.06%,-0.02062483985906227,-0.04908423636531989,0,balanced,concentrated_alpha
+6ddcf40d-725e-4c7b-92b1-de6f117da1c3,ETR,NEUTRAL,realized=+4.74%,0.04740041165361952,0.09191027996951018,0,risk_off_alert,concentrated_alpha
+83a18542-52a6-4987-b994-dd291817df68,ETSY,WIN,realized=+14.69% alpha=+8.96%,0.14691943127962093,0.08955164196944643,0,balanced,concentrated_alpha
+0413cbbe-df71-4285-bc2c-64f256e976e0,EXE,NEUTRAL,realized=-1.60%,-0.01599005446634494,0.04555205241686666,29,balanced,concentrated_alpha
+33c01628-80b2-42f3-941f-e60a25e3b518,EXP,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.02787514385309464,0,balanced,concentrated_alpha
+2182fd19-bf8d-4704-b239-7d1df12be49c,EXPE,WIN,realized=+5.88% alpha=+3.48%,0.05882122220989583,0.03477617646397979,33,growth_reentry_alert,concentrated_alpha
+b3a1e798-bd51-4723-8123-27806f9d6a9e,FANG,WIN,realized=+6.15% alpha=+9.84%,0.06151499535761484,0.09836705538728496,0,balanced,concentrated_alpha
+a8f88cff-0e7f-429b-9649-157bfe2e477c,FCX,NEUTRAL,realized=-8.00%,-0.07999999999999996,0.005897937903938888,0,growth_reentry_alert,concentrated_alpha
+45b1d0d2-b3eb-4b0b-9151-938387e02453,FDS,NEUTRAL,realized=+1.27%,0.01267176727904995,0.07399069891774446,0,balanced,concentrated_alpha
+40d08f2a-4f88-4f6b-8498-cb95e7e7d36e,FDS,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.06696870081677231,0,risk_off_alert,concentrated_alpha
+968426b2-6bc9-4007-b383-a10cf56c4e19,FLEX,WIN,realized=+8.27% alpha=+2.72%,0.08274514502083052,0.027173269028771818,0,balanced,concentrated_alpha
+031fbe59-6f04-41ab-ad33-ead435d1bb66,GOOG,NEUTRAL,realized=+7.95%,0.07946391712586398,-0.03847617181028573,31,risk_off_alert,concentrated_alpha
+6ec98f4b-2b4a-4902-861c-7c5e11a3c7a1,GOOG,WIN,realized=+10.95% alpha=+7.56%,0.10949144610770412,0.07558451792276877,0,risk_off_alert,concentrated_alpha
+2ec39f6e-42a7-43c6-b42a-e583be0a5778,GOOG,NEUTRAL,realized=+0.80%,0.008024188022837553,0.005786944840704855,0,balanced,concentrated_alpha
+1d7be29e-d4b3-4b0c-8f56-fabef9e85e57,GOOGL,WIN,realized=+13.03% alpha=+8.73%,0.1303190480586307,0.08733507096484416,0,growth_reentry_alert,concentrated_alpha
+658c1583-7eef-4e05-ace4-cbe5d73a6d91,GOOGL,WIN,realized=+11.00% alpha=+9.45%,0.11001876702210223,0.09445836572023225,0,balanced,concentrated_alpha
+fda9a55c-6b93-4459-8ca0-52b4244990ab,GOOGL,NEUTRAL,realized=-7.28%,-0.07277590002744994,-0.035851347244459375,0,balanced,concentrated_alpha
+42e075a9-d77d-41fb-8dd7-ff416f3fe350,GTM,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.05818873044669426,0,growth_reentry_alert,concentrated_alpha
+761bf96b-d261-4f7e-a14a-4cbb34f13030,JBL,NEUTRAL,realized=-4.92%,-0.04919835312692811,0.01272380201820622,0,balanced,concentrated_alpha
+bc3b5237-d400-47a2-b40f-27e695c8afc8,JD,NEUTRAL,realized=+5.19%,0.051866579690506454,-0.09393791332710144,0,systemic_alert,concentrated_alpha
+ffee80f1-920e-4ce2-8b57-f8eaa19b0fa3,JD,NEUTRAL,realized=-0.93%,-0.009309394580260477,0.03204713356968347,0,balanced,concentrated_alpha
+3e9fabf0-cfce-415c-9f32-4c6f9d39aa6a,LRCX,GOOD_EXIT,realized=+17.52% alpha=+13.21% (top quartile),0.17519301737907855,0.132115047818667,0,balanced,concentrated_alpha
+2308cfea-d3c1-4ee7-8d23-c4a1a5c45f74,LRCX,NEUTRAL,realized=-7.73%,-0.07732486556314488,0.16435292807376267,59,balanced,concentrated_alpha
+47518aa3-4ee2-4df7-81c5-761a606c742e,LRCX,WIN,realized=+7.01% alpha=+3.97%,0.07009573106223832,0.03967620315059461,31,growth_reentry_alert,concentrated_alpha
+d8fe4e20-5215-48d0-9a25-6a69736a3bfb,LRCX,NEUTRAL,realized=+9.41%,0.0940710840584642,0.019531510218563808,33,risk_off_alert,concentrated_alpha
+d4bc7b53-e9d5-41af-b0e0-4beb0574a39f,LRCX,NEUTRAL,realized=-5.83%,-0.05825892162244517,-0.02133436883945461,0,balanced,concentrated_alpha
+a8aa72a0-a1b7-4a77-816d-bc3c72707495,LRCX,NEUTRAL,realized=+4.33%,0.043327032973416335,-0.01949536611899161,0,balanced,concentrated_alpha
+3702295f-28fe-4733-b31b-cc3025cac26b,LRCX,NEUTRAL,realized=-5.41%,-0.05413568097582866,-0.0012867013121723447,0,balanced,concentrated_alpha
+d00703e1-81ad-4f77-9886-6bbb5926550f,LRCX,NEUTRAL,realized=-1.75%,-0.017525824248459276,0.023214997413946947,0,balanced,concentrated_alpha
+dab6ce29-9e29-41ff-bea9-dbbd13b66c36,LRCX,NEUTRAL,realized=-0.04%,-0.00041960326968992767,-0.010932367210133576,0,balanced,concentrated_alpha
+0fef7b6c-e95a-41f6-9ccb-ca50cff189fc,LRCX,LOSS,realized=-13.04%,-0.13042582859291907,-0.06888372170970747,29,balanced,concentrated_alpha
+e69398dd-304f-4fb3-b645-88177b015493,LRCX,WIN,realized=+17.14% alpha=+10.36%,0.1713822300400989,0.1035726349258026,29,balanced,concentrated_alpha
+e067c8b1-bb86-42b8-85e1-7b0f2dd00bab,LRCX,GOOD_EXIT,realized=+76.51% alpha=+72.56% (top quartile),0.7650792161780617,0.7255572230918774,92,balanced,concentrated_alpha
+58bec34a-5bb8-47c1-9e41-eed7fad88f4b,MA,NEUTRAL,realized=+8.92%,0.08920826111413271,0.013014488227033105,28,risk_off_alert,concentrated_alpha
+874df94f-82f6-4de3-a996-30c42653512d,MA,GOOD_EXIT,realized=+10.42% alpha=+19.51% (top quartile),0.10417252702908164,0.195107601389925,123,balanced,concentrated_alpha
+226edb3f-39bc-4d85-a27d-2471b98a07a9,MA,WIN,realized=+15.02% alpha=+7.98%,0.15019305964549923,0.07976287215745059,0,balanced,concentrated_alpha
+0dcb4d07-1010-4699-837b-01a735a1e237,MA,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.1112115354808122,0,balanced,concentrated_alpha
+a06954a4-47a0-4f60-8164-5058194af1ea,MA,NEUTRAL,realized=-4.05%,-0.04046673992357053,-0.09936681887625398,0,risk_off_alert,concentrated_alpha
+8e4c3835-2cb9-4a52-bc29-491dd2d66bbf,MA,NEUTRAL,realized=+0.38%,0.003828207904380765,-0.05181172094338948,0,balanced,concentrated_alpha
+7a530272-ed1b-4472-a32c-afac78705b48,MA,NEUTRAL,realized=-3.70%,-0.036977560498621775,0.0370643864809902,60,balanced,concentrated_alpha
+e2fc0d1e-a4c6-4ad3-b373-eebcdd7a7723,MA,NEUTRAL,realized=+5.43%,0.05430697978978527,-0.0037933527121178923,90,balanced,concentrated_alpha
+f42e9e11-b654-4b05-b04c-cea163f645c1,MA,NEUTRAL,realized=-2.97%,-0.0296588191162952,-0.08919842101177067,91,risk_off_alert,concentrated_alpha
+2cf5cd74-b3d9-4b03-b9e5-f43ec592e593,MA,NEUTRAL,realized=-5.03%,-0.05026700147030794,-0.09635197639057957,0,balanced,concentrated_alpha
+7293c91b-f7a7-4d82-8426-9a0674804cef,MDB,NEUTRAL,realized=-3.83%,-0.038295734800200654,-0.016484465246894953,0,growth_reentry_alert,concentrated_alpha
+bc953426-f6cb-4a61-98e0-3eee69bc5640,MELI,WIN,realized=+14.21% alpha=+8.48%,0.1421218174968275,0.08475402818665301,0,balanced,concentrated_alpha
+8e81ee3f-5d6f-40c9-b68d-fcbaa3da319f,META,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.03864347185005601,0,balanced,concentrated_alpha
+2047e67d-9c07-42d3-998f-ee284b0094d8,MNST,NEUTRAL,realized=+6.47%,0.06468415529254457,-0.005746032195504069,0,balanced,concentrated_alpha
+4728eee2-a3d9-4f78-8ad7-37d0409c3a2b,MU,NEUTRAL,realized=-0.68%,-0.006798478621607318,-0.001057064108700767,0,balanced,concentrated_alpha
+67b4e4f1-90fb-4668-91d0-e28521b6beb0,MU,GOOD_EXIT,realized=+39.66% alpha=+37.94% (top quartile),0.396604826259777,0.3794041969649051,0,balanced,concentrated_alpha
+cd35b200-ebf6-49ce-8f45-d79a3d45236c,NDAQ,WIN,realized=+6.10% alpha=+3.29%,0.060997832632724736,0.032940032135823305,0,balanced,concentrated_alpha
+05739136-213a-489d-872b-41ffa5a194c1,NEU,NEUTRAL,realized=+1.55%,0.015476665497149655,-0.030608309423121982,0,balanced,concentrated_alpha
+d209391c-e474-4bd6-9749-28b118b517f6,NFG,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.012727498823523753,0,balanced,concentrated_alpha
+7c7252ec-6ebf-47d4-9254-bf1bfbb2fabf,NOW,NEUTRAL,realized=-4.09%,-0.04085514798744905,0.02046378365124546,0,balanced,concentrated_alpha
+4a985288-f066-408d-ba18-b68e9c20163c,NOW,WIN,realized=+9.46% alpha=+3.72%,0.09457801615219186,0.03721022684201736,0,balanced,concentrated_alpha
+4b56cd18-4947-455b-b864-8f2c9b2331ef,NOW,NEUTRAL,realized=-7.57%,-0.07567434711873611,-0.1523474707446716,0,balanced,concentrated_alpha
+52268f16-72ed-4b0b-b2c5-f31575c7a24e,NOW,NEUTRAL,realized=-5.32%,-0.05315765941030437,-0.012416837747898146,0,balanced,concentrated_alpha
+2c9fa149-b3ba-4795-b1fe-21d139bea05a,NOW,GOOD_EXIT,realized=+30.07% alpha=+21.72% (top quartile),0.3006728115692059,0.2172009182519956,94,balanced,concentrated_alpha
+7cb4f3ce-5e5f-4e4b-9ec0-5e2be0f27562,NVDA,GOOD_EXIT,realized=+33.99% alpha=+23.92% (top quartile),0.33991161763101907,0.2391771729157357,29,balanced,concentrated_alpha
+26985829-6c95-4b89-ab66-6dfd3be0bf45,NVDA,GOOD_EXIT,realized=+25.64% alpha=+18.59% (top quartile),0.2563735660035795,0.1859433785155309,0,balanced,concentrated_alpha
+b249b5a4-1dd4-4f8c-8fbb-1ae70f44c7bc,NVDA,NEUTRAL,realized=+4.01%,0.040118809015004864,-0.02506908878724534,28,risk_off_alert,concentrated_alpha
+3f776f31-6b30-47a9-ad2c-02fe73d7b3f8,NVDA,GOOD_EXIT,realized=+30.28% alpha=+25.64% (top quartile),0.3027777980478721,0.25638720114757474,61,balanced,concentrated_alpha
+bd20969e-a0f7-488c-9986-a54d558e9bbb,NVDA,NEUTRAL,realized=+3.34%,0.03343546737837122,0.018321925835874886,31,balanced,concentrated_alpha
+f45783c0-674d-41fa-8156-693737485c12,ON,NEUTRAL,realized=-7.82%,-0.07815841024753767,-0.06483885676721468,0,balanced,concentrated_alpha
+bacb0256-1b24-4c33-a71b-2d77c0c6e909,ORLY,NEUTRAL,realized=+1.24%,0.012444891189600238,-0.002866937328354302,0,growth_reentry_alert,concentrated_alpha
+c60ca10d-07d8-4e90-866a-856672f0c9c9,ORLY,NEUTRAL,realized=+5.38%,0.053845126026265344,0.008527740140652051,30,growth_reentry_alert,concentrated_alpha
+8ea9c297-befe-4670-99ba-f6beaf91f98e,ORLY,WIN,realized=+9.55% alpha=+3.27%,0.09549976627622447,0.03267736718381653,0,balanced,concentrated_alpha
+8fb004c4-1f3e-4e57-9109-4bbb931fd704,ORLY,NEUTRAL,realized=-2.18%,-0.021752115253333648,0.013285248955980267,31,balanced,concentrated_alpha
+6f467a6a-cd13-474f-8fb9-2549b1f649af,ORLY,GOOD_EXIT,realized=+38.62% alpha=+32.06% (top quartile),0.38623746271638737,0.32055946892238785,123,balanced,concentrated_alpha
+ddcf6aac-12b5-4c10-a361-8fb10e5a1402,ORLY,NEUTRAL,realized=+3.52%,0.03522589036379631,-0.00858654019861338,0,balanced,concentrated_alpha
+4787781a-a5e6-4b23-aab5-dafc12be16bc,ORLY,NEUTRAL,realized=-2.94%,-0.02935691342616642,-0.056545231920462236,0,growth_reentry_alert,concentrated_alpha
+236976db-cb4d-44eb-862f-b7feff3d2c40,ORLY,NEUTRAL,realized=+5.30%,0.05303125771356498,-0.031155100495531274,0,balanced,concentrated_alpha
+be53432d-89f0-46fd-a84b-ef0cab323233,ORLY,WIN,realized=+12.60% alpha=+2.92%,0.1259631720738823,0.02923717493213851,153,risk_off_alert,concentrated_alpha
+37df970c-874d-4c77-8f67-c32b098db75e,PANW,NEUTRAL,realized=+6.24%,0.06238943625517246,0.0034893573024890046,0,risk_off_alert,concentrated_alpha
+65bda66b-0c82-4a3a-8d25-720b39c65b21,PANW,NEUTRAL,realized=+1.63%,0.01625085626073952,-0.04657154283166842,0,balanced,concentrated_alpha
+cb800a35-24ea-4cb6-95e3-97f8fdd94f3f,PBA,WIN,realized=+8.66% alpha=+10.02%,0.08658534906933468,0.10017680832362463,0,balanced,concentrated_alpha
+6853f615-3ab7-432c-bcb2-71b8dd775e7a,PEG,NEUTRAL,realized=+0.56%,0.005619954001941263,-0.07449810243924015,0,risk_off_alert,concentrated_alpha
+274b4283-5d5b-4031-b5e6-559ce3668b3a,PEG,NEUTRAL,realized=-5.66%,-0.05657827013290484,-0.012068401817014185,0,risk_off_alert,concentrated_alpha
+ca09fa62-f669-4bed-82cc-9bebe9e545bb,PFGC,WIN,realized=+12.93% alpha=+7.00%,0.1292839003183468,0.07000647531287307,31,balanced,concentrated_alpha
+2f5a575f-204d-430f-bfb9-f38b23209eff,PLNT,NEUTRAL,realized=-1.40%,-0.014046439698242374,-0.02077511863721304,0,growth_reentry_alert,concentrated_alpha
+9487dd52-f7d0-4ff0-b81c-460deadd39ab,PPL,NEUTRAL,realized=+2.96%,0.02961202848478739,-0.016472946435484248,0,balanced,concentrated_alpha
+5a2dccbb-a74d-4e18-a4eb-4b72b1896fb4,PR,GOOD_EXIT,realized=+10.91% alpha=+15.36% (top quartile),0.10912313315133249,0.15363300146722314,0,risk_off_alert,concentrated_alpha
+5d00bbca-a890-4987-aa92-d971bf3091d1,RNG,NEUTRAL,realized=-8.00%,-0.07999999999999996,0.12054494325665088,0,risk_off_alert,concentrated_alpha
+06b4e023-ac95-41b0-b3ca-de1a323fd44d,SE,GOOD_EXIT,realized=+100.93% alpha=+90.85% (top quartile),1.0092781593182956,0.9085437146030122,29,balanced,concentrated_alpha
+fb3a2c81-bc66-4348-8e71-4f6608177920,SE,NEUTRAL,realized=+0.19%,0.0019145057919618402,0.04327103394190579,0,balanced,concentrated_alpha
+296608c8-c0a9-41de-8f1b-819d3547f52c,SMCI,GOOD_EXIT,realized=+72.07% alpha=+69.79% (top quartile),0.7207407407407407,0.6978716712591264,57,balanced,concentrated_alpha
+084b2d95-b1cf-4708-8dee-76618eea9686,STE,NEUTRAL,realized=-4.42%,-0.044193534140608115,-0.030602074886318165,0,balanced,concentrated_alpha
+6b615ece-b912-41c0-8581-53bda052ffcd,STLD,WIN,realized=+12.10% alpha=+3.68%,0.12097152702020209,0.03678516881110583,0,balanced,concentrated_alpha
+23cf8504-3d93-44c5-8ced-5e70f0050025,SYY,WIN,realized=+8.02% alpha=+9.38%,0.0802425208146933,0.09383398006898325,0,balanced,concentrated_alpha
+6c6f5e25-bd29-4817-b170-80c9bdba0b3a,THG,NEUTRAL,realized=-0.84%,-0.008407222535495529,0.004624076647732123,0,risk_off_alert,concentrated_alpha
+1394cac1-38e8-4f9d-b547-015d583bcb6e,TSCO,NEUTRAL,realized=+0.34%,0.003362090145368146,-0.05560054353351118,61,risk_off_alert,concentrated_alpha
+fefe3d1e-2e04-436d-9458-ea88225af9e4,TT,NEUTRAL,realized=+1.80%,0.0179999795640855,0.023188935362072338,0,balanced,concentrated_alpha
+6555f61f-4a49-4b81-af54-304b342d4ad5,TW,WIN,realized=+7.50% alpha=+5.39%,0.07501229870019555,0.053904911463776184,92,balanced,concentrated_alpha
+c3251001-e2e5-4da0-9a71-dd9dd0b39a78,TWLO,WIN,realized=+7.37% alpha=+5.40%,0.07374631268436582,0.053963301591720025,0,balanced,concentrated_alpha
+a7085450-445c-43a4-9d66-451880966708,UAL,NEUTRAL,realized=+4.09%,0.04085600022917868,-0.011951772781687131,0,balanced,concentrated_alpha
+a11e9992-73c0-4834-9f9a-fce4438cf492,V,NEUTRAL,realized=-3.30%,-0.03303950109928977,-0.02853307495592383,30,balanced,concentrated_alpha
+2a57e180-21b2-4df5-82f0-12ecb5c3b8a1,V,NEUTRAL,realized=+2.45%,0.024529990324116513,0.009218161806161973,0,growth_reentry_alert,concentrated_alpha
+348cd0c8-6ba8-4841-b43d-a744821d1b29,V,NEUTRAL,realized=+4.31%,0.04312215007762643,0.09524700622453175,0,balanced,concentrated_alpha
+470e89c3-e939-434a-b52c-3c9ed15b065d,V,WIN,realized=+5.70% alpha=+4.65%,0.057004723535118096,0.046544949754709464,30,balanced,concentrated_alpha
+7b2cbd31-b913-4e03-ae81-b20ceed7aa0e,VEEV,NEUTRAL,realized=-0.06%,-0.0006037365515908499,0.0030294621813437006,0,balanced,concentrated_alpha
+07c7b08d-9450-4f2c-8aeb-4a35ac2ecdfb,VEEV,GOOD_EXIT,realized=+25.99% alpha=+11.41% (top quartile),0.2598776657969881,0.11407317277938023,0,systemic_alert,concentrated_alpha
+b3ed593e-b5b2-4b71-95d3-350b0262a09f,VEEV,WIN,realized=+8.45% alpha=+6.49%,0.08454867982034231,0.0648708941521059,0,balanced,concentrated_alpha
+7e01aced-36f6-487b-ad2d-4f242c7bd3f7,VICI,NEUTRAL,realized=-2.71%,-0.027133640271647552,0.034185291367046955,0,balanced,concentrated_alpha
+2b2ea469-709e-49ef-9556-e3f0e52afdb5,VICI,WIN,realized=+14.62% alpha=+6.95%,0.14617703364981205,0.06950391002387657,0,balanced,concentrated_alpha
+ed50c69d-4f12-4051-97c5-5e4bbaa9592a,VLO,NEUTRAL,realized=-8.00%,-0.07999999999999996,-0.012727498823523753,0,balanced,concentrated_alpha
+3a616121-cd7a-414f-8910-9c4b0c64ee02,WCC,NEUTRAL,realized=+1.93%,0.019321768644257276,0.02953390229063968,94,balanced,concentrated_alpha
+efcc9f14-e3da-4c00-a2a8-127a7b6a9518,WDAY,WIN,realized=+5.77% alpha=+8.73%,0.05773989005375224,0.08727446419198259,0,growth_reentry_alert,concentrated_alpha
+a2474a77-9098-4aca-bce6-15abc9b3b975,WDC,GOOD_EXIT,realized=+28.68% alpha=+26.58% (top quartile),0.2867660814316646,0.2657906969996702,0,balanced,concentrated_alpha
+b0a7e2a4-506a-4da6-8fe7-cdbba2365874,WMB,WIN,realized=+7.73% alpha=+2.17%,0.07730259121086269,0.021662662363092444,0,balanced,concentrated_alpha

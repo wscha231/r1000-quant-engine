@@ -1,0 +1,4 @@
+sleeve,status,reason
+core,not_backtested,latest snapshot only
+future,not_backtested,latest snapshot only
+early,not_backtested,latest snapshot only

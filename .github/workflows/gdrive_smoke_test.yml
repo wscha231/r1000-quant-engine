@@ -1,0 +1,78 @@
+name: Google Drive Sync Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gdrive_smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Write smoke marker to Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
+        run: |
+          set -euo pipefail
+
+          AUTH=""
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            AUTH="oauth"
+          elif [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            AUTH="service_account"
+          else
+            echo "::error::No Google Drive auth secret set. Add GOOGLE_SERVICE_ACCOUNT_KEY or RCLONE_CONFIG_GDRIVE."
+            exit 1
+          fi
+          echo "[gdrive-smoke] auth=$AUTH"
+
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+
+          mkdir -p ~/.config/rclone
+          if [ "$AUTH" = "service_account" ]; then
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            python3 - <<'PY'
+          import json
+          with open("/tmp/sa.json", "r", encoding="utf-8") as f:
+              payload = json.load(f)
+          email = payload.get("client_email")
+          if not email:
+              raise SystemExit("GOOGLE_SERVICE_ACCOUNT_KEY is valid JSON but missing client_email")
+          print(f"[gdrive-smoke] service_account_email={email}")
+          PY
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          else
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          fi
+
+          MARKER="github_actions_gdrive_smoke_${GITHUB_RUN_ID}.txt"
+          printf 'r1000 GitHub Actions Google Drive smoke test\nrun_id=%s\nsha=%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_SHA" > "/tmp/$MARKER"
+
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            DEST="gdrive:_codex_smoke"
+          else
+            DEST="gdrive:${GDRIVE_FOLDER_NAME}/_codex_smoke"
+          fi
+
+          echo "[gdrive-smoke] writing $MARKER to $DEST/"
+          rclone mkdir "$DEST"
+          rclone copyto "/tmp/$MARKER" "$DEST/$MARKER"
+          rclone lsf "$DEST/" | grep -F "$MARKER"
+          echo "[gdrive-smoke] ok: marker is visible in Google Drive"

@@ -83,6 +83,9 @@ from r1000_config import (
     SAGE_SECTOR_MAP,
     YF_INDUSTRY_TO_GICS_GROUP,
     YF_QUARTERLY_COL_MAP,
+    PHASE21_STYLE_REGIME_COLUMNS,
+    SEC_EVIDENCE_COLUMNS,
+    ETF_HOLDINGS_EVIDENCE_COLUMNS,
 )
 
 
@@ -1427,9 +1430,20 @@ def compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series:
 # that feeds the sleeve composite at latest-scoring time.
 
 def datetime_series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
+    """Convert column to datetime[ns] Series, returning NaT for invalid.
+
+    Phase 15-C fix (2026-04-28): also mask 1970-01-01 (Unix epoch 0) as NaT.
+    `pd.to_datetime(0)` returns 1970-01-01, which leaks into outputs when an
+    upstream source has integer 0 for missing periods (e.g. some SEC
+    companyfacts payloads). For SEC fundamentals + market dates, anything
+    pre-1990 is bogus by construction. Mask these to NaT so downstream
+    code (and CSV exports) shows blanks instead of 1970 placeholders.
+    """
     if col not in df.columns:
         return pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
-    return pd.to_datetime(df[col], errors="coerce")
+    out = pd.to_datetime(df[col], errors="coerce")
+    # Mask 1970-era false positives — only valid SEC/market dates land here.
+    return out.where(out >= pd.Timestamp("1990-01-01"), pd.NaT)
 
 
 def count_present_columns(df: pd.DataFrame, cols: list[str]) -> pd.Series:
@@ -1465,6 +1479,36 @@ def sector_keyword_mask(sector_series: pd.Series, keywords: tuple[str, ...]) -> 
     if not pattern:
         return pd.Series(False, index=sector_series.index, dtype=bool)
     return sector_series.astype(str).str.contains(pattern, regex=True, na=False)
+
+
+def _load_finnhub_features_for_fallback() -> pd.DataFrame:
+    """Phase 15-D D1 (2026-04-29): load the aggressive Finnhub features parquet
+    so main pipeline's compute_live_factor_columns can use it as fallback for
+    eps_ttm / forward_pe / peg / dividend_yield when SEC + AlphaVantage chain
+    yields NaN.
+
+    On the SHIPPED 2026-04-28 scored_latest.csv: eps_ttm was 17% populated,
+    peg_final 49%, forward_pe_final 74%. Adding Finnhub TTM fallback lifts
+    each by 20-40% expected (Finnhub API has 99% R1000 coverage).
+
+    Returns DataFrame with ticker + fh_pe_ratio / fh_peg / fh_eps_ttm /
+    fh_dividend_yield columns. Empty DataFrame if file not found.
+    """
+    try:
+        from pathlib import Path as _Path
+        # Locate the Finnhub parquet relative to the package root.
+        repo_root = _Path(__file__).resolve().parent
+        candidate_paths = [
+            repo_root / "aggressive" / "state" / "finnhub" / "r1000_features.parquet",
+            repo_root.parent / "aggressive" / "state" / "finnhub" / "r1000_features.parquet",
+        ]
+        for p in candidate_paths:
+            if p.exists():
+                df = pd.read_parquet(p)
+                return df
+    except Exception:
+        pass
+    return pd.DataFrame()
 
 
 def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
@@ -1515,8 +1559,32 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         numeric_series_or_default(d, "roe_proxy", np.nan)
     )
 
+    # Phase 15-D D1 (2026-04-29): merge Finnhub fallback features once per call
+    # for use across forward_pe / peg / eps_ttm / dividend cascades. The main
+    # pipeline doesn't read aggressive/state/finnhub/r1000_features.parquet
+    # directly — only the advisor v3 does. Without this merge, eps_ttm was
+    # 17% / forward_pe_final 74% / peg_final 49% on SHIPPED data because
+    # SEC companyfacts + AlphaVantage free-tier (25 calls/day) leaves a wide
+    # gap. Finnhub has near-100% R1000 coverage.
+    _fh_features = _load_finnhub_features_for_fallback()
+    if not _fh_features.empty and "ticker" in d.columns:
+        # Use prefix to avoid collision with existing fh_* columns already in df
+        _fh_subset = _fh_features.rename(
+            columns={c: f"_fh_lookup_{c}" for c in _fh_features.columns if c != "ticker"}
+        )
+        d = d.merge(_fh_subset, on="ticker", how="left", suffixes=("", "_dup"))
+        # Drop any duplicate columns from suffix
+        d = d.loc[:, ~d.columns.duplicated(keep="first")]
+
+    def _fh_lookup(col: str) -> pd.Series:
+        """Helper to fetch finnhub fallback Series by original column name."""
+        return numeric_series_or_default(d, f"_fh_lookup_{col}", np.nan)
+
     d["forward_pe_final"] = numeric_series_or_default(d, "av_forward_pe", np.nan)
     d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "forward_pe", np.nan))
+    # Phase 15-D D1: Finnhub TTM PE fallback (peExclExtraTTM is the canonical TTM PE)
+    d["forward_pe_final"] = d["forward_pe_final"].fillna(_fh_lookup("fh_peExclExtra_ttm"))
+    d["forward_pe_final"] = d["forward_pe_final"].fillna(_fh_lookup("fh_peBasicExclExtra_ttm"))
     d["forward_pe_final"] = d["forward_pe_final"].fillna(
         (1.0 / numeric_series_or_default(d, "ep_ttm", np.nan)).where(
             numeric_series_or_default(d, "ep_ttm", np.nan) > 0
@@ -1526,6 +1594,9 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
 
     d["peg_final"] = numeric_series_or_default(d, "av_peg_ratio", np.nan)
     d["peg_final"] = d["peg_final"].fillna(numeric_series_or_default(d, "peg_ratio", np.nan))
+    # Phase 15-D D1: Finnhub PEG fallback (peg_5y based on peExclExtraTTM / 5Y growth)
+    d["peg_final"] = d["peg_final"].fillna(_fh_lookup("fh_peg_5y"))
+    d["peg_final"] = d["peg_final"].fillna(_fh_lookup("fh_peg_quarterly"))
 
     d["earnings_growth_final"] = numeric_series_or_default(d, "earnings_growth_final", np.nan)
     d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
@@ -1730,6 +1801,41 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         cross_sectional_robust_z(d, "earn_gap_1d")
         + cross_sectional_robust_z(d, "mom_1m")
     ) / 2.0
+
+    # Phase 15-D D4 (2026-04-29): PER/PEG verification — recompute trailing PE
+    # from raw mktcap / net_income and log delta vs forward_pe_final source.
+    # Helps catch data freshness issues (stale prices, mcap clipped) and lets
+    # users sanity-check valuation in scored_latest.csv.
+    _ni_ttm = numeric_series_or_default(d, "net_income_ttm", np.nan)
+    _mcap = numeric_series_or_default(d, "mktcap", np.nan)
+    # trailing PE = mktcap / net_income_ttm (positive earnings only)
+    d["trailing_pe_recomputed"] = (
+        _mcap.where(_mcap > 0) / _ni_ttm.where(_ni_ttm > 0)
+    )
+    # earnings yield from raw fundamentals (independent of analyst estimates)
+    d["earnings_yield_recomputed"] = (
+        _ni_ttm / _mcap.where(_mcap > 0)
+    )
+    # Source tracking — which fallback path produced forward_pe_final
+    fwd = numeric_series_or_default(d, "forward_pe_final", np.nan)
+    av = numeric_series_or_default(d, "av_forward_pe", np.nan)
+    legacy = numeric_series_or_default(d, "forward_pe", np.nan)
+    fh = numeric_series_or_default(d, "_fh_lookup_fh_peExclExtra_ttm", np.nan)  # NaN if already cleaned
+    # Order of fallback in compute_live_factor_columns above:
+    # 1) av_forward_pe, 2) forward_pe (legacy), 3) fh_peExclExtra_ttm, 4) 1/ep_ttm
+    forward_pe_source = pd.Series("none", index=d.index, dtype=object)
+    forward_pe_source = forward_pe_source.where(fwd.isna(), "ep_ttm")
+    forward_pe_source = forward_pe_source.where(fh.isna() | fwd.isna() | (fwd != fh), "finnhub")
+    forward_pe_source = forward_pe_source.where(legacy.isna() | fwd.isna() | (fwd != legacy), "legacy")
+    forward_pe_source = forward_pe_source.where(av.isna() | fwd.isna() | (fwd != av), "alpha_vantage")
+    d["forward_pe_source"] = forward_pe_source
+
+    # Phase 15-D D1 (2026-04-29): drop the temporary _fh_lookup_* columns
+    # used only for Finnhub fallback merges; downstream code should reference
+    # forward_pe_final / peg_final / etc. (already-merged final values).
+    _fh_lookup_cols = [c for c in d.columns if c.startswith("_fh_lookup_")]
+    if _fh_lookup_cols:
+        d = d.drop(columns=_fh_lookup_cols)
 
     return d
 
@@ -1948,6 +2054,7 @@ __all__ = [
     "compute_event_regime_features",
     "sector_indicator",
     "compute_macro_interaction_features",
+    "compute_market_style_regime_features",
     "compute_market_adaptation_features",
     "compute_dynamic_leadership_features",
     "load_manual_moat_overrides",
@@ -1964,6 +2071,26 @@ __all__ = [
     "compute_stage2_overext_penalty",
     "compute_theme_phase_features",
     "PHASE14_HYBRID_ALPHA_COLUMNS",
+    # Short-RS trap fixes (2026-05-13): split short/long RS + chase-extension penalty
+    "compute_rs_short_long_scores",
+    "compute_short_extension_risk_penalty",
+    "SHORT_RS_TRAP_COLUMNS",
+    # Evidence overlay loaders (2026-05-20): 13F/Form 4 + ETF holdings shadow evidence
+    "load_sec_evidence_overlay",
+    "load_etf_holdings_overlay",
+    # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst
+    "compute_cycle_recovery_score",
+    "compute_eps_revision_score",
+    # Phase 15-B (2026-04-28): early-cycle inflection — find next SNDK/MU early
+    "compute_early_cycle_inflection_score",
+    # Phase 15-C (2026-04-28): scanner trade_card discipline internalized
+    "compute_entry_quality_score",
+    # Phase 15-C (2026-04-28): ML conviction × technical confirmation gate
+    "compute_ml_technical_agreement_score",
+    # Phase 15-C P19 (2026-04-28): best-of-best in sub_industry rank
+    "compute_sub_industry_rs_score",
+    # Phase 15-C P20 (2026-04-28): insider buy cluster boost
+    "compute_insider_cluster_boost_score",
 ]
 
 
@@ -2765,6 +2892,169 @@ def compute_macro_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     d["macro_defensive_riskoff_interaction"] = defensive_flag * defensive_quality_proxy * risk_off
     d["macro_momentum_regime_interaction"] = momentum_proxy * regime
 
+    return d
+
+
+def compute_market_style_regime_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Research-only style regime router for breakout vs turnaround modes."""
+    d = df.copy()
+    if d.empty:
+        for col in PHASE21_STYLE_REGIME_COLUMNS:
+            d[col] = np.nan
+        return d
+
+    def num(col: str, default: float = 0.0) -> pd.Series:
+        return numeric_series_or_default(d, col, default).astype(float)
+
+    def clip01(series: pd.Series) -> pd.Series:
+        return pd.to_numeric(series, errors="coerce").fillna(0.0).clip(lower=0.0, upper=1.0)
+
+    def pos_scaled(col: str, scale: float = 0.10) -> pd.Series:
+        return (num(col, 0.0) / scale).clip(lower=0.0, upper=1.0)
+
+    market = clip01(num("market_regime_score", 0.50))
+    liquidity = clip01(num("liquidity_regime_score", 0.50))
+    liquidity_impulse = clip01(num("liquidity_impulse_score", 0.0))
+    liquidity_drain = clip01(num("liquidity_drain_score", 0.0))
+    growth_reentry = clip01(num("growth_liquidity_reentry_score", 0.0))
+    risk_off = clip01(num("macro_risk_off_score", 0.0))
+    inflation = clip01(num("inflation_pressure_score", 0.0))
+    inflation_reaccel = clip01(num("inflation_reacceleration_score", 0.0))
+    stagflation = clip01(num("stagflation_score", 0.0))
+    breadth = clip01(num("market_breadth_regime_score", 0.50))
+    participation = clip01(num("market_sector_participation", 0.35))
+    narrowing = clip01(num("market_leadership_narrowing", 0.50))
+    overheat = clip01(num("market_overheat_ratio", 0.0))
+    bench_above = clip01(num("bench_above_ma200", np.nan).fillna(num("spy_above_ma200", 1.0)))
+    qqq_rel = pos_scaled("qqq_rel_spy_1m", scale=0.06)
+    vix_stress = clip01(num("vix_z_63d", 0.0) / 2.0)
+    credit_stress = clip01(num("hy_oas_change_1m", 0.0) / 1.5)
+    rate_pressure = clip01(
+        0.45 * pos_scaled("dgs10_change_1m", scale=0.35)
+        + 0.30 * inflation
+        + 0.25 * inflation_reaccel
+    )
+    liquidity_tailwind = clip01(
+        0.40 * liquidity
+        + 0.25 * liquidity_impulse
+        + 0.20 * growth_reentry
+        + 0.15 * (1.0 - liquidity_drain)
+    )
+    overheat_risk = clip01(
+        0.35 * overheat
+        + 0.25 * narrowing
+        + 0.20 * vix_stress
+        + 0.20 * rate_pressure
+    )
+    cash_defense = clip01(
+        0.28 * risk_off
+        + 0.20 * vix_stress
+        + 0.18 * credit_stress
+        + 0.16 * (1.0 - bench_above)
+        + 0.10 * liquidity_drain
+        + 0.08 * stagflation
+    )
+    breakout_pref = clip01(
+        0.24 * growth_reentry
+        + 0.20 * market
+        + 0.18 * liquidity_tailwind
+        + 0.14 * qqq_rel
+        + 0.12 * bench_above
+        + 0.12 * breadth
+        - 0.16 * overheat_risk
+        - 0.10 * cash_defense
+    )
+    turnaround_pref = clip01(
+        0.24 * liquidity_tailwind
+        + 0.18 * growth_reentry
+        + 0.16 * (1.0 - breadth)
+        + 0.14 * (1.0 - participation)
+        + 0.12 * clip01(rate_pressure * 0.6 + inflation * 0.4)
+        + 0.10 * (1.0 - overheat)
+        + 0.06 * (1.0 - qqq_rel)
+        - 0.18 * cash_defense
+    )
+    quality_pref = clip01(
+        0.24 * risk_off
+        + 0.20 * rate_pressure
+        + 0.16 * inflation
+        + 0.14 * (1.0 - liquidity_tailwind)
+        + 0.14 * bench_above
+        + 0.12 * (1.0 - overheat)
+    )
+
+    labels = np.full(len(d), "balanced", dtype=object)
+    labels = np.where(cash_defense >= 0.58, "cash_defense", labels)
+    labels = np.where((breakout_pref >= turnaround_pref) & (breakout_pref >= quality_pref) & (breakout_pref >= 0.48) & (cash_defense < 0.58), "breakout_growth", labels)
+    labels = np.where((turnaround_pref > breakout_pref) & (turnaround_pref >= quality_pref) & (turnaround_pref >= 0.45) & (cash_defense < 0.58), "turnaround_accumulation", labels)
+    labels = np.where((quality_pref > breakout_pref) & (quality_pref > turnaround_pref) & (quality_pref >= 0.45) & (cash_defense < 0.58), "quality_compounder", labels)
+
+    date_source = None
+    for col in ("rebalance_date", "feature_date", "accepted"):
+        if col in d.columns:
+            date_source = pd.to_datetime(d[col], errors="coerce")
+            break
+    if date_source is None:
+        date_source = pd.Series(pd.NaT, index=d.index)
+    month = date_source.dt.month.fillna(0).astype(int)
+    quarter = date_source.dt.quarter.fillna(0).astype(int)
+    weekday = date_source.dt.weekday.fillna(0).astype(int)
+    min_date = date_source.dropna().min() if date_source.notna().any() else pd.NaT
+    years_since_start = pd.Series(0.0, index=d.index) if pd.isna(min_date) else (date_source - min_date).dt.days.fillna(0.0) / 365.25
+
+    breakout_setup = row_mean(
+        [
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0),
+            numeric_series_or_default(d, "h6_dynamic_leader_score", 0.0),
+            (numeric_series_or_default(d, "near_52w_high_pct", -1.0) >= -0.12).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    turnaround_setup = row_mean(
+        [
+            numeric_series_or_default(d, "value_inflection_score", 0.0),
+            numeric_series_or_default(d, "fundamental_turnaround_acceleration_score", 0.0),
+            numeric_series_or_default(d, "h1_oversold_value_score", 0.0),
+            numeric_series_or_default(d, "industry_rotation_signal", 0.0),
+            numeric_series_or_default(d, "early_cycle_inflection_score", 0.0),
+            numeric_series_or_default(d, "profitability_inflection_score", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    compounder_setup = row_mean(
+        [
+            numeric_series_or_default(d, "long_hold_compounder_score", 0.0),
+            numeric_series_or_default(d, "capital_efficiency_score", 0.0),
+            numeric_series_or_default(d, "sector_adjusted_quality_score", 0.0),
+            numeric_series_or_default(d, "moat_proxy_score", 0.0),
+            numeric_series_or_default(d, "fundamental_reliability_score", 0.5),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    d["market_style_regime_label"] = pd.Series(labels, index=d.index, dtype=object)
+    d["style_breakout_preference"] = breakout_pref
+    d["style_turnaround_preference"] = turnaround_pref
+    d["style_quality_compounder_preference"] = quality_pref
+    d["style_cash_defense_preference"] = cash_defense
+    d["style_liquidity_tailwind_score"] = liquidity_tailwind
+    d["style_rate_pressure_score"] = rate_pressure
+    d["style_inflation_pressure_score"] = clip01(0.6 * inflation + 0.4 * inflation_reaccel)
+    d["style_overheat_risk_score"] = overheat_risk
+    d["style_calendar_month"] = month
+    d["style_calendar_quarter"] = quarter
+    d["style_calendar_weekday"] = weekday
+    d["style_calendar_years_since_start"] = years_since_start
+    d["style_calendar_month_sin"] = np.sin(2.0 * np.pi * month.clip(lower=1) / 12.0)
+    d["style_calendar_month_cos"] = np.cos(2.0 * np.pi * month.clip(lower=1) / 12.0)
+    d["style_calendar_quarter_sin"] = np.sin(2.0 * np.pi * quarter.clip(lower=1) / 4.0)
+    d["style_calendar_quarter_cos"] = np.cos(2.0 * np.pi * quarter.clip(lower=1) / 4.0)
+    d["style_calendar_weekday_sin"] = np.sin(2.0 * np.pi * weekday.clip(lower=0) / 7.0)
+    d["style_calendar_weekday_cos"] = np.cos(2.0 * np.pi * weekday.clip(lower=0) / 7.0)
+    d["style_row_breakout_fit"] = (breakout_pref * breakout_setup).clip(lower=-6.0, upper=6.0)
+    d["style_row_turnaround_fit"] = (turnaround_pref * turnaround_setup).clip(lower=-6.0, upper=6.0)
+    d["style_row_compounder_fit"] = (quality_pref * compounder_setup).clip(lower=-6.0, upper=6.0)
     return d
 
 
@@ -4647,6 +4937,314 @@ PHASE14_HYBRID_ALPHA_COLUMNS = [
 ]
 
 
+# Short-term RS separation + chase-extension penalty (2026-05-13).
+# rs_short_score / rs_long_score split the prior single rs_acceleration_score
+# into independent components so short-term breakdown (PLTR-style: 1m/3m RS
+# negative while 6m/12m still positive) gets explicit weight rather than
+# averaging out. short_extension_risk_penalty fires on overextended single-month
+# moves that lack structural-growth confirmation (theme_horizon + multi-year mom).
+SHORT_RS_TRAP_COLUMNS = [
+    "rs_short_score",
+    "rs_long_score",
+    "rs_short_breakdown_penalty",
+    "short_extension_risk_penalty",
+]
+
+
+def _load_sec_evidence_overlay_legacy(
+    base_dir: "Path | None" = None,
+) -> pd.DataFrame:
+    """Load the latest SEC 13F + Form 4 evidence signals for the latest scoring.
+
+    Reads two CSV/parquet files produced by the SEC pipelines:
+      outputs/sec_institutional_signals/signals_latest.{parquet,csv}
+        — 13F manager tracking (sec_13f_quarterly_refresh.yml cron)
+      outputs/sec_ownership_signals/signals_latest.{parquet,csv}
+        — Form 4 insider trading (sec_form4_daily_refresh.yml cron)
+
+    Returns a DataFrame keyed by `ticker` with the 26 SEC_EVIDENCE_COLUMNS.
+    Missing files → empty frame (engine zero-fills downstream). This makes
+    the overlay strictly LATEST-ONLY: backtest months have no evidence;
+    walk-forward training never sees these columns (avoids target leakage).
+    """
+    base = Path(base_dir) if base_dir is not None else Path("outputs")
+    candidates = {
+        "institutional": [
+            base / "sec_institutional_signals" / "signals_latest.parquet",
+            base / "sec_institutional_signals" / "signals_latest.csv",
+            base / "sec_institutional_signals" / "13f_latest.parquet",
+            base / "sec_institutional_signals" / "13f_latest.csv",
+        ],
+        "ownership": [
+            base / "sec_ownership_signals" / "signals_latest.parquet",
+            base / "sec_ownership_signals" / "signals_latest.csv",
+            base / "sec_ownership_signals" / "form4_latest.parquet",
+            base / "sec_ownership_signals" / "form4_latest.csv",
+        ],
+    }
+    frames: list[pd.DataFrame] = []
+    for category, paths in candidates.items():
+        for p in paths:
+            if p.exists():
+                try:
+                    df = (
+                        pd.read_parquet(p)
+                        if p.suffix == ".parquet"
+                        else pd.read_csv(p, low_memory=False)
+                    )
+                    if "ticker" in df.columns and not df.empty:
+                        frames.append(df)
+                except Exception:
+                    pass
+                break
+    if not frames:
+        return pd.DataFrame(columns=["ticker"])
+    merged = frames[0]
+    for frame in frames[1:]:
+        merged = merged.merge(frame, on="ticker", how="outer", suffixes=("", "_dup"))
+        dup_cols = [c for c in merged.columns if c.endswith("_dup")]
+        if dup_cols:
+            merged = merged.drop(columns=dup_cols)
+    return merged
+
+
+def _evidence_roots(base_dir: "Path | None") -> tuple[Path, Path]:
+    base = Path(base_dir) if base_dir is not None else Path("outputs")
+    if base.name == "outputs":
+        return base, base.parent
+    output_base = base / "outputs"
+    return (output_base if output_base.exists() else base), base
+
+
+def _read_overlay_table(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        if path.suffix.lower() == ".parquet":
+            return pd.read_parquet(path)
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _normalize_overlay_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "ticker" not in frame.columns:
+        return pd.DataFrame(columns=["ticker"])
+    d = frame.copy()
+    d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+    d = d[d["ticker"].ne("")].copy()
+    if "as_of_date" in d.columns:
+        as_of = pd.to_datetime(d["as_of_date"], errors="coerce", utc=True)
+        if as_of.notna().any():
+            d = d[as_of.eq(as_of.max())].copy()
+    if "latest_available_from" in d.columns:
+        latest = pd.to_datetime(d["latest_available_from"], errors="coerce", utc=True)
+        d = d.assign(_latest_sort=latest).sort_values(["ticker", "_latest_sort"])
+        d = d.drop_duplicates("ticker", keep="last").drop(columns=["_latest_sort"])
+    else:
+        d = d.drop_duplicates("ticker", keep="last")
+    return d.reset_index(drop=True)
+
+
+def _overlay_ticker_count(frame: pd.DataFrame) -> int:
+    if frame.empty or "ticker" not in frame.columns:
+        return 0
+    return int(frame["ticker"].astype(str).str.upper().str.strip().replace("", pd.NA).nunique(dropna=True))
+
+
+def _write_sec_overlay_health(output_base: Path, payload: dict[str, Any]) -> None:
+    try:
+        out = output_base / "full_rebuild_logs" / "sec_evidence_overlay_health.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _build_form4_latest_from_transactions(path: Path) -> pd.DataFrame:
+    tx = _read_overlay_table(path)
+    if tx.empty:
+        return pd.DataFrame(columns=["ticker"])
+    try:
+        from tools.run_sec_ownership_signals import build_form4_signal  # type: ignore
+
+        available = pd.to_datetime(tx.get("available_from"), errors="coerce", utc=True)
+        as_of = available.max().isoformat() if available.notna().any() else None
+        return _normalize_overlay_frame(build_form4_signal(tx, as_of=as_of, lookback_days=90))
+    except Exception:
+        return pd.DataFrame(columns=["ticker"])
+
+
+def _build_13f_latest_from_holdings(path: Path) -> pd.DataFrame:
+    holdings = _read_overlay_table(path)
+    if holdings.empty:
+        return pd.DataFrame(columns=["ticker"])
+    try:
+        from tools.run_sec_institutional_signals import build_13f_signal  # type: ignore
+
+        available = pd.to_datetime(holdings.get("available_from"), errors="coerce", utc=True)
+        as_of = available.max().isoformat() if available.notna().any() else None
+        return _normalize_overlay_frame(build_13f_signal(holdings, as_of=as_of, lookback_days=210))
+    except Exception:
+        return pd.DataFrame(columns=["ticker"])
+
+
+def load_sec_evidence_overlay(
+    base_dir: "Path | None" = None,
+    *,
+    min_form4_signal_tickers: int = 300,
+    min_13f_signal_tickers: int = 100,
+) -> pd.DataFrame:
+    """Load SEC 13F + Form 4 evidence signals for latest scoring.
+
+    Healthy workflow latest files are preferred. If restored latest files are
+    tiny while canonical PIT data exists, rebuild the current Form 4/13F signal
+    from canonical files and write a health artifact.
+    """
+    output_base, repo_base = _evidence_roots(base_dir)
+    pit_base = repo_base / "data_pit" / "sec"
+    candidates = {
+        "institutional": [
+            output_base / "sec_institutional_signals" / "signals_latest.parquet",
+            output_base / "sec_institutional_signals" / "signals_latest.csv",
+            output_base / "sec_institutional_signals" / "13f_latest.parquet",
+            output_base / "sec_institutional_signals" / "13f_latest.csv",
+        ],
+        "ownership": [
+            output_base / "sec_ownership_signals" / "signals_latest.parquet",
+            output_base / "sec_ownership_signals" / "signals_latest.csv",
+            output_base / "sec_ownership_signals" / "form4_latest.parquet",
+            output_base / "sec_ownership_signals" / "form4_latest.csv",
+        ],
+    }
+    canonical = {
+        "institutional": pit_base / "institutional_13f_holdings.parquet",
+        "ownership": pit_base / "form4_transactions.parquet",
+    }
+    frames: list[pd.DataFrame] = []
+    health: dict[str, Any] = {"categories": {}, "warnings": []}
+    for category, paths in candidates.items():
+        frame = pd.DataFrame(columns=["ticker"])
+        selected_path = ""
+        for p in paths:
+            raw = _read_overlay_table(p)
+            if not raw.empty:
+                frame = _normalize_overlay_frame(raw)
+                selected_path = str(p)
+                break
+        ticker_count = _overlay_ticker_count(frame)
+        min_tickers = min_13f_signal_tickers if category == "institutional" else min_form4_signal_tickers
+        rebuilt = False
+        if ticker_count < min_tickers and canonical[category].exists():
+            rebuilt_frame = (
+                _build_13f_latest_from_holdings(canonical[category])
+                if category == "institutional"
+                else _build_form4_latest_from_transactions(canonical[category])
+            )
+            rebuilt_count = _overlay_ticker_count(rebuilt_frame)
+            if rebuilt_count > ticker_count:
+                health["warnings"].append(
+                    f"{category} latest too small ({ticker_count}); rebuilt {rebuilt_count} tickers from canonical PIT"
+                )
+                frame = rebuilt_frame
+                ticker_count = rebuilt_count
+                selected_path = str(canonical[category])
+                rebuilt = True
+        health["categories"][category] = {
+            "selected_path": selected_path,
+            "rows": int(len(frame)),
+            "ticker_count": int(ticker_count),
+            "rebuilt_from_canonical": bool(rebuilt),
+        }
+        if not frame.empty:
+            frames.append(frame)
+    health["overlay_rows"] = int(sum(len(f) for f in frames))
+    _write_sec_overlay_health(output_base, health)
+    if not frames:
+        return pd.DataFrame(columns=["ticker", *SEC_EVIDENCE_COLUMNS])
+    merged = frames[0]
+    for frame in frames[1:]:
+        merged = merged.merge(frame, on="ticker", how="outer", suffixes=("", "_dup"))
+        dup_cols = [c for c in merged.columns if c.endswith("_dup")]
+        if dup_cols:
+            merged = merged.drop(columns=dup_cols)
+    for col in SEC_EVIDENCE_COLUMNS:
+        if col not in merged.columns:
+            merged[col] = 0.0
+    return merged[["ticker", *[c for c in SEC_EVIDENCE_COLUMNS if c in merged.columns]]]
+
+
+def load_etf_holdings_overlay(base_dir: "Path | None" = None) -> pd.DataFrame:
+    """Load dynamic ETF holdings evidence, if the monthly refresh produced it."""
+    output_base, repo_base = _evidence_roots(base_dir)
+    candidates = [
+        output_base / "etf_thematic_signals" / "signals_latest.parquet",
+        output_base / "etf_thematic_signals" / "signals_latest.csv",
+        output_base / "etf_thematic_signals" / "etf_latest.parquet",
+        output_base / "etf_thematic_signals" / "etf_latest.csv",
+        repo_base / "data_pit" / "etf_holdings" / "etf_thematic_signals.parquet",
+    ]
+    frame = pd.DataFrame(columns=["ticker"])
+    for path in candidates:
+        raw = _read_overlay_table(path)
+        if not raw.empty:
+            frame = _normalize_overlay_frame(raw)
+            break
+    if frame.empty:
+        return pd.DataFrame(columns=["ticker", *ETF_HOLDINGS_EVIDENCE_COLUMNS])
+    for col in ETF_HOLDINGS_EVIDENCE_COLUMNS:
+        if col not in frame.columns:
+            frame[col] = 0.0
+    return frame[["ticker", *[c for c in ETF_HOLDINGS_EVIDENCE_COLUMNS if c in frame.columns]]]
+
+
+def compute_rs_short_long_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Split RS into short (1m + 3m) and long (6m + 12m) components.
+
+    Why: PLTR shows rs_industry_6m=-0.27 and rs_industry_3m=-0.14 but the prior
+    single rs_acceleration_score (3m_z - 12m_z) compressed both into -0.07 — too
+    weak to drive the total score down. Splitting them lets the final composite
+    apply distinct weights, and a `rs_short_breakdown_penalty` fires when BOTH
+    short-side components are negative (clean short-term weakness signal).
+
+    Columns added:
+      rs_short_score              = z(mean of rs_industry_1m, rs_industry_3m,
+                                       rs_industry_group_1m, rs_industry_group_3m,
+                                       rs_benchmark_1m, rs_benchmark_3m)
+      rs_long_score               = z(mean of rs_industry_6m, rs_industry_12m,
+                                       rs_industry_group_6m, rs_industry_group_12m,
+                                       rs_benchmark_6m, rs_benchmark_12m)
+      rs_short_breakdown_penalty  = clip(-min(rs_short_score, 0), 0, 1)
+                                    fires only when short_score < 0 (1m/3m weak)
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["rs_short_score"] = pd.Series(dtype=float)
+        d["rs_long_score"] = pd.Series(dtype=float)
+        d["rs_short_breakdown_penalty"] = pd.Series(dtype=float)
+        return d
+    short_cols = [
+        "rs_industry_1m", "rs_industry_3m",
+        "rs_industry_group_1m", "rs_industry_group_3m",
+        "rs_benchmark_1m", "rs_benchmark_3m",
+    ]
+    long_cols = [
+        "rs_industry_6m", "rs_industry_12m",
+        "rs_industry_group_6m", "rs_industry_group_12m",
+        "rs_benchmark_6m", "rs_benchmark_12m",
+    ]
+    short_components = [cross_sectional_robust_z(d, c) for c in short_cols]
+    long_components = [cross_sectional_robust_z(d, c) for c in long_cols]
+    short_mean = pd.concat(short_components, axis=1).mean(axis=1)
+    long_mean = pd.concat(long_components, axis=1).mean(axis=1)
+    d["rs_short_score"] = short_mean.clip(lower=-3.0, upper=3.0).fillna(0.0)
+    d["rs_long_score"] = long_mean.clip(lower=-3.0, upper=3.0).fillna(0.0)
+    d["rs_short_breakdown_penalty"] = (
+        (-d["rs_short_score"]).clip(lower=0.0, upper=1.5) / 1.5
+    ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
 def compute_rs_acceleration_score(df: pd.DataFrame) -> pd.DataFrame:
     """T4 RS Acceleration — recent (3m) RS minus longer (12m) RS.
 
@@ -4760,6 +5358,501 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
     d["stage2_overext_penalty"] = (
         near_52w_part * rsi_part * weak_fund
     ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_short_extension_risk_penalty(df: pd.DataFrame) -> pd.DataFrame:
+    """Short-horizon overextension penalty with structural-growth exemption.
+
+    Companion to stage2_overext_penalty (52w-high / RSI / weak_fund). That gate
+    catches the classic chase-the-top pattern but misses single-month parabolic
+    moves on names that lack 52w-high or RSI extremes (e.g. small-cap thematic
+    pumps). This gate fires on excess short-term distance from MA20 when not
+    backed by structural-growth confirmation.
+
+    Fires on ANY of:
+      mom_1m > 0.20                   # > +20% in one month
+      bb_pb > 0.95                    # near top of Bollinger band
+      price/MA20 ratio > 1.20         # > 20% above 20-day MA
+
+    Exempt (multiplied by 0.0) when ALL of:
+      theme_horizon_primary == 'structural_growth'
+      mom_24m > 0 OR mom_36m > 0      # multi-year structural uptrend
+      industry_group_strength_score > 0
+
+    Returns continuous penalty [0.0, 1.0]. Apply as multiplicative
+    (final_score *= (1 - 0.20 * penalty)) so 1.0 = -20% score.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["short_extension_risk_penalty"] = pd.Series(dtype=float)
+        return d
+    mom_1m = numeric_series_or_default(d, "mom_1m", 0.0)
+    bb_pb = numeric_series_or_default(d, "bb_pb", 0.5)
+    # price/MA20 ratio: dist_ma200 doesn't help here; use direct ma20 distance.
+    # price_above_ma20 is binary; we need the actual ratio. Derive from
+    # available columns: 1 + (mom_1m * 0.5) as a proxy if exact ratio missing.
+    ma20_ratio = numeric_series_or_default(d, "price_to_ma20_ratio", np.nan)
+    ma20_ratio_proxy = (1.0 + mom_1m * 0.5)
+    ma20_ratio = ma20_ratio.fillna(ma20_ratio_proxy)
+
+    mom_part = ((mom_1m - 0.20) / 0.20).clip(lower=0.0, upper=1.0)            # 1.0 at mom_1m >= 40%
+    bb_part = ((bb_pb - 0.95) / 0.05).clip(lower=0.0, upper=1.0)              # 1.0 at bb_pb >= 1.0
+    ma20_part = ((ma20_ratio - 1.20) / 0.10).clip(lower=0.0, upper=1.0)       # 1.0 at price/MA20 >= 1.30
+
+    raw_penalty = pd.concat([mom_part, bb_part, ma20_part], axis=1).max(axis=1)
+
+    theme_horizon = d.get("theme_horizon_primary", pd.Series("", index=d.index)).astype(str)
+    mom_24m = numeric_series_or_default(d, "mom_24m", 0.0)
+    mom_36m = numeric_series_or_default(d, "mom_36m", 0.0)
+    group_strength = numeric_series_or_default(d, "industry_group_strength_score", 0.0)
+
+    structural_exempt = (
+        (theme_horizon == "structural_growth")
+        & ((mom_24m > 0.0) | (mom_36m > 0.0))
+        & (group_strength > 0.0)
+    )
+    d["short_extension_risk_penalty"] = (
+        raw_penalty.where(~structural_exempt, 0.0)
+    ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_sub_industry_rs_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C P19: sub-industry-relative RS rank (best of best in industry).
+
+    Existing P2 sub_industry sector cap prevents NVDA + LRCX from absorbing
+    the IT sector cap (good — diversifies sub-industries). But it doesn't
+    REWARD being top within the sub-industry. A name that's #1 in its
+    sub_industry should rank higher than a name that's #5.
+
+    This score: cross-sectional rank of `mom_12m` within sub_industry.
+      - 1.0 = #1 in sub_industry by 12-month momentum
+      - 0.5 = median in sub_industry
+      - 0.0 = bottom in sub_industry
+
+    Captures "leader of leaders" effect — when memory is hot, MU + WDC + SNDK
+    all rise but MU as the strongest 12mo performer ranks highest.
+
+    Falls back to mom_6m, mom_3m as ranking signal cascade when mom_12m
+    is unavailable (e.g. recent IPOs).
+
+    Falls back to industry_group, then industry, then sector if sub_industry
+    not populated. Pure ranking — uses mom_*m which is always present in the
+    feature_store (unlike `score` which is computed post-ML).
+
+    Phase 15-C bug fix (2026-04-28 22:30 KST): original used `d.get("score")`
+    which returned scalar NaN when "score" column didn't exist (during
+    build_feature_store before ML runs), crashing with AttributeError
+    'numpy.float64 object has no attribute isna'. Switched to mom_12m
+    (always available) and added explicit Series guard.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["sub_industry_rs_score"] = pd.Series(dtype=float)
+        return d
+
+    # Pick first available ranking signal — cascade through 12m -> 6m -> 3m.
+    rank_signal = None
+    for col in ("mom_12m", "mom_6m", "mom_3m"):
+        if col in d.columns:
+            cand = pd.to_numeric(d[col], errors="coerce")
+            if isinstance(cand, pd.Series) and cand.notna().any():
+                rank_signal = cand
+                break
+    if rank_signal is None:
+        d["sub_industry_rs_score"] = 0.5
+        return d
+
+    # Group by best available granularity
+    group_col_priority = ["sub_industry", "subindustry", "industry_group", "industry", "sector"]
+    chosen = None
+    for c in group_col_priority:
+        if c in d.columns and d[c].notna().any():
+            chosen = c
+            break
+    if chosen is None:
+        d["sub_industry_rs_score"] = 0.5
+        return d
+
+    group_series = d[chosen].astype(str).fillna("Unknown")
+    # Rank within group (pct rank, 0=lowest, 1=highest)
+    rank_within = rank_signal.groupby(group_series).rank(pct=True, method="average")
+    d["sub_industry_rs_score"] = rank_within.fillna(0.5).astype(float)
+    return d
+
+
+def compute_insider_cluster_boost_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C P20: insider buy cluster confirmation boost.
+
+    Finnhub collector already produces:
+      - fh_insider_cluster_30d_score: aggregate cluster signal
+      - fh_insider_n_buyers_30d:      number of distinct buyers (>=3 = cluster)
+      - fh_insider_buy_value_30d:     total $ value
+      - fh_insider_n_sales_30d:       sales counter (negative signal)
+
+    Currently `insider_flow_actual_score` exists but tends to be 0/1 binary.
+    This score gives a continuous boost when MULTIPLE insiders are buying
+    (cluster signal — strongest when >= 3 distinct insiders, low confidence
+    when only 1 buyer).
+
+    Returns [0, 1]:
+      0.0  = no insider buys (or net selling)
+      0.3  = 1 buyer (weak)
+      0.6  = 2 buyers
+      1.0  = 3+ buyers (cluster — high conviction)
+      Capped lower if sales > buyers (selling cluster overrides).
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["insider_cluster_boost_score"] = pd.Series(dtype=float)
+        return d
+    n_buyers = numeric_series_or_default(d, "fh_insider_n_buyers_30d", 0.0)
+    n_sales = numeric_series_or_default(d, "fh_insider_n_sales_30d", 0.0)
+
+    # Buyer-count progression
+    boost = pd.Series(0.0, index=d.index, dtype=float)
+    boost = boost.where(n_buyers < 1, 0.3)
+    boost = boost.where(n_buyers < 2, 0.6)
+    boost = boost.where(n_buyers < 3, 1.0)
+
+    # Sale override — if more sellers than buyers, cap at 0.3
+    sale_dominant = (n_sales > n_buyers)
+    boost = boost.where(~sale_dominant, boost.clip(upper=0.3))
+
+    d["insider_cluster_boost_score"] = boost.fillna(0.0)
+    return d
+
+
+def compute_ml_technical_agreement_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C ML x technical agreement — demote false-positive ML picks.
+
+    ML score (Ridge / Logistic blend) sometimes ranks high on names whose
+    technicals warn (negative momentum, RS broken, weak relative strength
+    vs benchmark). These are typically value-trap or fundamental-improving-
+    but-price-rolling-over names. Walk-forward backtest training period
+    might reward them historically (e.g. 2020 covid bottom buyers won)
+    but live execution catches them mid-decline.
+
+    This score gates ML conviction by technical confirmation:
+      Agreement = 1.0 when ALL of:
+        - mom_3m > 0
+        - rs_benchmark_3m > 0
+        - mom_1m > -0.05  (no fresh weakness)
+      Agreement = 0.5 partial when 2 of 3 fire
+      Agreement = 0.2 when only 1 fires
+      Agreement = 0.0 when none fire
+
+    Used in selection as a multiplier on the ML score for ranking — names
+    with strong ML score but failing technical agreement get demoted out
+    of the top-N. Also as a feature so ML can recursively learn its weight.
+
+    Returns continuous score [0.0, 1.0].
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["ml_technical_agreement_score"] = pd.Series(dtype=float)
+        return d
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    rs_3m = numeric_series_or_default(d, "rs_benchmark_3m", 0.0)
+    mom_1m = numeric_series_or_default(d, "mom_1m", 0.0)
+
+    cond1 = (mom_3m > 0).astype(float)
+    cond2 = (rs_3m > 0).astype(float)
+    cond3 = (mom_1m > -0.05).astype(float)
+    n_fire = cond1 + cond2 + cond3
+
+    # Step function: 3 fire = 1.0, 2 fire = 0.5, 1 fire = 0.2, 0 fire = 0.0
+    score = pd.Series(0.0, index=d.index, dtype=float)
+    score = score.where(n_fire < 1, 0.2)
+    score = score.where(n_fire < 2, 0.5)
+    score = score.where(n_fire < 3, 1.0)
+    d["ml_technical_agreement_score"] = score
+    return d
+
+
+def compute_entry_quality_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C entry quality — internalize scanner trade_card discipline.
+
+    The Aggressive scanner produces a `trade_card` per candidate with pivot,
+    buy_zone, stop_loss, base_tightness, extension_from_pivot, R:R ratio,
+    entry_status (READY/EARLY/EXTENDED) and warnings. This data is precise
+    but lives in scanner JSON and is consumed only by `daily_review` /
+    advisor v3 — the main backtest pipeline never sees it.
+
+    Phase 15-C fix: compute the equivalent quality metrics directly from
+    existing feature_store columns so EVERY historical rebalance month
+    benefits, not just live entries. Backtest sees the filter retroactively
+    and the ML walk-forward learns the proper weight.
+
+    Score [0.0, 1.0] combines 4 conditions multiplicatively:
+
+      1. Extension penalty (peaks at +0% to +5% above 52w-MA, decays
+         toward 0 at +30% above i.e. chasing).
+      2. RSI zone (peaks at 50-65, decays at <30 or >75).
+      3. Momentum sweet spot (peaks at mom_3m +5% to +15%, penalizes
+         mom_3m > +50% as already-extended).
+      4. Volume confirmation (boost when volume_ratio_50d >= 1.5).
+
+    Higher score = "ideal entry setup" (READY in scanner terms). Lower =
+    EXTENDED / chase-worthy / low-conviction.
+
+    Used as ML feature so Ridge/Logistic learn weight, AND as a
+    cross-sectional rank input for sleeve assignment via the
+    `entry_quality_score` column entering DEFAULT_FEATURES.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["entry_quality_score"] = pd.Series(dtype=float)
+        return d
+    dist_ma200 = numeric_series_or_default(d, "dist_ma200", 0.0)
+    rsi14 = numeric_series_or_default(d, "rsi14", 50.0)
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    near_52w_high = numeric_series_or_default(d, "near_52w_high_pct", 0.0)
+    # Volume ratio is scanner-only; use mom_3m * volatility proxy if absent.
+    # Most feature_store doesn't carry the 50d volume ratio — fall back to
+    # neutral 1.0 (no boost / no penalty) when missing.
+    volume_ratio_50d = numeric_series_or_default(d, "volume_ratio_50d", 1.0)
+
+    # 1. Extension penalty: +0-5% above 200-MA = ideal, decay above +20%.
+    extension_part = pd.Series(1.0, index=d.index, dtype=float)
+    extension_part = extension_part.mask(
+        dist_ma200 > 0.05,
+        (1.0 - ((dist_ma200 - 0.05) / 0.25)).clip(lower=0.0, upper=1.0),
+    )
+    extension_part = extension_part.mask(
+        dist_ma200 < -0.20,
+        (1.0 + ((dist_ma200 + 0.20) / 0.20)).clip(lower=0.0, upper=1.0),
+    )
+
+    # 2. RSI zone: 50-65 ideal, decay outside [40, 75].
+    rsi_part = pd.Series(1.0, index=d.index, dtype=float)
+    rsi_part = rsi_part.mask(
+        (rsi14 < 40) | (rsi14 > 75),
+        0.4,
+    )
+    rsi_part = rsi_part.mask(rsi14 > 80, 0.0)
+
+    # 3. Momentum sweet spot: mom_3m +5% to +15% = ideal, > +50% = chase.
+    mom_part = pd.Series(1.0, index=d.index, dtype=float)
+    mom_part = mom_part.mask(
+        mom_3m > 0.50,
+        (1.0 - ((mom_3m - 0.50) / 0.50)).clip(lower=0.0, upper=1.0),
+    )
+    mom_part = mom_part.mask(mom_3m < -0.10, 0.5)
+
+    # 4. Volume confirmation boost (multiplicative, capped at 1.2x).
+    vol_boost = (1.0 + ((volume_ratio_50d - 1.0) * 0.2)).clip(lower=0.5, upper=1.2)
+
+    score = (extension_part * rsi_part * mom_part * vol_boost).clip(lower=0.0, upper=1.0).fillna(0.5)
+    d["entry_quality_score"] = score
+    return d
+
+
+def compute_early_cycle_inflection_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-B early-cycle inflection — find the next SNDK / MU before breakout.
+
+    The Phase 15-A cycle_recovery_score requires mom_6m > 30% AND mom_3m > 10% —
+    by that point the breakout is well underway (e.g. SNDK +125% mom_3m as of
+    SHIPPED scored_latest.csv). That score rescues already-extended cycle
+    leaders but captures little forward alpha.
+
+    This score targets the OPPOSITE end: tickers that look like SNDK / MU did
+    6 months BEFORE their move. Stage 1 -> Stage 2 transition with early
+    institutional accumulation, no consensus yet, earnings just turning, but
+    price still near MA200 (not yet broken out).
+
+    Six conditions split into a multiplicative GATE and an additive BOOST:
+
+      GATE (must all fire — multiplicative, score=0 if any fails):
+        1. Price near MA200 zone (-10% <= dist_ma200 <= +5%)
+        2. mom_12m still cycle-bottom (-30% <= mom_12m <= +5%)
+        3. mom_3m early turn (-5% <= mom_3m <= +20%)
+
+      BOOST (additive bonuses on top of gate):
+        4. eps_revision_proxy > +3% (40% boost weight)
+        5. any_profit_sign_flip_pos = 1 (30% boost weight)
+        6. industry_breadth_above_ma200 mid-recovery (30% boost weight)
+
+    Final: score = gate * (0.50 + 0.50 * boost). Gate-only fire -> 0.50,
+    full gate + full boost -> 1.00.
+
+    The multiplicative gate is critical: previous additive design was admitting
+    already-extended names (NEU mom_12m +23%, CEG +50%) into top 30 because
+    cond1+cond3+cond6 partial credit was overriding cond2 (cycle bottom)
+    failure. The new design hard-rejects names outside the cycle-bottom zone.
+
+    Returns continuous score [0.0, 1.0]. >= 0.50 = full gate fires (early-cycle
+    setup confirmed), >= 0.70 = strong setup with eps + industry support,
+    >= 0.85 = textbook "next SNDK 6mo prior" signal.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["early_cycle_inflection_score"] = pd.Series(dtype=float)
+        return d
+    dist_ma200 = numeric_series_or_default(d, "dist_ma200", np.nan)
+    mom_12m = numeric_series_or_default(d, "mom_12m", np.nan)
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    eps_rev = numeric_series_or_default(d, "eps_revision_proxy", 0.0)
+    any_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
+    ind_breadth = numeric_series_or_default(d, "industry_breadth_above_ma200", np.nan)
+
+    # GATE 1: Price near breakout zone. Hard reject if outside [-10%, +5%].
+    cond1 = pd.Series(0.0, index=d.index, dtype=float)
+    in_zone1 = (dist_ma200 >= -0.10) & (dist_ma200 <= 0.05)
+    cond1 = cond1.mask(in_zone1,
+                       1.0 - ((dist_ma200 - (-0.025)).abs() / 0.075).clip(lower=0.0, upper=1.0))
+    cond1 = cond1.where(dist_ma200.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    # GATE 2: Cycle-bottom 12m. Hard reject if outside [-30%, +5%].
+    cond2 = pd.Series(0.0, index=d.index, dtype=float)
+    in_zone2 = (mom_12m >= -0.30) & (mom_12m <= 0.05)
+    cond2 = cond2.mask(in_zone2,
+                       1.0 - ((mom_12m - (-0.10)).abs() / 0.20).clip(lower=0.0, upper=1.0))
+    cond2 = cond2.where(mom_12m.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    # GATE 3: Early-turn 3m. Hard reject if outside [-5%, +20%].
+    cond3 = pd.Series(0.0, index=d.index, dtype=float)
+    in_zone3 = (mom_3m >= -0.05) & (mom_3m <= 0.20)
+    cond3 = cond3.mask(in_zone3,
+                       1.0 - ((mom_3m - 0.075).abs() / 0.125).clip(lower=0.0, upper=1.0))
+    cond3 = cond3.where(mom_3m.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    # Multiplicative gate — any single failure zeros the score.
+    gate = (cond1 * cond2 * cond3).clip(lower=0.0, upper=1.0)
+
+    # BOOST 4: EPS revision turning up: 0 at +0.03, 1.0 at +0.15.
+    boost4 = ((eps_rev - 0.03) / 0.12).clip(lower=0.0, upper=1.0).fillna(0.0)
+    # BOOST 5: Profitability improving — broad signal (Phase 15-C fix).
+    # Original used `any_profit_sign_flip_pos` only (2/625 firing on SHIPPED
+    # snapshot). New: any of sign_flip / loss_narrowing / eps_growth>10% /
+    # phase9_c3_eps_turn_positive. Covers SNDK-class (still loss but
+    # narrowing) which the strict sign-flip never captured.
+    loss_narrowing = numeric_series_or_default(d, "ni_loss_narrowing_4q", 0.0)
+    eps_growth_yoy = numeric_series_or_default(d, "eps_growth_yoy", 0.0)
+    c3_eps_turn = numeric_series_or_default(d, "phase9_c3_eps_turn_positive", 0.0)
+    boost5 = (
+        (any_flip > 0)
+        | (loss_narrowing > 0)
+        | (eps_growth_yoy > 0.10)
+        | (c3_eps_turn > 0)
+    ).astype(float)
+    # BOOST 6: Industry mid-recovery (peaks at 0.35, OK from 0.20 to 0.50).
+    boost6 = pd.Series(0.0, index=d.index, dtype=float)
+    boost6 = boost6.mask((ind_breadth >= 0.20) & (ind_breadth <= 0.50),
+                         1.0 - ((ind_breadth - 0.35).abs() / 0.15).clip(lower=0.0, upper=1.0))
+    boost6 = boost6.where(ind_breadth.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    boost = (0.40 * boost4 + 0.30 * boost5 + 0.30 * boost6).clip(lower=0.0, upper=1.0)
+
+    # Combine: gate-only fire -> 0.50, full gate + full boost -> 1.00.
+    score = (gate * (0.50 + 0.50 * boost)).clip(lower=0.0, upper=1.0).fillna(0.0)
+    d["early_cycle_inflection_score"] = score
+    return d
+
+
+def compute_cycle_recovery_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-A cycle recovery — rescue cyclical leaders from gate exclusion.
+
+    Memory / foundry-equipment / cyclical-semis names (SNDK / MU / WDC /
+    AMKR class) systematically fail the Phase 9 thesis-gate because their
+    `multi_year_winner_score` is 0 — by construction. They've spent the last
+    24-36 months in a cycle bottom, so mom_24m and mom_36m are negative or
+    near zero, but mom_6m / mom_3m are strongly positive as the cycle turns.
+
+    This score fires when ALL of:
+      - mom_24m < 0.10           (still below 24mo ago, i.e. cycle bottom)
+      - mom_6m  > 0.30           (turning up sharply)
+      - mom_3m  > 0.10           (recent confirmation)
+      - earnings improving       (broad EPS trend signal — see below)
+
+    Phase 15-C fix (2026-04-28): the original definition used only
+    `any_profit_sign_flip_pos` which is genuinely sparse (only 2/625 firing
+    in the SHIPPED scored_latest because most R1000 names are either long-
+    profitable or still in deep loss). SNDK is currently loss-making
+    (net_income_ttm = -$1.64B) so the sign-flip flag legitimately = 0 —
+    BUT SNDK is exactly the cycle-recovery name we want to capture.
+
+    Broader EPS-improving signal: any of
+      (a) any_profit_sign_flip_pos = 1  (just turned positive)
+      (b) ni_loss_narrowing_4q = 1       (still loss but loss decreasing)
+      (c) eps_growth_yoy > 0.10          (positive EPS growth >= 10%)
+      (d) phase9_c3_eps_turn_positive    (Phase 9 C3 combined signal)
+
+    Returns continuous score [0.0, 1.0]. Used by Phase 15-A as a thesis-gate
+    bypass: tickers with cycle_recovery_score >= 0.5 can be assigned to a
+    sleeve even when multi_year_winner_score is too low.
+
+    Does NOT require sub_industry classification — purely technical/fundamental.
+    Captures the same "cycle bottom + EPS turn" signal that the user's
+    intuition flagged as missing for SNDK / MU.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["cycle_recovery_score"] = pd.Series(dtype=float)
+        return d
+    mom_24m = numeric_series_or_default(d, "mom_24m", np.nan)
+    mom_6m = numeric_series_or_default(d, "mom_6m", 0.0)
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+
+    # Broad earnings-improving signal (Phase 15-C): any of 4 conditions fires.
+    sign_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
+    loss_narrowing = numeric_series_or_default(d, "ni_loss_narrowing_4q", 0.0)
+    eps_growth = numeric_series_or_default(d, "eps_growth_yoy", 0.0)
+    c3_eps_turn = numeric_series_or_default(d, "phase9_c3_eps_turn_positive", 0.0)
+    earnings_improving = (
+        (sign_flip > 0) | (loss_narrowing > 0) | (eps_growth > 0.10) | (c3_eps_turn > 0)
+    ).astype(float)
+
+    # Bottom signal: still below 24mo ago (recovering, not yet exceeded prior peak)
+    bottom_part = ((0.10 - mom_24m) / 0.30).clip(lower=0.0, upper=1.0)
+    # Turn-up signal: 6m strongly positive
+    turn_part = ((mom_6m - 0.30) / 0.20).clip(lower=0.0, upper=1.0)
+    # Recent confirmation: 3m positive too
+    recent_part = ((mom_3m - 0.10) / 0.20).clip(lower=0.0, upper=1.0)
+
+    score = (bottom_part * turn_part * recent_part * earnings_improving).clip(lower=0.0, upper=1.0).fillna(0.0)
+    # If mom_24m is NaN (insufficient history), score is 0 (no cycle context)
+    score = score.where(mom_24m.notna(), 0.0)
+    d["cycle_recovery_score"] = score
+    return d
+
+
+def compute_eps_revision_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-A EPS revision momentum — analyst upgrade catalyst signal.
+
+    Phase 15-C fix (2026-04-28): the original implementation read
+    `eps_revision_proxy` which depends on Alpha Vantage `quarterlyEstimates`
+    data. AV free tier is 25 calls/day, so in the SHIPPED Phase 15 backtest
+    the column was 0/625 populated — the score was effectively dead.
+
+    New implementation cascades through 3 sources:
+      1. eps_revision_proxy        (AV estimates — primary, sparse)
+      2. eps_growth_yoy             (computed from EPS history — 419/625)
+      3. eps_cagr_1y                (1-year EPS trend — 406/625)
+
+    The cascade lets the score fire on ~67% of universe instead of 0%.
+    Captures "earnings improving" as a proxy for "analysts revising up"
+    when AV estimates are missing.
+
+    Returns score [0.0, 1.0]:
+      - 1.0 at +20% revision/growth
+      - 0.5 at +10%
+      - 0.0 at <= 0%
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["eps_revision_score"] = pd.Series(dtype=float)
+        return d
+    # Cascade through 3 sources, taking first non-NaN value per row.
+    revision = numeric_series_or_default(d, "eps_revision_proxy", np.nan)
+    eps_growth = numeric_series_or_default(d, "eps_growth_yoy", np.nan)
+    eps_cagr_1y = numeric_series_or_default(d, "eps_cagr_1y", np.nan)
+    effective = revision.where(revision.notna(), eps_growth)
+    effective = effective.where(effective.notna(), eps_cagr_1y).fillna(0.0)
+    # Map to [0, 1]: 0% -> 0, +10% -> 0.5, +20% -> 1.0
+    score = (effective / 0.20).clip(lower=0.0, upper=1.0).fillna(0.0)
+    d["eps_revision_score"] = score
     return d
 
 
@@ -5435,10 +6528,34 @@ def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
     attach_per_ticker_theme_features}.
     """
     d = df.copy() if df is not None else pd.DataFrame()
+    policy_string_defaults = {
+        "theme_horizon_primary": "unknown",
+        "theme_holding_profile_primary": "neutral",
+    }
+    policy_numeric_defaults = {
+        "theme_event_risk_sensitivity_primary": 0.35,
+        "theme_event_risk_sensitivity_max": 0.35,
+        "theme_structural_growth_primary": 0.35,
+        "theme_structural_growth_max": 0.35,
+        "theme_target_hold_months_primary": 12.0,
+        "theme_max_hold_months_primary": 36.0,
+        "theme_short_cycle_flag_primary": 0.0,
+        "theme_short_cycle_flag_max": 0.0,
+    }
+    def _fill_theme_defaults(frame: pd.DataFrame) -> pd.DataFrame:
+        for col, default in policy_string_defaults.items():
+            if col not in frame.columns:
+                frame[col] = default
+            frame[col] = frame[col].fillna(default).astype(str)
+        for col, default in policy_numeric_defaults.items():
+            if col not in frame.columns:
+                frame[col] = default
+            frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(default)
+        return frame
     if d.empty or "ticker" not in d.columns:
         d["theme_phase_multiplier_primary"] = 1.0
         d["theme_phase_multiplier_max"] = 1.0
-        return d
+        return _fill_theme_defaults(d)
     try:
         from r1000_themes import (
             attach_per_ticker_theme_features,
@@ -5449,12 +6566,12 @@ def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
     except Exception:
         d["theme_phase_multiplier_primary"] = 1.0
         d["theme_phase_multiplier_max"] = 1.0
-        return d
+        return _fill_theme_defaults(d)
     themes = load_themes()
     if not themes:
         d["theme_phase_multiplier_primary"] = 1.0
         d["theme_phase_multiplier_max"] = 1.0
-        return d
+        return _fill_theme_defaults(d)
     # Run aggregation per rebalance_date if present (cross-sectional within each date)
     if "rebalance_date" in d.columns:
         out_chunks = []
@@ -5471,4 +6588,4 @@ def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
         if col not in out.columns:
             out[col] = 1.0
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(1.0)
-    return out
+    return _fill_theme_defaults(out)

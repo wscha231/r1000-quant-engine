@@ -1,0 +1,1432 @@
+{
+  "timestamp": "2026-05-05T15:57:09.743809",
+  "candidates": [
+    {
+      "ticker": "CSCO",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": "telecom_internet",
+      "theme_phase": "early",
+      "phase_multiplier": 1.25,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 175.5,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.25(early) x val=1.08 = 176 | H6 dynamic-leader (mom3m=15%, op_margin=23%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 1460.18709746121,
+        "mom_1m": 16.472804127556408,
+        "mom_3m": 12.723980267115875,
+        "rs_benchmark_3m": 7.452863550517241
+      },
+      "trade_card": {
+        "ticker": "CSCO",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 93.09314999999998,
+        "buy_zone_low": 93.09314999999998,
+        "buy_zone_high": 94.15464285714283,
+        "stop_loss": 89.37792499999998,
+        "risk_pct": 0.045351364240761124,
+        "target_1": 102.11583928571429,
+        "target_2": 106.36181071428572,
+        "target_3": 114.8537535714286,
+        "risk_reward_ratio": 2.999999999293448,
+        "base_length_days": 40,
+        "base_tightness_pct": 21.54572890668488,
+        "current_price": 93.6849,
+        "extension_from_pivot_pct": 0.6356536436891602,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$93.09 (base 40d, 22% tight) | buy $93.09-$94.15 | stop $89.38 (-4.5%) | targets $102.12/106.36/114.85 | R:R 3.0 | status=READY",
+        "warnings": []
+      },
+      "is_unknown_theme": false,
+      "val_mult": 1.08,
+      "fundamental_warnings": [
+        "H6 dynamic-leader (mom3m=15%, op_margin=23%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 32.7553,
+        "fh_epsGrowth5Y": -0.69,
+        "fh_epsGrowthQuarterlyYoy": 31.46,
+        "fh_days_to_next_earnings": 15,
+        "fh_rec_bull_ratio": 0.71875
+      }
+    },
+    {
+      "ticker": "S",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": "cybersecurity",
+      "theme_phase": "early",
+      "phase_multiplier": 1.25,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 162.5,
+      "signals_fired": [
+        "T4:RS Acceleration",
+        "T5:Stage 1->2 Turnaround"
+      ],
+      "rationale": "tech=130[T4] x phase=1.25(early) = 162",
+      "metrics": {
+        "dollar_volume_20d_musd": 97.4782145575,
+        "mom_1m": 17.172464840858638,
+        "mom_3m": 20.471841704718408,
+        "rs_benchmark_3m": 14.838425131027622
+      },
+      "trade_card": {
+        "ticker": "S",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 15.677999999999997,
+        "buy_zone_low": 15.677999999999997,
+        "buy_zone_high": 15.99603571428571,
+        "stop_loss": 14.570056428571426,
+        "risk_pct": 0.07999999999999995,
+        "target_1": 18.37094071428571,
+        "target_2": 19.637902142857136,
+        "target_3": 22.17182499999999,
+        "risk_reward_ratio": 2.9999999976321297,
+        "base_length_days": 40,
+        "base_tightness_pct": 30.653266329091018,
+        "current_price": 15.83,
+        "extension_from_pivot_pct": 0.9695114172726393,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$15.68 (base 40d, 31% tight) | buy $15.68-$16.00 | stop $14.57 (-8.0%) | targets $18.37/19.64/22.17 | R:R 3.0 | status=READY",
+        "warnings": []
+      },
+      "is_unknown_theme": false,
+      "val_mult": 1.0,
+      "fundamental_warnings": [],
+      "finnhub_features": {
+        "fh_days_to_next_earnings": 29,
+        "fh_rec_bull_ratio": 0.6222222222222222
+      }
+    },
+    {
+      "ticker": "AMZN",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": "cloud_hyperscale",
+      "theme_phase": "maturing",
+      "phase_multiplier": 1.15,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 142.025,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.15(maturing) x val=0.95 = 142 | analyst upgrade x1 (mild fade)",
+      "metrics": {
+        "dollar_volume_20d_musd": 12906.830150850501,
+        "mom_1m": 29.78993373748766,
+        "mom_3m": 15.740507920543134,
+        "rs_benchmark_3m": 10.32833453346158
+      },
+      "trade_card": {
+        "ticker": "AMZN",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 273.41024999999996,
+        "buy_zone_low": 273.41024999999996,
+        "buy_zone_high": 277.1463214285714,
+        "stop_loss": 260.33399999999995,
+        "risk_pct": 0.05428792058737454,
+        "target_1": 305.16685714285717,
+        "target_2": 320.1111428571429,
+        "target_3": 349.9997142857144,
+        "risk_reward_ratio": 2.9999999997992544,
+        "base_length_days": 40,
+        "base_tightness_pct": 36.47536871658235,
+        "current_price": 276.18,
+        "extension_from_pivot_pct": 1.013038099339747,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$273.41 (base 40d, 36% tight) | buy $273.41-$277.15 | stop $260.33 (-5.4%) | targets $305.17/320.11/350.00 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (36% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": false,
+      "val_mult": 0.95,
+      "fundamental_warnings": [
+        "analyst upgrade x1 (mild fade)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 31.7731,
+        "fh_peg_5y": 1.1363769670958512,
+        "fh_epsGrowth5Y": 27.96,
+        "fh_epsGrowthQuarterlyYoy": 75.33,
+        "fh_days_to_next_earnings": 85,
+        "fh_rec_bull_ratio": 0.9230769230769231
+      }
+    },
+    {
+      "ticker": "CBOE",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 140.4,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=1.08 = 140 | H6 dynamic-leader (mom3m=26%, op_margin=34%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 261.88172543425003,
+        "mom_1m": 15.390461392960875,
+        "mom_3m": 27.149397052255473,
+        "rs_benchmark_3m": 21.203729495810087
+      },
+      "trade_card": {
+        "ticker": "CBOE",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 340.60454999999996,
+        "buy_zone_low": 340.60454999999996,
+        "buy_zone_high": 345.22722857142855,
+        "stop_loss": 324.42517499999997,
+        "risk_pct": 0.05392201080046185,
+        "target_1": 379.89731785714275,
+        "target_2": 398.388032142857,
+        "target_3": 435.36946071428554,
+        "risk_reward_ratio": 2.9999999998377564,
+        "base_length_days": 40,
+        "base_tightness_pct": 24.14285714276872,
+        "current_price": 341.625,
+        "extension_from_pivot_pct": 0.2995996383489352,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$340.60 (base 40d, 24% tight) | buy $340.60-$345.23 | stop $324.43 (-5.4%) | targets $379.90/398.39/435.37 | R:R 3.0 | status=READY",
+        "warnings": []
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.08,
+      "fundamental_warnings": [
+        "H6 dynamic-leader (mom3m=26%, op_margin=34%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 27.7277,
+        "fh_peg_5y": 1.417571574642127,
+        "fh_epsGrowth5Y": 19.56,
+        "fh_epsGrowthQuarterlyYoy": 54.06,
+        "fh_days_to_next_earnings": 86,
+        "fh_rec_bull_ratio": 0.391304347826087
+      }
+    },
+    {
+      "ticker": "ZM",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 140.4,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=1.08 = 140 | H6 dynamic-leader (mom3m=19%, op_margin=23%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 420.98841318200004,
+        "mom_1m": 31.204644412191573,
+        "mom_3m": 22.258537135129043,
+        "rs_benchmark_3m": 16.54157241020735
+      },
+      "trade_card": {
+        "ticker": "ZM",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 107.16314999999999,
+        "buy_zone_low": 107.16314999999999,
+        "buy_zone_high": 109.13805357142856,
+        "stop_loss": 100.2509875,
+        "risk_pct": 0.07304272149466437,
+        "target_1": 123.94983035714283,
+        "target_2": 131.84944464285712,
+        "target_3": 147.64867321428568,
+        "risk_reward_ratio": 2.9999999996202362,
+        "base_length_days": 40,
+        "base_tightness_pct": 43.90013495217409,
+        "current_price": 108.48,
+        "extension_from_pivot_pct": 1.2288272601169492,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$107.16 (base 40d, 44% tight) | buy $107.16-$109.14 | stop $100.25 (-7.3%) | targets $123.95/131.85/147.65 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (44% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.08,
+      "fundamental_warnings": [
+        "H6 dynamic-leader (mom3m=19%, op_margin=23%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 16.253,
+        "fh_peg_5y": 0.7272035794183445,
+        "fh_epsGrowth5Y": 22.35,
+        "fh_epsGrowthQuarterlyYoy": 91.41,
+        "fh_days_to_next_earnings": 16,
+        "fh_rec_bull_ratio": 0.5897435897435898
+      }
+    },
+    {
+      "ticker": "GOOG",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": "cloud_hyperscale",
+      "theme_phase": "maturing",
+      "phase_multiplier": 1.15,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 137.241,
+      "signals_fired": [
+        "T3:Earnings Gap",
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.15(maturing) x val=0.92 = 137 | analyst upgrade x2 (CONTRARIAN sell) | H6 dynamic-leader (mom3m=16%, op_margin=33%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 6161.8376941755005,
+        "mom_1m": 29.44970772021769,
+        "mom_3m": 13.096565893748169,
+        "rs_benchmark_3m": 7.808026599271689
+      },
+      "trade_card": {
+        "ticker": "GOOG",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 385.1361,
+        "buy_zone_low": 385.1361,
+        "buy_zone_high": 389.93663214285715,
+        "stop_loss": 368.33423750000003,
+        "risk_pct": 0.04954923009183947,
+        "target_1": 425.94062321428567,
+        "target_2": 445.1427517857142,
+        "target_3": 483.5470089285713,
+        "risk_reward_ratio": 2.999999999843767,
+        "base_length_days": 40,
+        "base_tightness_pct": 40.30167679563485,
+        "current_price": 385.32,
+        "extension_from_pivot_pct": 0.04774935405951197,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$385.14 (base 40d, 40% tight) | buy $385.14-$389.94 | stop $368.33 (-5.0%) | targets $425.94/445.14/483.55 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (40% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": false,
+      "val_mult": 0.918,
+      "fundamental_warnings": [
+        "analyst upgrade x2 (CONTRARIAN sell)",
+        "H6 dynamic-leader (mom3m=16%, op_margin=33%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 29.0703,
+        "fh_peg_5y": 0.9748591549295774,
+        "fh_epsGrowth5Y": 29.82,
+        "fh_epsGrowthQuarterlyYoy": 81.96,
+        "fh_days_to_next_earnings": 77,
+        "fh_rec_bull_ratio": 0.8857142857142857
+      }
+    },
+    {
+      "ticker": "GOOGL",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": "cloud_hyperscale",
+      "theme_phase": "maturing",
+      "phase_multiplier": 1.15,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 137.241,
+      "signals_fired": [
+        "T3:Earnings Gap",
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.15(maturing) x val=0.92 = 137 | analyst upgrade x2 (CONTRARIAN sell) | H6 dynamic-leader (mom3m=17%, op_margin=33%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 9318.729134418001,
+        "mom_1m": 29.730991033034428,
+        "mom_3m": 14.562420888404827,
+        "rs_benchmark_3m": 9.205336349623305
+      },
+      "trade_card": {
+        "ticker": "GOOGL",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 387.61844999999994,
+        "buy_zone_low": 387.61844999999994,
+        "buy_zone_high": 392.51166071428565,
+        "stop_loss": 370.49221249999994,
+        "risk_pct": 0.05017840636665595,
+        "target_1": 429.2107410714285,
+        "target_2": 448.7835839285714,
+        "target_3": 487.9292696428571,
+        "risk_reward_ratio": 2.9999999998467266,
+        "base_length_days": 40,
+        "base_tightness_pct": 41.02010968906391,
+        "current_price": 389.18,
+        "extension_from_pivot_pct": 0.40285750072011073,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$387.62 (base 40d, 41% tight) | buy $387.62-$392.51 | stop $370.49 (-5.0%) | targets $429.21/448.78/487.93 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (41% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": false,
+      "val_mult": 0.918,
+      "fundamental_warnings": [
+        "analyst upgrade x2 (CONTRARIAN sell)",
+        "H6 dynamic-leader (mom3m=17%, op_margin=33%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 29.0703,
+        "fh_peg_5y": 0.9748591549295774,
+        "fh_epsGrowth5Y": 29.82,
+        "fh_epsGrowthQuarterlyYoy": 81.96,
+        "fh_days_to_next_earnings": 77,
+        "fh_rec_bull_ratio": 0.8857142857142857
+      }
+    },
+    {
+      "ticker": "RDDT",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 133.38,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=1.03 = 133 | analyst upgrade x1 (mild fade) | H6 dynamic-leader (mom3m=15%, op_margin=25%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 745.3943856817499,
+        "mom_1m": 26.409570623102496,
+        "mom_3m": 5.722144973097154,
+        "rs_benchmark_3m": 0.7784429820761218
+      },
+      "trade_card": {
+        "ticker": "RDDT",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 169.91534999999996,
+        "buy_zone_low": 169.91534999999996,
+        "buy_zone_high": 174.79859999999996,
+        "stop_loss": 158.56841699999998,
+        "risk_pct": 0.07999999999999997,
+        "target_1": 199.93409099999997,
+        "target_2": 213.72264899999996,
+        "target_3": 241.29976499999995,
+        "risk_reward_ratio": 2.9999999997824283,
+        "base_length_days": 40,
+        "base_tightness_pct": 38.76395272456693,
+        "current_price": 174.875,
+        "extension_from_pivot_pct": 2.9188946142888472,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$169.92 (base 40d, 39% tight) | buy $169.92-$174.80 | stop $158.57 (-8.0%) | targets $199.93/213.72/241.30 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (39% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.026,
+      "fundamental_warnings": [
+        "analyst upgrade x1 (mild fade)",
+        "H6 dynamic-leader (mom3m=15%, op_margin=25%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 44.9493,
+        "fh_epsGrowthQuarterlyYoy": 674.77,
+        "fh_days_to_next_earnings": 85,
+        "fh_rec_bull_ratio": 0.6944444444444444
+      }
+    },
+    {
+      "ticker": "CASY",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 130.0,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) = 130",
+      "metrics": {
+        "dollar_volume_20d_musd": 605.2315027795,
+        "mom_1m": 15.19919226500126,
+        "mom_3m": 34.31014858817842,
+        "rs_benchmark_3m": 28.029635180522238
+      },
+      "trade_card": {
+        "ticker": "CASY",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 856.8931499999999,
+        "buy_zone_low": 856.8931499999999,
+        "buy_zone_high": 866.5471142857142,
+        "stop_loss": 823.1042749999998,
+        "risk_pct": 0.044812527527737275,
+        "target_1": 938.9518464285713,
+        "target_2": 977.5677035714285,
+        "target_3": 1054.799417857143,
+        "risk_reward_ratio": 2.999999999922312,
+        "base_length_days": 40,
+        "base_tightness_pct": 29.25882691807641,
+        "current_price": 861.425,
+        "extension_from_pivot_pct": 0.5288699063588087,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$856.89 (base 40d, 29% tight) | buy $856.89-$866.55 | stop $823.10 (-4.5%) | targets $938.95/977.57/1054.80 | R:R 3.0 | status=READY",
+        "warnings": []
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.0,
+      "fundamental_warnings": [],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 47.5253,
+        "fh_peg_5y": 3.0760711974110033,
+        "fh_epsGrowth5Y": 15.45,
+        "fh_epsGrowthQuarterlyYoy": 49.82,
+        "fh_days_to_next_earnings": 34,
+        "fh_rec_bull_ratio": 0.64
+      }
+    },
+    {
+      "ticker": "PINS",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 130.0,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) = 130",
+      "metrics": {
+        "dollar_volume_20d_musd": 306.691910721,
+        "mom_1m": 25.53424657534247,
+        "mom_3m": 10.303322099181521,
+        "rs_benchmark_3m": 5.145398437902027
+      },
+      "trade_card": {
+        "ticker": "PINS",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 20.95425,
+        "buy_zone_low": 20.95425,
+        "buy_zone_high": 21.427642857142857,
+        "stop_loss": 19.495670714285716,
+        "risk_pct": 0.07999999999999997,
+        "target_1": 24.581497857142857,
+        "target_2": 26.27677357142857,
+        "target_3": 29.667324999999998,
+        "risk_reward_ratio": 2.999999998230376,
+        "base_length_days": 40,
+        "base_tightness_pct": 18.331441542659967,
+        "current_price": 22.91,
+        "extension_from_pivot_pct": 9.333428779364583,
+        "max_entry_window_days": 5,
+        "entry_status": "EXTENDED",
+        "rationale": "pivot=$20.95 (base 40d, 18% tight) | buy $20.95-$21.43 | stop $19.50 (-8.0%) | targets $24.58/26.28/29.67 | R:R 3.0 | status=EXTENDED",
+        "warnings": [
+          "price extended 9.3% above pivot"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.0,
+      "fundamental_warnings": [],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 27.9299,
+        "fh_epsGrowthQuarterlyYoy": -88.47,
+        "fh_days_to_next_earnings": 84,
+        "fh_rec_bull_ratio": 0.5111111111111111
+      }
+    },
+    {
+      "ticker": "CAT",
+      "tech_score": 120.0,
+      "best_tier": 3,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 129.60000000000002,
+      "signals_fired": [
+        "T3:Earnings Gap",
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=120[T3] x phase=1.00(unknown) x val=1.08 = 130 | H6 dynamic-leader (mom3m=31%, op_margin=16%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 1929.320879764,
+        "mom_1m": 25.194110143641502,
+        "mom_3m": 28.46249057462762,
+        "rs_benchmark_3m": 22.45542109465335
+      },
+      "trade_card": {
+        "ticker": "CAT",
+        "side": "BUY",
+        "signal_tier": 3,
+        "signal_name": "Earnings Gap",
+        "pivot_price": 894.5605499999999,
+        "buy_zone_low": 894.5605499999999,
+        "buy_zone_high": 907.9979678571427,
+        "stop_loss": 847.5295874999999,
+        "risk_pct": 0.05963708905547026,
+        "target_1": 1008.7786017857143,
+        "target_2": 1062.5282732142857,
+        "target_3": 1170.0276160714286,
+        "risk_reward_ratio": 2.999999999944186,
+        "base_length_days": 40,
+        "base_tightness_pct": 33.363798450723884,
+        "current_price": 902.95,
+        "extension_from_pivot_pct": 0.9378291944575512,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$894.56 (base 40d, 33% tight) | buy $894.56-$908.00 | stop $847.53 (-6.0%) | targets $1008.78/1062.53/1170.03 | R:R 3.0 | status=READY",
+        "warnings": []
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.08,
+      "fundamental_warnings": [
+        "H6 dynamic-leader (mom3m=31%, op_margin=16%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 46.5952,
+        "fh_peg_5y": 1.6611479500891264,
+        "fh_epsGrowth5Y": 28.05,
+        "fh_epsGrowthQuarterlyYoy": -11.46,
+        "fh_rec_bull_ratio": 0.5294117647058824
+      }
+    },
+    {
+      "ticker": "ESI",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 125.30700000000002,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.96 = 125 | H6 dynamic-leader (mom3m=49%, op_margin=16%) | Stage2-overext (52w=100%, RSI=76, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 122.91056901899998,
+        "mom_1m": 30.84855627578078,
+        "mom_3m": 53.508468717594184,
+        "rs_benchmark_3m": 46.3302174379699
+      },
+      "trade_card": {
+        "ticker": "ESI",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 43.225049999999996,
+        "buy_zone_low": 43.225049999999996,
+        "buy_zone_high": 44.137228571428565,
+        "stop_loss": 40.18664814285714,
+        "risk_pct": 0.08000000000000002,
+        "target_1": 50.67012157142857,
+        "target_2": 54.16461271428571,
+        "target_3": 61.153594999999996,
+        "risk_reward_ratio": 2.999999999141506,
+        "base_length_days": 40,
+        "base_tightness_pct": 42.93785310591765,
+        "current_price": 44.41,
+        "extension_from_pivot_pct": 2.74135021243469,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$43.23 (base 40d, 43% tight) | buy $43.23-$44.14 | stop $40.19 (-8.0%) | targets $50.67/54.16/61.15 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (43% range) - lower quality",
+          "wide stop (8.0%) - consider smaller size"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.9639000000000001,
+      "fundamental_warnings": [
+        "H6 dynamic-leader (mom3m=49%, op_margin=16%)",
+        "Stage2-overext (52w=100%, RSI=76, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 54.9138,
+        "fh_peg_5y": 2.6099714828897342,
+        "fh_epsGrowth5Y": 21.04,
+        "fh_epsGrowthQuarterlyYoy": -88.81,
+        "fh_days_to_next_earnings": 62,
+        "fh_rec_bull_ratio": 0.875
+      }
+    },
+    {
+      "ticker": "NVT",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 125.30700000000002,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.96 = 125 | H6 dynamic-leader (mom3m=45%, op_margin=16%) | Stage2-overext (52w=100%, RSI=86, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 320.9453890255,
+        "mom_1m": 43.87190188229282,
+        "mom_3m": 41.43849953947918,
+        "rs_benchmark_3m": 34.82465537316679
+      },
+      "trade_card": {
+        "ticker": "NVT",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 163.50345,
+        "buy_zone_low": 163.50345,
+        "buy_zone_high": 166.7577,
+        "stop_loss": 152.113575,
+        "risk_pct": 0.07882852706108481,
+        "target_1": 191.16457499999999,
+        "target_2": 204.18157499999998,
+        "target_3": 230.21557499999997,
+        "risk_reward_ratio": 2.999999999769532,
+        "base_length_days": 40,
+        "base_tightness_pct": 50.82043200101213,
+        "current_price": 168.92,
+        "extension_from_pivot_pct": 3.312804714518247,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$163.50 (base 40d, 51% tight) | buy $163.50-$166.76 | stop $152.11 (-7.9%) | targets $191.16/204.18/230.22 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (51% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.9639000000000001,
+      "fundamental_warnings": [
+        "H6 dynamic-leader (mom3m=45%, op_margin=16%)",
+        "Stage2-overext (52w=100%, RSI=86, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 52.2536,
+        "fh_epsGrowthQuarterlyYoy": -59.73,
+        "fh_days_to_next_earnings": 84,
+        "fh_rec_bull_ratio": 0.8947368421052632
+      }
+    },
+    {
+      "ticker": "CCC",
+      "tech_score": 120.0,
+      "best_tier": 3,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 120.0,
+      "signals_fired": [
+        "T3:Earnings Gap"
+      ],
+      "rationale": "tech=120[T3] x phase=1.00(unknown) = 120",
+      "metrics": {
+        "dollar_volume_20d_musd": 66.14751262950001,
+        "mom_1m": -12.68412438625205,
+        "mom_3m": -22.456395348837212,
+        "rs_benchmark_3m": -26.082432947700262
+      },
+      "trade_card": {
+        "ticker": "CCC",
+        "side": "BUY",
+        "signal_tier": 3,
+        "signal_name": "Earnings Gap",
+        "pivot_price": 6.2410499999999995,
+        "buy_zone_low": 6.2410499999999995,
+        "buy_zone_high": 6.394978571428571,
+        "stop_loss": 5.812573142857143,
+        "risk_pct": 0.07999999999999992,
+        "target_1": 7.3288965714285705,
+        "target_2": 7.834337714285713,
+        "target_3": 8.845219999999998,
+        "risk_reward_ratio": 2.999999994064591,
+        "base_length_days": 40,
+        "base_tightness_pct": 30.46218486754997,
+        "current_price": 5.335,
+        "extension_from_pivot_pct": -14.517589187716807,
+        "max_entry_window_days": 5,
+        "entry_status": "EARLY",
+        "rationale": "pivot=$6.24 (base 40d, 30% tight) | buy $6.24-$6.39 | stop $5.81 (-8.0%) | targets $7.33/7.83/8.85 | R:R 3.0 | status=EARLY",
+        "warnings": [
+          "price $5.33 below pivot $6.24"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.0,
+      "fundamental_warnings": [],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 7535.3277,
+        "fh_epsGrowthQuarterlyYoy": 48,
+        "fh_days_to_next_earnings": 85,
+        "fh_rec_bull_ratio": 0.6470588235294118
+      }
+    },
+    {
+      "ticker": "GTLB",
+      "tech_score": 120.0,
+      "best_tier": 3,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 120.0,
+      "signals_fired": [
+        "T3:Earnings Gap"
+      ],
+      "rationale": "tech=120[T3] x phase=1.00(unknown) = 120",
+      "metrics": {
+        "dollar_volume_20d_musd": 138.021174094,
+        "mom_1m": 7.996485061511405,
+        "mom_3m": -25.152253349573705,
+        "rs_benchmark_3m": -28.652229198846435
+      },
+      "trade_card": {
+        "ticker": "GTLB",
+        "side": "BUY",
+        "signal_tier": 3,
+        "signal_name": "Earnings Gap",
+        "pivot_price": 24.712949999999996,
+        "buy_zone_low": 24.712949999999996,
+        "buy_zone_high": 25.326042857142852,
+        "stop_loss": 23.01793671428571,
+        "risk_pct": 0.07999999999999992,
+        "target_1": 29.022615857142846,
+        "target_2": 31.024175571428557,
+        "target_3": 35.02729499999998,
+        "risk_reward_ratio": 2.9999999985011687,
+        "base_length_days": 40,
+        "base_tightness_pct": 26.62203913354159,
+        "current_price": 24.58,
+        "extension_from_pivot_pct": -0.5379770525169913,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$24.71 (base 40d, 27% tight) | buy $24.71-$25.33 | stop $23.02 (-8.0%) | targets $29.02/31.02/35.03 | R:R 3.0 | status=READY",
+        "warnings": []
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.0,
+      "fundamental_warnings": [],
+      "finnhub_features": {
+        "fh_days_to_next_earnings": 34,
+        "fh_rec_bull_ratio": 0.4
+      }
+    },
+    {
+      "ticker": "FLEX",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 116.02499999999999,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.89 = 116 | Stage2-overext (52w=100%, RSI=83, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 305.1789468585,
+        "mom_1m": 39.91137370753324,
+        "mom_3m": 43.53689953023186,
+        "rs_benchmark_3m": 36.824931510918944
+      },
+      "trade_card": {
+        "ticker": "FLEX",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 92.2992,
+        "buy_zone_low": 92.2992,
+        "buy_zone_high": 93.95299642857142,
+        "stop_loss": 86.5109125,
+        "risk_pct": 0.0710347135887084,
+        "target_1": 106.35646964285715,
+        "target_2": 112.97165535714286,
+        "target_3": 126.2020267857143,
+        "risk_reward_ratio": 2.999999999546498,
+        "base_length_days": 40,
+        "base_tightness_pct": 51.62621759861935,
+        "current_price": 94.72,
+        "extension_from_pivot_pct": 2.622774628599167,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$92.30 (base 40d, 52% tight) | buy $92.30-$93.95 | stop $86.51 (-7.1%) | targets $106.36/112.97/126.20 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (52% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.8925,
+      "fundamental_warnings": [
+        "Stage2-overext (52w=100%, RSI=83, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 39.5724,
+        "fh_peg_5y": 0.6083382013835512,
+        "fh_epsGrowth5Y": 65.05,
+        "fh_epsGrowthQuarterlyYoy": -4.78,
+        "fh_days_to_next_earnings": 78,
+        "fh_rec_bull_ratio": 0.9473684210526315
+      }
+    },
+    {
+      "ticker": "SNDK",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 113.373,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.87 = 113 | analyst upgrade x1 (mild fade) | H6 dynamic-leader (mom3m=137%, op_margin=41%) | Stage2-overext (52w=100%, RSI=83, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 15378.33640085825,
+        "mom_1m": 91.35489836192264,
+        "mom_3m": 99.36665180946356,
+        "rs_benchmark_3m": 90.04401355099417
+      },
+      "trade_card": {
+        "ticker": "SNDK",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 1262.1392999999998,
+        "buy_zone_low": 1262.1392999999998,
+        "buy_zone_high": 1300.0034789999997,
+        "stop_loss": 1178.58567834,
+        "risk_pct": 0.07999999999999996,
+        "target_1": 1486.0428118199998,
+        "target_2": 1588.5285229799997,
+        "target_3": 1793.4999452999996,
+        "risk_reward_ratio": 2.9999999999707274,
+        "base_length_days": 40,
+        "base_tightness_pct": 119.3641921395295,
+        "current_price": 1386.615,
+        "extension_from_pivot_pct": 9.862279068562408,
+        "max_entry_window_days": 5,
+        "entry_status": "EXTENDED",
+        "rationale": "pivot=$1262.14 (base 40d, 119% tight) | buy $1262.14-$1300.00 | stop $1178.59 (-8.0%) | targets $1486.04/1588.53/1793.50 | R:R 3.0 | status=EXTENDED",
+        "warnings": [
+          "price extended 9.9% above pivot",
+          "loose base (119% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.8721,
+      "fundamental_warnings": [
+        "analyst upgrade x1 (mild fade)",
+        "H6 dynamic-leader (mom3m=137%, op_margin=41%)",
+        "Stage2-overext (52w=100%, RSI=83, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 38.8734,
+        "fh_rec_bull_ratio": 0.8148148148148148
+      }
+    },
+    {
+      "ticker": "DINO",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 110.5,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.85 = 110 | Stage2-overext (52w=100%, RSI=86, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 141.843458097985,
+        "mom_1m": 20.52974828375287,
+        "mom_3m": 34.980962840929884,
+        "rs_benchmark_3m": 28.66908130545356
+      },
+      "trade_card": {
+        "ticker": "DINO",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 72.14895,
+        "buy_zone_low": 72.14895,
+        "buy_zone_high": 73.43028571428572,
+        "stop_loss": 67.664275,
+        "risk_pct": 0.07041310296753953,
+        "target_1": 83.04030357142857,
+        "target_2": 88.16564642857142,
+        "target_3": 98.41633214285713,
+        "risk_reward_ratio": 2.999999999414673,
+        "base_length_days": 40,
+        "base_tightness_pct": 35.99166508740309,
+        "current_price": 73.7401,
+        "extension_from_pivot_pct": 2.2053682000916064,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$72.15 (base 40d, 36% tight) | buy $72.15-$73.43 | stop $67.66 (-7.0%) | targets $83.04/88.17/98.42 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (36% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.85,
+      "fundamental_warnings": [
+        "Stage2-overext (52w=100%, RSI=86, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 10.1296,
+        "fh_days_to_next_earnings": 83,
+        "fh_rec_bull_ratio": 0.5454545454545454
+      }
+    },
+    {
+      "ticker": "GNRC",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 110.5,
+      "signals_fired": [
+        "T3:Earnings Gap",
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.85 = 110 | Stage2-overext (52w=100%, RSI=88, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 185.79995525200005,
+        "mom_1m": 35.36211129296236,
+        "mom_3m": 52.73545706371192,
+        "rs_benchmark_3m": 45.593352792392785
+      },
+      "trade_card": {
+        "ticker": "GNRC",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 260.63669999999996,
+        "buy_zone_low": 260.63669999999996,
+        "buy_zone_high": 265.70507499999997,
+        "stop_loss": 242.89738749999992,
+        "risk_pct": 0.07703549656494592,
+        "target_1": 303.71788749999996,
+        "target_2": 323.9913875,
+        "target_3": 364.5383875,
+        "risk_reward_ratio": 2.9999999998520237,
+        "base_length_days": 40,
+        "base_tightness_pct": 39.805929918922864,
+        "current_price": 264.66,
+        "extension_from_pivot_pct": 1.5436429328640422,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$260.64 (base 40d, 40% tight) | buy $260.64-$265.71 | stop $242.90 (-7.7%) | targets $303.72/323.99/364.54 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (40% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.85,
+      "fundamental_warnings": [
+        "Stage2-overext (52w=100%, RSI=88, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 95.372,
+        "fh_epsGrowth5Y": -13.33,
+        "fh_days_to_next_earnings": 84,
+        "fh_rec_bull_ratio": 0.6785714285714286
+      }
+    },
+    {
+      "ticker": "JBL",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 110.5,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.85 = 110 | Stage2-overext (52w=100%, RSI=82, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 333.04892847375,
+        "mom_1m": 30.652035742326223,
+        "mom_3m": 42.26885966697878,
+        "rs_benchmark_3m": 35.61618680478031
+      },
+      "trade_card": {
+        "ticker": "JBL",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 344.18235,
+        "buy_zone_low": 344.18235,
+        "buy_zone_high": 349.7088035714286,
+        "stop_loss": 324.83976249999995,
+        "risk_pct": 0.06371550976528986,
+        "target_1": 391.15720535714286,
+        "target_2": 413.26301964285716,
+        "target_3": 457.47464821428576,
+        "risk_reward_ratio": 2.999999999864289,
+        "base_length_days": 40,
+        "base_tightness_pct": 38.39408389219109,
+        "current_price": 349.455,
+        "extension_from_pivot_pct": 1.5319350338563353,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$344.18 (base 40d, 38% tight) | buy $344.18-$349.71 | stop $324.84 (-6.4%) | targets $391.16/413.26/457.47 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (38% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.85,
+      "fundamental_warnings": [
+        "Stage2-overext (52w=100%, RSI=82, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 44.6619,
+        "fh_peg_5y": 0.5848860660031431,
+        "fh_epsGrowth5Y": 76.36,
+        "fh_epsGrowthQuarterlyYoy": 98.09,
+        "fh_days_to_next_earnings": 41,
+        "fh_rec_bull_ratio": 0.7647058823529411
+      }
+    },
+    {
+      "ticker": "LFUS",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 110.5,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.85 = 110 | Stage2-overext (52w=100%, RSI=76, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 90.50857587600001,
+        "mom_1m": 26.787875210294843,
+        "mom_3m": 29.411941917213944,
+        "rs_benchmark_3m": 23.360474884636908
+      },
+      "trade_card": {
+        "ticker": "LFUS",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 426.39134999999993,
+        "buy_zone_low": 426.39134999999993,
+        "buy_zone_high": 432.46798571428565,
+        "stop_loss": 405.12312499999996,
+        "risk_pct": 0.056601918024044975,
+        "target_1": 478.04275357142853,
+        "target_2": 502.3492964285714,
+        "target_3": 550.9623821428571,
+        "risk_reward_ratio": 2.9999999998765765,
+        "base_length_days": 40,
+        "base_tightness_pct": 38.23021535842624,
+        "current_price": 429.57,
+        "extension_from_pivot_pct": 0.7454771303404772,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$426.39 (base 40d, 38% tight) | buy $426.39-$432.47 | stop $405.12 (-5.7%) | targets $478.04/502.35/550.96 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (38% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.85,
+      "fundamental_warnings": [
+        "Stage2-overext (52w=100%, RSI=76, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_days_to_next_earnings": 84,
+        "fh_rec_bull_ratio": 0.8
+      }
+    },
+    {
+      "ticker": "MTZ",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 110.5,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.85 = 110 | Stage2-overext (52w=100%, RSI=77, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 318.231136327,
+        "mom_1m": 28.564651466184365,
+        "mom_3m": 73.78461785098796,
+        "rs_benchmark_3m": 65.6582280440333
+      },
+      "trade_card": {
+        "ticker": "MTZ",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 427.51694999999995,
+        "buy_zone_low": 427.51694999999995,
+        "buy_zone_high": 434.84383571428566,
+        "stop_loss": 401.87284999999997,
+        "risk_pct": 0.0679704906406839,
+        "target_1": 489.7954785714285,
+        "target_2": 519.1030214285713,
+        "target_3": 577.718107142857,
+        "risk_reward_ratio": 2.9999999998976374,
+        "base_length_days": 40,
+        "base_tightness_pct": 46.686206896390736,
+        "current_price": 433.61,
+        "extension_from_pivot_pct": 1.425218345143997,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$427.52 (base 40d, 47% tight) | buy $427.52-$434.84 | stop $401.87 (-6.8%) | targets $489.80/519.10/577.72 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (47% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.85,
+      "fundamental_warnings": [
+        "Stage2-overext (52w=100%, RSI=77, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 73.1223,
+        "fh_peg_5y": 24.620303030303027,
+        "fh_epsGrowth5Y": 2.97,
+        "fh_epsGrowthQuarterlyYoy": 516.28,
+        "fh_days_to_next_earnings": 85,
+        "fh_rec_bull_ratio": 0.88
+      }
+    },
+    {
+      "ticker": "SNX",
+      "tech_score": 130.0,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 110.5,
+      "signals_fired": [
+        "T4:RS Acceleration"
+      ],
+      "rationale": "tech=130[T4] x phase=1.00(unknown) x val=0.85 = 110 | Stage2-overext (52w=100%, RSI=82, no-catalyst, weak-fund) -2.5% backtest alpha",
+      "metrics": {
+        "dollar_volume_20d_musd": 162.8530305075,
+        "mom_1m": 21.454093521826923,
+        "mom_3m": 45.51433180295321,
+        "rs_benchmark_3m": 38.70989653502128
+      },
+      "trade_card": {
+        "ticker": "SNX",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 229.34099999999995,
+        "buy_zone_low": 229.34099999999995,
+        "buy_zone_high": 232.47496428571424,
+        "stop_loss": 218.37212499999995,
+        "risk_pct": 0.054289405790664755,
+        "target_1": 255.97969642857137,
+        "target_2": 268.51555357142854,
+        "target_3": 293.5872678571428,
+        "risk_reward_ratio": 2.9999999997606888,
+        "base_length_days": 40,
+        "base_tightness_pct": 49.374877266155806,
+        "current_price": 234.54,
+        "extension_from_pivot_pct": 2.2669300299554163,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$229.34 (base 40d, 49% tight) | buy $229.34-$232.47 | stop $218.37 (-5.4%) | targets $255.98/268.52/293.59 | R:R 3.0 | status=READY",
+        "warnings": [
+          "loose base (49% range) - lower quality"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 0.85,
+      "fundamental_warnings": [
+        "Stage2-overext (52w=100%, RSI=82, no-catalyst, weak-fund) -2.5% backtest alpha"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 18.5862,
+        "fh_epsGrowth5Y": -0.65,
+        "fh_epsGrowthQuarterlyYoy": 104.36,
+        "fh_days_to_next_earnings": 48,
+        "fh_rec_bull_ratio": 0.7647058823529411
+      }
+    },
+    {
+      "ticker": "ACHC",
+      "tech_score": 110.00000000000001,
+      "best_tier": 5,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 110.00000000000001,
+      "signals_fired": [
+        "T5:Stage 1->2 Turnaround"
+      ],
+      "rationale": "tech=110[T5] x phase=1.00(unknown) = 110",
+      "metrics": {
+        "dollar_volume_20d_musd": 89.120836476,
+        "mom_1m": 5.419510236852676,
+        "mom_3m": 91.9590643274854,
+        "rs_benchmark_3m": 82.98281428307124
+      },
+      "trade_card": {
+        "ticker": "ACHC",
+        "side": "BUY",
+        "signal_tier": 5,
+        "signal_name": "Stage 1->2 Turnaround",
+        "pivot_price": 28.4013,
+        "buy_zone_low": 28.4013,
+        "buy_zone_high": 29.253339,
+        "stop_loss": 26.521133940000002,
+        "risk_pct": 0.07999999999999997,
+        "target_1": 33.43969062,
+        "target_2": 35.745876179999996,
+        "target_3": 40.3582473,
+        "risk_reward_ratio": 2.999999998699149,
+        "base_length_days": 40,
+        "base_tightness_pct": 24.5482591439159,
+        "current_price": 26.26,
+        "extension_from_pivot_pct": -7.539443617017527,
+        "max_entry_window_days": 5,
+        "entry_status": "EARLY",
+        "rationale": "pivot=$28.40 (base 40d, 25% tight) | buy $28.40-$29.25 | stop $26.52 (-8.0%) | targets $33.44/35.75/40.36 | R:R 3.0 | status=EARLY",
+        "warnings": [
+          "price $26.26 below pivot $28.40"
+        ]
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.0,
+      "fundamental_warnings": [],
+      "finnhub_features": {
+        "fh_rec_bull_ratio": 0.6
+      }
+    },
+    {
+      "ticker": "SNPS",
+      "tech_score": 97.5,
+      "best_tier": 4,
+      "theme_primary": null,
+      "theme_phase": "unknown",
+      "phase_multiplier": 1.0,
+      "liquidity_ok": true,
+      "disqualified": false,
+      "final_score": 105.30000000000001,
+      "signals_fired": [
+        "T4:RS Acceleration",
+        "T5:Stage 1->2 Turnaround"
+      ],
+      "rationale": "tech=98[T4] x phase=1.00(unknown) x val=1.08 = 105 | H6 dynamic-leader (mom3m=21%, op_margin=18%)",
+      "metrics": {
+        "dollar_volume_20d_musd": 764.2794624035001,
+        "mom_1m": 27.650036517490626,
+        "mom_3m": 20.928568020231907,
+        "rs_benchmark_3m": 15.273794343013458
+      },
+      "trade_card": {
+        "ticker": "SNPS",
+        "side": "BUY",
+        "signal_tier": 4,
+        "signal_name": "RS Acceleration",
+        "pivot_price": 503.32409999999993,
+        "buy_zone_low": 503.32409999999993,
+        "buy_zone_high": 512.2096535714285,
+        "stop_loss": 472.2246624999999,
+        "risk_pct": 0.06999711070305534,
+        "target_1": 578.8513053571428,
+        "target_2": 614.3935196428571,
+        "target_3": 685.4779482142857,
+        "risk_reward_ratio": 2.9999999999155937,
+        "base_length_days": 40,
+        "base_tightness_pct": 31.631928929924474,
+        "current_price": 506.86,
+        "extension_from_pivot_pct": 0.7025095758379285,
+        "max_entry_window_days": 5,
+        "entry_status": "READY",
+        "rationale": "pivot=$503.32 (base 40d, 32% tight) | buy $503.32-$512.21 | stop $472.22 (-7.0%) | targets $578.85/614.39/685.48 | R:R 3.0 | status=READY",
+        "warnings": []
+      },
+      "is_unknown_theme": true,
+      "val_mult": 1.08,
+      "fundamental_warnings": [
+        "H6 dynamic-leader (mom3m=21%, op_margin=18%)"
+      ],
+      "finnhub_features": {
+        "fh_peExclExtra_ttm": 85.0459,
+        "fh_peg_5y": 6.290377218934911,
+        "fh_epsGrowth5Y": 13.52,
+        "fh_epsGrowthQuarterlyYoy": -82.01,
+        "fh_days_to_next_earnings": 15,
+        "fh_rec_bull_ratio": 0.7096774193548387
+      }
+    }
+  ]
+}

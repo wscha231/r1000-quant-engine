@@ -1,16 +1,15 @@
-"""r1000_trade_journal — Phase 18a (2026-04-30) AlphaTrade Journal foundation.
+"""r1000_trade_journal - Phase 18a AlphaTrade journal foundation.
 
-Persists per-trade entry/exit records + auto-grades them so the next
-phases (18b insights, 18c auto-gating) have a queryable training
-substrate. Hooks into r1000_pipeline.backtest_portfolio.
+Persists per-trade entry/exit records and auto-grades them so later insight
+and feature-gate tooling has a queryable training substrate. The production
+backtest hook is sidecar-only: it writes outputs/trade_journal artifacts from
+already-computed holdings and returns without changing portfolio metrics.
 
-Three artifacts under outputs/trade_journal/:
-    holdings_history.parquet   per-month holding snapshot (mirror of
-                               BacktestResult.holdings + signal breakdown)
-    trades.parquet             entry-exit pair (one row per round-trip)
-    grades.parquet             auto-applied label per trade
-
-See PHASE_18_PROPOSAL.md for full schema and rationale.
+Artifacts
+---------
+    outputs/trade_journal/holdings_history.parquet
+    outputs/trade_journal/trades.parquet
+    outputs/trade_journal/grades.parquet
 """
 from __future__ import annotations
 
@@ -37,6 +36,14 @@ SIGNAL_BREAKDOWN_COLUMNS: tuple[str, ...] = (
     "explosion_entry_score",
     "explosion_exit_score",
     "explosion_net_score",
+    "portfolio_monster_early_score",
+    "entry_quality_score",
+    "breakout_setup_quality_score",
+    "selection_confirmation_score",
+    "portfolio_risk_entry_block_score",
+    "portfolio_hold_policy_exit_risk",
+    "broken_momentum_penalty",
+    "relative_strength_composite",
 )
 
 # Grade rule thresholds (18a defaults; tuned in 18b)
@@ -48,8 +55,15 @@ GRADE_TRAP_HOLD_DAYS = 60
 GRADE_GOOD_EXIT_ALPHA_QUANTILE = 0.75
 
 
+def _journal_dir(paths: dict) -> Path:
+    """Return the journal output directory, with a custom sidecar override."""
+    if paths is not None and paths.get("trade_journal_dir"):
+        return Path(paths["trade_journal_dir"])
+    return Path(paths.get("outputs", "outputs")) / "trade_journal"
+
+
 # =====================================================================
-# Hook A — capture entry signal breakdown when holdings_rows.append
+# Hook A - capture entry signal breakdown when holdings_rows.append
 # =====================================================================
 
 def attach_signal_breakdown(
@@ -98,7 +112,7 @@ def regime_at_row(month_df: pd.DataFrame, ticker: str) -> tuple[str, int]:
 
 
 # =====================================================================
-# Persistence — holdings_history.parquet
+# Persistence - holdings_history.parquet
 # =====================================================================
 
 def persist_holdings_history(
@@ -120,7 +134,7 @@ def persist_holdings_history(
     """
     if holdings_df is None or holdings_df.empty:
         return None
-    out_dir = Path(paths.get("outputs", "outputs")) / "trade_journal"
+    out_dir = _journal_dir(paths)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df = holdings_df.copy()
@@ -139,7 +153,7 @@ def persist_holdings_history(
     if "regime_state_score" not in df.columns:
         df["regime_state_score"] = 0
 
-    # Stable column order — required cols first, then any extras
+    # Stable column order - required cols first, then any extras
     required = [
         "rebalance_date", "ticker", "weight", "raw_score",
         "portfolio_sleeve_label", "portfolio_sleeve_role",
@@ -163,7 +177,7 @@ def persist_holdings_history(
 
 
 # =====================================================================
-# Pairing — entry/exit round-trip detection
+# Pairing - entry/exit round-trip detection
 # =====================================================================
 
 def pair_entries_with_exits(
@@ -195,7 +209,7 @@ def pair_entries_with_exits(
     df = df.dropna(subset=["rebalance_date", "ticker"]).sort_values(["ticker", "rebalance_date"])
 
     # Detect contiguous holding blocks per ticker. Use the rebalance
-    # cadence (≈ monthly) to define adjacency: gap > 45 days → new block.
+    # cadence (≈ monthly) to define adjacency: gap > 45 days -> new block.
     trades: list[dict] = []
     for ticker, grp in df.groupby("ticker", sort=False):
         grp = grp.sort_values("rebalance_date").reset_index(drop=True)
@@ -229,7 +243,7 @@ def pair_entries_with_exits(
         - pd.to_numeric(trades_df["benchmark_return_same_period"], errors="coerce")
     )
 
-    out_dir = Path(paths.get("outputs", "outputs")) / "trade_journal"
+    out_dir = _journal_dir(paths)
     out_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = out_dir / "trades.parquet"
     trades_df.to_parquet(parquet_path, index=False)
@@ -269,6 +283,7 @@ def _build_trade_row(ticker: str, block: pd.DataFrame, engine_version: str) -> O
         "n_periods": int(len(block)),
         "realized_return": realized,
         "engine_version": str(engine_version),
+        "source_journal": str(block["source_journal"].iloc[0]) if "source_journal" in block.columns else "main",
     }
 
 
@@ -289,7 +304,7 @@ def _bench_window_return(
 
 
 # =====================================================================
-# Grading — auto-label each trade
+# Grading - auto-label each trade
 # =====================================================================
 
 def grade_trades(
@@ -308,7 +323,7 @@ def grade_trades(
     alpha = pd.to_numeric(df.get("alpha_vs_benchmark"), errors="coerce")
     holding = pd.to_numeric(df.get("holding_days", 0), errors="coerce").fillna(0)
 
-    # Quantile threshold for GOOD_EXIT — top 25% alpha among winners
+    # Quantile threshold for GOOD_EXIT - top 25% alpha among winners
     good_alpha_cut = float(alpha[realized > 0].quantile(GRADE_GOOD_EXIT_ALPHA_QUANTILE)) if alpha.notna().any() else float("inf")
 
     labels: list[str] = []
@@ -343,7 +358,7 @@ def grade_trades(
         "entry_sleeve": df.get("entry_sleeve", ""),
     })
 
-    out_dir = Path(paths.get("outputs", "outputs")) / "trade_journal"
+    out_dir = _journal_dir(paths)
     out_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = out_dir / "grades.parquet"
     grades.to_parquet(parquet_path, index=False)

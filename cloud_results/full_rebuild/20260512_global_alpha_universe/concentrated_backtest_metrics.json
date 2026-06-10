@@ -1,0 +1,30 @@
+{
+  "portfolio_mode": "concentrated_alpha",
+  "rebalance_date": "2026-05-13",
+  "selected_names": 3,
+  "target_stock_names": 3,
+  "weighting_mode": "score_power",
+  "recommended_rebalance_interval_months": 1,
+  "monitoring_review_days": 7,
+  "strategy_cagr": 0.4894016706042674,
+  "sharpe": 1.7406704160388327,
+  "max_dd": -0.16665464216428827,
+  "comparison_objective": 0.6271791952268831,
+  "comparison_source": "artifact",
+  "metrics_valid": true,
+  "target_cagr": 0.5,
+  "target_max_dd": -0.18,
+  "target_pass": false,
+  "legacy_metric_mode": "weight_level_research_deprecated",
+  "official_metric_required": "broker_ledger_next_close",
+  "production_valid": false,
+  "production_valid_reason": "deprecated_weight_level_monthly_metric; official production evidence must come from broker_replay/concentrated/metrics.json or account_evaluation/official_metrics.json",
+  "operating_notes": [
+    "Research-only monthly comparison. Do not use these metrics as a production SHIP gate.",
+    "Official performance must be judged by broker-ledger replay with next-close fills, integer shares, cash, and costs.",
+    "Run a full rebalance monthly only if the broker-ledger/account evaluation also passes.",
+    "Run monitoring checks every 7 days.",
+    "Use concentrated holdings as a separate sleeve from the main portfolio.",
+    "Allow immediate review if exit risk spikes or breakout support fails."
+  ]
+}

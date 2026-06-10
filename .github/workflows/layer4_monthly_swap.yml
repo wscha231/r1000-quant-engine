@@ -1,8 +1,8 @@
-name: Layer 4 Monthly Swap (Auto-Apply)
+name: Layer 4 Monthly Swap Proposal
 
-# Runs r1000_layer4_swap.py with --execute on the 5th of each month at
-# 14:00 UTC = 23:00 KST (after Friday close + few business days for new
-# month data to settle).
+# Runs r1000_layer4_swap.py on the 5th of each month after the US close.
+# Scheduled runs are proposal/dry-run only. Live paper swaps require manual
+# workflow_dispatch with execute=true.
 #
 # Throttle: same ticker can't be swapped >1× / 30 days (state in
 # outputs/layer4_swap_history.json, committed to repo for cross-run state).
@@ -16,7 +16,7 @@ name: Layer 4 Monthly Swap (Auto-Apply)
 
 on:
   schedule:
-    - cron: '0 14 5 * *'   # 5th of each month, 14:00 UTC = 23:00 KST
+    - cron: '45 22 5 * *'  # 5th of each month after US close
   workflow_dispatch:
     inputs:
       execute:

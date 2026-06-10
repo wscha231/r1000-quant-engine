@@ -1,0 +1,93 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        714e617 (DIRTY)
+  started:       2026-05-10 19:56:19 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-05-10
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  leader_rescue: (cfg default)
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+OK: companyfacts.zip 1.1d old, 1315 MB
+
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 731
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         448
+early_scout        116
+future_winner      104
+core_compounder     63
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=731
+  phase9_core_eligible                      mean=0.086  sum=63
+  phase9_future_eligible                    mean=0.133  sum=97
+  phase9_early_eligible                     mean=0.160  sum=117
+  phase9_unassigned                         mean=0.621  sum=454
+  phase9_mktcap_percentile                  mean=0.501  sum=366
+
+Final portfolio: 17 positions
+  Sleeve dist: {'core_compounder': 5, 'early_scout': 4, 'future_winner': 8}
+  Top 10 by weight:
+ticker portfolio_sleeve_label   weight
+ GOOGL        core_compounder 0.180000
+  AMAT        core_compounder 0.061298
+   GLW          future_winner 0.061298
+   VRT        core_compounder 0.061298
+  LRCX        core_compounder 0.059125
+   FIX        core_compounder 0.057402
+   PWR          future_winner 0.056489
+   FTI          future_winner 0.056325
+   UMC          future_winner 0.056016
+  NXPI          future_winner 0.055536
+
+======================================================================
+METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.2847     0.2451        +3.96pp
+  sharpe                       1.6506     1.2453        +0.4053
+  max_dd                      -0.1542    -0.2579       +10.37pp
+  ir                           1.2847     1.0244        +0.2603
+  avg_turnover_monthly         0.5237     0.4854        +3.83pp
+  avg_stock_names             24.7229    24.3300        +0.3929
+  beat_month_ratio             0.6506     0.5663        +0.0843
+  excess_cagr                  0.1604     0.1102        +5.02pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.25, 'future_winner': 0.45, 'early_scout': 0.3}
+  actual:  {'core_compounder': 0.4191233611982079, 'future_winner': 0.42087663880179216, 'early_scout': 0.16000000000000003}
+  counts:  {'core_compounder': 5, 'future_winner': 8, 'early_scout': 4}
+
+=== VERDICT ===
+  dCAGR    +3.96pp   (gate >= +0.5pp)
+  dSharpe  +0.4053    (gate >= -0.05)
+  dMaxDD   +10.37pp   (gate >= -3pp; positive better)
+  early_scout selected: 4    (gate >= 4)
+
+  --> SHIP vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). Rotate baseline + next phase.
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-02-27 at equity 5.6569
+  Lifetime CAGR:   29.35% over 6.83 years
+  Lifetime total:  480.12%
+  vs baseline CAGR (24.51%): +4.84pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.

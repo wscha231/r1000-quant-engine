@@ -1,0 +1,25 @@
+{
+  "portfolio_mode": "concentrated_alpha",
+  "rebalance_date": "2026-05-08",
+  "selected_names": 4,
+  "target_stock_names": 4,
+  "weighting_mode": "score_power",
+  "recommended_rebalance_interval_months": 1,
+  "monitoring_review_days": 7,
+  "strategy_cagr": 0.43243153809103063,
+  "sharpe": 1.7696899020615104,
+  "max_dd": -0.1259120118944551,
+  "comparison_objective": 0.5856497196764051,
+  "comparison_source": "artifact",
+  "metrics_valid": true,
+  "target_cagr": 0.5,
+  "target_max_dd": -0.18,
+  "target_pass": false,
+  "production_valid": true,
+  "operating_notes": [
+    "Run a full rebalance monthly.",
+    "Run monitoring checks every 7 days.",
+    "Use concentrated holdings as a separate sleeve from the main portfolio.",
+    "Allow immediate review if exit risk spikes or breakout support fails."
+  ]
+}
