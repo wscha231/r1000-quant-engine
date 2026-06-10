@@ -164,10 +164,15 @@ def normalize_targets(
     frame: pd.DataFrame,
     portfolio_kind: str,
     champion_filters: dict[str, Any] | None = None,
+    *,
+    disable_champion_filter: bool = False,
 ) -> pd.DataFrame:
     if frame.empty or "rebalance_date" not in frame.columns or "ticker" not in frame.columns or "weight" not in frame.columns:
         return pd.DataFrame()
-    d = filter_concentrated_champion(frame.copy(), portfolio_kind, champion_filters)
+    if disable_champion_filter:
+        d = frame.copy()
+    else:
+        d = filter_concentrated_champion(frame.copy(), portfolio_kind, champion_filters)
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
     d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
@@ -495,16 +500,28 @@ def replay(
     max_reasonable_weight_sum: float = 1.05,
     max_fill_lag_days: int = 7,
     concentrated_champion_filters: dict[str, Any] | None = None,
+    disable_concentrated_champion_filter: bool = False,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
-    champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
-        target_book=target_book,
-        raw_targets=raw,
-        portfolio_kind=portfolio_kind,
-        explicit_filters=concentrated_champion_filters,
+    if disable_concentrated_champion_filter:
+        # Research books (e.g. Market Leader N3/N5 variants) carry their own
+        # construction policy; coercing them through the production champion
+        # filter (target_stock_names=3 etc.) would silently rewrite the book.
+        champion_filters, champion_filter_source, champion_filter_warning = {}, "disabled_by_flag", ""
+    else:
+        champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
+            target_book=target_book,
+            raw_targets=raw,
+            portfolio_kind=portfolio_kind,
+            explicit_filters=concentrated_champion_filters,
+        )
+    targets = normalize_targets(
+        raw,
+        portfolio_kind,
+        champion_filters,
+        disable_champion_filter=disable_concentrated_champion_filter,
     )
-    targets = normalize_targets(raw, portfolio_kind, champion_filters)
     if targets.empty:
         payload = {
             "status": "blocked",
@@ -761,6 +778,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concentrated-target-stock-n", type=int, default=0)
     parser.add_argument("--concentrated-weighting-mode", default="")
     parser.add_argument("--concentrated-rebalance-interval-months", type=int, default=0)
+    parser.add_argument(
+        "--disable-concentrated-champion-filter",
+        action="store_true",
+        help="Replay the target book exactly as written (no champion-policy coercion). For research books built with their own N/weighting policy.",
+    )
     return parser.parse_args()
 
 
@@ -777,6 +799,7 @@ def main() -> int:
         integer_shares=not bool(args.fractional_shares),
         max_reasonable_weight_sum=args.max_reasonable_weight_sum,
         max_fill_lag_days=args.max_fill_lag_days,
+        disable_concentrated_champion_filter=bool(args.disable_concentrated_champion_filter),
         concentrated_champion_filters={
             key: value
             for key, value in {

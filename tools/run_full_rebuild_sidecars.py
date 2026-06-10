@@ -51,7 +51,12 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
     python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
     python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+    if [ ! -s outputs/crisis_signals/daily_features.parquet ]; then
+      python tools/run_crisis_signal_builder.py 2>&1 | tee outputs/full_rebuild_logs/crisis_signal_builder.log || true
+    fi
+    python tools/run_integrated_leader_crisis_replay.py --leader-dir outputs/market_leader_challenger --crisis-features outputs/crisis_signals/daily_features.parquet --price-cache cache_prices --output-dir outputs/integrated_leader_crisis_replay --portfolio-kind both --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/integrated_leader_crisis_replay.log || true
   fi
+  python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
   echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
   exit 0
 fi
@@ -155,6 +160,11 @@ python tools/run_theme_concentration_challenger.py --latest-run outputs --output
 BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
 python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
 python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+if [ ! -s outputs/crisis_signals/daily_features.parquet ]; then
+  python tools/run_crisis_signal_builder.py 2>&1 | tee outputs/full_rebuild_logs/crisis_signal_builder.log || true
+fi
+python tools/run_integrated_leader_crisis_replay.py --leader-dir outputs/market_leader_challenger --crisis-features outputs/crisis_signals/daily_features.parquet --price-cache cache_prices --output-dir outputs/integrated_leader_crisis_replay --portfolio-kind both --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/integrated_leader_crisis_replay.log || true
+python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
 python tools/run_auto_learning_v2.py --latest-run outputs --output-dir outputs/auto_learning_v2 --research-dir outputs/auto_learning_v2/research 2>&1 | tee outputs/full_rebuild_logs/auto_learning_v2.log || true
 python tools/run_winner_lifecycle_reports.py --latest-run outputs --output-dir outputs/winner_lifecycle 2>&1 | tee outputs/full_rebuild_logs/winner_lifecycle.log || true
 python tools/run_winner_onset_study.py --scored outputs/scored_latest.csv --top-tickers 80 --limit 80 --years 10 --output-dir outputs/winner_onset_study 2>&1 | tee outputs/full_rebuild_logs/winner_onset_study.log || true
