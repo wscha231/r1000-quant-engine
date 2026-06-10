@@ -1,0 +1,176 @@
+name: Sidecar-Only Re-Verify (Fast Loop)
+
+# Avoid the 4-hour Full Rebuild when the only changes are sidecar-stage code
+# (crisis_score formula, governor diagnostics, verdict format, long_crisis
+# threshold learning). This workflow takes an existing healthy Full Rebuild
+# run_id as input, downloads its leader books + crisis features + broker
+# metrics, runs ONLY the modified sidecars, and emits a delta report -- so
+# checking a sidecar code change is 15-30 minutes, not four hours.
+#
+# What this workflow does NOT do (and never should): re-run the collector,
+# walk-forward training, model ensemble, or candidate scoring. If a change
+# touches those, Full Rebuild remains the only valid path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Run ID of the Full Rebuild whose artifacts to reuse (e.g. 27247439447)'
+        type: string
+        required: true
+      ref:
+        description: 'Git ref to check out (the code under test)'
+        type: string
+        default: 'claude/analyze-updated-code-OfEbu'
+      rerun_long_crisis_learning:
+        description: 'Re-run long_crisis dataset + signal + threshold search (~15 min). Off = reuse the source runs best_thresholds.json.'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: sidecar-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sidecar_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Download source run artifact (leader books + crisis features + broker metrics)
+        uses: actions/download-artifact@v4
+        with:
+          name: official-broker-ledger-global_alpha_universe-${{ inputs.source_run_id }}
+          path: outputs/_source_artifact
+          repository: ${{ github.repository }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - name: Stage source artifact into the expected sidecar paths
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          SRC=outputs/_source_artifact
+          echo "[sidecar-only] artifact contents:"
+          find "$SRC" -maxdepth 2 -type d | head -20
+          # The official artifact contains these top-level subtrees -- mirror
+          # them into the working outputs/ layout the tools expect.
+          for d in market_leader_challenger crisis_signals long_crisis_learning \
+                   integrated_leader_crisis_replay broker_replay baseline_lock \
+                   live_trading_safety live_trading_risk_controls portfolio_system_guard; do
+            if [ -d "$SRC/$d" ]; then
+              mkdir -p "outputs/$d"
+              cp -r "$SRC/$d"/* "outputs/$d/" 2>/dev/null || true
+            fi
+          done
+          # The price cache used by integrated replay broker-ledger fills.
+          # The official artifact does not include cache_prices/; the new
+          # integrated replay reads them, so the run is bounded to the date
+          # range present in the leader books anyway -- broker replay tolerates
+          # missing tickers as warnings. We accept that and report.
+          if [ -d "$SRC/cache_prices" ]; then
+            cp -r "$SRC/cache_prices" cache_prices
+          else
+            echo "[sidecar-only] cache_prices/ absent in source artifact -- broker replay will report missing tickers."
+            mkdir -p cache_prices
+          fi
+          # Move the baseline target books back to outputs/reports for the
+          # broker-ledger cross-check verdict to find them.
+          mkdir -p outputs/reports
+          for csv in operating_main_target_book.csv operating_concentrated_target_book.csv \
+                     main_monthly_weights.csv concentrated_strategy_holdings.csv; do
+            if [ -f "$SRC/reports/$csv" ]; then
+              cp "$SRC/reports/$csv" "outputs/reports/$csv"
+            fi
+          done
+          echo "[sidecar-only] staged paths:"
+          ls -la outputs/ | head -20
+
+      - name: Diagnose the source run's crisis score (pre-fix view of the data)
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s outputs/crisis_signals/daily_features.parquet ]; then
+            python tools/diagnose_crisis_features.py \
+              --features outputs/crisis_signals/daily_features.parquet \
+              --output outputs/sidecar_only_verify/crisis_features_diagnosis.json \
+              2>&1 | tee outputs/full_rebuild_logs/crisis_diagnosis.log
+          else
+            echo "[sidecar-only] no daily_features.parquet in source artifact; skipping diagnosis."
+          fi
+
+      - name: Re-learn long_crisis thresholds (optional)
+        if: inputs.rerun_long_crisis_learning
+        run: |
+          set -euo pipefail
+          python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
+          python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
+          python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
+
+      - name: Re-run integrated leader+crisis replay with the fixed code
+        run: |
+          set -euo pipefail
+          python tools/run_integrated_leader_crisis_replay.py \
+            --leader-dir outputs/market_leader_challenger \
+            --crisis-features outputs/crisis_signals/daily_features.parquet \
+            --price-cache cache_prices \
+            --output-dir outputs/integrated_leader_crisis_replay_fixed \
+            --portfolio-kind both \
+            --cost-bps 25 \
+            --thresholds-json outputs/long_crisis_learning/best_thresholds.json \
+            2>&1 | tee outputs/full_rebuild_logs/integrated_leader_crisis_replay_fixed.log
+
+      - name: Verdict cross-check with broker-ledger numbers
+        run: |
+          set -euo pipefail
+          python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict_fixed.log || true
+
+      - name: Build delta report (source vs fixed)
+        if: always()
+        run: |
+          set -euo pipefail
+          python tools/build_sidecar_only_delta_report.py \
+            --source-run-id "${{ inputs.source_run_id }}" \
+            --source-summary outputs/integrated_leader_crisis_replay/summary.json \
+            --fixed-summary outputs/integrated_leader_crisis_replay_fixed/summary.json \
+            --crisis-diag outputs/sidecar_only_verify/crisis_features_diagnosis.json \
+            --output outputs/sidecar_only_verify/delta_report.md \
+            2>&1 | tee outputs/full_rebuild_logs/sidecar_only_delta_report.log || true
+
+      - name: Upload verification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-only-verify-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: |
+            outputs/integrated_leader_crisis_replay_fixed/
+            outputs/sidecar_only_verify/
+            outputs/long_crisis_learning/best_thresholds.json
+            outputs/full_rebuild_logs/integrated_leader_crisis_replay_fixed.log
+            outputs/full_rebuild_logs/verdict_fixed.log
+            outputs/full_rebuild_logs/sidecar_only_delta_report.log
+            outputs/full_rebuild_logs/crisis_diagnosis.log
+            outputs/full_rebuild_logs/long_crisis_*.log
+          if-no-files-found: warn
+          retention-days: 30
