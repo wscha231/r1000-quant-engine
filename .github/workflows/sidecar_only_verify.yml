@@ -58,6 +58,27 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements_github.txt
 
+      - name: Restore collector cache (price + macro caches from prior Full Rebuilds)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            cache_prices
+            cache_fsds
+            cache_macro
+            cache_sec_actual
+            cache_misc
+            cache_live_fund
+            aggressive/cache/universe
+            aggressive/cache/bars
+            aggressive/cache/finnhub
+            aggressive/state/finnhub
+            outputs/sec_companyfacts
+            outputs/macro
+          key: collector-cache--${{ runner.os }}-${{ inputs.source_run_id }}
+          restore-keys: |
+            collector-cache--${{ runner.os }}-
+            collector-cache-
+
       - name: Download source run artifact (leader books + crisis features + broker metrics)
         uses: actions/download-artifact@v4
         with:
@@ -120,6 +141,18 @@ jobs:
             echo "[sidecar-only] no daily_features.parquet in source artifact; skipping diagnosis."
           fi
 
+      - name: Rebuild crisis features with the fixed builder (hash-named price cache now readable)
+        run: |
+          set -euo pipefail
+          # The diagnosis above ran on the SOURCE run's parquet (the pre-fix
+          # view). Now rebuild with the fixed signal builder so SPY/QQQ
+          # market_trend + breadth go live from the restored price cache.
+          python tools/run_crisis_signal_builder.py 2>&1 | tee outputs/full_rebuild_logs/crisis_signal_builder_fixed.log || true
+          python tools/diagnose_crisis_features.py \
+            --features outputs/crisis_signals/daily_features.parquet \
+            --output outputs/sidecar_only_verify/crisis_features_diagnosis_fixed.json \
+            2>&1 | tee outputs/full_rebuild_logs/crisis_diagnosis_fixed.log || true
+
       - name: Re-learn long_crisis thresholds (optional)
         if: inputs.rerun_long_crisis_learning
         run: |
@@ -171,6 +204,8 @@ jobs:
             outputs/full_rebuild_logs/verdict_fixed.log
             outputs/full_rebuild_logs/sidecar_only_delta_report.log
             outputs/full_rebuild_logs/crisis_diagnosis.log
+            outputs/full_rebuild_logs/crisis_diagnosis_fixed.log
+            outputs/full_rebuild_logs/crisis_signal_builder_fixed.log
             outputs/full_rebuild_logs/long_crisis_*.log
           if-no-files-found: warn
           retention-days: 30
