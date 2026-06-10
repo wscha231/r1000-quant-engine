@@ -3,13 +3,13 @@
 - action_status: `REVIEW_REQUIRED`
 - official_metric_mode: `broker_ledger_next_close`
 - valid_for_production: `True`
-- cash_policy_flag: `cash_above_target`
-- combined_projected_cash_after_ready_orders: `3.15%`
+- cash_policy_flag: `cash_close_to_target`
+- combined_projected_cash_after_ready_orders: `10.06%`
 
 ## Reasons
 
-- cash_policy_flag=cash_above_target
-- current-vs-target implied turnover 81.76% > 30%
+- cash_policy_flag=cash_close_to_target
+- current-vs-target implied turnover 78.02% > 30%
 
 ## Operating Rules
 

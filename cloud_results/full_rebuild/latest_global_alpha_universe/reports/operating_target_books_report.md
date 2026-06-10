@@ -5,7 +5,7 @@ Historical research books remain available, but they may be monthly and stale.
 
 | Portfolio | Rows | History max | Output max | Latest target source | Latest close | Operating signal | Appended | Current |
 | --- | ---: | --- | --- | --- | --- | --- | ---: | ---: |
-| main | 2188 | 2026-02-27 | 2026-05-22 |  | 2026-05-22 | 2026-05-22 | true | true |
-| concentrated | 23451 | 2026-02-27 | 2026-05-22 | 2026-05-27 | 2026-05-22 | 2026-05-22 | true | true |
+| main | 2211 | 2026-03-31 | 2026-06-09 |  | 2026-06-09 | 2026-06-09 | true | true |
+| concentrated | 23223 | 2026-03-31 | 2026-06-09 | 2026-06-10 | 2026-06-09 | 2026-06-09 | true | true |
 
 A latest operating signal can be dated to the latest available close and filled by broker replay at the next available close.

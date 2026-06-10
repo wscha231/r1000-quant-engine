@@ -6,7 +6,8 @@
 
 ## Reasons
 
-- cash policy review active: cash_above_target
+- cash policy review active: cash_close_to_target
+- macro confirmation count=2
 
 ## Guardrails
 

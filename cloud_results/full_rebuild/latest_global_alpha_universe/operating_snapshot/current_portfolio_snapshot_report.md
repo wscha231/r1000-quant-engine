@@ -1,14 +1,14 @@
 # Current Portfolio Snapshot
 
 - Status: `completed`
-- As-of date: `2026-05-22`
+- As-of date: `2026-06-09`
 - Semantics: `current_broker_ledger_mark_to_market`
-- Rows: 32
+- Rows: 23
 - Cash rows: 2
 - Monster recommendation rows: 0
-- Combined current cash: 8.79%
-- Combined target cash: 3.09%
-- Cash policy review: `DEPLOY_CASH_REVIEW`
+- Combined current cash: 9.96%
+- Combined target cash: 9.95%
+- Cash policy review: `HOLD`
 - Primary user view: `current_operating_holdings_latest.csv`
 
 This file answers what the simulated broker-ledger portfolios currently hold after historical trades and latest close mark-to-market.
@@ -19,4 +19,4 @@ Cash policy fields are combined-account context; they are not separate per-portf
 ## Portfolio Rows
 
 - concentrated: 3 equity positions
-- main: 27 equity positions
+- main: 18 equity positions

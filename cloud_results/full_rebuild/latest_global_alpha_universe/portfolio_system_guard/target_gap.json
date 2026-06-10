@@ -121,19 +121,19 @@
     },
     {
       "check": "main_target_book_reaches_broker_end",
-      "detail": "selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=2188; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-09; broker_end=2026-06-09; rows=2211; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_operating_target_book_available",
-      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2188; max_date=2026-05-22",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2211; max_date=2026-06-09",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_historical_research_book_reaches_broker_end",
-      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-22; rows=2169; operating_book_max=2026-05-22; operating_rows=2188",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-09; rows=2192; operating_book_max=2026-06-09; operating_rows=2211",
       "passed": false,
       "severity": "warn"
     },
@@ -145,19 +145,19 @@
     },
     {
       "check": "concentrated_target_book_reaches_broker_end",
-      "detail": "selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=23451; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-09; broker_end=2026-06-09; rows=23223; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "concentrated_operating_target_book_available",
-      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23451; max_date=2026-05-22",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23223; max_date=2026-06-09",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "concentrated_historical_research_book_reaches_broker_end",
-      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-22; rows=23448; operating_book_max=2026-05-22; operating_rows=23451",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-09; rows=23220; operating_book_max=2026-06-09; operating_rows=23223",
       "passed": false,
       "severity": "warn"
     },
@@ -169,42 +169,42 @@
     },
     {
       "check": "current_only_operating_holdings_available",
-      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=32; legacy_snapshot_exists=True",
+      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=23; legacy_snapshot_exists=True",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_current_position_count_near_latest_target_count",
-      "detail": "main_positions=27; latest_target_rows=19; excess=8",
-      "passed": false,
-      "severity": "warn"
+      "detail": "main_positions=18; latest_target_rows=19; excess=0",
+      "passed": true,
+      "severity": "ok"
     },
     {
       "check": "concentrated_replay_filter_matches_latest_target",
-      "detail": "broker_filter_n=3; latest_target_n=3; broker_mode=score_power; latest_mode=score_power",
+      "detail": "broker_filter_n=3; latest_target_n=3; broker_mode=winner_take_all; latest_mode=winner_take_all",
       "passed": true,
       "severity": "ok"
     }
   ],
   "goal_search_candidates": [
     {
-      "cagr": 0.2929654229124432,
-      "cagr_gap_pp": 0.7035,
-      "candidate_id": "main_rebalance_interval_fixed_interval_I1",
-      "governance_action": "blocked_both",
-      "max_dd": -0.16364205946268762,
-      "max_dd_gap_pp": 1.3642,
+      "cagr": 0.30618751235532526,
+      "cagr_gap_pp": 0.0,
+      "candidate_id": "main_latest_champion",
+      "governance_action": "needs_drawdown_reduction",
+      "max_dd": -0.1772516925575336,
+      "max_dd_gap_pp": 2.7252,
       "portfolio": "main",
       "target_pass": false,
       "valid_for_production": false
     },
     {
-      "cagr": 0.461334668836902,
-      "cagr_gap_pp": 3.8665,
+      "cagr": 0.43030962543479845,
+      "cagr_gap_pp": 6.969,
       "candidate_id": "concentrated_latest_champion",
-      "governance_action": "needs_alpha_boost",
-      "max_dd": -0.1605720930000749,
-      "max_dd_gap_pp": 0.0,
+      "governance_action": "blocked_both",
+      "max_dd": -0.18765883995308852,
+      "max_dd_gap_pp": 0.7659,
       "portfolio": "concentrated",
       "target_pass": false,
       "valid_for_production": false
@@ -214,32 +214,32 @@
   "portfolio_status": [
     {
       "avg_turnover_monthly": 0.0,
-      "cagr": 0.2055210700409127,
-      "cagr_gap_pp": 9.4479,
+      "cagr": 0.20803038927913176,
+      "cagr_gap_pp": 9.197,
       "cagr_pass": false,
       "cagr_target": 0.3,
-      "max_dd": -0.3181713672892821,
-      "max_dd_improvement_needed_pp": 16.8171,
+      "max_dd": -0.32650881233768303,
+      "max_dd_improvement_needed_pp": 17.6509,
       "max_dd_pass": false,
       "max_dd_target": -0.15,
       "metric_source": "broker_ledger_next_close",
       "portfolio": "main",
-      "sharpe": 0.9831176195637678,
+      "sharpe": 0.9914580132333144,
       "target_pass": false
     },
     {
       "avg_turnover_monthly": 0.0,
-      "cagr": 0.3274391345883736,
-      "cagr_gap_pp": 17.2561,
+      "cagr": 0.31500345434445554,
+      "cagr_gap_pp": 18.4997,
       "cagr_pass": false,
       "cagr_target": 0.5,
-      "max_dd": -0.3958150596604274,
-      "max_dd_improvement_needed_pp": 21.5815,
+      "max_dd": -0.38260892921563805,
+      "max_dd_improvement_needed_pp": 20.2609,
       "max_dd_pass": false,
       "max_dd_target": -0.18,
       "metric_source": "broker_ledger_next_close",
       "portfolio": "concentrated",
-      "sharpe": 1.0886098702865774,
+      "sharpe": 1.049844449696002,
       "target_pass": false
     }
   ],
