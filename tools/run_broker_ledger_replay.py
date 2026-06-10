@@ -678,6 +678,24 @@ def replay(
                     }
                 )
 
+    if not equity_rows:
+        # No fills could be priced at all (typically: the price cache is
+        # absent or covers none of the book's tickers). Return a structured
+        # block instead of crashing on the missing 'date' column.
+        payload = {
+            "status": "blocked",
+            "reason": "no fill prices available for any rebalance period; check price cache coverage",
+            "target_book": str(target_book),
+            "price_cache": str(price_cache),
+            "research_only": True,
+            "valid_for_production": False,
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+            **weight_diag,
+        }
+        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return payload
     equity_df = pd.DataFrame(equity_rows).drop_duplicates("date", keep="last").sort_values("date")
     trades_df = pd.DataFrame(trade_rows)
     holdings_df = pd.DataFrame(holdings_rows)

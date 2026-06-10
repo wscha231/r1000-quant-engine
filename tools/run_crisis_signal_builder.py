@@ -99,9 +99,17 @@ def load_price_series(paths: dict, ticker: str) -> pd.Series:
     cache_dir = paths["cache_prices"]
     if not cache_dir.exists():
         return pd.Series(dtype=float)
-    # The pipeline's px_cache_name uses a sanitized name. Try a couple of
-    # plausible filenames.
+    # The pipeline's px_cache_name is a SHA1 hash of the UPPER ticker — that is
+    # how the collector actually writes cache_prices/ (e.g. SPY lives at
+    # cache_prices/<sha1(SPY)[:16]>.parquet, NOT SPY.parquet). The plain-name
+    # candidates are kept for hand-built/local caches. Run 27313522414's
+    # diagnosis proved the hash candidate was missing: market_trend + breadth
+    # were dead in every CI run because SPY/QQQ could never be found here.
+    import hashlib
+
+    hashed = hashlib.sha1(str(ticker).upper().encode("utf-8")).hexdigest()[:16]
     candidates = [
+        cache_dir / f"{hashed}.parquet",
         cache_dir / f"{ticker}.parquet",
         cache_dir / f"{ticker.replace('^', '')}.parquet",
         cache_dir / f"{ticker.replace('^', 'idx_')}.parquet",
