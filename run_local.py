@@ -514,6 +514,49 @@ def print_verdict(base_dir: Path) -> int:
     else:
         print(f"\n  --> REGRESS vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3c (rollback).")
 
+    # Official broker-ledger cross-check: target-weight metrics above can
+    # declare SHIP while broker-ledger evidence (next-close fills, integer
+    # shares, fees, cash ledger) shows little or no improvement. Print both
+    # side-by-side so the gap (run 27247439447 saw target 30.62% vs broker
+    # 20.80% for main) is impossible to overlook.
+    for kind in ("main", "concentrated"):
+        broker_path = out_dir / "broker_replay" / kind / "metrics.json"
+        if not broker_path.exists():
+            continue
+        try:
+            broker = json.loads(broker_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if broker.get("status") != "completed":
+            continue
+        bcagr = broker.get("cagr")
+        bmdd = broker.get("max_dd")
+        bsharpe = broker.get("sharpe")
+        if not all(isinstance(x, (int, float)) for x in (bcagr, bmdd, bsharpe)):
+            continue
+        print(
+            f"\n=== OFFICIAL BROKER-LEDGER ({kind}) ===\n"
+            f"  cagr={bcagr:.4f}  sharpe={bsharpe:.3f}  max_dd={bmdd:.4f}\n"
+            f"  vs target-weight: cagr_gap={(cagr - bcagr) * 100:+.2f}pp"
+            f"  max_dd_gap={(max_dd - bmdd) * 100:+.2f}pp"
+        )
+    integ_path = out_dir / "integrated_leader_crisis_replay" / "summary.json"
+    if integ_path.exists():
+        try:
+            integ = json.loads(integ_path.read_text(encoding="utf-8"))
+            diag = integ.get("crisis_score_diagnostics") or {}
+            stats = diag.get("score_stats") or {}
+            dead = diag.get("dead_components") or []
+            if dead:
+                print(
+                    f"\n=== CRISIS GOVERNOR HEALTH ===\n"
+                    f"  dead components: {dead}\n"
+                    f"  pre_renorm_ceiling={diag.get('pre_renorm_ceiling')}"
+                    f"  score_max={stats.get('max')}  days_in_defense={stats.get('days_in_defense_default')}"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
     # Phase 12D (2026-04-21): print lifetime metrics if available.
     # Connects backtest CAGR to live CAGR continuity (Phase 12C produces these).
     lifetime_metrics_path = out_dir / "lifetime_metrics.json"

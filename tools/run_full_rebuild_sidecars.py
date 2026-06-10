@@ -54,6 +54,15 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     if [ ! -s outputs/crisis_signals/daily_features.parquet ]; then
       python tools/run_crisis_signal_builder.py 2>&1 | tee outputs/full_rebuild_logs/crisis_signal_builder.log || true
     fi
+    # Walk-forward governor threshold learning. Without these the integrated
+    # replay falls back to the conservative defaults (low=0.30/mid=0.50/high=
+    # 0.70), which run 27247439447 showed never trigger the defense zone --
+    # so the COVID/2022 MDD delta is structurally pinned at zero.
+    if [ ! -s outputs/long_crisis_learning/best_thresholds.json ]; then
+      python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
+      python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
+      python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
+    fi
     python tools/run_integrated_leader_crisis_replay.py --leader-dir outputs/market_leader_challenger --crisis-features outputs/crisis_signals/daily_features.parquet --price-cache cache_prices --output-dir outputs/integrated_leader_crisis_replay --portfolio-kind both --cost-bps 25 --thresholds-json outputs/long_crisis_learning/best_thresholds.json 2>&1 | tee outputs/full_rebuild_logs/integrated_leader_crisis_replay.log || true
   fi
   python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true

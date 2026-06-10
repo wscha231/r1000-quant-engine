@@ -22,6 +22,7 @@ if str(REPO) not in sys.path:
 import tools.run_broker_ledger_replay as blr  # noqa: E402
 import tools.run_latest_price_date_audit as lpa  # noqa: E402
 import tools.run_integrated_leader_crisis_replay as ilc  # noqa: E402
+import tools.run_crisis_signal_builder as rcsb  # noqa: E402
 
 
 def _research_book() -> pd.DataFrame:
@@ -176,6 +177,74 @@ def test_integrated_verdict_gates() -> None:
     print("PASS test_integrated_verdict_gates")
 
 
+def test_crisis_score_renormalization_removes_ceiling() -> None:
+    """The structural defect found in run 27247439447: the pre-fix score was
+    a plain weighted sum where missing macro features (VIX/HY OAS/DGS10) plus
+    the structural placeholders (liquidity, portfolio_damage) capped the score
+    at 0.40 -- below the conservative defense threshold of 0.50 -- so the
+    governor could never engage. Renormalization must let the score reach 1.0
+    using only the live components."""
+    # All-out crash on the two LIVE components, the rest absent. Old formula
+    # would yield 0.25 + 0.15 = 0.40. New formula renormalizes to ~1.0.
+    idx = pd.DatetimeIndex(["2020-03-23"])
+    features = pd.DataFrame(
+        {"spy_below_ma200": [1.0], "spy_20d_dd": [-0.30], "qqq_below_ma200": [1.0]},
+        index=idx,
+    )
+    score = rcsb.compute_composite_crisis_score(features)
+    assert score.iloc[0] >= 0.99, f"expected near-1.0 with only live components, got {score.iloc[0]}"
+    coverage = rcsb.composite_crisis_coverage(features)
+    live = {n for n, c in coverage.items() if c["live"]}
+    dead = {n for n, c in coverage.items() if not c["live"]}
+    assert live == {"market_trend", "breadth"}, live
+    assert {"vol_spike", "credit_stress", "rate_shock", "liquidity", "portfolio_damage"} == dead, dead
+    # Live effective weights must sum to 1.0; dead to 0.
+    assert abs(sum(c["effective_weight"] for c in coverage.values()) - 1.0) < 1e-9
+    print(f"PASS test_crisis_score_renormalization_removes_ceiling score={score.iloc[0]:.4f} live={sorted(live)}")
+
+
+def test_crisis_score_with_all_components_live_matches_old_formula() -> None:
+    """Backward-compatibility guardrail: when every component is live the
+    renormalized weighted sum must equal the original specification. This
+    locks down that the renormalization is a strict superset of the prior
+    formula, not a regime change."""
+    idx = pd.DatetimeIndex(["2020-03-23"])
+    features = pd.DataFrame(
+        {
+            "spy_below_ma200": [1.0],
+            "spy_20d_dd": [-0.10],     # market_trend = clip(0.5 + 0.10/0.15*0.5) = clip(0.5+0.333) = 0.833 -> clip = 0.833
+            "vix_zscore_60d": [2.4],   # vol_spike = 0.8
+            "hy_oas_zscore_60d": [1.5],  # credit_stress = 0.5
+            "qqq_below_ma200": [1.0],  # breadth = 1.0
+            "ten_year_5d_change_bps": [20.0],  # rate_shock = 0.4
+        },
+        index=idx,
+    )
+    coverage = rcsb.composite_crisis_coverage(features)
+    live_weight = sum(c["nominal_weight"] for c in coverage.values() if c["live"])
+    # liquidity (placeholder) + portfolio_damage (always 0 initially) are dead.
+    # market_trend, vol_spike, credit_stress, breadth, rate_shock are live.
+    assert live_weight == 0.85, live_weight
+    score = rcsb.compute_composite_crisis_score(features).iloc[0]
+    # Renormalized: (0.25*0.833 + 0.15*0.8 + 0.20*0.5 + 0.15*1.0 + 0.10*0.4) / 0.85
+    expected = (0.25 * 0.8333 + 0.15 * 0.8 + 0.20 * 0.5 + 0.15 * 1.0 + 0.10 * 0.4) / 0.85
+    assert abs(score - expected) < 1e-3, (score, expected)
+    print(f"PASS test_crisis_score_with_all_components_live_matches_old_formula score={score:.4f}")
+
+
+def test_crisis_score_no_features_returns_zero() -> None:
+    """If no component is live the score must be a flat zero -- the governor
+    should stay out of the way rather than reacting to noise on an empty
+    features frame."""
+    idx = pd.DatetimeIndex(pd.date_range("2020-01-01", periods=3))
+    features = pd.DataFrame(index=idx)
+    score = rcsb.compute_composite_crisis_score(features)
+    assert (score == 0.0).all(), score.tolist()
+    coverage = rcsb.composite_crisis_coverage(features)
+    assert all(not c["live"] for c in coverage.values())
+    print("PASS test_crisis_score_no_features_returns_zero")
+
+
 def main() -> int:
     tests = [
         test_champion_filter_disable_keeps_book,
@@ -184,6 +253,9 @@ def main() -> int:
         test_window_metrics_mdd,
         test_reentry_diagnostics,
         test_integrated_verdict_gates,
+        test_crisis_score_renormalization_removes_ceiling,
+        test_crisis_score_with_all_components_live_matches_old_formula,
+        test_crisis_score_no_features_returns_zero,
     ]
     failed = 0
     for test in tests:

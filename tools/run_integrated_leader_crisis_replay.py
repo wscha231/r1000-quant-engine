@@ -39,6 +39,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.build_crisis_governed_target_books import build_governed_book  # noqa: E402
 from tools.run_broker_ledger_replay import replay, safe_float  # noqa: E402
+from tools.run_crisis_signal_builder import composite_crisis_coverage  # noqa: E402
 
 
 DEFAULT_LEADER_DIR = "outputs/market_leader_challenger"
@@ -349,6 +350,50 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def crisis_score_diagnostics(crisis_features_path: Path) -> dict[str, Any]:
+    """Read the crisis features parquet and emit governor-relevant diagnostics:
+    component coverage (which sub-scores have live data), pre-renormalization
+    weight ceiling, and the actual score distribution. Without this the
+    governor's silence (every leg's mdd_delta ~= 0) is indistinguishable from
+    "no crisis happened" vs "the score could never reach the defense zone
+    because half its inputs were absent on this runner"."""
+    if not crisis_features_path.exists():
+        return {"status": "missing", "path": str(crisis_features_path)}
+    try:
+        features = pd.read_parquet(crisis_features_path)
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "unreadable", "path": str(crisis_features_path), "error": repr(exc)}
+    score = features.get("crisis_score")
+    coverage = composite_crisis_coverage(features)
+    live = sorted(name for name, info in coverage.items() if info["live"])
+    dead = sorted(name for name, info in coverage.items() if not info["live"])
+    nominal_live_weight = sum(info["nominal_weight"] for name, info in coverage.items() if info["live"])
+    stats: dict[str, Any] = {}
+    if score is not None and len(score):
+        s = pd.to_numeric(score, errors="coerce").dropna()
+        if len(s):
+            stats = {
+                "max": float(s.max()),
+                "p99": float(s.quantile(0.99)),
+                "p95": float(s.quantile(0.95)),
+                "p90": float(s.quantile(0.90)),
+                "mean": float(s.mean()),
+                "days_in_caution_default": int((s >= 0.30).sum()),
+                "days_in_defense_default": int((s >= 0.50).sum()),
+                "days_in_crisis_default": int((s >= 0.70).sum()),
+            }
+    return {
+        "status": "ok",
+        "path": str(crisis_features_path),
+        "live_components": live,
+        "dead_components": dead,
+        "pre_renorm_ceiling": float(nominal_live_weight),
+        "renormalization_active": bool(dead and nominal_live_weight < 1.0),
+        "component_coverage": coverage,
+        "score_stats": stats,
+    }
+
+
 def main() -> int:
     args = parse_args()
     leader_dir = repo_path(args.leader_dir)
@@ -359,6 +404,7 @@ def main() -> int:
 
     legs: list[dict[str, Any]] = []
     stress_rows: list[dict[str, Any]] = []
+    crisis_diag = crisis_score_diagnostics(repo_path(args.crisis_features))
     for kind in kinds:
         leg = run_leg(
             portfolio_kind=kind,
@@ -382,6 +428,7 @@ def main() -> int:
         "official_metric_mode": "broker_ledger_next_close",
         "governor_mode": args.governor_mode,
         "crisis_features": str(repo_path(args.crisis_features)),
+        "crisis_score_diagnostics": crisis_diag,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "legs": legs,
     }
@@ -389,6 +436,14 @@ def main() -> int:
         pd.DataFrame(stress_rows).to_csv(output_dir / "stress_window_metrics.csv", index=False)
     (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
+    dead = crisis_diag.get("dead_components") or []
+    if dead:
+        print(
+            f"[integrated] crisis_score_dead_components={dead}"
+            f" pre_renorm_ceiling={crisis_diag.get('pre_renorm_ceiling')}"
+            f" score_max={crisis_diag.get('score_stats', {}).get('max')}"
+            f" days_in_defense={crisis_diag.get('score_stats', {}).get('days_in_defense_default')}"
+        )
     for leg in legs:
         verdict = leg.get("verdict") or {}
         print(

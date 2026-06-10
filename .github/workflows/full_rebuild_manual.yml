@@ -971,6 +971,14 @@ jobs:
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+            # P3 integrated leader+crisis evidence + P0 freshness + governor
+            # learning trail. Without these, the run leaves no auditable
+            # record of why the governor moved or did not.
+            copy_dir_clean outputs/integrated_leader_crisis_replay "$DEST/integrated_leader_crisis_replay"
+            copy_dir_clean outputs/crisis_signals "$DEST/crisis_signals"
+            copy_dir_clean outputs/long_crisis_learning "$DEST/long_crisis_learning"
+            copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
+            cp outputs/latest_price_date_audit.json "$DEST/" 2>/dev/null || true
             mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
             cp outputs/broker_replay/main/metrics.json "$DEST/broker_replay/main/" 2>/dev/null || true
             cp outputs/broker_replay/concentrated/metrics.json "$DEST/broker_replay/concentrated/" 2>/dev/null || true
