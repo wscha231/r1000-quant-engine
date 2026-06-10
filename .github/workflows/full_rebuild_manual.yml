@@ -487,6 +487,10 @@ jobs:
             outputs/reports/candidate_replay_book.csv
             outputs/baseline_lock/
             outputs/market_leader_challenger/
+            outputs/integrated_leader_crisis_replay/
+            outputs/latest_price_date_audit.json
+            outputs/crisis_signals/
+            outputs/long_crisis_learning/best_thresholds.json
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
             outputs/portfolio_system_guard/
@@ -589,6 +593,10 @@ jobs:
             outputs/theme_concentration_challenger/
             outputs/baseline_lock/
             outputs/market_leader_challenger/
+            outputs/integrated_leader_crisis_replay/
+            outputs/latest_price_date_audit.json
+            outputs/crisis_signals/
+            outputs/long_crisis_learning/
             outputs/auto_learning_v2/
             outputs/winner_lifecycle/
             outputs/winner_onset_study/
