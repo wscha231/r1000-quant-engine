@@ -80,6 +80,17 @@ MAIN_VARIANTS = (12, 15, 18)
 CONCENTRATED_VARIANTS = (3, 5)
 DEFAULT_MAIN_TARGET_N = 15
 DEFAULT_CONCENTRATED_TARGET_N = 5
+MAIN_CASH_CEILING_BY_STATE = {
+    "GREEN": 0.12,
+    "WATCH": 0.18,
+    "REENTRY_READY": 0.15,
+    "DEFENSE_REVIEW": 0.28,
+    "CRISIS_DEFENSE": 0.45,
+}
+MAIN_MAX_NAMES_BY_CASH = (
+    (0.25, 8),
+    (0.15, 12),
+)
 CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP = 0.20
 CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE_REVIEW"}
 CONCENTRATED_HOLD_DECAY_CAP = 0.04
@@ -417,6 +428,18 @@ def crisis_cash_target(state: str, portfolio_kind: str) -> float:
     return min(max(base, 0.0), 0.50)
 
 
+def main_cash_ceiling(state: str) -> float:
+    return float(MAIN_CASH_CEILING_BY_STATE.get(str(state or "GREEN"), MAIN_CASH_CEILING_BY_STATE["GREEN"]))
+
+
+def main_max_names_for_cash(cash_weight: float, target_n: int) -> int:
+    max_names = int(target_n)
+    for threshold, cap in MAIN_MAX_NAMES_BY_CASH:
+        if float(cash_weight) >= float(threshold) - 1e-9:
+            max_names = min(max_names, int(cap))
+    return max(1, max_names)
+
+
 def crisis_new_buy_allowed(rec: dict[str, Any], state: str) -> tuple[bool, str]:
     setting = CRISIS_SETTINGS.get(state, CRISIS_SETTINGS["GREEN"])
     lane = str(rec.get("primary_lane") or "MARKET_LEADER")
@@ -574,6 +597,55 @@ def assign_weights(selected: list[dict[str, Any]], portfolio_kind: str, cash_tar
         item["weighting_score"] = safe_float(item.get("alphaops_vnext_weight_score"), safe_float(item.get("alphaops_vnext_score")))
         out.append(item)
     return out
+
+
+def apply_main_cash_count_structure(
+    weighted: list[dict[str, Any]],
+    *,
+    portfolio_kind: str,
+    target_n: int,
+    crisis_state: str,
+) -> list[dict[str, Any]]:
+    """Prevent high-cash main books from also carrying too many small names.
+
+    When risk overlays or caps leave a large residual cash balance, keeping the
+    original broad N dilutes the leader sleeve without proving drawdown defense.
+    The rule is deliberately portfolio-specific: only main is narrowed, and the
+    cash ceiling still allows real crisis states to hold defensive cash.
+    """
+
+    if portfolio_kind != "main" or not weighted:
+        return weighted
+    original_cash = max(0.0, 1.0 - sum(safe_float(row.get("weight")) for row in weighted))
+    ceiling = main_cash_ceiling(crisis_state)
+    desired_cash = min(original_cash, ceiling)
+    max_names = main_max_names_for_cash(original_cash, int(target_n))
+    ranked = sorted(
+        weighted,
+        key=lambda row: (
+            safe_float(row.get("weight")),
+            safe_float(row.get("alphaops_vnext_weight_score"), safe_float(row.get("alphaops_vnext_score"))),
+        ),
+        reverse=True,
+    )
+    kept = [dict(row) for row in ranked[:max_names]]
+    reshaped = assign_weights(kept, portfolio_kind, desired_cash)
+    reshaped_cash = max(0.0, 1.0 - sum(safe_float(row.get("weight")) for row in reshaped))
+    status = "applied" if len(reshaped) < len(weighted) or reshaped_cash < original_cash - 1e-9 else "not_applicable"
+    for item in reshaped:
+        item["main_cash_count_structure_status"] = status
+        item["pre_main_cash_count_structure_cash_weight"] = original_cash
+        item["post_main_cash_count_structure_cash_weight"] = reshaped_cash
+        item["main_cash_count_structure_cash_ceiling"] = ceiling
+        item["main_cash_count_structure_max_names"] = max_names
+        item["main_cash_count_structure_original_names"] = len(weighted)
+        item["effective_target_n"] = len(reshaped)
+        if status == "applied":
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|main_cash_count_structure"
+            )
+    return reshaped
 
 
 def apply_vnext_benchmark_guard(
@@ -1729,6 +1801,12 @@ def build_variant_book(
         weighted = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_main_cash_count_structure(
+            weighted,
+            portfolio_kind=portfolio_kind,
+            target_n=target_n,
+            crisis_state=str(crisis_row.get("crisis_state") or "GREEN"),
+        )
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}
         for rec in weighted:
@@ -1760,7 +1838,26 @@ def build_variant_book(
                     "current_holdings_source": "alphaops_vnext_policy_target_book",
                 }
             )
-        exposure_rows.append({"rebalance_date": dt.date().isoformat(), "portfolio_kind": portfolio_kind, "variant_id": variant_id, "cash_weight": cash_weight, **lane_totals})
+        exposure_rows.append(
+            {
+                "rebalance_date": dt.date().isoformat(),
+                "portfolio_kind": portfolio_kind,
+                "variant_id": variant_id,
+                "cash_weight": cash_weight,
+                "effective_stock_count": int(len(weighted)),
+                "main_cash_count_structure_status": (
+                    str(weighted[0].get("main_cash_count_structure_status") or "")
+                    if weighted and portfolio_kind == "main"
+                    else ""
+                ),
+                "main_cash_count_structure_max_names": (
+                    int(safe_float(weighted[0].get("main_cash_count_structure_max_names"), 0))
+                    if weighted and portfolio_kind == "main"
+                    else 0
+                ),
+                **lane_totals,
+            }
+        )
     target = pd.DataFrame(rows)
     if not target.empty:
         target["rebalance_date"] = pd.to_datetime(target["rebalance_date"], errors="coerce").dt.date.astype(str)

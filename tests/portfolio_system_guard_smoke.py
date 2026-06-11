@@ -14,7 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_portfolio_system_guard import run  # noqa: E402
+from tools.run_portfolio_system_guard import run, target_structure_checks  # noqa: E402
 
 
 class TestWorkspace:
@@ -393,8 +393,33 @@ def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
         assert checks["alphaops_vnext_uses_sec_enriched_candidate_book"]["severity"] == "error"
 
 
+def test_portfolio_system_guard_blocks_high_cash_broad_main_books() -> None:
+    with TestWorkspace("portfolio_system_guard_main_shape") as tmp:
+        latest = tmp / "latest"
+        rows = [
+            {"rebalance_date": "2026-06-05", "ticker": "CASH", "weight": 0.19999999999999996},
+        ]
+        for idx in range(15):
+            rows.append(
+                {
+                    "rebalance_date": "2026-06-05",
+                    "ticker": f"T{idx:02d}",
+                    "weight": 0.8 / 15,
+                    "crisis_state": "GREEN",
+                }
+            )
+        write_csv(latest / "reports" / "operating_main_target_book.csv", rows)
+        checks = target_structure_checks(latest)
+        assert checks
+        assert checks[0]["check"] == "main_cash_position_count_contract"
+        assert checks[0]["passed"] is False
+        assert checks[0]["severity"] == "error"
+        assert "main_cash_ge_20pct_requires_stock_count_le_12" in checks[0]["detail"]
+
+
 if __name__ == "__main__":
     test_portfolio_system_guard_reports_target_gaps()
     test_portfolio_system_guard_blocks_stale_historical_broker_replay()
     test_portfolio_system_guard_blocks_data_readiness_failures()
+    test_portfolio_system_guard_blocks_high_cash_broad_main_books()
     print("portfolio_system_guard_smoke: ok")

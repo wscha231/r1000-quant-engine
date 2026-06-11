@@ -140,6 +140,68 @@ def target_book_summaries(latest_run: Path, portfolio: str) -> dict[str, dict[st
     }
 
 
+def latest_target_book_shape(latest_run: Path, portfolio: str) -> dict[str, Any]:
+    filename = "operating_main_target_book.csv" if portfolio == "main" else "operating_concentrated_target_book.csv"
+    path = latest_run / "reports" / filename
+    rows = read_csv_rows(path)
+    if not rows:
+        return {"portfolio": portfolio, "path": str(path), "exists": path.exists(), "row_count": 0}
+    dates = [parse_date(row.get("rebalance_date")) for row in rows]
+    dates = [dt for dt in dates if dt is not None]
+    max_date = max(dates).date().isoformat() if dates else None
+    if max_date:
+        rows = [row for row in rows if str(row.get("rebalance_date") or "")[:10] == max_date]
+    stock_rows = [row for row in rows if str(row.get("ticker") or "").upper().strip() not in {"CASH", "__CASH__"}]
+    cash_weight = sum(
+        safe_float(row.get("weight") or row.get("target_weight"))
+        for row in rows
+        if str(row.get("ticker") or "").upper().strip() in {"CASH", "__CASH__"}
+    )
+    crisis_values = [
+        str(row.get("crisis_state") or row.get("regime_capacity_regime") or "").strip()
+        for row in stock_rows
+        if str(row.get("crisis_state") or row.get("regime_capacity_regime") or "").strip()
+    ]
+    crisis_state = max(set(crisis_values), key=crisis_values.count) if crisis_values else ""
+    return {
+        "portfolio": portfolio,
+        "path": str(path),
+        "exists": path.exists(),
+        "latest_rebalance_date": max_date,
+        "row_count": len(rows),
+        "stock_count": len(stock_rows),
+        "cash_weight": cash_weight,
+        "crisis_state": crisis_state,
+    }
+
+
+def target_structure_checks(latest_run: Path) -> list[dict[str, Any]]:
+    shape = latest_target_book_shape(latest_run, "main")
+    if not shape.get("exists") or not shape.get("row_count"):
+        return []
+    cash = safe_float(shape.get("cash_weight"))
+    stock_count = int(safe_float(shape.get("stock_count"), 0))
+    violations: list[str] = []
+    if cash >= 0.25 - 1e-9 and stock_count > 8:
+        violations.append("main_cash_ge_25pct_requires_stock_count_le_8")
+    if cash >= 0.20 - 1e-9 and stock_count > 12:
+        violations.append("main_cash_ge_20pct_requires_stock_count_le_12")
+    if cash >= 0.15 - 1e-9 and stock_count > 15:
+        violations.append("main_cash_ge_15pct_requires_stock_count_le_15")
+    return [
+        {
+            "check": "main_cash_position_count_contract",
+            "passed": not violations,
+            "severity": "error" if violations else "ok",
+            "detail": (
+                f"latest_date={shape.get('latest_rebalance_date')}; cash={cash:.2%}; "
+                f"stock_count={stock_count}; crisis_state={shape.get('crisis_state') or 'unknown'}; "
+                f"violations={violations}"
+            ),
+        }
+    ]
+
+
 def filter_value(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
@@ -561,6 +623,7 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
     )
     out.extend(operating_alignment_checks(inputs, latest_run))
     out.extend(data_quality_contract_checks(inputs))
+    out.extend(target_structure_checks(latest_run))
     return out
 
 
