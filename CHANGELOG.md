@@ -3,6 +3,36 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-11
+
+### 16:50 KST - alphaops-vnext-v21-w0-w1-contracts
+
+- scope: Implement the first AlphaOps vNext v2.1 workstreams: broker-ledger gate hygiene, CASH contract validation, fast/full drift audit, and expanded broker gap attribution.
+- files:
+  - `run_local.py` ->defaults verdicts to `--gate-mode broker`, requires official broker-ledger metrics, and downgrades target-weight verdicts to research-only.
+  - `tools/run_portfolio_system_guard.py` ->requires `broker_ledger_next_close` plus `valid_for_production=true` before target pass can be true.
+  - `tools/validate_target_book_cash_contract.py` ->adds explicit CASH/cash_weight contract and broker cash drift limits.
+  - `tools/run_fast_full_drift_audit.py` ->compares full rebuild and fast replay artifacts and marks fast-only pass as partial.
+  - `tools/run_broker_gap_attribution.py` ->adds target-book export, cash contract, fill lag, fee, integer-share, rounding, unfilled exposure, candidate freshness, and residual decomposition sections.
+  - `tools/run_sec_enriched_candidate_replay.py` ->keeps smoke/API compatibility when `top_manager_signals` is absent from older `Namespace` fixtures.
+  - `tools/build_etf_nport_history.py` ->normalizes mixed date-only and timezone `available_from` values before PIT dedup.
+  - `docs/METRIC_HYGIENE.md` ->documents official sources, deprecated sources, gates, and W1 audit commands.
+  - `tests/*_smoke.py` ->adds focused smoke coverage for broker gate, CASH contract, fast/full drift, and gap decomposition keys.
+- validation:
+  - `python -m py_compile run_local.py tools\run_portfolio_system_guard.py tools\validate_target_book_cash_contract.py tools\run_fast_full_drift_audit.py tools\run_broker_gap_attribution.py` ->PASS.
+  - `python tests\broker_gate_contract_smoke.py` ->PASS.
+  - `python tests\cash_contract_smoke.py` ->PASS.
+  - `python tests\fast_full_drift_audit_smoke.py` ->PASS.
+  - `python tests\broker_gap_attribution_smoke.py` ->PASS.
+  - `python tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `python tests\metric_hygiene_report_smoke.py` ->PASS.
+  - `python tests\sec_candidate_enrichment_smoke.py` ->PASS.
+  - `python tests\etf_nport_history_smoke.py` ->PASS.
+  - `python tools\run_pr_validation.py --quiet` ->PASS, `72/72`.
+- next_action:
+  - Run the W1 audit against downloaded artifacts for full rebuild `27088007617` and fast replay `27086825471`.
+  - Do not resume alpha/cap micro-tweaks until fast/full drift and CASH semantics are explained.
+
 ## 2026-06-07
 
 ### 18:05 KST - data-readiness-preflight-result

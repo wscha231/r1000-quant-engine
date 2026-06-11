@@ -295,8 +295,17 @@ def merge_with_existing(history: pd.DataFrame, existing_path: Path) -> pd.DataFr
     for col in OUTPUT_COLUMNS:
         if col not in combined.columns:
             combined[col] = "" if col not in {"holding_weight"} else 0.0
+    if "available_from" in combined.columns:
+        combined["available_from"] = combined["available_from"].map(normalize_available_from_value)
     combined = combined.drop_duplicates(["etf_ticker", "holding_ticker", "available_from"], keep="last")
     return combined[OUTPUT_COLUMNS].reset_index(drop=True)
+
+
+def normalize_available_from_value(value: Any) -> str:
+    ts = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(ts):
+        return str(value or "")
+    return pd.Timestamp(ts).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_args() -> argparse.Namespace:

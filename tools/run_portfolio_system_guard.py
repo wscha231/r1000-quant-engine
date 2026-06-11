@@ -177,26 +177,31 @@ def metric(metrics: dict[str, Any], *names: str, default: float = 0.0) -> float:
 
 
 def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max_dd_target: float) -> dict[str, Any]:
+    metric_source = metrics.get("_metric_source", "legacy_weight_backtest")
+    official_source = metric_source == "broker_ledger_next_close" and bool(metrics.get("valid_for_production", False))
     cagr = metric(metrics, "cagr", "strategy_cagr")
     max_dd = metric(metrics, "max_dd")
     sharpe = metric(metrics, "sharpe")
     turnover = metric(metrics, "avg_turnover_monthly", default=0.0)
     cagr_gap = cagr_target - cagr
     maxdd_gap = max_dd_target - max_dd
+    cagr_pass = official_source and cagr >= cagr_target
+    max_dd_pass = official_source and max_dd >= max_dd_target
     return {
         "portfolio": name,
-        "metric_source": metrics.get("_metric_source", "legacy_weight_backtest"),
+        "metric_source": metric_source,
+        "official_source_pass": official_source,
         "cagr": cagr,
         "cagr_target": cagr_target,
-        "cagr_pass": cagr >= cagr_target,
+        "cagr_pass": cagr_pass,
         "cagr_gap_pp": pp(max(0.0, cagr_gap)),
         "max_dd": max_dd,
         "max_dd_target": max_dd_target,
-        "max_dd_pass": max_dd >= max_dd_target,
+        "max_dd_pass": max_dd_pass,
         "max_dd_improvement_needed_pp": pp(max(0.0, maxdd_gap)),
         "sharpe": sharpe,
         "avg_turnover_monthly": turnover,
-        "target_pass": cagr >= cagr_target and max_dd >= max_dd_target,
+        "target_pass": cagr_pass and max_dd_pass,
     }
 
 
@@ -205,6 +210,7 @@ def write_target_gap_csv(path: Path, statuses: list[dict[str, Any]]) -> None:
     fieldnames = [
         "portfolio",
         "metric_source",
+        "official_source_pass",
         "cagr",
         "cagr_target",
         "cagr_pass",
@@ -251,6 +257,9 @@ def broker_or_legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]
     out = dict(legacy)
     if out:
         out["_metric_source"] = "legacy_weight_backtest"
+        out["valid_for_production"] = False
+        out["official_metric_required"] = "broker_ledger_next_close"
+        out["DO_NOT_USE_FOR_PRODUCTION"] = True
     return out
 
 
@@ -405,8 +414,8 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
 
     latest_artifact_severity = "error" if require_latest_artifacts else "warn"
     checks = [
-        ("main_metrics_available", bool(inputs["main_metrics"]), rel(latest_run / "backtest_metrics.json")),
-        ("concentrated_metrics_available", bool(inputs["concentrated_metrics"]), rel(latest_run / "concentrated_backtest_metrics.json")),
+        ("main_metrics_available", bool(inputs["main_metrics"]), rel(latest_run / "broker_replay" / "main" / "metrics.json")),
+        ("concentrated_metrics_available", bool(inputs["concentrated_metrics"]), rel(latest_run / "broker_replay" / "concentrated" / "metrics.json")),
         ("experiment_matrix_available", bool(inputs["experiment_summary"]), "outputs/experiments/experiment_matrix_summary.json"),
         ("auto_learning_v2_challenger_available", bool(inputs["auto_learning_v2"]), "outputs/auto_learning_v2/challenger_review.json"),
         ("auto_learning_v2_policy_available", bool(inputs["policy_candidate_v2"]), "outputs/auto_learning_v2/policy_candidate.json"),

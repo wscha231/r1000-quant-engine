@@ -23,9 +23,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_broker_ledger_replay import CONCENTRATED_CHAMPION_FILTERS, normalize_targets, read_csv
+from tools.validate_target_book_cash_contract import validate_contract
 
 
 DEFAULT_OUTPUT_DIR = "outputs/broker_gap_attribution"
+STARTING_CAPITAL_USD = 100000.0
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -184,6 +186,10 @@ def broker_stats(broker_dir: Path) -> tuple[dict[str, Any], pd.DataFrame]:
         "total_fees_usd": safe_float(metrics.get("total_fees_usd")),
         "gross_traded_usd": safe_float(metrics.get("gross_traded_usd")),
         "gross_traded_on_starting_capital": None,
+        "fill_mode": metrics.get("fill_mode"),
+        "integer_shares": metrics.get("integer_shares"),
+        "valid_for_production": metrics.get("valid_for_production"),
+        "max_fill_lag_days": metrics.get("max_fill_lag_days"),
         "start_date": metrics.get("start_date"),
         "end_date": metrics.get("end_date"),
     }
@@ -213,8 +219,175 @@ def broker_stats(broker_dir: Path) -> tuple[dict[str, Any], pd.DataFrame]:
     return summary, monthly
 
 
+def operating_target_book_path(latest_run: Path, portfolio_kind: str) -> Path:
+    return latest_run / "reports" / (
+        "operating_main_target_book.csv" if portfolio_kind == "main" else "operating_concentrated_target_book.csv"
+    )
+
+
+def research_target_book_path(latest_run: Path, portfolio_kind: str) -> Path:
+    return latest_run / "reports" / (
+        "main_monthly_weights.csv" if portfolio_kind == "main" else "concentrated_strategy_holdings.csv"
+    )
+
+
+def target_vs_actual_stats(broker_dir: Path) -> dict[str, Any]:
+    path = broker_dir / "target_vs_actual_weights.csv"
+    d = read_csv(path)
+    if d.empty or "target_weight" not in d.columns or "actual_weight" not in d.columns:
+        return {"status": "unavailable", "reason": "missing target_vs_actual_weights.csv", "source": str(path)}
+    d = d.copy()
+    d["target_weight"] = pd.to_numeric(d["target_weight"], errors="coerce")
+    d["actual_weight"] = pd.to_numeric(d["actual_weight"], errors="coerce")
+    d = d.dropna(subset=["target_weight", "actual_weight"])
+    if d.empty:
+        return {"status": "unavailable", "reason": "empty target/actual weight rows", "source": str(path)}
+    d["abs_weight_gap"] = (d["target_weight"] - d["actual_weight"]).abs()
+    d["positive_shortfall"] = (d["target_weight"] - d["actual_weight"]).clip(lower=0.0)
+    return {
+        "status": "completed",
+        "source": str(path),
+        "row_count": int(len(d)),
+        "mean_abs_weight_gap_pp": round(float(d["abs_weight_gap"].mean() * 100.0), 4),
+        "p95_abs_weight_gap_pp": round(float(d["abs_weight_gap"].quantile(0.95) * 100.0), 4),
+        "max_abs_weight_gap_pp": round(float(d["abs_weight_gap"].max() * 100.0), 4),
+        "mean_unfilled_exposure_pp": round(float(d["positive_shortfall"].mean() * 100.0), 4),
+        "max_unfilled_exposure_pp": round(float(d["positive_shortfall"].max() * 100.0), 4),
+    }
+
+
+def candidate_freshness_stats(latest_run: Path, target_book: Path) -> dict[str, Any]:
+    candidate = read_csv(latest_run / "reports" / "candidate_replay_book.csv")
+    target = read_csv(target_book)
+    if candidate.empty:
+        return {"status": "unavailable", "reason": "missing candidate_replay_book.csv"}
+    date_cols = [col for col in ["as_of_date", "available_from", "rebalance_date", "date"] if col in candidate.columns]
+    payload: dict[str, Any] = {
+        "status": "metadata_only",
+        "candidate_rows": int(len(candidate)),
+        "date_columns": date_cols,
+    }
+    for col in date_cols:
+        values = pd.to_datetime(candidate[col], errors="coerce").dropna()
+        if not values.empty:
+            payload[f"max_{col}"] = pd.Timestamp(values.max()).date().isoformat()
+            payload[f"min_{col}"] = pd.Timestamp(values.min()).date().isoformat()
+    if not target.empty and "rebalance_date" in target.columns:
+        target_dates = pd.to_datetime(target["rebalance_date"], errors="coerce").dropna()
+        if not target_dates.empty:
+            payload["target_max_rebalance_date"] = pd.Timestamp(target_dates.max()).date().isoformat()
+    payload["reason"] = "freshness delta needs a fast/full paired audit for causal attribution"
+    return payload
+
+
+def estimate_decomposition(
+    *,
+    latest_run: Path,
+    portfolio_kind: str,
+    research_target: dict[str, Any],
+    broker: dict[str, Any],
+    broker_dir: Path,
+    monthly: pd.DataFrame,
+) -> dict[str, Any]:
+    operating_book = operating_target_book_path(latest_run, portfolio_kind)
+    research_book = research_target_book_path(latest_run, portfolio_kind)
+    cash_summary, _cash_by_date, cash_drift = validate_contract(
+        target_book=operating_book if operating_book.exists() else research_book,
+        broker_dir=broker_dir,
+    )
+    target_actual = target_vs_actual_stats(broker_dir)
+    fees = safe_float(broker.get("total_fees_usd"), 0.0) or 0.0
+    cagr_gap_pp = None
+    target_cagr = safe_float(research_target.get("legacy_implied_cagr"))
+    broker_cagr = safe_float(broker.get("broker_cagr"))
+    if target_cagr is not None and broker_cagr is not None:
+        cagr_gap_pp = round((target_cagr - broker_cagr) * 100.0, 4)
+
+    export_gap: dict[str, Any] = {"status": "unavailable", "gap_pp": None}
+    if operating_book.exists():
+        operating_target, _operating_monthly = target_forward_stats(operating_book, portfolio_kind)
+        operating_cagr = safe_float(operating_target.get("legacy_implied_cagr"))
+        if target_cagr is not None and operating_cagr is not None:
+            export_gap = {
+                "status": "completed",
+                "source": str(operating_book),
+                "gap_pp": round((target_cagr - operating_cagr) * 100.0, 4),
+                "research_legacy_cagr": target_cagr,
+                "operating_legacy_cagr": operating_cagr,
+            }
+        else:
+            export_gap = {
+                "status": "unavailable",
+                "source": str(operating_book),
+                "reason": "operating target book has no weighted_forward_return diagnostic column",
+                "gap_pp": None,
+            }
+
+    cash_drift_summary = cash_summary.get("drift", {})
+    cash_contract_gap = {
+        "status": cash_summary.get("status"),
+        "cash_contract_pass": bool(cash_summary.get("cash_contract_pass")),
+        "target_cash_contract_pass": bool(cash_summary.get("target", {}).get("target_cash_contract_pass")),
+        "mean_cash_drift_pp": cash_drift_summary.get("mean_cash_drift_pp"),
+        "max_monthly_cash_drift_pp": cash_drift_summary.get("max_monthly_cash_drift_pp"),
+        "avg_target_cash_weight": cash_summary.get("target", {}).get("avg_target_cash_weight"),
+        "avg_broker_cash_weight": cash_summary.get("broker", {}).get("avg_broker_cash_weight"),
+    }
+    if not cash_drift.empty:
+        monthly = monthly.merge(
+            cash_drift.rename(columns={"month_end": "rebalance_date"}),
+            on="rebalance_date",
+            how="left",
+        )
+
+    fill_lag = {
+        "status": "metadata_only",
+        "fill_mode": broker.get("metric_mode") or broker.get("fill_mode"),
+        "max_fill_lag_days": broker.get("max_fill_lag_days"),
+        "reason": "per-fill price slippage attribution is not emitted by broker replay yet",
+    }
+    integer_residual = {
+        "status": target_actual.get("status"),
+        "integer_shares": broker.get("integer_shares"),
+        "mean_abs_weight_gap_pp": target_actual.get("mean_abs_weight_gap_pp"),
+        "p95_abs_weight_gap_pp": target_actual.get("p95_abs_weight_gap_pp"),
+        "max_abs_weight_gap_pp": target_actual.get("max_abs_weight_gap_pp"),
+    }
+    unfilled_exposure = {
+        "status": target_actual.get("status"),
+        "mean_unfilled_exposure_pp": target_actual.get("mean_unfilled_exposure_pp"),
+        "max_unfilled_exposure_pp": target_actual.get("max_unfilled_exposure_pp"),
+    }
+    fee_drag = {
+        "status": "completed",
+        "fees_usd": fees,
+        "fee_drag_on_starting_capital_pp": round((fees / STARTING_CAPITAL_USD) * 100.0, 4),
+    }
+    residual = {
+        "status": "partial",
+        "total_cagr_gap_pp": cagr_gap_pp,
+        "unexplained_cagr_gap_pp": cagr_gap_pp,
+        "reason": "available components are diagnostic and not additive CAGR terms; use fast/full and broker replay instrumentation for causal decomposition",
+    }
+    return {
+        "target_book_export_gap": export_gap,
+        "cash_contract_gap": cash_contract_gap,
+        "fill_lag_slippage": fill_lag,
+        "fee_drag": fee_drag,
+        "integer_share_residual": integer_residual,
+        "rounding_drag": {
+            "status": "proxied",
+            "proxy": "integer_share_residual.mean_abs_weight_gap_pp",
+            "mean_abs_weight_gap_pp": target_actual.get("mean_abs_weight_gap_pp"),
+        },
+        "unfilled_exposure_drag": unfilled_exposure,
+        "candidate_freshness_gap": candidate_freshness_stats(latest_run, operating_book if operating_book.exists() else research_book),
+        "residual": residual,
+    }
+
+
 def portfolio_attribution(latest_run: Path, portfolio_kind: str) -> tuple[dict[str, Any], pd.DataFrame]:
-    target_book = latest_run / "reports" / ("main_monthly_weights.csv" if portfolio_kind == "main" else "concentrated_strategy_holdings.csv")
+    target_book = research_target_book_path(latest_run, portfolio_kind)
     broker_dir = latest_run / "broker_replay" / portfolio_kind
     target, target_monthly = target_forward_stats(target_book, portfolio_kind)
     broker, broker_monthly = broker_stats(broker_dir)
@@ -230,6 +403,7 @@ def portfolio_attribution(latest_run: Path, portfolio_kind: str) -> tuple[dict[s
         "broker_ledger": broker,
         "cagr_gap_pp": None,
         "daily_vs_month_end_dd_gap_pp": None,
+        "decomposition": {},
         "diagnosis": [],
     }
     target_cagr = safe_float(target.get("legacy_implied_cagr"))
@@ -251,6 +425,16 @@ def portfolio_attribution(latest_run: Path, portfolio_kind: str) -> tuple[dict[s
         summary["diagnosis"].append("cash/rounding/unfilled exposure drag is material")
     if safe_float(broker.get("total_fees_usd"), 0.0) and float(broker["total_fees_usd"]) > 10000:
         summary["diagnosis"].append("fees are material under realistic turnover")
+    summary["decomposition"] = estimate_decomposition(
+        latest_run=latest_run,
+        portfolio_kind=portfolio_kind,
+        research_target=target,
+        broker=broker,
+        broker_dir=broker_dir,
+        monthly=monthly,
+    )
+    if not summary["decomposition"].get("cash_contract_gap", {}).get("cash_contract_pass", False):
+        summary["diagnosis"].append("cash contract or broker cash drift fails production limits")
     if not summary["diagnosis"]:
         summary["diagnosis"].append("no single dominant attribution detected")
     return summary, monthly
@@ -264,15 +448,19 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         "Important: target-book forward returns are used only for attribution. They are not production signals.",
         "",
-        "| Portfolio | Legacy/Proxy CAGR | Broker CAGR | CAGR Gap | Legacy/Proxy MaxDD | Broker Daily MaxDD | Broker Month-End MaxDD | Avg Target Turnover | Trades | Fees | Diagnosis |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Portfolio | Legacy/Proxy CAGR | Broker CAGR | CAGR Gap | Legacy/Proxy MaxDD | Broker Daily MaxDD | Broker Month-End MaxDD | Avg Target Turnover | Cash Drift | Fees | Residual | Diagnosis |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for portfolio in ["main", "concentrated"]:
         row = payload.get(portfolio, {})
         target = row.get("target_forward", {})
         broker = row.get("broker_ledger", {})
+        decomp = row.get("decomposition", {})
+        cash_gap = decomp.get("cash_contract_gap", {})
+        residual = decomp.get("residual", {})
+        fee_drag = decomp.get("fee_drag", {})
         lines.append(
-            "| {portfolio} | {legacy_cagr} | {broker_cagr} | {gap} | {legacy_dd} | {broker_dd} | {broker_month_dd} | {turnover} | {trades} | {fees} | {diagnosis} |".format(
+            "| {portfolio} | {legacy_cagr} | {broker_cagr} | {gap} | {legacy_dd} | {broker_dd} | {broker_month_dd} | {turnover} | {cash_drift} | {fees} | {residual} | {diagnosis} |".format(
                 portfolio=portfolio,
                 legacy_cagr=pct(safe_float(target.get("legacy_implied_cagr"))),
                 broker_cagr=pct(safe_float(broker.get("broker_cagr"))),
@@ -281,8 +469,13 @@ def render_report(payload: dict[str, Any]) -> str:
                 broker_dd=pct(safe_float(broker.get("broker_max_dd_daily"))),
                 broker_month_dd=pct(safe_float(broker.get("broker_max_dd_month_end"))),
                 turnover=pct(safe_float(target.get("avg_target_turnover"))),
-                trades=broker.get("trade_count", ""),
-                fees="" if broker.get("total_fees_usd") is None else f"${float(broker['total_fees_usd']):,.0f}",
+                cash_drift=""
+                if cash_gap.get("mean_cash_drift_pp") is None
+                else f"{cash_gap.get('mean_cash_drift_pp'):.2f}pp mean / {cash_gap.get('max_monthly_cash_drift_pp'):.2f}pp max",
+                fees=""
+                if fee_drag.get("fees_usd") is None
+                else f"${float(fee_drag['fees_usd']):,.0f} ({float(fee_drag.get('fee_drag_on_starting_capital_pp', 0.0)):.2f}pp)",
+                residual="" if residual.get("unexplained_cagr_gap_pp") is None else f"{residual['unexplained_cagr_gap_pp']:.2f}pp",
                 diagnosis="; ".join(row.get("diagnosis", [])),
             )
         )
@@ -293,6 +486,8 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
             "- If broker daily MaxDD is much worse than legacy/proxy MaxDD, monthly accounting was hiding intramonth losses.",
             "- If target turnover and fees are high, the strategy must be redesigned around account-aware holding, staging, and replacement rules.",
+            "- Cash contract failures mean the target book, operating book, and broker ledger are not carrying the same cash semantics.",
+            "- Decomposition fields are partly diagnostic; only fee drag is additive in starting-capital terms in this report.",
             "- A proxy target pass is not promotion evidence until the broker-ledger path also passes.",
             "",
         ]

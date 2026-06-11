@@ -613,7 +613,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     form4_path = repo_path(args.form4)
     institutional_13f_path = repo_path(args.institutional_13f)
     etf_holdings_path = repo_path(args.etf_holdings)
-    top_manager_signals_path = repo_path(args.top_manager_signals)
+    top_manager_signals_path = repo_path(getattr(args, "top_manager_signals", DEFAULT_TOP_MANAGER_SIGNALS))
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     candidates = read_table(candidate_path)
