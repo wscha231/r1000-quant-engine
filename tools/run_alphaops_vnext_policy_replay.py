@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -25,7 +26,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_candidate_lanes import lane_feature_mapping_payload, score_candidate_lanes  # noqa: E402
-from r1000_market_leader_engine import BENCHMARKS, safe_float  # noqa: E402
+from r1000_helpers import phase_is_enabled  # noqa: E402
+from r1000_market_leader_engine import BENCHMARKS, classify_leader_tier, safe_float  # noqa: E402
 from r1000_market_leader_engine import (  # noqa: E402
     MarketLeaderVariant,
     RISK_MODE_BENCHMARK_GUARD,
@@ -358,8 +360,86 @@ def alphaops_score(frame: pd.DataFrame) -> pd.Series:
     )
 
 
+def concentrated_allowed_leader_tiers() -> set[str]:
+    raw = os.environ.get("ALPHAOPS_CONCENTRATED_LEADER_ALLOWED_TIERS", "DUAL_LEADER")
+    allowed = {part.strip() for part in str(raw).split(",") if part.strip()}
+    return allowed or {"DUAL_LEADER"}
+
+
+def leadership_mask(frame: pd.DataFrame) -> pd.Series:
+    return (
+        numeric(frame, "rs_spy_3m").gt(0.0)
+        & numeric(frame, "rs_qqq_3m").gt(0.0)
+        & (numeric(frame, "rs_spy_6m").gt(0.0) | numeric(frame, "rs_qqq_6m").gt(0.0))
+    )
+
+
+def recompute_lane_selection(frame: pd.DataFrame) -> pd.DataFrame:
+    d = frame.copy()
+    lane_cols = {
+        "QUALITY_COMPOUNDER": "quality_compounder_lane_score",
+        "MARKET_LEADER": "market_leader_lane_score",
+        "EMERGING_TENBAGGER": "emerging_tenbagger_lane_score",
+        "TOP7_MANAGER_DISCOVERY": "top7_manager_discovery_lane_score",
+        "CYCLICAL_RECOVERY": "cyclical_recovery_lane_score",
+        "CRISIS_BENEFICIARY": "crisis_beneficiary_lane_score",
+    }
+    scores = pd.DataFrame(
+        {lane: pd.to_numeric(d.get(col, 0.0), errors="coerce").fillna(-999.0) for lane, col in lane_cols.items()},
+        index=d.index,
+    )
+    if "top7_standalone_blocked" in d.columns:
+        scores.loc[d["top7_standalone_blocked"].fillna(False).astype(bool), "TOP7_MANAGER_DISCOVERY"] = -999.0
+    boost = pd.to_numeric(d.get("top7_support_boost", 0.0), errors="coerce").fillna(0.0)
+    for lane in ["QUALITY_COMPOUNDER", "MARKET_LEADER", "EMERGING_TENBAGGER", "CYCLICAL_RECOVERY"]:
+        scores[lane] = scores[lane] + 0.08 * boost
+    d["primary_lane"] = scores.idxmax(axis=1)
+    d["lane_confidence"] = scores.max(axis=1).replace(-999.0, 0.0).clip(lower=0.0)
+    secondaries: list[str] = []
+    for idx, row in scores.iterrows():
+        secondaries.append(",".join([lane for lane, score in row.items() if score > 0.25 and lane != d.at[idx, "primary_lane"]]))
+    d["secondary_lanes"] = secondaries
+    d["lane_reason"] = d["primary_lane"].astype(str) + "_score_selected"
+    return d
+
+
+def apply_cycle_leadership_mask_to_lanes(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    d = frame.copy()
+    mask = leadership_mask(d)
+    d["cycle_leadership_mask_pass"] = mask.astype(bool)
+    if "cyclical_recovery_lane_score" in d.columns:
+        d["cyclical_recovery_lane_score_leader_masked"] = pd.to_numeric(
+            d["cyclical_recovery_lane_score"], errors="coerce"
+        ).fillna(0.0).where(mask, 0.0)
+        d["cyclical_recovery_lane_score"] = d["cyclical_recovery_lane_score_leader_masked"]
+        d = recompute_lane_selection(d)
+    return d
+
+
+def apply_concentrated_leader_gate_annotations(month: pd.DataFrame, portfolio_kind: str, target_n: int) -> pd.DataFrame:
+    if month.empty or portfolio_kind != "concentrated":
+        return month
+    d = month.copy()
+    if "leader_tier" not in d.columns:
+        d["leader_tier"] = d.apply(classify_leader_tier, axis=1)
+    allowed = concentrated_allowed_leader_tiers()
+    leader_pass = d["leader_tier"].astype(str).isin(allowed)
+    enabled = phase_is_enabled("leader_gate", default=False)
+    min_pool = max(1, min(int(target_n), 3))
+    relaxed = bool(enabled and int(leader_pass.sum()) < min_pool)
+    d["concentrated_leader_gate_enabled"] = bool(enabled)
+    d["concentrated_leader_gate_allowed_tiers"] = ",".join(sorted(allowed))
+    d["concentrated_leader_gate_pass"] = leader_pass.astype(bool)
+    d["concentrated_leader_gate_relaxed"] = relaxed
+    return d
+
+
 def score_month(month: pd.DataFrame) -> pd.DataFrame:
     d = score_candidate_lanes(month.copy())
+    if phase_is_enabled("cycle_leadership_mask", default=False):
+        d = apply_cycle_leadership_mask_to_lanes(d)
     d["evidence_support_score"] = evidence_support_score(d)
     d["alphaops_vnext_score"] = alphaops_score(d)
     d["dual_leader_gate"] = (
@@ -367,6 +447,8 @@ def score_month(month: pd.DataFrame) -> pd.DataFrame:
         & numeric(d, "rs_qqq_3m").gt(0.0)
         & (numeric(d, "rs_spy_6m").gt(0.0) | numeric(d, "rs_qqq_6m").gt(0.0))
     )
+    if "leader_tier" not in d.columns:
+        d["leader_tier"] = d.apply(classify_leader_tier, axis=1)
     d["negative_fcf_risk_cap"] = numeric(d, "emerging_tenbagger_risk_cap", 1.0)
     return d
 
@@ -479,6 +561,12 @@ def allowed_candidate(rec: dict[str, Any], portfolio_kind: str, emerging_count: 
         return False, str(rec.get("crisis_new_buy_block_reason") or "crisis_new_buy_blocked_for_lane")
     lane = str(rec.get("primary_lane") or "")
     if portfolio_kind == "concentrated":
+        if (
+            bool(rec.get("concentrated_leader_gate_enabled", False))
+            and not bool(rec.get("concentrated_leader_gate_relaxed", False))
+            and not bool(rec.get("concentrated_leader_gate_pass", False))
+        ):
+            return False, f"concentrated_leader_gate:{rec.get('leader_tier') or 'unknown'}"
         if lane in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"}:
             if emerging_count >= 1:
                 return False, "concentrated_emerging_or_top7_seat_cap"
@@ -1634,6 +1722,7 @@ def build_variant_book(
             continue
         crisis_row = crisis_state_for_date(crisis_states, dt)
         month = apply_crisis_lane_policy(month, crisis_row, portfolio_kind)
+        month = apply_concentrated_leader_gate_annotations(month, portfolio_kind, target_n)
         score_sigma = float(pd.to_numeric(month["alphaops_vnext_score"], errors="coerce").std(ddof=0) or 0.0)
         score_median = float(pd.to_numeric(month["alphaops_vnext_score"], errors="coerce").median() or 0.0)
         month_records = month.to_dict("records")

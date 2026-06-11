@@ -12,8 +12,9 @@ All entries must be written in English. Entries must be predictable and machine-
   - `r1000_config.py` ->adds default-OFF `concentrated_leader_gate_enabled` and `concentrated_leader_allowed_tiers`.
   - `r1000_pipeline.py` ->wires existing `r1000_market_leader_engine.classify_leader_tier` into `select_concentrated_portfolio_topk` behind `PHASE_LEADER_GATE_ENABLED`, with pool-relax diagnostics to avoid empty crisis books.
   - `r1000_pipeline.py` ->adds default-OFF `PHASE_CYCLE_LEADERSHIP_MASK_ENABLED` so `cycle_recovery_score` contributes to concentrated score only for DUAL_LEADER-style benchmark-relative RS.
+  - `tools/run_alphaops_vnext_policy_replay.py` ->wires the same default-OFF leader gate and cycle leadership lane mask into the actual AlphaOps vNext production target-book builder; concentrated top7/emerging bypass lanes are also blocked when the opt-in leader gate is enabled.
   - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->adds `leader_gate_enabled` and `cycle_leadership_mask_enabled` workflow inputs for 4-cell fast replay A/B.
-  - `tests/smoke_test.py` ->adds fixtures proving default OFF preserves legacy ranking, leader gate ON filters lagging defensive rebounds, and cycle recovery masking preserves AMKR/WDC-style leaders while removing utility-style false positives.
+  - `tests/smoke_test.py` ->adds fixtures proving default OFF preserves legacy ranking, leader gate ON filters lagging defensive rebounds in both legacy and AlphaOps vNext builders, and cycle recovery masking preserves AMKR/WDC-style leaders while removing utility-style false positives.
 - policy:
   - Concentrated first only; do not apply this to main until concentrated broker-ledger A/B passes.
   - Do not turn either toggle on by default until 4-cell A/B proves absolute broker gate plus relative baseline improvement.
