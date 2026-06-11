@@ -610,15 +610,16 @@ def apply_main_cash_count_structure(
 
     When risk overlays or caps leave a large residual cash balance, keeping the
     original broad N dilutes the leader sleeve without proving drawdown defense.
-    The rule is deliberately portfolio-specific: only main is narrowed, and the
-    cash ceiling still allows real crisis states to hold defensive cash.
+    The rule is deliberately portfolio-specific: only main is narrowed. It does
+    not override the risk overlay's cash balance because replay evidence showed
+    that cutting defensive cash can materially worsen main drawdown.
     """
 
     if portfolio_kind != "main" or not weighted:
         return weighted
     original_cash = max(0.0, 1.0 - sum(safe_float(row.get("weight")) for row in weighted))
     ceiling = main_cash_ceiling(crisis_state)
-    desired_cash = min(original_cash, ceiling)
+    desired_cash = original_cash
     max_names = main_max_names_for_cash(original_cash, int(target_n))
     ranked = sorted(
         weighted,
@@ -637,6 +638,7 @@ def apply_main_cash_count_structure(
         item["pre_main_cash_count_structure_cash_weight"] = original_cash
         item["post_main_cash_count_structure_cash_weight"] = reshaped_cash
         item["main_cash_count_structure_cash_ceiling"] = ceiling
+        item["main_cash_count_structure_cash_preserved"] = True
         item["main_cash_count_structure_max_names"] = max_names
         item["main_cash_count_structure_original_names"] = len(weighted)
         item["effective_target_n"] = len(reshaped)

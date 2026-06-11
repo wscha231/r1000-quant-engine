@@ -2584,7 +2584,7 @@ def test_main_cash_count_structure_narrows_high_cash_main_books() -> None:
     )
     cash = 1.0 - sum(float(row["weight"]) for row in reshaped)
     assert len(reshaped) == 8
-    assert round(cash, 8) == 0.12
+    assert round(cash, 8) == 0.40
     assert all(row["main_cash_count_structure_status"] == "applied" for row in reshaped)
     assert all(row["main_cash_count_structure_max_names"] == 8 for row in reshaped)
 

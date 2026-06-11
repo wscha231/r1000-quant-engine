@@ -9,11 +9,12 @@ All entries must be written in English. Entries must be predictable and machine-
 
 - scope: Stop the recurring AlphaOps vNext main-book failure mode where high CASH overlays still leave too many small stock positions.
 - files:
-  - `tools/run_alphaops_vnext_policy_replay.py` ->adds a main-only cash/count structure pass: cash is capped by crisis state and high-cash main books are narrowed to 12 or 8 names before target-book export.
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds a main-only cash/count structure pass: risk-overlay cash is preserved while high-cash main books are narrowed to 12 or 8 names before target-book export.
   - `tools/run_portfolio_system_guard.py` ->adds `main_cash_position_count_contract` so current/replay artifacts fail when main CASH is high while the latest stock count stays broad.
 - policy:
-  - GREEN main cash ceiling `12%`, REENTRY_READY `15%`, WATCH `18%`, DEFENSE_REVIEW `28%`, CRISIS_DEFENSE `45%`.
   - Main stock-count contract: cash `>=15%` requires `<=15` stocks, cash `>=20%` requires `<=12` stocks, and cash `>=25%` requires `<=8` stocks.
+- replay_note:
+  - Fast replay `27346338968` proved the first attempt was too aggressive: forcing down main CASH improved latest count but worsened main broker MDD to `-43.70%`; preserve defensive cash and narrow only the stock count.
 - next_action:
   - Run focused smoke tests, push the policy/guard fix, cancel stale old-SHA full rebuild if still running, and dispatch a fast replay on the new SHA.
 
