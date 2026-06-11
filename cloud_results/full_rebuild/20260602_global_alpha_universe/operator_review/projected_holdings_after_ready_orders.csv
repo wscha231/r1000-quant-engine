@@ -1,0 +1,41 @@
+portfolio_kind,ticker,current_weight,target_weight,cleanup_action,cleanup_reason,projected_weight_after_cleanup_review
+concentrated,LITE,0.3010325292099324,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,WDC,0.2642675578168616,0.25,TRIM_REVIEW,current weight materially above target,0.25
+concentrated,TER,0.1988709495767994,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,KEYS,0.0598738732130252,0.0,FULL_EXIT_REVIEW,concentrated position below minimum meaningful weight,0.0
+concentrated,MU,0.0208752174114773,0.5,INCREASE_TO_MEANINGFUL_WEIGHT_REVIEW,target is meaningful and current is under target,0.5
+concentrated,CASH,0.155079872771904,0.0,CASH_NO_ACTION,cash row,0.155079872771904
+main,SNDK,0.2732427629782014,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,LITE,0.0998075208197896,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,CIEN,0.0994061794425063,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,WDC,0.0880393125977331,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,TER,0.066269576300045,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,TPL,0.0562293447330053,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,AMAT,0.046086958797862,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,LRCX,0.0269026438716789,0.0561781427985806,INCREASE_TO_MEANINGFUL_WEIGHT_REVIEW,target is meaningful and current is under target,0.0561781427985806
+main,MTSI,0.0265834014438493,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,KEYS,0.0207965157824976,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,CW,0.018323947966092,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,RGLD,0.0168978235564312,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,MU,0.0087845888490346,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,COHR,0.0057174662504064,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,FTAI,0.0030033756955342,0.0,FULL_EXIT_REVIEW,main dust current<0.50% and target<0.50%,0.0
+main,CASH,0.1439085809153326,0.0451070064361912,CASH_NO_ACTION,cash row,0.1439085809153326
+main,ARM,0.0,0.0561781427985806,NEW_POSITION_REVIEW,target-only position from production target,0.0561781427985806
+main,ARMK,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,ARW,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,GOOGL,0.0,0.1313215649923802,NEW_POSITION_REVIEW,target-only position from production target,0.1313215649923802
+main,KNX,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,MCHP,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,MRVL,0.0,0.0561781427985806,NEW_POSITION_REVIEW,target-only position from production target,0.0561781427985806
+main,NUE,0.0,0.044631024881954,NEW_POSITION_REVIEW,target-only position from production target,0.044631024881954
+main,NVT,0.0,0.0486405139233023,NEW_POSITION_REVIEW,target-only position from production target,0.0486405139233023
+main,NXPI,0.0,0.0447159394206115,NEW_POSITION_REVIEW,target-only position from production target,0.0447159394206115
+main,ON,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,RKLB,0.0,0.0486213501342479,NEW_POSITION_REVIEW,target-only position from production target,0.0486213501342479
+main,ROST,0.0,0.0442464180747321,NEW_POSITION_REVIEW,target-only position from production target,0.0442464180747321
+main,STM,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,TKR,0.0,0.0535014589219859,NEW_POSITION_REVIEW,target-only position from production target,0.0535014589219859
+main,UMC,0.0,0.0506802948188526,NEW_POSITION_REVIEW,target-only position from production target,0.0506802948188526
+main,VRT,0.0,0.08,NEW_POSITION_REVIEW,target-only position from production target,0.08
+concentrated,SNDK,0.0,0.25,NEW_POSITION_REVIEW,target-only position from production target,0.25

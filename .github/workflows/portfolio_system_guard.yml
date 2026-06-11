@@ -68,7 +68,7 @@ jobs:
       - name: Run portfolio system guard
         run: |
           LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
-          STRICT="${{ inputs.strict_targets || false }}"
+          STRICT="${{ github.event_name == 'pull_request' || inputs.strict_targets }}"
           ARGS="--latest-run $LATEST"
           if [ "$STRICT" = "true" ]; then
             ARGS="$ARGS --strict-targets"

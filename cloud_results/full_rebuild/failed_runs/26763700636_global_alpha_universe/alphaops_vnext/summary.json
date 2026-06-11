@@ -1,0 +1,10 @@
+{
+  "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "candidate_source_mode": "explicit",
+  "production_applied": false,
+  "production_policy": "alphaops_vnext_production",
+  "reason": "historical candidate_replay_book.csv is required",
+  "schema_version": "alphaops-vnext-production-replay-v1",
+  "sidecar_only": false,
+  "status": "blocked"
+}

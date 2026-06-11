@@ -1,0 +1,37 @@
+{
+  "by_portfolio": {
+    "concentrated": {
+      "blocked_order_count": 0,
+      "cash_value_usd": 76926.24469003896,
+      "cash_weight": 0.155079872771904,
+      "order_count": 6,
+      "projected_cash_usd": 878.7212959502504,
+      "projected_cash_weight": 0.0017772212955712641,
+      "ready_order_count": 5,
+      "target_cash_weight": 0.0
+    },
+    "main": {
+      "blocked_order_count": 0,
+      "cash_value_usd": 118744.47019559985,
+      "cash_weight": 0.1439085809153326,
+      "order_count": 32,
+      "projected_cash_usd": 35550.28984956849,
+      "projected_cash_weight": 0.0432738863547832,
+      "ready_order_count": 32,
+      "target_cash_weight": 0.0
+    }
+  },
+  "cash_policy_flag": "cash_above_target",
+  "cash_policy_review_action": "DEPLOY_CASH_REVIEW",
+  "combined_cash_gap_weight": -0.11993148936278038,
+  "combined_current_cash_weight": 0.14810288765932314,
+  "combined_preview_target_cash_weight": 0.0,
+  "combined_projected_cash_weight_after_ready_orders": 0.02768259114935572,
+  "combined_target_cash_weight": 0.028171398296542763,
+  "macro_cash_raise_confirmation_count": 0.0,
+  "macro_cash_raise_gate": "none",
+  "macro_recommended_cash_floor": 0.03,
+  "preview_order_semantics": "projected after order preview; no orders are placed by this report",
+  "schema_version": "user-current-cash-summary-v1",
+  "source": "outputs/operating_snapshot/current_portfolio_snapshot_summary.json"
+}

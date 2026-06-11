@@ -71,16 +71,13 @@ def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str 
                 d = prior[prior["rebalance_date"].eq(prior["rebalance_date"].max())].copy() if not prior.empty else d
         elif d["rebalance_date"].notna().any():
             d = d[d["rebalance_date"].eq(d["rebalance_date"].max())].copy()
-    if portfolio_kind == "concentrated":
-        for col, expected in {
-            "target_stock_names": "3",
-            "weighting_mode": "score_power",
-            "active_rebalance_interval_months": "1",
-        }.items():
-            if col in d.columns:
-                mask = d[col].astype(str).str.strip().eq(expected)
-                if mask.any():
-                    d = d[mask].copy()
+    if portfolio_kind == "concentrated" and "target_stock_names" in d.columns:
+        non_cash = d[~d["ticker"].astype(str).str.upper().eq("CASH")].copy()
+        counts = non_cash["target_stock_names"].astype(str).str.strip()
+        counts = counts[~counts.str.lower().isin({"", "nan", "none"})]
+        if not counts.empty and counts.nunique() > 1:
+            preferred_n = counts.value_counts().index[0]
+            d = d[d["target_stock_names"].astype(str).str.strip().eq(preferred_n)].copy()
     weight_col = "target_weight" if "target_weight" in d.columns else "weight"
     if weight_col not in d.columns:
         weight_col = "proposed_weight" if "proposed_weight" in d.columns else ""
@@ -540,8 +537,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     buy_gross = float(orders.loc[orders.get("side", pd.Series(dtype=str)).eq("BUY"), "gross_value_usd"].sum()) if not orders.empty else 0.0
     sell_gross = float(orders.loc[orders.get("side", pd.Series(dtype=str)).eq("SELL"), "gross_value_usd"].sum()) if not orders.empty else 0.0
     fees = float(pd.to_numeric(orders.get("estimated_fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not orders.empty else 0.0
-    target_stock_weight = float(pd.to_numeric(target.get("target_weight", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not target.empty else 0.0
-    target_cash_weight = max(0.0, 1.0 - target_stock_weight)
+    if not target.empty:
+        target_weights = pd.to_numeric(target.get("target_weight", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+        cash_mask = target["ticker"].astype(str).str.upper().eq("CASH")
+        target_stock_weight = float(target_weights.loc[~cash_mask].sum())
+        explicit_cash_weight = float(target_weights.loc[cash_mask].sum())
+        target_cash_weight = explicit_cash_weight if cash_mask.any() else max(0.0, 1.0 - target_stock_weight)
+    else:
+        target_stock_weight = 0.0
+        target_cash_weight = 0.0
     if abs(target_cash_weight) < 1e-9:
         target_cash_weight = 0.0
     payload = {
@@ -559,6 +563,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "equity_usd": float(equity),
         "cash_usd": float(cash),
         "cash_weight": float(cash / equity) if equity > 0 else np.nan,
+        "target_stock_weight": float(target_stock_weight),
         "target_cash_weight": float(target_cash_weight),
         **projected_metrics,
         "position_count": int(len(current)),

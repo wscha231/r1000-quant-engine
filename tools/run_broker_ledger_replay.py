@@ -40,6 +40,7 @@ DEFAULT_CONCENTRATED_CHAMPION_FILTERS = {
     "active_rebalance_interval_months": "1",
 }
 CONCENTRATED_CHAMPION_FILTERS = DEFAULT_CONCENTRATED_CHAMPION_FILTERS
+DISABLE_CONCENTRATED_CHAMPION_FILTERS = {"__disable_concentrated_champion_filter__": "true"}
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -96,8 +97,22 @@ def resolve_concentrated_champion_filters(
 ) -> tuple[dict[str, str], str, str]:
     if portfolio_kind != "concentrated":
         return {}, "not_applicable", ""
-    if explicit_filters:
+    if not raw_targets.empty:
+        production_policy = raw_targets.get("production_policy")
+        target_source = raw_targets.get("operating_target_source")
+        is_alphaops_vnext = False
+        if production_policy is not None:
+            is_alphaops_vnext = is_alphaops_vnext or production_policy.astype(str).eq("alphaops_vnext_production").any()
+        if target_source is not None:
+            is_alphaops_vnext = is_alphaops_vnext or target_source.astype(str).eq("alphaops_vnext_policy_replay").any()
+        if is_alphaops_vnext:
+            return {}, "alphaops_vnext_policy_target_book", "legacy concentrated champion filter disabled for AlphaOps vNext production target book"
+    if explicit_filters is not None:
+        disable = str(explicit_filters.get("__disable_concentrated_champion_filter__") or "").strip().lower()
+        if disable in {"1", "true", "yes", "disable", "disabled"}:
+            return {}, "disabled_explicit", "concentrated champion filter disabled by caller"
         filters = {str(k): filter_value(v) for k, v in explicit_filters.items() if filter_value(v)}
+        filters = {k: v for k, v in filters.items() if not k.startswith("__")}
         if filters:
             return filters, "explicit", ""
 
@@ -146,8 +161,12 @@ def filter_concentrated_champion(
     if portfolio_kind != "concentrated" or frame.empty:
         return frame
     out = frame.copy()
-    filters = champion_filters or DEFAULT_CONCENTRATED_CHAMPION_FILTERS
+    filters = DEFAULT_CONCENTRATED_CHAMPION_FILTERS if champion_filters is None else champion_filters
+    if not filters:
+        return out
     for col, expected_raw in filters.items():
+        if str(col).startswith("__"):
+            continue
         if col not in out.columns:
             continue
         expected = filter_value(expected_raw)
@@ -678,25 +697,24 @@ def replay(
                     }
                 )
 
-    if not equity_rows:
-        # No fills could be priced at all (typically: the price cache is
-        # absent or covers none of the book's tickers). Return a structured
-        # block instead of crashing on the missing 'date' column.
+    equity_df = pd.DataFrame(equity_rows)
+    if equity_df.empty or "date" not in equity_df.columns:
         payload = {
             "status": "blocked",
-            "reason": "no fill prices available for any rebalance period; check price cache coverage",
+            "reason": "no broker-fillable equity rows were produced; check price coverage and target dates",
             "target_book": str(target_book),
             "price_cache": str(price_cache),
-            "research_only": True,
-            "valid_for_production": False,
             "target_book_filter": champion_filters,
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
+            "metric_mode": "DO_NOT_USE",
+            "valid_for_production": False,
+            "research_only": True,
             **weight_diag,
         }
         (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
-    equity_df = pd.DataFrame(equity_rows).drop_duplicates("date", keep="last").sort_values("date")
+    equity_df = equity_df.drop_duplicates("date", keep="last").sort_values("date")
     trades_df = pd.DataFrame(trade_rows)
     holdings_df = pd.DataFrame(holdings_rows)
     cash_df = pd.DataFrame(cash_rows)
@@ -806,6 +824,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    explicit_filters = {
+        key: value
+        for key, value in {
+            "target_stock_names": args.concentrated_target_stock_n or None,
+            "weighting_mode": args.concentrated_weighting_mode or None,
+            "active_rebalance_interval_months": args.concentrated_rebalance_interval_months or None,
+        }.items()
+        if value is not None
+    }
+    if args.disable_concentrated_champion_filter:
+        explicit_filters = DISABLE_CONCENTRATED_CHAMPION_FILTERS.copy()
     payload = replay(
         target_book=repo_path(args.target_book),
         price_cache=repo_path(args.price_cache),
@@ -818,15 +847,7 @@ def main() -> int:
         max_reasonable_weight_sum=args.max_reasonable_weight_sum,
         max_fill_lag_days=args.max_fill_lag_days,
         disable_concentrated_champion_filter=bool(args.disable_concentrated_champion_filter),
-        concentrated_champion_filters={
-            key: value
-            for key, value in {
-                "target_stock_names": args.concentrated_target_stock_n or None,
-                "weighting_mode": args.concentrated_weighting_mode or None,
-                "active_rebalance_interval_months": args.concentrated_rebalance_interval_months or None,
-            }.items()
-            if value is not None
-        },
+        concentrated_champion_filters=explicit_filters if explicit_filters else None,
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2

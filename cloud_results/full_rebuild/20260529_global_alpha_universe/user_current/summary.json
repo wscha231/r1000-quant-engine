@@ -1,0 +1,26 @@
+{
+  "action_status": "REVIEW_REQUIRED",
+  "current_holding_rows": 20,
+  "current_holdings_source": "production_operating_target_book",
+  "generated_at_utc": "2026-05-29T13:47:03.085513+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "missing_required_files": [],
+  "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current",
+  "period_return_rows": 28,
+  "production_applied": false,
+  "reason_count": 2,
+  "required_files": [
+    "README_FIRST.md",
+    "01_current_holdings.csv",
+    "02_cash_summary.json",
+    "03_period_returns.csv",
+    "04_official_metrics.json",
+    "05_action_summary.md",
+    "06_benchmark_comparison.csv",
+    "07_research_sidecar_context.json"
+  ],
+  "research_sidecar_message": "Market Leader / Multi-Lane / Crisis sidecars are research-only and did not alter current holdings.",
+  "schema_version": "user-current-report-v1",
+  "sidecar_only": true,
+  "status": "completed"
+}

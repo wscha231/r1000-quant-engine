@@ -6,8 +6,8 @@ defaults and does not promote any candidate. Its job is to make the target
 gap operational after a full rebuild by ranking every available historical
 candidate artifact against:
 
-  - main: CAGR >= 30%, MaxDD >= -15%
-  - concentrated: CAGR >= 50%, MaxDD >= -18%
+  - main: CAGR >= 35%, MaxDD >= -25%
+  - concentrated: CAGR >= 50%, MaxDD >= -25%
 """
 from __future__ import annotations
 
@@ -450,11 +450,53 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "legacy_monthly_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_legacy_monthly_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible broker replay of legacy main monthly weights. Use to test whether the legacy target-weight edge survives next-close account ledger execution.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "regime_capacity_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_regime_capacity_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after PIT regime-capacity dampening of bearish target-book exposure.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "macro_circuit_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_macro_circuit_broker_replay_factor50",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after SPY 200-day macro circuit exposure factor 0.50.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "macro_circuit_broker_replay" / "main_factor25" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_macro_circuit_broker_replay_factor25",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after SPY 200-day macro circuit exposure factor 0.25.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "macro_circuit_broker_replay" / "main_factor00" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_macro_circuit_broker_replay_factor00",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after SPY 200-day macro circuit exposure factor 0.00.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_position_risk_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger conversion of proxy risk rules: daily close signals with next-close fills, cash, shares, and fees.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_parabolic_risk_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_parabolic_risk_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger replay of parabolic-winner trailing exits only: daily close signals after large gains with next-close fills, cash, shares, and fees.",
     )
     main += candidate_from_json_metric_validity(
         latest_run / "broker_execution_policy_replay" / "main" / "metrics.json",
@@ -484,7 +526,14 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_policy_replay",
         source_label="sidecar",
         valid_for_production=False,
-        notes="Research-only concentrated policy replay from candidate_replay_book.",
+        notes="Research-only monthly proxy from candidate_replay_book; use concentrated_policy_broker_replay for production-compatible evidence.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "concentrated_policy_replay" / "broker_replay" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_policy_broker_replay",
+        source_label="sidecar",
+        notes="Broker-ledger next-close replay of the concentrated policy target_book.csv generated from historical candidate_replay_book.",
     )
     concentrated += candidate_from_json(
         latest_run / "concentrated_position_risk_replay" / "metrics.json",
@@ -510,11 +559,39 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     concentrated += candidate_from_json_metric_validity(
+        latest_run / "legacy_monthly_broker_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_legacy_monthly_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible broker replay of legacy concentrated monthly holdings. Use to test whether the legacy target-weight edge survives next-close account ledger execution.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "regime_capacity_broker_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_regime_capacity_broker_replay_neutral85",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after PIT regime-capacity dampening with bear=0.5, deep_bear=0.25, and neutral=0.85.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "regime_capacity_broker_replay" / "concentrated_neutral90" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_regime_capacity_broker_replay_neutral90",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after PIT regime-capacity dampening with bear=0.5, deep_bear=0.25, and neutral=0.90.",
+    )
+    concentrated += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "concentrated" / "metrics.json",
         portfolio="concentrated",
         candidate_id="concentrated_broker_position_risk_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger conversion of concentrated proxy risk rules: daily close signals with next-close fills, cash, shares, and fees.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_parabolic_risk_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_parabolic_risk_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger replay of concentrated parabolic-winner trailing exits only: daily close signals after large gains with next-close fills, cash, shares, and fees.",
     )
     concentrated += candidate_from_json_metric_validity(
         latest_run / "broker_execution_policy_replay" / "concentrated" / "metrics.json",

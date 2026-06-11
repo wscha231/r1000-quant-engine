@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -22,6 +25,7 @@ from tools.run_historical_trade_journey import analyze as historical_journey_ana
 from tools.run_leader_drop_diagnostics_sidecar import run as leader_drop_run  # noqa: E402
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
 from tools.run_style_regime_report import run as style_regime_run  # noqa: E402
+from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 from tools.historical_replay_lib import infer_return_col, score_power_weights  # noqa: E402
 from r1000_config import EngineConfig, PORTFOLIO_GOAL_TARGETS  # noqa: E402
 from r1000_pipeline import concentrated_weight_map  # noqa: E402
@@ -295,6 +299,23 @@ def write_monthly_weights(path: Path) -> None:
         writer.writerows(rows)
 
 
+def write_price_cache(cache_dir: Path, tickers: list[str]) -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    idx = pd.bdate_range(start="2024-01-31", periods=70)
+    for ticker in tickers:
+        closes = [100.0 + i for i in range(len(idx))]
+        frame = pd.DataFrame(
+            {
+                "Open": closes,
+                "Close": closes,
+                "Adj Close": closes,
+                "Volume": [1_000_000] * len(idx),
+            },
+            index=idx,
+        )
+        frame.to_parquet(cache_dir / px_cache_name(ticker))
+
+
 def write_concentrated_strategy_files(root: Path) -> tuple[Path, Path]:
     holdings_path = root / "concentrated_strategy_holdings.csv"
     monthly_path = root / "concentrated_strategy_monthly.csv"
@@ -361,11 +382,21 @@ def test_historical_challenger_replays() -> None:
         root = Path(tmp)
         book = root / "candidate_replay_book.csv"
         monthly_weights = root / "main_monthly_weights.csv"
+        price_cache = root / "cache_prices"
         write_candidate_book(book)
         write_monthly_weights(monthly_weights)
+        write_price_cache(price_cache, ["AAA", "BBB"])
         concentrated_holdings, concentrated_monthly = write_concentrated_strategy_files(root / "concentrated_strategy")
         main_metrics = main_v2_replay(book, root / "main_v2", cost_bps=0.0)
-        concentrated_metrics = concentrated_replay(book, root / "conc", [3, 5], [0.25, 0.50], cost_bps=0.0)
+        concentrated_metrics = concentrated_replay(
+            book,
+            root / "conc",
+            [3, 5],
+            [0.25, 0.50],
+            cost_bps=0.0,
+            price_cache=price_cache,
+            run_broker_replay=True,
+        )
         concentrated_position_metrics = concentrated_position_risk_replay(
             concentrated_holdings,
             concentrated_monthly,
@@ -391,6 +422,9 @@ def test_historical_challenger_replays() -> None:
         journey_metrics = historical_journey_analyze(latest, root / "historical_journey")
         assert main_metrics["status"] == "completed"
         assert concentrated_metrics["status"] == "completed"
+        assert concentrated_metrics["broker_replay_status"] == "completed"
+        assert concentrated_metrics["broker_metric_mode"] == "broker_ledger_next_close"
+        assert concentrated_metrics["broker_target_book_filter_source"] == "disabled_explicit"
         assert concentrated_position_metrics["status"] == "completed"
         assert concentrated_position_metrics["target_cagr"] == PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"]
         assert concentrated_position_metrics["target_max_dd"] == PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"]
@@ -408,6 +442,8 @@ def test_historical_challenger_replays() -> None:
         assert lifecycle_review_metrics["hard_stop_exit"] is True
         assert (root / "main_v2" / "monthly_holdings.csv").exists()
         assert (root / "conc" / "comparison.csv").exists()
+        assert (root / "conc" / "target_book.csv").exists()
+        assert (root / "conc" / "broker_replay" / "metrics.json").exists()
         assert (root / "conc_position_risk" / "rolling_3y.csv").exists()
         assert (root / "risk" / "actions.csv").exists()
         assert (root / "monster" / "events.csv").exists()
@@ -425,6 +461,13 @@ def test_historical_challenger_replays() -> None:
             assert "main_v2_replacement_score" in first_main_holding
         with (root / "conc" / "holdings.csv").open(encoding="utf-8", newline="") as f:
             assert max(float(row["weight"]) for row in csv.DictReader(f)) <= 0.5000001
+        with (root / "conc" / "target_book.csv").open(encoding="utf-8", newline="") as f:
+            target_rows = list(csv.DictReader(f))
+            assert target_rows
+            assert all(row["research_policy"] == "concentrated_balanced_research_policy" for row in target_rows)
+        broker_metrics = json.loads((root / "conc" / "broker_replay" / "metrics.json").read_text(encoding="utf-8"))
+        assert broker_metrics["metric_mode"] == "broker_ledger_next_close"
+        assert broker_metrics["target_book_filter_source"] == "disabled_explicit"
         with (root / "monster" / "monthly.csv").open(encoding="utf-8", newline="") as f:
             first_month = next(csv.DictReader(f))
             assert float(first_month["gross_return"]) > 0.0

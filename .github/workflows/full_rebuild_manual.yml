@@ -55,6 +55,17 @@ on:
         description: 'guarded: if candidate gates pass promotion checks, commit research/auto_feature_gates.yaml for the next run'
         type: boolean
         default: false
+      phase11_multibagger_enabled:
+        description: 'Phase 11 multibagger ML sleeve. CHANGELOG 13448: A/B REJECT (CAGR -1.73pp, sleeve_cap_policy_compare bug). Default OFF — keep OFF unless you are explicitly experimenting and accept regression risk.'
+        type: boolean
+        default: false
+      phase11_episodes_source:
+        description: 'multibagger training episodes source if you DO experiment with Phase 11 (v1=55 ep / v2=162 ep)'
+        type: choice
+        options:
+          - v2
+          - v1
+        default: v2
       sidecar_profile:
         description: 'sidecar generation profile: operating_minimal avoids heavy research sidecars'
         type: choice
@@ -81,6 +92,20 @@ on:
           - research
           - off
         default: minimal
+      portfolio_policy:
+        description: 'operating target policy: baseline, shadow-only integrated/market-leader, approved integrated, or AlphaOps vNext production'
+        type: choice
+        options:
+          - production_baseline
+          - integrated_shadow
+          - market_leader_shadow
+          - approved_integrated
+          - alphaops_vnext_production
+        default: production_baseline
+      approved_target_policy_path:
+        description: 'approved_integrated policy file path; default stays unapproved'
+        type: string
+        default: outputs/promotion_review/approved_target_policy.json
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -132,27 +157,30 @@ jobs:
             outputs/sec_companyfacts
             outputs/macro
             outputs/companyfacts.zip
+            data_raw/free/sec/companyfacts.zip
           key: collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
             collector-cache-${{ runner.os }}-
 
-      # Refresh SEC companyfacts.zip bulk archive if missing or older than 7d.
+      # Refresh SEC companyfacts.zip bulk archive if missing or older than 3d.
       # Without this, the pipeline silently falls back to per-CIK API calls
       # which respect companyfacts_refresh_days, but with --no-collector that
       # path never executes either — fundamentals lane goes stale →
       # fundamental_coverage_ok=False → portfolio_latest.csv blocked.
-      # 7-day threshold = weekly refresh. Runs less than 7 days apart reuse
-      # cache; longer gaps trigger re-download (~1GB once).
+      # 3-day threshold keeps the full rebuild fundamentals lane aligned with
+      # the AlphaOps data-system contract without downloading the 1GB+ archive
+      # on every replay-only run.
       - name: Refresh SEC companyfacts bulk archive
         env:
           SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
         run: |
-          mkdir -p outputs
+          mkdir -p outputs data_raw/free/sec
           python tools/refresh_companyfacts_bulk.py \
             --base-dir "$(pwd)/outputs" \
-            --max-age-days 7 \
+            --max-age-days 3 \
             --required
+          cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
 
       # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
       - name: Restore engine cache
@@ -342,6 +370,8 @@ jobs:
           BACKTEST_YEARS: ${{ inputs.backtest_years }}
           LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
           PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
+          PHASE_PHASE11_MULTIBAGGER_ENABLED: ${{ inputs.phase11_multibagger_enabled && '1' || '0' }}
+          PHASE11_EPISODES_PATH: ${{ inputs.phase11_episodes_source == 'v2' && 'research/multibagger_episodes_v2.csv' || 'research/multibagger_episodes.csv' }}
         run: |
           set -e
           set -o pipefail   # ← critical: catch python failures through tee pipe
@@ -439,7 +469,22 @@ jobs:
       - name: Portfolio target replay + goal search (sidecar)
         if: always()
         run: |
-          python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}"
+          python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}" --artifact-profile "${{ inputs.artifact_profile }}" --gdrive-sync-mode "${{ inputs.gdrive_sync_mode }}" --portfolio-policy "${{ inputs.portfolio_policy }}" --approved-target-policy-path "${{ inputs.approved_target_policy_path }}"
+
+      - name: Data health (catalog + coverage gate, warn-only)
+        if: always()
+        run: |
+          # Inventory every data store with freshness; never fails the run.
+          python tools/build_data_catalog.py --output data/catalog.json 2>&1 | tee outputs/full_rebuild_logs/data_catalog.log || true
+          # Coverage gate in WARN-ONLY mode while the dead feeds (ETF history,
+          # SEC available_from, Top7 lane) are being repaired. Flip these layers
+          # off --warn-only (-> hard fail) once Steps 2-4 land and the next
+          # rebuild proves them >= floor. --no-fail keeps it non-blocking today.
+          python tools/data_coverage_gate.py \
+            --run-dir outputs \
+            --output outputs/coverage_gate.json \
+            --warn-only etf,sec_v1_evidence,smart_money,13f,top_manager \
+            --no-fail 2>&1 | tee outputs/full_rebuild_logs/coverage_gate.log || true
 
       - name: Upload artifact (user operating minimal)
         if: always()
@@ -448,10 +493,46 @@ jobs:
           name: user-operating-minimal-${{ inputs.universe_mode }}-${{ github.run_id }}
           path: |
             outputs/user_current/
+            outputs/patch_application_manifest.json
+            outputs/replay_integrity/patch_application_manifest.json
             outputs/daily_crisis_monitor/
+            outputs/decision_cadence/
+            outputs/operator_review/dust_positions_report.csv
+            outputs/operator_review/dust_cleanup_orders.csv
+            outputs/operator_review/projected_holdings_after_ready_orders.csv
+            outputs/operator_review/projected_holdings_after_integrated_target.csv
+            outputs/operator_review/projected_orders_from_integrated_target.csv
+            outputs/operator_review/sidecar_vs_current_diff.csv
+            outputs/operator_review/position_cleanup_review.json
+            outputs/operator_review/position_cleanup_review.md
+            outputs/shadow_operating/
+            outputs/promotion_review/
+            outputs/alphaops_vnext/summary.json
+            outputs/alphaops_vnext/production_activation.json
+            outputs/alphaops_vnext/crisis_state_audit.csv
+            outputs/alphaops_vnext/crisis_window_detection_report.csv
+            outputs/alphaops_vnext/daily_crisis_state.csv
+            outputs/alphaops_vnext/selected_latest.csv
+            outputs/alphaops_vnext/official_*_target_book.csv
+            outputs/alphaops_vnext/variants/*_target_book.csv
+            outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
+            outputs/metric_hygiene/
+            outputs/cash_contract/
             outputs/broker_replay/main/metrics.json
+            outputs/broker_replay/main/account_state_latest.json
+            outputs/broker_replay/main/positions_latest.csv
+            outputs/broker_replay/main/trades.csv
+            outputs/broker_replay/main/cash_ledger.csv
+            outputs/broker_replay/main/equity_curve.csv
+            outputs/broker_replay/main/target_vs_actual_weights.csv
             outputs/broker_replay/concentrated/metrics.json
+            outputs/broker_replay/concentrated/account_state_latest.json
+            outputs/broker_replay/concentrated/positions_latest.csv
+            outputs/broker_replay/concentrated/trades.csv
+            outputs/broker_replay/concentrated/cash_ledger.csv
+            outputs/broker_replay/concentrated/equity_curve.csv
+            outputs/broker_replay/concentrated/target_vs_actual_weights.csv
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
             outputs/portfolio_latest.csv
@@ -461,13 +542,30 @@ jobs:
             outputs/reports/concentrated_strategy_holdings.csv
             outputs/reports/regime_by_month.csv
             outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_*_target_book_macro*.csv
+            outputs/reports/operating_*_target_book_regime_capacity*.csv
             outputs/reports/operating_target_books_*
+            outputs/reports/candidate_replay_book.csv
+            outputs/reports/dataset_coverage_audit.*
+            cache_prices/replay_price_cache_manifest.json
+            outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
+            outputs/sec_enriched_candidate_replay/summary.json
+            outputs/sec_enriched_candidate_replay/report.md
+            outputs/data_readiness/
+            data/catalog.json
+            outputs/coverage_gate.json
             outputs/operating_snapshot/current_operating_holdings_latest.csv
             outputs/operating_snapshot/current_portfolio_snapshot_summary.json
-            outputs/portfolio_system_guard/error_check.json
+            outputs/portfolio_system_guard/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
             outputs/full_rebuild_logs/user_current_report.log
+            outputs/full_rebuild_logs/cash_contract.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
+            outputs/full_rebuild_logs/decision_cadence_review.log
+            outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+            outputs/full_rebuild_logs/mdd_cash_overlay_research.log
+            outputs/full_rebuild_logs/metric_hygiene_report.log
+            outputs/full_rebuild_logs/replay_price_cache_refresh.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -479,21 +577,51 @@ jobs:
           path: |
             outputs/account_evaluation/
             outputs/broker_replay/
+            outputs/legacy_monthly_broker_replay/
             outputs/operating_snapshot/
             outputs/account_ledger_preview/
             outputs/broker_position_risk_replay/
+            outputs/broker_parabolic_risk_replay/
             outputs/broker_execution_policy_replay/
+            outputs/mdd_cash_overlay_research/
             outputs/operator_review/
+            outputs/shadow_operating/
+            outputs/promotion_review/
+            outputs/alphaops_vnext/summary.json
+            outputs/alphaops_vnext/production_activation.json
+            outputs/alphaops_vnext/crisis_state_audit.csv
+            outputs/alphaops_vnext/crisis_window_detection_report.csv
+            outputs/alphaops_vnext/daily_crisis_state.csv
+            outputs/alphaops_vnext/selected_latest.csv
+            outputs/alphaops_vnext/official_*_target_book.csv
+            outputs/alphaops_vnext/variants/*_target_book.csv
+            outputs/patch_application_manifest.json
+            outputs/replay_integrity/patch_application_manifest.json
             outputs/reports/candidate_replay_book.csv
+            cache_prices/replay_price_cache_manifest.json
             outputs/baseline_lock/
             outputs/market_leader_challenger/
             outputs/integrated_leader_crisis_replay/
             outputs/latest_price_date_audit.json
             outputs/crisis_signals/
             outputs/long_crisis_learning/best_thresholds.json
+            outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
+            outputs/sec_enriched_candidate_replay/summary.json
+            outputs/sec_enriched_candidate_replay/report.md
+            outputs/superperformance_trader_replay/summary.json
+            outputs/superperformance_trader_replay/superperformance_report.md
+            outputs/superperformance_trader_replay/entry_events.csv
+            outputs/superperformance_trader_replay/exit_events.csv
+            outputs/superperformance_trader_replay/entry_exit_events.csv
+            outputs/superperformance_trader_replay/*target_book.csv
+            outputs/integrated_theme_leader_crisis_replay/
+            outputs/strategy_logic_ledger/
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
             outputs/portfolio_system_guard/
+            outputs/metric_hygiene/
+            outputs/cash_contract/
+            outputs/decision_cadence/
           if-no-files-found: warn
           retention-days: 365
 
@@ -507,6 +635,9 @@ jobs:
           # outputs/data_readiness/summary.json
           path: |
             outputs/full_rebuild_logs/
+            outputs/patch_application_manifest.json
+            outputs/replay_integrity/patch_application_manifest.json
+            outputs/decision_cadence/
             outputs/scored_*.csv
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
@@ -523,15 +654,20 @@ jobs:
             outputs/reports/main_monthly_weights.csv
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
+            outputs/alphaops_vnext/
             outputs/reports/event_*_target_book.csv
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            data/catalog.json
+            outputs/coverage_gate.json
             outputs/reports/tactical_monthly_weights.csv
             outputs/reports/alpha_sprint_monthly_weights.csv
             outputs/reports/regime_by_month.csv
             outputs/reports/sleeve_returns_by_month.csv
             outputs/reports/candidate_replay_book.csv
+            cache_prices/replay_price_cache_manifest.json
+            outputs/sec_enriched_candidate_replay/
             outputs/reports/leader_drop_diagnostics_*.csv
             outputs/reports/leader_drop_diagnostics_summary.json
             outputs/reports/leader_drop_diagnostics_report.md
@@ -551,6 +687,7 @@ jobs:
             outputs/broker_replay/
             outputs/event_target_books/
             outputs/event_broker_replay/
+            outputs/legacy_monthly_broker_replay/
             outputs/weekly_leader_snapshots/
             outputs/weekly_leader_broker_replay/
             outputs/cost_sensitivity/
@@ -562,6 +699,7 @@ jobs:
             outputs/regime_capacity_filter/
             outputs/regime_capacity_broker_replay/
             outputs/broker_position_risk_replay/
+            outputs/broker_parabolic_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/operating_event_backtest/
             outputs/broker_gap_attribution/
@@ -572,8 +710,13 @@ jobs:
             outputs/monster_recommendations/
             outputs/operating_snapshot/
             outputs/user_portfolio_reports/
+            outputs/operator_review/
+            outputs/shadow_operating/
+            outputs/promotion_review/
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
+            outputs/metric_hygiene/
+            outputs/cash_contract/
             outputs/governance_catalyst/
             outputs/style_regime_report/
             outputs/macro_policy_engine/
@@ -597,6 +740,9 @@ jobs:
             outputs/latest_price_date_audit.json
             outputs/crisis_signals/
             outputs/long_crisis_learning/
+            outputs/superperformance_trader_replay/
+            outputs/integrated_theme_leader_crisis_replay/
+            outputs/strategy_logic_ledger/
             outputs/auto_learning_v2/
             outputs/winner_lifecycle/
             outputs/winner_onset_study/
@@ -858,6 +1004,19 @@ jobs:
             "outputs/user_current/05_action_summary.md"
             "outputs/user_current/06_benchmark_comparison.csv"
             "outputs/daily_crisis_monitor/crisis_action_status.md"
+            "outputs/decision_cadence/decision_cadence_report.md"
+            "outputs/decision_cadence/decision_cadence_summary.json"
+            "outputs/patch_application_manifest.json"
+            "outputs/operator_review/dust_positions_report.csv"
+            "outputs/operator_review/dust_cleanup_orders.csv"
+            "outputs/operator_review/projected_holdings_after_ready_orders.csv"
+            "outputs/operator_review/projected_holdings_after_integrated_target.csv"
+            "outputs/operator_review/projected_orders_from_integrated_target.csv"
+            "outputs/operator_review/sidecar_vs_current_diff.csv"
+            "outputs/shadow_operating"
+            "outputs/promotion_review"
+            "outputs/alphaops_vnext/summary.json"
+            "outputs/alphaops_vnext/production_activation.json"
             "outputs/broker_replay/main/metrics.json"
             "outputs/broker_replay/concentrated/metrics.json"
           )
@@ -956,6 +1115,22 @@ jobs:
               cp "$src" "$dst"/ 2>/dev/null || true
             fi
           }
+          copy_alphaops_vnext_light() {
+            local src="outputs/alphaops_vnext"
+            local dst="$DEST/alphaops_vnext"
+            if [ -d "$src" ]; then
+              rm -rf "$dst"
+              mkdir -p "$dst/variants"
+              cp "$src"/summary.json "$dst"/ 2>/dev/null || true
+              cp "$src"/production_activation.json "$dst"/ 2>/dev/null || true
+              cp "$src"/crisis_state_audit.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/crisis_window_detection_report.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/daily_crisis_state.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/selected_latest.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/official_*_target_book.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/variants/*_target_book.csv "$dst/variants"/ 2>/dev/null || true
+            fi
+          }
           # Capture run log tail (last 300 lines) for diagnostics regardless of outcome
           if ls outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log 1>/dev/null 2>&1; then
             LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log | head -1)
@@ -967,8 +1142,17 @@ jobs:
           if [ "${{ inputs.artifact_profile }}" != "research_full" ]; then
             echo "[push] artifact_profile=${{ inputs.artifact_profile }}; writing minimal cloud_results bundle."
             copy_dir_clean outputs/user_current "$DEST/user_current"
+            cp outputs/patch_application_manifest.json "$DEST/" 2>/dev/null || true
+            copy_dir_clean outputs/operator_review "$DEST/operator_review"
+            copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
+            copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
+            copy_alphaops_vnext_light
+            copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
+            copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+            copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
+            copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             # P3 integrated leader+crisis evidence + P0 freshness + governor
@@ -979,9 +1163,15 @@ jobs:
             copy_dir_clean outputs/long_crisis_learning "$DEST/long_crisis_learning"
             copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
             cp outputs/latest_price_date_audit.json "$DEST/" 2>/dev/null || true
+            copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+            copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
+            mkdir -p "$DEST/manifests"
+            cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
             mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
-            cp outputs/broker_replay/main/metrics.json "$DEST/broker_replay/main/" 2>/dev/null || true
-            cp outputs/broker_replay/concentrated/metrics.json "$DEST/broker_replay/concentrated/" 2>/dev/null || true
+            for file in metrics.json account_state_latest.json positions_latest.csv trades.csv cash_ledger.csv equity_curve.csv target_vs_actual_weights.csv; do
+              cp "outputs/broker_replay/main/$file" "$DEST/broker_replay/main/" 2>/dev/null || true
+              cp "outputs/broker_replay/concentrated/$file" "$DEST/broker_replay/concentrated/" 2>/dev/null || true
+            done
             cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
             cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
             cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
@@ -994,6 +1184,7 @@ jobs:
             cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
             cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
             cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/" 2>/dev/null || true
           else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
@@ -1001,6 +1192,7 @@ jobs:
           # Portfolio outputs (production main + concentrated 3-name)
           cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_portfolio_latest.csv "$DEST/" 2>/dev/null || true
+          cp outputs/patch_application_manifest.json "$DEST/" 2>/dev/null || true
           # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
@@ -1027,6 +1219,8 @@ jobs:
           cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/" 2>/dev/null || true
+          mkdir -p "$DEST/manifests"
+          cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
           copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
           copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
@@ -1046,7 +1240,10 @@ jobs:
           copy_dir_clean outputs/position_aware_risk_replay "$DEST/position_aware_risk_replay"
           copy_dir_clean outputs/position_risk_weekly_validation "$DEST/position_risk_weekly_validation"
           copy_dir_clean outputs/broker_replay "$DEST/broker_replay"
+          copy_dir_clean outputs/legacy_monthly_broker_replay "$DEST/legacy_monthly_broker_replay"
+          copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
           copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
+          copy_dir_clean outputs/broker_parabolic_risk_replay "$DEST/broker_parabolic_risk_replay"
           copy_dir_clean outputs/broker_execution_policy_replay "$DEST/broker_execution_policy_replay"
           copy_dir_clean outputs/operating_event_backtest "$DEST/operating_event_backtest"
           copy_dir_clean outputs/broker_gap_attribution "$DEST/broker_gap_attribution"
@@ -1058,7 +1255,14 @@ jobs:
           copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
           copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+          copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+          copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
+          copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
+          copy_dir_clean outputs/operator_review "$DEST/operator_review"
+          copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
+          copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
+          copy_dir_clean outputs/alphaops_vnext "$DEST/alphaops_vnext"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
           copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"
           copy_dir_clean outputs/macro_policy_engine "$DEST/macro_policy_engine"
@@ -1077,7 +1281,11 @@ jobs:
           copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"
           copy_dir_clean outputs/theme_concentration_challenger "$DEST/theme_concentration_challenger"
           copy_dir_clean outputs/baseline_lock "$DEST/baseline_lock"
+          copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
           copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
+          copy_dir_clean outputs/superperformance_trader_replay "$DEST/superperformance_trader_replay"
+          copy_dir_clean outputs/integrated_theme_leader_crisis_replay "$DEST/integrated_theme_leader_crisis_replay"
+          copy_dir_clean outputs/strategy_logic_ledger "$DEST/strategy_logic_ledger"
           copy_dir_clean outputs/auto_learning_v2 "$DEST/auto_learning_v2"
           copy_dir_clean outputs/winner_lifecycle "$DEST/winner_lifecycle"
           copy_dir_clean outputs/winner_onset_study "$DEST/winner_onset_study"

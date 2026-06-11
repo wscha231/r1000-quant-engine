@@ -67,12 +67,16 @@ def test_healthy_baseline_lock_requires_broker_and_broad_universe() -> None:
                 "universe_source": ["current_constituents_proxy_static_seed"] * 450,
             }
         ).to_csv(latest / "scored_latest.csv", index=False)
+        (latest / "reports").mkdir()
+        (latest / "reports" / "candidate_replay_book.csv").write_text("rebalance_date,ticker\n2026-01-31,A\n", encoding="utf-8")
         payload, blockers = build_lock(latest, "123", "master", "abc", 400)
         assert blockers == []
         assert payload["promotion_eligible"] is True
         assert payload["scored_row_count"] == 450
         assert payload["r1000_base_count"] == 450
         assert payload["broker_period_years"] >= 6.8
+        assert payload["candidate_replay_book_present"] is True
+        assert payload["main_cagr"] == 0.21
 
 
 def test_baseline_lock_blocks_collapsed_universe() -> None:

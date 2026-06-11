@@ -32,7 +32,20 @@ DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
 DEFAULT_FORM4 = "data_pit/sec/form4_transactions.parquet"
 DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_ETF_HOLDINGS = "data_pit/etf_holdings/etf_holdings.parquet"
+DEFAULT_TOP_MANAGER_SIGNALS = "data_pit/sec/top_manager_discovery_signals.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/sec_enriched_candidate_replay"
+
+# Walk-forward Top-7 manager discovery signals (built by
+# tools/build_top_manager_discovery_signals.py). These feed the
+# TOP7_MANAGER_DISCOVERY lane in r1000_candidate_lanes.py; merging them here is
+# what turns top7_manager_discovery_lane_score on downstream in vNext.
+TOP_MANAGER_FEATURE_COLUMNS = [
+    "top3_manager_count",
+    "top7_manager_count",
+    "top10_manager_count",
+    "top7_discovery_score",
+    "top_manager_discovery_score",
+]
 
 SEC_SIGNAL_COLUMNS = [c for c in SIGNAL_COLUMNS if c not in {"ticker", "latest_available_from"}]
 INSTITUTIONAL_FEATURE_COLUMNS = [c for c in INSTITUTIONAL_SIGNAL_COLUMNS if c not in {"ticker", "latest_available_from"}]
@@ -404,6 +417,7 @@ def enrich_candidate_book(
     form4: pd.DataFrame,
     holdings_13f: pd.DataFrame | None = None,
     etf_holdings: pd.DataFrame | None = None,
+    top_manager_signals: pd.DataFrame | None = None,
     *,
     lookback_days: int = 90,
     institutional_lookback_days: int = 210,
@@ -413,12 +427,13 @@ def enrich_candidate_book(
         return pd.DataFrame()
 
     original_score_total = d["score_total"].copy() if "score_total" in d.columns else None
-    refresh_cols = set(SEC_SIGNAL_COLUMNS) | set(INSTITUTIONAL_FEATURE_COLUMNS) | set(ETF_FEATURE_COLUMNS) | set(ENRICHED_SCORE_COLUMNS)
+    refresh_cols = set(SEC_SIGNAL_COLUMNS) | set(INSTITUTIONAL_FEATURE_COLUMNS) | set(ETF_FEATURE_COLUMNS) | set(ENRICHED_SCORE_COLUMNS) | set(TOP_MANAGER_FEATURE_COLUMNS)
     refresh_cols.update(
         {
             "latest_available_from",
             "latest_13f_available_from",
             "latest_etf_available_from",
+            "latest_top_manager_available_from",
             "sec_evidence_research_only",
             "sec_evidence_production_activation_allowed",
             "sec_evidence_source",
@@ -476,6 +491,22 @@ def enrich_candidate_book(
                 d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0.0)
         d["latest_etf_available_from"] = d.get("latest_etf_available_from", "").fillna("").astype(str)
 
+    top_manager_signals = top_manager_signals if top_manager_signals is not None else pd.DataFrame()
+    if top_manager_signals.empty or "ticker" not in top_manager_signals.columns:
+        for col in TOP_MANAGER_FEATURE_COLUMNS:
+            d[col] = 0.0
+        d["latest_top_manager_available_from"] = ""
+    else:
+        tm = top_manager_signals.copy()
+        tm["ticker"] = tm["ticker"].astype(str).str.upper().str.strip()
+        tm["rebalance_date"] = pd.to_datetime(tm["rebalance_date"], errors="coerce").dt.normalize()
+        avail_col = ["latest_top_manager_available_from"] if "latest_top_manager_available_from" in tm.columns else []
+        keep = ["rebalance_date", "ticker", *[c for c in TOP_MANAGER_FEATURE_COLUMNS if c in tm.columns], *avail_col]
+        d = d.merge(tm[keep], on=["rebalance_date", "ticker"], how="left")
+        for col in TOP_MANAGER_FEATURE_COLUMNS:
+            d[col] = pd.to_numeric(d.get(col), errors="coerce").fillna(0.0)
+        d["latest_top_manager_available_from"] = d.get("latest_top_manager_available_from", "").fillna("").astype(str)
+
     d = add_combined_sec_scores(d)
     d = add_leader_onset_sec_v2(d)
     d = add_smart_money_shadow_scores(d)
@@ -504,6 +535,7 @@ def summary_payload(
     with_13f = int((numeric(enriched, "institutional_evidence_confidence_score", 0.0) > 0).sum()) if rows else 0
     with_etf = int((numeric(enriched, "etf_evidence_confidence", 0.0) > 0).sum()) if rows else 0
     with_smart_money = int((numeric(enriched, "smart_money_shadow_score", 0.0) > 0).sum()) if rows else 0
+    with_top_manager = int((numeric(enriched, "top_manager_discovery_score", 0.0) > 0).sum()) if rows else 0
     by_date = (
         enriched.groupby("rebalance_date")["evidence_confidence_score"]
         .apply(lambda s: int((pd.to_numeric(s, errors="coerce").fillna(0.0) > 0).sum()))
@@ -530,6 +562,8 @@ def summary_payload(
         "coverage_13f_ratio": float(with_13f / rows) if rows else 0.0,
         "coverage_etf_ratio": float(with_etf / rows) if rows else 0.0,
         "coverage_smart_money_ratio": float(with_smart_money / rows) if rows else 0.0,
+        "rows_with_top_manager_evidence": with_top_manager,
+        "coverage_top_manager_ratio": float(with_top_manager / rows) if rows else 0.0,
         "rows_with_sec_evidence_by_date": {str(k): v for k, v in by_date.items()},
         "columns_added": ENRICHED_SCORE_COLUMNS,
     }
@@ -579,17 +613,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     form4_path = repo_path(args.form4)
     institutional_13f_path = repo_path(args.institutional_13f)
     etf_holdings_path = repo_path(args.etf_holdings)
+    top_manager_signals_path = repo_path(getattr(args, "top_manager_signals", DEFAULT_TOP_MANAGER_SIGNALS))
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     candidates = read_table(candidate_path)
     form4 = read_table(form4_path)
     holdings_13f = read_table(institutional_13f_path)
     etf_holdings = read_table(etf_holdings_path)
+    top_manager_signals = read_table(top_manager_signals_path) if top_manager_signals_path.exists() else pd.DataFrame()
     enriched = enrich_candidate_book(
         candidates,
         form4,
         holdings_13f,
         etf_holdings,
+        top_manager_signals,
         lookback_days=int(args.lookback_days),
         institutional_lookback_days=int(args.institutional_lookback_days),
     )
@@ -610,6 +647,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--form4", default=DEFAULT_FORM4)
     parser.add_argument("--institutional-13f", default=DEFAULT_13F)
     parser.add_argument("--etf-holdings", default=DEFAULT_ETF_HOLDINGS)
+    parser.add_argument("--top-manager-signals", default=DEFAULT_TOP_MANAGER_SIGNALS)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--lookback-days", type=int, default=90)
     parser.add_argument("--institutional-lookback-days", type=int, default=210)

@@ -107,6 +107,28 @@ CURRENT_BASELINE = {
     },
 }
 
+BROKER_TARGET_GATES = {
+    "main": {"cagr": 0.30, "max_dd": -0.25},
+    "concentrated": {"cagr": 0.45, "max_dd": -0.25},
+}
+
+BROKER_BASELINE = {
+    "name": "latest full rebuild broker-ledger baseline (run 27088007617)",
+    "run_id": 27088007617,
+    "main": {
+        "cagr": 0.33456953577953397,
+        "sharpe": 1.2511404095300012,
+        "max_dd": -0.26233862234479555,
+        "avg_cash_weight": 0.2724822683415284,
+    },
+    "concentrated": {
+        "cagr": 0.40608448651423723,
+        "sharpe": 1.3249504374920587,
+        "max_dd": -0.29942350136210616,
+        "avg_cash_weight": 0.41928817635882465,
+    },
+}
+
 # Prior production baseline (pre-Phase-15-D) — kept for historical delta calc
 PHASE14_HYBRID_ALPHA_BASELINE = {
     "name": "Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective)",
@@ -239,6 +261,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--leader-rescue-mode", choices=["auto", "latest_only", "full_proxy", "off"], default="auto",
                    help="Leader-rescue validation mode. latest_only keeps rescue-only names out of "
                         "historical OOS months; full_proxy is research-only; off disables rescue.")
+    p.add_argument(
+        "--gate-mode",
+        choices=["broker", "target"],
+        default="broker",
+        help="Verdict metric source. Default broker uses broker-ledger next-close official metrics. "
+             "target is deprecated research-only weight-level comparison.",
+    )
     p.add_argument("--ab-quick", action="store_true",
                    help="A/B fast-iter mode: disable 7 expensive grid comparisons "
                         "(portfolio_size, rebalance_interval, backtest_window, sleeve_regime, "
@@ -400,8 +429,118 @@ def now_kst() -> str:
 # Verdict (mirror of Cell E in SESSION_HANDOFF.md §2)
 # ------------------------------------------------------------------
 
-def print_verdict(base_dir: Path) -> int:
+def safe_float(value, default=None):
+    try:
+        if value is None or value == "":
+            return default
+        out = float(value)
+        if out != out:
+            return default
+        return out
+    except (TypeError, ValueError):
+        return default
+
+
+def load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def metric_mode_is_official(metrics: dict) -> bool:
+    return str(metrics.get("metric_mode") or metrics.get("official_metric_mode") or "") == "broker_ledger_next_close"
+
+
+def print_broker_verdict(base_dir: Path) -> int:
+    """Print broker-ledger official verdict. Returns non-zero when official metrics are unusable."""
+
+    out_dir = base_dir / "outputs"
+    official = load_json(out_dir / "account_evaluation" / "official_metrics.json")
+    broker_metrics = {
+        "main": load_json(out_dir / "broker_replay" / "main" / "metrics.json"),
+        "concentrated": load_json(out_dir / "broker_replay" / "concentrated" / "metrics.json"),
+    }
+    missing = [
+        path
+        for path in [
+            out_dir / "broker_replay" / "main" / "metrics.json",
+            out_dir / "broker_replay" / "concentrated" / "metrics.json",
+            out_dir / "account_evaluation" / "official_metrics.json",
+        ]
+        if not path.exists()
+    ]
+
+    print()
+    print("=" * 70)
+    print("BROKER-LEDGER VERDICT -- OFFICIAL PRODUCTION GATE")
+    print("=" * 70)
+    print("Official metric mode required: broker_ledger_next_close")
+    print("Legacy weight-level metrics are research-only and cannot SHIP.")
+
+    if missing:
+        print("\nVERDICT: DO_NOT_USE -- official broker metrics missing")
+        for path in missing:
+            print(f"  MISS  {path}")
+        if (out_dir / "backtest_metrics.json").exists() or (out_dir / "concentrated_backtest_metrics.json").exists():
+            print("  NOTE  legacy/proxy metrics exist but are not production evidence.")
+        return 1
+
+    if str(official.get("official_metric_mode") or "") != "broker_ledger_next_close":
+        print(f"\nVERDICT: DO_NOT_USE -- account_evaluation official_metric_mode={official.get('official_metric_mode')!r}")
+        return 1
+
+    verdicts: dict[str, str] = {}
+    for portfolio, metrics in broker_metrics.items():
+        gate = BROKER_TARGET_GATES[portfolio]
+        baseline = BROKER_BASELINE[portfolio]
+        mode_ok = metric_mode_is_official(metrics)
+        valid = bool(metrics.get("valid_for_production", False))
+        cagr = safe_float(metrics.get("cagr"))
+        sharpe = safe_float(metrics.get("sharpe"))
+        max_dd = safe_float(metrics.get("max_dd"))
+        cash = safe_float(metrics.get("avg_cash_weight"))
+        if cagr is None or max_dd is None or not mode_ok or not valid:
+            verdicts[portfolio] = "DO_NOT_USE"
+            print(f"\n[{portfolio}] DO_NOT_USE")
+            print(f"  metric_mode={metrics.get('metric_mode')!r}; valid_for_production={valid}")
+            continue
+        cagr_pass = cagr >= gate["cagr"]
+        dd_pass = max_dd >= gate["max_dd"]
+        d_cagr = (cagr - baseline["cagr"]) * 100.0
+        d_dd = (max_dd - baseline["max_dd"]) * 100.0
+        target_pass = cagr_pass and dd_pass
+        verdicts[portfolio] = "SHIP" if target_pass else ("PARTIAL" if cagr_pass or dd_pass else "REJECT")
+        print(f"\n[{portfolio}] {verdicts[portfolio]}")
+        print(f"  cagr   {cagr:.4f}  target >= {gate['cagr']:.4f}  pass={str(cagr_pass).lower()}")
+        print(f"  max_dd {max_dd:.4f} target >= {gate['max_dd']:.4f} pass={str(dd_pass).lower()}")
+        if sharpe is not None:
+            print(f"  sharpe {sharpe:.4f}")
+        if cash is not None:
+            print(f"  avg_cash_weight {cash:.4f}")
+        print(f"  vs {BROKER_BASELINE['name']}: dCAGR {d_cagr:+.2f}pp, dMaxDD {d_dd:+.2f}pp")
+
+    print("\n=== OVERALL VERDICT ===")
+    if any(v == "DO_NOT_USE" for v in verdicts.values()):
+        print("  --> DO_NOT_USE. Official broker-ledger metrics are missing or invalid.")
+        return 1
+    if all(v == "SHIP" for v in verdicts.values()):
+        print("  --> SHIP CANDIDATE FOR THIS ARTIFACT. Fast and full artifacts must both pass before promotion.")
+        return 0
+    if any(v in {"SHIP", "PARTIAL"} for v in verdicts.values()):
+        print("  --> PARTIAL. Improve failed broker gates before production promotion.")
+        return 0
+    print("  --> REJECT. Broker-ledger targets are not met.")
+    return 0
+
+
+def print_verdict(base_dir: Path, gate_mode: str = "broker") -> int:
     """Read outputs, print verdict. Returns 0/1 (verdict irrelevant) or 2 (outputs missing)."""
+    if gate_mode == "broker":
+        return print_broker_verdict(base_dir)
+
     import pandas as pd
 
     out_dir = base_dir / "outputs"
@@ -461,8 +600,10 @@ def print_verdict(base_dir: Path) -> int:
             print(top[keep].to_string(index=False))
 
     print("\n" + "=" * 70)
+    print("DEPRECATED TARGET-WEIGHT RESEARCH VERDICT")
     print(f"METRICS vs baseline: {CURRENT_BASELINE['name']}")
     print("=" * 70)
+    print("WARNING: target/weight-level metrics are research-only and cannot produce production SHIP.")
     bm = json.loads((out_dir / "backtest_metrics.json").read_text(encoding="utf-8"))
     print(f"  {'metric':24s} {'new':>10s} {'baseline':>10s} {'delta':>14s}")
     for k in ["cagr", "sharpe", "max_dd", "ir", "avg_turnover_monthly",
@@ -508,11 +649,11 @@ def print_verdict(base_dir: Path) -> int:
     print(f"  early_scout selected: {early_n}    (gate >= 4)")
 
     if dCAGR >= 0.5 and dSharpe >= -0.05 and dMaxDD >= -3.0 and early_n >= 4:
-        print(f"\n  --> SHIP vs {CURRENT_BASELINE['name']}. Rotate baseline + next phase.")
+        print(f"\n  --> RESEARCH_ONLY_SHIP vs {CURRENT_BASELINE['name']}. Production SHIP still requires --gate-mode broker.")
     elif dCAGR >= -2.0 and early_n >= 2:
-        print(f"\n  --> PARTIAL vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3b (A/B isolation).")
+        print(f"\n  --> RESEARCH_ONLY_PARTIAL vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3b (A/B isolation).")
     else:
-        print(f"\n  --> REGRESS vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3c (rollback).")
+        print(f"\n  --> RESEARCH_ONLY_REGRESS vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3c (rollback).")
 
     # Official broker-ledger cross-check: target-weight metrics above can
     # declare SHIP while broker-ledger evidence (next-close fills, integer
@@ -670,6 +811,7 @@ def main() -> int:
     print(f"  universe_mode: {universe_mode or '(cfg default)'}")
     print(f"  backtest_years: {backtest_years or '(cfg default)'}")
     print(f"  leader_rescue: {leader_rescue_mode or '(cfg default)'}")
+    print(f"  gate_mode:     {args.gate_mode}")
     print(f"  collector:     {'skipped' if args.no_collector else 'run'}")
     print(f"  verdict_only:  {args.verdict_only}")
     print(f"  Phase 9 C1:    {args.phase9_c1}")
@@ -687,7 +829,7 @@ def main() -> int:
 
     # Verdict-only mode: skip everything, just read existing outputs
     if args.verdict_only:
-        return print_verdict(base_dir)
+        return print_verdict(base_dir, gate_mode=args.gate_mode)
 
     # Main pipeline flow
     sys.path.insert(0, str(REPO_ROOT))
@@ -770,7 +912,7 @@ def main() -> int:
     print(f"\n[{now_kst()}] TOTAL runtime: {total_dt/60:.1f} min")
 
     # ---------- Step 3: verdict ----------
-    return print_verdict(base_dir)
+    return print_verdict(base_dir, gate_mode=args.gate_mode)
 
 
 if __name__ == "__main__":

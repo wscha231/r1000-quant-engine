@@ -1,0 +1,93 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        a894aaa (DIRTY)
+  started:       2026-06-03 21:29:21 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-06-03
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  leader_rescue: (cfg default)
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+OK: companyfacts.zip 1.3d old, 1321 MB
+
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 733
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         454
+early_scout        118
+future_winner       99
+core_compounder     62
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=733
+  phase9_core_eligible                      mean=0.085  sum=62
+  phase9_future_eligible                    mean=0.130  sum=95
+  phase9_early_eligible                     mean=0.161  sum=118
+  phase9_unassigned                         mean=0.625  sum=458
+  phase9_mktcap_percentile                  mean=0.501  sum=367
+
+Final portfolio: 18 positions
+  Sleeve dist: {'core_compounder': 8, 'early_scout': 3, 'future_winner': 6}
+  Top 10 by weight:
+ticker portfolio_sleeve_label   weight
+  GOOG        core_compounder 0.125212
+  AAPL        core_compounder 0.095851
+   CAT        core_compounder 0.093303
+  AMZN        core_compounder 0.084703
+   VRT        core_compounder 0.080000
+   ARM        core_compounder 0.057140
+  LRCX        core_compounder 0.057140
+   TKR            early_scout 0.046302
+   FIX        core_compounder 0.045376
+   UMC          future_winner 0.041101
+
+======================================================================
+METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.2969     0.2451        +5.18pp
+  sharpe                       1.7694     1.2453        +0.5241
+  max_dd                      -0.1363    -0.2579       +12.16pp
+  ir                           1.2157     1.0244        +0.1913
+  avg_turnover_monthly         0.5229     0.4854        +3.75pp
+  avg_stock_names             24.0122    24.3300        -0.3178
+  beat_month_ratio             0.6585     0.5663        +0.0922
+  excess_cagr                  0.1605     0.1102        +5.03pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.5, 'future_winner': 0.3, 'early_scout': 0.2}
+  actual:  {'core_compounder': 0.6387262236849744, 'future_winner': 0.20604170772344393, 'early_scout': 0.1263017098360506}
+  counts:  {'core_compounder': 8, 'future_winner': 6, 'early_scout': 3}
+
+=== VERDICT ===
+  dCAGR    +5.18pp   (gate >= +0.5pp)
+  dSharpe  +0.5241    (gate >= -0.05)
+  dMaxDD   +12.16pp   (gate >= -3pp; positive better)
+  early_scout selected: 3    (gate >= 4)
+
+  --> PARTIAL vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). See SESSION_HANDOFF.md §3b (A/B isolation).
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-02-27 at equity 5.9076
+  Lifetime CAGR:   29.24% over 6.75 years
+  Lifetime total:  464.42%
+  vs baseline CAGR (24.51%): +4.73pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.

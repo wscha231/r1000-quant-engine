@@ -62,6 +62,19 @@ def main() -> int:
         payload = run(root, out)
         assert payload["main"]["target_forward"]["uses_forward_returns"] is True
         assert payload["main"]["broker_ledger"]["metric_mode"] == "broker_ledger_next_close"
+        assert "decomposition" in payload["main"]
+        for key in [
+            "target_book_export_gap",
+            "cash_contract_gap",
+            "fill_lag_slippage",
+            "fee_drag",
+            "integer_share_residual",
+            "rounding_drag",
+            "unfilled_exposure_drag",
+            "candidate_freshness_gap",
+            "residual",
+        ]:
+            assert key in payload["main"]["decomposition"]
         assert (out / "gap_attribution_summary.json").exists()
         assert (out / "gap_attribution_report.md").exists()
     print("broker_gap_attribution_smoke: PASS")

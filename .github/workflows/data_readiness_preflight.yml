@@ -15,6 +15,15 @@ on:
         options:
           - 'false'
           - 'true'
+      sec_companyfacts:
+        description: 'Refresh SEC companyfacts.zip into data_raw/free/sec before audit when fullrun readiness reports it missing'
+        required: false
+        default: false
+        type: boolean
+      sec_max_age_days:
+        description: 'SEC companyfacts refresh threshold when sec_companyfacts=true'
+        required: false
+        default: '3'
   schedule:
     # Tue-Sat 09:15 KST, after the free-data daily update window.
     - cron: '15 0 * * 2-6'
@@ -53,6 +62,9 @@ jobs:
             cache_prices
             data_raw/free
             data_pit/free
+            data_pit/sec
+            data_pit/etf_holdings
+            data_pit/macro
             manifests/free_data
           key: collector-cache-${{ runner.os }}-${{ github.ref_name }}-preflight-${{ github.run_id }}
           restore-keys: |
@@ -104,15 +116,46 @@ jobs:
               echo "[preflight] missing on Drive: $BASE$remote"
             fi
           }
+          restore_requested_latest_run() {
+            local latest_run="$1"
+            if [ -z "$latest_run" ]; then
+              return 0
+            fi
+            case "$latest_run" in
+              /*|../*|*/../*|*"/.."|.)
+                echo "[preflight] skip unsafe latest_run restore path: $latest_run"
+                return 0
+                ;;
+            esac
+            restore_dir "$latest_run" "$latest_run"
+          }
+          LATEST_RUN_INPUT="${{ github.event.inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
           restore_dir cache_prices cache_prices
           restore_dir data_raw/free data_raw/free
           restore_dir data_pit/free data_pit/free
+          restore_dir data_pit/sec data_pit/sec
+          restore_dir data_pit/etf_holdings data_pit/etf_holdings
+          restore_dir data_pit/macro data_pit/macro
           restore_dir manifests/free_data manifests/free_data
+          restore_requested_latest_run "$LATEST_RUN_INPUT"
           mkdir -p data_raw/free/sec
           if [ ! -s data_raw/free/sec/companyfacts.zip ] && rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
             rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
           fi
           rm -f /tmp/sa.json
+
+      - name: Refresh SEC companyfacts when requested
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sec_companyfacts }}
+        env:
+          SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+        run: |
+          set -euo pipefail
+          mkdir -p data_raw/free/sec outputs/full_rebuild_logs
+          python tools/refresh_companyfacts_bulk.py \
+            --base-dir data_raw/free/sec \
+            --max-age-days "${{ inputs.sec_max_age_days || '3' }}" \
+            --required \
+            2>&1 | tee outputs/full_rebuild_logs/sec_companyfacts_refresh.log
 
       - name: Run data readiness audit
         run: |
@@ -138,6 +181,7 @@ jobs:
           path: |
             outputs/data_readiness/
             outputs/full_rebuild_logs/data_readiness.log
+            outputs/full_rebuild_logs/sec_companyfacts_refresh.log
           retention-days: 30
 
       - name: Sync preflight report to Google Drive
@@ -179,9 +223,16 @@ jobs:
           SAFE_BRANCH="$(printf '%s' "$BRANCH_NAME" | tr '/ ' '__')"
           if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
             DEST="gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/data_readiness"
+            BASE="gdrive:"
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/data_readiness"
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           rclone copy outputs/data_readiness "$DEST/"
+          if [ "${{ github.event.inputs.sec_companyfacts || 'false' }}" = "true" ] && [ -s data_raw/free/sec/companyfacts.zip ]; then
+            echo "[preflight] syncing refreshed companyfacts.zip to canonical Drive paths"
+            rclone copy data_raw/free/sec "$BASE"data_raw/free/sec/ --include companyfacts.zip
+            rclone copyto data_raw/free/sec/companyfacts.zip "$BASE"companyfacts.zip
+          fi
           rm -f /tmp/sa.json
           echo "[preflight] synced to $DEST"

@@ -77,8 +77,67 @@ jobs:
           fi
           echo "[locate] portfolio: $LATEST/portfolio_latest.csv"
           echo "[locate] scored:    $LATEST/scored_latest.csv"
+          ANCHOR_DATE=$(LATEST_PATH="$LATEST" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import pandas as pd
+
+          latest = Path(os.environ["LATEST_PATH"])
+          keys = ["end_date", "as_of_date", "asof", "date", "anchor_date"]
+
+          def normalize(value):
+              if value in (None, ""):
+                  return ""
+              ts = pd.to_datetime(value, errors="coerce")
+              if pd.isna(ts):
+                  return ""
+              return str(pd.Timestamp(ts).date())
+
+          def collect_dates(payload):
+              values = []
+
+              def collect(obj):
+                  if not isinstance(obj, dict):
+                      return
+                  for key in keys:
+                      value = obj.get(key)
+                      if value:
+                          values.append(value)
+                  portfolios = obj.get("portfolios")
+                  if isinstance(portfolios, dict):
+                      for item in portfolios.values():
+                          collect(item)
+
+              if isinstance(payload, dict):
+                  collect(payload)
+              return [date for date in (normalize(value) for value in values) if date]
+
+          def dates_from_json(path):
+              if not path.exists():
+                  return []
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  return []
+              return collect_dates(payload)
+
+          candidates = []
+          for rel in [
+              "backtest_metrics.json",
+              "broker_replay/main/metrics.json",
+              "user_current/04_official_metrics.json",
+              "user_current/summary.json",
+          ]:
+              candidates.extend(dates_from_json(latest / rel))
+          print(max(candidates) if candidates else "")
+          PY
+          )
+          echo "[locate] anchor_date: $ANCHOR_DATE"
           echo "portfolio=$LATEST/portfolio_latest.csv" >> "$GITHUB_OUTPUT"
           echo "scored=$LATEST/scored_latest.csv" >> "$GITHUB_OUTPUT"
+          echo "anchor_date=$ANCHOR_DATE" >> "$GITHUB_OUTPUT"
           echo "found=true" >> "$GITHUB_OUTPUT"
 
       - name: Run live extension
@@ -97,6 +156,12 @@ jobs:
             START_CAP=$(python -c "import json; m=json.load(open('$METRICS_FILE')); print(m.get('ending_capital_usd', 100000))")
           fi
           echo "[live-ext] anchor equity USD: $START_CAP"
+          ANCHOR_DATE="${{ steps.locate.outputs.anchor_date }}"
+          ANCHOR_ARGS=()
+          if [ -n "$ANCHOR_DATE" ]; then
+            ANCHOR_ARGS=(--anchor-date "$ANCHOR_DATE")
+            echo "[live-ext] anchor date: $ANCHOR_DATE"
+          fi
 
           python tools/r1000_live_extension.py \
             --portfolio "${{ steps.locate.outputs.portfolio }}" \
@@ -104,7 +169,8 @@ jobs:
             --start-cap "$START_CAP" \
             --hard-stop "${HARD_STOP:--0.08}" \
             --trailing-stop "${TRAILING_STOP:--0.15}" \
-            --top-new-signals "${TOP_SIGNALS:-10}"
+            --top-new-signals "${TOP_SIGNALS:-10}" \
+            "${ANCHOR_ARGS[@]}"
 
       - name: Stage to cloud_results
         if: steps.locate.outputs.found == 'true'

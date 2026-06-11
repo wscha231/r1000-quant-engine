@@ -1,0 +1,46 @@
+{
+  "crisis_month_start_example": "If defense triggers early in the month, do not wait until month-end. Daily reentry state and weekly watchlist refresh can request a mid-month staged redeploy.",
+  "crisis_state": "GREEN",
+  "daily_decision_scope": [
+    "crisis/reentry state",
+    "current holdings technical/RS deterioration",
+    "no-add flags for warning/high-chase names"
+  ],
+  "daily_exit_review_count": 18,
+  "daily_full_universe_rerank": false,
+  "daily_warning_or_no_add_count": 0,
+  "event_triggers_active": [
+    "multiple_current_holdings_exit_review",
+    "weekly_watchlist_has_multiple_add_candidates"
+  ],
+  "full_universe_rerank_frequency": "monthly_or_event_triggered",
+  "generated_at_utc": "2026-06-02T07:51:10.609577+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "mid_month_reentry_allowed": true,
+  "mid_month_reentry_requires_full_universe_rerank": false,
+  "monthly_or_event_decision_scope": [
+    "full universe re-ranking",
+    "target book reconstruction",
+    "sidecar promotion review before operating target changes"
+  ],
+  "production_mutated": false,
+  "reentry_execution_policy": {
+    "confirmation_days": "2-3 trading days unless shock/reentry rule explicitly bypasses",
+    "fill_semantics": "broker-ledger next_close after target mutation",
+    "stage_1": "deploy 25% cash to DUAL_LEADER only after REENTRY_READY confirmation",
+    "stage_2": "deploy additional 25-35% cash to DUAL_LEADER and SECTOR_LEADER",
+    "stage_3": "return to normal lane allocation and allow Emerging again"
+  },
+  "reentry_stage": "nan",
+  "reentry_trigger": "pullback_or_ma20_damage",
+  "schema_version": "alphaops-decision-cadence-plan-v1",
+  "target_mutation_policy": "monthly base book plus crisis/reentry/event-triggered mutation dates",
+  "weekly_add_candidate_count": 22,
+  "weekly_decision_scope": [
+    "current holdings and watchlist RS refresh",
+    "technical confirmation",
+    "valuation snapshot from latest PIT candidate/scored rows",
+    "replacement candidate review"
+  ],
+  "weekly_full_universe_rerank": false
+}

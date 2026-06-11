@@ -95,6 +95,110 @@ def load_portfolio(path: Path):
     return df
 
 
+def latest_date_from_frame(df, columns: list[str]) -> Optional[str]:
+    import pandas as pd
+    for col in columns:
+        if col not in df.columns:
+            continue
+        dates = pd.to_datetime(df[col], errors="coerce").dropna()
+        if not dates.empty:
+            return str(pd.Timestamp(dates.max()).date())
+    return None
+
+
+def date_only(value: object):
+    import pandas as pd
+
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.isna(ts):
+        return None
+    return pd.Timestamp(ts).date()
+
+
+def latest_date_from_json_payload(payload: dict, keys: list[str]) -> Optional[str]:
+    import pandas as pd
+
+    candidates: list[object] = []
+
+    def collect(obj: object) -> None:
+        if not isinstance(obj, dict):
+            return
+        for key in keys:
+            value = obj.get(key)
+            if value:
+                candidates.append(value)
+        portfolios = obj.get("portfolios")
+        if isinstance(portfolios, dict):
+            for item in portfolios.values():
+                collect(item)
+
+    collect(payload)
+    dates: list[str] = []
+    for value in candidates:
+        ts = pd.to_datetime(value, errors="coerce")
+        if pd.isna(ts):
+            continue
+        dates.append(str(pd.Timestamp(ts).date()))
+    return max(dates) if dates else None
+
+
+def latest_date_from_json_file(path: Path, keys: list[str]) -> Optional[str]:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return latest_date_from_json_payload(payload, keys)
+
+
+def infer_anchor_date(portfolio_path: Path, portfolio_df, override: Optional[str]) -> Optional[str]:
+    if override:
+        return override
+    direct = latest_date_from_frame(
+        portfolio_df,
+        ["rebalance_date", "asof", "as_of_date", "date", "feature_date", "last_trade_date"],
+    )
+    if direct:
+        return direct
+    json_date_keys = ["end_date", "as_of_date", "asof", "date", "anchor_date"]
+    json_candidates = [
+        portfolio_path.parent / "backtest_metrics.json",
+        portfolio_path.parent / "broker_replay" / "main" / "metrics.json",
+        portfolio_path.parent / "user_current" / "04_official_metrics.json",
+        portfolio_path.parent / "user_current" / "summary.json",
+    ]
+    for json_path in json_candidates:
+        anchor = latest_date_from_json_file(json_path, json_date_keys)
+        if anchor:
+            print(f"[live-ext] anchor_date auto-detected from {json_path}: {anchor}")
+            return anchor
+    equity_candidates = [
+        portfolio_path.parent / "equity_curve.csv",
+        portfolio_path.parent.parent / "equity_curve.csv",
+        REPO_ROOT / "outputs" / "equity_curve.csv",
+        REPO_ROOT / "outputs" / "broker_replay" / "main" / "equity_curve.csv",
+    ]
+    try:
+        import pandas as pd
+    except ImportError:
+        return None
+    for eq_path in equity_candidates:
+        if not eq_path.exists():
+            continue
+        try:
+            eq = pd.read_csv(eq_path)
+        except Exception:
+            continue
+        anchor = latest_date_from_frame(eq, ["rebalance_date", "asof", "as_of_date", "date"])
+        if anchor:
+            print(f"[live-ext] anchor_date auto-detected from {eq_path}: {anchor}")
+            return anchor
+    return None
+
+
 def fetch_history(ticker: str, start: str, end: str):
     """Fetch daily OHLC via yfinance. Returns DataFrame with date index +
     'close' column, or None on failure."""
@@ -267,32 +371,14 @@ def main() -> int:
     df = pd.read_csv(portfolio_path)
     print(f"[live-ext] loaded portfolio: {portfolio_path} ({len(df)} rows)")
 
-    # Determine anchor date
-    if args.anchor_date:
-        anchor_date = args.anchor_date
-    elif "rebalance_date" in df.columns:
-        anchor_date = str(pd.to_datetime(df["rebalance_date"]).max().date())
-    elif "asof" in df.columns:
-        anchor_date = str(pd.to_datetime(df["asof"]).max().date())
-    else:
-        # Fall back to equity_curve.csv in same directory (last row date)
-        eq_path = portfolio_path.parent / "equity_curve.csv"
-        if eq_path.exists():
-            try:
-                eq = pd.read_csv(eq_path)
-                if "rebalance_date" in eq.columns:
-                    anchor_date = str(pd.to_datetime(eq["rebalance_date"]).max().date())
-                    print(f"[live-ext] anchor_date auto-detected from {eq_path.name}: {anchor_date}")
-                else:
-                    print(f"[live-ext] ERROR: equity_curve.csv has no rebalance_date col", file=sys.stderr)
-                    return 2
-            except Exception as exc:
-                print(f"[live-ext] ERROR reading equity_curve.csv: {exc}", file=sys.stderr)
-                return 2
-        else:
-            print("[live-ext] ERROR: no rebalance_date / asof column in portfolio + no equity_curve.csv "
-                  "found in same dir. Pass --anchor-date YYYY-MM-DD explicitly.", file=sys.stderr)
-            return 2
+    anchor_date = infer_anchor_date(portfolio_path, df, args.anchor_date)
+    if not anchor_date:
+        print(
+            "[live-ext] ERROR: no rebalance/asof/date column in portfolio and no usable equity curve "
+            "date found. Pass --anchor-date YYYY-MM-DD explicitly.",
+            file=sys.stderr,
+        )
+        return 2
 
     today_str = args.today or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     anchor_dt = pd.to_datetime(anchor_date)
@@ -350,6 +436,7 @@ def main() -> int:
     equity_rows = []
     running_cash = anchor_cash
     for dt in dates:
+        dt_day = date_only(dt)
         equity_invested = 0.0
         cash_from_stops = 0.0
         n_active = 0
@@ -358,8 +445,8 @@ def main() -> int:
             if w <= 0:
                 continue
             if r.get("stop_triggered"):
-                exit_dt = pd.to_datetime(r.get("exit_date"))
-                if dt <= exit_dt:
+                exit_day = date_only(r.get("exit_date"))
+                if exit_day is None or dt_day is None or dt_day <= exit_day:
                     # Pre-exit: track cumret
                     series = r.get("daily_returns")
                     if isinstance(series, pd.Series) and dt in series.index:
@@ -381,6 +468,15 @@ def main() -> int:
                 equity_invested += w * cum
                 n_active += 1
         total_equity = anchor_cash + equity_invested + cash_from_stops
+        n_stopped = 0
+        if dt_day is not None:
+            n_stopped = sum(
+                1
+                for r in walk_results
+                if r.get("stop_triggered")
+                and (exit_day := date_only(r.get("exit_date"))) is not None
+                and exit_day <= dt_day
+            )
         equity_rows.append({
             "date": str(pd.Timestamp(dt).date()),
             "equity_norm": total_equity,
@@ -388,7 +484,7 @@ def main() -> int:
             "invested_norm": equity_invested,
             "cash_norm": anchor_cash + cash_from_stops,
             "n_active_positions": n_active,
-            "n_stopped": sum(1 for r in walk_results if r.get("stop_triggered") and pd.to_datetime(r.get("exit_date", "1900-01-01")) <= dt),
+            "n_stopped": n_stopped,
         })
 
     equity_df = pd.DataFrame(equity_rows)

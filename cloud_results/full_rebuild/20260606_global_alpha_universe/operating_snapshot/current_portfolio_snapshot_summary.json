@@ -1,0 +1,44 @@
+{
+  "as_of_date": "2026-06-05",
+  "cash_policy_flag": "below_combined_cash_target",
+  "cash_policy_review_action": "RESERVE_CASH",
+  "cash_row_count": 2,
+  "combined_cash_gap_weight": 0.007912652699441802,
+  "combined_current_cash_weight": 0.09494571573525579,
+  "combined_target_cash_weight": 0.10285836843469759,
+  "generated_at_utc": "2026-06-06T14:04:54.861525+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "macro_cash_raise_confirmation_count": 0.0,
+  "macro_cash_raise_gate": "none",
+  "macro_recommended_cash_floor": 0.03,
+  "monster_recommendation_count": 0,
+  "notes": [
+    "This is the current simulated broker-ledger account state marked to the latest available close.",
+    "current_operating_holdings_latest.csv is the primary current-only user view.",
+    "proposed_target_deltas_latest.csv is the separate recommendation/review delta view.",
+    "portfolio_latest.csv and concentrated_portfolio_latest.csv remain target recommendation books, not current holdings snapshots.",
+    "Account-ledger preview target_weights are preferred over orchestrator unified target when computing operating cash/target deltas because they match the visible order preview.",
+    "Review actions are suggestions from the order preview; this tool does not place orders.",
+    "Cash policy fields are combined-account policy context, not duplicated per-portfolio cash targets."
+  ],
+  "outputs": {
+    "csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_latest.csv",
+    "current_operating_holdings_concentrated_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_concentrated_latest.csv",
+    "current_operating_holdings_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv",
+    "current_operating_holdings_main_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_main_latest.csv",
+    "current_operating_row_count": 22,
+    "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_summary.json",
+    "proposed_target_delta_row_count": 22,
+    "proposed_target_deltas_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/proposed_target_deltas_latest.csv",
+    "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_report.md"
+  },
+  "portfolio_position_counts": {
+    "concentrated": 5,
+    "main": 15
+  },
+  "primary_user_view": "current_operating_holdings_latest.csv",
+  "row_count": 22,
+  "schema_version": "current-portfolio-snapshot-v2",
+  "snapshot_semantics": "current_broker_ledger_mark_to_market",
+  "status": "completed"
+}

@@ -1,0 +1,21 @@
+{
+  "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "candidate_source_mode": "explicit",
+  "crisis_overlay_status": "applied",
+  "current_holdings_source": "alphaops_vnext_policy_target_book",
+  "first_rebalance_date": "2019-05-31",
+  "generated_at_utc": "2026-06-02T06:52:43.300330+00:00",
+  "last_operating_signal_date": "2026-06-01",
+  "last_rebalance_date": "2026-03-31",
+  "official_target_books": {
+    "concentrated": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+    "main": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv"
+  },
+  "production_applied": true,
+  "production_output_mode": "replace_operating",
+  "production_policy": "alphaops_vnext_production",
+  "schema_version": "alphaops-vnext-production-activation-v1",
+  "sidecar_applied_to_production": true,
+  "sidecar_only": false,
+  "status": "applied"
+}

@@ -1,0 +1,56 @@
+{
+  "blocked_books": [],
+  "blocked_reason": "",
+  "books": [
+    {
+      "append_reason": "latest target appended as operating decision",
+      "decision_frequency": "event_driven_latest_close",
+      "freshness_error": "",
+      "history_max_rebalance_date": "2026-02-27",
+      "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
+      "history_row_count": 2204,
+      "latest_price_close_date": "2026-05-29",
+      "latest_target_appended": true,
+      "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv",
+      "latest_target_row_count": 19,
+      "latest_target_source_date": "",
+      "operating_book_current": true,
+      "operating_signal_date": "2026-05-29",
+      "output_max_rebalance_date": "2026-05-29",
+      "output_name": "operating_main_target_book.csv",
+      "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "output_row_count": 2223,
+      "portfolio": "main"
+    },
+    {
+      "append_reason": "latest target appended as operating decision",
+      "decision_frequency": "event_driven_latest_close",
+      "freshness_error": "",
+      "history_max_rebalance_date": "2026-02-27",
+      "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv",
+      "history_row_count": 23457,
+      "latest_price_close_date": "2026-05-29",
+      "latest_target_appended": true,
+      "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_portfolio_latest.csv",
+      "latest_target_row_count": 3,
+      "latest_target_source_date": "2026-05-29",
+      "operating_book_current": true,
+      "operating_signal_date": "2026-05-29",
+      "output_max_rebalance_date": "2026-05-29",
+      "output_name": "operating_concentrated_target_book.csv",
+      "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "output_row_count": 23460,
+      "portfolio": "concentrated"
+    }
+  ],
+  "generated_at_utc": "2026-05-30T08:42:02.033067+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "outputs": {
+    "concentrated_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+    "main_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+    "report_md": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_report.md",
+    "summary_json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_summary.json"
+  },
+  "price_cache": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+  "status": "completed"
+}

@@ -25,8 +25,8 @@ DEFAULT_OUT_DIR = "outputs/concentrated_position_risk_replay"
 try:
     from r1000_config import PORTFOLIO_GOAL_TARGETS
 except Exception:
-    PORTFOLIO_GOAL_TARGETS = {"concentrated": {"cagr": 0.50, "max_dd": -0.18}}
-TARGET = dict(PORTFOLIO_GOAL_TARGETS.get("concentrated", {"cagr": 0.50, "max_dd": -0.18}))
+    PORTFOLIO_GOAL_TARGETS = {"concentrated": {"cagr": 0.50, "max_dd": -0.25}}
+TARGET = dict(PORTFOLIO_GOAL_TARGETS.get("concentrated", {"cagr": 0.50, "max_dd": -0.25}))
 
 
 def repo_path(path_like: str | Path) -> Path:

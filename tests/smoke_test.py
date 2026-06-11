@@ -3135,12 +3135,16 @@ def test_user_current_and_sync_tools_parse() -> None:
     for rel in [
         "tools/run_user_current_report.py",
         "tools/build_gdrive_sync_manifest.py",
+        "tools/crisis_state_engine.py",
         "tools/run_daily_crisis_monitor.py",
         "tools/build_crisis_governed_target_books.py",
         "tools/run_full_rebuild_sidecars.py",
         "tools/run_execution_lag_review.py",
         "tools/run_position_risk_review.py",
         "tools/run_concentrated_broker_variant_review.py",
+        "tools/run_position_cleanup_review.py",
+        "tools/run_patch_application_manifest.py",
+        "tools/run_alphaops_vnext_policy_replay.py",
         "tools/create_healthy_baseline_lock.py",
         "tools/run_market_leader_challenger.py",
         "tools/run_shakeout_disclosure_reversal_study.py",
@@ -3165,13 +3169,20 @@ def test_workflow_profiles_operating_minimal_skip_research() -> None:
     assert "run_execution_lag_review.py" in sidecar_tool
     assert "run_position_risk_review.py" in sidecar_tool
     assert "run_concentrated_broker_variant_review.py" in sidecar_tool
+    assert "run_position_cleanup_review.py" in sidecar_tool
+    assert "run_patch_application_manifest.py" in sidecar_tool
     assert "create_healthy_baseline_lock.py" in sidecar_tool
     assert "run_market_leader_challenger.py" in sidecar_tool
     assert "outputs/broker_position_risk_replay/" in wf
+    assert "outputs/broker_parabolic_risk_replay/" in wf
+    assert "outputs/legacy_monthly_broker_replay/" in wf
     assert "outputs/broker_execution_policy_replay/" in wf
     assert "outputs/operator_review/" in wf
     assert "outputs/baseline_lock/" in wf
     assert "outputs/market_leader_challenger/" in wf
+    assert "alphaops_vnext_production" in wf
+    assert "tools/run_alphaops_vnext_policy_replay.py" in sidecar_tool
+    assert "outputs/alphaops_vnext/" in wf
 
 
 @_test("structural.pit_top_manager_follow_study_is_research_only")
@@ -3207,6 +3218,7 @@ def test_user_current_contains_no_research_metrics() -> None:
         "03_period_returns.csv",
         "04_official_metrics.json",
         "06_benchmark_comparison.csv",
+        "07_research_sidecar_context.json",
         "current simulated broker-ledger holdings only",
     ]:
         assert required in tool, f"user_current report missing {required}"
@@ -3230,6 +3242,13 @@ def test_gdrive_manifest_marks_deprecated_research() -> None:
         "execution_lag_review.json",
         "position_risk_review.json",
         "concentrated_broker_variant_review.json",
+        "position_cleanup_review.json",
+        "dust_positions_report.csv",
+        "patch_application_manifest.json",
+        "MINIMAL_ANALYSIS_FILES",
+        "broker_replay/main/trades.csv",
+        "broker_replay/concentrated/cash_ledger.csv",
+        "reports/operating_main_target_book.csv",
     ]:
         assert token in src, f"gdrive manifest tool missing {token}"
     wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
@@ -3293,19 +3312,22 @@ def test_sec_13f_refresh_uses_historical_submissions() -> None:
 @_test("structural.daily_crisis_monitor_has_hysteresis_and_shakeout_guard")
 def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
     src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
+    engine = (ROOT / "tools" / "crisis_state_engine.py").read_text(encoding="utf-8")
     wf = (ROOT / ".github" / "workflows" / "daily_crisis_monitor.yml").read_text(encoding="utf-8")
     for token in [
         "GREEN",
         "WATCH",
         "DEFENSE_REVIEW",
+        "CRISIS_DEFENSE",
         "REENTRY_READY",
         "VIX-only cash raise is forbidden",
         "single_name_shakeout_cash_raise_forbidden",
         "long_crisis_daily_features.parquet",
         "best_thresholds.json",
-        "future_labels_excluded",
     ]:
         assert token in src, f"daily crisis monitor missing {token}"
+    for token in ["future_labels_excluded", "observable_feature_frame", "build_historical_daily_crisis_state"]:
+        assert token in engine, f"shared crisis state engine missing {token}"
     assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
     assert "outputs/long_crisis_learning" in wf and "data_pit/macro" in wf
 

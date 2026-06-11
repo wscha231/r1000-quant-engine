@@ -1,0 +1,57 @@
+{
+  "blocked_books": [],
+  "blocked_reason": "",
+  "books": [
+    {
+      "append_reason": "latest vNext target held forward to latest observable close",
+      "decision_frequency": "monthly_replay_plus_latest_close_hold_forward",
+      "freshness_error": "",
+      "history_max_rebalance_date": "2026-03-31",
+      "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/official_main_target_book.csv",
+      "history_row_count": 1314,
+      "latest_price_close_date": "2026-06-01",
+      "latest_target_appended": true,
+      "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/selected_latest.csv",
+      "latest_target_row_count": 16,
+      "operating_book_current": true,
+      "operating_signal_date": "2026-06-01",
+      "output_max_rebalance_date": "2026-06-01",
+      "output_name": "operating_main_target_book.csv",
+      "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "output_row_count": 1330,
+      "portfolio": "main",
+      "variant_key": "main_N15"
+    },
+    {
+      "append_reason": "latest vNext target held forward to latest observable close",
+      "decision_frequency": "monthly_replay_plus_latest_close_hold_forward",
+      "freshness_error": "",
+      "history_max_rebalance_date": "2026-03-31",
+      "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/official_concentrated_target_book.csv",
+      "history_row_count": 488,
+      "latest_price_close_date": "2026-06-01",
+      "latest_target_appended": true,
+      "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/selected_latest.csv",
+      "latest_target_row_count": 6,
+      "operating_book_current": true,
+      "operating_signal_date": "2026-06-01",
+      "output_max_rebalance_date": "2026-06-01",
+      "output_name": "operating_concentrated_target_book.csv",
+      "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "output_row_count": 494,
+      "portfolio": "concentrated",
+      "variant_key": "concentrated_N5"
+    }
+  ],
+  "generated_at_utc": "2026-06-02T06:52:43.299891+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "outputs": {
+    "concentrated_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+    "main_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+    "report_md": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_report.md",
+    "summary_json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_summary.json"
+  },
+  "price_cache": "",
+  "schema_version": "operating-target-books-summary-vnext-v1",
+  "status": "completed"
+}
