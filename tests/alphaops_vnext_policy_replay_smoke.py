@@ -37,7 +37,6 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_main_defense_review_turnaround_new_entry_block,
     apply_main_high_volatility_new_entry_cap,
-    apply_main_cash_count_structure,
     apply_main_neutral_regime_churn_filter,
     apply_main_quality_bull_low_confirm_new_entry_cap,
     apply_main_quality_hold_weak_timing_trim,
@@ -2562,33 +2561,6 @@ def test_concentrated_watch_damaged_weak_market_leader_cap_applies_to_new_and_ho
     assert main[0]["weight"] == 0.18
 
 
-def test_main_cash_count_structure_narrows_high_cash_main_books() -> None:
-    selected = []
-    for idx in range(15):
-        selected.append(
-            {
-                "ticker": f"T{idx:02d}",
-                "weight": 0.04,
-                "target_weight": 0.04,
-                "alphaops_vnext_weight_score": 100 - idx,
-                "alphaops_vnext_score": 100 - idx,
-                "primary_lane": "MARKET_LEADER",
-                "selection_reason": "smoke",
-            }
-        )
-    reshaped = apply_main_cash_count_structure(
-        selected,
-        portfolio_kind="main",
-        target_n=15,
-        crisis_state="GREEN",
-    )
-    cash = 1.0 - sum(float(row["weight"]) for row in reshaped)
-    assert len(reshaped) == 8
-    assert round(cash, 8) == 0.40
-    assert all(row["main_cash_count_structure_status"] == "applied" for row in reshaped)
-    assert all(row["main_cash_count_structure_max_names"] == 8 for row in reshaped)
-
-
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
     test_sec_available_from_columns_are_pit_checked_and_positive_only()
@@ -2620,5 +2592,4 @@ if __name__ == "__main__":
     test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries_only()
     test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only()
     test_concentrated_watch_damaged_weak_market_leader_cap_applies_to_new_and_hold_rows()
-    test_main_cash_count_structure_narrows_high_cash_main_books()
     print("alphaops_vnext_policy_replay_smoke: PASS")

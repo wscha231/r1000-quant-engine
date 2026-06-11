@@ -7,16 +7,17 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ### 20:20 KST - main-cash-position-count-contract
 
-- scope: Stop the recurring AlphaOps vNext main-book failure mode where high CASH overlays still leave too many small stock positions.
+- scope: Stop the recurring AlphaOps vNext main-book failure mode from silently passing when high CASH overlays still leave too many small stock positions.
 - files:
-  - `tools/run_alphaops_vnext_policy_replay.py` ->adds a main-only cash/count structure pass: risk-overlay cash is preserved while high-cash main books are narrowed to 12 or 8 names before target-book export.
   - `tools/run_portfolio_system_guard.py` ->adds `main_cash_position_count_contract` so current/replay artifacts fail when main CASH is high while the latest stock count stays broad.
 - policy:
   - Main stock-count contract: cash `>=15%` requires `<=15` stocks, cash `>=20%` requires `<=12` stocks, and cash `>=25%` requires `<=8` stocks.
 - replay_note:
-  - Fast replay `27346338968` proved the first attempt was too aggressive: forcing down main CASH improved latest count but worsened main broker MDD to `-43.70%`; preserve defensive cash and narrow only the stock count.
+  - Fast replay `27346338968` proved that forcing down main CASH improved latest count but worsened main broker MDD to `-43.70%`.
+  - Fast replay `27348552261` proved that preserving CASH while narrowing the main book still failed main target (`30.80%` CAGR / `-33.59%` MDD), so the generator-side narrowing was removed.
+  - The guard remains: this structure should be treated as a hard blocker until a candidate-selection or case-selector change reduces names without damaging broker-ledger MDD.
 - next_action:
-  - Run focused smoke tests, push the policy/guard fix, cancel stale old-SHA full rebuild if still running, and dispatch a fast replay on the new SHA.
+  - Analyze main 12-name vs 15-name drawdown attribution before attempting another current-holdings simplification.
 
 ### 18:35 KST - claude-w0-w1-review-follow-up
 
