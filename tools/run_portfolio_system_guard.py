@@ -140,9 +140,7 @@ def target_book_summaries(latest_run: Path, portfolio: str) -> dict[str, dict[st
     }
 
 
-def latest_target_book_shape(latest_run: Path, portfolio: str) -> dict[str, Any]:
-    filename = "operating_main_target_book.csv" if portfolio == "main" else "operating_concentrated_target_book.csv"
-    path = latest_run / "reports" / filename
+def target_book_shape(path: Path, portfolio: str) -> dict[str, Any]:
     rows = read_csv_rows(path)
     if not rows:
         return {"portfolio": portfolio, "path": str(path), "exists": path.exists(), "row_count": 0}
@@ -157,6 +155,19 @@ def latest_target_book_shape(latest_run: Path, portfolio: str) -> dict[str, Any]
         for row in rows
         if str(row.get("ticker") or "").upper().strip() in {"CASH", "__CASH__"}
     )
+    stock_weights = {
+        str(row.get("ticker") or "").upper().strip(): safe_float(row.get("weight") or row.get("target_weight"))
+        for row in stock_rows
+    }
+    max_stock_ticker = max(stock_weights, key=stock_weights.get) if stock_weights else ""
+    industry_group_weights: dict[str, float] = {}
+    for row in stock_rows:
+        group = str(row.get("industry_group") or row.get("industry") or row.get("sector") or "").strip()
+        if group:
+            industry_group_weights[group] = industry_group_weights.get(group, 0.0) + safe_float(
+                row.get("weight") or row.get("target_weight")
+            )
+    max_industry_group = max(industry_group_weights, key=industry_group_weights.get) if industry_group_weights else ""
     crisis_values = [
         str(row.get("crisis_state") or row.get("regime_capacity_regime") or "").strip()
         for row in stock_rows
@@ -171,35 +182,107 @@ def latest_target_book_shape(latest_run: Path, portfolio: str) -> dict[str, Any]
         "row_count": len(rows),
         "stock_count": len(stock_rows),
         "cash_weight": cash_weight,
+        "max_stock_weight": stock_weights.get(max_stock_ticker, 0.0),
+        "max_stock_weight_ticker": max_stock_ticker,
+        "max_industry_group_weight": industry_group_weights.get(max_industry_group, 0.0),
+        "max_industry_group": max_industry_group,
         "crisis_state": crisis_state,
     }
 
 
-def target_structure_checks(latest_run: Path) -> list[dict[str, Any]]:
-    shape = latest_target_book_shape(latest_run, "main")
+def latest_target_book_shape(latest_run: Path, portfolio: str) -> dict[str, Any]:
+    filename = "operating_main_target_book.csv" if portfolio == "main" else "operating_concentrated_target_book.csv"
+    return target_book_shape(latest_run / "reports" / filename, portfolio)
+
+
+CONCENTRATED_MAX_SINGLE_NAME_WEIGHT = 0.40
+CONCENTRATED_MAX_INDUSTRY_GROUP_WEIGHT = 0.60
+
+
+def shape_violations(shape: dict[str, Any]) -> list[str]:
     if not shape.get("exists") or not shape.get("row_count"):
         return []
-    cash = safe_float(shape.get("cash_weight"))
-    stock_count = int(safe_float(shape.get("stock_count"), 0))
     violations: list[str] = []
-    if cash >= 0.25 - 1e-9 and stock_count > 8:
-        violations.append("main_cash_ge_25pct_requires_stock_count_le_8")
-    if cash >= 0.20 - 1e-9 and stock_count > 12:
-        violations.append("main_cash_ge_20pct_requires_stock_count_le_12")
-    if cash >= 0.15 - 1e-9 and stock_count > 15:
-        violations.append("main_cash_ge_15pct_requires_stock_count_le_15")
-    return [
-        {
-            "check": "main_cash_position_count_contract",
-            "passed": not violations,
-            "severity": "error" if violations else "ok",
-            "detail": (
-                f"latest_date={shape.get('latest_rebalance_date')}; cash={cash:.2%}; "
-                f"stock_count={stock_count}; crisis_state={shape.get('crisis_state') or 'unknown'}; "
-                f"violations={violations}"
-            ),
-        }
-    ]
+    if shape.get("portfolio") == "main":
+        cash = safe_float(shape.get("cash_weight"))
+        stock_count = int(safe_float(shape.get("stock_count"), 0))
+        if cash >= 0.25 - 1e-9 and stock_count > 8:
+            violations.append("main_cash_ge_25pct_requires_stock_count_le_8")
+        if cash >= 0.20 - 1e-9 and stock_count > 12:
+            violations.append("main_cash_ge_20pct_requires_stock_count_le_12")
+        if cash >= 0.15 - 1e-9 and stock_count > 15:
+            violations.append("main_cash_ge_15pct_requires_stock_count_le_15")
+    else:
+        # Single-sector / single-name concentration discipline. A book like
+        # LRCX 50 / AMAT 25 / SNDK 25 must not pass silently before broker
+        # MDD evidence exists for that exact shape.
+        if safe_float(shape.get("max_stock_weight")) > CONCENTRATED_MAX_SINGLE_NAME_WEIGHT + 1e-9:
+            violations.append("concentrated_single_name_weight_gt_40pct")
+        if safe_float(shape.get("max_industry_group_weight")) > CONCENTRATED_MAX_INDUSTRY_GROUP_WEIGHT + 1e-9:
+            violations.append("concentrated_industry_group_weight_gt_60pct")
+    return violations
+
+
+def structure_check_row(check_name: str, shape: dict[str, Any], baseline_book: Path | None) -> dict[str, Any] | None:
+    if not shape.get("exists") or not shape.get("row_count"):
+        return None
+    violations = shape_violations(shape)
+    baseline_violations: list[str] = []
+    if baseline_book is not None:
+        baseline_shape = target_book_shape(baseline_book, str(shape.get("portfolio")))
+        baseline_violations = shape_violations(baseline_shape)
+    new_violations = [v for v in violations if v not in baseline_violations]
+    preexisting = [v for v in violations if v in baseline_violations]
+    # Violations inherited unchanged from the baseline book stay visible but do
+    # not hard-fail PR-cadence runs: the PR did not introduce them, and failing
+    # every unrelated PR until the production book changes only trains people
+    # to override the guard.
+    if new_violations:
+        severity = "error"
+    elif preexisting:
+        severity = "warn"
+    else:
+        severity = "ok"
+    if shape.get("portfolio") == "main":
+        shape_detail = (
+            f"cash={safe_float(shape.get('cash_weight')):.2%}; "
+            f"stock_count={int(safe_float(shape.get('stock_count'), 0))}; "
+            f"crisis_state={shape.get('crisis_state') or 'unknown'}"
+        )
+    else:
+        shape_detail = (
+            f"max_name={shape.get('max_stock_weight_ticker')}@{safe_float(shape.get('max_stock_weight')):.2%}; "
+            f"max_industry_group={shape.get('max_industry_group')}@{safe_float(shape.get('max_industry_group_weight')):.2%}"
+        )
+    return {
+        "check": check_name,
+        "passed": not violations,
+        "severity": severity,
+        "detail": (
+            f"latest_date={shape.get('latest_rebalance_date')}; {shape_detail}; "
+            f"violations={violations}; preexisting_in_baseline={preexisting}"
+        ),
+    }
+
+
+def target_structure_checks(latest_run: Path, baseline_books: dict[str, Path | None] | None = None) -> list[dict[str, Any]]:
+    baseline_books = baseline_books or {}
+    out: list[dict[str, Any]] = []
+    main_row = structure_check_row(
+        "main_cash_position_count_contract",
+        latest_target_book_shape(latest_run, "main"),
+        baseline_books.get("main"),
+    )
+    if main_row:
+        out.append(main_row)
+    concentrated_row = structure_check_row(
+        "concentrated_concentration_contract",
+        latest_target_book_shape(latest_run, "concentrated"),
+        baseline_books.get("concentrated"),
+    )
+    if concentrated_row:
+        out.append(concentrated_row)
+    return out
 
 
 def filter_value(value: Any) -> str:
@@ -467,7 +550,12 @@ def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list
     return checks
 
 
-def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifacts: bool = False) -> list[dict[str, Any]]:
+def error_checks(
+    inputs: dict[str, Any],
+    latest_run: Path,
+    require_latest_artifacts: bool = False,
+    baseline_books: dict[str, Path | None] | None = None,
+) -> list[dict[str, Any]]:
     def rel(path: Path) -> str:
         try:
             return path.relative_to(REPO_ROOT).as_posix()
@@ -623,7 +711,7 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
     )
     out.extend(operating_alignment_checks(inputs, latest_run))
     out.extend(data_quality_contract_checks(inputs))
-    out.extend(target_structure_checks(latest_run))
+    out.extend(target_structure_checks(latest_run, baseline_books))
     return out
 
 
@@ -1134,10 +1222,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     statuses = [main_status, concentrated_status]
     targets_pass = all(row["target_pass"] for row in statuses)
+    baseline_books: dict[str, Path | None] = {}
+    if getattr(args, "baseline_main_target_book", None):
+        baseline_books["main"] = repo_path(args.baseline_main_target_book)
+    if getattr(args, "baseline_concentrated_target_book", None):
+        baseline_books["concentrated"] = repo_path(args.baseline_concentrated_target_book)
     checks = error_checks(
         inputs,
         latest_run,
         require_latest_artifacts=bool(getattr(args, "require_latest_artifacts", False) or args.strict_targets),
+        baseline_books=baseline_books,
     )
     candidates = top_research_candidates(inputs["experiment_summary"], inputs.get("orchestrator_replay"))
     goal_candidates = goal_search_candidates(inputs.get("goal_search"))
@@ -1151,6 +1245,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = {
         "overall_status": overall_status,
         "strict_targets": args.strict_targets,
+        "enforce_contracts": bool(getattr(args, "enforce_contracts", False)),
+        "baseline_books": {key: str(value) for key, value in baseline_books.items()},
         "targets_pass": targets_pass,
         "hard_error_count": len(hard_errors),
         "warning_count": int(warning_count),
@@ -1216,6 +1312,26 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Fail when committed/latest rebuild metrics are absent. Default PR mode treats them as warnings.",
     )
+    parser.add_argument(
+        "--enforce-contracts",
+        action="store_true",
+        help=(
+            "Fail on hard contract errors (book shape, concentration) without also "
+            "failing on unmet aspirational CAGR/MDD goals. Intended for PR cadence: "
+            "combine with --baseline-*-target-book so violations inherited from the "
+            "base ref are reported as warnings instead of failing unrelated PRs."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-main-target-book",
+        default="",
+        help="Base-ref operating_main_target_book.csv; shape violations also present there are downgraded to warnings.",
+    )
+    parser.add_argument(
+        "--baseline-concentrated-target-book",
+        default="",
+        help="Base-ref operating_concentrated_target_book.csv; concentration violations also present there are downgraded to warnings.",
+    )
     return parser.parse_args()
 
 
@@ -1226,7 +1342,7 @@ def main() -> int:
     if args.strict_targets and not result["targets_pass"]:
         return 2
     hard_errors = [row for row in result["error_checks"] if row["severity"] == "error" and not row["passed"]]
-    if (args.strict_targets or args.require_latest_artifacts) and hard_errors:
+    if (args.strict_targets or args.require_latest_artifacts or args.enforce_contracts) and hard_errors:
         return 1
     return 0
 

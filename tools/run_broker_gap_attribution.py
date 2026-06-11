@@ -378,7 +378,10 @@ def estimate_decomposition(
     return {
         "target_book_export_gap": export_gap,
         "cash_contract_gap": cash_contract_gap,
-        "fill_lag_slippage": fill_lag,
+        # Renamed from fill_lag_slippage: the block carries fill-mode metadata
+        # only. Actual per-fill slippage is not measured yet and must not be
+        # read as a 0-valued decomposed term (review C6, 9b2ce49).
+        "fill_lag_metadata": fill_lag,
         "fee_drag": fee_drag,
         "integer_share_residual": integer_residual,
         "rounding_drag": {

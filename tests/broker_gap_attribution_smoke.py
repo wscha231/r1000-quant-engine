@@ -66,7 +66,7 @@ def main() -> int:
         for key in [
             "target_book_export_gap",
             "cash_contract_gap",
-            "fill_lag_slippage",
+            "fill_lag_metadata",
             "fee_drag",
             "integer_share_residual",
             "rounding_drag",

@@ -3,6 +3,31 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-12
+
+### 08:25 KST - guard-pr-cadence-contracts-and-concentration-caps
+
+- scope: Fix the two operational flags from `docs/CODEX_FOLLOWUP_REVIEW_385634f1.md` (F1: strict-targets-on-PR fails every PR while aspirational goals are unmet or shape violations are inherited; section 4.1: no concentrated single-name/sector cap), plus the C6 honest rename. Branch merges `codex/alphaops-integrated-replay` @ `385634f1` first so fixes land on top of the guard ladder.
+- files:
+  - `tools/run_portfolio_system_guard.py` ->splits PR-cadence enforcement from aspirational target gating; adds concentrated concentration contract; downgrades shape violations inherited from a base-ref baseline book to warnings.
+  - `.github/workflows/portfolio_system_guard.yml` ->pull_request now runs `--enforce-contracts` with base-ref baseline books extracted via `git show`, instead of `--strict-targets` (which exits 2 while the 35%/50% CAGR goals are unmet, failing every PR regardless of content). Manual dispatch keeps explicit `strict_targets` control.
+  - `tools/run_broker_gap_attribution.py` ->renames decomposition key `fill_lag_slippage` to `fill_lag_metadata` (block is fill-mode metadata; per-fill slippage is not measured yet and must not read as a 0-valued term).
+  - `tests/portfolio_system_guard_smoke.py` ->two new tests (pre-existing-violation downgrade, concentrated over-concentration block); concentrated fixture book diversified to 3 names so it satisfies the new caps.
+  - `tests/broker_gap_attribution_smoke.py` ->tracks the `fill_lag_metadata` rename.
+- policy:
+  - Concentrated concentration contract: max single-name weight `<=40%` and max industry-group weight `<=60%` before broker MDD evidence exists for the shape (`LRCX 50/AMAT 25/SNDK 25`-class books now hard-block at the gate).
+  - PR cadence fails only on NEW hard contract errors; violations also present in the base ref's committed book are reported as `warn` with `preexisting_in_baseline` detail. Rationale: failing every unrelated PR on inherited production-book state trains people to override the guard.
+  - `--strict-targets` semantics unchanged for manual dispatch / promotion gates.
+- symbols_added: `target_book_shape`, `shape_violations`, `structure_check_row`, `CONCENTRATED_MAX_SINGLE_NAME_WEIGHT`, `CONCENTRATED_MAX_INDUSTRY_GROUP_WEIGHT`, `--enforce-contracts`, `--baseline-main-target-book`, `--baseline-concentrated-target-book`, `test_portfolio_system_guard_downgrades_preexisting_shape_violations`, `test_portfolio_system_guard_blocks_concentrated_overconcentration`
+- symbols_changed: `latest_target_book_shape` (now a wrapper over `target_book_shape`), `target_structure_checks` (accepts `baseline_books`), `error_checks` (accepts `baseline_books`), `run` (builds baseline books from args; payload adds `enforce_contracts`/`baseline_books`), `main` (exit 1 on hard errors under `--enforce-contracts`), `parse_args`, `estimate_decomposition` (key rename)
+- config_fields_added: none
+- breaking_changes: `gap_attribution_summary.json` decomposition key `fill_lag_slippage` renamed to `fill_lag_metadata`; consumers reading the old key get `None`.
+- validation:
+  - `python tools/run_pr_validation.py` ->76/77 PASS locally; the single failure is `tests/sec_13f_cusip_mapping_smoke.py` blocked by sandbox network (403 on sec.gov), unrelated to this change.
+  - Real-artifact check: latest committed book (cash `19.23%` / 13 stocks; concentrated max name `SNDK@28.50%`, max group `48.01%`) passes both contracts. Synthetic 20%-cash/15-stock book: exit 1 under `--enforce-contracts` without baseline, exit 0 with self-baseline (violation downgraded to `warn`), exit 0 report-only without flags.
+- next_action:
+  - Leave-k-out broker replay sweep on the 27350855795 main book to re-derive or retire the `20% -> <=12` threshold with attribution evidence (review section 3).
+
 ## 2026-06-11
 
 ### 20:20 KST - main-cash-position-count-contract

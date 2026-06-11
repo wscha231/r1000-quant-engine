@@ -177,7 +177,11 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         write_csv(latest / "reports" / "operating_main_target_book.csv", [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0}])
         write_csv(
             latest / "reports" / "operating_concentrated_target_book.csv",
-            [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0, "target_stock_names": 4, "weighting_mode": "score_power"}],
+            [
+                {"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 0.40, "industry_group": "G1", "target_stock_names": 4, "weighting_mode": "score_power"},
+                {"rebalance_date": "2026-01-09", "ticker": "BBB", "weight": 0.30, "industry_group": "G2", "target_stock_names": 4, "weighting_mode": "score_power"},
+                {"rebalance_date": "2026-01-09", "ticker": "CCC", "weight": 0.30, "industry_group": "G3", "target_stock_names": 4, "weighting_mode": "score_power"},
+            ],
         )
         write_csv(latest / "portfolio_latest.csv", [{"ticker": "AAA", "weight": 0.5}, {"ticker": "BBB", "weight": 0.5}])
         write_csv(
@@ -417,9 +421,70 @@ def test_portfolio_system_guard_blocks_high_cash_broad_main_books() -> None:
         assert "main_cash_ge_20pct_requires_stock_count_le_12" in checks[0]["detail"]
 
 
+def test_portfolio_system_guard_downgrades_preexisting_shape_violations() -> None:
+    with TestWorkspace("portfolio_system_guard_preexisting") as tmp:
+        latest = tmp / "latest"
+        rows = [{"rebalance_date": "2026-06-05", "ticker": "CASH", "weight": 0.20}]
+        for idx in range(15):
+            rows.append({"rebalance_date": "2026-06-05", "ticker": f"T{idx:02d}", "weight": 0.8 / 15})
+        write_csv(latest / "reports" / "operating_main_target_book.csv", rows)
+        # Same violating book on the base ref: the violation predates the PR,
+        # so it must stay visible but degrade to a warning (no PR hard-fail).
+        baseline_same = tmp / "baseline_main_same.csv"
+        write_csv(baseline_same, rows)
+        checks = target_structure_checks(latest, {"main": baseline_same})
+        assert checks[0]["check"] == "main_cash_position_count_contract"
+        assert checks[0]["passed"] is False
+        assert checks[0]["severity"] == "warn"
+        assert "main_cash_ge_20pct_requires_stock_count_le_12" in checks[0]["detail"]
+        assert "preexisting_in_baseline=['main_cash_ge_20pct_requires_stock_count_le_12']" in checks[0]["detail"]
+        # Clean base-ref book: the PR introduced the violation -> hard error.
+        clean_rows = [{"rebalance_date": "2026-06-05", "ticker": "CASH", "weight": 0.20}]
+        for idx in range(10):
+            clean_rows.append({"rebalance_date": "2026-06-05", "ticker": f"T{idx:02d}", "weight": 0.8 / 10})
+        baseline_clean = tmp / "baseline_main_clean.csv"
+        write_csv(baseline_clean, clean_rows)
+        checks = target_structure_checks(latest, {"main": baseline_clean})
+        assert checks[0]["severity"] == "error"
+        # Missing/unreadable baseline behaves like no baseline -> hard error.
+        checks = target_structure_checks(latest, {"main": tmp / "does_not_exist.csv"})
+        assert checks[0]["severity"] == "error"
+
+
+def test_portfolio_system_guard_blocks_concentrated_overconcentration() -> None:
+    with TestWorkspace("portfolio_system_guard_conc_shape") as tmp:
+        latest = tmp / "latest"
+        semis = "Semiconductors & Semiconductor Equipment"
+        rows = [
+            {"rebalance_date": "2026-06-05", "ticker": "LRCX", "weight": 0.50, "industry_group": semis},
+            {"rebalance_date": "2026-06-05", "ticker": "AMAT", "weight": 0.25, "industry_group": semis},
+            {"rebalance_date": "2026-06-05", "ticker": "SNDK", "weight": 0.25, "industry_group": semis},
+        ]
+        write_csv(latest / "reports" / "operating_concentrated_target_book.csv", rows)
+        checks = target_structure_checks(latest)
+        row = next(r for r in checks if r["check"] == "concentrated_concentration_contract")
+        assert row["passed"] is False
+        assert row["severity"] == "error"
+        assert "concentrated_single_name_weight_gt_40pct" in row["detail"]
+        assert "concentrated_industry_group_weight_gt_60pct" in row["detail"]
+        # At-cap diversified book passes (0.40 single name, <=0.60 per group).
+        ok_rows = [
+            {"rebalance_date": "2026-06-05", "ticker": "AAA", "weight": 0.40, "industry_group": semis},
+            {"rebalance_date": "2026-06-05", "ticker": "BBB", "weight": 0.35, "industry_group": "Software & Services"},
+            {"rebalance_date": "2026-06-05", "ticker": "CCC", "weight": 0.25, "industry_group": "Energy"},
+        ]
+        write_csv(latest / "reports" / "operating_concentrated_target_book.csv", ok_rows)
+        checks = target_structure_checks(latest)
+        row = next(r for r in checks if r["check"] == "concentrated_concentration_contract")
+        assert row["passed"] is True
+        assert row["severity"] == "ok"
+
+
 if __name__ == "__main__":
     test_portfolio_system_guard_reports_target_gaps()
     test_portfolio_system_guard_blocks_stale_historical_broker_replay()
     test_portfolio_system_guard_blocks_data_readiness_failures()
     test_portfolio_system_guard_blocks_high_cash_broad_main_books()
+    test_portfolio_system_guard_downgrades_preexisting_shape_violations()
+    test_portfolio_system_guard_blocks_concentrated_overconcentration()
     print("portfolio_system_guard_smoke: ok")
