@@ -47,6 +47,14 @@ on:
         description: 'Run slower research sidecars such as superperformance and integrated theme/leader/crisis replay'
         type: boolean
         default: false
+      leader_gate_enabled:
+        description: 'A/B: enable concentrated leader-tier production gate'
+        type: boolean
+        default: false
+      cycle_leadership_mask_enabled:
+        description: 'A/B: require benchmark-relative leadership for concentrated cycle-recovery score'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -285,6 +293,8 @@ jobs:
           MAX_FILL_LAG_DAYS: ${{ inputs.max_fill_lag_days }}
           PORTFOLIO_POLICY: ${{ inputs.portfolio_policy }}
           RUN_EXTENDED_RESEARCH_SIDECARS: ${{ inputs.run_extended_research_sidecars }}
+          PHASE_LEADER_GATE_ENABLED: ${{ inputs.leader_gate_enabled && '1' || '0' }}
+          PHASE_CYCLE_LEADERSHIP_MASK_ENABLED: ${{ inputs.cycle_leadership_mask_enabled && '1' || '0' }}
         run: |
           set -e
           set -o pipefail

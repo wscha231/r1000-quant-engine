@@ -1883,6 +1883,8 @@ class EngineConfig:
     concentrated_score_cycle_recovery_weight: float = 0.50
     concentrated_score_early_inflection_weight: float = 0.40
     concentrated_score_entry_quality_weight: float = 0.25
+    concentrated_leader_gate_enabled: bool = False
+    concentrated_leader_allowed_tiers: list[str] = field(default_factory=lambda: ["DUAL_LEADER"])
     # Defensive monster rotation (2026-05-05): apply the defense thesis to the
     # actual selection path, not only to post-hoc return proxies. The overlay
     # de-emphasizes stale mega-cap/core names with weakening leadership and

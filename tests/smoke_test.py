@@ -42,6 +42,7 @@ import argparse
 import ast
 import csv
 import json
+import os
 import re
 import sys
 import time
@@ -1265,6 +1266,102 @@ def test_concentrated_entry_quality_continuation_override() -> None:
     assert bool(cont.get("concentrated_entry_quality_override", False)), (
         "continuation winner should be marked as entry-quality override"
     )
+
+
+@_test("logic.concentrated_leader_gate_filters_lagging_defensives")
+def test_concentrated_leader_gate_filters_lagging_defensives() -> None:
+    """Concentrated leader gate is opt-in and filters lagging defensive rebounds."""
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    cfg.portfolio_defensive_rotation_enabled = False
+    cfg.concentrated_risk_candidate_filter_enabled = False
+    cfg.concentrated_monster_early_min_slots = 0
+    cfg.concentrated_min_entry_quality = 0.0
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    old_env = os.environ.get("PHASE_LEADER_GATE_ENABLED")
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "entry_quality_score": 0.8,
+            "breakout_setup_quality_score": 0.8,
+            "relative_strength_composite": 1.0,
+            "trend_template_full": 1.0,
+            "price_above_ma50": 1.0,
+            "price_above_ma200": 1.0,
+        }
+        rows = [
+            {"ticker": "ETR", "score": 100.0, "rs_spy_3m": -0.08, "rs_qqq_3m": -0.10, "rs_spy_6m": -0.03, "rs_qqq_6m": -0.05, **base},
+            {"ticker": "WDC", "score": 10.0, "rs_spy_3m": 0.08, "rs_qqq_3m": 0.06, "rs_spy_6m": 0.12, "rs_qqq_6m": 0.10, **base},
+        ]
+        os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        off = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 1)
+        os.environ["PHASE_LEADER_GATE_ENABLED"] = "1"
+        on = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 1)
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+        if old_env is None:
+            os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        else:
+            os.environ["PHASE_LEADER_GATE_ENABLED"] = old_env
+
+    assert off["ticker"].astype(str).tolist() == ["ETR"], "leader gate default OFF should preserve old score ranking"
+    assert on["ticker"].astype(str).tolist() == ["WDC"], "leader gate ON should reject lagging ETR fixture"
+    row = on.iloc[0]
+    assert row.get("leader_tier") == "DUAL_LEADER"
+    assert bool(row.get("concentrated_leader_gate_pass", False))
+
+
+@_test("logic.concentrated_cycle_recovery_requires_leadership_when_enabled")
+def test_concentrated_cycle_recovery_requires_leadership_when_enabled() -> None:
+    """Cycle recovery boost stays opt-in masked, preserving true cyclical leaders."""
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    cfg.portfolio_defensive_rotation_enabled = False
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    old_env = os.environ.get("PHASE_CYCLE_LEADERSHIP_MASK_ENABLED")
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "entry_quality_score": 0.8,
+            "cycle_recovery_score": 1.0,
+        }
+        rows = [
+            {"ticker": "DUK", "score": 10.0, "rs_spy_3m": -0.04, "rs_qqq_3m": -0.07, "rs_spy_6m": -0.02, "rs_qqq_6m": -0.04, **base},
+            {"ticker": "AMKR", "score": 10.0, "rs_spy_3m": 0.04, "rs_qqq_3m": 0.03, "rs_spy_6m": 0.06, "rs_qqq_6m": 0.05, **base},
+        ]
+        os.environ["PHASE_CYCLE_LEADERSHIP_MASK_ENABLED"] = "1"
+        scored = pipe.prepare_concentrated_frame(cfg, pd.DataFrame(rows)).set_index("ticker")
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+        if old_env is None:
+            os.environ.pop("PHASE_CYCLE_LEADERSHIP_MASK_ENABLED", None)
+        else:
+            os.environ["PHASE_CYCLE_LEADERSHIP_MASK_ENABLED"] = old_env
+
+    assert bool(scored.loc["AMKR", "cycle_leadership_mask_pass"])
+    assert not bool(scored.loc["DUK", "cycle_leadership_mask_pass"])
+    assert float(scored.loc["AMKR", "cycle_recovery_score_leader_masked"]) == 1.0
+    assert float(scored.loc["DUK", "cycle_recovery_score_leader_masked"]) == 0.0
 
 
 @_test("regression.phase9_c3_gate_wired_in_early_scout")

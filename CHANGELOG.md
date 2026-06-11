@@ -5,6 +5,21 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-11
 
+### 23:10 KST - concentrated-leader-gated-selection-ab-hooks
+
+- scope: Add opt-in concentrated production A/B hooks so true benchmark-relative leaders can be tested before any default policy change.
+- files:
+  - `r1000_config.py` ->adds default-OFF `concentrated_leader_gate_enabled` and `concentrated_leader_allowed_tiers`.
+  - `r1000_pipeline.py` ->wires existing `r1000_market_leader_engine.classify_leader_tier` into `select_concentrated_portfolio_topk` behind `PHASE_LEADER_GATE_ENABLED`, with pool-relax diagnostics to avoid empty crisis books.
+  - `r1000_pipeline.py` ->adds default-OFF `PHASE_CYCLE_LEADERSHIP_MASK_ENABLED` so `cycle_recovery_score` contributes to concentrated score only for DUAL_LEADER-style benchmark-relative RS.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->adds `leader_gate_enabled` and `cycle_leadership_mask_enabled` workflow inputs for 4-cell fast replay A/B.
+  - `tests/smoke_test.py` ->adds fixtures proving default OFF preserves legacy ranking, leader gate ON filters lagging defensive rebounds, and cycle recovery masking preserves AMKR/WDC-style leaders while removing utility-style false positives.
+- policy:
+  - Concentrated first only; do not apply this to main until concentrated broker-ledger A/B passes.
+  - Do not turn either toggle on by default until 4-cell A/B proves absolute broker gate plus relative baseline improvement.
+- next_action:
+  - Run full smoke/PR validation, commit, then run 4-cell concentrated A/B with broker-ledger metrics only.
+
 ### 20:20 KST - main-cash-position-count-contract
 
 - scope: Stop the recurring AlphaOps vNext main-book failure mode from silently passing when high CASH overlays still leave too many small stock positions.

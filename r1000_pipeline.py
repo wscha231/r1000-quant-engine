@@ -347,6 +347,7 @@ from r1000_signals import (
     accelerate_cash_deployment,
     resolve_regime_conditioned_sleeve_override,
 )
+from r1000_market_leader_engine import classify_leader_tier
 
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
@@ -14255,6 +14256,19 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     ).fillna(0.0)
     d["concentrated_preferred_sleeve"] = labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
     d["concentrated_preferred_sleeve_raw"] = raw_labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
+    cycle_recovery_score = numeric_series_or_default(d, "cycle_recovery_score", 0.0)
+    if phase_is_enabled("cycle_leadership_mask", default=False):
+        cycle_leadership_mask = (
+            numeric_series_or_default(d, "rs_spy_3m", 0.0).gt(0.0)
+            & numeric_series_or_default(d, "rs_qqq_3m", 0.0).gt(0.0)
+            & (
+                numeric_series_or_default(d, "rs_spy_6m", 0.0).gt(0.0)
+                | numeric_series_or_default(d, "rs_qqq_6m", 0.0).gt(0.0)
+            )
+        )
+        d["cycle_leadership_mask_pass"] = cycle_leadership_mask.astype(bool)
+        d["cycle_recovery_score_leader_masked"] = cycle_recovery_score.where(cycle_leadership_mask, 0.0)
+        cycle_recovery_score = d["cycle_recovery_score_leader_masked"]
     d["concentrated_score"] = row_mean(
         [
             cross_sectional_robust_z(d, "score"),
@@ -14277,7 +14291,7 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
             # early_inflection: 6mo-pre-breakout signal (find next SNDK early).
             # entry_quality: penalize chase entries (extension + RSI + mom).
             float(getattr(cfg, "concentrated_score_cycle_recovery_weight", 0.50))
-            * numeric_series_or_default(d, "cycle_recovery_score", 0.0),
+            * cycle_recovery_score,
             float(getattr(cfg, "concentrated_score_early_inflection_weight", 0.40))
             * numeric_series_or_default(d, "early_cycle_inflection_score", 0.0),
             float(getattr(cfg, "concentrated_score_entry_quality_weight", 0.25))
@@ -14295,6 +14309,35 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     return d
 
 
+def _concentrated_allowed_leader_tiers(cfg: EngineConfig) -> set[str]:
+    raw = getattr(cfg, "concentrated_leader_allowed_tiers", ["DUAL_LEADER"])
+    if isinstance(raw, str):
+        parts = [part.strip() for part in raw.split(",")]
+    else:
+        parts = [str(part).strip() for part in raw]
+    allowed = {part for part in parts if part}
+    return allowed or {"DUAL_LEADER"}
+
+
+def apply_concentrated_leader_gate(cfg: EngineConfig, frame: pd.DataFrame, top_n: int) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    d = frame.copy()
+    if "leader_tier" not in d.columns:
+        d["leader_tier"] = d.apply(classify_leader_tier, axis=1)
+    allowed = _concentrated_allowed_leader_tiers(cfg)
+    leader_pass = d["leader_tier"].astype(str).isin(allowed)
+    min_pool = max(1, min(int(top_n), int(getattr(cfg, "concentrated_min_production_names", 3))))
+    d["concentrated_leader_gate_allowed_tiers"] = ",".join(sorted(allowed))
+    d["concentrated_leader_gate_pass"] = leader_pass.astype(bool)
+    if int(leader_pass.sum()) < min_pool:
+        d["concentrated_leader_gate_relaxed"] = True
+        return d
+    filtered = d.loc[leader_pass].copy()
+    filtered["concentrated_leader_gate_relaxed"] = False
+    return filtered
+
+
 def select_concentrated_portfolio_topk(
     cfg: EngineConfig,
     month_df: pd.DataFrame,
@@ -14310,6 +14353,10 @@ def select_concentrated_portfolio_topk(
     # producing identical metrics because the grid was silently clamping
     # back to 3 here. See CHANGELOG 19:30 KST entry.
     top_n = max(1, min(int(top_n), 30))
+    if phase_is_enabled("leader_gate", default=bool(getattr(cfg, "concentrated_leader_gate_enabled", False))):
+        d = apply_concentrated_leader_gate(cfg, d, top_n)
+        if d.empty:
+            return d
     # Phase 15-A (2026-04-28): concentrated thesis-gate relaxation. Default
     # min_confirmation 0.45 was rejecting cyclical leaders (memory/foundry
     # equipment) that have valid score but weak multi_year/market_confirmation
