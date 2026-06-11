@@ -1,0 +1,71 @@
+{
+  "checks": [
+    {
+      "check": "main_metrics_available",
+      "detail": "cloud_results/full_rebuild/latest_global_alpha_universe/backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_metrics_available",
+      "detail": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "experiment_matrix_available",
+      "detail": "outputs/experiments/experiment_matrix_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_challenger_available",
+      "detail": "outputs/auto_learning_v2/challenger_review.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_policy_available",
+      "detail": "outputs/auto_learning_v2/policy_candidate.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_available",
+      "detail": "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "portfolio_goal_search_available",
+      "detail": "outputs/portfolio_goal_search/goal_search_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "github_workflows_available",
+      "detail": ".github/workflows",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "counterfactual_replay_coverage",
+      "detail": "missing_counterfactual_count=4",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "candidate_production_ready",
+      "detail": "production_ready_count=0",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "orchestrator_replay_valid_for_promotion",
+      "detail": "status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings",
+      "passed": false,
+      "severity": "warn"
+    }
+  ],
+  "hard_error_count": 0
+}
