@@ -5,6 +5,22 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-11
 
+### 18:35 KST - claude-w0-w1-review-follow-up
+
+- scope: Apply the highest-leverage follow-ups from Claude's review of commit `9b2ce49` before dispatching a fresh Full Rebuild.
+- files:
+  - `tools/run_pr_validation.py` ->registers `broker_gate_contract_smoke`, `cash_contract_smoke`, `fast_full_drift_audit_smoke`, and `broker_gap_attribution_smoke` in the canonical Tier-1 validation list.
+  - `.github/workflows/portfolio_system_guard.yml` ->runs `--strict-targets` automatically on pull_request events while preserving manual dispatch input control.
+  - `tools/validate_target_book_cash_contract.py` ->adds rebalance-day next-close cash comparison and forward-filled month-mean cash comparison.
+  - `tools/run_full_rebuild_sidecars.py`, `.github/workflows/full_rebuild_manual.yml`, and `.github/workflows/alphaops_replay_sidecars_manual.yml` ->run and upload `outputs/cash_contract`; fast replay also runs `outputs/fast_full_drift_audit` against the source full artifact.
+  - `run_local.py` ->renames legacy target-mode non-ship verdict text to `RESEARCH_ONLY_PARTIAL` / `RESEARCH_ONLY_REGRESS`.
+  - `docs/METRIC_HYGIENE.md` ->documents the two cash drift methods.
+- artifact_check:
+  - full rebuild `27088007617` now passes the corrected CASH contract: main rebalance-day mean `0.1732pp` / max `0.9502pp`, concentrated mean `0.0996pp` / max `0.3833pp`.
+  - fast replay `27086825471` remains a real cash-drift failure under the corrected method: main rebalance-day mean `4.5458pp` / max `15.2985pp`, concentrated mean `1.3271pp` / max `28.6054pp`.
+- next_action:
+  - Run Tier-1 validation and dispatch a fresh Full Rebuild on `codex/alphaops-integrated-replay`.
+
 ### 16:50 KST - alphaops-vnext-v21-w0-w1-contracts
 
 - scope: Implement the first AlphaOps vNext v2.1 workstreams: broker-ledger gate hygiene, CASH contract validation, fast/full drift audit, and expanded broker gap attribution.

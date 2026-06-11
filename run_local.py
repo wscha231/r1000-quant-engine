@@ -651,9 +651,9 @@ def print_verdict(base_dir: Path, gate_mode: str = "broker") -> int:
     if dCAGR >= 0.5 and dSharpe >= -0.05 and dMaxDD >= -3.0 and early_n >= 4:
         print(f"\n  --> RESEARCH_ONLY_SHIP vs {CURRENT_BASELINE['name']}. Production SHIP still requires --gate-mode broker.")
     elif dCAGR >= -2.0 and early_n >= 2:
-        print(f"\n  --> PARTIAL vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3b (A/B isolation).")
+        print(f"\n  --> RESEARCH_ONLY_PARTIAL vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3b (A/B isolation).")
     else:
-        print(f"\n  --> REGRESS vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3c (rollback).")
+        print(f"\n  --> RESEARCH_ONLY_REGRESS vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3c (rollback).")
 
     # Phase 12D (2026-04-21): print lifetime metrics if available.
     # Connects backtest CAGR to live CAGR continuity (Phase 12C produces these).

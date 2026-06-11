@@ -54,6 +54,10 @@ def main() -> int:
         assert good["cash_contract_pass"] is True
         assert int(good["target"]["date_count"]) == 2
         assert good["drift"]["mean_cash_drift_pp"] <= 2.0
+        assert good["drift"]["rebalance_day_cash_drift_pass"] is True
+        assert good["drift"]["month_mean_cash_drift_pass"] is True
+        assert "rebalance_day_mean_cash_drift_pp" in good["drift"]
+        assert "month_mean_cash_drift_pp" in good["drift"]
         assert not by_date.empty
         assert not drift.empty
 

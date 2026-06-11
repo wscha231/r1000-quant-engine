@@ -152,7 +152,7 @@ def target_cash_by_date(target_book: Path, *, weight_tolerance: float = 1e-6) ->
     return summary, by_date
 
 
-def broker_cash_by_month(broker_dir: Path) -> tuple[dict[str, Any], pd.DataFrame]:
+def broker_cash_frames(broker_dir: Path) -> tuple[dict[str, Any], pd.DataFrame, pd.DataFrame]:
     cash = read_csv(broker_dir / "cash_ledger.csv")
     metrics = read_json(broker_dir / "metrics.json")
     if cash.empty:
@@ -160,15 +160,19 @@ def broker_cash_by_month(broker_dir: Path) -> tuple[dict[str, Any], pd.DataFrame
             "status": "missing_cash_ledger",
             "broker_dir": str(broker_dir),
             "avg_broker_cash_weight": safe_float(metrics.get("avg_cash_weight")),
-        }, pd.DataFrame()
+        }, pd.DataFrame(), pd.DataFrame()
     if "date" not in cash.columns or "cash_weight" not in cash.columns:
-        return {"status": "invalid_cash_ledger", "broker_dir": str(broker_dir)}, pd.DataFrame()
+        return {"status": "invalid_cash_ledger", "broker_dir": str(broker_dir)}, pd.DataFrame(), pd.DataFrame()
     cash = cash.copy()
-    cash["date"] = pd.to_datetime(cash["date"], errors="coerce")
+    cash["date"] = pd.to_datetime(cash["date"], errors="coerce").dt.normalize()
     cash["cash_weight"] = pd.to_numeric(cash["cash_weight"], errors="coerce")
     cash = cash.dropna(subset=["date", "cash_weight"]).sort_values("date")
     if cash.empty:
-        return {"status": "empty_cash_ledger", "broker_dir": str(broker_dir)}, pd.DataFrame()
+        return {"status": "empty_cash_ledger", "broker_dir": str(broker_dir)}, pd.DataFrame(), pd.DataFrame()
+    agg = {"broker_cash_weight": ("cash_weight", "last")}
+    if "equity_usd" in cash.columns:
+        agg["broker_equity_usd"] = ("equity_usd", "last")
+    daily = cash.groupby("date", as_index=False).agg(**agg).sort_values("date")
     monthly = (
         cash.set_index("date")["cash_weight"]
         .resample("ME")
@@ -180,53 +184,151 @@ def broker_cash_by_month(broker_dir: Path) -> tuple[dict[str, Any], pd.DataFrame
         "status": "completed",
         "broker_dir": str(broker_dir),
         "avg_broker_cash_weight": safe_float(metrics.get("avg_cash_weight"), safe_float(cash["cash_weight"].mean())),
-    }, monthly
+    }, daily, monthly
+
+
+def broker_cash_by_month(broker_dir: Path) -> tuple[dict[str, Any], pd.DataFrame]:
+    summary, _daily, monthly = broker_cash_frames(broker_dir)
+    return summary, monthly
 
 
 def cash_drift_summary(
     target_by_date: pd.DataFrame,
+    broker_daily: pd.DataFrame,
     broker_monthly: pd.DataFrame,
     *,
     mean_drift_limit_pp: float,
     max_drift_limit_pp: float,
+    month_mean_drift_limit_pp: float = 5.0,
+    month_max_drift_limit_pp: float = 10.0,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
-    if target_by_date.empty or broker_monthly.empty:
+    if target_by_date.empty or broker_daily.empty or broker_monthly.empty:
         return {
             "status": "missing_target_or_broker_cash",
             "mean_cash_drift_pp": None,
             "max_monthly_cash_drift_pp": None,
+            "rebalance_day_cash_drift_pass": False,
+            "month_mean_cash_drift_pass": False,
             "cash_drift_pass": False,
         }, pd.DataFrame()
     target = target_by_date.copy()
     target["rebalance_date"] = pd.to_datetime(target["rebalance_date"], errors="coerce")
-    target["month_end"] = target["rebalance_date"].dt.to_period("M").dt.to_timestamp("M")
+    target = target.dropna(subset=["rebalance_date"]).sort_values("rebalance_date")
+
+    broker_daily = broker_daily.copy()
+    broker_daily["date"] = pd.to_datetime(broker_daily["date"], errors="coerce")
+    broker_daily["broker_cash_weight"] = pd.to_numeric(broker_daily["broker_cash_weight"], errors="coerce")
+    broker_daily = broker_daily.dropna(subset=["date", "broker_cash_weight"]).sort_values("date")
+
+    rebal = pd.merge_asof(
+        target[["rebalance_date", "cash_weight", "stock_weight"]].sort_values("rebalance_date"),
+        broker_daily[["date", "broker_cash_weight"]].sort_values("date"),
+        left_on="rebalance_date",
+        right_on="date",
+        direction="forward",
+        tolerance=pd.Timedelta(days=2),
+    )
+    rebal = rebal.rename(
+        columns={
+            "cash_weight": "target_cash_weight",
+            "stock_weight": "target_stock_weight",
+            "date": "broker_cash_date",
+        }
+    )
+    rebal = rebal.dropna(subset=["broker_cash_weight"])
+    if rebal.empty:
+        rebalance_summary = {
+            "status": "no_overlapping_rebalance_dates",
+            "rebalance_day_mean_cash_drift_pp": None,
+            "rebalance_day_max_cash_drift_pp": None,
+            "rebalance_day_cash_drift_pass": False,
+        }
+    else:
+        rebal["cash_drift"] = pd.to_numeric(rebal["broker_cash_weight"], errors="coerce") - pd.to_numeric(
+            rebal["target_cash_weight"], errors="coerce"
+        )
+        rebal_abs_pp = rebal["cash_drift"].abs() * 100.0
+        rebalance_mean_pp = float(rebal_abs_pp.mean())
+        rebalance_max_pp = float(rebal_abs_pp.max())
+        rebalance_summary = {
+            "status": "completed",
+            "rebalance_overlap_count": int(len(rebal)),
+            "rebalance_day_mean_cash_drift_pp": round(rebalance_mean_pp, 4),
+            "rebalance_day_max_cash_drift_pp": round(rebalance_max_pp, 4),
+            "rebalance_day_mean_drift_limit_pp": float(mean_drift_limit_pp),
+            "rebalance_day_max_drift_limit_pp": float(max_drift_limit_pp),
+            "rebalance_day_cash_drift_pass": bool(
+                rebalance_mean_pp <= mean_drift_limit_pp and rebalance_max_pp <= max_drift_limit_pp
+            ),
+        }
+
+    target_for_daily = target[["rebalance_date", "cash_weight", "stock_weight"]].rename(
+        columns={"cash_weight": "target_cash_weight", "stock_weight": "target_stock_weight"}
+    )
+    daily_target = pd.merge_asof(
+        broker_daily[["date"]].sort_values("date"),
+        target_for_daily.sort_values("rebalance_date"),
+        left_on="date",
+        right_on="rebalance_date",
+        direction="backward",
+    ).dropna(subset=["target_cash_weight"])
+    daily_target["month_end"] = daily_target["date"].dt.to_period("M").dt.to_timestamp("M")
     target_monthly = (
-        target.groupby("month_end", as_index=False)
-        .agg(target_cash_weight=("cash_weight", "mean"), target_stock_weight=("stock_weight", "mean"))
+        daily_target.groupby("month_end", as_index=False)
+        .agg(target_cash_weight=("target_cash_weight", "mean"), target_stock_weight=("target_stock_weight", "mean"))
     )
     merged = target_monthly.merge(broker_monthly, on="month_end", how="inner")
     if merged.empty:
-        return {
+        month_summary = {
             "status": "no_overlapping_months",
-            "mean_cash_drift_pp": None,
-            "max_monthly_cash_drift_pp": None,
-            "cash_drift_pass": False,
-        }, merged
-    merged["cash_drift"] = pd.to_numeric(merged["broker_cash_weight"], errors="coerce") - pd.to_numeric(
-        merged["target_cash_weight"], errors="coerce"
-    )
-    drift_abs_pp = merged["cash_drift"].abs() * 100.0
-    mean_drift_pp = float(drift_abs_pp.mean())
-    max_drift_pp = float(drift_abs_pp.max())
+            "month_mean_cash_drift_pp": None,
+            "month_max_cash_drift_pp": None,
+            "month_mean_cash_drift_pass": False,
+        }
+    else:
+        merged["cash_drift"] = pd.to_numeric(merged["broker_cash_weight"], errors="coerce") - pd.to_numeric(
+            merged["target_cash_weight"], errors="coerce"
+        )
+        drift_abs_pp = merged["cash_drift"].abs() * 100.0
+        month_mean_pp = float(drift_abs_pp.mean())
+        month_max_pp = float(drift_abs_pp.max())
+        month_summary = {
+            "status": "completed",
+            "overlap_month_count": int(len(merged)),
+            "month_mean_cash_drift_pp": round(month_mean_pp, 4),
+            "month_max_cash_drift_pp": round(month_max_pp, 4),
+            "month_mean_drift_limit_pp": float(month_mean_drift_limit_pp),
+            "month_max_drift_limit_pp": float(month_max_drift_limit_pp),
+            "month_mean_cash_drift_pass": bool(
+                month_mean_pp <= month_mean_drift_limit_pp and month_max_pp <= month_max_drift_limit_pp
+            ),
+        }
+
+    drift_frames: list[pd.DataFrame] = []
+    if not rebal.empty:
+        rebal_out = rebal.copy()
+        rebal_out.insert(0, "comparison_method", "rebalance_day_next_close")
+        drift_frames.append(rebal_out)
+    if not merged.empty:
+        month_out = merged.rename(columns={"month_end": "rebalance_date"}).copy()
+        month_out.insert(0, "comparison_method", "month_mean")
+        drift_frames.append(month_out)
+    drift_table = pd.concat(drift_frames, ignore_index=True, sort=False) if drift_frames else pd.DataFrame()
+
+    rebalance_pass = bool(rebalance_summary.get("rebalance_day_cash_drift_pass"))
+    month_pass = bool(month_summary.get("month_mean_cash_drift_pass"))
+    month_status = month_summary.pop("status", "unknown")
     return {
         "status": "completed",
-        "overlap_month_count": int(len(merged)),
-        "mean_cash_drift_pp": round(mean_drift_pp, 4),
-        "max_monthly_cash_drift_pp": round(max_drift_pp, 4),
+        "month_mean_status": month_status,
+        "mean_cash_drift_pp": rebalance_summary.get("rebalance_day_mean_cash_drift_pp"),
+        "max_monthly_cash_drift_pp": rebalance_summary.get("rebalance_day_max_cash_drift_pp"),
         "mean_drift_limit_pp": float(mean_drift_limit_pp),
         "max_drift_limit_pp": float(max_drift_limit_pp),
-        "cash_drift_pass": bool(mean_drift_pp <= mean_drift_limit_pp and max_drift_pp <= max_drift_limit_pp),
-    }, merged
+        **{key: value for key, value in rebalance_summary.items() if key != "status"},
+        **month_summary,
+        "cash_drift_pass": bool(rebalance_pass and month_pass),
+    }, drift_table
 
 
 def validate_contract(
@@ -242,9 +344,10 @@ def validate_contract(
     drift_summary: dict[str, Any] = {"status": "not_checked", "cash_drift_pass": True}
     drift = pd.DataFrame()
     if broker_dir is not None:
-        broker_summary, broker_monthly = broker_cash_by_month(broker_dir)
+        broker_summary, broker_daily, broker_monthly = broker_cash_frames(broker_dir)
         drift_summary, drift = cash_drift_summary(
             target_by_date,
+            broker_daily,
             broker_monthly,
             mean_drift_limit_pp=mean_drift_limit_pp,
             max_drift_limit_pp=max_drift_limit_pp,

@@ -330,6 +330,12 @@ def estimate_decomposition(
         "target_cash_contract_pass": bool(cash_summary.get("target", {}).get("target_cash_contract_pass")),
         "mean_cash_drift_pp": cash_drift_summary.get("mean_cash_drift_pp"),
         "max_monthly_cash_drift_pp": cash_drift_summary.get("max_monthly_cash_drift_pp"),
+        "rebalance_day_mean_cash_drift_pp": cash_drift_summary.get("rebalance_day_mean_cash_drift_pp"),
+        "rebalance_day_max_cash_drift_pp": cash_drift_summary.get("rebalance_day_max_cash_drift_pp"),
+        "rebalance_day_cash_drift_pass": cash_drift_summary.get("rebalance_day_cash_drift_pass"),
+        "month_mean_cash_drift_pp": cash_drift_summary.get("month_mean_cash_drift_pp"),
+        "month_max_cash_drift_pp": cash_drift_summary.get("month_max_cash_drift_pp"),
+        "month_mean_cash_drift_pass": cash_drift_summary.get("month_mean_cash_drift_pass"),
         "avg_target_cash_weight": cash_summary.get("target", {}).get("avg_target_cash_weight"),
         "avg_broker_cash_weight": cash_summary.get("broker", {}).get("avg_broker_cash_weight"),
     }

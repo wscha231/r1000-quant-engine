@@ -518,6 +518,7 @@ jobs:
             outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
             outputs/metric_hygiene/
+            outputs/cash_contract/
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/main/account_state_latest.json
             outputs/broker_replay/main/positions_latest.csv
@@ -558,6 +559,7 @@ jobs:
             outputs/portfolio_system_guard/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
             outputs/full_rebuild_logs/user_current_report.log
+            outputs/full_rebuild_logs/cash_contract.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
             outputs/full_rebuild_logs/decision_cadence_review.log
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
@@ -616,6 +618,7 @@ jobs:
             outputs/live_trading_risk_controls/
             outputs/portfolio_system_guard/
             outputs/metric_hygiene/
+            outputs/cash_contract/
             outputs/decision_cadence/
           if-no-files-found: warn
           retention-days: 365
@@ -711,6 +714,7 @@ jobs:
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
             outputs/metric_hygiene/
+            outputs/cash_contract/
             outputs/governance_catalyst/
             outputs/style_regime_report/
             outputs/macro_policy_engine/
@@ -1142,6 +1146,7 @@ jobs:
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
             copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
+            copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
@@ -1239,6 +1244,7 @@ jobs:
           copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
+          copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
           copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
           copy_dir_clean outputs/promotion_review "$DEST/promotion_review"

@@ -64,6 +64,15 @@ Validate target-book cash semantics:
 python tools/validate_target_book_cash_contract.py --latest-run outputs
 ```
 
+The cash contract emits two drift methods:
+
+- `rebalance_day_*`: target cash matched to broker cash on the next available
+  broker cash row within two calendar days of the rebalance date.
+- `month_mean_*`: target cash forward-filled on the broker daily cash calendar,
+  then averaged by month and compared to monthly average broker cash.
+
+Both methods must pass the configured limits for `cash_contract_pass=true`.
+
 Compare a full rebuild against a fast replay:
 
 ```bash
