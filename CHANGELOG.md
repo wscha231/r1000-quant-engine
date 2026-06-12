@@ -5,6 +5,22 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-12
 
+### 18:40 KST - latest-month-mktcap-starvation-guard
+
+- scope: Prevent the INVALID_UNIVERSE collapse class seen in Full Rebuild run `27337807588` (2026-06-11, cancelled). That cold-cache run joined SEC shares for historical months but left the latest snapshot ~98% NaN mktcap (`failed_mktcap: 1100/1118` in leader drop diagnostics), so the existing overall-coverage fallback (fires below 30% across all months) never triggered and the scored universe collapsed to 4 names. Required hardening before dispatching the next official full rebuild on `claude/analyze-updated-code-OfEbu`.
+- files:
+  - `r1000_pipeline.py` ->new module-level helper `latest_month_mktcap_coverage(monthly)` next to `count_r1000_base_names` returns (latest-rebalance-date row mask, mktcap coverage inside that month). `build_universe_monthly` now checks the latest month separately: below 30% coverage it retries `ensure_mktcap_proxy` (bounded, `max_new=1200`) for just the starved latest-month tickers; if the month is still below 25% coverage after the `min_mktcap` filter, it ranks the latest month by `dollar_vol_20d` instead of dropping it (`latest_month_dollar_vol_fallback`), and `base_mask` keeps latest-month rows via `mktcap_available | latest_month_mask`. Healthy runs never enter either branch (latest-month coverage is normally >90%). The workflow-level INVALID_UNIVERSE floor (`MIN_R1000_BASE_NAMES=400` on the scored output) still applies as the final guard.
+  - `tests/smoke_test.py` ->new `logic.latest_month_mktcap_starvation_guard` covering starved/healthy/empty coverage math plus structural wiring assertions.
+- symbols_added: `latest_month_mktcap_coverage`, `test_latest_month_mktcap_starvation_guard`
+- symbols_changed: `build_universe_monthly` (latest-month proxy retry + dollar-vol fallback; degraded-mode only, no behavior change when latest-month mktcap coverage >= 30%)
+- config_fields_added: none
+- breaking_changes: none
+- validation:
+  - `python tests/smoke_test.py` ->123/123 PASS.
+  - `python tools/run_pr_validation.py --quiet` ->77/78 PASS; the single failure remains `tests/sec_13f_cusip_mapping_smoke.py` (sandbox 403 on sec.gov, unrelated).
+- next_action:
+  - Dispatch `full_rebuild_manual.yml` on `claude/analyze-updated-code-OfEbu` with the accepted production settings (`global_alpha_universe`, 8y, `operating_minimal`, `alphaops_vnext_production`) and judge broker-ledger gates (Main >=35%/-25%, Concentrated >=50%/-25%) plus the new IS/OOS windows.
+
 ### 13:44 KST - stage0-oos-lock
 
 - scope: Stage 0 of the early-detection plan (`/root/.claude/plans/elegant-sniffing-dragon.md`). Add an IS/OOS time split to broker-ledger metrics so repeated verdict retries on the same 8y window cannot silently overfit. Precondition for the B/C/A/D axes that follow.

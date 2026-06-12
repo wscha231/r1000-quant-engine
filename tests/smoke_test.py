@@ -2089,6 +2089,52 @@ def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
     assert abs(float(guarded["cash"]) - float(selected["cash"])) < 1e-12
 
 
+@_test("logic.latest_month_mktcap_starvation_guard")
+def test_latest_month_mktcap_starvation_guard() -> None:
+    """Universe-collapse guard for the latest snapshot (run 27337807588).
+
+    A cold-cache full rebuild joined shares for historical months but left the
+    latest month ~98% NaN mktcap, collapsing the scored universe to 4 names.
+    `latest_month_mktcap_coverage` must report the latest-month mask and its
+    coverage separately so build_universe_monthly can retry the bounded Yahoo
+    proxy / fall back to dollar-vol ranking for that month only.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+
+    starved = pd.DataFrame(
+        {
+            "rebalance_date": ["2026-05-29"] * 4 + ["2026-06-11"] * 4,
+            "ticker": ["A", "B", "C", "D"] * 2,
+            "mktcap": [1e10, 2e10, 3e10, 4e10, None, None, None, 5e10],
+        }
+    )
+    mask, cov = pipe.latest_month_mktcap_coverage(starved)
+    assert int(mask.sum()) == 4, f"latest-month mask wrong: {int(mask.sum())}"
+    assert abs(cov - 0.25) < 1e-9, f"starved coverage wrong: {cov}"
+    assert set(starved.loc[mask, "rebalance_date"]) == {"2026-06-11"}
+
+    healthy = starved.copy()
+    healthy["mktcap"] = 1e10
+    _, cov_healthy = pipe.latest_month_mktcap_coverage(healthy)
+    assert cov_healthy == 1.0, f"healthy coverage wrong: {cov_healthy}"
+
+    empty_mask, empty_cov = pipe.latest_month_mktcap_coverage(pd.DataFrame())
+    assert empty_cov == 1.0 and int(empty_mask.sum()) == 0
+
+    # The guard must be wired into build_universe_monthly: proxy retry for the
+    # starved latest month plus a dollar-vol fallback that keeps the month
+    # rankable instead of dropping it.
+    src = (ROOT / "r1000_pipeline.py").read_text(encoding="utf-8")
+    assert "latest_month_mktcap_coverage(monthly)" in src, "guard not wired into build_universe_monthly"
+    assert "latest_month_dollar_vol_fallback" in src, "dollar-vol fallback for starved latest month missing"
+    assert "mktcap_available = mktcap_available | latest_month_mask" in src, (
+        "base_mask must keep latest-month rows when the dollar-vol fallback is active"
+    )
+
+
 @_test("regression.paper_executor_advisor_path_fallbacks")
 def test_paper_executor_path_fallbacks() -> None:
     """ADVISOR_PATHS for concentrated/core must accept fallback paths so the

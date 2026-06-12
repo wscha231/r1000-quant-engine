@@ -3611,6 +3611,28 @@ def count_r1000_base_names(frame: pd.DataFrame) -> int:
     return int(mask.sum())
 
 
+def latest_month_mktcap_coverage(monthly: pd.DataFrame) -> tuple[pd.Series, float]:
+    """Mask of latest-rebalance-date rows plus mktcap coverage inside that month.
+
+    Universe-collapse guard input (Full Rebuild 27337807588, 2026-06-11): a
+    cold-cache run joined shares for historical months while the latest
+    snapshot ended up ~98% NaN mktcap (1100/1118 candidates), so the
+    overall-coverage fallback never fired and the scored universe collapsed to
+    4 names (INVALID_UNIVERSE). The latest month must be checked separately."""
+    if monthly is None or getattr(monthly, "empty", True) or "rebalance_date" not in monthly.columns:
+        idx = monthly.index if monthly is not None else pd.RangeIndex(0)
+        return pd.Series(False, index=idx), 1.0
+    dates = pd.to_datetime(monthly["rebalance_date"], errors="coerce")
+    latest_dt = dates.max()
+    if pd.isna(latest_dt):
+        return pd.Series(False, index=monthly.index), 1.0
+    mask = dates.eq(latest_dt)
+    if not bool(mask.any()):
+        return mask, 1.0
+    cov = float(pd.to_numeric(monthly.loc[mask, "mktcap"], errors="coerce").notna().mean())
+    return mask, cov
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -7417,9 +7439,50 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
             )
     mktcap_cov = float(monthly["mktcap"].notna().mean())
     use_mktcap_filter = mktcap_cov >= 0.25
+    # Latest-month starvation guard (Full Rebuild 27337807588, 2026-06-11): a
+    # cold-cache run joined shares for history but left the latest snapshot
+    # ~98% NaN mktcap, so the overall-coverage fallback above never fired and
+    # the scored universe collapsed to 4 names (INVALID_UNIVERSE). Retry the
+    # bounded Yahoo proxy for just the starved latest-month names; if the
+    # month is still starved after the min-cap filter, rank it by dollar
+    # volume instead of dropping it. Healthy runs never enter either branch.
+    latest_month_mask, latest_month_cov = latest_month_mktcap_coverage(monthly)
+    latest_month_dollar_vol_fallback = False
+    if use_mktcap_filter and bool(latest_month_mask.any()) and latest_month_cov < 0.30:
+        log(
+            f"[WARN] latest-month mktcap coverage {latest_month_cov:.1%} vs overall {mktcap_cov:.1%}; "
+            "retrying bounded Yahoo marketCap proxy for the latest snapshot."
+        )
+        need = (
+            monthly.loc[latest_month_mask & monthly["mktcap"].isna(), "ticker"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        mc = ensure_mktcap_proxy(cfg, paths, need, max_new=1200)
+        if not mc.empty and "mktcap_proxy" in mc.columns:
+            proxy_map = (
+                pd.to_numeric(mc.drop_duplicates("ticker", keep="last").set_index("ticker")["mktcap_proxy"], errors="coerce")
+                .dropna()
+                .to_dict()
+            )
+            fill = monthly.loc[latest_month_mask, "ticker"].astype(str).map(proxy_map)
+            monthly.loc[latest_month_mask, "mktcap"] = monthly.loc[latest_month_mask, "mktcap"].fillna(fill)
     if use_mktcap_filter:
         monthly["mktcap"] = monthly["mktcap"].where(monthly["mktcap"] >= cfg.min_mktcap, np.nan)
         monthly["size_metric"] = monthly["mktcap"]
+        _, latest_month_cov_after = latest_month_mktcap_coverage(monthly)
+        if bool(latest_month_mask.any()) and latest_month_cov_after < 0.25:
+            latest_month_dollar_vol_fallback = True
+            monthly.loc[latest_month_mask, "size_metric"] = pd.to_numeric(
+                monthly.loc[latest_month_mask, "dollar_vol_20d"], errors="coerce"
+            )
+            log(
+                f"[WARN] latest-month mktcap still starved ({latest_month_cov_after:.1%}) after proxy retry; "
+                "ranking the latest month by dollar volume so the universe does not collapse. "
+                "The downstream INVALID_UNIVERSE floor still applies to the scored output."
+            )
     else:
         log(f"[WARN] mktcap coverage too low ({mktcap_cov:.2%}); falling back to dollar-vol size metric.")
         monthly["size_metric"] = pd.to_numeric(monthly["dollar_vol_20d"], errors="coerce")
@@ -7432,7 +7495,12 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         & (monthly["dd_1y"].fillna(9e9) <= cfg.max_dd_1y)
     )
     if use_mktcap_filter:
-        base_mask &= monthly["mktcap"].notna()
+        mktcap_available = monthly["mktcap"].notna()
+        if latest_month_dollar_vol_fallback:
+            # Degraded latest snapshot: keep latest-month rows rankable by
+            # dollar volume instead of dropping the whole month on NaN mktcap.
+            mktcap_available = mktcap_available | latest_month_mask
+        base_mask &= mktcap_available
     monthly = monthly[base_mask].copy()
     monthly = monthly.sort_values(["rebalance_date", "size_metric"], ascending=[True, False])
     monthly["rank_size"] = monthly.groupby("rebalance_date")["size_metric"].rank(method="first", ascending=False)
