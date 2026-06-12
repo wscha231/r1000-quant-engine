@@ -42,6 +42,7 @@ import argparse
 import ast
 import csv
 import json
+import os
 import re
 import sys
 import time
@@ -1265,6 +1266,193 @@ def test_concentrated_entry_quality_continuation_override() -> None:
     assert bool(cont.get("concentrated_entry_quality_override", False)), (
         "continuation winner should be marked as entry-quality override"
     )
+
+
+@_test("logic.concentrated_leader_gate_filters_lagging_defensives")
+def test_concentrated_leader_gate_filters_lagging_defensives() -> None:
+    """Concentrated leader gate is opt-in and filters lagging defensive rebounds."""
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    cfg.portfolio_defensive_rotation_enabled = False
+    cfg.concentrated_risk_candidate_filter_enabled = False
+    cfg.concentrated_monster_early_min_slots = 0
+    cfg.concentrated_min_entry_quality = 0.0
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    old_env = os.environ.get("PHASE_LEADER_GATE_ENABLED")
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "entry_quality_score": 0.8,
+            "breakout_setup_quality_score": 0.8,
+            "relative_strength_composite": 1.0,
+            "trend_template_full": 1.0,
+            "price_above_ma50": 1.0,
+            "price_above_ma200": 1.0,
+        }
+        rows = [
+            {"ticker": "ETR", "score": 100.0, "rs_spy_3m": -0.08, "rs_qqq_3m": -0.10, "rs_spy_6m": -0.03, "rs_qqq_6m": -0.05, **base},
+            {"ticker": "WDC", "score": 10.0, "rs_spy_3m": 0.08, "rs_qqq_3m": 0.06, "rs_spy_6m": 0.12, "rs_qqq_6m": 0.10, **base},
+        ]
+        os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        off = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 1)
+        os.environ["PHASE_LEADER_GATE_ENABLED"] = "1"
+        on = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 1)
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+        if old_env is None:
+            os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        else:
+            os.environ["PHASE_LEADER_GATE_ENABLED"] = old_env
+
+    assert off["ticker"].astype(str).tolist() == ["ETR"], "leader gate default OFF should preserve old score ranking"
+    assert on["ticker"].astype(str).tolist() == ["WDC"], "leader gate ON should reject lagging ETR fixture"
+    row = on.iloc[0]
+    assert row.get("leader_tier") == "DUAL_LEADER"
+    assert bool(row.get("concentrated_leader_gate_pass", False))
+
+
+@_test("logic.concentrated_cycle_recovery_requires_leadership_when_enabled")
+def test_concentrated_cycle_recovery_requires_leadership_when_enabled() -> None:
+    """Cycle recovery boost stays opt-in masked, preserving true cyclical leaders."""
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    cfg.portfolio_defensive_rotation_enabled = False
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    old_env = os.environ.get("PHASE_CYCLE_LEADERSHIP_MASK_ENABLED")
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "entry_quality_score": 0.8,
+            "cycle_recovery_score": 1.0,
+        }
+        rows = [
+            {"ticker": "DUK", "score": 10.0, "rs_spy_3m": -0.04, "rs_qqq_3m": -0.07, "rs_spy_6m": -0.02, "rs_qqq_6m": -0.04, **base},
+            {"ticker": "AMKR", "score": 10.0, "rs_spy_3m": 0.04, "rs_qqq_3m": 0.03, "rs_spy_6m": 0.06, "rs_qqq_6m": 0.05, **base},
+        ]
+        os.environ["PHASE_CYCLE_LEADERSHIP_MASK_ENABLED"] = "1"
+        scored = pipe.prepare_concentrated_frame(cfg, pd.DataFrame(rows)).set_index("ticker")
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+        if old_env is None:
+            os.environ.pop("PHASE_CYCLE_LEADERSHIP_MASK_ENABLED", None)
+        else:
+            os.environ["PHASE_CYCLE_LEADERSHIP_MASK_ENABLED"] = old_env
+
+    assert bool(scored.loc["AMKR", "cycle_leadership_mask_pass"])
+    assert not bool(scored.loc["DUK", "cycle_leadership_mask_pass"])
+    assert float(scored.loc["AMKR", "cycle_recovery_score_leader_masked"]) == 1.0
+    assert float(scored.loc["DUK", "cycle_recovery_score_leader_masked"]) == 0.0
+
+
+@_test("logic.alphaops_vnext_concentrated_leader_gate_blocks_nonleaders")
+def test_alphaops_vnext_concentrated_leader_gate_blocks_nonleaders() -> None:
+    """AlphaOps vNext concentrated leader gate also covers top7/emerging bypass lanes."""
+    if _args.quick:
+        return
+    import pandas as pd
+    from tools import run_alphaops_vnext_policy_replay as vnext
+
+    old_env = os.environ.get("PHASE_LEADER_GATE_ENABLED")
+    try:
+        frame = pd.DataFrame(
+            [
+                {"ticker": "ETR", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "LAGGING"},
+                {"ticker": "WDC", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "DUAL_LEADER"},
+                {"ticker": "MU", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "DUAL_LEADER"},
+                {"ticker": "LITE", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "DUAL_LEADER"},
+            ]
+        )
+        os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        off_frame = vnext.apply_concentrated_leader_gate_annotations(frame, "concentrated", 5)
+        rec_off = off_frame[off_frame["ticker"].eq("ETR")].iloc[0].to_dict()
+        ok_off, reason_off = vnext.allowed_candidate(rec_off, "concentrated", 0, is_new_buy=True)
+        os.environ["PHASE_LEADER_GATE_ENABLED"] = "1"
+        on_frame = vnext.apply_concentrated_leader_gate_annotations(frame, "concentrated", 5)
+        rec_on = on_frame[on_frame["ticker"].eq("ETR")].iloc[0].to_dict()
+        ok_on, reason_on = vnext.allowed_candidate(rec_on, "concentrated", 0, is_new_buy=True)
+        rec_dual = on_frame[on_frame["ticker"].eq("WDC")].iloc[0].to_dict()
+        ok_dual, reason_dual = vnext.allowed_candidate(rec_dual, "concentrated", 0, is_new_buy=True)
+    finally:
+        if old_env is None:
+            os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        else:
+            os.environ["PHASE_LEADER_GATE_ENABLED"] = old_env
+
+    assert ok_off, f"default OFF should preserve existing top7/emerging bypass path: {reason_off}"
+    assert not ok_on and "concentrated_leader_gate" in reason_on
+    assert ok_dual, f"DUAL_LEADER should pass the opt-in vNext leader gate: {reason_dual}"
+
+
+@_test("logic.alphaops_vnext_cycle_mask_recomputes_primary_lane")
+def test_alphaops_vnext_cycle_mask_recomputes_primary_lane() -> None:
+    """AlphaOps vNext cycle mask removes nonleader cyclical lane wins without touching true leaders."""
+    if _args.quick:
+        return
+    import pandas as pd
+    from tools import run_alphaops_vnext_policy_replay as vnext
+
+    frame = pd.DataFrame(
+        [
+            {
+                "ticker": "DUK",
+                "quality_compounder_lane_score": 0.0,
+                "market_leader_lane_score": 0.10,
+                "emerging_tenbagger_lane_score": 0.0,
+                "top7_manager_discovery_lane_score": 0.0,
+                "cyclical_recovery_lane_score": 1.0,
+                "crisis_beneficiary_lane_score": 0.0,
+                "top7_support_boost": 0.0,
+                "top7_standalone_blocked": False,
+                "rs_spy_3m": -0.04,
+                "rs_qqq_3m": -0.06,
+                "rs_spy_6m": -0.02,
+                "rs_qqq_6m": -0.03,
+            },
+            {
+                "ticker": "AMKR",
+                "quality_compounder_lane_score": 0.0,
+                "market_leader_lane_score": 0.10,
+                "emerging_tenbagger_lane_score": 0.0,
+                "top7_manager_discovery_lane_score": 0.0,
+                "cyclical_recovery_lane_score": 1.0,
+                "crisis_beneficiary_lane_score": 0.0,
+                "top7_support_boost": 0.0,
+                "top7_standalone_blocked": False,
+                "rs_spy_3m": 0.04,
+                "rs_qqq_3m": 0.03,
+                "rs_spy_6m": 0.05,
+                "rs_qqq_6m": 0.05,
+            },
+        ]
+    ).set_index("ticker", drop=False)
+    out = vnext.apply_cycle_leadership_mask_to_lanes(frame)
+
+    assert not bool(out.loc["DUK", "cycle_leadership_mask_pass"])
+    assert bool(out.loc["AMKR", "cycle_leadership_mask_pass"])
+    assert float(out.loc["DUK", "cyclical_recovery_lane_score_leader_masked"]) == 0.0
+    assert float(out.loc["AMKR", "cyclical_recovery_lane_score_leader_masked"]) == 1.0
+    assert out.loc["DUK", "primary_lane"] != "CYCLICAL_RECOVERY"
+    assert out.loc["AMKR", "primary_lane"] == "CYCLICAL_RECOVERY"
 
 
 @_test("regression.phase9_c3_gate_wired_in_early_scout")
