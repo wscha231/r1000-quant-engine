@@ -480,6 +480,33 @@ def test_portfolio_system_guard_blocks_concentrated_overconcentration() -> None:
         assert row["severity"] == "ok"
 
 
+def test_portfolio_system_guard_sector_fallback_group_cap_is_warn_only() -> None:
+    with TestWorkspace("portfolio_system_guard_sector_fallback") as tmp:
+        latest = tmp / "latest"
+        # No industry_group column: grouping falls back to sector, which is a
+        # broader bucket. Crossing 60% there must warn, never hard-error.
+        rows = [
+            {"rebalance_date": "2026-06-05", "ticker": "AAA", "weight": 0.40, "sector": "Information Technology"},
+            {"rebalance_date": "2026-06-05", "ticker": "BBB", "weight": 0.30, "sector": "Information Technology"},
+            {"rebalance_date": "2026-06-05", "ticker": "CCC", "weight": 0.30, "sector": "Energy"},
+        ]
+        write_csv(latest / "reports" / "operating_concentrated_target_book.csv", rows)
+        checks = target_structure_checks(latest)
+        row = next(r for r in checks if r["check"] == "concentrated_concentration_contract")
+        assert row["passed"] is False
+        assert row["severity"] == "warn"
+        assert "concentrated_group_weight_gt_60pct_sector_fallback" in row["detail"]
+        assert "group_source=sector" in row["detail"]
+        # Same weights with a real industry_group column -> hard error.
+        for r in rows:
+            r["industry_group"] = "Semiconductors & Semiconductor Equipment" if r["sector"] == "Information Technology" else "Energy"
+        write_csv(latest / "reports" / "operating_concentrated_target_book.csv", rows)
+        checks = target_structure_checks(latest)
+        row = next(r for r in checks if r["check"] == "concentrated_concentration_contract")
+        assert row["severity"] == "error"
+        assert "concentrated_industry_group_weight_gt_60pct" in row["detail"]
+
+
 if __name__ == "__main__":
     test_portfolio_system_guard_reports_target_gaps()
     test_portfolio_system_guard_blocks_stale_historical_broker_replay()
@@ -487,4 +514,5 @@ if __name__ == "__main__":
     test_portfolio_system_guard_blocks_high_cash_broad_main_books()
     test_portfolio_system_guard_downgrades_preexisting_shape_violations()
     test_portfolio_system_guard_blocks_concentrated_overconcentration()
+    test_portfolio_system_guard_sector_fallback_group_cap_is_warn_only()
     print("portfolio_system_guard_smoke: ok")

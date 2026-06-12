@@ -160,9 +160,18 @@ def target_book_shape(path: Path, portfolio: str) -> dict[str, Any]:
         for row in stock_rows
     }
     max_stock_ticker = max(stock_weights, key=stock_weights.get) if stock_weights else ""
+    # Group strictly by industry_group when the column is populated. Falling
+    # back to industry/sector changes the cap's meaning (a sector is much
+    # broader than an industry group), so the fallback is tracked separately
+    # and only produces a diagnostic warning, never a hard error.
+    group_source = ""
+    for candidate in ("industry_group", "industry", "sector"):
+        if any(str(row.get(candidate) or "").strip() for row in stock_rows):
+            group_source = candidate
+            break
     industry_group_weights: dict[str, float] = {}
     for row in stock_rows:
-        group = str(row.get("industry_group") or row.get("industry") or row.get("sector") or "").strip()
+        group = str(row.get(group_source) or "").strip() if group_source else ""
         if group:
             industry_group_weights[group] = industry_group_weights.get(group, 0.0) + safe_float(
                 row.get("weight") or row.get("target_weight")
@@ -186,6 +195,7 @@ def target_book_shape(path: Path, portfolio: str) -> dict[str, Any]:
         "max_stock_weight_ticker": max_stock_ticker,
         "max_industry_group_weight": industry_group_weights.get(max_industry_group, 0.0),
         "max_industry_group": max_industry_group,
+        "industry_group_source": group_source,
         "crisis_state": crisis_state,
     }
 
@@ -219,8 +229,19 @@ def shape_violations(shape: dict[str, Any]) -> list[str]:
         if safe_float(shape.get("max_stock_weight")) > CONCENTRATED_MAX_SINGLE_NAME_WEIGHT + 1e-9:
             violations.append("concentrated_single_name_weight_gt_40pct")
         if safe_float(shape.get("max_industry_group_weight")) > CONCENTRATED_MAX_INDUSTRY_GROUP_WEIGHT + 1e-9:
-            violations.append("concentrated_industry_group_weight_gt_60pct")
+            if shape.get("industry_group_source") == "industry_group":
+                violations.append("concentrated_industry_group_weight_gt_60pct")
+            else:
+                # industry/sector are broader buckets than an industry group;
+                # crossing 60% there is a data-quality + concentration signal,
+                # not proof the book violates the intended cap.
+                violations.append("concentrated_group_weight_gt_60pct_sector_fallback")
     return violations
+
+
+# Violations that never hard-fail on their own: they flag a condition measured
+# on fallback data and need a human look, not a PR block.
+WARN_ONLY_VIOLATIONS = {"concentrated_group_weight_gt_60pct_sector_fallback"}
 
 
 def structure_check_row(check_name: str, shape: dict[str, Any], baseline_book: Path | None) -> dict[str, Any] | None:
@@ -236,10 +257,11 @@ def structure_check_row(check_name: str, shape: dict[str, Any], baseline_book: P
     # Violations inherited unchanged from the baseline book stay visible but do
     # not hard-fail PR-cadence runs: the PR did not introduce them, and failing
     # every unrelated PR until the production book changes only trains people
-    # to override the guard.
-    if new_violations:
+    # to override the guard. Warn-only violations (sector-fallback grouping)
+    # never escalate to error regardless of baseline.
+    if [v for v in new_violations if v not in WARN_ONLY_VIOLATIONS]:
         severity = "error"
-    elif preexisting:
+    elif violations:
         severity = "warn"
     else:
         severity = "ok"
@@ -252,7 +274,8 @@ def structure_check_row(check_name: str, shape: dict[str, Any], baseline_book: P
     else:
         shape_detail = (
             f"max_name={shape.get('max_stock_weight_ticker')}@{safe_float(shape.get('max_stock_weight')):.2%}; "
-            f"max_industry_group={shape.get('max_industry_group')}@{safe_float(shape.get('max_industry_group_weight')):.2%}"
+            f"max_industry_group={shape.get('max_industry_group')}@{safe_float(shape.get('max_industry_group_weight')):.2%}; "
+            f"group_source={shape.get('industry_group_source') or 'none'}"
         )
     return {
         "check": check_name,

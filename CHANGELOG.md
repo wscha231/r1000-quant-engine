@@ -5,6 +5,24 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-12
 
+### 09:06 KST - guard-review-fixups-and-leader-gate-merge
+
+- scope: Apply the three follow-ups from the Codex review of `be53d180` and complete the merge of Codex leader-gate work so the branch carries both sides' latest.
+- files:
+  - merge `969cf4bd` (`bb82483a` concentrated leader-gated selection hooks + `969cf4bd` leader gate wiring into the AlphaOps vNext builder) into `claude/analyze-updated-code-OfEbu`; clean merge, no conflicts.
+  - `.github/workflows/portfolio_system_guard.yml` ->baseline fetch hardened: explicit refspec `git fetch origin <base_ref>:refs/remotes/origin/<base_ref>` with `FETCH_HEAD` fallback for `git show`, so shallow CI checkouts cannot silently skip the baseline book and lose the inherited-violation downgrade.
+  - `tools/run_portfolio_system_guard.py` ->concentrated group cap split by grouping source: `industry_group` column drives the hard-error `concentrated_industry_group_weight_gt_60pct`; books where grouping falls back to `industry`/`sector` emit `concentrated_group_weight_gt_60pct_sector_fallback`, which is warn-only (sector is a much broader bucket than an industry group, so crossing 60% there is a data-quality signal, not proof of cap violation). Shape payload and check detail now carry `industry_group_source`/`group_source`.
+  - `tests/portfolio_system_guard_smoke.py` ->new test: sector-fallback grouping warns, identical weights with a real `industry_group` column hard-error.
+- symbols_added: `WARN_ONLY_VIOLATIONS`, `test_portfolio_system_guard_sector_fallback_group_cap_is_warn_only`
+- symbols_changed: `target_book_shape` (single grouping source selected by priority, emitted as `industry_group_source`), `shape_violations` (fallback violation name), `structure_check_row` (warn-only violations never escalate to error; detail adds `group_source`)
+- config_fields_added: none
+- breaking_changes: none
+- validation:
+  - `python tools/run_pr_validation.py` ->76/77 PASS locally; only failure remains `tests/sec_13f_cusip_mapping_smoke.py` (sandbox 403 on sec.gov, unrelated).
+  - Real artifact re-check: latest committed books still pass both contracts (`group_source=industry_group`, max group `48.01%`).
+- next_action:
+  - Leave-k-out broker replay sweep on the 27350855795 main book (unchanged from previous entry).
+
 ### 08:25 KST - guard-pr-cadence-contracts-and-concentration-caps
 
 - scope: Fix the two operational flags from `docs/CODEX_FOLLOWUP_REVIEW_385634f1.md` (F1: strict-targets-on-PR fails every PR while aspirational goals are unmet or shape violations are inherited; section 4.1: no concentrated single-name/sector cap), plus the C6 honest rename. Branch merges `codex/alphaops-integrated-replay` @ `385634f1` first so fixes land on top of the guard ladder.

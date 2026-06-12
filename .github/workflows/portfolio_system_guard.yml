@@ -77,10 +77,17 @@ jobs:
           # cannot fail unrelated PRs; only violations the PR introduces fail.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             ARGS="$ARGS --enforce-contracts"
-            git fetch origin "${{ github.base_ref }}" --depth=1 || true
+            # Explicit refspec: a bare `git fetch origin <branch>` may only
+            # update FETCH_HEAD without creating the origin/<branch> tracking
+            # ref on shallow CI checkouts, silently skipping the baseline and
+            # losing the inherited-violation downgrade. FETCH_HEAD fallback
+            # covers remotes where the refspec form is rejected.
+            git fetch origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" --depth=1 \
+              || git fetch origin "${{ github.base_ref }}" --depth=1 || true
             for KIND in main concentrated; do
               BOOK="cloud_results/full_rebuild/latest_global_alpha_universe/reports/operating_${KIND}_target_book.csv"
-              if git show "origin/${{ github.base_ref }}:$BOOK" > "/tmp/baseline_${KIND}_target_book.csv" 2>/dev/null; then
+              if git show "origin/${{ github.base_ref }}:$BOOK" > "/tmp/baseline_${KIND}_target_book.csv" 2>/dev/null \
+                || git show "FETCH_HEAD:$BOOK" > "/tmp/baseline_${KIND}_target_book.csv" 2>/dev/null; then
                 ARGS="$ARGS --baseline-${KIND}-target-book /tmp/baseline_${KIND}_target_book.csv"
               fi
             done
