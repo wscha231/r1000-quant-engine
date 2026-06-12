@@ -5,6 +5,21 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-12
 
+### 22:05 KST - runner-disk-cleanup-prevents-collector-enospc
+
+- scope: Full Rebuild run `27426321227` failed with `OSError: [Errno 28] No space left on device` at `r1000_pipeline.py:7207` (`panel.to_parquet(latest_path)` inside `load_or_update_fund_panel`). Not a code regression: `ubuntu-latest` ships ~14 GB free, and a cold-cache collector loads SEC companyfacts (~1.3 GB), the FSDS history (~60 quarterly zips that accumulate to several GB under `cache_fsds/`), and a 1118-ticker price cache simultaneously, then parquet buffers on top of that. Pre-installed Android/.NET/Haskell/CodeQL toolchains consume ~30 GB that this pipeline never uses.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->prepend a "Free disk space on runner" step before Checkout that removes `/usr/share/dotnet`, `/usr/local/lib/android`, `/opt/ghc`, `/usr/local/share/boost`, `/opt/hostedtoolcache/CodeQL`, `/usr/local/share/powershell`, `/usr/share/swift`, `/usr/local/.ghcup`, and the Ruby/PyPy tool-cache dirs, prunes Docker images, and runs `apt-get clean`. Prints `df -h` before/after for the next failure investigation.
+- symbols_added: none
+- symbols_changed: none
+- config_fields_added: none
+- breaking_changes: none
+- validation:
+  - YAML parses; `python tests/smoke_test.py --quick` ->32/32 PASS.
+  - Failure evidence: `/tmp/r1000_logs/full_rebuild/11_Run FULL rebuild.txt` (uploaded by user) shows the traceback ending at `OSError: [Errno 28] ... No space left on device`. Operating-minimal artifact's `scored_latest.csv` (741 rows, `rebalance_date=2026-06-10`) is the engine-cache restore of the prior green run, not new output. The new `latest_month_mktcap_coverage` guard from `0b1c60c1` was not reached — the collapse class it fixes is still latent and that fix stays in.
+- next_action:
+  - Re-dispatch `full_rebuild_manual.yml` on `claude/analyze-updated-code-OfEbu` with the same settings; the cleanup step adds ~30 GB headroom so the cold-cache run can complete the fund_panel parquet write.
+
 ### 18:40 KST - latest-month-mktcap-starvation-guard
 
 - scope: Prevent the INVALID_UNIVERSE collapse class seen in Full Rebuild run `27337807588` (2026-06-11, cancelled). That cold-cache run joined SEC shares for historical months but left the latest snapshot ~98% NaN mktcap (`failed_mktcap: 1100/1118` in leader drop diagnostics), so the existing overall-coverage fallback (fires below 30% across all months) never triggered and the scored universe collapsed to 4 names. Required hardening before dispatching the next official full rebuild on `claude/analyze-updated-code-OfEbu`.
