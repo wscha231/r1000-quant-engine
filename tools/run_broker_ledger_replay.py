@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -401,25 +402,76 @@ def execute_order(
     }
 
 
-def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capital: float) -> dict[str, Any]:
+def calc_metrics(
+    equity_curve: pd.DataFrame,
+    trades: pd.DataFrame,
+    starting_capital: float,
+    *,
+    date_range: tuple[str, str] | tuple[str, None] | None = None,
+    label: str = "full",
+) -> dict[str, Any]:
     if equity_curve.empty:
-        return {"status": "blocked", "reason": "empty equity curve"}
-    eq = pd.to_numeric(equity_curve["equity_usd"], errors="coerce").dropna()
-    dates = pd.to_datetime(equity_curve["date"], errors="coerce").dropna()
+        return {"status": "blocked", "reason": "empty equity curve", "label": label}
+    eq_series = pd.to_numeric(equity_curve["equity_usd"], errors="coerce")
+    date_series = pd.to_datetime(equity_curve["date"], errors="coerce")
+    frame = pd.DataFrame({"date": date_series, "eq": eq_series}).dropna()
+    trades_frame = trades.copy()
+    if not trades_frame.empty and "date" in trades_frame.columns:
+        trades_frame = trades_frame.assign(date=pd.to_datetime(trades_frame["date"], errors="coerce"))
+    # Date-range slice. For non-full windows, anchor starting_capital to the
+    # equity value at the first in-range row so CAGR/total_return reflect the
+    # subwindow, not the original $100k.
+    if date_range is not None:
+        lo_raw, hi_raw = date_range
+        lo = pd.to_datetime(lo_raw, errors="coerce") if lo_raw else None
+        hi = pd.to_datetime(hi_raw, errors="coerce") if hi_raw else None
+        if lo is not None:
+            frame = frame[frame["date"] >= lo]
+        if hi is not None:
+            frame = frame[frame["date"] <= hi]
+        if frame.empty:
+            return {
+                "status": "blocked",
+                "reason": f"empty equity curve for date_range={date_range}",
+                "label": label,
+                "date_range": [str(lo_raw) if lo_raw else None, str(hi_raw) if hi_raw else None],
+            }
+        starting_capital = float(frame["eq"].iloc[0])
+        if not trades_frame.empty and "date" in trades_frame.columns:
+            if lo is not None:
+                trades_frame = trades_frame[trades_frame["date"] >= lo]
+            if hi is not None:
+                trades_frame = trades_frame[trades_frame["date"] <= hi]
+    eq = frame["eq"].reset_index(drop=True)
+    dates = frame["date"].reset_index(drop=True)
     if eq.empty or dates.empty:
-        return {"status": "blocked", "reason": "empty equity values"}
+        return {"status": "blocked", "reason": "empty equity values", "label": label}
     returns = eq.pct_change().dropna()
     years = max((dates.max() - dates.min()).days / 365.25, len(returns) / 252.0, 1e-6)
     cagr = float((eq.iloc[-1] / max(starting_capital, 1e-12)) ** (1.0 / years) - 1.0)
     drawdown = eq / eq.cummax() - 1.0
-    trough_pos = int(drawdown.argmin()) if not drawdown.empty else 0
-    peak_pos = int(eq.iloc[: trough_pos + 1].argmax()) if not eq.empty else 0
+    trough_pos = int(drawdown.values.argmin()) if not drawdown.empty else 0
+    peak_pos = int(eq.iloc[: trough_pos + 1].values.argmax()) if not eq.empty else 0
     vol = float(returns.std(ddof=0) * math.sqrt(252.0)) if not returns.empty else 0.0
     sharpe = float((returns.mean() * 252.0) / (vol + 1e-12)) if not returns.empty else 0.0
-    fees = float(pd.to_numeric(trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades.empty else 0.0
-    gross_traded = float(pd.to_numeric(trades.get("gross_value", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades.empty else 0.0
+    fees = float(pd.to_numeric(trades_frame.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades_frame.empty else 0.0
+    gross_traded = float(pd.to_numeric(trades_frame.get("gross_value", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades_frame.empty else 0.0
+    cash_weight_series = pd.to_numeric(equity_curve.get("cash_weight", pd.Series(dtype=float)), errors="coerce")
+    cash_usd_series = pd.to_numeric(equity_curve.get("cash_usd", pd.Series(dtype=float)), errors="coerce")
+    if date_range is not None and not equity_curve.empty:
+        eq_dates = pd.to_datetime(equity_curve.get("date"), errors="coerce")
+        in_range = pd.Series(True, index=equity_curve.index)
+        if date_range[0]:
+            in_range &= eq_dates >= pd.to_datetime(date_range[0], errors="coerce")
+        if date_range[1]:
+            in_range &= eq_dates <= pd.to_datetime(date_range[1], errors="coerce")
+        cash_weight_series = cash_weight_series[in_range]
+        cash_usd_series = cash_usd_series[in_range]
     return {
         "status": "completed",
+        "label": label,
+        "date_range": [str(date_range[0]) if date_range and date_range[0] else None,
+                       str(date_range[1]) if date_range and date_range[1] else None] if date_range else None,
         "metric_mode": "broker_ledger_next_close" if str(equity_curve.get("fill_mode", pd.Series([""])).iloc[0]) == "next_close" else "broker_ledger",
         "start_date": dates.min().date().isoformat(),
         "end_date": dates.max().date().isoformat(),
@@ -435,11 +487,64 @@ def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capi
         "max_dd_trough_date": dates.iloc[trough_pos].date().isoformat() if len(dates) else None,
         "max_dd_peak_equity_usd": float(eq.iloc[peak_pos]) if len(eq) else None,
         "max_dd_trough_equity_usd": float(eq.iloc[trough_pos]) if len(eq) else None,
-        "avg_cash_weight": float(pd.to_numeric(equity_curve.get("cash_weight", pd.Series(dtype=float)), errors="coerce").mean()),
-        "min_cash_usd": float(pd.to_numeric(equity_curve.get("cash_usd", pd.Series(dtype=float)), errors="coerce").min()),
-        "trade_count": int(len(trades)),
+        "avg_cash_weight": float(cash_weight_series.mean()) if not cash_weight_series.empty else 0.0,
+        "min_cash_usd": float(cash_usd_series.min()) if not cash_usd_series.empty else 0.0,
+        "trade_count": int(len(trades_frame)),
         "total_fees_usd": fees,
         "gross_traded_usd": gross_traded,
+    }
+
+
+# Stage 0 OOS lock — default windows. R1000_OOS_START / R1000_OOS2_START env
+# overrides apply when the CLI flag is omitted.
+DEFAULT_OOS_START = "2024-07-01"
+DEFAULT_OOS2_START = "2023-01-01"
+
+
+def calc_metrics_with_oos(
+    equity_curve: pd.DataFrame,
+    trades: pd.DataFrame,
+    starting_capital: float,
+    *,
+    oos_start: str | None = None,
+    oos_end: str | None = None,
+    oos2_start: str | None = None,
+    oos2_end: str | None = None,
+) -> dict[str, Any]:
+    """Compute metrics over the full window plus IS/OOS slices.
+
+    IS ends one day before oos_start; OOS runs oos_start..oos_end (or to the
+    final equity_curve date). A second OOS window (oos2) is computed when
+    oos2_start is given; it overlaps OOS by design (longer-horizon sanity).
+    """
+    full = calc_metrics(equity_curve, trades, starting_capital, label="full")
+    splits: dict[str, dict[str, Any]] = {"full": full}
+    if oos_start:
+        oos_lo = pd.to_datetime(oos_start, errors="coerce")
+        if pd.notna(oos_lo):
+            is_hi = (oos_lo - pd.Timedelta(days=1)).date().isoformat()
+            splits["is"] = calc_metrics(
+                equity_curve, trades, starting_capital,
+                date_range=(None, is_hi), label="is",
+            )
+            splits["oos"] = calc_metrics(
+                equity_curve, trades, starting_capital,
+                date_range=(oos_start, oos_end), label="oos",
+            )
+    if oos2_start:
+        splits["oos2"] = calc_metrics(
+            equity_curve, trades, starting_capital,
+            date_range=(oos2_start, oos2_end), label="oos2",
+        )
+    return {
+        "full": splits.get("full", {}),
+        "is": splits.get("is"),
+        "oos": splits.get("oos"),
+        "oos2": splits.get("oos2"),
+        "oos_start": oos_start,
+        "oos_end": oos_end,
+        "oos2_start": oos2_start,
+        "oos2_end": oos2_end,
     }
 
 
@@ -520,6 +625,10 @@ def replay(
     max_fill_lag_days: int = 7,
     concentrated_champion_filters: dict[str, Any] | None = None,
     disable_concentrated_champion_filter: bool = False,
+    oos_start: str | None = None,
+    oos_end: str | None = None,
+    oos2_start: str | None = None,
+    oos2_end: str | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
@@ -720,6 +829,17 @@ def replay(
     cash_df = pd.DataFrame(cash_rows)
     target_vs_actual_df = pd.DataFrame(target_vs_actual_rows)
     metrics = calc_metrics(equity_df, trades_df, starting_capital)
+    # Stage 0 OOS lock — IS/OOS slices computed alongside the full-window
+    # metrics. Top-level fields are preserved so existing consumers
+    # (portfolio_system_guard, run_local.py verdict) keep working; the windows
+    # live under metrics["windows"].
+    if oos_start or oos2_start:
+        windows = calc_metrics_with_oos(
+            equity_df, trades_df, starting_capital,
+            oos_start=oos_start, oos_end=oos_end,
+            oos2_start=oos2_start, oos2_end=oos2_end,
+        )
+        metrics["windows"] = windows
     metrics.update(
         {
             "portfolio_kind": portfolio_kind,
@@ -819,7 +939,27 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Replay the target book exactly as written (no champion-policy coercion). For research books built with their own N/weighting policy.",
     )
+    # Stage 0 OOS lock — empty string disables; env R1000_OOS_START / R1000_OOS2_START
+    # supply the default when the flag is absent. Pass "" to opt out entirely.
+    parser.add_argument(
+        "--oos-start",
+        default=None,
+        help="ISO date; primary OOS window start. Empty string disables. Env R1000_OOS_START supplies the default.",
+    )
+    parser.add_argument("--oos-end", default=None, help="ISO date; primary OOS window end (optional).")
+    parser.add_argument(
+        "--oos2-start",
+        default=None,
+        help="ISO date; secondary OOS window start (longer-horizon sanity). Empty string disables. Env R1000_OOS2_START supplies the default.",
+    )
+    parser.add_argument("--oos2-end", default=None, help="ISO date; secondary OOS window end (optional).")
     return parser.parse_args()
+
+
+def _resolve_oos(flag: str | None, env_name: str, default: str) -> str | None:
+    if flag is None:
+        return os.environ.get(env_name, default) or None
+    return flag or None
 
 
 def main() -> int:
@@ -835,6 +975,8 @@ def main() -> int:
     }
     if args.disable_concentrated_champion_filter:
         explicit_filters = DISABLE_CONCENTRATED_CHAMPION_FILTERS.copy()
+    oos_start = _resolve_oos(args.oos_start, "R1000_OOS_START", DEFAULT_OOS_START)
+    oos2_start = _resolve_oos(args.oos2_start, "R1000_OOS2_START", DEFAULT_OOS2_START)
     payload = replay(
         target_book=repo_path(args.target_book),
         price_cache=repo_path(args.price_cache),
@@ -848,6 +990,10 @@ def main() -> int:
         max_fill_lag_days=args.max_fill_lag_days,
         disable_concentrated_champion_filter=bool(args.disable_concentrated_champion_filter),
         concentrated_champion_filters=explicit_filters if explicit_filters else None,
+        oos_start=oos_start,
+        oos_end=args.oos_end or None,
+        oos2_start=oos2_start,
+        oos2_end=args.oos2_end or None,
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2

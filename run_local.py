@@ -112,6 +112,18 @@ BROKER_TARGET_GATES = {
     "concentrated": {"cagr": 0.45, "max_dd": -0.25},
 }
 
+# Stage 0 OOS lock — strict thresholds (user decision 2026-06-12):
+#   OOS CAGR >= max(IS_CAGR * 0.40, 0.05) AND OOS MaxDD >= IS_MaxDD - 0.05
+# Two OOS windows are evaluated when present (windows.oos and windows.oos2);
+# both must pass. The gate is informational when the IS/OOS slices are
+# absent from metrics.json (older artifacts predate the OOS lock).
+BROKER_OOS_GATE = {
+    "oos_cagr_floor": 0.05,
+    "oos_cagr_is_ratio_min": 0.40,
+    "oos_max_dd_relax_pp": 0.05,
+    "require_windows": ("oos", "oos2"),
+}
+
 BROKER_BASELINE = {
     "name": "latest full rebuild broker-ledger baseline (run 27088007617)",
     "run_id": 27088007617,
@@ -454,6 +466,45 @@ def metric_mode_is_official(metrics: dict) -> bool:
     return str(metrics.get("metric_mode") or metrics.get("official_metric_mode") or "") == "broker_ledger_next_close"
 
 
+def _eval_oos_window(window: dict | None, is_window: dict | None) -> dict:
+    """Evaluate one OOS window against the IS slice (or fall back to absolute floor).
+
+    Returns dict {present, cagr, max_dd, cagr_pass, max_dd_pass, pass, reason}.
+    `present=False` means the slice was absent from metrics.json (older artifact);
+    callers treat that as informational, not blocking.
+    """
+    if not isinstance(window, dict) or window.get("status") != "completed":
+        return {"present": False, "reason": "window_missing_or_blocked"}
+    oos_cagr = safe_float(window.get("cagr"))
+    oos_dd = safe_float(window.get("max_dd"))
+    is_cagr = safe_float((is_window or {}).get("cagr"))
+    is_dd = safe_float((is_window or {}).get("max_dd"))
+    if is_cagr is None:
+        # No IS slice -> compare to the absolute floor only.
+        floor = BROKER_OOS_GATE["oos_cagr_floor"]
+        cagr_pass = oos_cagr is not None and oos_cagr >= floor
+        dd_pass = oos_dd is not None and oos_dd >= -0.30
+    else:
+        floor = max(
+            BROKER_OOS_GATE["oos_cagr_floor"],
+            is_cagr * BROKER_OOS_GATE["oos_cagr_is_ratio_min"],
+        )
+        cagr_pass = oos_cagr is not None and oos_cagr >= floor
+        dd_floor = (is_dd if is_dd is not None else -0.25) - BROKER_OOS_GATE["oos_max_dd_relax_pp"]
+        dd_pass = oos_dd is not None and oos_dd >= dd_floor
+    return {
+        "present": True,
+        "cagr": oos_cagr,
+        "max_dd": oos_dd,
+        "is_cagr": is_cagr,
+        "is_max_dd": is_dd,
+        "cagr_floor": floor,
+        "cagr_pass": bool(cagr_pass),
+        "max_dd_pass": bool(dd_pass),
+        "pass": bool(cagr_pass and dd_pass),
+    }
+
+
 def print_broker_verdict(base_dir: Path) -> int:
     """Print broker-ledger official verdict. Returns non-zero when official metrics are unusable."""
 
@@ -511,7 +562,16 @@ def print_broker_verdict(base_dir: Path) -> int:
         dd_pass = max_dd >= gate["max_dd"]
         d_cagr = (cagr - baseline["cagr"]) * 100.0
         d_dd = (max_dd - baseline["max_dd"]) * 100.0
-        target_pass = cagr_pass and dd_pass
+        # Stage 0 OOS lock — informational when both windows absent (older
+        # artifacts), gating when at least one is present. Promotion requires
+        # all present windows to pass.
+        windows = metrics.get("windows") or {}
+        oos_eval = _eval_oos_window(windows.get("oos"), windows.get("is"))
+        oos2_eval = _eval_oos_window(windows.get("oos2"), windows.get("is"))
+        present_evals = [e for e in (oos_eval, oos2_eval) if e.get("present")]
+        oos_target_pass = all(e.get("pass") for e in present_evals) if present_evals else True
+        oos_informational_only = not present_evals
+        target_pass = cagr_pass and dd_pass and oos_target_pass
         verdicts[portfolio] = "SHIP" if target_pass else ("PARTIAL" if cagr_pass or dd_pass else "REJECT")
         print(f"\n[{portfolio}] {verdicts[portfolio]}")
         print(f"  cagr   {cagr:.4f}  target >= {gate['cagr']:.4f}  pass={str(cagr_pass).lower()}")
@@ -521,6 +581,18 @@ def print_broker_verdict(base_dir: Path) -> int:
         if cash is not None:
             print(f"  avg_cash_weight {cash:.4f}")
         print(f"  vs {BROKER_BASELINE['name']}: dCAGR {d_cagr:+.2f}pp, dMaxDD {d_dd:+.2f}pp")
+        if oos_informational_only:
+            print("  OOS  -- absent (legacy artifact); rerun replay with --oos-start to enforce Stage 0 OOS lock.")
+        else:
+            for label, ev in (("oos", oos_eval), ("oos2", oos2_eval)):
+                if not ev.get("present"):
+                    print(f"  {label.upper():4s} -- not computed for this window")
+                    continue
+                print(
+                    f"  {label.upper():4s} cagr {ev['cagr']:.4f} >= floor {ev['cagr_floor']:.4f} "
+                    f"pass={str(ev['cagr_pass']).lower()} | max_dd {ev['max_dd']:.4f} "
+                    f"pass={str(ev['max_dd_pass']).lower()}"
+                )
 
     print("\n=== OVERALL VERDICT ===")
     if any(v == "DO_NOT_USE" for v in verdicts.values()):

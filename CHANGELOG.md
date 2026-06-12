@@ -5,6 +5,28 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-12
 
+### 13:44 KST - stage0-oos-lock
+
+- scope: Stage 0 of the early-detection plan (`/root/.claude/plans/elegant-sniffing-dragon.md`). Add an IS/OOS time split to broker-ledger metrics so repeated verdict retries on the same 8y window cannot silently overfit. Precondition for the B/C/A/D axes that follow.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->`calc_metrics` accepts `date_range`/`label`; re-anchors `starting_capital` to the first in-range equity row so CAGR/total_return reflect the subwindow (not the original $100k). New `calc_metrics_with_oos` wrapper computes full/is/oos/oos2 slices. `replay()` writes `metrics["windows"]` when `--oos-start` or `--oos2-start` is set; top-level metrics fields unchanged (back-compat). New CLI: `--oos-start`, `--oos-end`, `--oos2-start`, `--oos2-end`. Empty string disables; env `R1000_OOS_START` / `R1000_OOS2_START` supply defaults. Constants: `DEFAULT_OOS_START="2024-07-01"`, `DEFAULT_OOS2_START="2023-01-01"`.
+  - `run_local.py` ->new `BROKER_OOS_GATE` constant and `_eval_oos_window` helper. `print_broker_verdict` evaluates `metrics["windows"]["oos"]` and `metrics["windows"]["oos2"]` against the IS slice and prints a per-window pass/fail line. When BOTH OOS windows are absent (legacy artifacts), the line is informational and does not block. When AT LEAST ONE is present, all present windows must pass for SHIP — failing windows downgrade the portfolio verdict to PARTIAL even when the absolute CAGR/MDD gates pass.
+  - `tests/oos_lock_smoke.py` ->new; 7 tests covering full-window back-compat, slice re-anchor math, IS/OOS split semantics, empty-window handling, and `''` opt-out via CLI escape hatch.
+  - `tools/run_pr_validation.py` ->registers `tests/oos_lock_smoke.py` (Tier-1).
+- policy:
+  - User decision (2026-06-12): strict OOS thresholds — `OOS CAGR >= max(IS_CAGR * 0.40, 0.05)` AND `OOS MaxDD >= IS_MaxDD - 0.05`; require both `oos` (2024-07-01..) and `oos2` (2023-01-01..) windows to pass. Encoded in `BROKER_OOS_GATE` (oos_cagr_floor=0.05, oos_cagr_is_ratio_min=0.40, oos_max_dd_relax_pp=0.05, require_windows=("oos","oos2")).
+  - Legacy artifacts that lack `windows` are not promoted to OOS-fail; they print an informational note and the verdict only enforces the absolute CAGR/MDD gates. Next full rebuild must invoke replay with `--oos-start 2024-07-01 --oos2-start 2023-01-01` so the windows materialize.
+- symbols_added: `calc_metrics_with_oos`, `DEFAULT_OOS_START`, `DEFAULT_OOS2_START`, `_resolve_oos`, `BROKER_OOS_GATE`, `_eval_oos_window`, `test_full_window_metrics_backcompat`, `test_date_range_slices_and_reanchors_capital`, `test_is_oos_split_via_calc_metrics_with_oos`, `test_oos2_independent_window`, `test_empty_window_returns_blocked`, `test_disabled_with_empty_string`, `test_default_constants`
+- symbols_changed: `calc_metrics` (new keyword-only params `date_range`, `label`; payload gains `label`, `date_range` keys), `replay` (new keyword-only OOS params; `metrics["windows"]` populated when any OOS flag set), `print_broker_verdict` (per-portfolio OOS evaluation; OOS failure downgrades SHIP to PARTIAL)
+- config_fields_added: none in EngineConfig; module-level constants `DEFAULT_OOS_START`, `DEFAULT_OOS2_START`, `BROKER_OOS_GATE`
+- breaking_changes: none. Top-level `metrics.json` fields unchanged; new optional `metrics["windows"]` key.
+- validation:
+  - `python tests/oos_lock_smoke.py` ->all 7 tests pass.
+  - `python tools/run_pr_validation.py` ->77/78 PASS locally; the single failure remains `tests/sec_13f_cusip_mapping_smoke.py` (sandbox 403 on sec.gov, unrelated).
+  - End-to-end on real committed artifact (cloud_results/full_rebuild/latest_global_alpha_universe): legacy artifact (no windows) prints informational OOS note, does not block. Synthetic windows added: clean-pass scenario shows per-window cagr/floor lines pass=true; IS-overfit scenario (IS 40% → OOS 3%) correctly downgrades verdict to PARTIAL despite absolute CAGR/MDD gates passing.
+- next_action:
+  - Stage 1 (B-axis): build `tools/build_sponsorship_onset_signals.py` (fork of `build_top_manager_discovery_signals.py`) per the plan; reuse the OOS lock for the sidecar verdict.
+
 ### 09:06 KST - guard-review-fixups-and-leader-gate-merge
 
 - scope: Apply the three follow-ups from the Codex review of `be53d180` and complete the merge of Codex leader-gate work so the branch carries both sides' latest.
