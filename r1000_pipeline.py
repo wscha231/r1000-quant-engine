@@ -11417,6 +11417,30 @@ def backtest_portfolio(
     ]
     _p6a_recovery_buffer = float(max(safe_float(getattr(cfg, "drawdown_breaker_recovery_buffer", 0.03), 0.03), 0.0))
 
+    # Stage T4: aggressive realized-drawdown crisis breaker (env-gated, default OFF).
+    # User directive: normal cash ~0, raise reliably only in crisis. The
+    # deterministic breaker is the lever (predictive crisis features proved
+    # non-deterministic run-to-run). When on, override the ladder with stronger
+    # cash floors + slower recovery; level 1 stays at a true drawdown so normal
+    # pullbacks do not lock cash.
+    _phase_t4_on = bool(
+        phase_is_enabled("phase_t4_crisis_breaker", default=False)
+        or phase_is_enabled("t4_crisis_breaker", default=False)
+        or bool(getattr(cfg, "phase_t4_crisis_breaker_enabled", False))
+    )
+    if _phase_t4_on and _phase6a_active:
+        _p6a_level_thresholds = [
+            float(max(safe_float(getattr(cfg, "phase_t4_breaker_level_1_threshold", 0.10), 0.10), 1e-6)),
+            float(max(safe_float(getattr(cfg, "phase_t4_breaker_level_2_threshold", 0.18), 0.18), 1e-6)),
+            float(max(safe_float(getattr(cfg, "phase_t4_breaker_level_3_threshold", 0.28), 0.28), 1e-6)),
+        ]
+        _p6a_level_cash = [
+            float(np.clip(safe_float(getattr(cfg, "phase_t4_breaker_level_1_cash_floor", 0.20), 0.20), 0.0, 1.0)),
+            float(np.clip(safe_float(getattr(cfg, "phase_t4_breaker_level_2_cash_floor", 0.45), 0.45), 0.0, 1.0)),
+            float(np.clip(safe_float(getattr(cfg, "phase_t4_breaker_level_3_cash_floor", 0.70), 0.70), 0.0, 1.0)),
+        ]
+        _p6a_recovery_buffer = float(max(safe_float(getattr(cfg, "phase_t4_breaker_recovery_buffer", 0.08), 0.08), 0.0))
+
     # -----------------------------------------------------------------
     # Phase 6c: volatility targeting state (PHASE_ROADMAP §2.6).
     # Default OFF — user must explicitly set

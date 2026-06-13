@@ -2420,6 +2420,27 @@ class EngineConfig:
     drawdown_breaker_level_3_scale: float = 0.40
     drawdown_breaker_recovery_buffer: float = 0.05      # was 0.03 — looser recovery
     # ---------------
+    # Stage T4: aggressive realized-drawdown crisis breaker (env-gated, default OFF)
+    # ---------------
+    # User directive 2026-06-14: "normal-time cash ~0, raise only in crisis."
+    # The cash overlay collapse (run 27466958402: avg_cash 5.94%, MaxDD -33%,
+    # 2022 cash ~0) showed the predictive crisis features go dormant run-to-run,
+    # so the deterministic realized-drawdown breaker is the reliable lever.
+    # When PHASE_T4_CRISIS_BREAKER is on (or this cfg flag), the multi-level
+    # breaker uses stronger floors + slower recovery so genuine drawdowns raise
+    # more cash and hold it longer, WITHOUT lowering level-1 into normal-pullback
+    # noise (level 1 stays at a true -10% portfolio drawdown). Normal-time cash
+    # stays ~0 (the calm-regime caps are already 0.0); only realized drawdowns
+    # trip cash. A/B vs the breaker-off baseline before promotion.
+    phase_t4_crisis_breaker_enabled: bool = False
+    phase_t4_breaker_level_1_threshold: float = 0.10    # genuine -10% DD (not -5% noise)
+    phase_t4_breaker_level_1_cash_floor: float = 0.20
+    phase_t4_breaker_level_2_threshold: float = 0.18
+    phase_t4_breaker_level_2_cash_floor: float = 0.45
+    phase_t4_breaker_level_3_threshold: float = 0.28
+    phase_t4_breaker_level_3_cash_floor: float = 0.70
+    phase_t4_breaker_recovery_buffer: float = 0.08      # hold defensive longer (vs 0.05)
+    # ---------------
     # Phase 6b: VIX level hard guard (PHASE_ROADMAP §2.6 + PROPOSAL §3)
     # ---------------
     # VIX-level-triggered cash floor, applied inside
