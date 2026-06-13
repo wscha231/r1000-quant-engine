@@ -1,0 +1,96 @@
+{
+  "cash_contract_pass": true,
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "max_drift_limit_pp": 5.0,
+  "mean_drift_limit_pp": 2.0,
+  "portfolios": {
+    "concentrated": {
+      "broker": {
+        "avg_broker_cash_weight": 0.4231980736100491,
+        "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated",
+        "status": "completed"
+      },
+      "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated",
+      "cash_contract_pass": true,
+      "drift": {
+        "cash_drift_pass": true,
+        "max_drift_limit_pp": 5.0,
+        "max_monthly_cash_drift_pp": 0.342,
+        "mean_cash_drift_pp": 0.1127,
+        "mean_drift_limit_pp": 2.0,
+        "month_max_cash_drift_pp": 0.4615,
+        "month_max_drift_limit_pp": 10.0,
+        "month_mean_cash_drift_pass": true,
+        "month_mean_cash_drift_pp": 0.1081,
+        "month_mean_drift_limit_pp": 5.0,
+        "month_mean_status": "completed",
+        "overlap_month_count": 84,
+        "rebalance_day_cash_drift_pass": true,
+        "rebalance_day_max_cash_drift_pp": 0.342,
+        "rebalance_day_max_drift_limit_pp": 5.0,
+        "rebalance_day_mean_cash_drift_pp": 0.1127,
+        "rebalance_day_mean_drift_limit_pp": 2.0,
+        "rebalance_overlap_count": 45,
+        "status": "completed"
+      },
+      "status": "passed",
+      "target": {
+        "avg_target_cash_weight": 0.4269502567915975,
+        "date_count": 85,
+        "explicit_cash_date_count": 85,
+        "invalid_total_weight_date_count": 0,
+        "max_total_weight_abs_error": 4.440892098500626e-16,
+        "missing_explicit_cash_date_count": 0,
+        "negative_cash_date_count": 0,
+        "status": "completed",
+        "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+        "target_cash_contract_pass": true
+      },
+      "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv"
+    },
+    "main": {
+      "broker": {
+        "avg_broker_cash_weight": 0.26605519199188726,
+        "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main",
+        "status": "completed"
+      },
+      "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main",
+      "cash_contract_pass": true,
+      "drift": {
+        "cash_drift_pass": true,
+        "max_drift_limit_pp": 5.0,
+        "max_monthly_cash_drift_pp": 0.7552,
+        "mean_cash_drift_pp": 0.185,
+        "mean_drift_limit_pp": 2.0,
+        "month_max_cash_drift_pp": 1.26,
+        "month_max_drift_limit_pp": 10.0,
+        "month_mean_cash_drift_pass": true,
+        "month_mean_cash_drift_pp": 0.2039,
+        "month_mean_drift_limit_pp": 5.0,
+        "month_mean_status": "completed",
+        "overlap_month_count": 84,
+        "rebalance_day_cash_drift_pass": true,
+        "rebalance_day_max_cash_drift_pp": 0.7552,
+        "rebalance_day_max_drift_limit_pp": 5.0,
+        "rebalance_day_mean_cash_drift_pp": 0.185,
+        "rebalance_day_mean_drift_limit_pp": 2.0,
+        "rebalance_overlap_count": 45,
+        "status": "completed"
+      },
+      "status": "passed",
+      "target": {
+        "avg_target_cash_weight": 0.2672959852748565,
+        "date_count": 85,
+        "explicit_cash_date_count": 85,
+        "invalid_total_weight_date_count": 0,
+        "max_total_weight_abs_error": 1.5543122344752192e-15,
+        "missing_explicit_cash_date_count": 0,
+        "negative_cash_date_count": 0,
+        "status": "completed",
+        "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+        "target_cash_contract_pass": true
+      },
+      "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv"
+    }
+  }
+}
