@@ -52,6 +52,7 @@ def _sigma() -> float:
 
 def _clear_env() -> None:
     os.environ.pop("PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED", None)
+    os.environ.pop("PHASE_T3_LEADER_HYSTERESIS_ENABLED", None)
 
 
 def test_toggle_off_preserves_strict_gate_and_base_bonus() -> None:
@@ -96,17 +97,20 @@ def test_flat_multiplier_knob_when_sigma_gate_off() -> None:
     assert bonus.tolist() == [expected, expected, expected, 0.0, 0.0]
 
 
-def test_env_var_alone_activates_sigma_gate() -> None:
-    _clear_env()
+def test_either_env_var_spelling_activates_sigma_gate() -> None:
+    # Both the double-PHASE form and the natural form must activate T3, so the
+    # A/B run never silently no-ops on a human-typed env name.
     cfg = EngineConfig()
     cfg.phase_t3_leader_hysteresis_enabled = False  # cfg off
-    os.environ["PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED"] = "1"  # env on
-    try:
-        bonus = compute_conviction_hold_bonus(_make_month(), _prev_w(), cfg)
-        healthy = _sigma() * 0.75
-        assert math.isclose(bonus.iloc[1], healthy, rel_tol=1e-9)  # BBB healthy under relaxed gate
-    finally:
+    healthy = _sigma() * 0.75
+    for env_name in ("PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED", "PHASE_T3_LEADER_HYSTERESIS_ENABLED"):
         _clear_env()
+        os.environ[env_name] = "1"
+        try:
+            bonus = compute_conviction_hold_bonus(_make_month(), _prev_w(), cfg)
+            assert math.isclose(bonus.iloc[1], healthy, rel_tol=1e-9), f"{env_name} did not activate T3"
+        finally:
+            _clear_env()
 
 
 def test_no_prev_holdings_returns_zero_series() -> None:

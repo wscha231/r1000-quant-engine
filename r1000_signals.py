@@ -2999,7 +2999,11 @@ def compute_conviction_hold_bonus(
     not_broken = numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0) < 0.3
     substantial_position = prev_weight_series >= 0.02
     t3_enabled = bool(
+        # Accept BOTH env spellings so the A/B never silently no-ops:
+        #   PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED  (phase_is_enabled prefixes PHASE_)
+        #   PHASE_T3_LEADER_HYSTERESIS_ENABLED         (the natural name a human types)
         phase_is_enabled("phase_t3_leader_hysteresis", default=False)
+        or phase_is_enabled("t3_leader_hysteresis", default=False)
         or bool(getattr(cfg, "phase_t3_leader_hysteresis_enabled", False))
     )
 

@@ -7,6 +7,24 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+### 03:30 KST - t3-env-footgun-fix (accept both PHASE spellings)
+
+- scope: act on the external audit's §4.2 — the T3 activation env var is a silent-no-op footgun. `phase_is_enabled("phase_t3_leader_hysteresis")` resolves to `PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED` (double PHASE, because the helper prefixes `PHASE_`). A human running the A/B will naturally type `PHASE_T3_LEADER_HYSTERESIS_ENABLED`, which would NOT activate T3 — wasting an entire ~4h or QUICK A/B run on a baseline that looks like the treatment arm. This is the single highest-leverage pre-A/B fix.
+- audit reconciliation: the external review (85/100) is accepted in full. Its central caveat — "T3 is implemented + smoke/CI green but performance is NOT yet broker-ledger-verified; do not call it an improvement until an A/B replay proves it" — is correct and is how this work has been framed throughout (default OFF, A/B required). No performance claim is made. The prescribed order (A/B -> replacement-cap wiring -> concentrated reentry) is adopted; the cap wiring is deliberately NOT done yet because (a) the audit orders it after the A/B, (b) it is the riskiest change (touches the core backtest rebalance loop), and (c) keeping it out of the first A/B isolates the sigma-gate effect.
+- files:
+  - `r1000_signals.py` `compute_conviction_hold_bonus` ->`t3_enabled` now also checks `phase_is_enabled("t3_leader_hysteresis")` (natural `PHASE_T3_LEADER_HYSTERESIS_ENABLED`) in addition to the double-PHASE form and the cfg field. Any of the three activates T3.
+  - `tests/leader_hysteresis_smoke.py` ->`_clear_env` clears both env names; `test_either_env_var_spelling_activates_sigma_gate` asserts BOTH `PHASE_PHASE_T3_...` and `PHASE_T3_...` activate the sigma-gate.
+  - `.github/workflows/phase_ab_quick_rescore_manual.yml` ->input help now recommends the natural `PHASE_T3_LEADER_HYSTERESIS_ENABLED=1` and notes both forms work.
+- symbols_added: none
+- symbols_changed: `compute_conviction_hold_bonus` (env activation accepts both spellings)
+- config_fields_added: none
+- breaking_changes: none. Default still OFF; only adds a second accepted env spelling.
+- validation:
+  - `python tests/leader_hysteresis_smoke.py` ->7/7 PASS (incl. both-spelling activation)
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - `python tools/run_pr_validation.py --quiet` ->81/82 PASS (sec.gov sandbox 403 unrelated)
+- status (per audit, no overclaim): measurement system aligned, gate corrected to 35/50, T3 sigma-gate implemented + env-robust, CI green. NOT yet done: T3 performance A/B (blocked on PR #62 master merge so the QUICK workflow indexes), replacement-cap backtest-loop wiring, concentrated reentry/cash work. Next action is the user's PR merge, then dispatch the QUICK A/B with `PHASE_T3_LEADER_HYSTERESIS_ENABLED=1`.
+
 ### 03:10 KST - official-gate-alignment-35-50 + t3-sigma-gate (chatgpt threshold merge)
 
 - scope: act on two user decisions after a broker-ledger methodology review. (1) Official acceptance targets confirmed as the CLAUDE.md values Main 35% CAGR / -25% MDD and Concentrated 50% CAGR / -25% MDD. (2) Stage T3 leader hysteresis should merge the bonus mechanism with the ChatGPT threshold-gate spec (+0.75 sigma to displace a healthy held name, +0.35 sigma for a broken one).

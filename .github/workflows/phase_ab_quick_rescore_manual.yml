@@ -25,7 +25,7 @@ on:
         type: string
         default: 'claude/analyze-updated-code-OfEbu'
       phase_env_overrides:
-        description: 'Space-separated PHASE env toggles, e.g. "PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED=1". Applied to scoring+backtest+sidecars.'
+        description: 'Space-separated PHASE env toggles, e.g. "PHASE_T3_LEADER_HYSTERESIS_ENABLED=1" (both this and the double-PHASE form work). Applied to scoring+backtest+sidecars.'
         type: string
         default: ''
       arm_label:
