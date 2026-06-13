@@ -5,6 +5,27 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-13
 
+### 19:35 KST - stage-t2b-subdaily-exit-grid-sweep
+
+- scope: Stage T2b. Find the sub-monthly exit stop-threshold sweet spot. T2 surfaced that PRWV's default `-8%` hard / `-15%` trailing is "expensive" — 95% of exits are the hard_stop firing, CAGR collapses 8pp. T2b runs PRWV with multiple (hard_stop, trailing_stop) combinations on a frozen source full-rebuild, ranks every combo by a composite of CAGR + scaled MDD improvement vs the monthly broker baseline, and writes a champion candidate. Research-only — the winner is NOT auto-promoted into production; it becomes the next candidate for explicit broker-ledger gate validation.
+- composite_score = `cagr_weight × overlay_cagr + mdd_improvement_weight × (overlay_max_dd − baseline_max_dd) − drag_penalty`. Drag_penalty fires only when CAGR drops more than 5pp vs baseline so the composite cannot reward a stop combo that mostly destroys CAGR for marginal MDD improvement. The pure scoring/ranking math is fully unit-testable without a PRWV subprocess.
+- files:
+  - `tools/run_subdaily_exit_grid_sweep.py` ->new. Parses CLI grids (hard_stop accepts `disabled` alias mapped to a very-large negative that PRWV's hard_stop check treats as never-firing), invokes PRWV per combo via subprocess, collects per-combo metrics.json, runs `rank_grid` to score every combo, picks champion via `champion_from_ranked`, emits `subdaily_exit_grid_sweep/summary.json` + per-portfolio `report.md` with a ranked table (CAGR / MaxDD / cagr_gap_pp / mdd_imp_pp / exits / trims / composite). Schema_version `subdaily_exit_grid_sweep_v1`, `production_activation_allowed: false`.
+  - `tests/subdaily_exit_grid_sweep_smoke.py` ->new. 7 tests: grid parser with `disabled` alias, parser rejects `disabled` when not allowed, composite scoring monotonicity, drag-penalty activation when CAGR drops > 5pp, full grid ranking that picks the relaxed-stop combo over the tight one, missing-metrics handling, champion picker skips missing rows, report renderer covers all combos including missing.
+  - `.github/workflows/subdaily_exit_grid_sweep_manual.yml` ->new. workflow_dispatch with inputs `source_run_id`, `portfolio_kind` (main/concentrated/both), `hard_stop_grid`, `trailing_stop_grid`, `trailing_activation`. Mirrors `sidecar_only_verify.yml`'s preamble: free disk → checkout → restore collector + engine caches under the source's cache key → download the source's official broker-ledger artifact → stage holdings, period maps, and `broker_replay/metrics.json` into the working tree → run the grid sweep → surface summary in the workflow log → upload `subdaily-exit-grid-sweep-${RUN}` artifact. Timeout 120 min for a 15-combo sweep on the standard runner.
+  - `tools/run_pr_validation.py` ->register `tests/subdaily_exit_grid_sweep_smoke.py` as a Tier-1 contract.
+- symbols_added: `parse_grid`, `safe_float`, `baseline_for`, `holdings_path_for`, `score_composite`, `label_for_stop`, `rank_grid`, `run_prwv`, `champion_from_ranked`, `render_report`, `evaluate_portfolio`, `DEFAULT_HARD_GRID`, `DEFAULT_TRAILING_GRID`, `DISABLED_HARD_STOP_VALUE`, `DEFAULT_COMPOSITE_WEIGHTS`, 7 test functions
+- symbols_changed: none
+- config_fields_added: none
+- breaking_changes: none. broker_replay output unchanged; the grid sweep is purely additive research evidence.
+- validation:
+  - `python tests/subdaily_exit_grid_sweep_smoke.py` ->7/7 PASS
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - `python tools/run_pr_validation.py --quiet` ->80/81 PASS (only failure remains sec.gov sandbox 403)
+  - Workflow YAML validated via `yaml.safe_load`
+- next_action:
+  - Dispatch `subdaily_exit_grid_sweep_manual.yml` with `source_run_id` set to a completed Full Rebuild (latest committed is `27445937281`; the in-flight `27457206698` will be a better source once it completes because it includes the crisis-defense substrate). Inspect the workflow log for the champion combo; if `hard_stop ∈ {-0.10, -0.12, -0.15, disabled}` outperforms the current `-0.08`, that becomes the candidate to wire as the PRWV default in a follow-up commit. Promotion still requires a broker-ledger Full Rebuild dispatch against the new defaults.
+
 ### 19:10 KST - stage-t2-subdaily-exit-overlay-comparison
 
 - scope: Stage T2 of the leader-rotation roadmap. Surface the trade-off of sub-monthly exits (hard stop, trailing stop, relative-strength exit) vs the monthly broker baseline so the stop thresholds can be tuned to a real CAGR vs MDD sweet spot. Research-only — no production change.
