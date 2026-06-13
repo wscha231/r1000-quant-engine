@@ -1,6 +1,6 @@
 # Tactical Alpha Daily Review
 
-- run_status: review_ready
+- run_status: no_new_trading_session
 - schedule_as_of: 2026-06-13
 - target_trading_day: 2026-06-12
 - data_as_of: 2026-06-12
