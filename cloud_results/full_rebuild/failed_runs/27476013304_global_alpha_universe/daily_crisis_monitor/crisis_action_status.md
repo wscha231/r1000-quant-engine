@@ -1,0 +1,24 @@
+# Daily Crisis Monitor
+
+- state: `GREEN`
+- raw_state: `WATCH`
+- auto_trade_allowed: `false`
+
+## Reasons
+
+- long-crisis learned state=GREEN score=0.085 date=2026-06-12 cash_gate=below_cash_raise_zone
+- cash policy review active: cash_above_target
+
+## Long Crisis Learning
+
+- latest_date: `2026-06-12`
+- crisis_score: `0.08542169813425227`
+- cash_gate_reason: `below_cash_raise_zone`
+- future drawdown labels are excluded from daily monitor decisions.
+
+## Guardrails
+
+- VIX-only cash raise is forbidden.
+- Single-name shakeout cash raise is forbidden.
+- Liquidity/trend/credit confirmation is required for defense review.
+- Reentry is review-only; this tool never buys automatically.

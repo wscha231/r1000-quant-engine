@@ -1,0 +1,7 @@
+{
+  "crisis_state_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/daily_crisis_state.csv",
+  "portfolio": "main",
+  "reason": "missing broker equity curve or crisis state",
+  "schema_version": "mdd-cash-overlay-research-v1",
+  "status": "blocked"
+}
