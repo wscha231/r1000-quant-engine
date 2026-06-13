@@ -51,9 +51,16 @@ def main() -> int:
         with contextlib.redirect_stdout(buffer):
             code = print_verdict(base, gate_mode="broker")
         text = buffer.getvalue()
-        assert code == 1
-        assert "DO_NOT_USE" in text
-        assert "legacy/proxy metrics exist" in text
+        # As of 20fcb818: when broker evidence is missing the verdict
+        # returns 0 with a DEFERRED banner so the workflow's pre-sidecar
+        # Verdict step (which intentionally runs before broker_replay is
+        # written) does not misclassify a healthy pipeline as failed_runs.
+        # The sidecar-produced verdict.log written after broker_replay
+        # exists remains authoritative for SHIP/DO_NOT_USE decisions.
+        assert code == 0
+        assert "DEFERRED" in text
+        assert "PENDING" in text
+        assert "the official sidecar verdict is the source of truth" in text
 
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
