@@ -5,6 +5,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-13
 
+### 21:55 KST - stage-t3-leader-hysteresis-proposal + run-27457206698-analysis
+
+- scope: ship the analysis of completed Full Rebuild `27457206698` (4h14m, success) and the design proposal for Stage T3 (production-side leader hysteresis). Acts on user direction to do (a) re-dispatch the rebuild, (b) T2b grid sweep, (c) T3 design, (d) regression tracking — all four in parallel.
+- run-analysis (`27457206698` on commit `a8b271ea`):
+  - broker baseline: Main `34.51% CAGR / -26.01% MDD / 1.27 Sharpe / avg_cash 26.61% / 1675 trades`; Concentrated `44.86% / -25.83% / 1.41 / 42.31% cash / 596 trades`. Both fail official acceptance (Main >= 35% CAGR + MDD >= -25%; Conc >= 50% + MDD >= -25%) on all four axes, but only narrowly on Main.
+  - T1 against the run (run_leader_lifecycle_audit on the just-published evidence): both portfolios pass `leader_capture_rate_min` (Main 46.6%, Conc 42.0%), `extension_chase_pct_max` (Main 20.7%, Conc 18.6%), and `premature_sell_excess_return_126d_min` (Main +1.13%, Conc -0.13%); both fail `median_holding_days_min` (Main 58d, Conc 33d), `pct_held_180d_plus_min` (Main 2.46%, Conc 0.76%), `pct_held_365d_plus_min` (both 0%), and `reentry_capture_rate_min` (Main 8.2%, Conc 4.5%). The system enters leaders correctly but flushes them every 1-2 months.
+  - T2 compare against the run: PRWV overlay status `missing` (the run pre-dated the operating_minimal wiring of PRWV in `68e3e7d6`). Baseline-only numbers populate cleanly.
+  - regression tracking `20260610 -> 20260613`: avg_cash 0%/6% -> 27%/42%, CAGR +13.7pp Main + 13.4pp Conc, MaxDD +6.6pp Main + 12.4pp Conc better. The cash-policy work (commits 4ca027fd / 9b2ce49f / fda47429 / 385634f1 / 3ffaf09b) is NOT a regression to revert — it is the dominant improvement vector. Remaining gap vs CLAUDE.md baseline (`27086825471` 35.22%/-23.24% Main, 50.75%/-22.99% Conc) is small enough to attribute to sample drift + the still-too-aggressive monthly turnover (median 33d-58d).
+- dispatches:
+  - Full Rebuild re-dispatched on `ea1bb874` so the next run's `outputs/` includes `broker_trade_journal`, `leader_lifecycle_audit`, `position_risk_weekly_validation`, and `subdaily_exit_compare` automatically (none of these directories existed in `27457206698` because the wiring landed in commits `33f50afc` / `68e3e7d6` after the run started).
+  - T2b grid sweep workflow_dispatch returned `404 Not Found` because `.github/workflows/subdaily_exit_grid_sweep_manual.yml` was pushed only to the feature branch — GitHub Actions does not index new workflow files until they reach the default branch. Master merge unblocks dispatch; alternative is folding the grid sweep into `tools/run_full_rebuild_sidecars.py` so it runs as part of the next rebuild without needing a separate dispatch. Surfaced for user decision.
+- files:
+  - `PHASE_T3_LEADER_HYSTERESIS_PROPOSAL.md` ->new design doc. Identifies the production gap: `select_market_leader_targets` (`r1000_market_leader_engine.py:612`) already implements `prev_candidates` vs `new_candidates` partition with `PREVIOUS_HOLD_ALLOWED_STATES = {HOLD, SHAKEOUT_GUARD, WARNING}`, but only `run_market_leader_challenger.py` + `run_integrated_theme_leader_crisis_replay.py` call it; the production backtest at `r1000_pipeline.py:17210` writes `bt.holdings.to_csv(main_monthly_weights_path)` directly without consulting prior holdings. `build_latest_portfolio` at line 15785 has a `scheduled_hold_active` gate (`adaptive_rebalance_hold_until_due` + `prev_holdings_applied` + `prev_sched_dt` + `live_label not in alert_like`) but that lives in the live-decision lane, not historical backtest. Proposal: env-gated `PHASE_T3_LEADER_HYSTERESIS_ENABLED` toggle that lifts the challenger-side selector pattern into the backtest monthly loop, with a `retention_band_pct = 0.30` default (keep prior holdings whose current-month score percentile drop is within 30%). Includes risk discussion, smoke-test sketch, A/B promotion criteria (T1 holding-period gates improve AND broker CAGR delta >= -1.0pp AND MaxDD delta >= -3pp).
+- symbols_added: none (proposal-only this commit; the actual hook lands in a follow-up after the user signs off on the design)
+- symbols_changed: none
+- config_fields_added: none yet — proposal defines `PHASE_T3_LEADER_HYSTERESIS_ENABLED` env toggle and `retention_band_pct` config field, to be wired in the implementation commit.
+- breaking_changes: none.
+- validation:
+  - `python tests/smoke_test.py` ->125/125 PASS (no engine changes this commit; doc-only)
+  - `python tools/run_pr_validation.py --quiet` ->80/81 PASS (sec.gov sandbox 403 unrelated)
+- next_action:
+  - User decision on T2b workflow: (i) merge `subdaily_exit_grid_sweep_manual.yml` to master so dispatch works, OR (ii) fold the sweep into `run_full_rebuild_sidecars.py` so it runs as part of every full rebuild (adds ~30-75 min depending on grid size). Recommendation: (ii) for hands-off operation; (i) for one-off tuning runs.
+  - User decision on T3 implementation: implement the env-gated hysteresis hook with the smoke-test sketch as documented, then dispatch one A/B run (`PHASE_T3_LEADER_HYSTERESIS_ENABLED=1`) against the just-dispatched baseline run. Default-OFF behavior preserves current production.
+  - Pending: the re-dispatched FULL rebuild on `ea1bb874` will populate the four T1/T2 directories automatically; on completion, T1 verdict + T2 compare will reflect the same code path the user runs locally with `run_local.py --verdict-only`.
+
 ### 19:35 KST - stage-t2b-subdaily-exit-grid-sweep
 
 - scope: Stage T2b. Find the sub-monthly exit stop-threshold sweet spot. T2 surfaced that PRWV's default `-8%` hard / `-15%` trailing is "expensive" — 95% of exits are the hard_stop firing, CAGR collapses 8pp. T2b runs PRWV with multiple (hard_stop, trailing_stop) combinations on a frozen source full-rebuild, ranks every combo by a composite of CAGR + scaled MDD improvement vs the monthly broker baseline, and writes a champion candidate. Research-only — the winner is NOT auto-promoted into production; it becomes the next candidate for explicit broker-ledger gate validation.
