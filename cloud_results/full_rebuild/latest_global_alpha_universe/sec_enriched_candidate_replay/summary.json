@@ -35,19 +35,19 @@
     "smart_money_risk_penalty",
     "evidence_fusion_score"
   ],
-  "coverage_13f_ratio": 0.7782433934832806,
+  "coverage_13f_ratio": 0.7782386521562507,
   "coverage_etf_ratio": 0.0,
-  "coverage_ratio": 0.1201359787907295,
-  "coverage_smart_money_ratio": 0.7324253827076028,
-  "coverage_top_manager_ratio": 0.6861156247327461,
+  "coverage_ratio": 0.12013854739047701,
+  "coverage_smart_money_ratio": 0.7324196617562164,
+  "coverage_top_manager_ratio": 0.6861089136430695,
   "etf_holdings": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/etf_holdings/etf_holdings.parquet",
   "form4_transactions": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/sec/form4_transactions.parquet",
   "institutional_13f_holdings": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/sec/institutional_13f_holdings.parquet",
   "output_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
   "production_activation_allowed": false,
   "research_only": true,
-  "row_count": 46772,
-  "rows_with_13f_evidence": 36400,
+  "row_count": 46771,
+  "rows_with_13f_evidence": 36399,
   "rows_with_etf_evidence": 0,
   "rows_with_sec_evidence": 5619,
   "rows_with_sec_evidence_by_date": {
@@ -136,8 +136,8 @@
     "2026-03-31": 135,
     "2026-04-30": 143
   },
-  "rows_with_smart_money_evidence": 34257,
-  "rows_with_top_manager_evidence": 32091,
+  "rows_with_smart_money_evidence": 34256,
+  "rows_with_top_manager_evidence": 32090,
   "score_total_changed": false,
   "status": "ok"
 }

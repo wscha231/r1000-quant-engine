@@ -10,7 +10,7 @@
   "decision_cadence_available": true,
   "decision_cadence_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/decision_cadence/decision_cadence_summary.json",
   "full_nonmonthly_entry_replacement_validated": false,
-  "generated_at_utc": "2026-06-13T01:54:29.531939+00:00",
+  "generated_at_utc": "2026-06-13T09:07:10.041628+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "mid_month_reentry_allowed": true,
   "missing_required_files": [],

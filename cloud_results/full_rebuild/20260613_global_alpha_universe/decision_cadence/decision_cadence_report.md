@@ -6,7 +6,7 @@
 - crisis_state: `GREEN`
 - daily_exit_review_count: `7`
 - daily_warning_or_no_add_count: `6`
-- weekly_add_candidate_count: `21`
+- weekly_add_candidate_count: `19`
 - mid_month_reentry_allowed: `true`
 
 ## Cadence

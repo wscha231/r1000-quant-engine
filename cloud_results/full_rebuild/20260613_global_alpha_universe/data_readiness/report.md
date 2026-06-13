@@ -12,24 +12,24 @@
 
 - cache files: `1122`
 - manifest end: `2026-06-12`
-- manifest tickers: `545`
+- manifest tickers: `553`
 
 ## Latest Outputs
 
 | File | Rows | Max date | Weight sum |
 | --- | ---: | --- | ---: |
 | scored_latest | 740 | 2026-06-12 |  |
-| portfolio_latest | 18 |  | 0.9999999999999991 |
-| concentrated_portfolio_latest | 3 | 2026-06-12 | 1.0 |
+| portfolio_latest | 19 |  | 0.9999999999999997 |
+| concentrated_portfolio_latest | 3 | 2026-06-12 | 0.9999999999999998 |
 
 ## Target Books
 
 | Book | Rows | Min date | Max date | Weight sum |
 | --- | ---: | --- | --- | ---: |
-| main_history | 2205 | 2019-05-31 | 2026-03-31 | 82.9999999999999 |
-| concentrated_history | 23232 | 2019-05-31 | 2026-03-31 | 4999.5 |
-| operating_main | 1282 | 2019-05-31 | 2026-06-12 | 84.99999999999994 |
-| operating_concentrated | 497 | 2019-05-31 | 2026-06-12 | 85.0 |
+| main_history | 2172 | 2019-05-31 | 2026-03-31 | 82.99999999999991 |
+| concentrated_history | 23199 | 2019-05-31 | 2026-03-31 | 4999.499999999999 |
+| operating_main | 1283 | 2019-05-31 | 2026-06-12 | 84.99999999999994 |
+| operating_concentrated | 497 | 2019-05-31 | 2026-06-12 | 84.99999999999997 |
 
 ## Feature Source Coverage
 
@@ -38,7 +38,7 @@
 
 | Portfolio | Rows | Non-cash rows | Date range | Available-from columns |
 | --- | ---: | ---: | --- | ---: |
-| main | 1282 | 1197 | 2019-05-31 to 2026-06-12 | 4 |
+| main | 1283 | 1198 | 2019-05-31 to 2026-06-12 | 4 |
 | concentrated | 497 | 412 | 2019-05-31 to 2026-06-12 | 4 |
 
 ## Blockers

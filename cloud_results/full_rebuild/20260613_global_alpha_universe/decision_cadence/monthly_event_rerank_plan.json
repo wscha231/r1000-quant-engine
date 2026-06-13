@@ -14,7 +14,7 @@
     "weekly_watchlist_has_multiple_add_candidates"
   ],
   "full_universe_rerank_frequency": "monthly_or_event_triggered",
-  "generated_at_utc": "2026-06-13T01:54:22.323265+00:00",
+  "generated_at_utc": "2026-06-13T09:07:02.422815+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "mid_month_reentry_allowed": true,
   "mid_month_reentry_requires_full_universe_rerank": false,
@@ -35,7 +35,7 @@
   "reentry_trigger": "",
   "schema_version": "alphaops-decision-cadence-plan-v1",
   "target_mutation_policy": "monthly base book plus crisis/reentry/event-triggered mutation dates",
-  "weekly_add_candidate_count": 21,
+  "weekly_add_candidate_count": 19,
   "weekly_decision_scope": [
     "current holdings and watchlist RS refresh",
     "technical confirmation",

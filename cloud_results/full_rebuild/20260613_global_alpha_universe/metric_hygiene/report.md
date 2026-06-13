@@ -7,8 +7,8 @@ Legacy/proxy/weight-level metrics are retained as deprecated research context an
 
 | Portfolio | CAGR | Target | MDD | Target | Sharpe | Avg Cash | Target Pass | Production Valid | Cash Trap |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 34.63% | 35.00% | -26.01% | -25.00% | 1.278 | 26.61% | false | true | false |
-| concentrated | 44.80% | 50.00% | -25.82% | -25.00% | 1.405 | 42.32% | false | true | false |
+| main | 34.51% | 35.00% | -26.01% | -25.00% | 1.275 | 26.61% | false | true | false |
+| concentrated | 44.86% | 50.00% | -25.83% | -25.00% | 1.406 | 42.31% | false | true | false |
 
 ## Deprecated Metrics
 

@@ -6,17 +6,17 @@
   "as_of_date": "2026-06-12",
   "cash_policy_flag": "below_combined_cash_target",
   "cash_policy_review_action": "RESERVE_CASH",
-  "cash_usd": 217960.3261416118,
-  "current_cash_weight": 0.10114154992460425,
+  "cash_usd": 218175.52220080193,
+  "current_cash_weight": 0.10129414349822013,
   "current_portfolio_snapshot": {
     "as_of_date": "2026-06-12",
     "cash_policy_flag": "below_combined_cash_target",
     "cash_policy_review_action": "RESERVE_CASH",
     "cash_row_count": 2,
-    "combined_cash_gap_weight": 0.019920882044283467,
-    "combined_current_cash_weight": 0.10114154992460425,
-    "combined_target_cash_weight": 0.12106243196888772,
-    "generated_at_utc": "2026-06-13T01:54:17.151436+00:00",
+    "combined_cash_gap_weight": 0.019615408628703423,
+    "combined_current_cash_weight": 0.10129414349822013,
+    "combined_target_cash_weight": 0.12090955212692356,
+    "generated_at_utc": "2026-06-13T09:06:57.169765+00:00",
     "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
     "macro_cash_raise_confirmation_count": 0.0,
     "macro_cash_raise_gate": "none",
@@ -54,7 +54,7 @@
   },
   "equity_row_count": 14,
   "error_count": 2,
-  "generated_at_utc": "2026-06-13T01:54:17.152410+00:00",
+  "generated_at_utc": "2026-06-13T09:06:57.170790+00:00",
   "issue_count": 3,
   "issues": [
     {
@@ -67,7 +67,7 @@
     },
     {
       "check_id": "main_target_missing_price_rows",
-      "details": "{\"missing\": [\"AMAT\", \"AMD\", \"CAT\", \"COHU\", \"CRS\", \"CSCO\", \"KLAC\", \"KNX\", \"LRCX\", \"NUE\", \"NXPI\", \"R\", \"ROST\", \"STLD\", \"TKR\", \"UMC\"]}",
+      "details": "{\"missing\": [\"AMAT\", \"ARW\", \"COHU\", \"CSCO\", \"FTI\", \"KLAC\", \"KNX\", \"LRCX\", \"NUE\", \"NVT\", \"NXPI\", \"R\", \"ROST\", \"STLD\", \"TKR\", \"UMC\"]}",
       "message": "some target tickers are absent from positions_current, usually missing price cache",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/main/positions_current.csv",
       "severity": "error",
@@ -102,9 +102,9 @@
   "safety_audit_status": "blocked",
   "schema_version": "operating-snapshot-v1",
   "status": "blocked",
-  "target_cash_weight": 0.12106243196888772,
+  "target_cash_weight": 0.12090955212692356,
   "target_precedence": "account_ledger_preview_target_weights",
   "target_source": "account_ledger_preview/*/target_weights.csv",
-  "total_equity_usd": 2155002.828254954,
+  "total_equity_usd": 2153880.9122230797,
   "warning_count": 0
 }

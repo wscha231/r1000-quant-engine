@@ -2,7 +2,7 @@
   "concentrated_min_target_weight": 0.08,
   "emerging_min_target_weight": 0.0075,
   "full_exit_review_count": 15,
-  "generated_at_utc": "2026-06-13T01:54:18.404164+00:00",
+  "generated_at_utc": "2026-06-13T09:06:58.470468+00:00",
   "increase_review_count": 0,
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "main_dust_threshold": 0.005,

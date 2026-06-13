@@ -1,6 +1,6 @@
 {
-  "actual_cached_ticker_count": 545,
-  "book_ticker_count": 409,
+  "actual_cached_ticker_count": 553,
+  "book_ticker_count": 417,
   "books": [
     "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
     "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv"
@@ -8,8 +8,8 @@
   "download_target_count": 0,
   "downloaded": 0,
   "end": "2026-06-12",
-  "existing_cache_count": 545,
-  "existing_cache_count_after": 545,
+  "existing_cache_count": 553,
+  "existing_cache_count_after": 553,
   "failed": [],
   "failed_count": 0,
   "manifest_end_source": "actual_cached_bars",
@@ -28,5 +28,5 @@
   "stale_before": 0,
   "start": "2011-06-13",
   "status": "already_cached",
-  "ticker_count": 545
+  "ticker_count": 553
 }

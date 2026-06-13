@@ -77,21 +77,21 @@
         "target_book_submonthly_decisions_validated": false
       },
       "official_broker_ledger": {
-        "avg_cash_weight": 0.4231980736100491,
-        "cagr": 0.4480340434908925,
+        "avg_cash_weight": 0.4230691602312312,
+        "cagr": 0.44862681887517564,
         "cost_bps_per_side": 25.0,
         "end_date": "2026-06-12",
-        "ending_capital_usd": 1347482.5440142036,
+        "ending_capital_usd": 1351362.5876303844,
         "fill_mode": "next_close",
         "integer_shares": true,
-        "max_dd": -0.25818217242887864,
+        "max_dd": -0.25828369779832017,
         "metric_mode": "broker_ledger_next_close",
-        "sharpe": 1.4049146270274107,
+        "sharpe": 1.406047274627334,
         "source": "broker_replay/concentrated/metrics.json",
         "start_date": "2019-06-03",
         "status": "completed",
-        "total_fees_usd": 42506.25890423059,
-        "trade_count": 597,
+        "total_fees_usd": 42608.77766597986,
+        "trade_count": 596,
         "valid_for_production": true
       }
     },
@@ -160,21 +160,21 @@
         "target_book_submonthly_decisions_validated": false
       },
       "official_broker_ledger": {
-        "avg_cash_weight": 0.26605519199188726,
-        "cagr": 0.3462514569241335,
+        "avg_cash_weight": 0.2661340699849467,
+        "cagr": 0.3450613033496317,
         "cost_bps_per_side": 25.0,
         "end_date": "2026-06-12",
-        "ending_capital_usd": 807520.2842407504,
+        "ending_capital_usd": 802518.3245926953,
         "fill_mode": "next_close",
         "integer_shares": true,
-        "max_dd": -0.260082912772058,
+        "max_dd": -0.2600681723490029,
         "metric_mode": "broker_ledger_next_close",
-        "sharpe": 1.277777018348046,
+        "sharpe": 1.274739850958319,
         "source": "broker_replay/main/metrics.json",
         "start_date": "2019-06-03",
         "status": "completed",
-        "total_fees_usd": 40239.73299834371,
-        "trade_count": 1676,
+        "total_fees_usd": 40214.61329163551,
+        "trade_count": 1675,
         "valid_for_production": true
       }
     }
