@@ -7,6 +7,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+### 03:10 KST - official-gate-alignment-35-50 + t3-sigma-gate (chatgpt threshold merge)
+
+- scope: act on two user decisions after a broker-ledger methodology review. (1) Official acceptance targets confirmed as the CLAUDE.md values Main 35% CAGR / -25% MDD and Concentrated 50% CAGR / -25% MDD. (2) Stage T3 leader hysteresis should merge the bonus mechanism with the ChatGPT threshold-gate spec (+0.75 sigma to displace a healthy held name, +0.35 sigma for a broken one).
+- methodology finding (why broker-ledger is the right official metric): `tools/run_broker_ledger_replay.py` models T+1 signal-to-fill lag, next-close fills at observable adjusted prices, integer shares, no-negative-cash / no-leverage, 25bps round-trip cost, and `max_fill_lag_days` unfilled exposure — i.e. what a real account experiences. The 20260512 gap-attribution proves the weight-level proxy is fantasy: concentrated proxy implied 55.6% CAGR / -14.8% MDD vs broker 36.4% / daily -38.4% (19.2pp CAGR gap, 13.6pp DD gap). broker_ledger_next_close stays the sole SHIP metric; legacy/proxy is research-only.
+- gate discrepancy root-caused: the canonical source `r1000_config.PORTFOLIO_GOAL_TARGETS` was ALREADY Main 35/-25, Conc 50/-25, and 10 tools import it (including `run_account_evaluation.py`, which is why its `production_target_pass` was correctly strict). The divergence was a stale hardcoded copy in `run_local.py` `BROKER_TARGET_GATES` (Main 30/-25, Conc 45/-25) that made `--verdict-only` looser than the real gate, plus two except-branch fallbacks (`run_account_evaluation.py` 30/45, `run_metric_hygiene_report.py` Main 30/-20 — the -20 is where the "Main MDD target -20%" confusion came from). All three are now aligned to 35/50, -25.
+- files:
+  - `run_local.py` ->`BROKER_TARGET_GATES` Main cagr 0.30->0.35, Conc cagr 0.45->0.50 (MDD stays -0.25); comment ties it to CLAUDE.md + config + account_evaluation.
+  - `tools/run_account_evaluation.py` ->import-failure fallback 30/45 -> 35/50.
+  - `tools/run_metric_hygiene_report.py` ->import-failure fallback Main 0.30/-0.20 -> 0.35/-0.25.
+  - `r1000_config.py` ->T3 cfg fields: `phase_t3_sigma_gate=True`, `phase_t3_new_entry_sigma=0.75`, `phase_t3_broken_replace_sigma=0.35`, and documented-but-not-yet-wired hard caps `phase_t3_max_replacements_main=5`, `phase_t3_max_replacements_concentrated=2`. Legacy `phase_t3_conviction_hold_bonus_multiplier` retained as an A/B knob (used only when sigma_gate=False).
+  - `r1000_signals.py` `compute_conviction_hold_bonus` ->three regimes: toggle OFF = unchanged strict gate + flat 0.35 bonus (bit-for-bit prior behaviour); toggle ON sigma-gate (default) = healthy held names get `new_entry_sigma * sigma(score)` handicap, broken held get `broken_replace_sigma * sigma(score)` (ranking-level equivalent of "new_score >= held_score + k*sigma"); toggle ON flat-multiplier = legacy 4x knob when sigma_gate=False. Degenerate-sigma fallback returns the flat conviction bonus (healthy) / half (broken).
+  - `tests/leader_hysteresis_smoke.py` ->rewritten to 7 tests with a scored synthetic month: strict-gate-off, sigma-gate healthy+broken handicap math, flat-multiplier knob, env-var activation, no-prev-holdings, degenerate-sigma fallback, substantial-position floor.
+- symbols_added: `phase_t3_sigma_gate`, `phase_t3_new_entry_sigma`, `phase_t3_broken_replace_sigma`, `phase_t3_max_replacements_main`, `phase_t3_max_replacements_concentrated`
+- symbols_changed: `compute_conviction_hold_bonus` (sigma-gate merge), `BROKER_TARGET_GATES`, two except-branch `PORTFOLIO_GOAL_TARGETS` fallbacks
+- config_fields_added: `phase_t3_sigma_gate` (bool, True), `phase_t3_new_entry_sigma` (float, 0.75), `phase_t3_broken_replace_sigma` (float, 0.35), `phase_t3_max_replacements_main` (int, 5), `phase_t3_max_replacements_concentrated` (int, 2)
+- breaking_changes: none for the engine (T3 default OFF). The verdict gate is now STRICTER (35/50 vs 30/45) — runs that passed `--verdict-only` under the old loose copy will now correctly show the same DO_NOT_USE the account_evaluation already reported. This is a correction, not a regression.
+- chatgpt-review reconciliation: ChatGPT's "Concentrated misses CAGR by 5.14pp" is CORRECT under the canonical 50% target (an earlier note in this session that said 0.14pp was based on the stale 45% copy and is retracted). ChatGPT's "Main MDD target -20%" is WRONG — canonical is -25%, so Main MDD misses by 1.01pp not 6.01pp; the -20% traces to the metric_hygiene fallback now fixed. All other ChatGPT priorities (T3 first, concentrated reentry quality over blind cash cuts, broker-only official metric, hide legacy/proxy, fast/full + crisis audits) are accepted.
+- validation:
+  - `python tests/leader_hysteresis_smoke.py` ->7/7 PASS
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - `python tools/run_pr_validation.py --quiet` ->81/82 PASS (sec.gov sandbox 403 unrelated)
+  - gate alignment asserted: `run_local.BROKER_TARGET_GATES == r1000_config.PORTFOLIO_GOAL_TARGETS`
+- next_action:
+  - T3 A/B QUICK run with `PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED=1` against the 27466958402 toggle-OFF baseline. Acceptance per proposal: median_holding >= 60, pct_held_180d_plus >= 15%, pct_held_365d_plus >= 5%, CAGR degradation <= 0.5pp, no MDD degradation.
+  - follow-up: wire the hard per-rebalance replacement caps (main <= 5, conc <= 2) into the backtest loop reconcile step.
+  - follow-up: concentrated reentry-quality work to pull avg_cash 42% toward <30% without giving back MDD (reentry cash normalization <= 20 trading days).
+
 ### 02:35 KST - run-27466958402-analysis + verdict-deferral-fix-v2
 
 - scope: post-mortem of completed Full Rebuild `27466958402` (3h08m, conclusion success but pushed to `failed_runs/`) and the bundled fix that prevents recurrence. Also surfaces an independent gap: `tools/run_full_rebuild_sidecars.py` does write T1/T2/PRWV directories in `outputs/` during the run, but the workflow's `Commit verdict + portfolio CSVs` step does not include them in the cloud_results sync whitelist, so they were missing from the pushed evidence tree (the artifact itself probably had them, but the artifact's signed URL expired before this session could fetch it).

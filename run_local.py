@@ -107,9 +107,15 @@ CURRENT_BASELINE = {
     },
 }
 
+# Official acceptance targets (user decision 2026-06-14): CLAUDE.md values.
+# Main CAGR >= 35% and MDD no worse than -25%; Concentrated CAGR >= 50% and
+# MDD no worse than -25%. Prior code values (30% / 45%) were looser than the
+# documented ambition and have been raised to match. Keep this dict, the
+# CLAUDE.md "official acceptance targets" line, and run_account_evaluation.py
+# BROKER_TARGET_GATES in sync.
 BROKER_TARGET_GATES = {
-    "main": {"cagr": 0.30, "max_dd": -0.25},
-    "concentrated": {"cagr": 0.45, "max_dd": -0.25},
+    "main": {"cagr": 0.35, "max_dd": -0.25},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.25},
 }
 
 # Stage 0 OOS lock — strict thresholds (user decision 2026-06-12):

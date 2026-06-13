@@ -2366,8 +2366,18 @@ class EngineConfig:
     # substantial+not_broken+(momentum_alive OR rs_strong). Toggle via env
     # PHASE_T3_LEADER_HYSTERESIS_ENABLED or this cfg field.
     phase_t3_leader_hysteresis_enabled: bool = False
-    phase_t3_conviction_hold_bonus_multiplier: float = 4.0
-    phase_t3_relax_conviction_gate: bool = True
+    phase_t3_conviction_hold_bonus_multiplier: float = 4.0   # legacy flat-multiplier knob (used only when phase_t3_sigma_gate=False)
+    phase_t3_relax_conviction_gate: bool = True              # retained for back-compat; sigma-gate already uses the relaxed gate
+    # Sigma-gate (default T3 behaviour, merges ChatGPT threshold spec):
+    # a new entrant must beat a held name by new_entry_sigma * sigma(score)
+    # to displace it; a broken held name only needs broken_replace_sigma.
+    phase_t3_sigma_gate: bool = True
+    phase_t3_new_entry_sigma: float = 0.75
+    phase_t3_broken_replace_sigma: float = 0.35
+    # Hard per-rebalance replacement caps (follow-up; not yet wired into the
+    # backtest loop — documented target so the implementation has a home).
+    phase_t3_max_replacements_main: int = 5
+    phase_t3_max_replacements_concentrated: int = 2
     # --------------- winner scaling (add to winners, cut losers) ---------------
     winner_scale_top_quartile_boost: float = 1.20       # multiply weight by 1.20 for top performers
     winner_scale_bottom_quartile_cut: float = 0.70      # multiply weight by 0.70 for bottom performers

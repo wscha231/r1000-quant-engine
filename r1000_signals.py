@@ -2962,15 +2962,31 @@ def compute_conviction_hold_bonus(
 ) -> pd.Series:
     """Stage T3 leader hysteresis hook.
 
-    Returns a per-row bonus added to portfolio_seed_score. Behaviour:
-    - When `PHASE_T3_LEADER_HYSTERESIS_ENABLED` env var or
-      `cfg.phase_t3_leader_hysteresis_enabled` is true, multiply the base
-      bonus (`cfg.conviction_hold_seed_bonus`) by
-      `cfg.phase_t3_conviction_hold_bonus_multiplier` (default 4x) and -- if
-      `cfg.phase_t3_relax_conviction_gate` is true -- loosen the conviction
-      gate from AND-AND-AND-AND to substantial+not_broken+(momentum OR rs).
-    - When the toggle is off, behaviour is exactly the prior conviction
-      logic so the production backtest is unchanged.
+    Returns a per-row bonus added to portfolio_seed_score. Three regimes:
+
+    1. Toggle OFF (default): exactly the prior conviction logic — a flat
+       `cfg.conviction_hold_seed_bonus` (0.35) on the strict AND-AND-AND-AND
+       gate. Production backtest unchanged bit-for-bit.
+
+    2. Toggle ON, sigma-gate (default when enabled): merges the bonus
+       mechanism with the ChatGPT threshold-gate spec. A held name receives a
+       seed-score handicap equal to `new_entry_sigma * sigma(score)` so that a
+       NEW entrant must beat it by ~0.75 cross-sectional sigma to displace it.
+       A held name whose momentum is broken receives only
+       `broken_replace_sigma * sigma(score)` (~0.35 sigma) so it is cheaper to
+       replace. This is the ranking-level equivalent of "new_score >=
+       held_score + 0.75σ" (healthy) / "+0.35σ" (broken) — it limits churn
+       without rewriting the sleeve allocator.
+
+    3. Toggle ON, flat-multiplier (legacy A/B knob): when
+       `phase_t3_sigma_gate` is False, fall back to the simple
+       `conviction_hold_seed_bonus * phase_t3_conviction_hold_bonus_multiplier`
+       behaviour (the first T3 implementation), so the two approaches can be
+       compared head to head.
+
+    The hard per-rebalance replacement cap (main <= 5, conc <= 2) is a further
+    refinement that needs the backtest loop to reconcile post-selection; it is
+    intentionally NOT applied here and is tracked as a follow-up.
     """
     bonus = pd.Series(0.0, index=month_df.index, dtype=float)
     if not prev_w:
@@ -2986,14 +3002,42 @@ def compute_conviction_hold_bonus(
         phase_is_enabled("phase_t3_leader_hysteresis", default=False)
         or bool(getattr(cfg, "phase_t3_leader_hysteresis_enabled", False))
     )
-    if t3_enabled and bool(getattr(cfg, "phase_t3_relax_conviction_gate", True)):
-        conviction_mask = held_mask & substantial_position & not_broken & (momentum_alive | rs_strong)
-    else:
+
+    if not t3_enabled:
         conviction_mask = held_mask & momentum_alive & rs_strong & not_broken & substantial_position
-    bonus_value = float(cfg.conviction_hold_seed_bonus)
-    if t3_enabled:
-        bonus_value = bonus_value * float(getattr(cfg, "phase_t3_conviction_hold_bonus_multiplier", 4.0))
-    bonus.loc[conviction_mask] = bonus_value
+        bonus.loc[conviction_mask] = float(cfg.conviction_hold_seed_bonus)
+        return bonus
+
+    # T3 enabled. Relaxed gate keeps a held name if EITHER strength signal
+    # confirms (and it is not broken, and was a substantial position).
+    healthy_mask = held_mask & substantial_position & not_broken & (momentum_alive | rs_strong)
+    # A broken-but-still-substantial held name is cheaper to replace.
+    broken_mask = held_mask & substantial_position & ~not_broken
+
+    if not bool(getattr(cfg, "phase_t3_sigma_gate", True)):
+        # Legacy flat-multiplier A/B knob.
+        flat = float(cfg.conviction_hold_seed_bonus) * float(
+            getattr(cfg, "phase_t3_conviction_hold_bonus_multiplier", 4.0)
+        )
+        bonus.loc[healthy_mask] = flat
+        return bonus
+
+    # Sigma-gate: handicap held names by a multiple of the cross-sectional
+    # score dispersion so a new entrant must clear held_score + k*sigma.
+    score = numeric_series_or_default(month_df, "score", 0.0)
+    sigma = float(score.std(ddof=0))
+    if not np.isfinite(sigma) or sigma <= 1e-9:
+        # Degenerate dispersion — fall back to the flat conviction bonus so the
+        # held names still get *some* retention preference.
+        sigma_proxy = float(cfg.conviction_hold_seed_bonus)
+        healthy_bonus = sigma_proxy
+        broken_bonus = sigma_proxy * 0.5
+    else:
+        healthy_bonus = sigma * float(getattr(cfg, "phase_t3_new_entry_sigma", 0.75))
+        broken_bonus = sigma * float(getattr(cfg, "phase_t3_broken_replace_sigma", 0.35))
+    bonus.loc[healthy_mask] = healthy_bonus
+    # broken names that are NOT also healthy get the smaller retention handicap
+    bonus.loc[broken_mask & ~healthy_mask] = broken_bonus
     return bonus
 
 
