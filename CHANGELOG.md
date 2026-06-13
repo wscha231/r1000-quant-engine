@@ -5,6 +5,38 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-13
 
+## 2026-06-14
+
+### 02:35 KST - run-27466958402-analysis + verdict-deferral-fix-v2
+
+- scope: post-mortem of completed Full Rebuild `27466958402` (3h08m, conclusion success but pushed to `failed_runs/`) and the bundled fix that prevents recurrence. Also surfaces an independent gap: `tools/run_full_rebuild_sidecars.py` does write T1/T2/PRWV directories in `outputs/` during the run, but the workflow's `Commit verdict + portfolio CSVs` step does not include them in the cloud_results sync whitelist, so they were missing from the pushed evidence tree (the artifact itself probably had them, but the artifact's signed URL expired before this session could fetch it).
+- run-results-vs-prior:
+  - broker baseline byte-identical to the previous run on `a8b271ea`: Main `34.51% CAGR / -26.01% MDD / 1.27 Sharpe / avg_cash 26.61%`, Conc `44.86% / -25.83% / 1.41 / 42.31%`. Confirms the pipeline is deterministic across the T1/T2/T2b/T3 wiring commits.
+  - Same official acceptance gates miss (Main -0.49pp CAGR / -1.01pp MDD; Conc -5.14pp / -0.83pp). T3 toggle-OFF baseline locked.
+- T1 verdict (local re-run on the new evidence — broker_trade_journal regenerated locally because cloud_results did not include it):
+  - Main `gates 4/6`, median_holding `61d` PASS (60d gate), leader_capture `62.60%` (+16pp vs 27457206698), extension_chase `9.57%` (-11pp), premature_sell_excess_126d `+0.13%` PASS. Still failing pct_held_180d_plus (4.38%) and pct_held_365d_plus (0%).
+  - Conc `gates 2/6`, median_holding `32d` FAIL, premature_sell_excess_126d `-7.41%` FAIL (regressed -7.3pp), leader_capture `52.50%` (+10pp). 365d+ still 0%.
+  - Note: the round-trip-count delta (1137 -> 2100 for Main) means T1's round_trips classifier sees a different broker_trade_journal output. broker_replay metrics are identical so the underlying broker fills are too; the difference is in how round-trips are paired. Worth a follow-up audit but does not block the T3 A/B.
+- root-cause failed_runs misclassification:
+  - `full_rebuild_manual.yml` step 13 (Verdict) runs `run_local.py --verdict-only` BEFORE step 15 (sidecar) writes `broker_replay/{main,concentrated}/metrics.json`. The verdict's missing-evidence branch returned exit 1 and printed `VERDICT: DO_NOT_USE -- official broker metrics missing`.
+  - `a8b271ea` only added the deferral inside the `args.full` guard; `--verdict-only` was still hard-failing on missing evidence. The verdict-classifying commit step (#22) reads the verdict.log keyword and pushes to `failed_runs/` even though the rest of the run succeeded.
+- root-cause T1/T2/PRWV sync gap:
+  - `tools/run_full_rebuild_sidecars.py:179` (T1), `:186` `:189` (PRWV main / concentrated), `:191` (T2 compare) all run inside the `operating_minimal` block — the default profile — with `|| true` guards.
+  - But the workflow's commit step appears to mirror only a subset of `outputs/` into the per-run cloud_results tree. Documented as a known gap; not patched in this commit. Will fix in the same follow-up that audits round-trip pairing.
+- files:
+  - `run_local.py` `print_broker_verdict` ->when broker_replay or account_evaluation metrics are missing, print a `VERDICT: DEFERRED -- broker_replay evidence not yet written by sidecars` banner and return `0` instead of `1`. The workflow's commit-step classifier reads the keyword `DO_NOT_USE` to file a run under `failed_runs/`; replacing with `DEFERRED` preserves the audit trail (paths still printed under PENDING) without misclassifying a healthy pipeline. The sidecar-produced verdict.log inside `outputs/full_rebuild_logs/` remains authoritative — it is written after the sidecar step and reads real metrics.
+- symbols_added: none
+- symbols_changed: `run_local.print_broker_verdict` -- missing-evidence branch returns 0 with a DEFERRED banner instead of 1 with DO_NOT_USE. Downstream gate checks (the `for portfolio in broker_metrics` loop) still enforce SHIP/DO_NOT_USE when metrics ARE present, so the prior strictness is preserved for the verdict-on-evidence path.
+- config_fields_added: none
+- breaking_changes: none. `print_broker_verdict` exit codes change only in the missing-evidence path (1 -> 0); all callers that already check the verdict log content keep working.
+- validation:
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - the change is observed via the verdict.log header: `VERDICT: DEFERRED` instead of `VERDICT: DO_NOT_USE` when evidence is missing
+- next_action:
+  - **T3 A/B is unblocked**: this run's broker + locally-regenerated T1 numbers are the toggle-OFF baseline. Merge the open PR to master to activate `phase_ab_quick_rescore_manual.yml` (T2b workflow too), then dispatch QUICK A/B with `phase_env_overrides="PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED=1" arm_label=t3-on ref=5b8f88b3-or-later`. ~30-40 min vs ~4 h.
+  - **follow-up #1**: include T1 / T2 / PRWV / broker_trade_journal directories in the workflow's commit-step cloud_results sync so they land in the evidence tree automatically (not just inside the dropped artifact).
+  - **follow-up #2**: audit the round-trip-count delta (1137 vs 2100 on identical broker trades) — likely a long-vs-short or partial-fill pairing rule change that lands silently in the T1 input.
+
 ### 23:20 KST - phase-ab-quick-rescore-workflow (no 4h full rebuild for backtest-time toggles)
 
 - scope: answer "do we really need a full rebuild for the T3 A/B?" — no. T3 (`compute_conviction_hold_bonus`) runs inside `build_target_portfolio` in the backtest loop and reads already-cached signal columns (`minervini_momentum_alive_score`, `relative_strength_composite`, `broken_momentum_penalty`); it does NOT add a feature_store column. So it is measurable via QUICK_RESCORE (feature_store + model reuse, scoring + backtest only) in ~15-40 min instead of ~4 h. The blocker was purely infra: this sandbox has no QUICK cache and there was no QUICK-only GitHub Actions workflow.
