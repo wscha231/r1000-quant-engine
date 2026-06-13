@@ -106,6 +106,10 @@ on:
         description: 'approved_integrated policy file path; default stays unapproved'
         type: string
         default: outputs/promotion_review/approved_target_policy.json
+      phase_env_overrides:
+        description: 'Space-separated PHASE env toggles applied to the rebuild, e.g. "PHASE_T3_LEADER_HYSTERESIS_ENABLED=1" for a T3 A/B. Blank = baseline.'
+        type: string
+        default: ''
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -455,6 +459,16 @@ jobs:
           echo "  leader_rescue:    $LEADER_RESCUE_MODE"
           echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
           echo "=========================================="
+
+          # Phase env overrides (e.g. T3 A/B): export each KEY=VAL token so the
+          # engine's phase_is_enabled() sees them for this rebuild only.
+          if [ -n "${{ inputs.phase_env_overrides }}" ]; then
+            echo "[phase-env] applying: ${{ inputs.phase_env_overrides }}"
+            for kv in ${{ inputs.phase_env_overrides }}; do
+              export "${kv?}"
+              echo "  exported ${kv}"
+            done
+          fi
 
           # Use --base-dir to override Drive path with repo-local outputs/
           # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
