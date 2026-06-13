@@ -149,10 +149,16 @@ def extension_chase_stats(round_trips: pd.DataFrame) -> dict[str, Any]:
     if round_trips.empty:
         return {"status": "empty", "trade_count": 0}
     df = round_trips
-    explosion_exit = pd.to_numeric(df.get("entry_explosion_exit_score", 0.0), errors="coerce").fillna(0.0)
-    stage2 = pd.to_numeric(df.get("entry_stage2_overext_penalty", 0.0), errors="coerce").fillna(0.0)
-    rs_acc = pd.to_numeric(df.get("entry_rs_acceleration_score", 0.0), errors="coerce").fillna(0.0)
-    explosion_entry = pd.to_numeric(df.get("entry_explosion_entry_score", 0.0), errors="coerce").fillna(0.0)
+
+    def _col(name: str) -> pd.Series:
+        if name in df.columns:
+            return pd.to_numeric(df[name], errors="coerce").fillna(0.0)
+        return pd.Series([0.0] * len(df), index=df.index)
+
+    explosion_exit = _col("entry_explosion_exit_score")
+    stage2 = _col("entry_stage2_overext_penalty")
+    rs_acc = _col("entry_rs_acceleration_score")
+    explosion_entry = _col("entry_explosion_entry_score")
     climax_mask = (
         (explosion_exit >= 0.50)
         | (stage2 >= 0.50)
