@@ -7,6 +7,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+## 2026-06-14
+
+### 07:40 KST - t3-ab-result + cash-overlay-collapse-regression (the real 15pp lever)
+
+- scope: analyze the T3 A/B (full-rebuild arms, since QUICK cache-restore failed 4x on GHA cache eviction) and report what the broker-ledger evidence actually shows. Two findings; the second dwarfs the first.
+- T3 A/B (valid — both arms same code era, same operating-book variant, broker_ledger_next_close):
+  - OFF = run `27466958402` (commit 9134546e, no T3). ON = run `27476013304` (commit b593d469, `PHASE_T3_LEADER_HYSTERESIS_ENABLED=1`).
+  - Main: CAGR `19.79% -> 22.40%` (+2.61pp), MaxDD `-33.25% -> -31.66%` (+1.59pp better), Sharpe `0.950 -> 1.045`, broker trades `2880 -> 2411` (-16% churn). T3 activation confirmed by the churn drop. **T3 helps the diversified book.**
+  - Concentrated: CAGR `32.90% -> 30.79%` (-2.11pp), MaxDD `-37.96% -> -37.90%` (flat), trades `533 -> 538` (no change), journal_avg_holding `52.2d -> 51.9d` (no change). **T3 does not engage the concentrated book** — it is built through a different selection path (score_power / concentrated_strategy) that barely routes through `build_target_portfolio`'s conviction bonus. Net small loss.
+  - Verdict: enable T3 for main only; leave concentrated on its own (reentry) lever. But see the regression below — the baseline these arms ran on is itself broken, so T3 promotion waits.
+- THE DOMINANT FINDING — defensive cash-overlay collapse (~6x bigger than T3):
+  - Comparing run `27457206698` (commit a8b271ea) vs `27466958402` (commit 9134546e, a bot data-only commit — NEAR-IDENTICAL CODE):
+    - Main: avg_cash `26.61% -> 5.94%`, CAGR `34.51% -> 19.79%` (-14.7pp), MaxDD `-26.01% -> -33.25%` (-7.2pp worse), trades `1675 -> 2880`.
+    - Concentrated: avg_cash `42.31% -> 0.05%`, CAGR `44.86% -> 32.90%` (-12.0pp), MaxDD `-25.83% -> -37.96%` (-12.1pp worse).
+  - Root signal: the operating_main_target_book.csv carries CASH allocations in **85 monthly periods in 27457206698 but only 19 in 27466958402** (same 1283-row book, same dates). The tactical/defensive cash overlay that raises cash before drawdowns and redeploys after went dormant for ~66 of ~85 months. Because the overlay was regime-timed, losing it hurt BOTH CAGR and MaxDD simultaneously (the signature of a working tactical-cash sleeve going dark, not simple cash drag).
+  - Implication for prior advice: the external audit's "concentrated avg_cash 42% is too high, reduce it" would have been wrong — at 42% cash the concentrated book did 44.86%/-25.83%; at 0.05% cash it does 32.90%/-37.96%. The cash was earning its keep via timing, not dragging.
+  - Suspected cause: near-identical code rules out a code regression between those two commits; the likely driver is (a) the crisis-substrate rebuild wiring (a8b271ea moved crisis_signal_builder + build_long_crisis_inputs into operating_minimal) producing a DORMANT crisis/cash signal when built fresh, or (b) backtest nondeterminism (e.g. unseeded model training) changing the regime/cash path run-to-run. Needs a determinism re-run + crisis-feature diff to confirm.
+- files: CHANGELOG only (analysis + record). No code change in this entry.
+- symbols_added/changed/config_fields_added: none
+- breaking_changes: none
+- validation: numbers read directly from each run's `account_evaluation/official_metrics.json` and `reports/operating_main_target_book.csv` (CASH-row counts).
+- next_action (priority order):
+  - P0: root-cause the cash-overlay collapse (85 -> 19 CASH-months, avg_cash 26.6%/42.3% -> 5.9%/0.05%). This is ~15pp CAGR and 7-12pp MaxDD — the difference between nearly hitting targets (34.51/44.86 vs 35/50) and missing badly (19.79/32.90). Far bigger than any single-signal change. First step: diff crisis/cash-overlay engagement between 27457206698 and 27466958402, and re-run one rebuild twice on the same commit to test determinism.
+  - P1: T3 is a validated small win for main (+2.6pp CAGR / +1.6pp MaxDD / -16% churn). Gate it to main only (skip concentrated). Promote to default ONLY after the cash baseline is restored, since promoting on a broken baseline is meaningless.
+  - infra debt: QUICK A/B is blocked by GHA cache eviction; the phase_env_overrides input now lets full_rebuild_manual.yml run any phase A/B end-to-end (~3h) without cache dependency.
+
 ### 03:30 KST - t3-env-footgun-fix (accept both PHASE spellings)
 
 - scope: act on the external audit's §4.2 — the T3 activation env var is a silent-no-op footgun. `phase_is_enabled("phase_t3_leader_hysteresis")` resolves to `PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED` (double PHASE, because the helper prefixes `PHASE_`). A human running the A/B will naturally type `PHASE_T3_LEADER_HYSTERESIS_ENABLED`, which would NOT activate T3 — wasting an entire ~4h or QUICK A/B run on a baseline that looks like the treatment arm. This is the single highest-leverage pre-A/B fix.
