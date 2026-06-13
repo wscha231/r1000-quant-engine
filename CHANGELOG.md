@@ -3,6 +3,27 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-13
+
+### 13:30 KST - full-run-false-failure-fix-and-crisis-substrate-in-operating-minimal
+
+- scope: Two bundled fixes from analysis of Full Rebuild run `27445937281` (2026-06-13). The pipeline itself succeeded — broker-ledger metrics generated and committed as `0ceddbde` (Main CAGR `34.63%` / MDD `-26.01%`, Concentrated CAGR `44.80%` / MDD `-25.82%`, OOS windows populated, valid_for_production=true on both) — but the "Run FULL rebuild" workflow step still reported failure for two structural reasons that are not pipeline regressions.
+- files:
+  - `run_local.py` ->`main` adds a deferral block guarded by `args.full`: when broker-replay metrics are not yet on disk, print a `BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP` banner and return 0 instead of letting `print_broker_verdict` exit 1. In `--full` workflow runs the broker-replay sidecar runs as a SEPARATE step AFTER `run_local.py` exits, so the embedded verdict fired on missing files and failed the step under `set -o pipefail`. `--verdict-only`, QUICK_RESCORE, and any path that does see metrics on disk still go through the original `print_broker_verdict` and enforce all gates.
+  - `tools/run_full_rebuild_sidecars.py` ->in the combined `operating_minimal`/`official` branch, run `tools/run_crisis_signal_builder.py` (if missing) and `build_long_crisis_inputs` BEFORE `run_alphaops_vnext_production`. Previously these substrate steps were inside the inner `if [ "$SIDECAR_PROFILE" = "official" ]; then` block, so `operating_minimal` runs left `outputs/crisis_signals/daily_features.parquet` and `outputs/long_crisis_learning/best_thresholds.json` missing. Audit of run `27445937281`'s `alphaops_vnext/daily_crisis_state.csv` confirms the regression: `long_crisis_score: 0.0`, `cash_gate_reason: 'missing_long_crisis_features'`, `long_crisis_feature_date: ''` through every COVID and 2022 row, so the price-state crisis_score (which DID flag DEFENSE/CRISIS_DEFENSE 22/22 days in 2020-03) never produced the second confirmation required to open the cash-raise gate. broker-replay MaxDD was the unhedged path on both books. Moving these steps in front of vNext lets the 2-confirmation gate (price stress + at least one of liquidity/trend/credit) actually open during COVID/2022. Both sidecar calls are CPU-cheap and use already-restored FRED data; failures stay non-fatal (`|| true` semantics on threshold learning).
+  - `tests/smoke_test.py` ->two new tests:
+    - `regression.run_local_full_defers_broker_verdict_to_sidecar` ->verifies deferral banner exists, is gated on `args.full`, references all three broker-evidence paths, and uses joint `all(p.exists() ...)` so partial presence still defers.
+    - `regression.operating_minimal_builds_long_crisis_substrate` ->verifies `run_crisis_signal_builder.py` and `build_long_crisis_inputs` appear between the combined branch marker and the `run_alphaops_vnext_production` CALL (regex anchored to the bare call line — not the function definition at the top of the file), and that neither step leaks into the inner `official`-only block.
+- symbols_added: `test_run_local_full_defers_broker_verdict_to_sidecar`, `test_operating_minimal_builds_long_crisis_substrate`
+- symbols_changed: `main` in `run_local.py` (deferral block before final verdict call)
+- config_fields_added: none
+- breaking_changes: none. `--verdict-only`/QUICK_RESCORE paths unchanged; broker-gate enforcement on artifacts that DO have metrics on disk unchanged.
+- validation:
+  - `python tests/smoke_test.py` ->125/125 PASS.
+  - `python tools/run_pr_validation.py --quiet` ->77/78 PASS; the single failure remains `tests/sec_13f_cusip_mapping_smoke.py` (sandbox 403 on sec.gov, unrelated).
+- next_action:
+  - Re-dispatch `full_rebuild_manual.yml` on `claude/analyze-updated-code-OfEbu` with the same settings used in run `27445937281`. Expected effects: (a) "Run FULL rebuild" step exits 0 cleanly (deferral banner instead of false-failure exit 1); (b) `daily_crisis_state.csv` shows nonzero `long_crisis_score` and populated `liquidity_confirmation_score`/`market_trend_damage_score`/`credit_stress_score` columns through 2020-03 and 2022 stress months; (c) broker-replay MaxDD on both books improves vs the run-`27445937281` baseline (Main `-26.01%`, Concentrated `-25.82%`) without unwinding the OOS CAGR (Main OOS `75.0%`, Concentrated OOS `129.2%`).
+
 ## 2026-06-12
 
 ### 22:05 KST - runner-disk-cleanup-prevents-collector-enospc

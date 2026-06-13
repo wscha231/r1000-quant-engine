@@ -2089,6 +2089,95 @@ def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
     assert abs(float(guarded["cash"]) - float(selected["cash"])) < 1e-12
 
 
+@_test("regression.run_local_full_defers_broker_verdict_to_sidecar")
+def test_run_local_full_defers_broker_verdict_to_sidecar() -> None:
+    """`run_local.py --full` must NOT fail when broker metrics are absent.
+
+    Failure-class regression guard (run 27445937281, 2026-06-13): in full-run
+    workflow the broker-replay sidecar runs as a SEPARATE step AFTER
+    run_local.py exits. If --full mode lets print_broker_verdict run when
+    metrics.json files don't exist yet, it returns exit 1, fails the
+    "Run FULL rebuild" step under set -o pipefail, and reports the whole run
+    as failed even though the next "Verdict (Cell E equivalent)" step shows
+    completed metrics. The deferral block must:
+      - only activate under --full (verdict-only and QUICK_RESCORE still gate)
+      - check ALL three broker-evidence paths before returning 0
+      - print an informational DEFERRED banner, not silently swallow real
+        verdict output
+    """
+    src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    assert "BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP" in src, (
+        "deferral banner missing; verdict cannot be deferred without it"
+    )
+    # The block must gate on args.full so QUICK_RESCORE and --verdict-only
+    # still enforce the broker gate. All three broker-evidence paths must be
+    # checked together — partial presence (e.g. only main metrics) must still
+    # defer rather than fail.
+    deferral_prefix = src.split("BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP")[0]
+    deferral_window = deferral_prefix[-2000:]
+    assert "if args.full:" in deferral_window, "deferral must be gated on args.full"
+    for name in ("broker_replay", "main", "concentrated", "account_evaluation"):
+        assert name in deferral_window, f"deferral block must reference {name!r}"
+    assert "all(p.exists() for p in broker_paths)" in deferral_window, (
+        "deferral must check ALL three paths jointly"
+    )
+
+
+@_test("regression.operating_minimal_builds_long_crisis_substrate")
+def test_operating_minimal_builds_long_crisis_substrate() -> None:
+    """`operating_minimal` sidecar profile must build crisis substrate before
+    AlphaOps vNext production runs.
+
+    Crisis-defense regression guard (run 27445937281, 2026-06-13): without
+    `outputs/crisis_signals/daily_features.parquet` and
+    `outputs/long_crisis_learning/best_thresholds.json` on disk before
+    `run_alphaops_vnext_policy_replay.py` executes, the vNext builder writes
+    `long_crisis_score=0.0` / `cash_gate_reason='missing_long_crisis_features'`
+    into `daily_crisis_state.csv` for every date through COVID and 2022. The
+    2-confirmation cash-raise gate (price stress + at least one of
+    liquidity/trend/credit) cannot open with all confirmation signals at 0.0,
+    so broker-replay MaxDD stays on the unhedged path.
+
+    The sidecar script must:
+      - build crisis_signals/daily_features.parquet (if missing) BEFORE vnext
+      - invoke build_long_crisis_inputs BEFORE run_alphaops_vnext_production
+      - do all of the above inside the operating_minimal branch, not only the
+        official branch
+    """
+    src = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    # Find the operating_minimal/official branch.
+    branch_marker = 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then'
+    assert branch_marker in src, "operating_minimal/official combined branch missing"
+    branch_idx = src.index(branch_marker)
+    # Find the vnext CALL inside the operating_minimal/official branch — not
+    # the function definition near the top of the file ("run_alphaops_vnext_production() {").
+    import re
+    vnext_call_match = re.search(
+        r"^\s*run_alphaops_vnext_production\s*$",
+        src[branch_idx:],
+        flags=re.MULTILINE,
+    )
+    assert vnext_call_match, "run_alphaops_vnext_production call missing after operating_minimal branch"
+    vnext_idx = branch_idx + vnext_call_match.start()
+    csig_idx = src.find("run_crisis_signal_builder.py", branch_idx, vnext_idx)
+    long_idx = src.find("build_long_crisis_inputs", branch_idx, vnext_idx)
+    assert csig_idx != -1, (
+        f"crisis_signal_builder must run between operating_minimal branch start "
+        f"({branch_idx}) and run_alphaops_vnext_production call ({vnext_idx})"
+    )
+    assert long_idx != -1, (
+        f"build_long_crisis_inputs must run between operating_minimal branch start "
+        f"({branch_idx}) and run_alphaops_vnext_production call ({vnext_idx})"
+    )
+    # Both substrate steps must be inside the COMBINED branch (so
+    # operating_minimal benefits), not only inside the inner official-only block.
+    inner_official_marker = 'if [ "$SIDECAR_PROFILE" = "official" ]; then'
+    inner_official_idx = src.find(inner_official_marker, branch_idx + len(branch_marker))
+    if inner_official_idx != -1:
+        assert csig_idx < inner_official_idx, "crisis_signal_builder leaked into official-only branch"
+        assert long_idx < inner_official_idx, "build_long_crisis_inputs leaked into official-only branch"
+
+
 @_test("logic.latest_month_mktcap_starvation_guard")
 def test_latest_month_mktcap_starvation_guard() -> None:
     """Universe-collapse guard for the latest snapshot (run 27337807588).

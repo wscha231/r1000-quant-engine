@@ -147,6 +147,18 @@ fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
   refresh_replay_price_cache
   python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+  # Crisis defense substrate (run 27445937281 diagnosis, 2026-06-13): without
+  # these, vnext daily_crisis_state has long_crisis_score=0.0 and
+  # cash_gate_reason='missing_long_crisis_features' through COVID/2022, so the
+  # 2-confirmation cash-raise gate never opens and MaxDD stays at the
+  # unhedged path (Main -26%, Conc -26%). Building the crisis features +
+  # walk-forward thresholds before run_alphaops_vnext_production lets vnext
+  # use the real confirmation. Lightweight: FRED data is already restored
+  # and the long-crisis feature builder is CPU-cheap. Failures are non-fatal.
+  if [ ! -s outputs/crisis_signals/daily_features.parquet ]; then
+    python tools/run_crisis_signal_builder.py 2>&1 | tee outputs/full_rebuild_logs/crisis_signal_builder.log || true
+  fi
+  build_long_crisis_inputs
   run_alphaops_vnext_production
   run_sidecar_promotion_hook
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
