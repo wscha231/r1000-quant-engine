@@ -170,6 +170,13 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     python tools/run_broker_ledger_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/legacy_monthly_broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/legacy_monthly_broker_replay_concentrated.log || true
   fi
   python tools/run_mdd_cash_overlay_research.py --latest-run outputs --output-dir outputs/mdd_cash_overlay_research --cost-bps 25 --confirm-days 2 --release-step 0.10 --change-band 0.03 2>&1 | tee outputs/full_rebuild_logs/mdd_cash_overlay_research.log || true
+  # Build round-trip trade journal early so leader_lifecycle_audit (Stage T1)
+  # has its inputs in operating_minimal too — previously the journal only ran
+  # in the official-and-above branch, leaving the audit blind on the cheap
+  # profile we use for fast iteration. Cheap (just FIFO-pairs broker trades),
+  # failures stay non-fatal.
+  python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
+  python tools/run_leader_lifecycle_audit.py --latest-run outputs --output-dir outputs/leader_lifecycle_audit 2>&1 | tee outputs/full_rebuild_logs/leader_lifecycle_audit.log || true
   if [ "$SIDECAR_PROFILE" = "official" ]; then
     python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
     python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true

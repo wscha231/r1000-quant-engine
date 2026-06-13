@@ -5,6 +5,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-13
 
+### 17:25 KST - stage-t1-leader-lifecycle-audit-measurement-tool
+
+- scope: Stage T1 of the leader-rotation roadmap. Build the measurement layer that answers the user's actual strategic question — "do we identify leaders early, ride them, sell well, and rotate cleanly?" — using broker-replay data already produced by every full rebuild. Research-only, no production change.
+- diagnosis (from the latest committed run `27445937281`, 1676 main + 597 conc trades over 7y):
+  - rebalance cadence: **100% monthly**, off-cycle exits = 0/1
+  - median holding period: **58d main / 33d concentrated**; ≥365d holdings = 0%
+  - entry timing: **71% of main BUYs above prior 12m high** (extreme breakout-chase)
+  - premature-sell excess at 126d: main `+0.57%`, concentrated `-0.13%`
+  - sector rotation: real (Tech 66.7%→32% Main, 71.2%→59.6% Conc across 28 quarters), but quarterly-cadence and sector-following
+- conclusion: the engine is a monthly cross-sectional momentum rebalancer, not a leader-ride strategy. The conceptual pieces (`run_market_leader_engine.classify_leader_state` SHAKEOUT_GUARD/WARNING/EXIT_REPLACE, `run_monster_lifecycle_replay` scout→confirm→winner→monster stages, `run_winner_lifecycle_reports` missed/stale/rotation, `run_theme_leadership_tape` ETF look-through) all EXIST but live in research sidecars; production target books are produced once per month and broker-replayed at next close. T1 measures this so subsequent T2 (sub-monthly exits) and T4 (lifecycle-overlay promotion) have a baseline to beat.
+- files:
+  - `tools/run_leader_lifecycle_audit.py` ->new. Reads `broker_trade_journal/{main,concentrated}/round_trips.csv` + `broker_replay/{main,concentrated}/trades.csv` + `alphaops_vnext/daily_crisis_state.csv`. Emits per-portfolio metrics with informational gates: median_holding_days, pct_held_180d_plus, pct_held_365d_plus, extension_chase_pct (climax-flag fire rate at entry, using the journal's existing entry_explosion_exit_score / entry_stage2_overext_penalty / entry_rs_acceleration_score columns), leader_capture_rate (% of WIN/GOOD_EXIT trades held ≥90d), premature_sell_excess_return at 30/63/126d horizons (sold name's fwd return − same-date BUY's fwd return; positive = good rotation), reentry_capture_rate (% of names exited during DEFENSE_REVIEW/CRISIS_DEFENSE that re-enter within 63 calendar days of the defense window closing). Writes `summary.json`, `audit_report.md`, and `{main,concentrated}/premature_exits.csv`. Gates are read-only — failures DO NOT block the pipeline; this is measurement.
+  - `tests/leader_lifecycle_audit_smoke.py` ->new. Three tests: (a) synthetic round_trips/trades/daily_crisis flow through end-to-end, summary schema correct, gates evaluated, premature_exits.csv materializes; (b) missing inputs marks status=missing_inputs without crashing; (c) gates can be overridden via JSON file.
+  - `tools/run_full_rebuild_sidecars.py` ->in the combined operating_minimal/official branch, call `run_broker_trade_journal.py` then `run_leader_lifecycle_audit.py` right after `mdd_cash_overlay_research`. Previously broker_trade_journal only ran in research_full path (line 318), leaving the audit blind in the cheap profile we use for fast iteration. Both calls use `|| true` so failures don't block.
+  - `tools/run_pr_validation.py` ->register `tests/leader_lifecycle_audit_smoke.py` as a Tier-1 contract.
+- symbols_added: `holding_period_stats`, `extension_chase_stats`, `leader_capture_stats`, `premature_sell_excess`, `reentry_capture`, `evaluate_portfolio`, `render_report`, `DEFAULT_GATES`, `HORIZONS_DAYS`, `test_audit_produces_summary_and_gates`, `test_missing_inputs_marks_skipped_without_crashing`, `test_gates_override_via_file`
+- symbols_changed: sidecar script — `operating_minimal` block now includes `run_broker_trade_journal.py` + `run_leader_lifecycle_audit.py` between `run_mdd_cash_overlay_research.py` and `run_broker_position_risk_replay.py`
+- config_fields_added: none
+- breaking_changes: none. broker_replay metrics unchanged; the new audit is purely additive.
+- validation:
+  - `python tests/leader_lifecycle_audit_smoke.py` ->3/3 PASS
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - `python tools/run_pr_validation.py --quiet` ->78/79 PASS (only failure remains sec.gov sandbox 403 in `tests/sec_13f_cusip_mapping_smoke.py`, unrelated)
+  - Embedded bash in `run_full_rebuild_sidecars.py` validated via `bash -n`
+- next_action:
+  - In-flight Full Rebuild `27457206698` (commit a8b271ea, ~1.5h remaining) will produce the FIRST baseline measurement of the 7 gates. After it completes, T2 (chaining `position_risk_weekly_validation` into broker_replay for sub-monthly exits) can be measured against this baseline using the fast-loop `sidecar_only_verify.yml` (no new full rebuild).
+
 ### 13:30 KST - full-run-false-failure-fix-and-crisis-substrate-in-operating-minimal
 
 - scope: Two bundled fixes from analysis of Full Rebuild run `27445937281` (2026-06-13). The pipeline itself succeeded — broker-ledger metrics generated and committed as `0ceddbde` (Main CAGR `34.63%` / MDD `-26.01%`, Concentrated CAGR `44.80%` / MDD `-25.82%`, OOS windows populated, valid_for_production=true on both) — but the "Run FULL rebuild" workflow step still reported failure for two structural reasons that are not pipeline regressions.
