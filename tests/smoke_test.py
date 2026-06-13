@@ -42,6 +42,7 @@ import argparse
 import ast
 import csv
 import json
+import os
 import re
 import sys
 import time
@@ -1267,6 +1268,193 @@ def test_concentrated_entry_quality_continuation_override() -> None:
     )
 
 
+@_test("logic.concentrated_leader_gate_filters_lagging_defensives")
+def test_concentrated_leader_gate_filters_lagging_defensives() -> None:
+    """Concentrated leader gate is opt-in and filters lagging defensive rebounds."""
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    cfg.portfolio_defensive_rotation_enabled = False
+    cfg.concentrated_risk_candidate_filter_enabled = False
+    cfg.concentrated_monster_early_min_slots = 0
+    cfg.concentrated_min_entry_quality = 0.0
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    old_env = os.environ.get("PHASE_LEADER_GATE_ENABLED")
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "entry_quality_score": 0.8,
+            "breakout_setup_quality_score": 0.8,
+            "relative_strength_composite": 1.0,
+            "trend_template_full": 1.0,
+            "price_above_ma50": 1.0,
+            "price_above_ma200": 1.0,
+        }
+        rows = [
+            {"ticker": "ETR", "score": 100.0, "rs_spy_3m": -0.08, "rs_qqq_3m": -0.10, "rs_spy_6m": -0.03, "rs_qqq_6m": -0.05, **base},
+            {"ticker": "WDC", "score": 10.0, "rs_spy_3m": 0.08, "rs_qqq_3m": 0.06, "rs_spy_6m": 0.12, "rs_qqq_6m": 0.10, **base},
+        ]
+        os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        off = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 1)
+        os.environ["PHASE_LEADER_GATE_ENABLED"] = "1"
+        on = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 1)
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+        if old_env is None:
+            os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        else:
+            os.environ["PHASE_LEADER_GATE_ENABLED"] = old_env
+
+    assert off["ticker"].astype(str).tolist() == ["ETR"], "leader gate default OFF should preserve old score ranking"
+    assert on["ticker"].astype(str).tolist() == ["WDC"], "leader gate ON should reject lagging ETR fixture"
+    row = on.iloc[0]
+    assert row.get("leader_tier") == "DUAL_LEADER"
+    assert bool(row.get("concentrated_leader_gate_pass", False))
+
+
+@_test("logic.concentrated_cycle_recovery_requires_leadership_when_enabled")
+def test_concentrated_cycle_recovery_requires_leadership_when_enabled() -> None:
+    """Cycle recovery boost stays opt-in masked, preserving true cyclical leaders."""
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    cfg.portfolio_defensive_rotation_enabled = False
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    old_env = os.environ.get("PHASE_CYCLE_LEADERSHIP_MASK_ENABLED")
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "entry_quality_score": 0.8,
+            "cycle_recovery_score": 1.0,
+        }
+        rows = [
+            {"ticker": "DUK", "score": 10.0, "rs_spy_3m": -0.04, "rs_qqq_3m": -0.07, "rs_spy_6m": -0.02, "rs_qqq_6m": -0.04, **base},
+            {"ticker": "AMKR", "score": 10.0, "rs_spy_3m": 0.04, "rs_qqq_3m": 0.03, "rs_spy_6m": 0.06, "rs_qqq_6m": 0.05, **base},
+        ]
+        os.environ["PHASE_CYCLE_LEADERSHIP_MASK_ENABLED"] = "1"
+        scored = pipe.prepare_concentrated_frame(cfg, pd.DataFrame(rows)).set_index("ticker")
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+        if old_env is None:
+            os.environ.pop("PHASE_CYCLE_LEADERSHIP_MASK_ENABLED", None)
+        else:
+            os.environ["PHASE_CYCLE_LEADERSHIP_MASK_ENABLED"] = old_env
+
+    assert bool(scored.loc["AMKR", "cycle_leadership_mask_pass"])
+    assert not bool(scored.loc["DUK", "cycle_leadership_mask_pass"])
+    assert float(scored.loc["AMKR", "cycle_recovery_score_leader_masked"]) == 1.0
+    assert float(scored.loc["DUK", "cycle_recovery_score_leader_masked"]) == 0.0
+
+
+@_test("logic.alphaops_vnext_concentrated_leader_gate_blocks_nonleaders")
+def test_alphaops_vnext_concentrated_leader_gate_blocks_nonleaders() -> None:
+    """AlphaOps vNext concentrated leader gate also covers top7/emerging bypass lanes."""
+    if _args.quick:
+        return
+    import pandas as pd
+    from tools import run_alphaops_vnext_policy_replay as vnext
+
+    old_env = os.environ.get("PHASE_LEADER_GATE_ENABLED")
+    try:
+        frame = pd.DataFrame(
+            [
+                {"ticker": "ETR", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "LAGGING"},
+                {"ticker": "WDC", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "DUAL_LEADER"},
+                {"ticker": "MU", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "DUAL_LEADER"},
+                {"ticker": "LITE", "primary_lane": "TOP7_MANAGER_DISCOVERY", "leader_tier": "DUAL_LEADER"},
+            ]
+        )
+        os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        off_frame = vnext.apply_concentrated_leader_gate_annotations(frame, "concentrated", 5)
+        rec_off = off_frame[off_frame["ticker"].eq("ETR")].iloc[0].to_dict()
+        ok_off, reason_off = vnext.allowed_candidate(rec_off, "concentrated", 0, is_new_buy=True)
+        os.environ["PHASE_LEADER_GATE_ENABLED"] = "1"
+        on_frame = vnext.apply_concentrated_leader_gate_annotations(frame, "concentrated", 5)
+        rec_on = on_frame[on_frame["ticker"].eq("ETR")].iloc[0].to_dict()
+        ok_on, reason_on = vnext.allowed_candidate(rec_on, "concentrated", 0, is_new_buy=True)
+        rec_dual = on_frame[on_frame["ticker"].eq("WDC")].iloc[0].to_dict()
+        ok_dual, reason_dual = vnext.allowed_candidate(rec_dual, "concentrated", 0, is_new_buy=True)
+    finally:
+        if old_env is None:
+            os.environ.pop("PHASE_LEADER_GATE_ENABLED", None)
+        else:
+            os.environ["PHASE_LEADER_GATE_ENABLED"] = old_env
+
+    assert ok_off, f"default OFF should preserve existing top7/emerging bypass path: {reason_off}"
+    assert not ok_on and "concentrated_leader_gate" in reason_on
+    assert ok_dual, f"DUAL_LEADER should pass the opt-in vNext leader gate: {reason_dual}"
+
+
+@_test("logic.alphaops_vnext_cycle_mask_recomputes_primary_lane")
+def test_alphaops_vnext_cycle_mask_recomputes_primary_lane() -> None:
+    """AlphaOps vNext cycle mask removes nonleader cyclical lane wins without touching true leaders."""
+    if _args.quick:
+        return
+    import pandas as pd
+    from tools import run_alphaops_vnext_policy_replay as vnext
+
+    frame = pd.DataFrame(
+        [
+            {
+                "ticker": "DUK",
+                "quality_compounder_lane_score": 0.0,
+                "market_leader_lane_score": 0.10,
+                "emerging_tenbagger_lane_score": 0.0,
+                "top7_manager_discovery_lane_score": 0.0,
+                "cyclical_recovery_lane_score": 1.0,
+                "crisis_beneficiary_lane_score": 0.0,
+                "top7_support_boost": 0.0,
+                "top7_standalone_blocked": False,
+                "rs_spy_3m": -0.04,
+                "rs_qqq_3m": -0.06,
+                "rs_spy_6m": -0.02,
+                "rs_qqq_6m": -0.03,
+            },
+            {
+                "ticker": "AMKR",
+                "quality_compounder_lane_score": 0.0,
+                "market_leader_lane_score": 0.10,
+                "emerging_tenbagger_lane_score": 0.0,
+                "top7_manager_discovery_lane_score": 0.0,
+                "cyclical_recovery_lane_score": 1.0,
+                "crisis_beneficiary_lane_score": 0.0,
+                "top7_support_boost": 0.0,
+                "top7_standalone_blocked": False,
+                "rs_spy_3m": 0.04,
+                "rs_qqq_3m": 0.03,
+                "rs_spy_6m": 0.05,
+                "rs_qqq_6m": 0.05,
+            },
+        ]
+    ).set_index("ticker", drop=False)
+    out = vnext.apply_cycle_leadership_mask_to_lanes(frame)
+
+    assert not bool(out.loc["DUK", "cycle_leadership_mask_pass"])
+    assert bool(out.loc["AMKR", "cycle_leadership_mask_pass"])
+    assert float(out.loc["DUK", "cyclical_recovery_lane_score_leader_masked"]) == 0.0
+    assert float(out.loc["AMKR", "cyclical_recovery_lane_score_leader_masked"]) == 1.0
+    assert out.loc["DUK", "primary_lane"] != "CYCLICAL_RECOVERY"
+    assert out.loc["AMKR", "primary_lane"] == "CYCLICAL_RECOVERY"
+
+
 @_test("regression.phase9_c3_gate_wired_in_early_scout")
 def test_phase9_c3_gate_wired() -> None:
     """Phase 9 C2 early-scout gate must call _p9_c3_admit as an OR branch.
@@ -1899,6 +2087,141 @@ def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
     assert abs(float(guarded["future"]) - float(selected["future"])) < 1e-12
     assert abs(float(guarded["early"]) - float(selected["early"])) < 1e-12
     assert abs(float(guarded["cash"]) - float(selected["cash"])) < 1e-12
+
+
+@_test("regression.run_local_full_defers_broker_verdict_to_sidecar")
+def test_run_local_full_defers_broker_verdict_to_sidecar() -> None:
+    """`run_local.py --full` must NOT fail when broker metrics are absent.
+
+    Failure-class regression guard (run 27445937281, 2026-06-13): in full-run
+    workflow the broker-replay sidecar runs as a SEPARATE step AFTER
+    run_local.py exits. If --full mode lets print_broker_verdict run when
+    metrics.json files don't exist yet, it returns exit 1, fails the
+    "Run FULL rebuild" step under set -o pipefail, and reports the whole run
+    as failed even though the next "Verdict (Cell E equivalent)" step shows
+    completed metrics. The deferral block must:
+      - only activate under --full (verdict-only and QUICK_RESCORE still gate)
+      - check ALL three broker-evidence paths before returning 0
+      - print an informational DEFERRED banner, not silently swallow real
+        verdict output
+    """
+    src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    assert "BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP" in src, (
+        "deferral banner missing; verdict cannot be deferred without it"
+    )
+    # The block must gate on args.full so QUICK_RESCORE and --verdict-only
+    # still enforce the broker gate. All three broker-evidence paths must be
+    # checked together — partial presence (e.g. only main metrics) must still
+    # defer rather than fail.
+    deferral_prefix = src.split("BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP")[0]
+    deferral_window = deferral_prefix[-2000:]
+    assert "if args.full:" in deferral_window, "deferral must be gated on args.full"
+    for name in ("broker_replay", "main", "concentrated", "account_evaluation"):
+        assert name in deferral_window, f"deferral block must reference {name!r}"
+    assert "all(p.exists() for p in broker_paths)" in deferral_window, (
+        "deferral must check ALL three paths jointly"
+    )
+
+
+@_test("regression.operating_minimal_builds_long_crisis_substrate")
+def test_operating_minimal_builds_long_crisis_substrate() -> None:
+    """`operating_minimal` sidecar profile must build crisis substrate before
+    AlphaOps vNext production runs.
+
+    Crisis-defense regression guard (run 27445937281, 2026-06-13): without
+    `outputs/crisis_signals/daily_features.parquet` and
+    `outputs/long_crisis_learning/best_thresholds.json` on disk before
+    `run_alphaops_vnext_policy_replay.py` executes, the vNext builder writes
+    `long_crisis_score=0.0` / `cash_gate_reason='missing_long_crisis_features'`
+    into `daily_crisis_state.csv` for every date through COVID and 2022. The
+    2-confirmation cash-raise gate (price stress + at least one of
+    liquidity/trend/credit) cannot open with all confirmation signals at 0.0,
+    so broker-replay MaxDD stays on the unhedged path.
+
+    The sidecar script must:
+      - build crisis_signals/daily_features.parquet (if missing) BEFORE vnext
+      - invoke build_long_crisis_inputs BEFORE run_alphaops_vnext_production
+      - do all of the above inside the operating_minimal branch, not only the
+        official branch
+    """
+    src = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    # Find the operating_minimal/official branch.
+    branch_marker = 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then'
+    assert branch_marker in src, "operating_minimal/official combined branch missing"
+    branch_idx = src.index(branch_marker)
+    # Find the vnext CALL inside the operating_minimal/official branch — not
+    # the function definition near the top of the file ("run_alphaops_vnext_production() {").
+    import re
+    vnext_call_match = re.search(
+        r"^\s*run_alphaops_vnext_production\s*$",
+        src[branch_idx:],
+        flags=re.MULTILINE,
+    )
+    assert vnext_call_match, "run_alphaops_vnext_production call missing after operating_minimal branch"
+    vnext_idx = branch_idx + vnext_call_match.start()
+    csig_idx = src.find("run_crisis_signal_builder.py", branch_idx, vnext_idx)
+    long_idx = src.find("build_long_crisis_inputs", branch_idx, vnext_idx)
+    assert csig_idx != -1, (
+        f"crisis_signal_builder must run between operating_minimal branch start "
+        f"({branch_idx}) and run_alphaops_vnext_production call ({vnext_idx})"
+    )
+    assert long_idx != -1, (
+        f"build_long_crisis_inputs must run between operating_minimal branch start "
+        f"({branch_idx}) and run_alphaops_vnext_production call ({vnext_idx})"
+    )
+    # Both substrate steps must be inside the COMBINED branch (so
+    # operating_minimal benefits), not only inside the inner official-only block.
+    inner_official_marker = 'if [ "$SIDECAR_PROFILE" = "official" ]; then'
+    inner_official_idx = src.find(inner_official_marker, branch_idx + len(branch_marker))
+    if inner_official_idx != -1:
+        assert csig_idx < inner_official_idx, "crisis_signal_builder leaked into official-only branch"
+        assert long_idx < inner_official_idx, "build_long_crisis_inputs leaked into official-only branch"
+
+
+@_test("logic.latest_month_mktcap_starvation_guard")
+def test_latest_month_mktcap_starvation_guard() -> None:
+    """Universe-collapse guard for the latest snapshot (run 27337807588).
+
+    A cold-cache full rebuild joined shares for historical months but left the
+    latest month ~98% NaN mktcap, collapsing the scored universe to 4 names.
+    `latest_month_mktcap_coverage` must report the latest-month mask and its
+    coverage separately so build_universe_monthly can retry the bounded Yahoo
+    proxy / fall back to dollar-vol ranking for that month only.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+
+    starved = pd.DataFrame(
+        {
+            "rebalance_date": ["2026-05-29"] * 4 + ["2026-06-11"] * 4,
+            "ticker": ["A", "B", "C", "D"] * 2,
+            "mktcap": [1e10, 2e10, 3e10, 4e10, None, None, None, 5e10],
+        }
+    )
+    mask, cov = pipe.latest_month_mktcap_coverage(starved)
+    assert int(mask.sum()) == 4, f"latest-month mask wrong: {int(mask.sum())}"
+    assert abs(cov - 0.25) < 1e-9, f"starved coverage wrong: {cov}"
+    assert set(starved.loc[mask, "rebalance_date"]) == {"2026-06-11"}
+
+    healthy = starved.copy()
+    healthy["mktcap"] = 1e10
+    _, cov_healthy = pipe.latest_month_mktcap_coverage(healthy)
+    assert cov_healthy == 1.0, f"healthy coverage wrong: {cov_healthy}"
+
+    empty_mask, empty_cov = pipe.latest_month_mktcap_coverage(pd.DataFrame())
+    assert empty_cov == 1.0 and int(empty_mask.sum()) == 0
+
+    # The guard must be wired into build_universe_monthly: proxy retry for the
+    # starved latest month plus a dollar-vol fallback that keeps the month
+    # rankable instead of dropping it.
+    src = (ROOT / "r1000_pipeline.py").read_text(encoding="utf-8")
+    assert "latest_month_mktcap_coverage(monthly)" in src, "guard not wired into build_universe_monthly"
+    assert "latest_month_dollar_vol_fallback" in src, "dollar-vol fallback for starved latest month missing"
+    assert "mktcap_available = mktcap_available | latest_month_mask" in src, (
+        "base_mask must keep latest-month rows when the dollar-vol fallback is active"
+    )
 
 
 @_test("regression.paper_executor_advisor_path_fallbacks")
@@ -3135,12 +3458,16 @@ def test_user_current_and_sync_tools_parse() -> None:
     for rel in [
         "tools/run_user_current_report.py",
         "tools/build_gdrive_sync_manifest.py",
+        "tools/crisis_state_engine.py",
         "tools/run_daily_crisis_monitor.py",
         "tools/build_crisis_governed_target_books.py",
         "tools/run_full_rebuild_sidecars.py",
         "tools/run_execution_lag_review.py",
         "tools/run_position_risk_review.py",
         "tools/run_concentrated_broker_variant_review.py",
+        "tools/run_position_cleanup_review.py",
+        "tools/run_patch_application_manifest.py",
+        "tools/run_alphaops_vnext_policy_replay.py",
         "tools/create_healthy_baseline_lock.py",
         "tools/run_market_leader_challenger.py",
         "tools/run_shakeout_disclosure_reversal_study.py",
@@ -3165,13 +3492,20 @@ def test_workflow_profiles_operating_minimal_skip_research() -> None:
     assert "run_execution_lag_review.py" in sidecar_tool
     assert "run_position_risk_review.py" in sidecar_tool
     assert "run_concentrated_broker_variant_review.py" in sidecar_tool
+    assert "run_position_cleanup_review.py" in sidecar_tool
+    assert "run_patch_application_manifest.py" in sidecar_tool
     assert "create_healthy_baseline_lock.py" in sidecar_tool
     assert "run_market_leader_challenger.py" in sidecar_tool
     assert "outputs/broker_position_risk_replay/" in wf
+    assert "outputs/broker_parabolic_risk_replay/" in wf
+    assert "outputs/legacy_monthly_broker_replay/" in wf
     assert "outputs/broker_execution_policy_replay/" in wf
     assert "outputs/operator_review/" in wf
     assert "outputs/baseline_lock/" in wf
     assert "outputs/market_leader_challenger/" in wf
+    assert "alphaops_vnext_production" in wf
+    assert "tools/run_alphaops_vnext_policy_replay.py" in sidecar_tool
+    assert "outputs/alphaops_vnext/" in wf
 
 
 @_test("structural.pit_top_manager_follow_study_is_research_only")
@@ -3207,6 +3541,7 @@ def test_user_current_contains_no_research_metrics() -> None:
         "03_period_returns.csv",
         "04_official_metrics.json",
         "06_benchmark_comparison.csv",
+        "07_research_sidecar_context.json",
         "current simulated broker-ledger holdings only",
     ]:
         assert required in tool, f"user_current report missing {required}"
@@ -3230,6 +3565,13 @@ def test_gdrive_manifest_marks_deprecated_research() -> None:
         "execution_lag_review.json",
         "position_risk_review.json",
         "concentrated_broker_variant_review.json",
+        "position_cleanup_review.json",
+        "dust_positions_report.csv",
+        "patch_application_manifest.json",
+        "MINIMAL_ANALYSIS_FILES",
+        "broker_replay/main/trades.csv",
+        "broker_replay/concentrated/cash_ledger.csv",
+        "reports/operating_main_target_book.csv",
     ]:
         assert token in src, f"gdrive manifest tool missing {token}"
     wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
@@ -3293,19 +3635,22 @@ def test_sec_13f_refresh_uses_historical_submissions() -> None:
 @_test("structural.daily_crisis_monitor_has_hysteresis_and_shakeout_guard")
 def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
     src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
+    engine = (ROOT / "tools" / "crisis_state_engine.py").read_text(encoding="utf-8")
     wf = (ROOT / ".github" / "workflows" / "daily_crisis_monitor.yml").read_text(encoding="utf-8")
     for token in [
         "GREEN",
         "WATCH",
         "DEFENSE_REVIEW",
+        "CRISIS_DEFENSE",
         "REENTRY_READY",
         "VIX-only cash raise is forbidden",
         "single_name_shakeout_cash_raise_forbidden",
         "long_crisis_daily_features.parquet",
         "best_thresholds.json",
-        "future_labels_excluded",
     ]:
         assert token in src, f"daily crisis monitor missing {token}"
+    for token in ["future_labels_excluded", "observable_feature_frame", "build_historical_daily_crisis_state"]:
+        assert token in engine, f"shared crisis state engine missing {token}"
     assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
     assert "outputs/long_crisis_learning" in wf and "data_pit/macro" in wf
 

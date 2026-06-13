@@ -13,7 +13,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from tools.build_operating_target_books import build  # noqa: E402
+from tools.build_operating_target_books import build, clean_filter_value  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -72,6 +72,20 @@ def test_operating_books_append_latest_close_targets() -> None:
             ],
         )
         write_csv(
+            latest / "reports" / "concentrated_strategy_comparison.csv",
+            [
+                {
+                    "portfolio_mode": "concentrated_alpha",
+                    "target_stock_names": 4,
+                    "weighting_mode": "score_power",
+                    "rebalance_interval_months": 1,
+                    "strategy_cagr": 0.30,
+                    "sharpe": 1.0,
+                    "max_dd": -0.30,
+                }
+            ],
+        )
+        write_csv(
             latest / "concentrated_portfolio_latest.csv",
             [
                 {
@@ -99,7 +113,12 @@ def test_operating_books_append_latest_close_targets() -> None:
         main = pd.read_csv(out_dir / "operating_main_target_book.csv")
         concentrated = pd.read_csv(out_dir / "operating_concentrated_target_book.csv")
         assert set(main.loc[main["rebalance_date"].eq("2026-05-08"), "ticker"]) == {"ON", "MU"}
-        assert set(concentrated.loc[concentrated["rebalance_date"].eq("2026-05-08"), "ticker"]) == {"WDC", "SNDK"}
+        concentrated_latest = concentrated[concentrated["rebalance_date"].eq("2026-05-08")].copy()
+        assert set(concentrated_latest["ticker"]) == {"WDC", "SNDK"}
+        assert set(concentrated_latest["target_stock_names"].map(clean_filter_value)) == {"4"}
+        assert set(concentrated_latest["target_n"].map(clean_filter_value)) == {"4"}
+        assert set(concentrated_latest["weighting_mode"].astype(str)) == {"score_power"}
+        assert set(concentrated_latest["active_rebalance_interval_months"].map(clean_filter_value)) == {"1"}
         assert main["decision_frequency"].iloc[-1] == "event_driven_latest_close"
         assert concentrated["decision_frequency"].iloc[-1] == "event_driven_latest_close"
 

@@ -1,0 +1,37 @@
+portfolio_kind,ticker,current_weight,target_weight,cleanup_action,cleanup_reason,projected_weight_after_cleanup_review
+concentrated,SNDK,0.3284805249740523,0.2186498084729172,TRIM_REVIEW,current weight materially above target,0.2186498084729172
+concentrated,BE,0.2269299615667472,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,WDC,0.2031559358492151,0.2740335916159192,INCREASE_TO_MEANINGFUL_WEIGHT_REVIEW,target is meaningful and current is under target,0.2740335916159192
+concentrated,CIEN,0.0716944805240527,0.0,FULL_EXIT_REVIEW,concentrated position below minimum meaningful weight,0.0
+concentrated,LITE,0.0524813622807313,0.0,FULL_EXIT_REVIEW,concentrated position below minimum meaningful weight,0.0
+concentrated,CASH,0.1172577348052012,0.0,CASH_NO_ACTION,cash row,0.1172577348052012
+main,SNDK,0.1375642682644536,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,STM,0.1300434621537136,0.04,TRIM_REVIEW,current weight materially above target,0.04
+main,WDC,0.1248521693446976,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,MRVL,0.1104066394876981,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,CIEN,0.0652782993657062,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,BE,0.0635902218039886,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,LITE,0.0547634825502465,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,ON,0.0523703338090088,0.0326350786125458,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.0523703338090088
+main,PWR,0.0469504805159882,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,RVMD,0.0394955157488139,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,FIX,0.0355848583537921,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,MU,0.0333478039315322,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,COHR,0.0197471238421046,0.0,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.0197471238421046
+main,TER,0.0123346983852451,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,KEYS,0.0090930706809217,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,CASH,0.0645775717620884,0.0,CASH_NO_ACTION,cash row,0.0645775717620884
+main,AAPL,0.0,0.1064265563038583,NEW_POSITION_REVIEW,target-only position from production target,0.1064265563038583
+main,AMD,0.0,0.047834103929252,NEW_POSITION_REVIEW,target-only position from production target,0.047834103929252
+main,ARW,0.0,0.0326350786125458,NEW_POSITION_REVIEW,target-only position from production target,0.0326350786125458
+main,GOOGL,0.0,0.2123431825316156,NEW_POSITION_REVIEW,target-only position from production target,0.2123431825316156
+main,LRCX,0.0,0.047834103929252,NEW_POSITION_REVIEW,target-only position from production target,0.047834103929252
+main,NTAP,0.0,0.0326350786125458,NEW_POSITION_REVIEW,target-only position from production target,0.0326350786125458
+main,NVT,0.0,0.0680718967806478,NEW_POSITION_REVIEW,target-only position from production target,0.0680718967806478
+main,OKE,0.0,0.0658859203527026,NEW_POSITION_REVIEW,target-only position from production target,0.0658859203527026
+main,RKLB,0.0,0.0834929593769732,NEW_POSITION_REVIEW,target-only position from production target,0.0834929593769732
+main,ROST,0.0,0.0645406707980368,NEW_POSITION_REVIEW,target-only position from production target,0.0645406707980368
+main,TKR,0.0,0.0871445231911816,NEW_POSITION_REVIEW,target-only position from production target,0.0871445231911816
+main,UMC,0.0,0.0785208469688422,NEW_POSITION_REVIEW,target-only position from production target,0.0785208469688422
+concentrated,ARM,0.0,0.3273348125440494,NEW_POSITION_REVIEW,target-only position from production target,0.3273348125440494
+concentrated,FLEX,0.0,0.1799817873671141,NEW_POSITION_REVIEW,target-only position from production target,0.1799817873671141

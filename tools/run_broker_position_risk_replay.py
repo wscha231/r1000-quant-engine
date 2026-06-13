@@ -53,6 +53,11 @@ from run_weekly_evaluation import load_price_series  # noqa: E402
 
 
 DEFAULT_OUT_DIR = "outputs/broker_position_risk_replay"
+DEFAULT_HARD_STOP = -0.12
+DEFAULT_TRAILING_STOP = -0.20
+DEFAULT_TRAILING_ACTIVATION = 0.25
+DEFAULT_RELATIVE_TRIM_THRESHOLD = -0.10
+DEFAULT_RELATIVE_EXIT_THRESHOLD = -0.20
 
 
 @dataclass
@@ -139,6 +144,7 @@ def risk_signal(
     trailing_activation: float,
     relative_trim_threshold: float,
     relative_exit_threshold: float,
+    enable_distribution_exit: bool = True,
 ) -> tuple[str, str, float, dict[str, Any]] | None:
     if close_price <= 0 or meta.entry_price <= 0:
         return None
@@ -166,7 +172,7 @@ def risk_signal(
             safe_float(meta.row.get("risk_penalty"), 0.0),
         )
         rs_accel = safe_float(meta.row.get("rs_acceleration_score"), 0.0)
-        if exit_risk >= 0.85 and rs_accel < 0.0 and total_return < -0.02:
+        if enable_distribution_exit and exit_risk >= 0.85 and rs_accel < 0.0 and total_return < -0.02:
             return "SELL", "weekly_distribution_exit", 1.0, context
         if relative_return <= relative_exit_threshold and not protected:
             return "SELL", "weekly_relative_exit", 1.0, context
@@ -294,11 +300,13 @@ def replay(
     max_reasonable_weight_sum: float = 1.05,
     max_fill_lag_days: int = 7,
     benchmark_ticker: str = "SPY",
-    hard_stop: float = -0.08,
-    trailing_stop: float = -0.15,
-    trailing_activation: float = 0.15,
-    relative_trim_threshold: float = -0.06,
-    relative_exit_threshold: float = -0.12,
+    hard_stop: float = DEFAULT_HARD_STOP,
+    trailing_stop: float = DEFAULT_TRAILING_STOP,
+    trailing_activation: float = DEFAULT_TRAILING_ACTIVATION,
+    relative_trim_threshold: float = DEFAULT_RELATIVE_TRIM_THRESHOLD,
+    relative_exit_threshold: float = DEFAULT_RELATIVE_EXIT_THRESHOLD,
+    enable_distribution_exit: bool = True,
+    candidate_id: str | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
@@ -457,6 +465,7 @@ def replay(
                     trailing_activation=trailing_activation,
                     relative_trim_threshold=relative_trim_threshold,
                     relative_exit_threshold=relative_exit_threshold,
+                    enable_distribution_exit=enable_distribution_exit,
                 )
                 if signal is None:
                     continue
@@ -492,7 +501,7 @@ def replay(
     metrics.update(
         {
             "portfolio_kind": portfolio_kind,
-            "candidate_id": f"{portfolio_kind}_broker_position_risk_replay",
+            "candidate_id": candidate_id or f"{portfolio_kind}_broker_position_risk_replay",
             "metric_mode": "broker_ledger_position_risk_next_close",
             "data_mode": "daily_price_path_account_ledger",
             "fill_mode": fill_mode,
@@ -510,6 +519,7 @@ def replay(
             "trailing_activation": trailing_activation,
             "relative_trim_threshold": relative_trim_threshold,
             "relative_exit_threshold": relative_exit_threshold,
+            "enable_distribution_exit": bool(enable_distribution_exit),
             "risk_exit_count": int(sum(1 for row in risk_action_rows if "exit" in str(row.get("reason", "")))),
             "risk_trim_count": int(sum(1 for row in risk_action_rows if "trim" in str(row.get("reason", "")))),
             "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares),
@@ -556,11 +566,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-integer-shares", action="store_true")
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--benchmark-ticker", default="SPY")
-    parser.add_argument("--hard-stop", type=float, default=-0.08)
-    parser.add_argument("--trailing-stop", type=float, default=-0.15)
-    parser.add_argument("--trailing-activation", type=float, default=0.15)
-    parser.add_argument("--relative-trim-threshold", type=float, default=-0.06)
-    parser.add_argument("--relative-exit-threshold", type=float, default=-0.12)
+    parser.add_argument("--hard-stop", type=float, default=DEFAULT_HARD_STOP)
+    parser.add_argument("--trailing-stop", type=float, default=DEFAULT_TRAILING_STOP)
+    parser.add_argument("--trailing-activation", type=float, default=DEFAULT_TRAILING_ACTIVATION)
+    parser.add_argument("--relative-trim-threshold", type=float, default=DEFAULT_RELATIVE_TRIM_THRESHOLD)
+    parser.add_argument("--relative-exit-threshold", type=float, default=DEFAULT_RELATIVE_EXIT_THRESHOLD)
+    parser.add_argument("--disable-distribution-exit", action="store_true", help="Disable weekly distribution exits so only hard/trailing/relative rules can fire.")
+    parser.add_argument("--candidate-id", default="", help="Optional candidate_id to record in metrics for variant sidecars.")
     return parser.parse_args()
 
 
@@ -582,6 +594,8 @@ def main() -> int:
         trailing_activation=args.trailing_activation,
         relative_trim_threshold=args.relative_trim_threshold,
         relative_exit_threshold=args.relative_exit_threshold,
+        enable_distribution_exit=not args.disable_distribution_exit,
+        candidate_id=args.candidate_id or None,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 0

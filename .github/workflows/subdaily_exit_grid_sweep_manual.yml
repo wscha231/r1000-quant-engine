@@ -1,0 +1,175 @@
+name: Sub-Monthly Exit Grid Sweep (Manual / Fast)
+
+# Stage T2b — find the stop-threshold sweet spot. Runs
+# tools/run_position_risk_weekly_validation.py with several (hard_stop,
+# trailing_stop) combinations on a frozen Full Rebuild source artifact, ranks
+# every combo by a composite of CAGR + scaled MDD-improvement vs the monthly
+# broker baseline, and writes a champion candidate. Research-only — the
+# winner is NOT auto-promoted; it becomes a candidate for explicit
+# broker-ledger gate validation in a later run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Run ID of a successful Full Rebuild whose holdings + cache_prices to reuse'
+        type: string
+        required: true
+      ref:
+        description: 'Git ref to check out (the code under test)'
+        type: string
+        default: 'claude/analyze-updated-code-OfEbu'
+      portfolio_kind:
+        description: 'Which portfolio to sweep'
+        type: choice
+        options: [main, concentrated, both]
+        default: both
+      hard_stop_grid:
+        description: 'Comma-separated hard_stop values to sweep. Accepts `disabled` for never-firing.'
+        type: string
+        default: '-0.08,-0.10,-0.12,-0.15,disabled'
+      trailing_stop_grid:
+        description: 'Comma-separated trailing_stop values to sweep (negative pcts)'
+        type: string
+        default: '-0.15,-0.18,-0.22'
+      trailing_activation:
+        description: 'Cumulative profit before trailing stop activates (default 0.15)'
+        type: string
+        default: '0.15'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: subdaily-exit-grid-sweep-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  grid_sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Free disk space on runner
+        run: |
+          set -eu
+          echo "=== disk before ==="; df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/powershell /usr/share/swift 2>/dev/null || true
+          sudo apt-get clean
+          echo "=== disk after ==="; df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore collector + engine caches (same keys used by Full Rebuild)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            cache_prices
+            cache_fsds
+            cache_macro
+            cache_sec_actual
+            cache_misc
+            outputs/sec_companyfacts
+            outputs/macro
+            outputs/feature_store_*.parquet
+            outputs/scored_*.csv
+            outputs/walk_forward
+          key: collector-cache--${{ runner.os }}-${{ inputs.source_run_id }}
+          restore-keys: |
+            collector-cache--${{ runner.os }}-
+            collector-cache-
+
+      - name: Download source run artifact (holdings + period maps + broker_replay)
+        uses: actions/download-artifact@v4
+        with:
+          name: official-broker-ledger-global_alpha_universe-${{ inputs.source_run_id }}
+          path: outputs/_source_artifact
+          repository: ${{ github.repository }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - name: Stage source artifact into the expected sidecar paths
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/reports outputs/broker_replay
+          SRC=outputs/_source_artifact
+          echo "[grid-sweep] artifact contents:"; find "$SRC" -maxdepth 3 -type d | head -20
+          for d in reports broker_replay portfolio_system_guard market_leader_challenger; do
+            if [ -d "$SRC/$d" ]; then
+              mkdir -p "outputs/$d"
+              cp -r "$SRC/$d"/. "outputs/$d/" 2>/dev/null || true
+            fi
+          done
+          # If the source run is a numbered subdir under cloud_results, pull
+          # from there too (covers different artifact-profile layouts).
+          for sub in $(find "$SRC" -maxdepth 2 -type d -name 'reports' 2>/dev/null); do
+            cp -r "$sub"/. outputs/reports/ 2>/dev/null || true
+          done
+
+      - name: Confirm holdings and period maps are present
+        run: |
+          set -euo pipefail
+          for f in \
+              outputs/reports/main_monthly_weights.csv \
+              outputs/reports/regime_by_month.csv \
+              outputs/reports/concentrated_strategy_holdings.csv \
+              outputs/reports/concentrated_strategy_monthly.csv \
+              outputs/broker_replay/main/metrics.json \
+              outputs/broker_replay/concentrated/metrics.json; do
+            if [ -s "$f" ]; then echo "OK $f"; else echo "MISSING $f"; fi
+          done
+
+      - name: Run grid sweep
+        run: |
+          set -euo pipefail
+          python tools/run_subdaily_exit_grid_sweep.py \
+              --latest-run outputs \
+              --price-cache cache_prices \
+              --output-dir outputs/subdaily_exit_grid_sweep \
+              --portfolio-kind "${{ inputs.portfolio_kind }}" \
+              --hard-stop-grid "${{ inputs.hard_stop_grid }}" \
+              --trailing-stop-grid "${{ inputs.trailing_stop_grid }}" \
+              --trailing-activation "${{ inputs.trailing_activation }}"
+
+      - name: Surface summary in the workflow log
+        run: |
+          set -euo pipefail
+          if [ -f outputs/subdaily_exit_grid_sweep/summary.json ]; then
+            echo '=== summary.json ==='
+            head -120 outputs/subdaily_exit_grid_sweep/summary.json
+            echo
+            for p in main concentrated; do
+              REPORT="outputs/subdaily_exit_grid_sweep/$p/report.md"
+              if [ -f "$REPORT" ]; then
+                echo "=== $p report ==="
+                cat "$REPORT"
+                echo
+              fi
+            done
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: subdaily-exit-grid-sweep-${{ inputs.source_run_id }}
+          path: outputs/subdaily_exit_grid_sweep
+          retention-days: 30

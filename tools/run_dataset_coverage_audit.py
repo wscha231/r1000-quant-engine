@@ -88,6 +88,28 @@ HISTORICAL_COVERAGE_COLUMNS = [
     "period_forward_return",
 ]
 
+EVIDENCE_COVERAGE_COLUMNS = [
+    "available_from",
+    "latest_available_from",
+    "latest_13f_available_from",
+    "latest_etf_available_from",
+    "sec_form4_score",
+    "sec_13f_score",
+    "sec_13f_smart_money_score",
+    "institutional_evidence_score",
+    "early_evidence_score",
+    "sec_combined_evidence_score",
+    "leader_onset_sec_v3_score",
+    "etf_holdings_score",
+    "etf_theme_leadership_score",
+    "smart_money_shadow_score",
+    "smart_money_evidence_source_count",
+    "evidence_fusion_score",
+    "valuation_support_score",
+    "top7_manager_discovery_lane_score",
+    "top7_support_boost",
+]
+
 
 def repo_path(path_like: str | Path) -> Path:
     path = Path(path_like)
@@ -142,6 +164,39 @@ def numeric_coverage(df: pd.DataFrame, columns: list[str], scope: str) -> list[d
                 "nonnull_ratio": float(raw.notna().mean()) if len(raw) else 0.0,
                 "numeric_ratio": float(num.notna().mean()) if len(num) else 0.0,
                 "nonzero_ratio": float(num.fillna(0).ne(0).mean()) if len(num) else 0.0,
+            }
+        )
+    return rows
+
+
+def column_coverage(df: pd.DataFrame, columns: list[str], scope: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for col in columns:
+        if col not in df.columns:
+            rows.append(
+                {
+                    "scope": scope,
+                    "column": col,
+                    "present": False,
+                    "nonnull_ratio": 0.0,
+                    "numeric_ratio": 0.0,
+                    "nonzero_ratio": 0.0,
+                    "nonblank_ratio": 0.0,
+                }
+            )
+            continue
+        raw = df[col]
+        text = raw.fillna("").astype(str).str.strip()
+        num = pd.to_numeric(raw, errors="coerce")
+        rows.append(
+            {
+                "scope": scope,
+                "column": col,
+                "present": True,
+                "nonnull_ratio": float(raw.notna().mean()) if len(raw) else 0.0,
+                "numeric_ratio": float(num.notna().mean()) if len(num) else 0.0,
+                "nonzero_ratio": float(num.fillna(0).ne(0).mean()) if len(num) else 0.0,
+                "nonblank_ratio": float(text.ne("").mean()) if len(text) else 0.0,
             }
         )
     return rows
@@ -244,6 +299,8 @@ def render_report(payload: dict[str, Any], output_dir: Path) -> str:
     missing_columns = payload.get("missing_columns", [])[:16]
     watch = payload.get("watchlist", [])
     effective_caps = payload.get("effective_market_cap_coverage", [])
+    source_universe = payload.get("historical_source_universe_top", [])[:8]
+    evidence_summary = payload.get("sec_enriched_evidence_summary", {})
     lines = [
         "# Dataset Coverage Audit",
         "",
@@ -251,12 +308,33 @@ def render_report(payload: dict[str, Any], output_dir: Path) -> str:
         f"- scored latest rows: {payload.get('latest_scored_rows')}",
         f"- latest scored date: {payload.get('latest_scored_date')}",
         f"- historical candidate rows: {payload.get('historical_candidate_rows')}",
+        f"- historical candidate tickers: {payload.get('historical_candidate_tickers')}",
         f"- historical months: {payload.get('historical_months')}",
         f"- historical candidate last date: {payload.get('historical_candidate_last_date')}",
+        f"- SEC-enriched candidate present: {payload.get('sec_enriched_candidate_present')}",
+        f"- SEC-enriched candidate rows: {payload.get('sec_enriched_candidate_rows')}",
         "",
-        "## Effective Market Cap Coverage",
+        "## Universe Source",
         "",
     ]
+    for row in source_universe:
+        lines.append(f"- `{row.get('value')}`: {row.get('count')}")
+    lines.extend(
+        [
+            "",
+            "## Evidence Utilization",
+            "",
+            f"- rows with SEC evidence: {evidence_summary.get('rows_with_sec_evidence', 0)}",
+            f"- rows with 13F evidence: {evidence_summary.get('rows_with_13f_evidence', 0)}",
+            f"- rows with ETF evidence: {evidence_summary.get('rows_with_etf_evidence', 0)}",
+            f"- rows with smart-money evidence: {evidence_summary.get('rows_with_smart_money_evidence', 0)}",
+            f"- coverage ratio: {float(evidence_summary.get('coverage_ratio', 0.0) or 0.0):.1%}",
+            f"- 13F coverage ratio: {float(evidence_summary.get('coverage_13f_ratio', 0.0) or 0.0):.1%}",
+            "",
+            "## Effective Market Cap Coverage",
+            "",
+        ]
+    )
     for row in effective_caps:
         lines.append(
             f"- `{row['scope']}` effective cap numeric={row['numeric_ratio']:.1%}, "
@@ -301,6 +379,8 @@ def render_report(payload: dict[str, Any], output_dir: Path) -> str:
 def run(latest_run: Path, output_dir: Path, watchlist: list[str]) -> dict[str, Any]:
     scored = read_csv(latest_run / "scored_latest.csv")
     book = read_csv(latest_run / "reports" / "candidate_replay_book.csv")
+    sec_enriched_book = read_csv(latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv")
+    sec_enriched_summary = read_json(latest_run / "sec_enriched_candidate_replay" / "summary.json")
     baseline = read_json(latest_run / "reports" / "baseline_registry.json")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -315,6 +395,7 @@ def run(latest_run: Path, output_dir: Path, watchlist: list[str]) -> dict[str, A
     )
     if not book.empty:
         coverage_rows.extend(numeric_coverage(book, HISTORICAL_COVERAGE_COLUMNS, "historical_candidate_book"))
+        coverage_rows.extend(column_coverage(book, EVIDENCE_COVERAGE_COLUMNS, "historical_candidate_book"))
         coverage_rows.append(
             effective_numeric_coverage(
                 book,
@@ -323,14 +404,18 @@ def run(latest_run: Path, output_dir: Path, watchlist: list[str]) -> dict[str, A
                 "effective_market_cap_usd",
             )
         )
+    if not sec_enriched_book.empty:
+        coverage_rows.extend(column_coverage(sec_enriched_book, EVIDENCE_COVERAGE_COLUMNS, "sec_enriched_candidate_book"))
     coverage = pd.DataFrame(coverage_rows)
     coverage.to_csv(output_dir / "dataset_coverage_audit_coverage.csv", index=False)
 
     dist_rows: list[dict[str, Any]] = []
     for col in ["universe_source", "source_universe", "fundamental_lane_label", "portfolio_candidate_gate_label", "portfolio_sleeve_label", "sector"]:
         dist_rows.extend(value_counts_rows(scored, col, "latest_scored"))
-    for col in ["portfolio_sleeve_label", "sector"]:
+    for col in ["source_universe", "portfolio_sleeve_label", "sector"]:
         dist_rows.extend(value_counts_rows(book, col, "historical_candidate_book"))
+    for col in ["source_universe", "sector"]:
+        dist_rows.extend(value_counts_rows(sec_enriched_book, col, "sec_enriched_candidate_book"))
     pd.DataFrame(dist_rows).to_csv(output_dir / "dataset_coverage_audit_distributions.csv", index=False)
 
     watch = watchlist_rows(scored, book, watchlist)
@@ -353,6 +438,10 @@ def run(latest_run: Path, output_dir: Path, watchlist: list[str]) -> dict[str, A
     historical_last_date = ""
     if not book.empty and "rebalance_date" in book.columns:
         historical_last_date = str(pd.to_datetime(book["rebalance_date"], errors="coerce").max().date())
+    sec_enriched_last_date = ""
+    if not sec_enriched_book.empty and "rebalance_date" in sec_enriched_book.columns:
+        sec_enriched_last_date = str(pd.to_datetime(sec_enriched_book["rebalance_date"], errors="coerce").max().date())
+    historical_source_universe_top = value_counts_rows(book, "source_universe", "historical_candidate_book", limit=12)
     payload = {
         "status": "completed",
         "latest_run": str(latest_run),
@@ -360,8 +449,31 @@ def run(latest_run: Path, output_dir: Path, watchlist: list[str]) -> dict[str, A
         "latest_scored_rows": int(len(scored)),
         "latest_scored_date": latest_scored_date,
         "historical_candidate_rows": int(len(book)),
+        "historical_candidate_tickers": int(book["ticker"].nunique()) if not book.empty and "ticker" in book.columns else 0,
         "historical_months": int(book["rebalance_date"].nunique()) if not book.empty and "rebalance_date" in book.columns else 0,
         "historical_candidate_last_date": historical_last_date,
+        "historical_source_universe_top": historical_source_universe_top,
+        "sec_enriched_candidate_present": bool(not sec_enriched_book.empty),
+        "sec_enriched_candidate_rows": int(len(sec_enriched_book)),
+        "sec_enriched_candidate_tickers": int(sec_enriched_book["ticker"].nunique()) if not sec_enriched_book.empty and "ticker" in sec_enriched_book.columns else 0,
+        "sec_enriched_candidate_last_date": sec_enriched_last_date,
+        "sec_enriched_evidence_summary": {
+            key: sec_enriched_summary.get(key)
+            for key in [
+                "status",
+                "rows_with_sec_evidence",
+                "rows_with_13f_evidence",
+                "rows_with_etf_evidence",
+                "rows_with_smart_money_evidence",
+                "coverage_ratio",
+                "coverage_13f_ratio",
+                "coverage_etf_ratio",
+                "coverage_smart_money_ratio",
+                "score_total_changed",
+                "production_activation_allowed",
+                "research_only",
+            ]
+        },
         "coverage_gaps": gap_rows,
         "effective_market_cap_coverage": [
             row for row in coverage_rows if row.get("column") == "effective_market_cap_usd"

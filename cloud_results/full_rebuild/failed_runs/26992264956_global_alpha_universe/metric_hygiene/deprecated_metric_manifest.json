@@ -1,0 +1,32 @@
+{
+  "deprecated_metrics": [
+    {
+      "DO_NOT_USE_FOR_PRODUCTION": true,
+      "deprecated_output": "deprecated_legacy_backtest_metrics.json",
+      "exists": true,
+      "legacy_cagr": 0.31410550483067934,
+      "legacy_max_dd": -0.17730197266147718,
+      "legacy_minus_official_cagr_pp": 0.0532,
+      "legacy_minus_official_max_dd_pp": 19.7202,
+      "official_metric_required": "broker_ledger_next_close",
+      "portfolio": "main",
+      "production_valid": false,
+      "source": "backtest_metrics.json"
+    },
+    {
+      "DO_NOT_USE_FOR_PRODUCTION": true,
+      "deprecated_output": "deprecated_concentrated_weight_level_metrics.json",
+      "exists": true,
+      "legacy_cagr": 0.4410128405754561,
+      "legacy_max_dd": -0.15431947027837722,
+      "legacy_minus_official_cagr_pp": 4.3126,
+      "legacy_minus_official_max_dd_pp": 19.7725,
+      "official_metric_required": "broker_ledger_next_close",
+      "portfolio": "concentrated",
+      "production_valid": false,
+      "source": "concentrated_backtest_metrics.json"
+    }
+  ],
+  "official_metric_required": "broker_ledger_next_close",
+  "schema_version": "metric-hygiene-v1"
+}

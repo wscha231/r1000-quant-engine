@@ -1,0 +1,44 @@
+portfolio_kind,ticker,current_weight,target_weight,cleanup_action,cleanup_reason,projected_weight_after_cleanup_review
+concentrated,PR,0.3041218531262784,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,ETR,0.2762375801910482,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,AKAM,0.2396070159326919,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,BKNG,0.1799915664895708,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,CASH,4.198426041056088e-05,0.0,CASH_NO_ACTION,cash row,4.198426041056088e-05
+main,AMAT,0.1324476881735719,0.0336828109423192,TRIM_REVIEW,current weight materially above target,0.0336828109423192
+main,GOOG,0.0836270859079496,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,PR,0.0663003764157059,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,COST,0.049742834503539,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,ETR,0.0418841526419451,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,SLB,0.0418812269708101,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,VZ,0.0410081121185527,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,VRT,0.0400447783166383,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,WDC,0.0316720496300469,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,LNG,0.0312227347088552,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,FTI,0.0306679272314275,0.0647977061290154,INCREASE_TO_MEANINGFUL_WEIGHT_REVIEW,target is meaningful and current is under target,0.0647977061290154
+main,AKAM,0.0292932564518397,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,CIEN,0.0213282931126174,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,BKNG,0.0208799904523905,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,DUK,0.0207419494264997,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,SU,0.0204481722100041,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,CNQ,0.0198799175268817,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,CASH,0.2769294542007238,0.0,CASH_NO_ACTION,cash row,0.2769294542007238
+main,AMD,0.0,0.0336828109423192,NEW_POSITION_REVIEW,target-only position from production target,0.0336828109423192
+main,ARW,0.0,0.0278009892145769,NEW_POSITION_REVIEW,target-only position from production target,0.0278009892145769
+main,CAT,0.0,0.2107529862151856,NEW_POSITION_REVIEW,target-only position from production target,0.2107529862151856
+main,COHU,0.0,0.0276687805616201,NEW_POSITION_REVIEW,target-only position from production target,0.0276687805616201
+main,FTNT,0.0,0.0830428142761225,NEW_POSITION_REVIEW,target-only position from production target,0.0830428142761225
+main,KLAC,0.0,0.0322763196714559,NEW_POSITION_REVIEW,target-only position from production target,0.0322763196714559
+main,KNX,0.0,0.0389540048005053,NEW_POSITION_REVIEW,target-only position from production target,0.0389540048005053
+main,LRCX,0.0,0.0336828109423192,NEW_POSITION_REVIEW,target-only position from production target,0.0336828109423192
+main,NUE,0.0,0.0638356861442029,NEW_POSITION_REVIEW,target-only position from production target,0.0638356861442029
+main,NXPI,0.0,0.0636132972760447,NEW_POSITION_REVIEW,target-only position from production target,0.0636132972760447
+main,ON,0.0,0.0281626634492666,NEW_POSITION_REVIEW,target-only position from production target,0.0281626634492666
+main,R,0.0,0.0389540048005053,NEW_POSITION_REVIEW,target-only position from production target,0.0389540048005053
+main,RKLB,0.0,0.0480831899578444,NEW_POSITION_REVIEW,target-only position from production target,0.0480831899578444
+main,STLD,0.0,0.0399999999999999,NEW_POSITION_REVIEW,target-only position from production target,0.0399999999999999
+main,TKR,0.0,0.0632558142259592,NEW_POSITION_REVIEW,target-only position from production target,0.0632558142259592
+main,UMC,0.0,0.0677533104507369,NEW_POSITION_REVIEW,target-only position from production target,0.0677533104507369
+concentrated,AMAT,0.0,0.2502283064259594,NEW_POSITION_REVIEW,target-only position from production target,0.2502283064259594
+concentrated,AMD,0.0,0.3202073777120162,NEW_POSITION_REVIEW,target-only position from production target,0.3202073777120162
+concentrated,LRCX,0.0,0.2703706929904185,NEW_POSITION_REVIEW,target-only position from production target,0.2703706929904185
+concentrated,SNDK,0.0,0.159193622871606,NEW_POSITION_REVIEW,target-only position from production target,0.159193622871606

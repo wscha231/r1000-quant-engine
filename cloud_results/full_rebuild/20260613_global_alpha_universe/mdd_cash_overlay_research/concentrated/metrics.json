@@ -1,0 +1,159 @@
+{
+  "avg_cash_delta": 0.2375843060922429,
+  "base_mdd_trade_summary": {
+    "buy_count": 69,
+    "gross_value_usd": 1862213.1144943237,
+    "net_cash_delta_usd": -10942.106306896196,
+    "sell_count": 73,
+    "top_tickers_by_gross": [
+      {
+        "gross_value_usd": 218035.6806640625,
+        "ticker": "JBL"
+      },
+      {
+        "gross_value_usd": 106861.22582626343,
+        "ticker": "LRCX"
+      },
+      {
+        "gross_value_usd": 96631.77109146118,
+        "ticker": "CPRT"
+      },
+      {
+        "gross_value_usd": 90577.82205200195,
+        "ticker": "MA"
+      },
+      {
+        "gross_value_usd": 83767.17124938965,
+        "ticker": "BLD"
+      },
+      {
+        "gross_value_usd": 70909.61988067627,
+        "ticker": "BLDR"
+      },
+      {
+        "gross_value_usd": 69282.05068969727,
+        "ticker": "LPX"
+      },
+      {
+        "gross_value_usd": 64717.38147735596,
+        "ticker": "ACLS"
+      },
+      {
+        "gross_value_usd": 59952.76044464111,
+        "ticker": "XPO"
+      },
+      {
+        "gross_value_usd": 55338.77226257324,
+        "ticker": "NET"
+      }
+    ],
+    "trade_count": 142
+  },
+  "base_metrics": {
+    "avg_cash_weight": 0.4230691602312312,
+    "cagr": 0.44862681887517564,
+    "days": 1749,
+    "end_date": "2026-06-12",
+    "ending_capital_usd": 1351362.5876303844,
+    "max_dd": -0.25828369779832017,
+    "max_dd_peak_date": "2021-11-08",
+    "max_dd_peak_equity_usd": 261340.53679416422,
+    "max_dd_trough_date": "2023-08-17",
+    "max_dd_trough_equity_usd": 193840.53656636953,
+    "sharpe": 1.406047274627334,
+    "start_date": "2019-06-03",
+    "starting_capital_usd": 99958.73333248138,
+    "status": "completed",
+    "total_return": 12.519204801600482,
+    "years": 7.025325119780972
+  },
+  "best_variant": {
+    "avg_cash_delta": 0.02091222812362653,
+    "avg_cash_weight": 0.44398138835485773,
+    "cagr": 0.4000649653692243,
+    "cagr_delta": -0.048561853505951325,
+    "cagr_gap": 0.09993503463077569,
+    "cash_action_count": 116,
+    "change_band": 0.04,
+    "confirm_days": 1,
+    "description": "Late drawdown breaker intended to avoid long cash lockups.",
+    "equity_drawdown_breaker_enabled": true,
+    "estimated_cash_action_cost_usd": 14029.74891452694,
+    "max_dd": -0.2539068115674684,
+    "max_dd_gap": 0.003906811567468416,
+    "max_dd_improvement": 0.004376886230851751,
+    "portfolio": "concentrated",
+    "release_step": 0.3,
+    "score": -18.03239423357787,
+    "sharpe": 1.3117243510559107,
+    "target_pass": false,
+    "variant": "late_dd_fast_release"
+  },
+  "cagr_delta": -0.27846979902512237,
+  "cash_action_count": 253,
+  "cash_floor_policy": {
+    "CRISIS_DEFENSE": 0.7,
+    "DEFENSE_REVIEW": 0.45,
+    "GREEN": 0.03,
+    "REENTRY_READY": 0.3,
+    "WATCH": 0.25
+  },
+  "cash_overlay_sweep_target_pass": false,
+  "cash_overlay_target_pass": false,
+  "change_band": 0.03,
+  "confirm_days": 2,
+  "cost_bps_per_side_proxy": 25.0,
+  "crisis_state_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/daily_crisis_state.csv",
+  "equity_drawdown_breaker_enabled": true,
+  "equity_drawdown_breakers": [
+    [
+      -0.08,
+      0.45
+    ],
+    [
+      -0.12,
+      0.65
+    ],
+    [
+      -0.18,
+      0.85
+    ]
+  ],
+  "estimated_cash_action_cost_usd": 11942.335098779906,
+  "generated_at_utc": "2026-06-13T09:06:51+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "max_dd_improvement": 0.009099014759304636,
+  "next_step": "Cash conversion alone did not meet target gates; combine with selection/cluster-risk changes before production.",
+  "overlay_metrics": {
+    "avg_cash_weight": 0.6606534663234741,
+    "cagr": 0.17015701985005327,
+    "days": 1749,
+    "end_date": "2026-06-12",
+    "ending_capital_usd": 301479.67020421656,
+    "max_dd": -0.24918468303901553,
+    "max_dd_peak_date": "2021-01-25",
+    "max_dd_peak_equity_usd": 163910.20756966504,
+    "max_dd_trough_date": "2022-09-26",
+    "max_dd_trough_equity_usd": 123066.29444955882,
+    "sharpe": 0.8564704259596462,
+    "start_date": "2019-06-03",
+    "starting_capital_usd": 99958.73333248138,
+    "status": "completed",
+    "total_return": 2.0160413217866515,
+    "years": 7.025325119780972
+  },
+  "overlay_target_eval": {
+    "cagr_gap": 0.32984298014994673,
+    "cagr_target": 0.5,
+    "max_dd_gap": 0.0,
+    "max_dd_target": -0.25,
+    "target_pass": false
+  },
+  "portfolio": "concentrated",
+  "production_activation_allowed": false,
+  "release_step": 0.1,
+  "research_only": true,
+  "schema_version": "mdd-cash-overlay-research-v1",
+  "sharpe_delta": -0.5495768486676879,
+  "status": "completed"
+}

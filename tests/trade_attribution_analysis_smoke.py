@@ -160,6 +160,108 @@ def test_missing_inputs_produce_blocked_status_not_crash() -> None:
         assert "reason" in report
 
 
+def test_broker_ledger_fallback_uses_trades_and_holdings_daily() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        base = root / "broker_replay" / "main"
+        base.mkdir(parents=True)
+        dates = pd.date_range("2024-01-02", periods=20, freq="B")
+        equity = []
+        for i, d in enumerate(dates):
+            value = 100_000 if i < 5 else 100_000 - (i - 4) * 3_000
+            equity.append({"date": d.date().isoformat(), "equity_usd": value, "cash_weight": 0.05})
+        pd.DataFrame(equity).to_csv(base / "equity_curve.csv", index=False)
+        (base / "metrics.json").write_text(
+            json.dumps({"status": "completed", "cagr": 0.10, "sharpe": 0.5, "max_dd": -0.42, "trade_count": 2}),
+            encoding="utf-8",
+        )
+        pd.DataFrame(
+            [
+                {"date": "2024-01-10", "ticker": "AAA", "side": "SELL", "gross_value": 10_000, "cash_delta": 9_975},
+                {"date": "2024-01-11", "ticker": "BBB", "side": "BUY", "gross_value": 5_000, "cash_delta": -5_012},
+            ]
+        ).to_csv(base / "trades.csv", index=False)
+        holdings = []
+        for i, d in enumerate(dates):
+            holdings.append(
+                {
+                    "date": d.date().isoformat(),
+                    "ticker": "AAA",
+                    "market_value_usd": 60_000 - i * 2_500,
+                    "weight": 0.60,
+                }
+            )
+            holdings.append(
+                {
+                    "date": d.date().isoformat(),
+                    "ticker": "BBB",
+                    "market_value_usd": 30_000 - i * 500,
+                    "weight": 0.30,
+                }
+            )
+        pd.DataFrame(holdings).to_csv(base / "holdings_daily.csv", index=False)
+        reports = root / "reports"
+        reports.mkdir()
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2024-01-02",
+                    "ticker": "AAA",
+                    "weight": 0.60,
+                    "target_weight": 0.60,
+                    "sector": "Information Technology",
+                    "industry_group": "Software",
+                    "primary_lane": "MARKET_LEADER",
+                    "crisis_state": "GREEN",
+                    "regime_state": "neutral",
+                    "selection_confirmation_score": 0.30,
+                    "breakout_setup_quality_score": 0.50,
+                    "rs_benchmark_1m": -0.05,
+                    "ticker_ret_1m": -0.02,
+                    "atr14_pct": 0.08,
+                    "price_above_ma50": 0.0,
+                    "spy_1m_return": 0.02,
+                    "qqq_1m_return": 0.01,
+                },
+                {
+                    "rebalance_date": "2024-01-02",
+                    "ticker": "BBB",
+                    "weight": 0.30,
+                    "target_weight": 0.30,
+                    "sector": "Information Technology",
+                    "industry_group": "Hardware",
+                    "primary_lane": "MARKET_LEADER",
+                    "crisis_state": "GREEN",
+                    "regime_state": "neutral",
+                    "selection_confirmation_score": 0.80,
+                    "breakout_setup_quality_score": 0.80,
+                    "rs_benchmark_1m": 0.02,
+                    "ticker_ret_1m": 0.04,
+                    "atr14_pct": 0.03,
+                    "price_above_ma50": 1.0,
+                    "spy_1m_return": 0.02,
+                    "qqq_1m_return": 0.03,
+                },
+            ]
+        ).to_csv(reports / "operating_main_target_book.csv", index=False)
+
+        out_dir = root / "trade_attribution"
+        report = analyze_portfolio(latest_run=root, portfolio_kind="main", output_dir=out_dir)
+        assert report["status"] == "completed"
+        assert report["analysis_mode"] == "broker_ledger_trades_holdings_fallback"
+        assert (out_dir / "main" / "mdd_position_pnl_by_ticker.csv").exists()
+        assert (out_dir / "main" / "mdd_target_rows.csv").exists()
+        assert (out_dir / "main" / "mdd_target_context_by_ticker.csv").exists()
+        assert (out_dir / "main" / "mdd_policy_bucket_summary.csv").exists()
+        assert report["mdd_target_context"]["target_row_count"] == 2
+        bucket_ids = {row["bucket_id"] for row in report["mdd_target_context"]["policy_buckets"]}
+        assert "high_weight_market_leader" in bucket_ids
+        assert "negative_short_rs_weighted" in bucket_ids
+        ids = {f["finding_id"] for f in report["findings"]}
+        assert any(fid.startswith("F7_mdd_window_under_hedged") for fid in ids)
+        assert any(fid.startswith("F8_mdd_target_book_feature_bucket") for fid in ids)
+
+
 def test_run_wrapper_writes_summary_with_all_findings_flat() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -195,6 +297,7 @@ def main() -> int:
     test_unrealized_holding_mdd_triggers_f1_high_finding()
     test_regime_loss_concentration_triggers_f2_medium_finding()
     test_missing_inputs_produce_blocked_status_not_crash()
+    test_broker_ledger_fallback_uses_trades_and_holdings_daily()
     test_run_wrapper_writes_summary_with_all_findings_flat()
     print("trade_attribution_analysis_smoke: ok")
     return 0

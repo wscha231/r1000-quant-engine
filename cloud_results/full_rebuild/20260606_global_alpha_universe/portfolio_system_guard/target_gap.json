@@ -1,0 +1,536 @@
+{
+  "automation_plan": {
+    "aggressive_lab": {
+      "next_change_needed": "Use only after data-quality and PIT coverage pass; broker replay must confirm any discovered policy.",
+      "owner": ".github/workflows/aggressive_lab_manual.yml and tools/run_aggressive_experiment_matrix.py",
+      "role": "Discovery experiments; failures are retained as research artifacts."
+    },
+    "auto_learning": {
+      "owner": ".github/workflows/quarterly_auto_learning.yml and tools/run_auto_learning_v2.py",
+      "promotion_rule": "No production write without challenger pass, strict target gate, and human approval.",
+      "role": "Feature gates plus Alpha Scientist hypotheses. Proposal-only by default."
+    },
+    "data_refresh": {
+      "default_runtime": "medium",
+      "owner": ".github/workflows/weekly_data_refresh.yml",
+      "role": "Refresh substrate data, PIT freshness, universe, theme, and coverage diagnostics before deeper rebuilds."
+    },
+    "fast_guard": {
+      "default_runtime": "short",
+      "owner": ".github/workflows/portfolio_system_guard.yml",
+      "role": "Fast PR/manual target gap, artifact, error, and promotion-blocker check from committed data.",
+      "status": "active_after_this_change",
+      "strict_mode": "manual input only"
+    },
+    "full_rebuild": {
+      "default_runtime": "long",
+      "owner": ".github/workflows/full_rebuild_manual.yml",
+      "role": "Manual long-run only; use skip_collector=true and fast_mode=true when cached data exists."
+    },
+    "production_defaults": "unchanged",
+    "target_management": {
+      "concentrated_target": "CAGR >= 50%, MaxDD >= -25%",
+      "current_target_pass": false,
+      "main_target": "CAGR >= 35%, MaxDD >= -25%",
+      "recommended_next_focus": [
+        "Run data quality and PIT coverage checks before interpreting CAGR/MDD.",
+        "Use broker-trade attribution to separate data gaps from policy errors across the full period.",
+        "Improve theme leadership and macro regime features before adding broad cash or sizing rules.",
+        "Promote only reversible PIT-safe rules that improve official broker MDD without losing target CAGR."
+      ]
+    }
+  },
+  "cash_trap_guard": [
+    {
+      "avg_cash_weight": 0.23346246957326552,
+      "cagr_gap_pp": 2.3106,
+      "cash_trap": true,
+      "diagnosis": "cash is defensive only when MDD gap improves without unacceptable CAGR/reentry drag",
+      "latest_cash_weight": 0.06457757176208845,
+      "max_dd_gap_pp": 3.4498,
+      "portfolio": "main",
+      "reasons": [
+        "cash_drag_with_cagr_gap"
+      ],
+      "severity": "warn"
+    },
+    {
+      "avg_cash_weight": 0.44357320470609507,
+      "cagr_gap_pp": 11.342,
+      "cash_trap": true,
+      "diagnosis": "cash is defensive only when MDD gap improves without unacceptable CAGR/reentry drag",
+      "latest_cash_weight": 0.11725773480520121,
+      "max_dd_gap_pp": 2.2567,
+      "portfolio": "concentrated",
+      "reasons": [
+        "cash_drag_with_cagr_gap"
+      ],
+      "severity": "warn"
+    }
+  ],
+  "data_quality_update_plan": {
+    "coverage": {
+      "alphaops_candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
+      "production_policy": "alphaops_vnext_production",
+      "rows_with_smart_money_evidence": 34265,
+      "sec_enriched_candidate_present": true,
+      "sec_enriched_rows_with_smart_money_evidence": 34265
+    },
+    "feature_source_coverage": {
+      "available": true,
+      "available_from_column_count": 6,
+      "missing_feature_groups_by_portfolio": {
+        "broker_policy": [],
+        "macro_regime": [],
+        "price_momentum": [],
+        "quality_confirmation": [],
+        "sec_smart_money": [],
+        "theme_leadership": []
+      },
+      "pit_future_available_from_rows": 0,
+      "status": "ok"
+    },
+    "large_data_restore": {
+      "errors": [],
+      "manifest_available": true,
+      "missing": [],
+      "must_remain_out_of_git": [
+        "data_raw/free/sec/companyfacts.zip",
+        "data_pit/sec/*.parquet",
+        "data_pit/etf_holdings/*.parquet",
+        "data_pit/macro/*",
+        "cache_prices/*",
+        "full replay artifacts"
+      ],
+      "restored": [
+        "outputs/sec_institutional_signals",
+        "outputs/sec_ownership_signals",
+        "data_pit/sec",
+        "outputs/etf_thematic_signals",
+        "data_pit/etf_holdings"
+      ]
+    },
+    "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+    "metric_contract": {
+      "concentrated_target": {
+        "cagr": 0.5,
+        "max_dd": -0.25
+      },
+      "legacy_weight_metrics_allowed_for": "research_hints_only",
+      "main_target": {
+        "cagr": 0.35,
+        "max_dd": -0.25
+      },
+      "official_source": "broker_ledger_next_close"
+    },
+    "next_data_work": [
+      "Add a full-period feature-store coverage report by month, source, and portfolio target book.",
+      "Track universe membership, delistings, ADR eligibility, and symbol changes as monthly PIT snapshots.",
+      "Add macro regime features for QQQ-vs-SPY damage, credit/rate/liquidity stress, breadth, and theme rotation before changing production sizing.",
+      "Run broker-trade attribution first, then promote only PIT-safe rules that improve official broker MDD without losing target CAGR."
+    ],
+    "pit_leakage_rules": [
+      "Every external evidence row must have available_from or latest_available_from before it can boost scoring.",
+      "SEC 13F must use public filing accepted/available time, never report_period as availability.",
+      "Macro release-lagged series must preserve publication lag and must not be backfilled into earlier rebalance dates.",
+      "ETF holdings are latest/discovery aids unless a point-in-time holding snapshot exists.",
+      "Missing evidence is neutral: no boost, no standalone penalty, and no buy rule."
+    ],
+    "readiness": {
+      "blockers": [],
+      "policy_replay_blockers": [],
+      "ready_for_fullrun": true,
+      "ready_for_policy_replay": true,
+      "warnings": [
+        "price cache manifest end date is missing",
+        "dated target snapshot archive is missing for this run"
+      ]
+    },
+    "update_cadence": {
+      "13f": "quarterly_after_public_filing_availability",
+      "etf_holdings": "weekly_or_provider_snapshot",
+      "form4": "daily_or_next_available",
+      "full_rebuild": "manual_only_after_data_schema_or_feature_generation_changes",
+      "macro": "daily_after_close_with_release_lag",
+      "prices": "daily_after_close",
+      "theme_leadership": "daily_tape_weekly_taxonomy_review",
+      "universe": "monthly_snapshot_plus_delisting_and_symbol_map_audit"
+    }
+  },
+  "error_checks": [
+    {
+      "check": "main_metrics_available",
+      "detail": "outputs/backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_metrics_available",
+      "detail": "outputs/concentrated_backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "experiment_matrix_available",
+      "detail": "outputs/experiments/experiment_matrix_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_challenger_available",
+      "detail": "outputs/auto_learning_v2/challenger_review.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_policy_available",
+      "detail": "outputs/auto_learning_v2/policy_candidate.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_available",
+      "detail": "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "portfolio_goal_search_available",
+      "detail": "outputs/portfolio_goal_search/goal_search_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "account_evaluation_available",
+      "detail": "outputs/account_evaluation/account_evaluation_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "github_workflows_available",
+      "detail": ".github/workflows",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "counterfactual_replay_coverage",
+      "detail": "missing_counterfactual_count=4",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "candidate_production_ready",
+      "detail": "production_ready_count=0",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "operating_event_backtest_available",
+      "detail": "outputs/operating_event_backtest/operating_event_backtest_summary.json",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "data_readiness_audit_available",
+      "detail": "outputs/data_readiness/summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "data_readiness_ready_for_production_replay",
+      "detail": "status=warn; ready_for_fullrun=True; ready_for_policy_replay=True; blockers=[]; policy_replay_blockers=[]; warnings=['price cache manifest end date is missing', 'dated target snapshot archive is missing for this run']",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "dataset_coverage_audit_available",
+      "detail": "outputs/reports/dataset_coverage_audit.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "sec_enriched_candidate_materialized_for_audit",
+      "detail": "sec_enriched_candidate_present=True; rows_with_smart_money_evidence=34265",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "alphaops_vnext_uses_sec_enriched_candidate_book",
+      "detail": "candidate_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv; rows_with_smart_money_evidence=34265",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_valid_for_promotion",
+      "detail": "status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=1345; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=1345; max_date=2026-06-05",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-05; rows=1761; operating_book_max=2026-06-05; operating_rows=1345",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=501; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=501; max_date=2026-06-05",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-05; rows=23205; operating_book_max=2026-06-05; operating_rows=501",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "concentrated_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "current_only_operating_holdings_available",
+      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=22; legacy_snapshot_exists=True",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_current_position_count_near_latest_target_count",
+      "detail": "main_positions=15; latest_target_rows=14; excess=1",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_replay_filter_matches_latest_target",
+      "detail": "broker_filter_n=operating_book; latest_operating_target_n=5; broker_mode=operating_book; latest_mode=alphaops_vnext_score_power",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "alphaops_vnext_production_flags_correct",
+      "detail": "{\"current_holdings_source\": \"alphaops_vnext_policy_target_book\", \"production_applied\": true, \"sidecar_applied_to_production\": true, \"sidecar_only\": false}",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_official_broker_metrics_valid_for_production",
+      "detail": "metric_source=broker_ledger_next_close; valid_for_production=True; fill_mode=next_close",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_official_broker_metrics_valid_for_production",
+      "detail": "metric_source=broker_ledger_next_close; valid_for_production=True; fill_mode=next_close",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "sec_drive_restore_manifest_available",
+      "detail": "restored_count=5; missing=[]; errors=[]",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "theme_leadership_tape_available",
+      "detail": "top_theme=missing; top_theme_state=missing",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "macro_circuit_diagnostics_available",
+      "detail": "main_status=missing; concentrated_status=missing",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "feature_source_coverage_available",
+      "detail": "outputs/data_readiness/summary.json::feature_source_coverage",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "feature_source_coverage_pit_available_from_clean",
+      "detail": "pit_future_available_from_rows=0; available_from_column_count=6",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "feature_source_groups_present_for_target_books",
+      "detail": "missing_groups=[]",
+      "passed": true,
+      "severity": "ok"
+    }
+  ],
+  "goal_search_candidates": [
+    {
+      "cagr": 0.3228480203600337,
+      "cagr_gap_pp": 2.7152,
+      "candidate_id": "main_rebalance_interval_fixed_interval_I1",
+      "governance_action": "needs_alpha_boost",
+      "max_dd": -0.19161352824261635,
+      "max_dd_gap_pp": 0.0,
+      "portfolio": "main",
+      "target_pass": false,
+      "valid_for_production": false
+    },
+    {
+      "cagr": 0.4407601915975572,
+      "cagr_gap_pp": 5.924,
+      "candidate_id": "concentrated_grid_N3_score_power_I1",
+      "governance_action": "needs_alpha_boost",
+      "max_dd": -0.2153907298210509,
+      "max_dd_gap_pp": 0.0,
+      "portfolio": "concentrated",
+      "target_pass": false,
+      "valid_for_production": false
+    }
+  ],
+  "hard_error_count": 0,
+  "overall_status": "blocked",
+  "portfolio_status": [
+    {
+      "avg_turnover_monthly": 0.0,
+      "cagr": 0.32689367839232153,
+      "cagr_gap_pp": 2.3106,
+      "cagr_pass": false,
+      "cagr_target": 0.35,
+      "max_dd": -0.2844980835986508,
+      "max_dd_improvement_needed_pp": 3.4498,
+      "max_dd_pass": false,
+      "max_dd_target": -0.25,
+      "metric_source": "broker_ledger_next_close",
+      "portfolio": "main",
+      "sharpe": 1.1918905381974925,
+      "target_pass": false
+    },
+    {
+      "avg_turnover_monthly": 0.0,
+      "cagr": 0.3865800079525741,
+      "cagr_gap_pp": 11.342,
+      "cagr_pass": false,
+      "cagr_target": 0.5,
+      "max_dd": -0.2725669999703043,
+      "max_dd_improvement_needed_pp": 2.2567,
+      "max_dd_pass": false,
+      "max_dd_target": -0.25,
+      "metric_source": "broker_ledger_next_close",
+      "portfolio": "concentrated",
+      "sharpe": 1.3054127894269458,
+      "target_pass": false
+    }
+  ],
+  "strict_targets": false,
+  "targets_pass": false,
+  "top_research_candidates": [
+    {
+      "cagr_delta_pp": 13.445809942687514,
+      "experiment_id": "E4_concentrated_balanced",
+      "maxdd_delta_pp": 4.332503511417363,
+      "passed_discovery": true,
+      "priority": 33.23378583838304,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": 0.245547238427817,
+      "status": "standalone_sleeve_policy_audit"
+    },
+    {
+      "cagr_delta_pp": -2.937219575004235,
+      "experiment_id": "E6_risk_sensing_on",
+      "maxdd_delta_pp": 5.64744405347003,
+      "passed_discovery": true,
+      "priority": 12.07368306865676,
+      "requires_full_challenger_backtest": false,
+      "sharpe_delta": -0.0636541409809035,
+      "status": "simplified_layer2_backtest"
+    },
+    {
+      "cagr_delta_pp": null,
+      "data_mode": "proxy_top_raw_score_within_main_holdings",
+      "experiment_id": "E4_concentrated_balanced_replay",
+      "maxdd_delta_pp": null,
+      "passed_discovery": false,
+      "priority": 4.0,
+      "replay_cagr": 0.16771243837870675,
+      "replay_max_dd": -0.21009007403795676,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": null,
+      "status": "blocked_missing_concentrated_monthly"
+    },
+    {
+      "cagr_delta_pp": 0.0,
+      "experiment_id": "E2_main_v2_balanced",
+      "maxdd_delta_pp": 0.0,
+      "passed_discovery": false,
+      "priority": 3.0,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": 0.0,
+      "status": "snapshot_report_only"
+    },
+    {
+      "cagr_delta_pp": 0.0,
+      "experiment_id": "E3_main_v2_aggressive",
+      "maxdd_delta_pp": 0.0,
+      "passed_discovery": false,
+      "priority": 3.0,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": 0.0,
+      "status": "snapshot_report_only"
+    },
+    {
+      "cagr_delta_pp": 0.0,
+      "experiment_id": "E5_orchestrator_balanced",
+      "maxdd_delta_pp": 0.0,
+      "passed_discovery": false,
+      "priority": 3.0,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": 0.0,
+      "status": "snapshot_report_only"
+    },
+    {
+      "cagr_delta_pp": null,
+      "experiment_id": "E7_tactical_bull_only",
+      "maxdd_delta_pp": null,
+      "passed_discovery": false,
+      "priority": 3.0,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": null,
+      "status": "sidecar_latest_only"
+    },
+    {
+      "cagr_delta_pp": null,
+      "experiment_id": "E8_alpha_sprint_sidecar",
+      "maxdd_delta_pp": null,
+      "passed_discovery": false,
+      "priority": 3.0,
+      "requires_full_challenger_backtest": true,
+      "sharpe_delta": null,
+      "status": "sidecar_latest_only"
+    }
+  ],
+  "warning_count": 8
+}

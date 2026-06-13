@@ -79,7 +79,7 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
         root = Path(tmp) / "latest"
         out = Path(tmp) / "account_eval"
         seed_portfolio(root, "main", cagr=0.31, max_dd=-0.14, sharpe=1.2)
-        seed_portfolio(root, "concentrated", cagr=0.49, max_dd=-0.16, sharpe=1.4)
+        seed_portfolio(root, "concentrated", cagr=0.44, max_dd=-0.16, sharpe=1.4)
         write_json(root / "backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
         write_json(root / "concentrated_backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
         write_json(root / "portfolio_goal_search" / "goal_search_summary.json", {"research_target_pass": True})

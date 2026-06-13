@@ -1,0 +1,93 @@
+{
+  "blocked_books": [],
+  "blocked_reason": "",
+  "books": [
+    {
+      "append_reason": "latest vNext target held forward to latest observable close",
+      "decision_frequency": "monthly_replay_plus_latest_close_hold_forward",
+      "freshness_error": "",
+      "history_max_rebalance_date": "2026-04-30",
+      "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/official_main_target_book.csv",
+      "history_row_count": 1329,
+      "latest_price_close_date": "2026-06-05",
+      "latest_target_appended": true,
+      "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/selected_latest.csv",
+      "latest_target_row_count": 16,
+      "operating_book_current": true,
+      "operating_signal_date": "2026-06-05",
+      "output_max_rebalance_date": "2026-06-05",
+      "output_name": "operating_main_target_book.csv",
+      "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "output_row_count": 1345,
+      "portfolio": "main",
+      "regime_capacity_overlay": {
+        "avg_cash_weight": 0.23296617502225228,
+        "max_cash_weight": 0.8030372415872846,
+        "multipliers": {
+          "bear": 1.0,
+          "bull": 1.0,
+          "deep_bear": 1.0,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "main",
+        "rebalance_dates_dampened": 0,
+        "rebalance_dates_total": 85,
+        "status": "completed",
+        "variant_key": "main_N15"
+      },
+      "variant_key": "main_N15"
+    },
+    {
+      "append_reason": "latest vNext target held forward to latest observable close",
+      "decision_frequency": "monthly_replay_plus_latest_close_hold_forward",
+      "freshness_error": "",
+      "history_max_rebalance_date": "2026-04-30",
+      "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/official_concentrated_target_book.csv",
+      "history_row_count": 495,
+      "latest_price_close_date": "2026-06-05",
+      "latest_target_appended": true,
+      "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/selected_latest.csv",
+      "latest_target_row_count": 6,
+      "operating_book_current": true,
+      "operating_signal_date": "2026-06-05",
+      "output_max_rebalance_date": "2026-06-05",
+      "output_name": "operating_concentrated_target_book.csv",
+      "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "output_row_count": 501,
+      "portfolio": "concentrated",
+      "regime_capacity_overlay": {
+        "avg_cash_weight": 0.4473677694566173,
+        "max_cash_weight": 1.0,
+        "multipliers": {
+          "bear": 0.5,
+          "bull": 1.0,
+          "deep_bear": 0.25,
+          "exceptional_bull": 1.0,
+          "neutral": 0.9,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "concentrated",
+        "rebalance_dates_dampened": 61,
+        "rebalance_dates_total": 85,
+        "status": "completed",
+        "variant_key": "concentrated_N5"
+      },
+      "variant_key": "concentrated_N5"
+    }
+  ],
+  "generated_at_utc": "2026-06-06T14:03:56.412065+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "outputs": {
+    "concentrated_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+    "main_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+    "report_md": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_report.md",
+    "summary_json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_summary.json"
+  },
+  "price_cache": "",
+  "schema_version": "operating-target-books-summary-vnext-v1",
+  "status": "completed"
+}

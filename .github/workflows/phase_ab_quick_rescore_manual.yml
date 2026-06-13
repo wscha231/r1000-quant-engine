@@ -1,0 +1,205 @@
+name: Phase A/B QUICK Rescore (Manual / Fast)
+
+# Measure a phase/env toggle WITHOUT a 4-hour full rebuild.
+#
+# QUICK_RESCORE reuses the feature_store + walk-forward models from the most
+# recent full rebuild's engine-cache and only re-runs scoring + backtest +
+# the operating_minimal sidecars (broker_replay + T1 leader_lifecycle_audit +
+# T2 subdaily_exit_compare). That is ~15-40 min instead of ~4 h.
+#
+# Valid ONLY for changes that take effect at backtest/scoring time and do NOT
+# change the feature_store schema or the trained models. Stage T3 leader
+# hysteresis qualifies: compute_conviction_hold_bonus runs inside
+# build_target_portfolio in the backtest loop and reads already-cached signal
+# columns (minervini_momentum_alive_score, relative_strength_composite,
+# broken_momentum_penalty). It does NOT add a feature_store column.
+#
+# DO NOT use this for: ENGINE_REUSE_VERSION bumps, new feature_store columns,
+# walk-forward / embargo / model structure changes. Those require Full Rebuild.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to check out (the code under test)'
+        type: string
+        default: 'claude/analyze-updated-code-OfEbu'
+      phase_env_overrides:
+        description: 'Space-separated PHASE env toggles, e.g. "PHASE_T3_LEADER_HYSTERESIS_ENABLED=1" (both this and the double-PHASE form work). Applied to scoring+backtest+sidecars.'
+        type: string
+        default: ''
+      arm_label:
+        description: 'Short label for this arm (used in the artifact name), e.g. t3-on'
+        type: string
+        default: 'quick-rescore'
+      source_run_id:
+        description: 'Optional Full Rebuild run_id to bias the engine-cache restore key toward (leave blank to use the newest cache).'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase-ab-quick-${{ github.ref }}-${{ inputs.arm_label }}
+  cancel-in-progress: false
+
+jobs:
+  quick_rescore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Free disk space on runner
+        run: |
+          set -eu
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/powershell /usr/share/swift 2>/dev/null || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+          pip install "catboost>=1.2" "lightgbm>=4.0" "xgboost>=2.0" "scikit-learn>=1.4"
+
+      - name: Restore collector cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            cache_prices
+            cache_fsds
+            cache_macro
+            cache_sec_actual
+            cache_misc
+            cache_live_fund
+            outputs/sec_companyfacts
+            outputs/macro
+            outputs/companyfacts.zip
+            data_raw/free/sec/companyfacts.zip
+          key: collector-cache--${{ runner.os }}-${{ inputs.source_run_id }}
+          restore-keys: |
+            collector-cache--${{ runner.os }}-
+            collector-cache-${{ runner.os }}-
+            collector-cache-
+
+      - name: Restore engine cache (feature_store + scored + walk-forward models)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            outputs/feature_store_*.parquet
+            outputs/scored_*.csv
+            outputs/walk_forward
+          key: engine-cache--${{ runner.os }}-${{ inputs.source_run_id }}
+          restore-keys: |
+            engine-cache--${{ runner.os }}-
+            engine-cache-${{ runner.os }}-
+            engine-cache-
+
+      - name: Confirm engine cache is present (QUICK requires it)
+        run: |
+          set -euo pipefail
+          if ls outputs/feature_store_*.parquet 1>/dev/null 2>&1; then
+            echo "OK: feature_store present — QUICK_RESCORE can reuse it"
+            ls -la outputs/feature_store_*.parquet
+          else
+            echo "FATAL: no feature_store_*.parquet in any restored cache."
+            echo "QUICK_RESCORE cannot run without a prior full rebuild's engine-cache."
+            echo "Dispatch a Full Rebuild first, or pass its run_id as source_run_id."
+            exit 1
+          fi
+          if [ -d outputs/walk_forward ]; then
+            echo "OK: walk_forward models present"
+          else
+            echo "WARN: walk_forward dir missing — scoring may retrain or fall back."
+          fi
+
+      - name: Smoke test pre-flight
+        run: |
+          python tests/smoke_test.py
+
+      - name: QUICK rescore with phase env overrides
+        env:
+          PHASE_ENV_OVERRIDES: ${{ inputs.phase_env_overrides }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          # Export every KEY=VAL token so the engine's phase_is_enabled() sees them.
+          if [ -n "${PHASE_ENV_OVERRIDES}" ]; then
+            echo "[quick-rescore] applying phase env overrides: ${PHASE_ENV_OVERRIDES}"
+            for kv in ${PHASE_ENV_OVERRIDES}; do
+              export "${kv?}"
+              echo "  exported ${kv}"
+            done
+          else
+            echo "[quick-rescore] no phase env overrides (baseline arm)"
+          fi
+          echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
+          # --no-collector + no --full = QUICK_RESCORE (feature_store + model reuse,
+          # scoring + backtest only). --base-dir points at repo-local outputs/.
+          python run_local.py --no-collector --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/quick_rescore.log
+
+      - name: Sidecars (broker_replay + T1 + T2)
+        if: always()
+        run: |
+          python tools/run_full_rebuild_sidecars.py --profile operating_minimal --artifact-profile operating_minimal --gdrive-sync-mode off || true
+
+      - name: Verdict (Cell E equivalent)
+        if: always()
+        run: |
+          python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
+
+      - name: Surface broker + T1 + T2 results in the log
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "===================== BROKER ====================="
+          for k in main concentrated; do
+            f="outputs/broker_replay/$k/metrics.json"
+            [ -f "$f" ] && { echo "--- $k ---"; cat "$f"; echo; }
+          done
+          echo "===================== T1 (leader lifecycle) ====================="
+          if [ -f outputs/leader_lifecycle_audit/audit_report.md ]; then
+            cat outputs/leader_lifecycle_audit/audit_report.md
+          else
+            echo "  (leader_lifecycle_audit/audit_report.md not produced)"
+          fi
+          echo "===================== T2 (subdaily exit compare) ====================="
+          if [ -f outputs/subdaily_exit_compare/comparison_report.md ]; then
+            cat outputs/subdaily_exit_compare/comparison_report.md
+          else
+            echo "  (subdaily_exit_compare not produced)"
+          fi
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-ab-quick-${{ inputs.arm_label }}-${{ github.run_id }}
+          path: |
+            outputs/broker_replay
+            outputs/leader_lifecycle_audit
+            outputs/subdaily_exit_compare
+            outputs/position_risk_weekly_validation
+            outputs/backtest_metrics.json
+            outputs/concentrated_backtest_metrics.json
+            outputs/full_rebuild_logs
+            outputs/verdict.log
+          retention-days: 30
+          if-no-files-found: warn

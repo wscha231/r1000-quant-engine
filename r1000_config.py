@@ -515,8 +515,8 @@ MANDATE_REGISTRY = {
 
 
 PORTFOLIO_GOAL_TARGETS = {
-    "main": {"cagr": 0.30, "max_dd": -0.15},
-    "concentrated": {"cagr": 0.50, "max_dd": -0.18},
+    "main": {"cagr": 0.35, "max_dd": -0.25},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.25},
 }
 
 
@@ -1883,6 +1883,8 @@ class EngineConfig:
     concentrated_score_cycle_recovery_weight: float = 0.50
     concentrated_score_early_inflection_weight: float = 0.40
     concentrated_score_entry_quality_weight: float = 0.25
+    concentrated_leader_gate_enabled: bool = False
+    concentrated_leader_allowed_tiers: list[str] = field(default_factory=lambda: ["DUAL_LEADER"])
     # Defensive monster rotation (2026-05-05): apply the defense thesis to the
     # actual selection path, not only to post-hoc return proxies. The overlay
     # de-emphasizes stale mega-cap/core names with weakening leadership and
@@ -2356,6 +2358,26 @@ class EngineConfig:
     conviction_hold_seed_bonus: float = 0.35            # extra seed bonus for conviction-hold names
     conviction_hold_utility_bonus: float = 0.30         # extra utility bonus for conviction-hold names
     conviction_hold_min_months: int = 2                 # minimum months held before conviction status
+    # --------------- Stage T3 leader hysteresis (research-only, default OFF) ---------------
+    # T1 measured median_holding 33-58d / pct_held_365d_plus 0% on broker run 27457206698.
+    # build_target_portfolio already grants conviction_hold_seed_bonus to prev-holdings
+    # whose state is OK, but the bonus (0.35) loses to score rotation. T3 multiplies the
+    # bonus and (optionally) loosens the gate from AND-AND-AND-AND to
+    # substantial+not_broken+(momentum_alive OR rs_strong). Toggle via env
+    # PHASE_T3_LEADER_HYSTERESIS_ENABLED or this cfg field.
+    phase_t3_leader_hysteresis_enabled: bool = False
+    phase_t3_conviction_hold_bonus_multiplier: float = 4.0   # legacy flat-multiplier knob (used only when phase_t3_sigma_gate=False)
+    phase_t3_relax_conviction_gate: bool = True              # retained for back-compat; sigma-gate already uses the relaxed gate
+    # Sigma-gate (default T3 behaviour, merges ChatGPT threshold spec):
+    # a new entrant must beat a held name by new_entry_sigma * sigma(score)
+    # to displace it; a broken held name only needs broken_replace_sigma.
+    phase_t3_sigma_gate: bool = True
+    phase_t3_new_entry_sigma: float = 0.75
+    phase_t3_broken_replace_sigma: float = 0.35
+    # Hard per-rebalance replacement caps (follow-up; not yet wired into the
+    # backtest loop — documented target so the implementation has a home).
+    phase_t3_max_replacements_main: int = 5
+    phase_t3_max_replacements_concentrated: int = 2
     # --------------- winner scaling (add to winners, cut losers) ---------------
     winner_scale_top_quartile_boost: float = 1.20       # multiply weight by 1.20 for top performers
     winner_scale_bottom_quartile_cut: float = 0.70      # multiply weight by 0.70 for bottom performers

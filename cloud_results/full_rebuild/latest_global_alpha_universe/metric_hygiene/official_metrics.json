@@ -1,0 +1,70 @@
+{
+  "official_metric_mode": "broker_ledger_next_close",
+  "portfolios": {
+    "concentrated": {
+      "account_evaluation_source": "account_evaluation/official_metrics.json",
+      "account_evaluation_target_pass": false,
+      "avg_cash_weight": 0.4230691602312312,
+      "cagr": 0.44862681887517564,
+      "cagr_gap_pp": 5.1373,
+      "cagr_target": 0.5,
+      "cash_trap_guard": {
+        "avg_cash_weight": 0.4230691602312312,
+        "cagr_gap_pp": 5.1373,
+        "cash_trap": false,
+        "latest_cash_weight": 0.06603116312988752,
+        "mdd_gap_pp": 0.8284,
+        "reasons": [
+          "cash_drag_with_cagr_gap"
+        ],
+        "severity": "ok"
+      },
+      "latest_cash_weight": 0.06603116312988752,
+      "max_dd": -0.25828369779832017,
+      "max_dd_gap_pp": 0.8284,
+      "max_dd_target": -0.25,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/concentrated/metrics.json",
+      "official_source_exists": true,
+      "portfolio": "concentrated",
+      "production_valid": true,
+      "sharpe": 1.406047274627334,
+      "status": "completed",
+      "target_pass": false
+    },
+    "main": {
+      "account_evaluation_source": "account_evaluation/official_metrics.json",
+      "account_evaluation_target_pass": false,
+      "avg_cash_weight": 0.2661340699849467,
+      "cagr": 0.3450613033496317,
+      "cagr_gap_pp": 0.4939,
+      "cagr_target": 0.35,
+      "cash_trap_guard": {
+        "avg_cash_weight": 0.2661340699849467,
+        "cagr_gap_pp": 0.4939,
+        "cash_trap": false,
+        "latest_cash_weight": 0.16067356317975193,
+        "mdd_gap_pp": 1.0068,
+        "reasons": [
+          "cash_drag_with_cagr_gap"
+        ],
+        "severity": "ok"
+      },
+      "latest_cash_weight": 0.16067356317975193,
+      "max_dd": -0.2600681723490029,
+      "max_dd_gap_pp": 1.0068,
+      "max_dd_target": -0.25,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/main/metrics.json",
+      "official_source_exists": true,
+      "portfolio": "main",
+      "production_valid": true,
+      "sharpe": 1.274739850958319,
+      "status": "completed",
+      "target_pass": false
+    }
+  },
+  "production_target_pass": false,
+  "production_valid_all": true,
+  "schema_version": "metric-hygiene-v1"
+}

@@ -11,6 +11,14 @@ on:
         description: '0 = all target-book tickers; keep small while free providers are being tested'
         type: string
         default: '80'
+      sec_companyfacts:
+        description: 'Manual only: refresh SEC companyfacts.zip into data_raw/free/sec when fullrun readiness reports it missing'
+        type: boolean
+        default: false
+      sec_max_age_days:
+        description: 'SEC companyfacts refresh threshold when sec_companyfacts=true'
+        type: string
+        default: '3'
   schedule:
     # 08:30 KST Tue-Sat, after the prior US regular-session close.
     - cron: '30 23 * * 1-5'
@@ -155,16 +163,22 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
           MAX_PRICE_TICKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_price_tickers || '80' }}
+          SEC_COMPANYFACTS: ${{ github.event_name == 'workflow_dispatch' && inputs.sec_companyfacts || 'false' }}
+          SEC_MAX_AGE_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.sec_max_age_days || '3' }}
         run: |
           set -euo pipefail
           # Engine validation writes the recurring CAGR / Sharpe / MaxDD report.
           LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
-          python tools/run_free_data_lake_bootstrap.py \
-            --latest-run "$LATEST" \
-            --price-mode target_books \
-            --max-price-tickers "$MAX_PRICE_TICKERS" \
-            --pit-label pit_proxy_universe \
-            2>&1 | tee free_data_daily_bootstrap.log
+          ARGS=(
+            --latest-run "$LATEST"
+            --price-mode target_books
+            --max-price-tickers "$MAX_PRICE_TICKERS"
+            --pit-label pit_proxy_universe
+          )
+          if [ "$SEC_COMPANYFACTS" = "true" ]; then
+            ARGS+=(--sec-companyfacts --sec-max-age-days "$SEC_MAX_AGE_DAYS")
+          fi
+          python tools/run_free_data_lake_bootstrap.py "${ARGS[@]}" 2>&1 | tee free_data_daily_bootstrap.log
           mkdir -p outputs/free_data_proxy_backtest/main outputs/free_data_proxy_backtest/concentrated outputs/full_rebuild_logs
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_main.log || true
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true

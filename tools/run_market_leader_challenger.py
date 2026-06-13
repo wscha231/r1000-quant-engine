@@ -37,6 +37,7 @@ from r1000_market_leader_engine import (  # noqa: E402
     target_rows_from_selection,
 )
 from tools.run_broker_ledger_replay import replay as broker_replay  # noqa: E402
+from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS  # noqa: E402
 from tools.run_weekly_evaluation import price_on_or_before  # noqa: E402
 
 
@@ -85,14 +86,16 @@ def resolve_candidate_book(latest_run: Path, explicit: str | None) -> tuple[Path
     if explicit:
         return repo_path(explicit), "explicit"
     candidates = [
-        latest_run / "reports" / "candidate_replay_book.csv",
-        latest_run / "candidate_replay_book.csv",
-        latest_run / "reports" / "candidate_replay_book.parquet",
-        latest_run / "scored_history.csv",
+        (latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv", "sec_enriched_candidate_book"),
+        (latest_run / "outputs" / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv", "sec_enriched_candidate_book"),
+        (latest_run / "reports" / "candidate_replay_book.csv", "historical_candidate_book"),
+        (latest_run / "candidate_replay_book.csv", "historical_candidate_book"),
+        (latest_run / "reports" / "candidate_replay_book.parquet", "historical_candidate_book"),
+        (latest_run / "scored_history.csv", "historical_candidate_book"),
     ]
-    for path in candidates:
+    for path, source_mode in candidates:
         if path.exists():
-            return path, "historical_candidate_book"
+            return path, source_mode
     scored_latest = latest_run / "scored_latest.csv"
     if scored_latest.exists():
         return scored_latest, "latest_only_blocked"
@@ -348,7 +351,7 @@ def run_broker_variant(
             cost_bps=cost_bps,
             integer_shares=True,
             max_fill_lag_days=max_fill_lag_days,
-            concentrated_champion_filters={},
+            concentrated_champion_filters=DISABLE_CONCENTRATED_CHAMPION_FILTERS.copy(),
         )
     except Exception as exc:
         output_dir.mkdir(parents=True, exist_ok=True)

@@ -99,9 +99,17 @@ def load_price_series(paths: dict, ticker: str) -> pd.Series:
     cache_dir = paths["cache_prices"]
     if not cache_dir.exists():
         return pd.Series(dtype=float)
-    # The pipeline's px_cache_name uses a sanitized name. Try a couple of
-    # plausible filenames.
+    # The pipeline's px_cache_name is a SHA1 hash of the UPPER ticker — that is
+    # how the collector actually writes cache_prices/ (e.g. SPY lives at
+    # cache_prices/<sha1(SPY)[:16]>.parquet, NOT SPY.parquet). The plain-name
+    # candidates are kept for hand-built/local caches. Run 27313522414's
+    # diagnosis proved the hash candidate was missing: market_trend + breadth
+    # were dead in every CI run because SPY/QQQ could never be found here.
+    import hashlib
+
+    hashed = hashlib.sha1(str(ticker).upper().encode("utf-8")).hexdigest()[:16]
     candidates = [
+        cache_dir / f"{hashed}.parquet",
         cache_dir / f"{ticker}.parquet",
         cache_dir / f"{ticker.replace('^', '')}.parquet",
         cache_dir / f"{ticker.replace('^', 'idx_')}.parquet",
@@ -217,47 +225,101 @@ def compute_rate_features(dgs10: pd.Series, idx: pd.DatetimeIndex) -> pd.DataFra
     return out
 
 
-def compute_composite_crisis_score(features: pd.DataFrame) -> pd.Series:
-    """Clipped weighted sum per CODEX_HANDOFF v3.6 Section 17.4."""
-    def clip01(s: pd.Series) -> pd.Series:
-        return s.clip(lower=0.0, upper=1.0)
+CRISIS_COMPONENT_WEIGHTS: dict[str, float] = {
+    "market_trend": 0.25,
+    "credit_stress": 0.20,
+    "vol_spike": 0.15,
+    "breadth": 0.15,
+    "liquidity": 0.10,
+    "rate_shock": 0.10,
+    "portfolio_damage": 0.05,
+}
 
-    # Each sub-score normalised to [0, 1] heuristically
-    market_trend = pd.Series(0.0, index=features.index)
+
+def _clip01(s: pd.Series) -> pd.Series:
+    return s.clip(lower=0.0, upper=1.0)
+
+
+def _build_component_series(features: pd.DataFrame) -> dict[str, pd.Series]:
+    """Build each sub-score series. A series is considered "live" by the
+    coverage check below only when its source columns exist AND carry at least
+    one non-zero observation."""
+    idx = features.index
+    zero = pd.Series(0.0, index=idx)
+    components: dict[str, pd.Series] = {name: zero.copy() for name in CRISIS_COMPONENT_WEIGHTS}
     if "spy_below_ma200" in features and "spy_20d_dd" in features:
-        market_trend = clip01(
+        components["market_trend"] = _clip01(
             features["spy_below_ma200"].fillna(0) * 0.5
             + (-features["spy_20d_dd"].clip(upper=0).fillna(0) / 0.15) * 0.5
         )
-    vol_spike = pd.Series(0.0, index=features.index)
     if "vix_zscore_60d" in features:
-        vol_spike = clip01(features["vix_zscore_60d"].fillna(0) / 3.0)
-    credit_stress = pd.Series(0.0, index=features.index)
+        components["vol_spike"] = _clip01(features["vix_zscore_60d"].fillna(0) / 3.0)
     if "hy_oas_zscore_60d" in features:
-        credit_stress = clip01(features["hy_oas_zscore_60d"].fillna(0) / 3.0)
-    breadth = pd.Series(0.0, index=features.index)
+        components["credit_stress"] = _clip01(features["hy_oas_zscore_60d"].fillna(0) / 3.0)
     if "spy_below_ma200" in features and "qqq_below_ma200" in features:
-        # Proxy: both below MA200 = stronger breadth break
-        breadth = clip01(
-            features.get("spy_below_ma200", pd.Series(0, index=features.index)).fillna(0) * 0.5
-            + features.get("qqq_below_ma200", pd.Series(0, index=features.index)).fillna(0) * 0.5
+        components["breadth"] = _clip01(
+            features.get("spy_below_ma200", zero).fillna(0) * 0.5
+            + features.get("qqq_below_ma200", zero).fillna(0) * 0.5
         )
-    liquidity = pd.Series(0.0, index=features.index)  # placeholder until SPY volume cached
-    rate_shock = pd.Series(0.0, index=features.index)
     if "ten_year_5d_change_bps" in features:
-        rate_shock = clip01(features["ten_year_5d_change_bps"].abs().fillna(0) / 50.0)
-    portfolio_damage = pd.Series(0.0, index=features.index)  # filled later by replay tool
+        components["rate_shock"] = _clip01(features["ten_year_5d_change_bps"].abs().fillna(0) / 50.0)
+    # liquidity and portfolio_damage stay zero — placeholder fields, see audit.
+    return components
 
-    crisis_score = (
-        0.25 * market_trend
-        + 0.20 * credit_stress
-        + 0.15 * vol_spike
-        + 0.15 * breadth
-        + 0.10 * liquidity
-        + 0.10 * rate_shock
-        + 0.05 * portfolio_damage
+
+def composite_crisis_coverage(features: pd.DataFrame) -> dict[str, dict[str, float]]:
+    """Per-component liveness + summary stats, used by the audit. A component
+    is "live" only when its series carries at least one non-zero observation —
+    so an absent FRED feed (HY OAS / DGS10 / VIX cache) or the structural
+    placeholders (liquidity / portfolio_damage) are correctly flagged dead."""
+    series = _build_component_series(features)
+    coverage: dict[str, dict[str, float]] = {}
+    for name, weight in CRISIS_COMPONENT_WEIGHTS.items():
+        s = series.get(name, pd.Series(0.0, index=features.index))
+        nonzero = float(s.abs().sum())
+        coverage[name] = {
+            "nominal_weight": float(weight),
+            "live": bool(nonzero > 0.0),
+            "max": float(s.max()) if len(s) else 0.0,
+            "mean": float(s.mean()) if len(s) else 0.0,
+        }
+    live_weight = sum(c["nominal_weight"] for c in coverage.values() if c["live"])
+    for name, info in coverage.items():
+        info["effective_weight"] = (
+            float(info["nominal_weight"] / live_weight) if info["live"] and live_weight > 0 else 0.0
+        )
+    return coverage
+
+
+def compute_composite_crisis_score(features: pd.DataFrame) -> pd.Series:
+    """Clipped weighted sum of sub-scores, with the weights of dead
+    components redistributed across live ones (so a CI runner without
+    HY OAS / VIX / DGS10 cache does not impose an artificial 0.40 score
+    ceiling that keeps the governor permanently in the "normal" zone).
+
+    When NO component is live the score is identically zero — the governor
+    correctly stays out of the way rather than reacting to noise.
+
+    Per CODEX_HANDOFF v3.6 Section 17.4 with one logical correction: the
+    weighted sum used to silently treat structural placeholders (liquidity,
+    portfolio_damage) and absent macro feeds as "zero stress", lowering the
+    score's effective ceiling. Renormalization preserves the [0, 1] range
+    while keeping every live component on its intended relative weight."""
+    series = _build_component_series(features)
+    live_weight = sum(
+        weight for name, weight in CRISIS_COMPONENT_WEIGHTS.items()
+        if float(series.get(name, pd.Series(0.0, index=features.index)).abs().sum()) > 0.0
     )
-    return crisis_score.clip(lower=0.0, upper=1.0)
+    if live_weight <= 0.0:
+        return pd.Series(0.0, index=features.index)
+    scale = 1.0 / live_weight
+    accumulator = pd.Series(0.0, index=features.index)
+    for name, weight in CRISIS_COMPONENT_WEIGHTS.items():
+        s = series.get(name, pd.Series(0.0, index=features.index))
+        if float(s.abs().sum()) <= 0.0:
+            continue
+        accumulator = accumulator.add(weight * scale * s, fill_value=0.0)
+    return accumulator.clip(lower=0.0, upper=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -348,18 +410,44 @@ def main() -> int:
         return 1
     out_path = out_dir / "daily_features.parquet"
     result.features.to_parquet(out_path, index=True)
+    score_series = result.features.get("crisis_score", pd.Series(0.0, index=result.features.index))
+    coverage = composite_crisis_coverage(result.features)
+    live_components = sorted(name for name, info in coverage.items() if info["live"])
+    dead_components = sorted(name for name, info in coverage.items() if not info["live"])
+    # Pre-renormalization theoretical ceiling: with all dead component weights
+    # silently treated as zero stress, the score could not exceed this value.
+    nominal_live_weight = sum(
+        CRISIS_COMPONENT_WEIGHTS[name] for name in live_components
+    )
     audit = {
         "rows": result.rows,
         "first_date": result.features.index.min().date().isoformat(),
         "last_date": result.features.index.max().date().isoformat(),
         "sources": result.sources,
         "columns": sorted(result.features.columns.tolist()),
+        "crisis_score_stats": {
+            "max": float(score_series.max()) if len(score_series) else 0.0,
+            "p99": float(score_series.quantile(0.99)) if len(score_series) else 0.0,
+            "p95": float(score_series.quantile(0.95)) if len(score_series) else 0.0,
+            "p90": float(score_series.quantile(0.90)) if len(score_series) else 0.0,
+            "mean": float(score_series.mean()) if len(score_series) else 0.0,
+        },
+        "component_coverage": coverage,
+        "live_components": live_components,
+        "dead_components": dead_components,
+        "pre_renorm_ceiling": float(nominal_live_weight),
+        "renormalization_active": bool(dead_components and nominal_live_weight < 1.0),
         "status": "ok",
     }
     (out_dir / "build_audit.json").write_text(json.dumps(audit, indent=2))
     if not args.quiet:
         print(f"crisis features: {result.rows} rows -> {out_path}")
         print(f"audit:           {out_dir / 'build_audit.json'}")
+        print(
+            f"crisis coverage: live={live_components} dead={dead_components}"
+            f" pre_renorm_ceiling={nominal_live_weight:.2f}"
+            f" score_max={audit['crisis_score_stats']['max']:.3f}"
+        )
     return 0
 
 

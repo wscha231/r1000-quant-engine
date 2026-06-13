@@ -1,0 +1,233 @@
+{
+  "checks": [
+    {
+      "check": "main_metrics_available",
+      "detail": "outputs/backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_metrics_available",
+      "detail": "outputs/concentrated_backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "experiment_matrix_available",
+      "detail": "outputs/experiments/experiment_matrix_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_challenger_available",
+      "detail": "outputs/auto_learning_v2/challenger_review.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_policy_available",
+      "detail": "outputs/auto_learning_v2/policy_candidate.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_available",
+      "detail": "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "portfolio_goal_search_available",
+      "detail": "outputs/portfolio_goal_search/goal_search_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "account_evaluation_available",
+      "detail": "outputs/account_evaluation/account_evaluation_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "github_workflows_available",
+      "detail": ".github/workflows",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "counterfactual_replay_coverage",
+      "detail": "missing_counterfactual_count=4",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "candidate_production_ready",
+      "detail": "production_ready_count=0",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "operating_event_backtest_available",
+      "detail": "outputs/operating_event_backtest/operating_event_backtest_summary.json",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "data_readiness_audit_available",
+      "detail": "outputs/data_readiness/summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "data_readiness_ready_for_production_replay",
+      "detail": "status=warn; ready_for_fullrun=True; ready_for_policy_replay=True; blockers=[]; policy_replay_blockers=[]; warnings=['dated target snapshot archive is missing for this run']",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "dataset_coverage_audit_available",
+      "detail": "outputs/reports/dataset_coverage_audit.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "sec_enriched_candidate_materialized_for_audit",
+      "detail": "sec_enriched_candidate_present=True; rows_with_smart_money_evidence=34265",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "alphaops_vnext_uses_sec_enriched_candidate_book",
+      "detail": "candidate_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv; rows_with_smart_money_evidence=34265",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_valid_for_promotion",
+      "detail": "status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=1281; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=1281; max_date=2026-06-05",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-05; rows=2240; operating_book_max=2026-06-05; operating_rows=1281",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-05; broker_end=2026-06-05; date_gap_days=0; allowed_lag_days=7; rows=496; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=496; max_date=2026-06-05",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-05; rows=23223; operating_book_max=2026-06-05; operating_rows=496",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "concentrated_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "current_only_operating_holdings_available",
+      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=20; legacy_snapshot_exists=True",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_current_position_count_near_latest_target_count",
+      "detail": "main_positions=13; latest_target_rows=18; excess=0",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_replay_filter_matches_latest_target",
+      "detail": "broker_filter_n=operating_book; latest_operating_target_n=5; broker_mode=operating_book; latest_mode=alphaops_vnext_score_power",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "alphaops_vnext_production_flags_correct",
+      "detail": "{\"current_holdings_source\": \"alphaops_vnext_policy_target_book\", \"production_applied\": true, \"sidecar_applied_to_production\": true, \"sidecar_only\": false}",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_official_broker_metrics_valid_for_production",
+      "detail": "metric_source=broker_ledger_next_close; valid_for_production=True; fill_mode=next_close",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_official_broker_metrics_valid_for_production",
+      "detail": "metric_source=broker_ledger_next_close; valid_for_production=True; fill_mode=next_close",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "sec_drive_restore_manifest_available",
+      "detail": "restored_count=5; missing=[]; errors=[]",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "theme_leadership_tape_available",
+      "detail": "top_theme=missing; top_theme_state=missing",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "macro_circuit_diagnostics_available",
+      "detail": "main_status=missing; concentrated_status=missing",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "feature_source_coverage_available",
+      "detail": "outputs/data_readiness/summary.json::feature_source_coverage",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "feature_source_coverage_pit_available_from_clean",
+      "detail": "pit_future_available_from_rows=0; available_from_column_count=6",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "feature_source_groups_present_for_target_books",
+      "detail": "missing_groups=[]",
+      "passed": true,
+      "severity": "ok"
+    }
+  ],
+  "hard_error_count": 0
+}

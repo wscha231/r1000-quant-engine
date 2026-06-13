@@ -1,0 +1,1075 @@
+{
+  "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
+  "candidate_source_mode": "explicit",
+  "concentrated_green_benchmark_risk_cyclical_new_entry_block": {
+    "atr_threshold": 0.1,
+    "benchmark_risk_threshold": 0.7,
+    "blocked_entries_sample": [
+      {
+        "atr14_pct": 0.2045364504766184,
+        "benchmark_risk_score": 2.0,
+        "breakout_setup_quality_score": 0.1590974414495125,
+        "crisis_state": "GREEN",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Chemicals",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "SQM",
+        "weight_dropped": 0.056999999999999995
+      },
+      {
+        "atr14_pct": 0.1457104459432957,
+        "benchmark_risk_score": 2.0,
+        "breakout_setup_quality_score": 0.2765731587283031,
+        "crisis_state": "GREEN",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Chemicals",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "MOS",
+        "weight_dropped": 0.056999999999999995
+      },
+      {
+        "atr14_pct": 0.120474646584764,
+        "benchmark_risk_score": 2.0,
+        "breakout_setup_quality_score": 0.3626108859149741,
+        "crisis_state": "GREEN",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Oil Gas & Consumable Fuels",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Energy",
+        "ticker": "BKR",
+        "weight_dropped": 0.056999999999999995
+      }
+    ],
+    "blocked_new_entries": 3,
+    "breakout_threshold": 0.4,
+    "cash_rebuilt_explicitly": true,
+    "input_row_count": 500,
+    "min_weight": 0.04,
+    "output_row_count": 497,
+    "portfolio": "concentrated",
+    "production_activation_allowed": true,
+    "research_only": false,
+    "schema_version": "alphaops-vnext-concentrated-green-benchmark-risk-cyclical-new-entry-block-v1",
+    "sectors": [
+      "Energy",
+      "Materials"
+    ],
+    "status": "completed",
+    "stock_rows_removed": 3,
+    "top_blocked_tickers": [
+      {
+        "count": 1,
+        "ticker": "SQM"
+      },
+      {
+        "count": 1,
+        "ticker": "MOS"
+      },
+      {
+        "count": 1,
+        "ticker": "BKR"
+      }
+    ],
+    "weight_dropped_total": 0.17099999999999999
+  },
+  "crisis_overlay_status": "applied",
+  "current_holdings_source": "alphaops_vnext_policy_target_book",
+  "first_rebalance_date": "2019-05-31",
+  "generated_at_utc": "2026-06-13T09:05:55.737481+00:00",
+  "last_operating_signal_date": "2026-06-12",
+  "last_rebalance_date": "2026-04-30",
+  "main_defense_review_balanced_new_entry_block": {
+    "blocked_entries_sample": [
+      {
+        "breakout_setup_quality_score": -0.2421752850595483,
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Oil Gas & Consumable Fuels",
+        "market_style_regime_label": "balanced",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2023-04-28",
+        "regime_state": "neutral",
+        "sector": "Energy",
+        "ticker": "AM",
+        "weight_dropped": 0.03273672836897248
+      },
+      {
+        "breakout_setup_quality_score": 0.4694383832758152,
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Hotels Restaurants & Leisure",
+        "market_style_regime_label": "balanced",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2023-04-28",
+        "regime_state": "neutral",
+        "sector": "Consumer Discretionary",
+        "ticker": "CHH",
+        "weight_dropped": 0.03273672836897248
+      },
+      {
+        "breakout_setup_quality_score": 0.1731071977387263,
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Commercial Services",
+        "market_style_regime_label": "balanced",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2023-04-28",
+        "regime_state": "neutral",
+        "sector": "Industrials",
+        "ticker": "EFX",
+        "weight_dropped": 0.03273672836897248
+      },
+      {
+        "breakout_setup_quality_score": 0.028588353536063,
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Capital Goods - Machinery",
+        "market_style_regime_label": "balanced",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2023-04-28",
+        "regime_state": "neutral",
+        "sector": "Consumer Discretionary",
+        "ticker": "POOL",
+        "weight_dropped": 0.03273672836897248
+      },
+      {
+        "breakout_setup_quality_score": -0.063916801355257,
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "balanced",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2023-04-28",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "STLD",
+        "weight_dropped": 0.03273672836897248
+      }
+    ],
+    "blocked_new_entries": 5,
+    "breakout_threshold": 0.5,
+    "cash_rebuilt_explicitly": true,
+    "crisis_state": "DEFENSE_REVIEW",
+    "input_row_count": 1288,
+    "lane": "QUALITY_COMPOUNDER",
+    "output_row_count": 1283,
+    "portfolio": "main",
+    "production_activation_allowed": true,
+    "regime_state": "neutral",
+    "research_only": false,
+    "schema_version": "alphaops-vnext-main-defense-review-balanced-new-entry-block-v1",
+    "status": "completed",
+    "stock_rows_removed": 5,
+    "style_regime": "balanced",
+    "top_blocked_tickers": [
+      {
+        "count": 1,
+        "ticker": "AM"
+      },
+      {
+        "count": 1,
+        "ticker": "CHH"
+      },
+      {
+        "count": 1,
+        "ticker": "EFX"
+      },
+      {
+        "count": 1,
+        "ticker": "POOL"
+      },
+      {
+        "count": 1,
+        "ticker": "STLD"
+      }
+    ],
+    "weight_dropped_total": 0.1636836418448624
+  },
+  "main_defense_review_turnaround_new_entry_block": {
+    "blocked_entries_sample": [
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Commercial Services",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Industrials",
+        "ticker": "CPRT",
+        "weight_dropped": 0.08918695819202652
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Auto Manufacturers & Parts",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Consumer Discretionary",
+        "ticker": "ORLY",
+        "weight_dropped": 0.06305269878672162
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Software - Infrastructure",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Information Technology",
+        "ticker": "MSFT",
+        "weight_dropped": 0.04882649598068586
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Commercial Services",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Industrials",
+        "ticker": "CTAS",
+        "weight_dropped": 0.039667750294875036
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Biotechnology",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Health Care",
+        "ticker": "REGN",
+        "weight_dropped": 0.038253767499739716
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Semiconductors",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Information Technology",
+        "ticker": "KLAC",
+        "weight_dropped": 0.03819849408875486
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Semiconductors",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Information Technology",
+        "ticker": "MTSI",
+        "weight_dropped": 0.03479102429958838
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Consumer Finance",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Financials",
+        "ticker": "V",
+        "weight_dropped": 0.03280746182395879
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Internet Content & Information",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Internet",
+        "ticker": "JD",
+        "weight_dropped": 0.03045241073578977
+      }
+    ],
+    "blocked_new_entries": 9,
+    "cash_rebuilt_explicitly": true,
+    "crisis_state": "DEFENSE_REVIEW",
+    "input_row_count": 1297,
+    "lane": "QUALITY_COMPOUNDER",
+    "output_row_count": 1288,
+    "portfolio": "main",
+    "production_activation_allowed": true,
+    "regime_state": "neutral",
+    "research_only": false,
+    "schema_version": "alphaops-vnext-main-defense-review-turnaround-new-entry-block-v1",
+    "status": "completed",
+    "stock_rows_removed": 9,
+    "style_regime": "turnaround_accumulation",
+    "top_blocked_tickers": [
+      {
+        "count": 1,
+        "ticker": "CPRT"
+      },
+      {
+        "count": 1,
+        "ticker": "ORLY"
+      },
+      {
+        "count": 1,
+        "ticker": "MSFT"
+      },
+      {
+        "count": 1,
+        "ticker": "CTAS"
+      },
+      {
+        "count": 1,
+        "ticker": "REGN"
+      },
+      {
+        "count": 1,
+        "ticker": "KLAC"
+      },
+      {
+        "count": 1,
+        "ticker": "MTSI"
+      },
+      {
+        "count": 1,
+        "ticker": "V"
+      },
+      {
+        "count": 1,
+        "ticker": "JD"
+      }
+    ],
+    "weight_dropped_total": 0.41523706170214053
+  },
+  "main_neutral_churn_filter": {
+    "blocked_entries_sample": [
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2019-10-31",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "AEM",
+        "weight_dropped": 0.01
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2019-10-31",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "NTRA",
+        "weight_dropped": 0.060714285714285714
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2020-01-31",
+        "regime_state": "neutral",
+        "swap_count": 4,
+        "ticker": "PODD",
+        "weight_dropped": 0.05615384615384615
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2020-10-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "PDD",
+        "weight_dropped": 0.03734992286137669
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2020-11-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "CHWY",
+        "weight_dropped": 0.037936924281320235
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2020-11-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "ETSY",
+        "weight_dropped": 0.06107535104972562
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2020-11-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "MRNA",
+        "weight_dropped": 0.08
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2020-11-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "NTRA",
+        "weight_dropped": 0.037936924281320235
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2020-11-30",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "PDD",
+        "weight_dropped": 0.09455286564106559
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2021-01-29",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "MRNA",
+        "weight_dropped": 0.04
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2021-02-26",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "MRNA",
+        "weight_dropped": 0.08026500201693977
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2021-07-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "STLD",
+        "weight_dropped": 0.01
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2021-11-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "AMD",
+        "weight_dropped": 0.04
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "MA",
+        "weight_dropped": 0.06525151692504985
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2023-01-31",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "LRCX",
+        "weight_dropped": 0.12
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2023-02-28",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "LRCX",
+        "weight_dropped": 0.07484996773974005
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2023-11-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "PANW",
+        "weight_dropped": 0.09829472258210062
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-01-31",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "ELF",
+        "weight_dropped": 0.09803894191581906
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-02-29",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "ELF",
+        "weight_dropped": 0.12
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-06-28",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "SFM",
+        "weight_dropped": 0.04657264715801638
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-07-31",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "SFM",
+        "weight_dropped": 0.06540644081472025
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-08-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "SFM",
+        "weight_dropped": 0.050833333333333335
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-09-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "CORT",
+        "weight_dropped": 0.11655080491760927
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-09-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "CRS",
+        "weight_dropped": 0.08063016046587324
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-09-30",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "FLNC",
+        "weight_dropped": 0.06747977007991408
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-10-31",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "CAVA",
+        "weight_dropped": 0.03193678817234124
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-10-31",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "CORT",
+        "weight_dropped": 0.03193678817234124
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-10-31",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "FLNC",
+        "weight_dropped": 0.05648340825463672
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2024-10-31",
+        "regime_state": "neutral",
+        "swap_count": 2,
+        "ticker": "TPL",
+        "weight_dropped": 0.10780754863199792
+      },
+      {
+        "action": "blocked_entry",
+        "rebalance_date": "2025-01-31",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "CORT",
+        "weight_dropped": 0.06254251132423981
+      }
+    ],
+    "cash_rebuilt_explicitly": true,
+    "input_row_count": 1345,
+    "neutral_entries_blocked": 38,
+    "output_row_count": 1307,
+    "portfolio": "main",
+    "production_activation_allowed": true,
+    "research_only": false,
+    "schema_version": "alphaops-vnext-main-neutral-churn-filter-v1",
+    "status": "completed",
+    "stock_rows_removed": 38,
+    "swap_threshold": 2,
+    "target_regimes": [
+      "neutral"
+    ],
+    "top_blocked_tickers": [
+      {
+        "count": 3,
+        "ticker": "MRNA"
+      },
+      {
+        "count": 3,
+        "ticker": "SFM"
+      },
+      {
+        "count": 3,
+        "ticker": "CORT"
+      },
+      {
+        "count": 2,
+        "ticker": "NTRA"
+      },
+      {
+        "count": 2,
+        "ticker": "PDD"
+      },
+      {
+        "count": 2,
+        "ticker": "AMD"
+      },
+      {
+        "count": 2,
+        "ticker": "LRCX"
+      },
+      {
+        "count": 2,
+        "ticker": "ELF"
+      },
+      {
+        "count": 2,
+        "ticker": "FLNC"
+      },
+      {
+        "count": 2,
+        "ticker": "AVGO"
+      },
+      {
+        "count": 2,
+        "ticker": "BE"
+      },
+      {
+        "count": 2,
+        "ticker": "RVMD"
+      },
+      {
+        "count": 1,
+        "ticker": "AEM"
+      },
+      {
+        "count": 1,
+        "ticker": "PODD"
+      },
+      {
+        "count": 1,
+        "ticker": "CHWY"
+      }
+    ],
+    "weight_dropped_total": 2.4438320396885804,
+    "window_months": 6
+  },
+  "neutral_metals_new_entry_block": {
+    "concentrated": {
+      "blocked_entries_sample": [
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2022-03-31",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "RGLD",
+          "weight_dropped": 0.056999999999999995
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2022-03-31",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "STLD",
+          "weight_dropped": 0.048283363342568456
+        }
+      ],
+      "blocked_new_entries": 2,
+      "cash_rebuilt_explicitly": true,
+      "industry_terms": [
+        "metals",
+        "mining"
+      ],
+      "input_row_count": 502,
+      "lanes": [
+        "MARKET_LEADER"
+      ],
+      "output_row_count": 500,
+      "portfolio": "concentrated",
+      "production_activation_allowed": true,
+      "research_only": false,
+      "schema_version": "alphaops-vnext-neutral-metals-new-entry-block-v1",
+      "sector": "Materials",
+      "status": "completed",
+      "stock_rows_removed": 2,
+      "style_regime": "quality_compounder",
+      "target_regimes": [
+        "neutral"
+      ],
+      "top_blocked_tickers": [
+        {
+          "count": 1,
+          "ticker": "RGLD"
+        },
+        {
+          "count": 1,
+          "ticker": "STLD"
+        }
+      ],
+      "weight_dropped_total": 0.10528336334256845
+    },
+    "main": {
+      "blocked_entries_sample": [
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2019-08-30",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "RGLD",
+          "weight_dropped": 0.06133333333333334
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2019-08-30",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "AEM",
+          "weight_dropped": 0.04
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2021-11-30",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "MP",
+          "weight_dropped": 0.03402589521885299
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2022-03-31",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "FCX",
+          "weight_dropped": 0.01
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2022-03-31",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "RGLD",
+          "weight_dropped": 0.01
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2022-03-31",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "SCCO",
+          "weight_dropped": 0.01
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2022-03-31",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "STLD",
+          "weight_dropped": 0.01
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2024-04-30",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "SCCO",
+          "weight_dropped": 0.0442788857604323
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2026-01-30",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "RGLD",
+          "weight_dropped": 0.07199960957517151
+        },
+        {
+          "hold_replace_decision": "new_entry",
+          "holding_state": "NEW",
+          "industry_group": "Metals & Mining",
+          "market_style_regime_label": "quality_compounder",
+          "primary_lane": "MARKET_LEADER",
+          "prior_weight": 0.0,
+          "rebalance_date": "2026-02-27",
+          "regime_state": "neutral",
+          "sector": "Materials",
+          "ticker": "SCCO",
+          "weight_dropped": 0.10921271001414787
+        }
+      ],
+      "blocked_new_entries": 10,
+      "cash_rebuilt_explicitly": true,
+      "industry_terms": [
+        "metals",
+        "mining"
+      ],
+      "input_row_count": 1307,
+      "lanes": [
+        "MARKET_LEADER"
+      ],
+      "output_row_count": 1297,
+      "portfolio": "main",
+      "production_activation_allowed": true,
+      "research_only": false,
+      "schema_version": "alphaops-vnext-neutral-metals-new-entry-block-v1",
+      "sector": "Materials",
+      "status": "completed",
+      "stock_rows_removed": 10,
+      "style_regime": "quality_compounder",
+      "target_regimes": [
+        "neutral"
+      ],
+      "top_blocked_tickers": [
+        {
+          "count": 3,
+          "ticker": "RGLD"
+        },
+        {
+          "count": 3,
+          "ticker": "SCCO"
+        },
+        {
+          "count": 1,
+          "ticker": "AEM"
+        },
+        {
+          "count": 1,
+          "ticker": "MP"
+        },
+        {
+          "count": 1,
+          "ticker": "FCX"
+        },
+        {
+          "count": 1,
+          "ticker": "STLD"
+        }
+      ],
+      "weight_dropped_total": 0.4008504339019381
+    }
+  },
+  "official_target_books": {
+    "concentrated": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+    "main": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv"
+  },
+  "production_applied": true,
+  "production_output_mode": "replace_operating",
+  "production_policy": "alphaops_vnext_production",
+  "regime_capacity_overlay": {
+    "audit_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/regime_capacity_overlay_audit.csv",
+    "status": "applied",
+    "summaries": {
+      "concentrated_N3": {
+        "avg_cash_weight": 0.4951449313638053,
+        "max_cash_weight": 0.972207742251291,
+        "multipliers": {
+          "bear": 0.5,
+          "bull": 1.0,
+          "deep_bear": 0.25,
+          "exceptional_bull": 1.0,
+          "neutral": 0.95,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "concentrated",
+        "rebalance_dates_dampened": 62,
+        "rebalance_dates_total": 85,
+        "status": "completed",
+        "variant_key": "concentrated_N3"
+      },
+      "concentrated_N5": {
+        "avg_cash_weight": 0.42366367181290077,
+        "max_cash_weight": 0.97125,
+        "multipliers": {
+          "bear": 0.5,
+          "bull": 1.0,
+          "deep_bear": 0.25,
+          "exceptional_bull": 1.0,
+          "neutral": 0.95,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "concentrated",
+        "rebalance_dates_dampened": 62,
+        "rebalance_dates_total": 85,
+        "status": "completed",
+        "variant_key": "concentrated_N5"
+      },
+      "main_N12": {
+        "avg_cash_weight": 0.237432918412098,
+        "max_cash_weight": 0.8366275428529562,
+        "multipliers": {
+          "bear": 1.0,
+          "bull": 1.0,
+          "deep_bear": 1.0,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "main",
+        "rebalance_dates_dampened": 0,
+        "rebalance_dates_total": 85,
+        "status": "completed",
+        "variant_key": "main_N12"
+      },
+      "main_N15": {
+        "avg_cash_weight": 0.22719663325103345,
+        "max_cash_weight": 0.8009933985850788,
+        "multipliers": {
+          "bear": 1.0,
+          "bull": 1.0,
+          "deep_bear": 1.0,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "main",
+        "rebalance_dates_dampened": 0,
+        "rebalance_dates_total": 85,
+        "status": "completed",
+        "variant_key": "main_N15"
+      },
+      "main_N18": {
+        "avg_cash_weight": 0.22278043928959754,
+        "max_cash_weight": 0.79,
+        "multipliers": {
+          "bear": 1.0,
+          "bull": 1.0,
+          "deep_bear": 1.0,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "main",
+        "rebalance_dates_dampened": 0,
+        "rebalance_dates_total": 85,
+        "status": "completed",
+        "variant_key": "main_N18"
+      }
+    }
+  },
+  "schema_version": "alphaops-vnext-production-activation-v1",
+  "sidecar_applied_to_production": true,
+  "sidecar_only": false,
+  "status": "applied"
+}

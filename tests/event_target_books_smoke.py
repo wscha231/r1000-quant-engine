@@ -46,12 +46,22 @@ def test_event_target_book_injects_daily_exit_and_replays() -> None:
         write_px(cache, "BBB", [50, 50, 50, 51, 51, 52, 52, 53, 53, 54, 54, 55])
         write_px(cache, "SPY", [400, 400, 400, 401, 401, 402, 402, 403, 403, 404, 404, 405])
         rows = [
-            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
-            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.50},
-            {"rebalance_date": "2026-01-19", "ticker": "BBB", "weight": 1.00},
+            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50, "sector": "Technology", "industry_group": "Semiconductors"},
+            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.50, "sector": "Technology", "industry_group": "Semiconductors"},
+            {"rebalance_date": "2026-01-19", "ticker": "BBB", "weight": 1.00, "sector": "Technology", "industry_group": "Semiconductors"},
         ]
         pd.DataFrame(rows).to_csv(reports / "operating_main_target_book.csv", index=False)
         pd.DataFrame(rows).to_csv(reports / "operating_concentrated_target_book.csv", index=False)
+        crisis_dir = latest / "alphaops_vnext"
+        crisis_dir.mkdir(parents=True)
+        pd.DataFrame(
+            [
+                {"date": "2026-01-02", "crisis_state": "GREEN", "crisis_score": 0.0},
+                {"date": "2026-01-07", "crisis_state": "DEFENSE_REVIEW", "crisis_score": 0.6},
+                {"date": "2026-01-08", "crisis_state": "GREEN", "crisis_score": 0.0},
+                {"date": "2026-01-12", "crisis_state": "GREEN", "crisis_score": 0.0},
+            ]
+        ).to_csv(crisis_dir / "daily_crisis_state.csv", index=False)
 
         payload = build(
             Namespace(
@@ -62,6 +72,17 @@ def test_event_target_book_injects_daily_exit_and_replays() -> None:
                 main_target_book="",
                 concentrated_target_book="",
                 benchmark_ticker="SPY",
+                crisis_state_csv="",
+                disable_daily_crisis_cash_overlay=False,
+                reentry_delay_days=2,
+                crisis_release_step=0.10,
+                crisis_change_band=0.03,
+                main_single_name_cap=0.60,
+                main_industry_group_cap=0.70,
+                main_sector_cap=0.80,
+                concentrated_single_name_cap=0.60,
+                concentrated_industry_group_cap=0.70,
+                concentrated_sector_cap=0.80,
                 hard_stop=-0.08,
                 trailing_stop=-0.15,
                 trailing_activation=0.15,
@@ -72,12 +93,24 @@ def test_event_target_book_injects_daily_exit_and_replays() -> None:
         )
         assert payload["status"] == "completed"
         event_book = pd.read_csv(reports_out / "event_main_target_book.csv")
+        base_date = event_book[event_book["rebalance_date"].astype(str).eq("2026-01-02")]
+        assert abs(float(base_date.loc[base_date["ticker"].astype(str).eq("CASH"), "weight"].sum()) - 0.30) < 1e-9
+        assert bool(base_date["cluster_cap_applied"].astype(str).eq("True").any())
         assert "2026-01-06" in set(event_book["rebalance_date"].astype(str))
         event_date = event_book[event_book["rebalance_date"].astype(str).eq("2026-01-06")]
         assert "AAA" not in set(event_date["ticker"].astype(str))
         assert "CASH" in set(event_date["ticker"].astype(str))
+        crisis_date = event_book[event_book["rebalance_date"].astype(str).eq("2026-01-07")]
+        assert float(crisis_date.loc[crisis_date["ticker"].astype(str).eq("CASH"), "weight"].sum()) >= 0.25
         events = pd.read_csv(out / "main_events.csv")
         assert "daily_hard_stop_exit" in set(events["action"].astype(str))
+        assert "daily_crisis_cash_raise" in set(events["action"].astype(str))
+        releases = events[events["action"].astype(str).eq("daily_crisis_cash_release")]
+        assert not releases.empty
+        assert float(releases["target_cash"].min()) > 0.03
+        summary = payload["books"][0]
+        assert int(summary["daily_crisis_event_count"]) >= 2
+        assert int(summary["cluster_cap_event_count"]) >= 1
 
         metrics = replay(
             target_book=reports_out / "event_main_target_book.csv",

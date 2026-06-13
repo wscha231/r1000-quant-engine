@@ -1,0 +1,233 @@
+{
+  "checks": [
+    {
+      "check": "main_metrics_available",
+      "detail": "outputs/broker_replay/main/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_metrics_available",
+      "detail": "outputs/broker_replay/concentrated/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "experiment_matrix_available",
+      "detail": "outputs/experiments/experiment_matrix_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_challenger_available",
+      "detail": "outputs/auto_learning_v2/challenger_review.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_policy_available",
+      "detail": "outputs/auto_learning_v2/policy_candidate.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_available",
+      "detail": "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "portfolio_goal_search_available",
+      "detail": "outputs/portfolio_goal_search/goal_search_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "account_evaluation_available",
+      "detail": "outputs/account_evaluation/account_evaluation_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "github_workflows_available",
+      "detail": ".github/workflows",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "counterfactual_replay_coverage",
+      "detail": "missing_counterfactual_count=4",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "candidate_production_ready",
+      "detail": "production_ready_count=0",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "operating_event_backtest_available",
+      "detail": "outputs/operating_event_backtest/operating_event_backtest_summary.json",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "data_readiness_audit_available",
+      "detail": "outputs/data_readiness/summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "data_readiness_ready_for_production_replay",
+      "detail": "status=warn; ready_for_fullrun=True; ready_for_policy_replay=False; blockers=[]; policy_replay_blockers=['SEC evidence store exists but operating target books are missing sec_smart_money feature columns']; warnings=['dated target snapshot archive is missing for this run', 'operating target books are missing sec_smart_money feature columns for portfolios: main']",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "dataset_coverage_audit_available",
+      "detail": "outputs/reports/dataset_coverage_audit.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "sec_enriched_candidate_materialized_for_audit",
+      "detail": "sec_enriched_candidate_present=False; rows_with_smart_money_evidence=0",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_valid_for_promotion",
+      "detail": "status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-12; broker_end=2026-06-12; date_gap_days=0; allowed_lag_days=7; rows=2333; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2333; max_date=2026-06-12",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-12; rows=2315; operating_book_max=2026-06-12; operating_rows=2333",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-06-12; broker_end=2026-06-12; date_gap_days=0; allowed_lag_days=7; rows=23212; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23212; max_date=2026-06-12",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-12; rows=23208; operating_book_max=2026-06-12; operating_rows=23212",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "concentrated_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "current_only_operating_holdings_available",
+      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=23; legacy_snapshot_exists=True",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_current_position_count_near_latest_target_count",
+      "detail": "main_positions=17; latest_target_rows=18; excess=0",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_replay_filter_matches_latest_target",
+      "detail": "broker_filter_n=4; latest_operating_target_n=4; broker_mode=score_power; latest_mode=score_power",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_official_broker_metrics_valid_for_production",
+      "detail": "metric_source=broker_ledger_next_close; valid_for_production=True; fill_mode=next_close",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_official_broker_metrics_valid_for_production",
+      "detail": "metric_source=broker_ledger_next_close; valid_for_production=True; fill_mode=next_close",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "sec_drive_restore_manifest_available",
+      "detail": "restored_count=5; missing=[]; errors=[]",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "theme_leadership_tape_available",
+      "detail": "top_theme=missing; top_theme_state=missing",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "macro_circuit_diagnostics_available",
+      "detail": "main_status=missing; concentrated_status=missing",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "feature_source_coverage_available",
+      "detail": "outputs/data_readiness/summary.json::feature_source_coverage",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "feature_source_coverage_pit_available_from_clean",
+      "detail": "pit_future_available_from_rows=0; available_from_column_count=0",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "feature_source_groups_present_for_target_books",
+      "detail": "missing_groups=['main:quality_confirmation', 'main:sec_smart_money', 'main:theme_leadership']",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_cash_position_count_contract",
+      "detail": "latest_date=2026-06-12; cash=0.00%; stock_count=18; crisis_state=unknown; violations=[]; preexisting_in_baseline=[]",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_concentration_contract",
+      "detail": "latest_date=2026-06-12; max_name=AMD@32.02%; max_industry_group=Semiconductors@84.08%; group_source=industry_group; violations=['concentrated_industry_group_weight_gt_60pct']; preexisting_in_baseline=[]",
+      "passed": false,
+      "severity": "error"
+    }
+  ],
+  "hard_error_count": 1
+}

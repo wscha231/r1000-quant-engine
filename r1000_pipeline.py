@@ -347,6 +347,7 @@ from r1000_signals import (
     accelerate_cash_deployment,
     resolve_regime_conditioned_sleeve_override,
 )
+from r1000_market_leader_engine import classify_leader_tier
 
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
@@ -3608,6 +3609,28 @@ def count_r1000_base_names(frame: pd.DataFrame) -> int:
         | src.str.contains("historical_membership_file", regex=False)
     )
     return int(mask.sum())
+
+
+def latest_month_mktcap_coverage(monthly: pd.DataFrame) -> tuple[pd.Series, float]:
+    """Mask of latest-rebalance-date rows plus mktcap coverage inside that month.
+
+    Universe-collapse guard input (Full Rebuild 27337807588, 2026-06-11): a
+    cold-cache run joined shares for historical months while the latest
+    snapshot ended up ~98% NaN mktcap (1100/1118 candidates), so the
+    overall-coverage fallback never fired and the scored universe collapsed to
+    4 names (INVALID_UNIVERSE). The latest month must be checked separately."""
+    if monthly is None or getattr(monthly, "empty", True) or "rebalance_date" not in monthly.columns:
+        idx = monthly.index if monthly is not None else pd.RangeIndex(0)
+        return pd.Series(False, index=idx), 1.0
+    dates = pd.to_datetime(monthly["rebalance_date"], errors="coerce")
+    latest_dt = dates.max()
+    if pd.isna(latest_dt):
+        return pd.Series(False, index=monthly.index), 1.0
+    mask = dates.eq(latest_dt)
+    if not bool(mask.any()):
+        return mask, 1.0
+    cov = float(pd.to_numeric(monthly.loc[mask, "mktcap"], errors="coerce").notna().mean())
+    return mask, cov
 
 
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
@@ -7416,9 +7439,50 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
             )
     mktcap_cov = float(monthly["mktcap"].notna().mean())
     use_mktcap_filter = mktcap_cov >= 0.25
+    # Latest-month starvation guard (Full Rebuild 27337807588, 2026-06-11): a
+    # cold-cache run joined shares for history but left the latest snapshot
+    # ~98% NaN mktcap, so the overall-coverage fallback above never fired and
+    # the scored universe collapsed to 4 names (INVALID_UNIVERSE). Retry the
+    # bounded Yahoo proxy for just the starved latest-month names; if the
+    # month is still starved after the min-cap filter, rank it by dollar
+    # volume instead of dropping it. Healthy runs never enter either branch.
+    latest_month_mask, latest_month_cov = latest_month_mktcap_coverage(monthly)
+    latest_month_dollar_vol_fallback = False
+    if use_mktcap_filter and bool(latest_month_mask.any()) and latest_month_cov < 0.30:
+        log(
+            f"[WARN] latest-month mktcap coverage {latest_month_cov:.1%} vs overall {mktcap_cov:.1%}; "
+            "retrying bounded Yahoo marketCap proxy for the latest snapshot."
+        )
+        need = (
+            monthly.loc[latest_month_mask & monthly["mktcap"].isna(), "ticker"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        mc = ensure_mktcap_proxy(cfg, paths, need, max_new=1200)
+        if not mc.empty and "mktcap_proxy" in mc.columns:
+            proxy_map = (
+                pd.to_numeric(mc.drop_duplicates("ticker", keep="last").set_index("ticker")["mktcap_proxy"], errors="coerce")
+                .dropna()
+                .to_dict()
+            )
+            fill = monthly.loc[latest_month_mask, "ticker"].astype(str).map(proxy_map)
+            monthly.loc[latest_month_mask, "mktcap"] = monthly.loc[latest_month_mask, "mktcap"].fillna(fill)
     if use_mktcap_filter:
         monthly["mktcap"] = monthly["mktcap"].where(monthly["mktcap"] >= cfg.min_mktcap, np.nan)
         monthly["size_metric"] = monthly["mktcap"]
+        _, latest_month_cov_after = latest_month_mktcap_coverage(monthly)
+        if bool(latest_month_mask.any()) and latest_month_cov_after < 0.25:
+            latest_month_dollar_vol_fallback = True
+            monthly.loc[latest_month_mask, "size_metric"] = pd.to_numeric(
+                monthly.loc[latest_month_mask, "dollar_vol_20d"], errors="coerce"
+            )
+            log(
+                f"[WARN] latest-month mktcap still starved ({latest_month_cov_after:.1%}) after proxy retry; "
+                "ranking the latest month by dollar volume so the universe does not collapse. "
+                "The downstream INVALID_UNIVERSE floor still applies to the scored output."
+            )
     else:
         log(f"[WARN] mktcap coverage too low ({mktcap_cov:.2%}); falling back to dollar-vol size metric.")
         monthly["size_metric"] = pd.to_numeric(monthly["dollar_vol_20d"], errors="coerce")
@@ -7431,7 +7495,12 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         & (monthly["dd_1y"].fillna(9e9) <= cfg.max_dd_1y)
     )
     if use_mktcap_filter:
-        base_mask &= monthly["mktcap"].notna()
+        mktcap_available = monthly["mktcap"].notna()
+        if latest_month_dollar_vol_fallback:
+            # Degraded latest snapshot: keep latest-month rows rankable by
+            # dollar volume instead of dropping the whole month on NaN mktcap.
+            mktcap_available = mktcap_available | latest_month_mask
+        base_mask &= mktcap_available
     monthly = monthly[base_mask].copy()
     monthly = monthly.sort_values(["rebalance_date", "size_metric"], ascending=[True, False])
     monthly["rank_size"] = monthly.groupby("rebalance_date")["size_metric"].rank(method="first", ascending=False)
@@ -8548,11 +8617,18 @@ def _prep_phase11_features(
 
 
 def _load_phase11_episodes() -> Optional[pd.DataFrame]:
-    """Load historical 5x+ multibagger episodes. Returns None if CSV missing."""
-    p = Path(__file__).resolve().parent / PHASE11_EPISODES_REL
+    """Load historical 5x+ multibagger episodes. Returns None if CSV missing.
+
+    Honors PHASE11_EPISODES_PATH env var to swap in larger training sets
+    (e.g. multibagger_episodes_v2.csv = 163 episodes vs default 55).
+    """
+    override = os.environ.get("PHASE11_EPISODES_PATH", "").strip()
+    rel = override if override else PHASE11_EPISODES_REL
+    p = Path(__file__).resolve().parent / rel
     if not p.exists():
         log(f"[Phase 11] episodes CSV not found at {p}; skipping training")
         return None
+    log(f"[Phase 11] loading episodes from {p.name}")
     try:
         df = pd.read_csv(p)
     except Exception as exc:
@@ -14248,6 +14324,19 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     ).fillna(0.0)
     d["concentrated_preferred_sleeve"] = labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
     d["concentrated_preferred_sleeve_raw"] = raw_labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
+    cycle_recovery_score = numeric_series_or_default(d, "cycle_recovery_score", 0.0)
+    if phase_is_enabled("cycle_leadership_mask", default=False):
+        cycle_leadership_mask = (
+            numeric_series_or_default(d, "rs_spy_3m", 0.0).gt(0.0)
+            & numeric_series_or_default(d, "rs_qqq_3m", 0.0).gt(0.0)
+            & (
+                numeric_series_or_default(d, "rs_spy_6m", 0.0).gt(0.0)
+                | numeric_series_or_default(d, "rs_qqq_6m", 0.0).gt(0.0)
+            )
+        )
+        d["cycle_leadership_mask_pass"] = cycle_leadership_mask.astype(bool)
+        d["cycle_recovery_score_leader_masked"] = cycle_recovery_score.where(cycle_leadership_mask, 0.0)
+        cycle_recovery_score = d["cycle_recovery_score_leader_masked"]
     d["concentrated_score"] = row_mean(
         [
             cross_sectional_robust_z(d, "score"),
@@ -14270,7 +14359,7 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
             # early_inflection: 6mo-pre-breakout signal (find next SNDK early).
             # entry_quality: penalize chase entries (extension + RSI + mom).
             float(getattr(cfg, "concentrated_score_cycle_recovery_weight", 0.50))
-            * numeric_series_or_default(d, "cycle_recovery_score", 0.0),
+            * cycle_recovery_score,
             float(getattr(cfg, "concentrated_score_early_inflection_weight", 0.40))
             * numeric_series_or_default(d, "early_cycle_inflection_score", 0.0),
             float(getattr(cfg, "concentrated_score_entry_quality_weight", 0.25))
@@ -14288,6 +14377,35 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     return d
 
 
+def _concentrated_allowed_leader_tiers(cfg: EngineConfig) -> set[str]:
+    raw = getattr(cfg, "concentrated_leader_allowed_tiers", ["DUAL_LEADER"])
+    if isinstance(raw, str):
+        parts = [part.strip() for part in raw.split(",")]
+    else:
+        parts = [str(part).strip() for part in raw]
+    allowed = {part for part in parts if part}
+    return allowed or {"DUAL_LEADER"}
+
+
+def apply_concentrated_leader_gate(cfg: EngineConfig, frame: pd.DataFrame, top_n: int) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    d = frame.copy()
+    if "leader_tier" not in d.columns:
+        d["leader_tier"] = d.apply(classify_leader_tier, axis=1)
+    allowed = _concentrated_allowed_leader_tiers(cfg)
+    leader_pass = d["leader_tier"].astype(str).isin(allowed)
+    min_pool = max(1, min(int(top_n), int(getattr(cfg, "concentrated_min_production_names", 3))))
+    d["concentrated_leader_gate_allowed_tiers"] = ",".join(sorted(allowed))
+    d["concentrated_leader_gate_pass"] = leader_pass.astype(bool)
+    if int(leader_pass.sum()) < min_pool:
+        d["concentrated_leader_gate_relaxed"] = True
+        return d
+    filtered = d.loc[leader_pass].copy()
+    filtered["concentrated_leader_gate_relaxed"] = False
+    return filtered
+
+
 def select_concentrated_portfolio_topk(
     cfg: EngineConfig,
     month_df: pd.DataFrame,
@@ -14303,6 +14421,10 @@ def select_concentrated_portfolio_topk(
     # producing identical metrics because the grid was silently clamping
     # back to 3 here. See CHANGELOG 19:30 KST entry.
     top_n = max(1, min(int(top_n), 30))
+    if phase_is_enabled("leader_gate", default=bool(getattr(cfg, "concentrated_leader_gate_enabled", False))):
+        d = apply_concentrated_leader_gate(cfg, d, top_n)
+        if d.empty:
+            return d
     # Phase 15-A (2026-04-28): concentrated thesis-gate relaxation. Default
     # min_confirmation 0.45 was rejecting cyclical leaders (memory/foundry
     # equipment) that have valid score but weak multi_year/market_confirmation

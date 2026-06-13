@@ -1,0 +1,3 @@
+window,start,end,row_count,state_counts,first_defense_date,first_crisis_defense_date,first_reentry_ready_date,detection_lag_days,defense_detected,reentry_detected
+covid_2020,2020-02-01,2020-05-31,85,"{""CRISIS_DEFENSE"": 20, ""DEFENSE_REVIEW"": 46, ""GREEN"": 13, ""WATCH"": 6}",2020-02-28,2020-03-11,,27,True,False
+rate_2022,2021-11-01,2022-12-31,305,"{""CRISIS_DEFENSE"": 38, ""DEFENSE_REVIEW"": 180, ""GREEN"": 46, ""REENTRY_READY"": 2, ""WATCH"": 39}",2022-01-26,2022-06-13,2022-02-10,86,True,True

@@ -1,0 +1,130 @@
+{
+  "approved_target_policy_path": "outputs/promotion_review/approved_target_policy.json",
+  "artifact_id": "26675519086",
+  "artifact_profile": "official",
+  "branch": "codex/alphaops-integrated-replay",
+  "candidate_replay_book_present": true,
+  "commit_sha": "ad708f80ad12f5673ff9a7499a15fc3c3dddc209",
+  "current_holdings_source": "production_operating_snapshot_broker_ledger",
+  "decision_cadence_status": "alphaops-decision-cadence-plan-v1",
+  "executed_sidecars": [
+    {
+      "executed": true,
+      "expected": true,
+      "name": "baseline_lock",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/baseline_lock/active_baseline.json",
+      "skip_reason": ""
+    },
+    {
+      "executed": true,
+      "expected": true,
+      "name": "market_leader_challenger",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/market_leader_challenger/summary.json",
+      "skip_reason": ""
+    },
+    {
+      "executed": true,
+      "expected": true,
+      "name": "integrated_theme_leader_crisis_replay",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/integrated_theme_leader_crisis_replay/summary.json",
+      "skip_reason": ""
+    },
+    {
+      "executed": true,
+      "expected": true,
+      "name": "strategy_logic_ledger",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/strategy_logic_ledger/summary.json",
+      "skip_reason": ""
+    },
+    {
+      "executed": true,
+      "expected": true,
+      "name": "position_cleanup_review",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operator_review/dust_positions_report.csv",
+      "skip_reason": ""
+    },
+    {
+      "executed": true,
+      "expected": true,
+      "name": "user_current_research_only_notice",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current/07_research_sidecar_context.json",
+      "skip_reason": ""
+    },
+    {
+      "executed": true,
+      "expected": true,
+      "name": "sidecar_promotion_bridge",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/promotion_review/sidecar_promotion_bridge_status.json",
+      "skip_reason": ""
+    },
+    {
+      "executed": false,
+      "expected": true,
+      "name": "sidecar_promotion_check",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/promotion_review/integrated_target_promotion_check.json",
+      "skip_reason": "not_found_or_failed"
+    },
+    {
+      "executed": true,
+      "expected": true,
+      "name": "decision_cadence_review",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/decision_cadence/decision_cadence_summary.json",
+      "skip_reason": ""
+    }
+  ],
+  "expected_patches": {
+    "baseline_lock": true,
+    "decision_cadence_review": true,
+    "integrated_theme_leader_crisis_replay": true,
+    "market_leader_challenger": true,
+    "position_cleanup_review": true,
+    "sidecar_promotion_bridge": true,
+    "sidecar_promotion_check": true,
+    "strategy_logic_ledger": true,
+    "user_current_research_only_notice": true
+  },
+  "gdrive_sync_mode": "official",
+  "generated_at_utc": "2026-05-30T09:40:14.606033+00:00",
+  "head_sha": "ad708f80ad12f5673ff9a7499a15fc3c3dddc209",
+  "integrated_case_failure_count": "",
+  "integrated_replay_status": "completed",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "mid_month_reentry_allowed": true,
+  "notes": [
+    "Current holdings come from broker-ledger operating books.",
+    "Market Leader, Multi-Lane, Crisis, and Integrated Replay outputs are research-only unless approved_integrated promotion is applied.",
+    "approved_integrated may only replace approved operating target books before broker replay."
+  ],
+  "official_metric_mode": "broker_ledger_next_close",
+  "portfolio_policy": "market_leader_shadow",
+  "production_applied": false,
+  "production_mutated": false,
+  "production_mutation_allowed": false,
+  "production_mutation_check_status": "passed",
+  "projected_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operator_review/projected_holdings_after_market_leader_target.csv",
+  "projected_integrated_holdings_path": "",
+  "projected_market_leader_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operator_review/projected_holdings_after_market_leader_target.csv",
+  "promotion_activation_allowed": false,
+  "promotion_bridge_status": "completed",
+  "promotion_gate_status": "rejected",
+  "promotion_status": "rejected",
+  "reason_not_applied_to_current_holdings": "research_only_sidecar_promotion_gate_not_passed",
+  "replay_gate_status": "passed",
+  "run_attempt": "1",
+  "run_id": "26675519086",
+  "schema_version": "alphaops-patch-application-manifest-v1",
+  "shadow_available": true,
+  "sidecar_applied_to_production": false,
+  "sidecar_only": true,
+  "sidecar_profile": "official",
+  "skipped_sidecars": [
+    {
+      "executed": false,
+      "expected": true,
+      "name": "sidecar_promotion_check",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/promotion_review/integrated_target_promotion_check.json",
+      "skip_reason": "not_found_or_failed"
+    }
+  ],
+  "valid_for_production": null
+}
