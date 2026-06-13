@@ -5,6 +5,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-13
 
+### 19:10 KST - stage-t2-subdaily-exit-overlay-comparison
+
+- scope: Stage T2 of the leader-rotation roadmap. Surface the trade-off of sub-monthly exits (hard stop, trailing stop, relative-strength exit) vs the monthly broker baseline so the stop thresholds can be tuned to a real CAGR vs MDD sweet spot. Research-only — no production change.
+- diagnosis (T2 ran against committed run `20260512_global_alpha_universe`):
+  - Main: monthly baseline CAGR 20.35% / MDD -33.45% vs daily-stop overlay (-8% hard / -15% trailing) CAGR 12.58% / MDD -28.91% → `-7.77pp CAGR / +4.55pp MDD` = "expensive: MDD better but CAGR cost too large to promote as-is"
+  - Concentrated: 36.41% / -38.45% vs 27.97% / -27.75% → `-8.44pp CAGR / +10.70pp MDD` = same trade-off shape but much bigger MDD reduction
+  - Overlay exit reasons (Main): `daily_close_breached_hard_stop=556`, `daily_close_breached_trailing_stop=26`, `relative_underperformance_exit=3` → the hard_stop at -8% fires 95% of exits and is the dominant CAGR drag
+  - Actionable: relax the hard_stop (-12% or disable) while keeping the trailing structure (-15% after +15% activation) is the obvious next sweep
+- files:
+  - `tools/run_subdaily_exit_compare.py` ->new. Reads `broker_replay/{portfolio}/metrics.json` (monthly baseline) and `position_risk_weekly_validation/{portfolio}/{metrics.json,trade_log.csv}` (daily-stop overlay) and emits `subdaily_exit_compare/comparison.json` + `comparison_report.md` with a per-portfolio delta table (CAGR, MaxDD, Sharpe, avg_cash, exit/trim counts), the configured stop thresholds, an interpretation label (favourable / trade-off / expensive / no-win / marginal), and a breakdown of overlay exit reasons. `production_activation_allowed: false`, schema_version `subdaily_exit_compare_v1`.
+  - `tests/subdaily_exit_compare_smoke.py` ->new. Three tests: favourable scenario (MDD improves a lot, CAGR drops a little → label contains "favourable"); expensive scenario (large CAGR drag → "expensive" or "trade-off"); missing-inputs scenario (status=incomplete, no crash).
+  - `tools/run_full_rebuild_sidecars.py` ->in the combined operating_minimal/official branch, add gated calls to `run_position_risk_weekly_validation.py --portfolio-kind {main,concentrated}` followed by `run_subdaily_exit_compare.py` right after Stage T1's leader_lifecycle_audit. PRWV was previously inside the inner `official` block (line ~252), starving operating_minimal of the daily-stop evidence. Each PRWV call is conditional on its input book existing (`-s outputs/reports/*_monthly_weights.csv` and `*_strategy_holdings.csv`) and stays `|| true` so failures don't block.
+  - `tools/run_pr_validation.py` ->register `tests/subdaily_exit_compare_smoke.py` as a Tier-1 contract.
+- symbols_added: `baseline_metrics`, `overlay_metrics`, `exit_reason_breakdown`, `compute_delta`, `_interpret_trade_off`, `evaluate_portfolio` (in tools), `render_report` (in tools), `test_favourable_trade_off_interpretation`, `test_expensive_trade_off_interpretation`, `test_missing_inputs_marks_incomplete_without_crashing`
+- symbols_changed: sidecar script `operating_minimal` branch — adds PRWV main+concentrated + subdaily_exit_compare between leader_lifecycle_audit and broker_position_risk_replay
+- config_fields_added: none
+- breaking_changes: none. broker_replay output unchanged; the new overlay is purely additive evidence.
+- validation:
+  - `python tests/subdaily_exit_compare_smoke.py` ->3/3 PASS
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - `python tools/run_pr_validation.py --quiet` ->79/80 PASS (only failure remains sec.gov sandbox 403 in `tests/sec_13f_cusip_mapping_smoke.py`, unrelated)
+  - Embedded bash in `run_full_rebuild_sidecars.py` validated via `bash -n` — OK
+  - Real-data smoke: ran T2 against committed `20260512_global_alpha_universe` → main and concentrated comparison tables populated, interpretation labels fired correctly
+- next_action:
+  - Use the comparison evidence to dispatch a small grid sweep (`hard_stop ∈ {-0.08, -0.10, -0.12, -0.15, disabled}`, `trailing_stop ∈ {-0.15, -0.18, -0.22}`) via `run_position_risk_weekly_validation.py --hard-stop X --trailing-stop Y`. Rank by composite (broker_baseline_cagr + max_dd) on the same source run. Promote the winner config as `--hard-stop` / `--trailing-stop` defaults when broker-ledger baseline improves on both axes. This is Stage T2b — still research, still no production change.
+
 ### 17:25 KST - stage-t1-leader-lifecycle-audit-measurement-tool
 
 - scope: Stage T1 of the leader-rotation roadmap. Build the measurement layer that answers the user's actual strategic question — "do we identify leaders early, ride them, sell well, and rotate cleanly?" — using broker-replay data already produced by every full rebuild. Research-only, no production change.

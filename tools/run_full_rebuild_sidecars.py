@@ -177,6 +177,18 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # failures stay non-fatal.
   python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
   python tools/run_leader_lifecycle_audit.py --latest-run outputs --output-dir outputs/leader_lifecycle_audit 2>&1 | tee outputs/full_rebuild_logs/leader_lifecycle_audit.log || true
+  # Stage T2 — sub-monthly exit overlay measurement. PRWV walks daily closes
+  # between monthly rebalances and fires hard/trailing/relative stops; the
+  # compare tool surfaces the CAGR/MDD trade-off vs monthly broker baseline.
+  # Promoted into operating_minimal because the comparison is the precondition
+  # for tuning stop thresholds. Failures stay non-fatal.
+  if [ -s outputs/reports/main_monthly_weights.csv ]; then
+    python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true
+  fi
+  if [ -s outputs/reports/concentrated_strategy_holdings.csv ]; then
+    python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
+  fi
+  python tools/run_subdaily_exit_compare.py --latest-run outputs --output-dir outputs/subdaily_exit_compare 2>&1 | tee outputs/full_rebuild_logs/subdaily_exit_compare.log || true
   if [ "$SIDECAR_PROFILE" = "official" ]; then
     python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
     python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
