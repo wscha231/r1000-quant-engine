@@ -5,6 +5,39 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-13
 
+### 22:55 KST - stage-t3-leader-hysteresis-impl-env-gated-default-off
+
+- scope: implement the Stage T3 leader-hysteresis hook proposed in `PHASE_T3_LEADER_HYSTERESIS_PROPOSAL.md`. Default-OFF env toggle that addresses T1's failing holding-period gates (median_holding 33-58d, pct_held_365d_plus 0% on broker run 27457206698) by multiplying the existing `conviction_hold_seed_bonus` and (optionally) loosening its gate.
+- root cause confirmed during implementation:
+  - `r1000_signals.build_target_portfolio` (line 2958, called from the production backtest loop in `r1000_pipeline.py:11600` as well as from `build_latest_portfolio` at line 16040) already accepts `prev_w` and computes a `conviction_hold_bonus`.
+  - The base bonus is `cfg.conviction_hold_seed_bonus = 0.35`. The gate is `held & momentum_alive>0.3 & rs_strong>0 & not_broken<0.3 & prev_weight>=0.02` -- an AND-AND-AND-AND chain that often rejects prev-held winners whose state slips on one axis but stays viable on the others.
+  - 0.35 is small relative to the spread of `portfolio_seed_score` (sum of ten weighted signals plus base score) and is not sufficient to keep prev-holdings ahead of fresh top-of-rank challengers.
+- design:
+  - new env var `PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED` (matches phase_is_enabled snake_case convention; smoke_test's phase key regression guard enforces this).
+  - new cfg fields (all default-OFF or passthrough):
+    - `phase_t3_leader_hysteresis_enabled: bool = False`
+    - `phase_t3_conviction_hold_bonus_multiplier: float = 4.0`
+    - `phase_t3_relax_conviction_gate: bool = True`
+  - when toggle is OFF: behaviour is byte-identical to the prior conviction logic.
+  - when toggle is ON and `phase_t3_relax_conviction_gate=True`: conviction gate becomes `held & substantial & not_broken & (momentum_alive | rs_strong)` -- an OR on the two strength signals so a prev-holding qualifies if EITHER momentum or RS confirms.
+  - when toggle is ON: the bonus is multiplied by 4.0 (default), so a multiplier-default prev-held holder receives `0.35 * 4.0 = 1.40` seed_score boost, large enough to keep top-decile prev winners in front of equally-ranked new entrants.
+- files:
+  - `r1000_config.py` ->add three cfg fields with explanatory comment linking to the T1 evidence.
+  - `r1000_signals.py` ->extract the conviction logic into a new module-level helper `compute_conviction_hold_bonus(month_df, prev_w, cfg) -> pd.Series` and call it from `build_target_portfolio` (single-line replacement of the inline block). Helper reads both the env toggle and the cfg field and applies the multiplier and gate accordingly.
+  - `tests/leader_hysteresis_smoke.py` ->new 6-test suite: toggle-OFF preserves strict gate and base bonus (no behaviour change); toggle-ON applies relaxed gate and 4x bonus; env-var alone activates toggle; empty/None prev_w returns zero series; strict gate when relax flag is False (multiplier still applies); 2% substantial-position threshold still excludes tiny prior weights.
+  - `tools/run_pr_validation.py` ->register `tests/leader_hysteresis_smoke.py` as a Tier-1 contract.
+- symbols_added: `compute_conviction_hold_bonus`, `phase_t3_leader_hysteresis_enabled`, `phase_t3_conviction_hold_bonus_multiplier`, `phase_t3_relax_conviction_gate`, 6 test functions
+- symbols_changed: `build_target_portfolio` -- inline conviction block replaced with single helper call; semantics unchanged when T3 toggle is OFF (verified by `test_toggle_off_preserves_strict_gate_and_base_bonus`).
+- config_fields_added: `phase_t3_leader_hysteresis_enabled` (bool, default False), `phase_t3_conviction_hold_bonus_multiplier` (float, default 4.0), `phase_t3_relax_conviction_gate` (bool, default True)
+- breaking_changes: none. Default toggle off; existing production behaviour preserved bit-for-bit.
+- validation:
+  - `python tests/leader_hysteresis_smoke.py` ->6/6 PASS
+  - `python tests/smoke_test.py` ->125/125 PASS (phase key regression guard passes because `phase_t3_leader_hysteresis` is snake_case)
+  - `python tools/run_pr_validation.py --quiet` ->81/82 PASS (sec.gov 403 unrelated)
+- next_action:
+  - Dispatch ONE A/B Full Rebuild with the env toggle ON: `PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED=1`. Compare the result's T1 leader_lifecycle_audit gates and broker CAGR/MDD against the just-dispatched toggle-OFF baseline.
+  - Promotion criteria from `PHASE_T3_LEADER_HYSTERESIS_PROPOSAL.md` §"A/B plan": T1 holding-period gates improve AND broker CAGR delta `>= -1.0pp` AND MaxDD delta `>= -3pp`. If met, flip `phase_t3_leader_hysteresis_enabled = True` as the cfg default in a follow-up commit; otherwise sweep the multiplier (2.0, 3.0, 5.0, 6.0) to find a smaller hysteresis effect that still moves the holding-period needle without hurting CAGR.
+
 ### 21:55 KST - stage-t3-leader-hysteresis-proposal + run-27457206698-analysis
 
 - scope: ship the analysis of completed Full Rebuild `27457206698` (4h14m, success) and the design proposal for Stage T3 (production-side leader hysteresis). Acts on user direction to do (a) re-dispatch the rebuild, (b) T2b grid sweep, (c) T3 design, (d) regression tracking — all four in parallel.

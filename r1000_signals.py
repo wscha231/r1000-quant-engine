@@ -2955,6 +2955,48 @@ def apply_sleeve_entry_drift_name_caps(
     return caps.clip(lower=0.0, upper=1.0)
 
 
+def compute_conviction_hold_bonus(
+    month_df: pd.DataFrame,
+    prev_w: Optional[dict[str, float]],
+    cfg: EngineConfig,
+) -> pd.Series:
+    """Stage T3 leader hysteresis hook.
+
+    Returns a per-row bonus added to portfolio_seed_score. Behaviour:
+    - When `PHASE_T3_LEADER_HYSTERESIS_ENABLED` env var or
+      `cfg.phase_t3_leader_hysteresis_enabled` is true, multiply the base
+      bonus (`cfg.conviction_hold_seed_bonus`) by
+      `cfg.phase_t3_conviction_hold_bonus_multiplier` (default 4x) and -- if
+      `cfg.phase_t3_relax_conviction_gate` is true -- loosen the conviction
+      gate from AND-AND-AND-AND to substantial+not_broken+(momentum OR rs).
+    - When the toggle is off, behaviour is exactly the prior conviction
+      logic so the production backtest is unchanged.
+    """
+    bonus = pd.Series(0.0, index=month_df.index, dtype=float)
+    if not prev_w:
+        return bonus
+    prev_tickers = set(str(k) for k in prev_w.keys())
+    held_mask = month_df["ticker"].astype(str).isin(prev_tickers)
+    prev_weight_series = month_df["ticker"].astype(str).map(prev_w).fillna(0.0).astype(float)
+    momentum_alive = numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0) > 0.3
+    rs_strong = numeric_series_or_default(month_df, "relative_strength_composite", 0.0) > 0.0
+    not_broken = numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0) < 0.3
+    substantial_position = prev_weight_series >= 0.02
+    t3_enabled = bool(
+        phase_is_enabled("phase_t3_leader_hysteresis", default=False)
+        or bool(getattr(cfg, "phase_t3_leader_hysteresis_enabled", False))
+    )
+    if t3_enabled and bool(getattr(cfg, "phase_t3_relax_conviction_gate", True)):
+        conviction_mask = held_mask & substantial_position & not_broken & (momentum_alive | rs_strong)
+    else:
+        conviction_mask = held_mask & momentum_alive & rs_strong & not_broken & substantial_position
+    bonus_value = float(cfg.conviction_hold_seed_bonus)
+    if t3_enabled:
+        bonus_value = bonus_value * float(getattr(cfg, "phase_t3_conviction_hold_bonus_multiplier", 4.0))
+    bonus.loc[conviction_mask] = bonus_value
+    return bonus
+
+
 def build_target_portfolio(
     cfg: EngineConfig,
     month_df: pd.DataFrame,
@@ -2983,18 +3025,7 @@ def build_target_portfolio(
     if month_df.empty:
         return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
     # ---- conviction hold: identify winners that should be held longer ----
-    conviction_hold_bonus = pd.Series(0.0, index=month_df.index, dtype=float)
-    if prev_w:
-        prev_tickers = set(prev_w.keys())
-        held_mask = month_df["ticker"].astype(str).isin(prev_tickers)
-        prev_weight_series = month_df["ticker"].astype(str).map(prev_w).fillna(0.0).astype(float)
-        # infer winner from weight drift: if current_weight >> original means stock appreciated
-        momentum_alive = numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0) > 0.3
-        rs_strong = numeric_series_or_default(month_df, "relative_strength_composite", 0.0) > 0.0
-        not_broken = numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0) < 0.3
-        substantial_position = prev_weight_series >= 0.02
-        conviction_mask = held_mask & momentum_alive & rs_strong & not_broken & substantial_position
-        conviction_hold_bonus.loc[conviction_mask] = float(cfg.conviction_hold_seed_bonus)
+    conviction_hold_bonus = compute_conviction_hold_bonus(month_df, prev_w, cfg)
 
     # ---- valuation extreme penalty: penalize >80x forward PE with negative FCF ----
     fwd_pe = numeric_series_or_default(month_df, "forward_pe", np.nan)

@@ -2358,6 +2358,16 @@ class EngineConfig:
     conviction_hold_seed_bonus: float = 0.35            # extra seed bonus for conviction-hold names
     conviction_hold_utility_bonus: float = 0.30         # extra utility bonus for conviction-hold names
     conviction_hold_min_months: int = 2                 # minimum months held before conviction status
+    # --------------- Stage T3 leader hysteresis (research-only, default OFF) ---------------
+    # T1 measured median_holding 33-58d / pct_held_365d_plus 0% on broker run 27457206698.
+    # build_target_portfolio already grants conviction_hold_seed_bonus to prev-holdings
+    # whose state is OK, but the bonus (0.35) loses to score rotation. T3 multiplies the
+    # bonus and (optionally) loosens the gate from AND-AND-AND-AND to
+    # substantial+not_broken+(momentum_alive OR rs_strong). Toggle via env
+    # PHASE_T3_LEADER_HYSTERESIS_ENABLED or this cfg field.
+    phase_t3_leader_hysteresis_enabled: bool = False
+    phase_t3_conviction_hold_bonus_multiplier: float = 4.0
+    phase_t3_relax_conviction_gate: bool = True
     # --------------- winner scaling (add to winners, cut losers) ---------------
     winner_scale_top_quartile_boost: float = 1.20       # multiply weight by 1.20 for top performers
     winner_scale_bottom_quartile_cut: float = 0.70      # multiply weight by 0.70 for bottom performers
