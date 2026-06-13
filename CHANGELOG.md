@@ -5,6 +5,26 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-13
 
+### 23:20 KST - phase-ab-quick-rescore-workflow (no 4h full rebuild for backtest-time toggles)
+
+- scope: answer "do we really need a full rebuild for the T3 A/B?" — no. T3 (`compute_conviction_hold_bonus`) runs inside `build_target_portfolio` in the backtest loop and reads already-cached signal columns (`minervini_momentum_alive_score`, `relative_strength_composite`, `broken_momentum_penalty`); it does NOT add a feature_store column. So it is measurable via QUICK_RESCORE (feature_store + model reuse, scoring + backtest only) in ~15-40 min instead of ~4 h. The blocker was purely infra: this sandbox has no QUICK cache and there was no QUICK-only GitHub Actions workflow.
+- files:
+  - `.github/workflows/phase_ab_quick_rescore_manual.yml` ->new. workflow_dispatch with inputs `ref`, `phase_env_overrides` (space-separated `KEY=VAL` PHASE toggles, applied to scoring+backtest+sidecars), `arm_label`, optional `source_run_id` (bias the engine-cache restore key). Steps: free disk -> checkout -> setup python + heavy ML deps -> restore collector-cache + engine-cache via `restore-keys` fallback (`engine-cache--${os}-`, `engine-cache-${os}-`, `engine-cache-`) -> hard-fail if no `feature_store_*.parquet` restored (QUICK requires it) -> smoke pre-flight -> export each phase toggle then `python run_local.py --no-collector --base-dir "$(pwd)"` (no `--full` = QUICK_RESCORE) -> `run_full_rebuild_sidecars.py --profile operating_minimal` (broker_replay + T1 + T2) -> verdict -> surface broker/T1/T2 reports in the log -> upload artifact `phase-ab-quick-{arm_label}-{run_id}`. Timeout 90 min.
+- design notes:
+  - generic by design: any `PHASE_*_ENABLED` toggle can be measured, not just T3. Reusable for every future sleeve/phase A/B per CLAUDE.md's "don't run a 1.5-4h FULL rebuild for each experiment" rule.
+  - NOT valid for ENGINE_REUSE_VERSION bumps, new feature_store columns, or walk-forward/model-structure changes — those still require Full Rebuild. The workflow header documents this boundary.
+  - did NOT use `run_local.py --ab-quick`: that flag disables the concentrated backtest (main-only, ~2-5 min), which would hide T3's concentrated-portfolio effect. Plain QUICK_RESCORE keeps both books.
+- symbols_added: none (workflow + config only)
+- symbols_changed: none
+- config_fields_added: none
+- breaking_changes: none
+- validation:
+  - workflow YAML validated via `yaml.safe_load`
+  - confirmed `run_local.py` treats absence of `--full` as QUICK_RESCORE (run_local.py:255, :881, :941) and `--no-collector` skips collection (run_local.py:256, :922)
+  - confirmed engine-cache stores `outputs/feature_store_*.parquet` + `outputs/walk_forward` and exposes `engine-cache-${os}-` restore-keys (full_rebuild_manual.yml:207-217)
+- next_action:
+  - This workflow file only indexes for `workflow_dispatch` after it reaches the default branch (same constraint that 404'd the T2b sweep). Merge the open PR to master to activate both. Then, once the in-flight baseline Full Rebuild `27466958402` (commit 9134546e, T3 OFF) finishes and refreshes the engine-cache, dispatch this workflow with `phase_env_overrides="PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED=1"`, `arm_label="t3-on"`, `ref` on the T3 commit (5b8f88b3 or later). Compare its T1 holding-period gates + broker CAGR/MDD against `27466958402` as the OFF arm. ~30-40 min vs ~4 h.
+
 ### 22:55 KST - stage-t3-leader-hysteresis-impl-env-gated-default-off
 
 - scope: implement the Stage T3 leader-hysteresis hook proposed in `PHASE_T3_LEADER_HYSTERESIS_PROPOSAL.md`. Default-OFF env toggle that addresses T1's failing holding-period gates (median_holding 33-58d, pct_held_365d_plus 0% on broker run 27457206698) by multiplying the existing `conviction_hold_seed_bonus` and (optionally) loosening its gate.
