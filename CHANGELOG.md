@@ -9,6 +9,28 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+### 09:30 KST (06-15) - self-sustaining loop: ledger + bull-floor fix + weekly cron
+
+- scope: act on the user directive to build a system that automatically continues forward, accumulates results, evaluates performance, and improves — not one-off fixes. Three prioritized pieces shipped (P1 ledger keystone, P2 first engine improvement, P3 auto-cadence).
+- **P1 — performance ledger (the cumulative evaluation memory):**
+  - `tools/run_performance_ledger.py` ->reads `account_evaluation/official_metrics.json` (Tier-1 + Tier-2 strengthened gates) + `is_attribution/summary.json`, appends ONE row per run to `cloud_results/performance_ledger/ledger.jsonl` (a path OUTSIDE the per-date `full_rebuild/<date>` rotation, so it accumulates across runs and is committed by the workflow's `git add -f cloud_results/`). Trends IS-CAGR (the honest KPI — full CAGR is OOS-inflated per the 27498401423 finding), classifies IMPROVING/FLAT/REGRESSING with a 0.5pp flat band, tracks best-ever IS-CAGR + new_best, surfaces `dominant_open_leak` as the recommended next focus. Writes `ledger_summary.md` + `latest_verdict.json`.
+  - wired into `tools/run_full_rebuild_sidecars.py` after `run_is_attribution` (non-fatal; passes `GITHUB_RUN_ID` + `git rev-parse --short HEAD`).
+  - seeded with the two real historical runs (27457206698 a8b271ea main IS 22.14% / conc IS 21.65%; 27498401423 d42daf82 main IS 21.45% / conc IS 21.29%) so the trajectory starts populated. The ledger independently confirms T3+conc-hyst REGRESSED IS-CAGR vs baseline and names `concentrated:structural_underinvestment_bull` as the next focus.
+  - `tests/performance_ledger_smoke.py` ->7 tests (dedup, IS-CAGR trending, flat band, new-best, leak surfacing, end-to-end append).
+- **P2 — two-way regime_capacity overlay (first measured improvement):**
+  - `tools/run_alphaops_vnext_policy_replay.py` `apply_regime_capacity_overlay` ->was a one-way door (dampened only in bear). Now in confirmed bull/strong_bull/exceptional_bull regimes, when stock_weight_sum is below the floor (conc 0.85, main 0.90), lift thinned weights UP to the floor via new `capped_proportional_fill` (iterative water-filling that respects each name's `effective_single_weight_cap`). Targets exactly the 27498401423 conc 2021/2023 `structural_underinvestment_bull` leak (5 names at ~11.5% in a bull regime). Records `bull_floor_applied` + summary counters.
+  - default OFF, env-gated `PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED` / `PHASE_BULL_FLOOR_ENABLED`, so the ledger can A/B it before promotion. Bear dampening path unchanged + mutually exclusive (bull factor is 1.0).
+  - `tests/bull_floor_overlay_smoke.py` ->8 tests (water-fill math + cap handling + overlay on/off/bear/above-floor).
+- **P3 — weekly cron (auto-continuation):**
+  - `.github/workflows/full_rebuild_manual.yml` ->add `schedule: cron '0 9 * * 1'` (Mon 09:00 UTC) alongside workflow_dispatch. Each weekly run auto-produces the production book + ledger row. CAVEAT documented: GitHub fires `schedule:` only from the DEFAULT branch, so the cron stays dormant until this workflow merges to default; until then the loop accumulates per manual/dispatched run. Scheduled runs use input defaults (portfolio_policy now defaults to alphaops_vnext_production).
+- **A/B dispatched:** full rebuild on `cd480423` with `PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED=1` + `portfolio_policy=alphaops_vnext_production`. The ledger will record whether the bull floor lifts conc IS-CAGR above 21.29% (and whether it costs MDD). This is the loop's first full turn: leak identified -> fix built -> A/B measured -> ledger verdict.
+- symbols_added: `run_performance_ledger.*`, `capped_proportional_fill`, `BULL_REGIME_STATES`, `DEFAULT_REGIME_CAPACITY_BULL_FLOOR`, `DEFAULT_BULL_FLOOR_SINGLE_CAP`, bull-floor branch in `apply_regime_capacity_overlay`
+- symbols_changed: `apply_regime_capacity_overlay` (two-way door + audit fields), `run_full_rebuild_sidecars` (ledger call)
+- config_fields_added: none (env-gated)
+- breaking_changes: none. Bull floor default OFF; ledger purely additive; cron dormant until default-branch merge.
+- validation: `tests/performance_ledger_smoke.py` 7/7, `tests/bull_floor_overlay_smoke.py` 8/8, `tests/smoke_test.py --quick` 32/32, `tests/workflow_artifact_smoke.py` pass, YAML lint OK.
+- next_action: when the bull-floor A/B completes, read the ledger verdict (`cloud_results/performance_ledger/ledger_summary.md`). If conc IS-CAGR IMPROVING and MDD within -25%, promote the bull floor to default ON; else tune the floor (0.85 -> 0.80?) or restrict to strong_bull only. Then the loop's next focus auto-advances to `main` selection-IC decay (P0b).
+
 ### 07:00 KST (06-15) - is-attribution sidecar + leak diagnosis (the 14pp source)
 
 - scope: act on Tier-2 P0 ("close the IS-CAGR gap"). Build a per-year, per-portfolio attribution tool that auto-runs in the rebuild sidecars and tags each year as healthy / structural_underinvestment_bull / over_defense_bear_ok / flat_alpha_invested / mixed. Retrofit run 27498401423 to identify exactly where the IS gap leaks.

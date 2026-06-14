@@ -7,11 +7,24 @@ name: Full Rebuild (Manual / Long-Run)
 # Estimated runtime: ~3-5 hours (within GHA 6h timeout). Can use up to ~50%
 # of free-tier monthly minutes (2000) PER run, so trigger judiciously.
 #
-# Schedule: NONE (manual trigger only via workflow_dispatch).
-# Reason: A FULL rebuild is a deliberate decision. Auto-triggering would
-# burn the entire monthly free tier in 1-2 runs.
+# Schedule: WEEKLY (Mon 09:00 UTC) + manual workflow_dispatch.
+# The weekly cron is the self-sustaining loop's heartbeat: each run appends a
+# row to cloud_results/performance_ledger/ledger.jsonl (IS-CAGR trend, Tier-2
+# gate pass, IS-attribution leak tags), so the engine's trajectory accumulates
+# and self-evaluates without manual intervention.
+# CAVEAT: GitHub only fires `schedule:` from the repository's DEFAULT branch.
+# This cron stays dormant until this workflow is merged to the default branch;
+# until then the loop runs per manual/dispatched run (which already accumulate
+# the ledger). A scheduled run uses input DEFAULTS — note portfolio_policy now
+# defaults to alphaops_vnext_production, so the weekly run produces the
+# production cash-overlay book + ledger row automatically.
+# Budget: a FULL rebuild is ~3-5h and up to ~50% of the 2000-min monthly free
+# tier per run. Weekly (~4 runs/mo) is the affordable cadence; drop to monthly
+# if the budget tightens.
 
 on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 09:00 UTC — weekly self-sustaining ledger run
   workflow_dispatch:
     inputs:
       universe_mode:
