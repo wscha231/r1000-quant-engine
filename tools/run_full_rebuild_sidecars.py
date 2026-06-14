@@ -203,6 +203,11 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_cash_policy_attribution.py --latest-run outputs --output-dir outputs/cash_policy 2>&1 | tee outputs/full_rebuild_logs/cash_policy_attribution.log || true
   python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
   python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
+  # IS-only attribution sidecar — surfaces year-by-year where the IS CAGR is
+  # leaking. Run 27498401423 conc 2021/2023 were tagged
+  # structural_underinvestment_bull (~14pp of the IS gap). Cheap (rolls the
+  # broker_replay equity curve + target book), failures stay non-fatal.
+  python tools/run_is_attribution.py --latest-run outputs --output-dir outputs/is_attribution 2>&1 | tee outputs/full_rebuild_logs/is_attribution.log || true
   run_cash_contract_validator
   run_metric_hygiene_report
   python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true

@@ -9,6 +9,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+### 07:00 KST (06-15) - is-attribution sidecar + leak diagnosis (the 14pp source)
+
+- scope: act on Tier-2 P0 ("close the IS-CAGR gap"). Build a per-year, per-portfolio attribution tool that auto-runs in the rebuild sidecars and tags each year as healthy / structural_underinvestment_bull / over_defense_bear_ok / flat_alpha_invested / mixed. Retrofit run 27498401423 to identify exactly where the IS gap leaks.
+- DIAGNOSIS — distinct leaks for the two books:
+  - **Concentrated: structural_underinvestment_bull in 2021 + 2023.** 5/5 names selected every month, but stock_weight_sum was only `57.3%` (2021) and `54.1%` (2023) on average — i.e. 5 names averaging ~11.5% each instead of 20% each. Year returns: `+2.42%` (2021, regime 58% bull) and `+11.77%` (2023, regime 46% bull, 36% neutral). These two years alone explain ~14pp of the Conc IS-CAGR gap. The regime_capacity overlay is NOT the proximate cause — its multiplier for conc bull/strong_bull is 1.0 (no dampening). The cash comes from upstream selection delivering thin weights, and the overlay merely labels the residual.
+  - **Main: NOT structurally underinvested.** 2021 stock_weight 83% (cash 11%), 2023 stock_weight 75% (cash 29%) — both reasonable. Year returns +10.23% (2021, 60% bull) and +13.59% (2023). Tagged `mixed`. Main's IS gap is a **selection-IC degradation** problem in 2021-2023, not a sizing problem.
+  - **2022 is correctly defensive** for both (Conc cash 81% / Main cash 65%, regime 80% bear). Tagged `over_defense_bear_ok`.
+  - Implication: two different fixes are required. Conc needs a sizing-policy change (a floor on stock_weight_sum in bull regimes, or a redistribution of upstream-thinned weights). Main needs a 2021-2023 selection diagnostic (per-sleeve IC decay analysis).
+- files:
+  - `tools/run_is_attribution.py` ->new sidecar. Reads `broker_replay/{kind}/equity_curve.csv` + `reports/operating_{kind}_target_book.csv`, computes per-year CAGR / max DD / avg_cash_weight / avg_stock_weight_sum / avg_stock_names / regime distribution, tags each year via `_classify_leak`, splits is_cagr / oos_cagr / full_cagr and the OOS/IS ratio. Writes `outputs/is_attribution/<kind>_yearly.csv` + `_summary.json` + `_summary.md`. Single `summary.json` at the root with both portfolios + the structural_underinvestment_bull year list.
+  - `tools/run_full_rebuild_sidecars.py` ->wire after `run_account_evaluation.py` in the operating_minimal+official branch. Non-fatal (`|| true`).
+  - `tests/is_attribution_smoke.py` ->new 7-test smoke. Anchors `_classify_leak` semantics so a tag rename cannot silently erase the 27498401423 evidence. Includes the exact 2021/2023 Conc shape, the 2022 bear-defense shape, healthy, flat_alpha_invested, and an end-to-end write-out check.
+  - `tools/run_pr_validation.py` ->register the new smoke as Tier-1.
+- symbols_added: `tools/run_is_attribution.py::run_for_portfolio`, `_classify_leak`, `_yearly_equity`, `_yearly_target_book`, `_render_md`, `main`
+- symbols_changed: `tools/run_full_rebuild_sidecars.py` (added is_attribution call)
+- config_fields_added: none
+- breaking_changes: none. Purely additive; the new sidecar's failure is non-fatal.
+- validation:
+  - `python tests/is_attribution_smoke.py` ->7/7 PASS
+  - `python tests/smoke_test.py --quick` ->32/32 PASS
+  - retrofit run on committed 27498401423 metrics: `concentrated underinvestment_bull years: [2021, 2023]`, `main underinvestment_bull years: []`. Matches the diagnosis.
+- next_action (proposed, NOT yet implemented — needs design choice):
+  - P0a (Conc-only): add a per-rebalance floor on stock_weight_sum in bull/strong_bull regimes within `apply_regime_capacity_overlay`. Candidate rule: when `regime_state in {bull, strong_bull, exceptional_bull}` AND target_n names are selected AND no concentrated_risk_state cap is firing, scale weights UP proportionally so `stock_weight_sum >= 0.85`. Two-way door (overlay can ADD exposure in bull, not just cut in bear). A/B vs baseline on a full rebuild.
+  - P0b (Main): build a per-sleeve IC decay diagnostic for 2021-2023. Hypothesis: phase_14 / hybrid alpha features are 2024+ era, so their IC in 2021-2022 may be negative. Test by toggling feature subsets off in IS-only.
+  - Park: T3 + concentrated hysteresis (both wash on production per yesterday's A/B).
+
 ### 23:40 KST - run-27498401423-evaluation + Tier-2 strengthened gates
 
 - scope: properly evaluate run `27498401423` (the correct vNext + T3 + concentrated hysteresis dispatch on b267c616 / d42daf82) AND strengthen the acceptance gate so future verdicts cannot be inflated by a short OOS lottery.
