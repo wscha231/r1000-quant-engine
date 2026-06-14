@@ -1,0 +1,32 @@
+{
+  "actual_cached_ticker_count": 514,
+  "book_ticker_count": 366,
+  "books": [
+    "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
+    "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv"
+  ],
+  "download_target_count": 0,
+  "downloaded": 0,
+  "end": "2026-06-12",
+  "existing_cache_count": 514,
+  "existing_cache_count_after": 514,
+  "failed": [],
+  "failed_count": 0,
+  "manifest_end_source": "actual_cached_bars",
+  "missing_before": 0,
+  "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+  "refresh_stale_days": 2,
+  "requested_end": "2026-06-16",
+  "requested_start": "2019-05-17",
+  "required_ticker_count": 2,
+  "required_tickers": [
+    "QQQ",
+    "SPY"
+  ],
+  "scored": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
+  "scored_ticker_count": 250,
+  "stale_before": 0,
+  "start": "2011-06-13",
+  "status": "already_cached",
+  "ticker_count": 514
+}

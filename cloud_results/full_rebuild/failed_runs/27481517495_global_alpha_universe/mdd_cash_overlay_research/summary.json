@@ -1,0 +1,24 @@
+{
+  "crisis_state_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/daily_crisis_state.csv",
+  "generated_at_utc": "2026-06-14T02:06:00+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "portfolios": {
+    "concentrated": {
+      "crisis_state_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/daily_crisis_state.csv",
+      "portfolio": "concentrated",
+      "reason": "missing broker equity curve or crisis state",
+      "schema_version": "mdd-cash-overlay-research-v1",
+      "status": "blocked"
+    },
+    "main": {
+      "crisis_state_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/daily_crisis_state.csv",
+      "portfolio": "main",
+      "reason": "missing broker equity curve or crisis state",
+      "schema_version": "mdd-cash-overlay-research-v1",
+      "status": "blocked"
+    }
+  },
+  "production_activation_allowed": false,
+  "research_only": true,
+  "schema_version": "mdd-cash-overlay-research-v1"
+}

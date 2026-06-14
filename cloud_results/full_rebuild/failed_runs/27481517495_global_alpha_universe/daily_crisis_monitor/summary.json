@@ -1,0 +1,50 @@
+{
+  "actions": {
+    "CRISIS_DEFENSE": "review defense; no automatic sell",
+    "DEFENSE_REVIEW": "review defense; no automatic sell",
+    "GREEN": "hold normal operating posture",
+    "REENTRY_READY": "review redeployment candidates; no automatic buy",
+    "WATCH": "monitor; do not raise cash without confirmation"
+  },
+  "auto_trade_allowed": false,
+  "generated_at_utc": "2026-06-14T02:06:33.069797+00:00",
+  "hysteresis": {
+    "raw_state": "WATCH",
+    "raw_state_streak": 1,
+    "state": "GREEN",
+    "updated_at_utc": "2026-06-14T02:06:33.065879+00:00"
+  },
+  "long_crisis": {
+    "available": true,
+    "cash_gate_allowed": true,
+    "cash_gate_reason": "below_cash_raise_zone",
+    "credit_stress_score": 0.008471827173754143,
+    "crisis_score": 0.08542169813425227,
+    "features": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro/long_crisis_daily_features.parquet",
+    "future_labels_excluded": true,
+    "high_threshold": 0.8500000000000001,
+    "latest_date": "2026-06-12",
+    "liquidity_confirmation_score": 0.06848543105489703,
+    "low_threshold": 0.5,
+    "market_trend_damage_score": 0.09579766078910915,
+    "mid_threshold": 0.65,
+    "observable_field_count": 41,
+    "state": "GREEN",
+    "threshold_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/best_thresholds.json",
+    "thresholds": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/best_thresholds.json"
+  },
+  "raw_state": "WATCH",
+  "reasons": [
+    "long-crisis learned state=GREEN score=0.085 date=2026-06-12 cash_gate=below_cash_raise_zone",
+    "cash policy review active: cash_above_target"
+  ],
+  "research_only": true,
+  "schema_version": "daily-crisis-monitor-v1",
+  "shakeout_guard": {
+    "leader_like_current_rows": 18,
+    "requires_liquidity_trend_credit_confirmation": true,
+    "single_name_shakeout_cash_raise_forbidden": true,
+    "vix_only_cash_raise_forbidden": true
+  },
+  "state": "GREEN"
+}
