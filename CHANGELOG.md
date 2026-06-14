@@ -7,6 +7,114 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+## 2026-06-14
+
+### 23:40 KST - run-27498401423-evaluation + Tier-2 strengthened gates
+
+- scope: properly evaluate run `27498401423` (the correct vNext + T3 + concentrated hysteresis dispatch on b267c616 / d42daf82) AND strengthen the acceptance gate so future verdicts cannot be inflated by a short OOS lottery.
+- run 27498401423 headline (broker_ledger_next_close, account_evaluation):
+  - Main: CAGR `34.33%` / MDD `-25.93%` / Sharpe `1.27` / avg_cash `26.79%` / trades 1671
+  - Concentrated: CAGR `44.57%` / MDD `-25.88%` / Sharpe `1.40` / avg_cash `42.37%` / trades 597
+  - Both miss Tier-1 (Main by 0.67pp CAGR + 0.93pp MDD; Conc by 5.43pp CAGR + 0.88pp MDD)
+- A/B vs baseline 27457206698 (vNext, no T3, no conc hyst) on the SAME production book: Main delta `-0.17pp CAGR / +0.07pp MDD`, Conc delta `-0.29pp CAGR / -0.05pp MDD`. Both wash. The "+2.6pp Main" gain from the prior T3 A/B (27466958402 vs 27476013304) was specific to the broken `historical_target_book` arms with no cash overlay — T3's value collapses when the regime_capacity + crisis cash overlays are in place.
+- THE DOMINANT FINDING — IS/OOS asymmetry (was the real source of the 35/50 dream):
+  - Main windowed: IS (2019-06 to 2024-06) `21.45%` CAGR / `-25.93%` MDD; OOS (2024-07 to 2026-06, 1.95y) `75.75%` / `-23.76%`. Full 34.33% is dragged up 13pp by 1.95y of OOS.
+  - Conc windowed: IS `21.29%` / `-25.88%`; OOS `129.36%` / `-23.03%`. Full 44.57% is dragged up 23pp by OOS.
+  - The CHANGELOG production baseline (`27086825471` 35.22% / 50.75%) has the same shape — its 50.75% is OOS-inflated; the IS engine is ~22%. We have been chasing a headline that the engine is not producing in-sample.
+  - Conc MDD is a slow 22-month drawdown 2021-11 -> 2023-08 (the high-multiple growth bear). cash overlay cannot save this — it is a structural exposure, not a fast crisis.
+- Tier-2 strengthened gates (new):
+  - `r1000_config.PORTFOLIO_GOAL_GATES` ->per-portfolio dict carrying `is_cagr_min`, `oos_is_cagr_ratio_max`, `sharpe_min`, `avg_cash_weight_max`, `max_dd_recent_3y_min`. Main = 0.25 / 3.0x / 1.20 / 0.55 / -0.25. Concentrated = 0.30 / 3.0x / 1.40 / 0.55 / -0.25.
+  - `tools/run_account_evaluation.py` `evaluate_strengthened_gates` ->reads broker_replay `windows.is`/`oos`/`oos2`, computes OOS/IS ratio, returns per-check pass/fail + failing list. Headline `target_pass` (Tier-1) stays as today; new `strengthened_pass` is BOTH Tier-1 and Tier-2 passing. Surfaced in `official_metrics.json` + `account_evaluation_summary.json` + `account_evaluation_report.md` (new Tier-2 table column).
+- retrofit of Tier-2 onto live committed runs:
+  - Run 27498401423 Main: fails `is_cagr_min` (21.45 < 25.0) and `oos_is_cagr_ratio_max` (3.53x > 3.0x). Sharpe / cash / recent MDD pass.
+  - Run 27498401423 Conc: fails `is_cagr_min` (21.29 < 30.0) and `oos_is_cagr_ratio_max` (6.08x > 3.0x). Sharpe just at floor, cash/recent MDD pass.
+  - Baseline 27457206698 (no T3): same failures. The 7b635cb1 production baseline almost certainly also fails Tier-2 — it has the same OOS-loaded shape.
+- files:
+  - `r1000_config.py` ->add `PORTFOLIO_GOAL_GATES` constant with per-portfolio Tier-2 thresholds; documented why these exist with reference to run 27498401423.
+  - `tools/run_account_evaluation.py` ->import the new constant with fallback, add `strengthened_gate_for`, `evaluate_strengthened_gates`, wire into `summarize_portfolio` (new fields `strengthened_pass`, `tier2_gates`, `is_cagr`, `oos_cagr`, `is_mdd`, `recent_mdd`, `tier2_failing`), aggregate `strengthened_pass` at the payload level, render a new Tier-2 table section in the markdown report, surface both target_pass + strengthened_pass in Governance.
+  - `tests/strengthened_gates_smoke.py` ->new 8-test smoke. Clean run passes, IS floor fail, OOS/IS ratio fail, Sharpe floor fail, cash cap fail, recent MDD floor fail, missing windows graceful, AND a regression test that replays run 27498401423's concentrated numbers verbatim and locks in the expected failing list.
+  - `tools/run_pr_validation.py` ->register the new smoke as Tier-1.
+- symbols_added: `PORTFOLIO_GOAL_GATES`, `strengthened_gate_for`, `evaluate_strengthened_gates`, `strengthened_pass` aggregator
+- symbols_changed: `summarize_portfolio` (now returns Tier-2 fields), `render_report` (new Tier-2 table + Governance line), `run` (aggregates `strengthened_pass`)
+- config_fields_added: `PORTFOLIO_GOAL_GATES`
+- breaking_changes: none. Tier-1 `target_pass` semantics unchanged; `strengthened_pass` is additive.
+- validation:
+  - `python tests/strengthened_gates_smoke.py` ->8/8 PASS
+  - `python tests/smoke_test.py --quick` ->32/32 PASS
+  - retrofit script (run inline) replayed Tier-2 onto 27498401423 + 27457206698 committed metrics and reproduced the documented failures.
+- next_action (priority order):
+  - P0 (real lever): close the IS-CAGR gap. The engine produces 21-22% IS CAGR on both books — the path to 35/50 has to add ~14pp on the IS period, not chase OOS. Hypotheses: (a) selection-stage IC degraded on 2019-2023 names, (b) sleeve weighting weighted-down winning-cohort names, (c) execution drag (turnover, fills) erodes IS more than OOS where universe is friendlier. Need an IS-only attribution by year + sleeve.
+  - P0a: Recompute the historical 27086825471 (7b635cb1) baseline with the new Tier-2 gate. If it also fails, retire the 35.22 / 50.75 reference and replace with IS-anchored numbers.
+  - P1: park T3 (default OFF). It is a wash on the production book. Keep the code but do not chase A/B noise around it.
+  - P1a: park concentrated hysteresis (default OFF). Same reason — wash on production.
+
+### 21:30 KST - cash-overlay-collapse ROOT-CAUSED (dispatch footgun, not a regression) + correct re-dispatch
+
+- scope: definitively root-cause the "cash-overlay collapse" that the 07:40 KST entry flagged as the dominant ~15pp lever and (wrongly) attributed to nondeterminism / crisis-substrate. Acts on user direction "raise CAGR/MDD".
+- ROOT CAUSE (confirmed from committed evidence, not speculation): the collapse is a **workflow dispatch-input difference, not a code regression**. `full_rebuild_manual.yml`'s `portfolio_policy` input defaulted to `production_baseline`. The AlphaOps vNext cash overlay (regime_capacity + crisis defense) only replaces the operating target book when `portfolio_policy=alphaops_vnext_production` (gate in `tools/run_full_rebuild_sidecars.py` `run_alphaops_vnext_production()` on `PORTFOLIO_POLICY`). Every "collapsed" run dispatched with the default skipped vNext and shipped the raw `historical_target_book`.
+- proof (operating_main_target_book.csv field-level diff):
+  - GOOD run `27457206698` (a8b271ea, 20260613 book): `production_policy='alphaops_vnext_production'`, `operating_target_source='alphaops_vnext_policy_replay'`, `crisis_overlay_status='applied'`, `regime_capacity_overlay_status='applied'`. Carries `alphaops_vnext_score` / `regime_capacity_cash_target` columns. avg_cash 26.7% main / 42.3% conc, 85/85 cash-months. CAGR 34.51% / 44.86%, MDD -26.01% / -25.83%. Has `alphaops_vnext/summary.json`.
+  - COLLAPSED runs `27466958402` / `27476013304` / `27490947715` (incl. the T3-conc run): `production_policy=None`, `operating_target_source='historical_target_book'`, `operating_decision_semantics='historical_research_target_book'`. NO vNext columns, NO `alphaops_vnext/summary.json`. avg_cash ~5% main / ~0.05% conc, 17/84 cash-months. CAGR ~20-22% / ~28-33%, MDD ~-33% / -38 to -43%.
+  - The learned long-crisis thresholds are BYTE-IDENTICAL between good and collapsed runs (`crisis_gate=0.65`, both `research_only=true`, `production_activation_allowed=false`) — i.e. the long-crisis learner is NOT the cash source and NOT the differentiator. The 07:40 "nondeterminism / dormant crisis-substrate" hypothesis is withdrawn.
+  - corollary: the prior T3 A/B (27466958402 OFF vs 27476013304 ON) is still a VALID A/B (both on the baseline book, same conditions) — T3's +2.6pp main is real — but it was measured on the non-production book, so its absolute numbers understate production. The T3-conc run (b267c616) under-performed only because it ran on the no-overlay baseline (conc fully exposed at 0.05% cash), not because the hysteresis is wrong.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->`portfolio_policy` default `production_baseline` -> `alphaops_vnext_production`; `alphaops_vnext_production` moved to the top of the options list; description rewritten to state the overlay is worth ~15pp CAGR / ~12pp MDD and that `production_baseline` ships the raw historical book (cash ~0%) for no-overlay control only.
+- action: re-dispatched the full rebuild on `b267c616` with the CORRECT inputs — `portfolio_policy=alphaops_vnext_production` + `PHASE_T3_LEADER_HYSTERESIS_ENABLED=1` + `sidecar_profile=operating_minimal`. This is the first run that combines all three levers: the cash overlay (the dominant ~15pp), T3 main hysteresis (+2.6pp), and the new concentrated hysteresis. Expected to land near the 35% / 50% targets again.
+- symbols_added/changed: none (workflow + record only)
+- config_fields_added: none
+- breaking_changes: workflow default policy changed. Anyone who relied on the old `production_baseline` default must now pick it explicitly. This is a correction — the production path per CLAUDE.md / ALPHAOPS_DATA_SYSTEM_CONTRACT.md is vNext.
+- validation: field values read directly from each run's committed `reports/operating_main_target_book.csv`, `account_evaluation/official_metrics.json`, `long_crisis_learning/best_thresholds.json`, and presence/absence of `alphaops_vnext/summary.json`.
+- next_action: when the correct run completes, verdict via `account_evaluation/official_metrics.json`. Acceptance = CLAUDE.md official gate (Main >=35% CAGR / >=-25% MDD, Conc >=50% / >=-25%). If concentrated now extends holding beyond 52d AND clears 32.90%, the concentrated T3 hysteresis is validated on the production book.
+
+### 15:30 KST - t3-concentrated-hysteresis + t3t4-ab-result
+
+- scope: act on the 3-way A/B (27466958402 OFF, 27476013304 T3, 27481517495 T3+T4) and the user decision to redesign the concentrated path.
+- T3+T4 A/B finding (broker_ledger_next_close):
+  - Main: T3 ON ON `22.40%/-31.66%`, T3+T4 `22.14%/-33.24%`. T4 cost 0.26pp CAGR and gave back 1.58pp MaxDD vs T3-alone — i.e. the reactive multi-level breaker did not win on either axis. Interpretation: the breaker fires after the drawdown is underway, locks cash, then the recovery_buffer keeps it defensive past the rebound. Not a parameter problem worth chasing without a leading signal; T4 is parked.
+  - Concentrated: `32.90%/-37.96%` is byte-identical between OFF and T3+T4 — T3 sigma-gate lives in `build_target_portfolio` (Main path) and the concentrated backtester does not route through that function. T3 simply did not reach concentrated. Confirms the path-redesign decision.
+- root cause confirmed (code): `backtest_concentrated_portfolio` at `r1000_pipeline.py:14672` calls `select_concentrated_portfolio_topk(cfg, mm, top_n=top_n)` without passing `prev_w`, and the selector itself never accepted `prev_w` — every month re-picks top_n by raw `concentrated_score` with no prior-holding preference. Median holding days 52d, pct_held_365d_plus 0% reflect exactly this.
+- files:
+  - `r1000_pipeline.py` `select_concentrated_portfolio_topk(..., prev_w=None)` ->new optional argument; defaults preserve byte-identical behaviour when `prev_w` is None or T3 toggle is off. After dedupe the final pool now goes through a new `apply_concentrated_t3_hysteresis(pool, prev_w, cfg)` helper before the `head(top_n)` cut.
+  - `r1000_pipeline.py` `apply_concentrated_t3_hysteresis` ->new module-level helper. Mirrors `compute_conviction_hold_bonus` semantics for the concentrated path: when toggle on AND prev_w non-empty, previously-held substantial positions (prev weight ≥ 2%) receive a sigma-scaled bonus on `concentrated_score` — healthy held get `phase_t3_new_entry_sigma * sigma(score)` (0.75), broken held (broken_momentum_penalty ≥ 0.3) get `phase_t3_broken_replace_sigma * sigma(score)` (0.35). Degenerate sigma is a no-op. Toggle reads the env (both spellings) or the cfg flag.
+  - `r1000_pipeline.py` `backtest_concentrated_portfolio` ->the per-month call site now passes `prev_w=prev_w` so the helper has visibility into the prior book.
+  - `tests/concentrated_hysteresis_smoke.py` ->new 7-test suite: toggle OFF byte-identical, toggle ON sigma handicap math (healthy + broken), substantial-position floor (2%), empty/None pool/prev no-op, both env spellings activate, degenerate sigma no-op.
+  - `tools/run_pr_validation.py` ->register the new smoke as Tier-1.
+- symbols_added: `apply_concentrated_t3_hysteresis`, smoke tests
+- symbols_changed: `select_concentrated_portfolio_topk` (added `prev_w` kwarg), `backtest_concentrated_portfolio` (now forwards `prev_w`)
+- config_fields_added: none (reuses `phase_t3_new_entry_sigma` / `phase_t3_broken_replace_sigma`)
+- breaking_changes: none. Toggle default OFF; selector returns identical pool when prev_w is None or T3 is off.
+- validation:
+  - `python tests/concentrated_hysteresis_smoke.py` ->7/7 PASS
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - `python tools/run_pr_validation.py --quiet` ->82/83 PASS (sec.gov sandbox 403 unrelated)
+- next_action:
+  - dispatch a T3-on full rebuild (PHASE_T3_LEADER_HYSTERESIS_ENABLED=1, T4 off) to measure the concentrated change in isolation. Acceptance per user: concentrated CAGR up from 32.90% (toward 50%) AND MaxDD no worse than -37.96%. If the hysteresis carries cleanly, Conc median_holding_days should also extend beyond the current 52d.
+  - T4 reactive breaker stays parked; the dormant predictive cash overlay (the real 15pp lever) is a separate workstream (leading signal preempt, not reactive ladder).
+
+### 07:40 KST - t3-ab-result + cash-overlay-collapse-regression (the real 15pp lever)
+
+- scope: analyze the T3 A/B (full-rebuild arms, since QUICK cache-restore failed 4x on GHA cache eviction) and report what the broker-ledger evidence actually shows. Two findings; the second dwarfs the first.
+- T3 A/B (valid — both arms same code era, same operating-book variant, broker_ledger_next_close):
+  - OFF = run `27466958402` (commit 9134546e, no T3). ON = run `27476013304` (commit b593d469, `PHASE_T3_LEADER_HYSTERESIS_ENABLED=1`).
+  - Main: CAGR `19.79% -> 22.40%` (+2.61pp), MaxDD `-33.25% -> -31.66%` (+1.59pp better), Sharpe `0.950 -> 1.045`, broker trades `2880 -> 2411` (-16% churn). T3 activation confirmed by the churn drop. **T3 helps the diversified book.**
+  - Concentrated: CAGR `32.90% -> 30.79%` (-2.11pp), MaxDD `-37.96% -> -37.90%` (flat), trades `533 -> 538` (no change), journal_avg_holding `52.2d -> 51.9d` (no change). **T3 does not engage the concentrated book** — it is built through a different selection path (score_power / concentrated_strategy) that barely routes through `build_target_portfolio`'s conviction bonus. Net small loss.
+  - Verdict: enable T3 for main only; leave concentrated on its own (reentry) lever. But see the regression below — the baseline these arms ran on is itself broken, so T3 promotion waits.
+- THE DOMINANT FINDING — defensive cash-overlay collapse (~6x bigger than T3):
+  - Comparing run `27457206698` (commit a8b271ea) vs `27466958402` (commit 9134546e, a bot data-only commit — NEAR-IDENTICAL CODE):
+    - Main: avg_cash `26.61% -> 5.94%`, CAGR `34.51% -> 19.79%` (-14.7pp), MaxDD `-26.01% -> -33.25%` (-7.2pp worse), trades `1675 -> 2880`.
+    - Concentrated: avg_cash `42.31% -> 0.05%`, CAGR `44.86% -> 32.90%` (-12.0pp), MaxDD `-25.83% -> -37.96%` (-12.1pp worse).
+  - Root signal: the operating_main_target_book.csv carries CASH allocations in **85 monthly periods in 27457206698 but only 19 in 27466958402** (same 1283-row book, same dates). The tactical/defensive cash overlay that raises cash before drawdowns and redeploys after went dormant for ~66 of ~85 months. Because the overlay was regime-timed, losing it hurt BOTH CAGR and MaxDD simultaneously (the signature of a working tactical-cash sleeve going dark, not simple cash drag).
+  - Implication for prior advice: the external audit's "concentrated avg_cash 42% is too high, reduce it" would have been wrong — at 42% cash the concentrated book did 44.86%/-25.83%; at 0.05% cash it does 32.90%/-37.96%. The cash was earning its keep via timing, not dragging.
+  - Suspected cause: near-identical code rules out a code regression between those two commits; the likely driver is (a) the crisis-substrate rebuild wiring (a8b271ea moved crisis_signal_builder + build_long_crisis_inputs into operating_minimal) producing a DORMANT crisis/cash signal when built fresh, or (b) backtest nondeterminism (e.g. unseeded model training) changing the regime/cash path run-to-run. Needs a determinism re-run + crisis-feature diff to confirm.
+- files: CHANGELOG only (analysis + record). No code change in this entry.
+- symbols_added/changed/config_fields_added: none
+- breaking_changes: none
+- validation: numbers read directly from each run's `account_evaluation/official_metrics.json` and `reports/operating_main_target_book.csv` (CASH-row counts).
+- next_action (priority order):
+  - P0: root-cause the cash-overlay collapse (85 -> 19 CASH-months, avg_cash 26.6%/42.3% -> 5.9%/0.05%). This is ~15pp CAGR and 7-12pp MaxDD — the difference between nearly hitting targets (34.51/44.86 vs 35/50) and missing badly (19.79/32.90). Far bigger than any single-signal change. First step: diff crisis/cash-overlay engagement between 27457206698 and 27466958402, and re-run one rebuild twice on the same commit to test determinism.
+  - P1: T3 is a validated small win for main (+2.6pp CAGR / +1.6pp MaxDD / -16% churn). Gate it to main only (skip concentrated). Promote to default ONLY after the cash baseline is restored, since promoting on a broken baseline is meaningless.
+  - infra debt: QUICK A/B is blocked by GHA cache eviction; the phase_env_overrides input now lets full_rebuild_manual.yml run any phase A/B end-to-end (~3h) without cache dependency.
+
 ### 03:30 KST - t3-env-footgun-fix (accept both PHASE spellings)
 
 - scope: act on the external audit's §4.2 — the T3 activation env var is a silent-no-op footgun. `phase_is_enabled("phase_t3_leader_hysteresis")` resolves to `PHASE_PHASE_T3_LEADER_HYSTERESIS_ENABLED` (double PHASE, because the helper prefixes `PHASE_`). A human running the A/B will naturally type `PHASE_T3_LEADER_HYSTERESIS_ENABLED`, which would NOT activate T3 — wasting an entire ~4h or QUICK A/B run on a baseline that looks like the treatment arm. This is the single highest-leverage pre-A/B fix.

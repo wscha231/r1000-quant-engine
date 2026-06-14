@@ -28,11 +28,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from r1000_config import PORTFOLIO_GOAL_TARGETS
+    from r1000_config import PORTFOLIO_GOAL_TARGETS, PORTFOLIO_GOAL_GATES
 except Exception:  # pragma: no cover - fallback for isolated smoke contexts
     PORTFOLIO_GOAL_TARGETS = {
         "main": {"cagr": 0.35, "max_dd": -0.25},
         "concentrated": {"cagr": 0.50, "max_dd": -0.25},
+    }
+    PORTFOLIO_GOAL_GATES = {
+        "main": {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
+        "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
     }
 
 
@@ -119,6 +123,51 @@ def target_for(portfolio: str) -> dict[str, float]:
     }
 
 
+def strengthened_gate_for(portfolio: str) -> dict[str, float]:
+    gate = PORTFOLIO_GOAL_GATES.get(portfolio, {})
+    defaults = {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25}
+    return {k: float(gate.get(k, defaults[k])) for k in defaults}
+
+
+def evaluate_strengthened_gates(
+    broker_metrics: dict[str, Any], gate: dict[str, float]
+) -> dict[str, Any]:
+    """Score Tier-2 acceptance gates beyond the headline CAGR / MDD check.
+
+    Tier-2 gates exist because a 7-year headline CAGR can be inflated by a
+    short OOS lottery while the engine's IS-period CAGR is half of target —
+    exactly what the 27498401423 evaluation surfaced (Main 21.45% IS vs
+    75.75% OOS; Conc 21.29% IS vs 129.36% OOS). The headline passes the
+    Tier-1 35/50 gate eventually but the engine isn't earning it. Tier-2
+    requires the IS period to clear an honest floor and caps the OOS/IS gap.
+    """
+    windows = broker_metrics.get("windows") or {}
+    win_is = windows.get("is") if isinstance(windows, dict) else None
+    win_oos = windows.get("oos") if isinstance(windows, dict) else None
+    win_oos2 = windows.get("oos2") if isinstance(windows, dict) else None
+    is_cagr = metric(win_is, "cagr") if isinstance(win_is, dict) else None
+    oos_cagr = metric(win_oos, "cagr") if isinstance(win_oos, dict) else None
+    is_mdd = metric(win_is, "max_dd") if isinstance(win_is, dict) else None
+    recent_window = win_oos2 if isinstance(win_oos2, dict) else win_oos
+    recent_mdd = metric(recent_window, "max_dd") if isinstance(recent_window, dict) else None
+    sharpe = metric(broker_metrics, "sharpe")
+    avg_cash = metric(broker_metrics, "avg_cash_weight")
+
+    ratio = None
+    if is_cagr and oos_cagr is not None and is_cagr > 0.01:
+        ratio = oos_cagr / is_cagr
+
+    checks = {
+        "is_cagr_min": {"value": is_cagr, "threshold": gate["is_cagr_min"], "pass": is_cagr is not None and is_cagr >= gate["is_cagr_min"]},
+        "oos_is_cagr_ratio_max": {"value": ratio, "threshold": gate["oos_is_cagr_ratio_max"], "pass": ratio is None or ratio <= gate["oos_is_cagr_ratio_max"]},
+        "sharpe_min": {"value": sharpe, "threshold": gate["sharpe_min"], "pass": sharpe is not None and sharpe >= gate["sharpe_min"]},
+        "avg_cash_weight_max": {"value": avg_cash, "threshold": gate["avg_cash_weight_max"], "pass": avg_cash is None or avg_cash <= gate["avg_cash_weight_max"]},
+        "max_dd_recent_3y_min": {"value": recent_mdd, "threshold": gate["max_dd_recent_3y_min"], "pass": recent_mdd is None or recent_mdd >= gate["max_dd_recent_3y_min"]},
+    }
+    failing = [k for k, v in checks.items() if not v["pass"]]
+    return {"checks": checks, "passing": not failing, "failing": failing, "is_cagr": is_cagr, "oos_cagr": oos_cagr, "is_mdd": is_mdd, "recent_mdd": recent_mdd}
+
+
 def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     broker_metrics = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
@@ -126,6 +175,8 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     journal = read_json(latest_run / "broker_trade_journal" / portfolio / "summary.json")
     legacy = legacy_metrics(latest_run, portfolio)
     target = target_for(portfolio)
+    gate = strengthened_gate_for(portfolio)
+    tier2 = evaluate_strengthened_gates(broker_metrics, gate)
 
     cagr = metric(broker_metrics, "cagr", "strategy_cagr")
     max_dd = metric(broker_metrics, "max_dd", "max_drawdown")
@@ -135,6 +186,8 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     dd_pass = valid_for_production and max_dd is not None and max_dd >= target["max_dd"]
     cagr_gap = None if cagr is None else max(0.0, target["cagr"] - cagr)
     dd_gap = None if max_dd is None else max(0.0, target["max_dd"] - max_dd)
+    tier2_pass = bool(tier2["passing"])
+    strengthened_pass = bool(cagr_pass and dd_pass and tier2_pass)
 
     return {
         "portfolio": portfolio,
@@ -143,6 +196,13 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "status": broker_metrics.get("status") or "missing",
         "valid_for_production": valid_for_production,
         "target_pass": bool(cagr_pass and dd_pass),
+        "strengthened_pass": strengthened_pass,
+        "tier2_gates": tier2,
+        "is_cagr": tier2.get("is_cagr"),
+        "oos_cagr": tier2.get("oos_cagr"),
+        "is_mdd": tier2.get("is_mdd"),
+        "recent_mdd": tier2.get("recent_mdd"),
+        "tier2_failing": tier2.get("failing"),
         "cagr": cagr,
         "cagr_target": target["cagr"],
         "cagr_gap_pp": pp(cagr_gap),
@@ -290,9 +350,31 @@ def render_report(payload: dict[str, Any]) -> str:
                 fees=safe_float(row.get("total_fees_usd"), 0.0) or 0.0,
             )
         )
+    lines.extend(["", "## Tier-2 Strengthened Gates (IS / Sharpe / OOS-IS ratio / recent MDD / cash)", ""])
+    lines.append("| Portfolio | IS CAGR | OOS CAGR | OOS/IS | Sharpe | Avg Cash | Recent MDD | Failing | Pass |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | :---: |")
+    for row in rows:
+        t2 = row.get("tier2_gates") or {}
+        checks = t2.get("checks") or {}
+        ratio = (checks.get("oos_is_cagr_ratio_max") or {}).get("value")
+        ratio_s = "?" if ratio is None else f"{ratio:.2f}x"
+        lines.append(
+            "| {p} | {ic} | {oc} | {r} | {sh} | {ac} | {rm} | {fl} | {pas} |".format(
+                p=row.get("portfolio"),
+                ic=pct(row.get("is_cagr")),
+                oc=pct(row.get("oos_cagr")),
+                r=ratio_s,
+                sh=f"{safe_float(row.get('sharpe'), 0.0):.2f}",
+                ac=pct(row.get("avg_cash_weight")),
+                rm=pct(row.get("recent_mdd")),
+                fl=", ".join(row.get("tier2_failing") or []) or "—",
+                pas="OK" if row.get("strengthened_pass") else "FAIL",
+            )
+        )
     lines.extend(["", "## Governance", ""])
     lines.append(f"- Official metric mode: `{payload.get('official_metric_mode')}`")
-    lines.append(f"- Production target pass: `{str(payload.get('production_target_pass')).lower()}`")
+    lines.append(f"- Production target pass (Tier-1: full CAGR/MDD): `{str(payload.get('production_target_pass')).lower()}`")
+    lines.append(f"- Strengthened pass (Tier-1 AND Tier-2 IS/Sharpe/ratio/cash/recent-MDD): `{str(payload.get('strengthened_pass')).lower()}`")
     lines.append(f"- Research target pass: `{str(payload.get('research_target_pass')).lower()}`")
     lines.append(f"- Generated at: `{payload.get('generated_at_utc')}`")
     lines.append("")
@@ -305,6 +387,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolios = [summarize_portfolio(latest_run, name) for name in PORTFOLIOS]
     goal_search = summarize_goal_search(latest_run)
     production_target_pass = all(bool(row.get("target_pass")) for row in portfolios)
+    strengthened_pass_all = all(bool(row.get("strengthened_pass")) for row in portfolios)
     research_target_pass = bool(goal_search.get("research_target_pass"))
     payload = {
         "schema_version": "account-evaluation-v1",
@@ -312,6 +395,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "latest_run": str(latest_run),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "production_target_pass": production_target_pass,
+        "strengthened_pass": strengthened_pass_all,
         "research_target_pass": research_target_pass,
         "portfolios": portfolios,
         "goal_search_summary": goal_search,
@@ -320,6 +404,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": payload["schema_version"],
         "official_metric_mode": payload["official_metric_mode"],
         "production_target_pass": production_target_pass,
+        "strengthened_pass": strengthened_pass_all,
         "portfolios": {row["portfolio"]: row for row in portfolios},
     }
     write_json(output_dir / "account_evaluation_summary.json", payload)

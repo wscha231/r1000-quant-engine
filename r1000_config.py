@@ -519,6 +519,29 @@ PORTFOLIO_GOAL_TARGETS = {
     "concentrated": {"cagr": 0.50, "max_dd": -0.25},
 }
 
+# Strengthened evaluation gates beyond headline CAGR / MDD. Run
+# 27498401423 (T3 + vNext + Conc hyst) exposed why full-period CAGR alone is
+# misleading: it ran at Main 34.33% / Conc 44.57% headline yet IS-only
+# (2019-06 to 2024-06) was 21.45% / 21.29%, with the gap filled by a 1.9y OOS
+# that posted 75.75% / 129.36%. A headline-only gate would let an OOS lottery
+# pass while the IS engine quietly does 21%. These extra gates close that.
+PORTFOLIO_GOAL_GATES = {
+    "main": {
+        "is_cagr_min": 0.25,           # IS CAGR floor — the engine must earn it
+        "oos_is_cagr_ratio_max": 3.0,  # OOS more than 3x IS = regime/overfit flag
+        "sharpe_min": 1.20,            # risk-adjusted floor (current 1.27)
+        "avg_cash_weight_max": 0.55,   # cash drag/regime cap
+        "max_dd_recent_3y_min": -0.25, # recent MDD must be at least target
+    },
+    "concentrated": {
+        "is_cagr_min": 0.30,           # IS CAGR floor — currently failing at 21.29%
+        "oos_is_cagr_ratio_max": 3.0,  # currently failing at 6.1x (129/21)
+        "sharpe_min": 1.40,            # risk-adjusted floor (current 1.40)
+        "avg_cash_weight_max": 0.55,
+        "max_dd_recent_3y_min": -0.25,
+    },
+}
+
 
 def mandate_capacity_for_regime(mandate: str, regime_state: str) -> float:
     """Return the NAV share for a mandate under a regime label."""
