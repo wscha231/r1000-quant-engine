@@ -9,6 +9,24 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+### 21:30 KST - cash-overlay-collapse ROOT-CAUSED (dispatch footgun, not a regression) + correct re-dispatch
+
+- scope: definitively root-cause the "cash-overlay collapse" that the 07:40 KST entry flagged as the dominant ~15pp lever and (wrongly) attributed to nondeterminism / crisis-substrate. Acts on user direction "raise CAGR/MDD".
+- ROOT CAUSE (confirmed from committed evidence, not speculation): the collapse is a **workflow dispatch-input difference, not a code regression**. `full_rebuild_manual.yml`'s `portfolio_policy` input defaulted to `production_baseline`. The AlphaOps vNext cash overlay (regime_capacity + crisis defense) only replaces the operating target book when `portfolio_policy=alphaops_vnext_production` (gate in `tools/run_full_rebuild_sidecars.py` `run_alphaops_vnext_production()` on `PORTFOLIO_POLICY`). Every "collapsed" run dispatched with the default skipped vNext and shipped the raw `historical_target_book`.
+- proof (operating_main_target_book.csv field-level diff):
+  - GOOD run `27457206698` (a8b271ea, 20260613 book): `production_policy='alphaops_vnext_production'`, `operating_target_source='alphaops_vnext_policy_replay'`, `crisis_overlay_status='applied'`, `regime_capacity_overlay_status='applied'`. Carries `alphaops_vnext_score` / `regime_capacity_cash_target` columns. avg_cash 26.7% main / 42.3% conc, 85/85 cash-months. CAGR 34.51% / 44.86%, MDD -26.01% / -25.83%. Has `alphaops_vnext/summary.json`.
+  - COLLAPSED runs `27466958402` / `27476013304` / `27490947715` (incl. the T3-conc run): `production_policy=None`, `operating_target_source='historical_target_book'`, `operating_decision_semantics='historical_research_target_book'`. NO vNext columns, NO `alphaops_vnext/summary.json`. avg_cash ~5% main / ~0.05% conc, 17/84 cash-months. CAGR ~20-22% / ~28-33%, MDD ~-33% / -38 to -43%.
+  - The learned long-crisis thresholds are BYTE-IDENTICAL between good and collapsed runs (`crisis_gate=0.65`, both `research_only=true`, `production_activation_allowed=false`) — i.e. the long-crisis learner is NOT the cash source and NOT the differentiator. The 07:40 "nondeterminism / dormant crisis-substrate" hypothesis is withdrawn.
+  - corollary: the prior T3 A/B (27466958402 OFF vs 27476013304 ON) is still a VALID A/B (both on the baseline book, same conditions) — T3's +2.6pp main is real — but it was measured on the non-production book, so its absolute numbers understate production. The T3-conc run (b267c616) under-performed only because it ran on the no-overlay baseline (conc fully exposed at 0.05% cash), not because the hysteresis is wrong.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->`portfolio_policy` default `production_baseline` -> `alphaops_vnext_production`; `alphaops_vnext_production` moved to the top of the options list; description rewritten to state the overlay is worth ~15pp CAGR / ~12pp MDD and that `production_baseline` ships the raw historical book (cash ~0%) for no-overlay control only.
+- action: re-dispatched the full rebuild on `b267c616` with the CORRECT inputs — `portfolio_policy=alphaops_vnext_production` + `PHASE_T3_LEADER_HYSTERESIS_ENABLED=1` + `sidecar_profile=operating_minimal`. This is the first run that combines all three levers: the cash overlay (the dominant ~15pp), T3 main hysteresis (+2.6pp), and the new concentrated hysteresis. Expected to land near the 35% / 50% targets again.
+- symbols_added/changed: none (workflow + record only)
+- config_fields_added: none
+- breaking_changes: workflow default policy changed. Anyone who relied on the old `production_baseline` default must now pick it explicitly. This is a correction — the production path per CLAUDE.md / ALPHAOPS_DATA_SYSTEM_CONTRACT.md is vNext.
+- validation: field values read directly from each run's committed `reports/operating_main_target_book.csv`, `account_evaluation/official_metrics.json`, `long_crisis_learning/best_thresholds.json`, and presence/absence of `alphaops_vnext/summary.json`.
+- next_action: when the correct run completes, verdict via `account_evaluation/official_metrics.json`. Acceptance = CLAUDE.md official gate (Main >=35% CAGR / >=-25% MDD, Conc >=50% / >=-25%). If concentrated now extends holding beyond 52d AND clears 32.90%, the concentrated T3 hysteresis is validated on the production book.
+
 ### 15:30 KST - t3-concentrated-hysteresis + t3t4-ab-result
 
 - scope: act on the 3-way A/B (27466958402 OFF, 27476013304 T3, 27481517495 T3+T4) and the user decision to redesign the concentrated path.

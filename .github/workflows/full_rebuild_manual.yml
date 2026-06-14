@@ -93,15 +93,15 @@ on:
           - off
         default: minimal
       portfolio_policy:
-        description: 'operating target policy: baseline, shadow-only integrated/market-leader, approved integrated, or AlphaOps vNext production'
+        description: 'operating target policy. DEFAULT alphaops_vnext_production = the production path that applies the regime_capacity + crisis cash overlays (worth ~15pp CAGR / ~12pp MDD). production_baseline SKIPS those overlays and ships the raw historical_target_book (cash ~0%) — only pick it for an explicit no-overlay control.'
         type: choice
         options:
+          - alphaops_vnext_production
           - production_baseline
           - integrated_shadow
           - market_leader_shadow
           - approved_integrated
-          - alphaops_vnext_production
-        default: production_baseline
+        default: alphaops_vnext_production
       approved_target_policy_path:
         description: 'approved_integrated policy file path; default stays unapproved'
         type: string
