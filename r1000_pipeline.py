@@ -14434,6 +14434,7 @@ def select_concentrated_portfolio_topk(
     cfg: EngineConfig,
     month_df: pd.DataFrame,
     top_n: int,
+    prev_w: Optional[dict[str, float]] = None,
 ) -> pd.DataFrame:
     if month_df.empty or int(top_n) <= 0:
         return month_df.iloc[0:0].copy()
@@ -14613,9 +14614,65 @@ def select_concentrated_portfolio_topk(
     if not selected_parts:
         return d.iloc[0:0].copy()
     out = pd.concat(selected_parts, ignore_index=False)
-    out = dedupe_same_company_rows(out, score_col="concentrated_score").head(top_n).copy()
+    out = dedupe_same_company_rows(out, score_col="concentrated_score")
+    out = apply_concentrated_t3_hysteresis(out, prev_w, cfg)
+    out = out.head(top_n).copy()
     out["concentrated_target_n"] = int(top_n)
     return out
+
+
+def apply_concentrated_t3_hysteresis(
+    pool: pd.DataFrame,
+    prev_w: Optional[dict[str, float]],
+    cfg: EngineConfig,
+) -> pd.DataFrame:
+    """Stage T3 hysteresis carried into the concentrated selector.
+
+    The concentrated path does not go through `build_target_portfolio` (which
+    is where Main's compute_conviction_hold_bonus lives), so this helper
+    mirrors the same sigma-gate idea for the concentrated_score ranking:
+
+    - Default OFF (`phase_is_enabled("phase_t3_leader_hysteresis")` /
+      `cfg.phase_t3_leader_hysteresis_enabled`) → returns pool unchanged.
+    - Toggle ON + `prev_w` non-empty → previously-held substantial positions
+      receive a sigma-scaled bonus on concentrated_score before the final
+      head(top_n) cut: healthy held get `new_entry_sigma * sigma(score)`,
+      broken (broken_momentum_penalty ≥ 0.3) get `broken_replace_sigma`.
+    - Sigma is the cross-sectional population stdev of the current pool's
+      concentrated_score. Degenerate sigma → no-op.
+
+    Substantial-position floor matches the Main version (prev weight ≥ 2%).
+    """
+    if pool.empty or "concentrated_score" not in pool.columns:
+        return pool
+    t3_on = bool(
+        phase_is_enabled("phase_t3_leader_hysteresis", default=False)
+        or phase_is_enabled("t3_leader_hysteresis", default=False)
+        or bool(getattr(cfg, "phase_t3_leader_hysteresis_enabled", False))
+    )
+    if not t3_on or not prev_w:
+        return pool
+    prev_tickers = {
+        str(k).upper()
+        for k, v in prev_w.items()
+        if str(k).upper() not in {"CASH", "__CASH__"} and float(v) >= 0.02
+    }
+    if not prev_tickers:
+        return pool
+    scores = pd.to_numeric(pool["concentrated_score"], errors="coerce").fillna(0.0)
+    sigma = float(scores.std(ddof=0))
+    if not np.isfinite(sigma) or sigma <= 1e-9:
+        return pool
+    held_mask = pool["ticker"].astype(str).str.upper().isin(prev_tickers)
+    broken = numeric_series_or_default(pool, "broken_momentum_penalty", 0.0) >= 0.3
+    healthy_bonus = sigma * float(getattr(cfg, "phase_t3_new_entry_sigma", 0.75))
+    broken_bonus = sigma * float(getattr(cfg, "phase_t3_broken_replace_sigma", 0.35))
+    bonus = pd.Series(0.0, index=pool.index, dtype=float)
+    bonus.loc[held_mask & ~broken] = healthy_bonus
+    bonus.loc[held_mask & broken] = broken_bonus
+    out = pool.copy()
+    out["concentrated_score"] = scores + bonus
+    return out.sort_values(["concentrated_score", "score"], ascending=False)
 
 
 def concentrated_weight_map(
@@ -14736,7 +14793,7 @@ def backtest_concentrated_portfolio(
 
         if rebalance_due:
             prev_w = current_w.copy()
-            sel = select_concentrated_portfolio_topk(cfg_obj, mm, top_n=top_n)
+            sel = select_concentrated_portfolio_topk(cfg_obj, mm, top_n=top_n, prev_w=prev_w)
             if not sel.empty:
                 current_w = concentrated_weight_map(cfg_obj, sel, weighting_mode=weighting_mode)
                 current_portfolio = sel.copy()

@@ -9,6 +9,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-14
 
+### 15:30 KST - t3-concentrated-hysteresis + t3t4-ab-result
+
+- scope: act on the 3-way A/B (27466958402 OFF, 27476013304 T3, 27481517495 T3+T4) and the user decision to redesign the concentrated path.
+- T3+T4 A/B finding (broker_ledger_next_close):
+  - Main: T3 ON ON `22.40%/-31.66%`, T3+T4 `22.14%/-33.24%`. T4 cost 0.26pp CAGR and gave back 1.58pp MaxDD vs T3-alone — i.e. the reactive multi-level breaker did not win on either axis. Interpretation: the breaker fires after the drawdown is underway, locks cash, then the recovery_buffer keeps it defensive past the rebound. Not a parameter problem worth chasing without a leading signal; T4 is parked.
+  - Concentrated: `32.90%/-37.96%` is byte-identical between OFF and T3+T4 — T3 sigma-gate lives in `build_target_portfolio` (Main path) and the concentrated backtester does not route through that function. T3 simply did not reach concentrated. Confirms the path-redesign decision.
+- root cause confirmed (code): `backtest_concentrated_portfolio` at `r1000_pipeline.py:14672` calls `select_concentrated_portfolio_topk(cfg, mm, top_n=top_n)` without passing `prev_w`, and the selector itself never accepted `prev_w` — every month re-picks top_n by raw `concentrated_score` with no prior-holding preference. Median holding days 52d, pct_held_365d_plus 0% reflect exactly this.
+- files:
+  - `r1000_pipeline.py` `select_concentrated_portfolio_topk(..., prev_w=None)` ->new optional argument; defaults preserve byte-identical behaviour when `prev_w` is None or T3 toggle is off. After dedupe the final pool now goes through a new `apply_concentrated_t3_hysteresis(pool, prev_w, cfg)` helper before the `head(top_n)` cut.
+  - `r1000_pipeline.py` `apply_concentrated_t3_hysteresis` ->new module-level helper. Mirrors `compute_conviction_hold_bonus` semantics for the concentrated path: when toggle on AND prev_w non-empty, previously-held substantial positions (prev weight ≥ 2%) receive a sigma-scaled bonus on `concentrated_score` — healthy held get `phase_t3_new_entry_sigma * sigma(score)` (0.75), broken held (broken_momentum_penalty ≥ 0.3) get `phase_t3_broken_replace_sigma * sigma(score)` (0.35). Degenerate sigma is a no-op. Toggle reads the env (both spellings) or the cfg flag.
+  - `r1000_pipeline.py` `backtest_concentrated_portfolio` ->the per-month call site now passes `prev_w=prev_w` so the helper has visibility into the prior book.
+  - `tests/concentrated_hysteresis_smoke.py` ->new 7-test suite: toggle OFF byte-identical, toggle ON sigma handicap math (healthy + broken), substantial-position floor (2%), empty/None pool/prev no-op, both env spellings activate, degenerate sigma no-op.
+  - `tools/run_pr_validation.py` ->register the new smoke as Tier-1.
+- symbols_added: `apply_concentrated_t3_hysteresis`, smoke tests
+- symbols_changed: `select_concentrated_portfolio_topk` (added `prev_w` kwarg), `backtest_concentrated_portfolio` (now forwards `prev_w`)
+- config_fields_added: none (reuses `phase_t3_new_entry_sigma` / `phase_t3_broken_replace_sigma`)
+- breaking_changes: none. Toggle default OFF; selector returns identical pool when prev_w is None or T3 is off.
+- validation:
+  - `python tests/concentrated_hysteresis_smoke.py` ->7/7 PASS
+  - `python tests/smoke_test.py` ->125/125 PASS
+  - `python tools/run_pr_validation.py --quiet` ->82/83 PASS (sec.gov sandbox 403 unrelated)
+- next_action:
+  - dispatch a T3-on full rebuild (PHASE_T3_LEADER_HYSTERESIS_ENABLED=1, T4 off) to measure the concentrated change in isolation. Acceptance per user: concentrated CAGR up from 32.90% (toward 50%) AND MaxDD no worse than -37.96%. If the hysteresis carries cleanly, Conc median_holding_days should also extend beyond the current 52d.
+  - T4 reactive breaker stays parked; the dormant predictive cash overlay (the real 15pp lever) is a separate workstream (leading signal preempt, not reactive ladder).
+
 ### 07:40 KST - t3-ab-result + cash-overlay-collapse-regression (the real 15pp lever)
 
 - scope: analyze the T3 A/B (full-rebuild arms, since QUICK cache-restore failed 4x on GHA cache eviction) and report what the broker-ledger evidence actually shows. Two findings; the second dwarfs the first.
