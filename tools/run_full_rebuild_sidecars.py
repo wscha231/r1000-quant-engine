@@ -208,6 +208,15 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # structural_underinvestment_bull (~14pp of the IS gap). Cheap (rolls the
   # broker_replay equity curve + target book), failures stay non-fatal.
   python tools/run_is_attribution.py --latest-run outputs --output-dir outputs/is_attribution 2>&1 | tee outputs/full_rebuild_logs/is_attribution.log || true
+  # Performance ledger — the self-sustaining evaluation memory. Appends ONE
+  # row per run to cloud_results/performance_ledger/ledger.jsonl (a path
+  # OUTSIDE the per-date full_rebuild rotation, so it accumulates across runs
+  # and is committed by `git add -f cloud_results/`). Trends IS-CAGR (the
+  # honest KPI), flags IMPROVING/FLAT/REGRESSING, tracks best-ever, and
+  # surfaces the dominant open leak as the recommended next focus. Non-fatal.
+  LEDGER_RUN_ID="${GITHUB_RUN_ID:-local}"
+  LEDGER_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  python tools/run_performance_ledger.py --latest-run outputs --ledger-dir cloud_results/performance_ledger --run-id "$LEDGER_RUN_ID" --commit "$LEDGER_COMMIT" --universe "${UNIVERSE_MODE:-global_alpha_universe}" 2>&1 | tee outputs/full_rebuild_logs/performance_ledger.log || true
   run_cash_contract_validator
   run_metric_hygiene_report
   python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
