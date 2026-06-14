@@ -1,0 +1,97 @@
+{
+  "coverage": {
+    "alphaops_candidate_book": "",
+    "production_policy": null,
+    "rows_with_smart_money_evidence": 0,
+    "sec_enriched_candidate_present": false,
+    "sec_enriched_rows_with_smart_money_evidence": 0
+  },
+  "feature_source_coverage": {
+    "available": true,
+    "available_from_column_count": 0,
+    "missing_feature_groups_by_portfolio": {
+      "broker_policy": [],
+      "macro_regime": [],
+      "price_momentum": [],
+      "quality_confirmation": [
+        "main"
+      ],
+      "sec_smart_money": [
+        "main"
+      ],
+      "theme_leadership": [
+        "main"
+      ]
+    },
+    "pit_future_available_from_rows": 0,
+    "status": "ok"
+  },
+  "large_data_restore": {
+    "errors": [],
+    "manifest_available": true,
+    "missing": [],
+    "must_remain_out_of_git": [
+      "data_raw/free/sec/companyfacts.zip",
+      "data_pit/sec/*.parquet",
+      "data_pit/etf_holdings/*.parquet",
+      "data_pit/macro/*",
+      "cache_prices/*",
+      "full replay artifacts"
+    ],
+    "restored": [
+      "outputs/sec_institutional_signals",
+      "outputs/sec_ownership_signals",
+      "data_pit/sec",
+      "outputs/etf_thematic_signals",
+      "data_pit/etf_holdings"
+    ]
+  },
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "metric_contract": {
+    "concentrated_target": {
+      "cagr": 0.5,
+      "max_dd": -0.25
+    },
+    "legacy_weight_metrics_allowed_for": "research_hints_only",
+    "main_target": {
+      "cagr": 0.35,
+      "max_dd": -0.25
+    },
+    "official_source": "broker_ledger_next_close"
+  },
+  "next_data_work": [
+    "Add a full-period feature-store coverage report by month, source, and portfolio target book.",
+    "Track universe membership, delistings, ADR eligibility, and symbol changes as monthly PIT snapshots.",
+    "Add macro regime features for QQQ-vs-SPY damage, credit/rate/liquidity stress, breadth, and theme rotation before changing production sizing.",
+    "Run broker-trade attribution first, then promote only PIT-safe rules that improve official broker MDD without losing target CAGR."
+  ],
+  "pit_leakage_rules": [
+    "Every external evidence row must have available_from or latest_available_from before it can boost scoring.",
+    "SEC 13F must use public filing accepted/available time, never report_period as availability.",
+    "Macro release-lagged series must preserve publication lag and must not be backfilled into earlier rebalance dates.",
+    "ETF holdings are latest/discovery aids unless a point-in-time holding snapshot exists.",
+    "Missing evidence is neutral: no boost, no standalone penalty, and no buy rule."
+  ],
+  "readiness": {
+    "blockers": [],
+    "policy_replay_blockers": [
+      "SEC evidence store exists but operating target books are missing sec_smart_money feature columns"
+    ],
+    "ready_for_fullrun": true,
+    "ready_for_policy_replay": false,
+    "warnings": [
+      "dated target snapshot archive is missing for this run",
+      "operating target books are missing sec_smart_money feature columns for portfolios: main"
+    ]
+  },
+  "update_cadence": {
+    "13f": "quarterly_after_public_filing_availability",
+    "etf_holdings": "weekly_or_provider_snapshot",
+    "form4": "daily_or_next_available",
+    "full_rebuild": "manual_only_after_data_schema_or_feature_generation_changes",
+    "macro": "daily_after_close_with_release_lag",
+    "prices": "daily_after_close",
+    "theme_leadership": "daily_tape_weekly_taxonomy_review",
+    "universe": "monthly_snapshot_plus_delisting_and_symbol_map_audit"
+  }
+}

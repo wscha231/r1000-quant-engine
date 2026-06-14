@@ -1,0 +1,101 @@
+{
+  "cash_trap_warning_count": 0,
+  "cash_trap_warning_portfolios": [],
+  "deprecated_metrics": [
+    {
+      "DO_NOT_USE_FOR_PRODUCTION": true,
+      "deprecated_output": "deprecated_legacy_backtest_metrics.json",
+      "exists": true,
+      "legacy_cagr": 0.3113005963734776,
+      "legacy_max_dd": -0.13066122187190587,
+      "legacy_minus_official_cagr_pp": 9.2624,
+      "legacy_minus_official_max_dd_pp": 13.3051,
+      "official_metric_required": "broker_ledger_next_close",
+      "portfolio": "main",
+      "production_valid": false,
+      "source": "backtest_metrics.json"
+    },
+    {
+      "DO_NOT_USE_FOR_PRODUCTION": true,
+      "deprecated_output": "deprecated_concentrated_weight_level_metrics.json",
+      "exists": true,
+      "legacy_cagr": 0.4149710650345626,
+      "legacy_max_dd": -0.22741284415373908,
+      "legacy_minus_official_cagr_pp": 12.9551,
+      "legacy_minus_official_max_dd_pp": 20.2158,
+      "official_metric_required": "broker_ledger_next_close",
+      "portfolio": "concentrated",
+      "production_valid": false,
+      "source": "concentrated_backtest_metrics.json"
+    }
+  ],
+  "generated_at_utc": "2026-06-14T09:32:43+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "official_metric_issue_count": 0,
+  "official_metric_issue_portfolios": [],
+  "official_metric_mode": "broker_ledger_next_close",
+  "official_metric_required": "broker_ledger_next_close",
+  "official_portfolios": {
+    "concentrated": {
+      "account_evaluation_source": "account_evaluation/official_metrics.json",
+      "account_evaluation_target_pass": false,
+      "avg_cash_weight": 0.0005256598680828079,
+      "cagr": 0.28542036155453543,
+      "cagr_gap_pp": 21.458,
+      "cagr_target": 0.5,
+      "cash_trap_guard": {
+        "avg_cash_weight": 0.0005256598680828079,
+        "cagr_gap_pp": 21.458,
+        "cash_trap": false,
+        "latest_cash_weight": 0.00010989280591565863,
+        "mdd_gap_pp": 17.9571,
+        "reasons": [],
+        "severity": "ok"
+      },
+      "latest_cash_weight": 0.00010989280591565863,
+      "max_dd": -0.42957117106860143,
+      "max_dd_gap_pp": 17.9571,
+      "max_dd_target": -0.25,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/concentrated/metrics.json",
+      "official_source_exists": true,
+      "portfolio": "concentrated",
+      "production_valid": true,
+      "sharpe": 1.002462019026703,
+      "status": "completed",
+      "target_pass": false
+    },
+    "main": {
+      "account_evaluation_source": "account_evaluation/official_metrics.json",
+      "account_evaluation_target_pass": false,
+      "avg_cash_weight": 0.059294899522204465,
+      "cagr": 0.2186762246006584,
+      "cagr_gap_pp": 13.1324,
+      "cagr_target": 0.35,
+      "cash_trap_guard": {
+        "avg_cash_weight": 0.059294899522204465,
+        "cagr_gap_pp": 13.1324,
+        "cash_trap": false,
+        "latest_cash_weight": 0.26855821022303483,
+        "mdd_gap_pp": 1.3713,
+        "reasons": [],
+        "severity": "ok"
+      },
+      "latest_cash_weight": 0.26855821022303483,
+      "max_dd": -0.2637127035822229,
+      "max_dd_gap_pp": 1.3713,
+      "max_dd_target": -0.25,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/main/metrics.json",
+      "official_source_exists": true,
+      "portfolio": "main",
+      "production_valid": true,
+      "sharpe": 1.0421120791062564,
+      "status": "completed",
+      "target_pass": false
+    }
+  },
+  "production_target_pass": false,
+  "production_valid_all": true,
+  "schema_version": "metric-hygiene-v1"
+}

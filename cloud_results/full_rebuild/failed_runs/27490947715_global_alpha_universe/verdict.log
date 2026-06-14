@@ -1,0 +1,33 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        b267c61 (DIRTY)
+  started:       2026-06-14 18:31:11 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-06-14
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  leader_rescue: (cfg default)
+  gate_mode:     broker
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+OK: companyfacts.zip 1.2d old, 1322 MB
+
+======================================================================
+BROKER-LEDGER VERDICT -- OFFICIAL PRODUCTION GATE
+======================================================================
+Official metric mode required: broker_ledger_next_close
+Legacy weight-level metrics are research-only and cannot SHIP.
+
+VERDICT: DEFERRED -- broker_replay evidence not yet written by sidecars
+  PENDING  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main/metrics.json
+  PENDING  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/metrics.json
+  PENDING  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_evaluation/official_metrics.json
+  NOTE  legacy/proxy metrics exist; the official sidecar verdict is the source of truth.
