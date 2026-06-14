@@ -72,6 +72,74 @@ DEFAULT_REGIME_CAPACITY_MULTIPLIERS = {
         "unknown": 1.0,
     },
 }
+# P0a bull-regime stock-weight floor (IS-attribution leak fix). The
+# 27498401423 IS attribution tagged concentrated 2021 + 2023 as
+# `structural_underinvestment_bull`: 5/5 names selected but only ~57%/54%
+# stock weight in 58%/46% bull regimes, dragging IS-CAGR to ~21%. The
+# regime_capacity overlay was a one-way door (only dampened in bear). This
+# makes it two-way: in confirmed bull regimes, scale thinned weights UP to a
+# floor via capped water-filling. Default OFF (env BULL_FLOOR or
+# PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED) so it is A/B-measurable by the
+# performance ledger before promotion.
+BULL_REGIME_STATES = {"bull", "strong_bull", "exceptional_bull"}
+DEFAULT_REGIME_CAPACITY_BULL_FLOOR = {
+    "main": 0.90,
+    "concentrated": 0.85,
+}
+# Per-name ceiling used when no explicit effective_single_weight_cap column
+# is present on the book, so water-filling never over-concentrates a name.
+DEFAULT_BULL_FLOOR_SINGLE_CAP = {
+    "main": 0.15,
+    "concentrated": 0.30,
+}
+
+
+def capped_proportional_fill(
+    weights: list[float], target_total: float, ceilings: list[float]
+) -> list[float]:
+    """Scale `weights` up proportionally to reach `target_total` without any
+    element exceeding its ceiling (iterative water-filling).
+
+    Used to lift a thinned bull-regime book to the stock-weight floor while
+    respecting per-name caps. If the ceilings cannot reach target_total, fills
+    every name to its ceiling and returns the (lower) achievable total.
+    """
+    w = [max(0.0, float(x)) for x in weights]
+    cap = [max(0.0, float(c)) for c in ceilings]
+    n = len(w)
+    if n == 0:
+        return w
+    target = min(float(target_total), sum(cap))
+    cur = sum(w)
+    if cur <= 1e-12 or target <= cur + 1e-12:
+        return w
+    locked = [False] * n
+    out = list(w)
+    # iterate: distribute the remaining deficit proportionally to the
+    # unlocked names' current weight, clamp any that hit their ceiling, repeat.
+    for _ in range(n + 2):
+        deficit = target - sum(out)
+        if deficit <= 1e-12:
+            break
+        unlocked_base = sum(out[i] for i in range(n) if not locked[i])
+        if unlocked_base <= 1e-12:
+            break
+        any_locked_this_pass = False
+        for i in range(n):
+            if locked[i]:
+                continue
+            add = deficit * (out[i] / unlocked_base)
+            if out[i] + add >= cap[i] - 1e-12:
+                out[i] = cap[i]
+                locked[i] = True
+                any_locked_this_pass = True
+            else:
+                out[i] = out[i] + add
+        if not any_locked_this_pass:
+            break
+    return out
+
+
 WINDOWS = {
     "1w": ("days", 5),
     "1m": ("months", 1),
@@ -2640,6 +2708,13 @@ def apply_regime_capacity_overlay(
         }
         return book, summary, pd.DataFrame()
     multipliers = DEFAULT_REGIME_CAPACITY_MULTIPLIERS.get(portfolio_kind, DEFAULT_REGIME_CAPACITY_MULTIPLIERS["main"])
+    bull_floor_enabled = bool(
+        phase_is_enabled("regime_capacity_bull_floor", default=False)
+        or phase_is_enabled("bull_floor", default=False)
+    )
+    bull_floor = float(DEFAULT_REGIME_CAPACITY_BULL_FLOOR.get(portfolio_kind, 0.90))
+    bull_single_cap = float(DEFAULT_BULL_FLOOR_SINGLE_CAP.get(portfolio_kind, 0.20))
+    bull_floor_dates = 0
     out = book.copy()
     out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce")
     out = out.dropna(subset=["rebalance_date"])
@@ -2658,6 +2733,7 @@ def apply_regime_capacity_overlay(
         factor = float(multipliers.get(regime, 1.0))
         stock_mask = ~day["ticker"].isin(CASH_TICKERS)
         pre_stock = float(day.loc[stock_mask, "weight"].sum())
+        bull_floor_applied = False
         if factor < 1.0 - 1e-12:
             day.loc[stock_mask, "weight"] = day.loc[stock_mask, "weight"] * factor
             day.loc[stock_mask, "target_weight"] = day.loc[stock_mask, "target_weight"] * factor
@@ -2666,6 +2742,29 @@ def apply_regime_capacity_overlay(
                 if "selection_reason" in day.columns
                 else "regime_capacity_dampened"
             )
+        elif bull_floor_enabled and regime in BULL_REGIME_STATES and pre_stock > 1e-9 and pre_stock < bull_floor - 1e-9:
+            # Two-way door: lift a thinned bull-regime book to the floor via
+            # capped water-filling (P0a IS-underinvestment fix). Respect the
+            # per-name effective_single_weight_cap when present.
+            idx = list(day.index[stock_mask])
+            weights = [float(day.at[i, "weight"]) for i in idx]
+            if "effective_single_weight_cap" in day.columns:
+                ceilings = [
+                    float(safe_float(day.at[i, "effective_single_weight_cap"], bull_single_cap) or bull_single_cap)
+                    for i in idx
+                ]
+            else:
+                ceilings = [bull_single_cap] * len(idx)
+            lifted = capped_proportional_fill(weights, bull_floor, ceilings)
+            for i, new_w in zip(idx, lifted):
+                day.at[i, "weight"] = new_w
+                if "target_weight" in day.columns:
+                    day.at[i, "target_weight"] = new_w
+            if "selection_reason" in day.columns:
+                day.loc[stock_mask, "selection_reason"] = (
+                    day.loc[stock_mask, "selection_reason"].astype(str) + "|regime_capacity_bull_floor_lifted"
+                )
+            bull_floor_applied = True
         post_stock = float(day.loc[stock_mask, "weight"].sum())
         cash_weight = max(0.0, 1.0 - post_stock)
         cash_mask = day["ticker"].isin(CASH_TICKERS)
@@ -2684,6 +2783,9 @@ def apply_regime_capacity_overlay(
         day["regime_capacity_multiplier"] = factor
         day["regime_capacity_cash_target"] = cash_weight
         day["regime_capacity_policy"] = "alphaops_vnext_concentrated_bear_capacity" if portfolio_kind == "concentrated" else "alphaops_vnext_main_cap_only"
+        day["regime_capacity_bull_floor_applied"] = bool(bull_floor_applied)
+        if bull_floor_applied:
+            bull_floor_dates += 1
         rebuilt.append(day)
         audit_rows.append(
             {
@@ -2694,7 +2796,8 @@ def apply_regime_capacity_overlay(
                 "pre_stock_weight": pre_stock,
                 "post_stock_weight": post_stock,
                 "cash_weight": cash_weight,
-                "rows_affected": int(stock_mask.sum() if factor < 1.0 - 1e-12 else 0),
+                "bull_floor_applied": bool(bull_floor_applied),
+                "rows_affected": int(stock_mask.sum() if (factor < 1.0 - 1e-12 or bull_floor_applied) else 0),
             }
         )
     result = pd.concat(rebuilt, ignore_index=True) if rebuilt else out
@@ -2707,6 +2810,9 @@ def apply_regime_capacity_overlay(
         "multipliers": multipliers,
         "rebalance_dates_total": int(len(audit)),
         "rebalance_dates_dampened": int((pd.to_numeric(audit.get("multiplier", pd.Series(dtype=float)), errors="coerce") < 1.0).sum()) if not audit.empty else 0,
+        "bull_floor_enabled": bool(bull_floor_enabled),
+        "bull_floor": bull_floor,
+        "rebalance_dates_bull_floor_lifted": int(bull_floor_dates),
         "avg_cash_weight": float(pd.to_numeric(audit.get("cash_weight", pd.Series(dtype=float)), errors="coerce").mean()) if not audit.empty else 0.0,
         "max_cash_weight": float(pd.to_numeric(audit.get("cash_weight", pd.Series(dtype=float)), errors="coerce").max()) if not audit.empty else 0.0,
     }
