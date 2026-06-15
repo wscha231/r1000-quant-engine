@@ -21,7 +21,8 @@ without encoding loss.
 | Era-aware scoring challenger | `run_era_aware_scoring_challenger.py` converts era buckets into review-only broker-replayable target books under `outputs/era_aware_scoring_challenger/`, runs optional broker replay, and writes goal-contract verdicts without replacing operating books | review challenger wired |
 | Crisis action wire | `run_daily_crisis_monitor.py` emits whitelisted paper candidates and `run_crisis_paper_order_bridge.py` turns them into approval-required paper order previews | paper-order bridge wired |
 | Self-correction | `run_self_correction_router.py` queues A/B candidates and emits review-ready workflow_dispatch payloads/commands when a ledger leak repeats 2 runs; bull underinvestment maps to exposure experiments, flat alpha maps to era-aware challenger review | dispatch-prep wired |
-| Full rebuild persistence | `eight_year_backtest_readiness`, `is_attribution`, `era_leadership`, `era_aware_scoring_challenger`, `self_correction_router`, `data_readiness`, and account evaluation are preserved under `cloud_results/full_rebuild/<date>` | wired |
+| System acceptance audit | `run_system_acceptance_audit.py` aggregates official metrics, 8-year readiness, data readiness, broker realism, era challenger, crisis bridge, self-correction, ADR automation, and guard evidence into one PASS/FAIL/WARN matrix | wired |
+| Full rebuild persistence | `eight_year_backtest_readiness`, `is_attribution`, `era_leadership`, `era_aware_scoring_challenger`, `self_correction_router`, `system_acceptance_audit`, `data_readiness`, and account evaluation are preserved under `cloud_results/full_rebuild/<date>` | wired |
 
 ## Not Yet Complete
 

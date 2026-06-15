@@ -644,6 +644,7 @@ jobs:
             outputs/operating_snapshot/current_operating_holdings_latest.csv
             outputs/operating_snapshot/current_portfolio_snapshot_summary.json
             outputs/portfolio_system_guard/
+            outputs/system_acceptance_audit/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/cash_contract.log
@@ -656,6 +657,7 @@ jobs:
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
             outputs/full_rebuild_logs/eight_year_backtest_readiness.log
             outputs/full_rebuild_logs/era_aware_scoring_challenger.log
+            outputs/full_rebuild_logs/system_acceptance_audit.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -1254,6 +1256,7 @@ jobs:
             copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+            copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
             # P3 integrated leader+crisis evidence + P0 freshness + governor
             # learning trail. Without these, the run leaves no auditable
             # record of why the governor moved or did not.
@@ -1355,6 +1358,7 @@ jobs:
           copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
           copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+          copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
           copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
