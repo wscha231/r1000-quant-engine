@@ -51,6 +51,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-06-15
+
+### 11:54 KST - github-agent-coordination-handoff
+
+- scope:
+  - Add GitHub-visible cross-agent coordination docs so Claude Code, ChatGPT Pro, Codex, and the user can share one operating plan through repository Markdown.
+- files:
+  - `SESSION_HANDOFF_20260615.md` ->adds the active cross-agent handoff, priority plan, role split, hard rules, open questions, and next-agent prompt.
+  - `docs/AGENT_COORDINATION.md` ->adds stable collaboration rules for GitHub Markdown, Google Drive artifacts, role ownership, escalation, handoff payloads, and session closeout.
+  - `CHANGELOG.md` ->records the coordination documentation update.
+  - `CLAUDE.md` ->points new sessions at the active handoff and coordination protocol before coding.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - documentation-only change; no code tests run.
+- risks_or_notes:
+  - GitHub connector and local `gh` were not authenticated in the Codex desktop session, so this local documentation update still needs commit and push from an authenticated repo session.
+
 ## 2026-06-05
 
 ### 08:38 KST - alphaops-data-readiness-operating-plan
