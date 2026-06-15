@@ -183,7 +183,7 @@ jobs:
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_main.log || true
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true
           python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
-          python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+          python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
 
       - name: Upload daily validation artifact
         if: always()

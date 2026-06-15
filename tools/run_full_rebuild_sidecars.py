@@ -206,7 +206,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # Official account evaluation reads this summary as part of the 8-year
   # broker-ledger/data-coverage gate, so it must exist before the verdict.
   python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
-  python tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness 2>&1 | tee outputs/full_rebuild_logs/eight_year_backtest_readiness.log || true
+  python tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/eight_year_backtest_readiness.log || true
   python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
   # IS-only attribution sidecar — surfaces year-by-year where the IS CAGR is
   # leaking. Run 27498401423 conc 2021/2023 were tagged
@@ -241,7 +241,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   run_decision_cadence_review
   python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
   python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
-  python tools/run_system_acceptance_audit.py --latest-run outputs --output-dir outputs/system_acceptance_audit 2>&1 | tee outputs/full_rebuild_logs/system_acceptance_audit.log || true
+  python tools/run_system_acceptance_audit.py --latest-run outputs --output-dir outputs/system_acceptance_audit --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/system_acceptance_audit.log || true
   if [ "$SIDECAR_PROFILE" = "official" ]; then
     python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
     python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --buy-band 0.04 --sell-band 0.06 --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log || true
@@ -395,8 +395,8 @@ run_metric_hygiene_report
 python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
 python tools/run_selection_audit.py --latest-run outputs --output-dir outputs/selection_audit 2>&1 | tee outputs/full_rebuild_logs/selection_audit.log || true
 python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
-python tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness 2>&1 | tee outputs/full_rebuild_logs/eight_year_backtest_readiness.log || true
-python tools/check_10y_backtest_readiness.py --latest-run outputs --output-dir outputs/ten_year_backtest_readiness 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log || true
+python tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/eight_year_backtest_readiness.log || true
+python tools/check_10y_backtest_readiness.py --latest-run outputs --output-dir outputs/ten_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log || true
 python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
 python tools/run_weekly_evaluation.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_evaluation --stale-days-threshold 10 2>&1 | tee outputs/full_rebuild_logs/weekly_evaluation.log || true
 python tools/run_theme_leadership_tape.py --scored outputs/scored_latest.csv --price-cache cache_prices --output-dir outputs/theme_leadership_tape 2>&1 | tee outputs/full_rebuild_logs/theme_leadership_tape.log || true

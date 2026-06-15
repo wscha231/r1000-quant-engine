@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import math
+import shlex
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,14 @@ def read_json(path: Path, default: Any = None) -> Any:
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def years_input(min_years: float) -> str:
+    if 7.95 <= min_years < 8.5:
+        return "8"
+    if min_years >= 9.5:
+        return "10"
+    return str(int(math.ceil(min_years)))
 
 
 def parse_date(value: Any) -> date | None:
@@ -218,6 +227,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schema_version": "backtest-window-readiness-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "latest_run": str(latest_run),
         "min_years": min_years,
         "requested_years": min_years,
         "window_label": label,
@@ -286,6 +296,89 @@ def next_actions(status: str, blockers: list[str], warnings: list[str], *, min_y
     return actions
 
 
+def build_dispatch_payloads(payload: dict[str, Any], *, ref: str = "master") -> list[dict[str, Any]]:
+    if payload.get("official_window_ready") is True:
+        return []
+    min_years = float(payload.get("min_years") or 8.0)
+    slug = str(payload.get("window_slug") or window_slug(min_years))
+    years_arg = years_input(min_years)
+    source_latest_run = str(payload.get("latest_run") or DEFAULT_LATEST_RUN)
+    latest_run = source_latest_run if source_latest_run.startswith("cloud_results/") else DEFAULT_LATEST_RUN
+    dispatches: list[dict[str, Any]] = []
+    dependency_ids: list[str] = []
+    if payload.get("proxy_price_ready") is not True:
+        plan_id = f"bootstrap_free_data_for_{slug}_window"
+        dependency_ids.append(plan_id)
+        dispatches.append(
+            {
+                "plan_id": plan_id,
+                "workflow_id": "free_data_lake_bootstrap.yml",
+                "ref": ref,
+                "requires_user_approval": True,
+                "production_mutation_allowed": False,
+                "reason": f"{payload.get('window_label') or slug} price cache is not ready; restore/extend target-book price history first.",
+                "source_status": payload.get("status"),
+                "source_latest_run": source_latest_run,
+                "source_blockers": payload.get("blockers") or [],
+                "inputs": {
+                    "latest_run": latest_run,
+                    "sec_companyfacts": "true",
+                    "price_mode": "target_books",
+                    "max_price_tickers": "0",
+                    "run_proxy_replay": "true",
+                    "sync_to_gdrive": "true",
+                },
+            }
+        )
+    dispatches.append(
+        {
+            "plan_id": f"full_rebuild_{slug}_official_window",
+            "workflow_id": "full_rebuild_manual.yml",
+            "ref": ref,
+            "requires_user_approval": True,
+            "production_mutation_allowed": False,
+            "depends_on_plan_ids": dependency_ids,
+            "reason": f"Run the official {payload.get('window_label') or slug} broker-ledger rebuild after data readiness is available.",
+            "source_status": payload.get("status"),
+            "source_latest_run": source_latest_run,
+            "source_blockers": payload.get("blockers") or [],
+            "inputs": {
+                "universe_mode": "global_alpha_universe",
+                "backtest_years": years_arg,
+                "skip_collector": "false",
+                "fast_mode": "true",
+                "sidecar_profile": "operating_minimal",
+                "artifact_profile": "minimal",
+                "gdrive_sync_mode": "minimal",
+                "portfolio_policy": "alphaops_vnext_production",
+                "cache_key_suffix": f"official-{slug}-window",
+                "experiment_env_json": "",
+            },
+        }
+    )
+    return dispatches
+
+
+def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "# Review-only generated commands. Inspect before running.",
+        "",
+    ]
+    for payload in payloads:
+        workflow_id = shlex.quote(str(payload.get("workflow_id") or ""))
+        ref = shlex.quote(str(payload.get("ref") or "master"))
+        parts = ["gh", "workflow", "run", workflow_id, "--repo", shlex.quote(repo), "--ref", ref]
+        for key, value in sorted((payload.get("inputs") or {}).items()):
+            parts.extend(["-f", shlex.quote(f"{key}={value}")])
+        lines.append("# " + str(payload.get("plan_id") or payload.get("workflow_id")))
+        lines.append("# " + str(payload.get("reason") or ""))
+        lines.append(" ".join(parts))
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_report(payload: dict[str, Any]) -> str:
     pc = payload["price_cache"]
     tb = payload["target_books"]
@@ -332,14 +425,38 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.append("- none")
     lines.extend(["", "## Next Actions", ""])
     lines.extend(f"- {item}" for item in payload["next_actions"])
+    dispatches = payload.get("workflow_dispatch_payloads") or []
+    lines.extend(["", "## Review Dispatch Plan", ""])
+    if dispatches:
+        lines.extend(
+            [
+                "- `workflow_dispatch_payloads.json` and `workflow_dispatch_commands.sh` are review-only.",
+                "- They require explicit user approval before use.",
+                "",
+                "| Plan | Workflow | Dependencies | Reason |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for item in dispatches:
+            deps = ",".join(item.get("depends_on_plan_ids") or [])
+            lines.append(f"| {item.get('plan_id')} | {item.get('workflow_id')} | {deps} | {item.get('reason')} |")
+    else:
+        lines.append("- none")
     return "\n".join(lines) + "\n"
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = build_payload(args)
+    ref = str(getattr(args, "ref", "master") or "master")
+    repo = str(getattr(args, "repo", "wscha231/r1000-quant-engine") or "wscha231/r1000-quant-engine")
+    dispatch_payloads = build_dispatch_payloads(payload, ref=ref)
+    payload["workflow_dispatch_payloads"] = dispatch_payloads
+    payload["workflow_dispatch_payload_count"] = len(dispatch_payloads)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "summary.json", payload)
+    write_json(output_dir / "workflow_dispatch_payloads.json", dispatch_payloads)
+    (output_dir / "workflow_dispatch_commands.sh").write_text(render_dispatch_script(dispatch_payloads, repo) + "\n", encoding="utf-8")
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
     print(json.dumps({"status": payload["status"], "summary": str(output_dir / "summary.json")}, indent=2))
     return payload
@@ -354,6 +471,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-manifest", default=DEFAULT_PRICE_MANIFEST)
     parser.add_argument("--min-years", type=float, default=9.8)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--ref", default="master")
+    parser.add_argument("--repo", default="wscha231/r1000-quant-engine")
     return parser.parse_args()
 
 

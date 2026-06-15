@@ -14,7 +14,7 @@ without encoding loss.
 | Concentrated target contract | `PORTFOLIO_GOAL_TARGETS["concentrated"] = 50% CAGR / -28% MaxDD` | wired |
 | Anti-OOS-lottery gate | Tier-2 IS-CAGR / OOS-IS ratio / Sharpe / cash / recent-MDD gates remain active | wired |
 | 8-year broker-ledger gate | `run_account_evaluation.py` requires 8.0 years, >=2016 actual equity-curve trading days, and data-readiness evidence | wired |
-| 8-year readiness artifact | `check_10y_backtest_readiness.py --min-years 8` writes `outputs/eight_year_backtest_readiness/` with price, target-book, and broker-ledger window blockers | wired |
+| 8-year readiness artifact | `check_10y_backtest_readiness.py --min-years 8` writes `outputs/eight_year_backtest_readiness/` with price, target-book, broker-ledger window blockers, and review-only bootstrap/rebuild dispatch payloads | wired |
 | Price/universe readiness | `audit_data_readiness.py` now runs before account evaluation in `run_full_rebuild_sidecars.py`; failed readiness makes official verdict invalid | wired |
 | Cash contract realism | `validate_target_book_cash_contract.py` validates explicit CASH rows and broker cash-ledger drift; `run_system_acceptance_audit.py` now hard-blocks official evidence when this contract is missing or failing | hard-gated |
 | Attribution package | `run_system_acceptance_audit.py` now hard-blocks official evidence unless IS/year leak attribution, era top-name contribution, trade MDD per-name attribution, and MDD trough holdings are all present | hard-gated |
