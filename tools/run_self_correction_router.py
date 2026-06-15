@@ -20,16 +20,22 @@ if str(REPO) not in sys.path:
 LEAK_EXPERIMENTS = {
     "concentrated:structural_underinvestment_bull": [
         {
-            "experiment_id": "conc_bull_floor_stock_min",
-            "description": "Measure bull/strong_bull stock floor against concentrated underinvestment.",
-            "workflow_inputs": {"portfolio_policy": "alphaops_vnext_production", "artifact_profile": "minimal"},
-            "env": {"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"},
-        },
-        {
             "experiment_id": "conc_continuation_winner_relaxation",
             "description": "Relax continuation winner filters only in bull/strong_bull regimes.",
             "workflow_inputs": {"portfolio_policy": "alphaops_vnext_production", "artifact_profile": "minimal"},
             "env": {"PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED": "1"},
+        },
+        {
+            "experiment_id": "conc_bull_floor_stock_min",
+            "description": "Confirm bull/strong_bull stock floor against concentrated underinvestment.",
+            "workflow_inputs": {"portfolio_policy": "alphaops_vnext_production", "artifact_profile": "minimal"},
+            "env": {"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"},
+        },
+        {
+            "experiment_id": "conc_reentry_quality",
+            "description": "Measure reentry quality after cash/defense states without enabling live trading.",
+            "workflow_inputs": {"portfolio_policy": "alphaops_vnext_production", "artifact_profile": "minimal"},
+            "env": {"PHASE_CONCENTRATED_REENTRY_QUALITY_ENABLED": "1"},
         },
         {
             "experiment_id": "conc_theme_leadership_boost",
