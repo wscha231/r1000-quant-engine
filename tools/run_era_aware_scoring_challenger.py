@@ -8,6 +8,7 @@ separate A/B, account-evaluation gate, and explicit review.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -115,6 +116,16 @@ def write_json(path: Path, payload: Any) -> None:
 def write_csv(path: Path, frame: pd.DataFrame) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(path, index=False)
+
+
+def file_sha256(path: Path) -> str:
+    if not path.exists():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def assign_era(date_value: Any) -> str | None:
@@ -419,6 +430,57 @@ def evaluate_goal_contract(replay_summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_promotion_policy_candidate(
+    *,
+    target_books: dict[str, Path],
+    goal_verdicts: dict[str, Any],
+    source_run_id: str,
+) -> dict[str, Any]:
+    verdict_rows = goal_verdicts.get("portfolios") if isinstance(goal_verdicts.get("portfolios"), dict) else {}
+    review_candidates: list[str] = []
+    policy: dict[str, Any] = {
+        "schema_version": "alphaops-approved-target-policy-v1",
+        "candidate_schema_version": "era-aware-promotion-policy-candidate-v1",
+        "candidate_source": "era_aware_scoring_challenger",
+        "source_run_id": str(source_run_id or ""),
+        "approved_portfolios": [],
+        "review_candidate_portfolios": review_candidates,
+        "human_approved": False,
+        "approved_by": "",
+        "approved_at": "",
+        "production_mutation_allowed": False,
+        "allow_replace_operating_target_books": False,
+        "required_metric_mode": "broker_ledger_next_close",
+        "notes": "Review-only template. Enable only after human approval of a separate A/B and exact target-book SHA.",
+    }
+    for portfolio in ("main", "concentrated"):
+        path = target_books.get(portfolio) or Path("")
+        verdict = verdict_rows.get(portfolio) if isinstance(verdict_rows.get(portfolio), dict) else {}
+        eligible = bool(verdict.get("promotion_review_status") == "eligible_for_review" and verdict.get("strengthened_pass"))
+        if eligible:
+            review_candidates.append(portfolio)
+        path_text = str(path)
+        sha = file_sha256(path)
+        policy[f"source_policy_{portfolio}"] = "era_aware"
+        policy[f"source_case_id_{portfolio}"] = "era_aware"
+        policy[f"source_target_book_path_{portfolio}"] = path_text
+        policy[f"source_target_book_sha256_{portfolio}"] = sha
+        policy[portfolio] = {
+            "approved": False,
+            "source_policy": "era_aware",
+            "source_case_id": "era_aware",
+            "source_target_book_path": path_text,
+            "source_target_book_sha256": sha,
+            "promotion_review_status": verdict.get("promotion_review_status") or "not_evaluated",
+            "target_pass": bool(verdict.get("target_pass")),
+            "strengthened_pass": bool(verdict.get("strengthened_pass")),
+            "manual_gate_override": False,
+            "allow_stale_holding_exit_override": False,
+            "manual_gate_override_reason": "",
+        }
+    return policy
+
+
 def render_report(summary: dict[str, Any]) -> str:
     lines = [
         "# Era-Aware Scoring Challenger",
@@ -452,6 +514,20 @@ def render_report(summary: dict[str, Any]) -> str:
                     status=verdict.get("promotion_review_status") or "not_eligible",
                 )
             )
+    candidate = summary.get("promotion_policy_candidate") or {}
+    if candidate:
+        lines.extend(
+            [
+                "",
+                "## Promotion Policy Candidate",
+                "",
+                f"- review_candidate_portfolios: `{','.join(candidate.get('review_candidate_portfolios') or []) or 'none'}`",
+                "- human_approved: `false`",
+                "- production_mutation_allowed: `false`",
+                "- allow_replace_operating_target_books: `false`",
+                f"- policy_candidate_path: `{summary.get('promotion_policy_candidate_path') or ''}`",
+            ]
+        )
     lines.extend(
         [
             "",
@@ -513,6 +589,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     replay_summary = maybe_run_broker_replay(args, output_dir, {"main": main_path, "concentrated": concentrated_path})
     goal_verdicts = evaluate_goal_contract(replay_summary)
+    policy_candidate = build_promotion_policy_candidate(
+        target_books={"main": output_dir / "main_target_book.csv", "concentrated": output_dir / "concentrated_target_book.csv"},
+        goal_verdicts=goal_verdicts,
+        source_run_id=str(getattr(args, "source_run_id", "") or ""),
+    )
+    promotion_policy_candidate_path = output_dir / "era_aware_approved_target_policy_candidate.json"
+    write_json(promotion_policy_candidate_path, policy_candidate)
+    promotion_review_dir = str(getattr(args, "promotion_review_dir", "") or "")
+    if promotion_review_dir:
+        write_json(repo_path(promotion_review_dir) / "era_aware_approved_target_policy_candidate.json", policy_candidate)
     summary = {
         "schema_version": "era-aware-scoring-challenger-v1",
         "status": "completed",
@@ -535,6 +621,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "broker_replay": replay_summary,
         "goal_verdicts": goal_verdicts,
+        "promotion_policy_candidate": policy_candidate,
+        "promotion_policy_candidate_path": str(promotion_policy_candidate_path),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
     }
     write_json(output_dir / "summary.json", summary)
@@ -558,6 +646,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-broker-replay", action="store_true")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument("--promotion-review-dir", default="")
+    parser.add_argument("--source-run-id", default="")
     return parser.parse_args(argv)
 
 

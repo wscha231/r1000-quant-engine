@@ -13,7 +13,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_era_aware_scoring_challenger import evaluate_goal_contract, run  # noqa: E402
+from tools.run_era_aware_scoring_challenger import build_promotion_policy_candidate, evaluate_goal_contract, run  # noqa: E402
 
 
 def base_row(date: str, ticker: str) -> dict[str, object]:
@@ -87,6 +87,8 @@ def test_era_aware_challenger_builds_review_only_books() -> None:
                 run_broker_replay=False,
                 cost_bps=25.0,
                 max_fill_lag_days=7,
+                promotion_review_dir=str(root / "promotion_review"),
+                source_run_id="smoke_run",
             )
         )
         assert summary["status"] == "completed"
@@ -115,6 +117,14 @@ def test_era_aware_challenger_builds_review_only_books() -> None:
         assert audit["selected"].astype(str).str.lower().eq("true").any()
         saved = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert saved["broker_replay"]["status"] == "skipped"
+        policy = json.loads((out / "era_aware_approved_target_policy_candidate.json").read_text(encoding="utf-8"))
+        assert policy["candidate_source"] == "era_aware_scoring_challenger"
+        assert policy["human_approved"] is False
+        assert policy["production_mutation_allowed"] is False
+        assert policy["allow_replace_operating_target_books"] is False
+        assert policy["source_policy_main"] == "era_aware"
+        assert policy["approved_portfolios"] == []
+        assert (root / "promotion_review" / "era_aware_approved_target_policy_candidate.json").exists()
 
 
 def test_goal_contract_verdict_scores_replay_metrics() -> None:
@@ -172,7 +182,33 @@ def test_goal_contract_verdict_scores_replay_metrics() -> None:
     assert "oos_is_cagr_ratio_max" in conc["tier2_gates"]["failing"]
 
 
+def test_promotion_policy_candidate_marks_only_strengthened_portfolios_for_review() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        main = root / "main_target_book.csv"
+        conc = root / "concentrated_target_book.csv"
+        main.write_text("rebalance_date,ticker,weight\n2026-01-31,AAA,0.9\n", encoding="utf-8")
+        conc.write_text("rebalance_date,ticker,weight\n2026-01-31,BBB,0.9\n", encoding="utf-8")
+        policy = build_promotion_policy_candidate(
+            target_books={"main": main, "concentrated": conc},
+            goal_verdicts={
+                "portfolios": {
+                    "main": {"promotion_review_status": "eligible_for_review", "target_pass": True, "strengthened_pass": True},
+                    "concentrated": {"promotion_review_status": "not_eligible", "target_pass": False, "strengthened_pass": False},
+                }
+            },
+            source_run_id="run123",
+        )
+        assert policy["review_candidate_portfolios"] == ["main"]
+        assert policy["approved_portfolios"] == []
+        assert policy["main"]["approved"] is False
+        assert policy["main"]["source_policy"] == "era_aware"
+        assert policy["main"]["source_target_book_sha256"]
+        assert policy["concentrated"]["promotion_review_status"] == "not_eligible"
+
+
 if __name__ == "__main__":
     test_era_aware_challenger_builds_review_only_books()
     test_goal_contract_verdict_scores_replay_metrics()
+    test_promotion_policy_candidate_marks_only_strengthened_portfolios_for_review()
     print("era_aware_scoring_challenger_smoke: PASS")

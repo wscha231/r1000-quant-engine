@@ -114,6 +114,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/strategy_logic_ledger/",
         "outputs/shadow_operating/",
         "outputs/promotion_review/",
+        "outputs/promotion_review/era_aware_approved_target_policy_candidate.json",
         "outputs/decision_cadence/",
         "outputs/patch_application_manifest.json",
         "outputs/replay_integrity/patch_application_manifest.json",

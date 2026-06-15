@@ -592,6 +592,7 @@ jobs:
             outputs/operator_review/position_cleanup_review.md
             outputs/shadow_operating/
             outputs/promotion_review/
+            outputs/promotion_review/era_aware_approved_target_policy_candidate.json
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
