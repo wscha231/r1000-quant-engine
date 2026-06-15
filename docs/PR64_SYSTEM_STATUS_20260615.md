@@ -20,6 +20,13 @@ handoff, or goals proposal may claim the mission target changed until the user
 approves that change explicitly. The strengthened IS/OOS gates and 8-year
 broker-ledger window remain promotion blockers under both contracts.
 
+`tools/run_account_evaluation.py` now emits this distinction as machine-readable
+metadata: `target_type=interim_operating_gate`,
+`target_contract_status=unresolved_user_decision_required`, active gate targets,
+and canonical mission targets. This keeps `target_pass` math unchanged while
+making the target contract visible in `official_metrics.json`,
+`account_evaluation_summary.json`, the CSV, and the report.
+
 ## Wired In PR64
 
 | Requirement | Current implementation | Status |
