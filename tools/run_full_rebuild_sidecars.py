@@ -234,6 +234,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   LEDGER_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   python tools/run_performance_ledger.py --latest-run outputs --ledger-dir cloud_results/performance_ledger --run-id "$LEDGER_RUN_ID" --commit "$LEDGER_COMMIT" --universe "${UNIVERSE_MODE:-global_alpha_universe}" 2>&1 | tee outputs/full_rebuild_logs/performance_ledger.log || true
   python tools/run_self_correction_router.py --ledger-dir cloud_results/performance_ledger --latest-run outputs --output-dir outputs/self_correction_router --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/self_correction_router.log || true
+  python tools/run_review_dispatcher.py --payloads outputs/self_correction_router/workflow_dispatch_payloads.json --output-dir outputs/review_dispatcher_self_correction --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/review_dispatcher_self_correction.log || true
   run_cash_contract_validator
   run_metric_hygiene_report
   python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
