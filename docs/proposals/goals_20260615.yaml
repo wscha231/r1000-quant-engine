@@ -51,14 +51,18 @@ metadata:
     - source: cloud_results/performance_ledger/ledger.jsonl
       ref: codex/self-sustaining-loop-20260615
       status: read
-      rows_read: 2
-      latest_row_run_id: "27498401423"
-      latest_row_commit: d42daf82
+      rows_read: 3
+      latest_row_run_id: "27516185696"
+      latest_row_commit: cd48042
     - source: cloud_results/performance_ledger/ledger_summary.md
       ref: codex/self-sustaining-loop-20260615
       status: read
-      trend: REGRESSING
+      trend: IMPROVING
       dominant_open_leak: concentrated:structural_underinvestment_bull
+    - source: origin/claude/analyze-updated-code-OfEbu:cloud_results/performance_ledger/ledger.jsonl
+      ref: 6241e9ba
+      status: read
+      note: "Bull-floor verdict row 27516185696 was schema-compatible with the PR64 ledger and is being preserved by PR66."
     - source: cloud_results/full_rebuild/latest_global_alpha_universe/account_evaluation/official_metrics.json
       ref: codex/self-sustaining-loop-20260615
       status: read
@@ -77,19 +81,19 @@ metadata:
       ref: local_worktree
       status: missing
   current_state:
-    main_is_cagr: 0.21451935628911056
-    conc_is_cagr: 0.21288533192198789
-    main_full_cagr_from_latest_ledger: 0.3433467646244528
-    conc_full_cagr_from_latest_ledger: 0.4456994566932744
+    main_is_cagr: 0.22902418871351027
+    conc_is_cagr: 0.2240682162164802
+    main_full_cagr_from_latest_ledger: 0.3520463923349362
+    conc_full_cagr_from_latest_ledger: 0.44432765211562475
     main_full_cagr_from_latest_official_metrics_file: 0.3450613033496317
     conc_full_cagr_from_latest_official_metrics_file: 0.44862681887517564
-    main_mdd: -0.2593350230450131
-    conc_mdd: -0.25878262050008727
+    main_mdd: -0.2448808978591479
+    conc_mdd: -0.2592091275279844
     broker_window_years: 7.025325119780972
     broker_start_date: "2019-06-03"
     broker_end_date: "2026-06-12"
     required_8y_start_date_hint: "2018-06-12"
-    ledger_trend: REGRESSING
+    ledger_trend: IMPROVING
     dominant_open_leak: concentrated:structural_underinvestment_bull
     main_tier2_failing: ["is_cagr_min", "oos_is_cagr_ratio_max"]
     concentrated_tier2_failing: ["is_cagr_min", "oos_is_cagr_ratio_max"]
@@ -102,6 +106,13 @@ metadata:
       - "latest official_metrics file and latest ledger row are not the same run_id"
       - "latest is_attribution sidecar artifact missing from cloud_results/latest path"
       - "local outputs/data_readiness and eight_year readiness artifacts missing"
+    bull_floor_verdict:
+      run_id: "27516185696"
+      commit: cd48042
+      verdict: partial_pass
+      main_is_cagr_delta_pp: 1.4505
+      concentrated_is_cagr_delta_pp: 1.1183
+      note: "Main headline target passes after bull-floor, but both portfolios still fail strengthened gates; Concentrated still misses canonical CAGR/MDD."
 
 mission:
   source: CLAUDE.md
@@ -116,6 +127,16 @@ mission:
   metric_mode: broker_ledger_next_close
   window_years_required: 8.0
   primary_quality_anchor: IS-CAGR and Tier-2 strengthened gates
+  target_contract_conflict:
+    status: unresolved_user_decision_required
+    canonical_mission:
+      main: "35% CAGR / -25% MaxDD"
+      concentrated: "50% CAGR / -25% MaxDD"
+    pr64_interim_operating_gate:
+      main: "30% CAGR / -25% MaxDD"
+      concentrated: "50% CAGR / -28% MaxDD"
+    rule: "Do not mutate or describe official mission gates as changed until the user explicitly approves a target-contract change."
+  evidence_caveat: "8-year coverage is an official-promotion evidence gate, not an alpha lever. IS-CAGR recovery must be measured separately from data-window expansion."
 
 strategic_goals:
   - id: SG-2026Q3-01
@@ -124,11 +145,11 @@ strategic_goals:
     contributes_to: mission.targets
     success_kpis:
       - kpi: main_is_cagr
-        baseline: 0.21451935628911056
+        baseline: 0.22902418871351027
         target: 0.28
         source: "cloud_results/performance_ledger/ledger.jsonl -> portfolios.main.is_cagr"
       - kpi: conc_is_cagr
-        baseline: 0.21288533192198789
+        baseline: 0.2240682162164802
         target: 0.32
         source: "cloud_results/performance_ledger/ledger.jsonl -> portfolios.concentrated.is_cagr"
       - kpi: oos_is_ratio_main
@@ -144,14 +165,16 @@ strategic_goals:
       - "conc_is_cagr < 0.25 at 2026-Q3 end"
       - "ledger trend REGRESSING for 3 consecutive official 8-year runs"
       - "any promoted result has OOS/IS ratio > 3.0x"
-    probability_estimate: 0.50
+    probability_estimate: 0.33
     probability_reasoning: >
-      The available evidence says the current IS engine is near 21-22%, while
-      mission-level full CAGR targets need 35/50. Concentrated bull underinvestment
-      in 2021 and 2023 gives a plausible sizing lever, but Main appears to need
-      a selection-IC or era-model lever. The 8-year bootstrap is mechanical but
-      does not by itself guarantee alpha. This is feasible only if the bull-floor
-      and era-aware challenger produce IS gains, not OOS-only gains.
+      The bull-floor A/B row 27516185696 lifted Main IS-CAGR by 1.45pp and
+      Concentrated IS-CAGR by 1.12pp, which is useful but not enough to close
+      the mission gap. The remaining distance is about 5.10pp Main IS-CAGR and
+      9.59pp Concentrated IS-CAGR, while both books still fail is_cagr_min and
+      oos_is_cagr_ratio_max. A single sizing fix is therefore not a credible
+      path to SG-2026Q3-01; the goal likely requires era-aware sub-model or
+      leader lifecycle breakthroughs plus 8-year evidence. The probability is
+      reduced from 0.50 to 0.33 until those gates are proven.
     dependencies:
       - TG-WK24-01
       - TG-WK24-02
@@ -195,13 +218,13 @@ strategic_goals:
 
 tactical_goals:
   - id: TG-WK24-01
-    title: Publish the bull-floor A/B verdict and next A/B decision
+    title: Preserve the bull-floor A/B verdict and publish the next A/B decision
     horizon: "2026-W24 (2026-06-15 to 2026-06-21)"
     contributes_to: SG-2026Q3-01
     parent_dependencies: []
     success_kpis:
       - kpi: ledger_row_count
-        baseline: 2
+        baseline: 3
         target_min: 3
         source: "cloud_results/performance_ledger/ledger.jsonl"
       - kpi: a_b_verdict_published
@@ -209,7 +232,8 @@ tactical_goals:
         source: "CHANGELOG.md 2026-06-15 or newer"
       - kpi: conc_is_cagr_delta_from_27498401423
         baseline: 0.0
-        target_min: 0.03
+        actual: 0.01118288429449231
+        target_min_for_standalone_promotion: 0.03
         source: "ledger.portfolios.concentrated.is_cagr - 0.21288533192198789"
       - kpi: main_is_cagr_regression
         baseline: 0.21451935628911056
@@ -219,8 +243,8 @@ tactical_goals:
       - "bull-floor A/B produces conc_is_cagr < 0.23"
       - "bull-floor A/B worsens main_is_cagr by more than 1.0pp"
       - "bull-floor A/B worsens either portfolio MDD below -0.28"
-    probability_estimate: 0.90
-    probability_reasoning: "Mostly mechanical: the run either appears in ledger or remains missing. Performance improvement probability is lower, but verdict publication probability is high."
+    probability_estimate: 0.95
+    probability_reasoning: "The bull-floor row is present and schema-compatible. Remaining work is documentation and the next A/B decision; standalone promotion remains blocked because Concentrated misses canonical targets and both books fail strengthened gates."
     operational_breakdown: [OG-AB27516-READ, OG-AB27516-DECIDE]
 
   - id: TG-WK24-02
@@ -246,7 +270,7 @@ tactical_goals:
       - "target-book coverage remains after 2018-06-12 after bootstrap"
       - "data_readiness reports any hard blocker for official rebuild"
     probability_estimate: 0.80
-    probability_reasoning: "This is mostly deterministic data restoration, but free data PIT coverage and older universe labels can still block official evidence."
+    probability_reasoning: "This is mostly deterministic data restoration, but free data PIT coverage and older universe labels can still block official evidence. It raises evidence quality; it should not be counted as alpha improvement by itself."
     operational_breakdown: [OG-8Y-BOOTSTRAP, OG-8Y-OFFICIAL-REBUILD]
 
   - id: TG-WK24-03
@@ -272,7 +296,7 @@ tactical_goals:
       - "execute_requested=true or dispatched_count>0 in a dry-run dispatcher artifact"
       - "selected dispatcher plan ids differ from router payload plan ids"
     probability_estimate: 0.85
-    probability_reasoning: "PR64 already hard-gates the core unsafe cases; duplicate and stale queue handling remains to be implemented."
+    probability_reasoning: "PR64 already hard-gates the core unsafe cases. PR66 adds duplicate suppression and stale queue detection; remaining work is review and merge, then measured/rejected closure from completed A/B runs."
     operational_breakdown: [OG-QUEUE-HEALTH]
 
   - id: TG-WK25-01
@@ -349,7 +373,7 @@ tactical_goals:
       - "router cannot distinguish queued, dispatched, measured, rejected, and ready_for_human_review"
       - "router writes or rewrites ledger rows"
     probability_estimate: 0.75
-    probability_reasoning: "This is mostly artifact bookkeeping and should not require model or data changes."
+    probability_reasoning: "PR66 implements the first queue-status layer with duplicate suppression and stale payload detection. Full closure still needs result-verifier linkage from completed workflow runs."
     operational_breakdown: [OG-QUEUE-CLOSURE-STATUS]
 
 operational_goals:
