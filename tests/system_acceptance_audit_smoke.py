@@ -52,6 +52,37 @@ def broker_metrics(*, years: float, cagr: float, max_dd: float, kind: str) -> di
 def seed_common_sidecars(root: Path) -> None:
     write_json(root / "data_readiness" / "summary.json", {"status": "ok", "ready_for_policy_replay": True, "blockers": []})
     write_json(
+        root / "cash_contract" / "cash_contract_summary.json",
+        {
+            "cash_contract_pass": True,
+            "mean_drift_limit_pp": 2.0,
+            "max_drift_limit_pp": 5.0,
+            "portfolios": {
+                portfolio: {
+                    "status": "passed",
+                    "cash_contract_pass": True,
+                    "target": {
+                        "status": "completed",
+                        "target_cash_contract_pass": True,
+                        "missing_explicit_cash_date_count": 0,
+                        "invalid_total_weight_date_count": 0,
+                        "negative_cash_date_count": 0,
+                    },
+                    "broker": {"status": "completed", "avg_broker_cash_weight": 0.25},
+                    "drift": {
+                        "status": "completed",
+                        "cash_drift_pass": True,
+                        "rebalance_day_cash_drift_pass": True,
+                        "month_mean_cash_drift_pass": True,
+                        "rebalance_day_mean_cash_drift_pp": 0.10,
+                        "month_mean_cash_drift_pp": 0.15,
+                    },
+                }
+                for portfolio in ("main", "concentrated")
+            },
+        },
+    )
+    write_json(
         root / "eight_year_backtest_readiness" / "summary.json",
         {"status": "official_eight_year_ready", "official_window_ready": True, "blockers": []},
     )
@@ -238,8 +269,12 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert dispatches == []
         ids = {row["requirement_id"]: row["status"] for row in payload["requirements"]}
         assert ids["official_broker_ledger_metrics"] == "pass"
+        assert ids["target_book_broker_cash_contract"] == "pass"
         assert ids["operational_order_preview_safety_bridge"] == "pass"
         assert ids["daily_crisis_paper_action_wire"] == "pass"
+        cash_contract = next(row for row in payload["requirements"] if row["requirement_id"] == "target_book_broker_cash_contract")
+        assert cash_contract["evidence"]["portfolios"]["main"]["missing_explicit_cash_date_count"] == 0
+        assert cash_contract["evidence"]["portfolios"]["concentrated"]["cash_drift_pass"] is True
         bridge = next(row for row in payload["requirements"] if row["requirement_id"] == "operational_order_preview_safety_bridge")
         assert bridge["evidence"]["live_order_submission_allowed"] is False
         assert bridge["evidence"]["risk_controls_status"] == "pass"
@@ -267,9 +302,33 @@ def test_acceptance_audit_blocks_when_operational_order_bridge_missing() -> None
         assert "live_trading_risk_controls:not_pass" in bridge["evidence"]["failures"]
 
 
+def test_acceptance_audit_blocks_when_cash_contract_fails() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        cash_path = latest / "cash_contract" / "cash_contract_summary.json"
+        cash = json.loads(cash_path.read_text(encoding="utf-8"))
+        cash["cash_contract_pass"] = False
+        cash["portfolios"]["concentrated"]["cash_contract_pass"] = False
+        cash["portfolios"]["concentrated"]["target"]["target_cash_contract_pass"] = False
+        cash["portfolios"]["concentrated"]["target"]["missing_explicit_cash_date_count"] = 1
+        cash_path.write_text(json.dumps(cash, indent=2, sort_keys=True), encoding="utf-8")
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "target_book_broker_cash_contract" in blockers
+        cash_contract = next(row for row in payload["requirements"] if row["requirement_id"] == "target_book_broker_cash_contract")
+        assert "overall_cash_contract_not_pass" in cash_contract["evidence"]["failures"]
+        assert "concentrated:target_cash_contract_not_pass" in cash_contract["evidence"]["failures"]
+        assert cash_contract["evidence"]["portfolios"]["concentrated"]["missing_explicit_cash_date_count"] == 1
+
+
 if __name__ == "__main__":
     test_acceptance_audit_reports_not_ready_for_short_concentrated_fail()
     test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short()
     test_acceptance_audit_passes_when_evidence_contract_is_complete()
     test_acceptance_audit_blocks_when_operational_order_bridge_missing()
+    test_acceptance_audit_blocks_when_cash_contract_fails()
     print("system_acceptance_audit_smoke: PASS")

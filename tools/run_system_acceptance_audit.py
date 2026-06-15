@@ -8,6 +8,7 @@ ready, not-ready, or merely review-ready against the current objective:
 - official broker-ledger next-close metrics
 - 8-year window readiness
 - data readiness
+- target-book / broker cash-contract evidence
 - operational paper-order bridge evidence
 - era-aware challenger evidence
 - daily crisis/paper-action guardrails
@@ -283,6 +284,61 @@ def evaluate_broker_realism(latest_run: Path) -> dict[str, Any]:
     )
 
 
+def evaluate_cash_contract(latest_run: Path) -> dict[str, Any]:
+    cash = read_json(latest_run / "cash_contract" / "cash_contract_summary.json")
+    failures: list[str] = []
+    portfolios: dict[str, Any] = {}
+    if not cash:
+        failures.append("cash_contract_summary_missing")
+    if cash and cash.get("cash_contract_pass") is not True:
+        failures.append("overall_cash_contract_not_pass")
+    for portfolio in PORTFOLIOS:
+        row = ((cash.get("portfolios") or {}).get(portfolio) or {}) if cash else {}
+        target = row.get("target") if isinstance(row.get("target"), dict) else {}
+        broker = row.get("broker") if isinstance(row.get("broker"), dict) else {}
+        drift = row.get("drift") if isinstance(row.get("drift"), dict) else {}
+        portfolios[portfolio] = {
+            "status": row.get("status") or "missing",
+            "cash_contract_pass": row.get("cash_contract_pass"),
+            "target_cash_contract_pass": target.get("target_cash_contract_pass"),
+            "missing_explicit_cash_date_count": target.get("missing_explicit_cash_date_count"),
+            "invalid_total_weight_date_count": target.get("invalid_total_weight_date_count"),
+            "negative_cash_date_count": target.get("negative_cash_date_count"),
+            "broker_status": broker.get("status"),
+            "cash_drift_pass": drift.get("cash_drift_pass"),
+            "rebalance_day_cash_drift_pass": drift.get("rebalance_day_cash_drift_pass"),
+            "month_mean_cash_drift_pass": drift.get("month_mean_cash_drift_pass"),
+            "rebalance_day_mean_cash_drift_pp": drift.get("rebalance_day_mean_cash_drift_pp"),
+            "month_mean_cash_drift_pp": drift.get("month_mean_cash_drift_pp"),
+        }
+        if row.get("cash_contract_pass") is not True:
+            failures.append(f"{portfolio}:cash_contract_not_pass")
+        if target.get("target_cash_contract_pass") is not True:
+            failures.append(f"{portfolio}:target_cash_contract_not_pass")
+        if broker.get("status") != "completed":
+            failures.append(f"{portfolio}:broker_cash_ledger_not_completed")
+        if drift.get("cash_drift_pass") is not True:
+            failures.append(f"{portfolio}:cash_drift_not_pass")
+        if drift.get("rebalance_day_cash_drift_pass") is not True:
+            failures.append(f"{portfolio}:rebalance_day_cash_drift_not_pass")
+        if drift.get("month_mean_cash_drift_pass") is not True:
+            failures.append(f"{portfolio}:month_mean_cash_drift_not_pass")
+    return requirement(
+        "target_book_broker_cash_contract",
+        status="pass" if not failures else "fail",
+        hard_blocker=bool(failures),
+        summary="target books have explicit CASH rows and broker cash drift is within limits" if not failures else "target-book or broker cash contract is incomplete",
+        evidence={
+            "failures": failures,
+            "cash_contract_pass": cash.get("cash_contract_pass"),
+            "mean_drift_limit_pp": cash.get("mean_drift_limit_pp"),
+            "max_drift_limit_pp": cash.get("max_drift_limit_pp"),
+            "portfolios": portfolios,
+        },
+        next_action="Run validate_target_book_cash_contract.py and fix explicit CASH rows or cash-ledger drift before treating results as official." if failures else "",
+    )
+
+
 def evaluate_operational_order_bridge(latest_run: Path) -> dict[str, Any]:
     previews: dict[str, Any] = {}
     failures: list[str] = []
@@ -517,6 +573,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         evaluate_eight_year(latest_run),
         evaluate_data_readiness(latest_run),
         evaluate_broker_realism(latest_run),
+        evaluate_cash_contract(latest_run),
         evaluate_operational_order_bridge(latest_run),
         evaluate_era(latest_run),
         evaluate_crisis(latest_run),
