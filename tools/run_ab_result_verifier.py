@@ -432,6 +432,11 @@ def render_report(payload: dict[str, Any]) -> str:
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
+        "experiment_id",
+        "payload_hash",
+        "workflow_run_id",
+        "dispatch_run_id",
+        "candidate_run",
         "run_label",
         "decision",
         "review_valid_for_promotion",
@@ -467,6 +472,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     min_cagr_delta = float(getattr(args, "min_cagr_delta_pp", 0.0)) / 100.0
     min_is_delta = float(getattr(args, "min_is_cagr_delta_pp", 0.5)) / 100.0
     max_mdd_regression = float(getattr(args, "max_mdd_regression_pp", 1.0)) / 100.0
+    dispatch_context = {
+        "experiment_id": str(getattr(args, "experiment_id", "") or ""),
+        "payload_hash": str(getattr(args, "payload_hash", "") or ""),
+        "workflow_run_id": str(getattr(args, "workflow_run_id", "") or ""),
+        "dispatch_run_id": str(getattr(args, "dispatch_run_id", "") or ""),
+    }
 
     candidate_rows: list[dict[str, Any]] = []
     for candidate_arg in getattr(args, "candidate_run", None) or []:
@@ -490,6 +501,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 max_mdd_regression=max_mdd_regression,
                 require_evidence=require_evidence,
             )
+        row["candidate_run"] = row.get("run_label")
+        for key, value in dispatch_context.items():
+            if value:
+                row[key] = value
         candidate_rows.append(row)
 
     candidate_rows.sort(
@@ -520,6 +535,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "production_activation_allowed": False,
         "live_trading_allowed": False,
         "requires_user_approval": True,
+        "dispatch_context": dispatch_context,
         "thresholds": {
             "min_cagr_delta_pp": float(getattr(args, "min_cagr_delta_pp", 0.0)),
             "min_is_cagr_delta_pp": float(getattr(args, "min_is_cagr_delta_pp", 0.5)),
@@ -548,6 +564,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-is-cagr-delta-pp", type=float, default=0.5)
     parser.add_argument("--max-mdd-regression-pp", type=float, default=1.0)
     parser.add_argument("--allow-missing-evidence", action="store_true")
+    parser.add_argument("--experiment-id", default="", help="Optional self-correction experiment id that produced the candidate run.")
+    parser.add_argument("--payload-hash", default="", help="Optional self-correction workflow payload hash for queue closure.")
+    parser.add_argument("--workflow-run-id", default="", help="Optional completed GitHub Actions workflow run id.")
+    parser.add_argument("--dispatch-run-id", default="", help="Optional review dispatcher run id.")
     return parser.parse_args(argv)
 
 
