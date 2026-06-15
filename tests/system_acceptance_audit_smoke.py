@@ -197,6 +197,11 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         ids = {row["requirement_id"]: row["status"] for row in payload["requirements"]}
         assert ids["official_broker_ledger_metrics"] == "pass"
         assert ids["daily_crisis_paper_action_wire"] == "pass"
+        adr = next(row for row in payload["requirements"] if row["requirement_id"] == "adr_universe_review_automation")
+        assert adr["status"] == "pass"
+        assert adr["evidence"]["updater_exists"] is True
+        assert adr["evidence"]["updater_requires_approval_token"] is True
+        assert adr["evidence"]["updater_blocks_placeholders"] is True
         assert (out / "report.md").exists()
 
 

@@ -375,29 +375,37 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
 
 def evaluate_adr_automation(latest_run: Path) -> dict[str, Any]:
     workflow = REPO / ".github" / "workflows" / "adr_candidate_monthly.yml"
-    tool = REPO / "tools" / "run_adr_candidate_scanner.py"
+    scanner = REPO / "tools" / "run_adr_candidate_scanner.py"
+    updater = REPO / "tools" / "apply_adr_universe_update.py"
     run_manifest = latest_run / "adr_candidates" / "adr_universe_update_manifest.json"
-    tool_text = tool.read_text(encoding="utf-8", errors="ignore") if tool.exists() else ""
+    scanner_text = scanner.read_text(encoding="utf-8", errors="ignore") if scanner.exists() else ""
+    updater_text = updater.read_text(encoding="utf-8", errors="ignore") if updater.exists() else ""
     workflow_text = workflow.read_text(encoding="utf-8", errors="ignore") if workflow.exists() else ""
     wired = (
         workflow.exists()
-        and tool.exists()
-        and "adr_universe_update_manifest.json" in tool_text
-        and "production_mutation_allowed" in tool_text
+        and scanner.exists()
+        and updater.exists()
+        and "adr_universe_update_manifest.json" in scanner_text
+        and "production_mutation_allowed" in scanner_text
+        and "APPROVE_ADR_UNIVERSE_UPDATE" in updater_text
+        and "placeholder_sector_not_reviewed" in updater_text
         and "schedule:" in workflow_text
     )
     return requirement(
         "adr_universe_review_automation",
         status="pass" if wired else "warn",
         hard_blocker=False,
-        summary="monthly ADR candidate review automation is present" if wired else "ADR review automation is incomplete",
+        summary="monthly ADR candidate review and guarded apply automation are present" if wired else "ADR review automation is incomplete",
         evidence={
             "workflow_exists": workflow.exists(),
-            "scanner_exists": tool.exists(),
+            "scanner_exists": scanner.exists(),
+            "updater_exists": updater.exists(),
             "run_manifest_exists": run_manifest.exists(),
-            "target_mutation_allowed": False if "production_mutation_allowed" in tool_text else None,
+            "scanner_target_mutation_allowed": False if "production_mutation_allowed" in scanner_text else None,
+            "updater_requires_approval_token": "APPROVE_ADR_UNIVERSE_UPDATE" in updater_text,
+            "updater_blocks_placeholders": "placeholder_sector_not_reviewed" in updater_text,
         },
-        next_action="Run adr_candidate_monthly.yml or provide a candidate CSV when ADR review is needed." if wired else "Wire ADR scanner and monthly workflow.",
+        next_action="Run adr_candidate_monthly.yml, review metadata, then dry-run apply_adr_universe_update.py." if wired else "Wire ADR scanner, guarded updater, and monthly workflow.",
     )
 
 
