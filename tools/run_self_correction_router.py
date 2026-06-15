@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
 from datetime import datetime, timezone
@@ -420,8 +421,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--latest-run", default="outputs")
     parser.add_argument("--output-dir", default="outputs/self_correction_router")
     parser.add_argument("--min-repeat", type=int, default=2)
-    parser.add_argument("--ref", default="master")
-    parser.add_argument("--repo", default="wscha231/r1000-quant-engine")
+    parser.add_argument("--ref", default=os.environ.get("GITHUB_REF_NAME", "master"))
+    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "wscha231/r1000-quant-engine"))
     return parser.parse_args(argv)
 
 

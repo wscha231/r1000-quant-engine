@@ -455,6 +455,7 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     era_idx = sidecar_tool.index("tools/run_era_leadership_sidecar.py", operating_idx)
     oos_idx = sidecar_tool.index("tools/run_oos_lock_audit.py", operating_idx)
     adr_idx = sidecar_tool.index("tools/run_adr_candidate_scanner.py", operating_idx)
+    self_correction_idx = sidecar_tool.index("tools/run_self_correction_router.py", operating_idx)
     acceptance_idx = sidecar_tool.index("tools/run_system_acceptance_audit.py", operating_idx)
     dispatcher_idx = sidecar_tool.index("tools/run_review_dispatcher.py", acceptance_idx)
     assert mdd_idx < acceptance_idx
@@ -463,7 +464,12 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     assert era_idx < acceptance_idx
     assert oos_idx < acceptance_idx
     assert adr_idx < acceptance_idx
+    assert self_correction_idx < acceptance_idx
     assert acceptance_idx < dispatcher_idx
+    self_correction_call = sidecar_tool[self_correction_idx:acceptance_idx]
+    assert "--latest-run outputs" in self_correction_call
+    assert '--ref "${GITHUB_REF_NAME:-master}"' in self_correction_call
+    assert '--repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"' in self_correction_call
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:

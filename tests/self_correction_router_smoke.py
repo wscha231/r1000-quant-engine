@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -11,7 +12,7 @@ from tempfile import TemporaryDirectory
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_self_correction_router import run  # noqa: E402
+from tools.run_self_correction_router import parse_args, run  # noqa: E402
 
 
 def row(run_id: str) -> dict:
@@ -184,9 +185,30 @@ def test_self_correction_router_queues_oos_robustness_review_without_dispatch() 
         assert "oos_lottery_era_name_review" in report
 
 
+def test_self_correction_router_defaults_to_github_context_ref_and_repo() -> None:
+    old_ref = os.environ.get("GITHUB_REF_NAME")
+    old_repo = os.environ.get("GITHUB_REPOSITORY")
+    try:
+        os.environ["GITHUB_REF_NAME"] = "codex/self-sustaining-loop-20260615"
+        os.environ["GITHUB_REPOSITORY"] = "wscha231/r1000-quant-engine"
+        args = parse_args([])
+        assert args.ref == "codex/self-sustaining-loop-20260615"
+        assert args.repo == "wscha231/r1000-quant-engine"
+    finally:
+        if old_ref is None:
+            os.environ.pop("GITHUB_REF_NAME", None)
+        else:
+            os.environ["GITHUB_REF_NAME"] = old_ref
+        if old_repo is None:
+            os.environ.pop("GITHUB_REPOSITORY", None)
+        else:
+            os.environ["GITHUB_REPOSITORY"] = old_repo
+
+
 if __name__ == "__main__":
     test_self_correction_router_queues_repeated_concentrated_bull_leak()
     test_self_correction_router_routes_flat_alpha_to_era_challenger()
     test_self_correction_router_allows_payload_after_official_8y_window()
     test_self_correction_router_queues_oos_robustness_review_without_dispatch()
+    test_self_correction_router_defaults_to_github_context_ref_and_repo()
     print("self_correction_router_smoke: PASS")

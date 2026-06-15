@@ -195,7 +195,20 @@ def seed_common_sidecars(root: Path) -> None:
     )
     write_json(
         root / "self_correction_router" / "router_queue.json",
-        {"production_mutation_allowed": False, "latest_focus": "main:flat_alpha_invested", "repeat_confirmed": True, "queued_experiments": [{}], "dispatch_payload_count": 1},
+        {
+            "production_mutation_allowed": False,
+            "latest_focus": "main:flat_alpha_invested",
+            "repeat_confirmed": True,
+            "queued_experiments": [
+                {
+                    "experiment_id": "main_era_aware_scoring_challenger_review",
+                    "dispatch_mode": "workflow_dispatch_payload_only",
+                    "requires_user_approval": True,
+                    "production_mutation_allowed": False,
+                }
+            ],
+            "dispatch_payload_count": 1,
+        },
     )
     write_json(
         root / "adr_candidates" / "adr_universe_update_manifest.json",
@@ -546,6 +559,32 @@ def test_acceptance_audit_surfaces_oos_manual_review_tasks() -> None:
         assert self_correction["evidence"]["unsafe_review_tasks"] == []
 
 
+def test_acceptance_audit_blocks_unsafe_self_correction_experiments() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        router_path = latest / "self_correction_router" / "router_queue.json"
+        router = json.loads(router_path.read_text(encoding="utf-8"))
+        router["queued_experiments"] = [
+            {
+                "experiment_id": "unsafe_auto_mutation",
+                "dispatch_mode": "workflow_dispatch_payload_only",
+                "requires_user_approval": True,
+                "production_mutation_allowed": True,
+            }
+        ]
+        router_path.write_text(json.dumps(router, indent=2, sort_keys=True), encoding="utf-8")
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "self_correction_router_queue" in blockers
+        self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
+        assert self_correction["status"] == "fail"
+        assert self_correction["evidence"]["unsafe_queued_experiments"] == ["unsafe_auto_mutation"]
+
+
 def test_acceptance_audit_warns_when_adr_candidates_need_review() -> None:
     with TemporaryDirectory() as tmp:
         latest = Path(tmp) / "latest"
@@ -617,6 +656,7 @@ if __name__ == "__main__":
     test_acceptance_audit_blocks_when_cash_contract_fails()
     test_acceptance_audit_blocks_when_oos_lock_fails()
     test_acceptance_audit_surfaces_oos_manual_review_tasks()
+    test_acceptance_audit_blocks_unsafe_self_correction_experiments()
     test_acceptance_audit_warns_when_adr_candidates_need_review()
     test_acceptance_audit_blocks_when_attribution_package_missing()
     print("system_acceptance_audit_smoke: PASS")

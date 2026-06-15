@@ -659,6 +659,17 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             next_action="Run performance ledger and self-correction router after IS attribution.",
         )
     review_tasks = router.get("queued_review_tasks") if isinstance(router.get("queued_review_tasks"), list) else []
+    queued_experiments = router.get("queued_experiments") if isinstance(router.get("queued_experiments"), list) else []
+    unsafe_queued_experiments = [
+        str(item.get("experiment_id") or item.get("plan_id") or idx)
+        for idx, item in enumerate(queued_experiments)
+        if isinstance(item, dict)
+        and (
+            item.get("production_mutation_allowed") is not False
+            or item.get("requires_user_approval") is not True
+            or str(item.get("dispatch_mode") or "") != "workflow_dispatch_payload_only"
+        )
+    ]
     unsafe_review_tasks = [
         str(task.get("task_id") or task.get("failure") or idx)
         for idx, task in enumerate(review_tasks)
@@ -669,25 +680,26 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             or str(task.get("dispatch_mode") or "") != "manual_review_no_workflow_dispatch"
         )
     ]
-    safe = router.get("production_mutation_allowed") is False and not unsafe_review_tasks
+    safe = router.get("production_mutation_allowed") is False and not unsafe_queued_experiments and not unsafe_review_tasks
     oos_robustness = router.get("oos_robustness") if isinstance(router.get("oos_robustness"), dict) else {}
     return requirement(
         "self_correction_router_queue",
         status="pass" if safe else "fail",
         hard_blocker=not safe,
-        summary="self-correction queue is review-only" if safe else "self-correction queue may mutate production or auto-dispatch review tasks",
+        summary="self-correction queue is review-only" if safe else "self-correction queue may mutate production or bypass review gates",
         evidence={
             "latest_focus": router.get("latest_focus"),
             "repeat_confirmed": router.get("repeat_confirmed"),
-            "queued_count": len(router.get("queued_experiments") or []),
+            "queued_count": len(queued_experiments),
             "queued_review_task_count": len(review_tasks),
+            "unsafe_queued_experiments": unsafe_queued_experiments,
             "unsafe_review_tasks": unsafe_review_tasks,
             "oos_lock_status_seen": oos_robustness.get("status"),
             "oos_robustness_task_count": oos_robustness.get("queued_review_task_count"),
             "dispatch_payload_count": router.get("dispatch_payload_count"),
             "production_mutation_allowed": router.get("production_mutation_allowed"),
         },
-        next_action="" if safe else "Set production_mutation_allowed=false, require user approval, and keep manual review tasks out of workflow dispatch.",
+        next_action="" if safe else "Set production_mutation_allowed=false, require user approval, keep experiments payload-only, and keep manual review tasks out of workflow dispatch.",
     )
 
 
