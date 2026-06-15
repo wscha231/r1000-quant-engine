@@ -279,6 +279,8 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
             assert row["inputs"]["skip_collector"] == "true"
             assert row["inputs"]["portfolio_policy"] == "alphaops_vnext_production"
             assert "PHASE_" in row["inputs"]["experiment_env_json"]
+            assert row["post_run_review"]["tool"] == "tools/run_ab_result_verifier.py"
+            assert row["post_run_review"]["production_mutation_allowed"] is False
         assert all(row["requires_user_approval"] for row in dispatches)
         assert not any(row["production_mutation_allowed"] for row in dispatches)
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
@@ -309,6 +311,7 @@ def test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short() 
         assert all(row["depends_on_plan_ids"] == [] for row in dispatches)
         assert all(row["source_evidence"]["target_pass"] is False for row in dispatches)
         assert all(row["source_evidence"]["tier2_failing"] for row in dispatches)
+        assert all(row["post_run_review"]["tool"] == "tools/run_ab_result_verifier.py" for row in dispatches)
 
 
 def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:

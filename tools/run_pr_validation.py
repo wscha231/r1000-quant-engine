@@ -124,6 +124,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/self_correction_router_smoke.py", []),
     ("tests/system_acceptance_audit_smoke.py", []),
     ("tests/review_dispatcher_smoke.py", []),
+    ("tests/ab_result_verifier_smoke.py", []),
     ("tests/metric_hygiene_report_smoke.py", []),
     ("tests/portfolio_system_guard_smoke.py", []),
     ("tests/operating_event_backtest_smoke.py", []),

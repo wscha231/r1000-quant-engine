@@ -837,6 +837,13 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
                     "source_requirement_id": "goal_contract_main30_conc50_mdd",
                     "source_portfolio": "concentrated",
                     "source_evidence": concentrated_evidence,
+                    "post_run_review": {
+                        "tool": "tools/run_ab_result_verifier.py",
+                        "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+                        "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+                        "portfolio": "concentrated",
+                        "production_mutation_allowed": False,
+                    },
                     "inputs": full_rebuild_ab_inputs(plan_id, dict(experiment["env"])),
                 }
             )
