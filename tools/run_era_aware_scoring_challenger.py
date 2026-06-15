@@ -22,7 +22,8 @@ REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from tools.run_broker_ledger_replay import replay as broker_replay  # noqa: E402
+from tools.run_account_evaluation import evaluate_strengthened_gates, strengthened_gate_for, target_for  # noqa: E402
+from tools.run_broker_ledger_replay import DEFAULT_OOS2_START, DEFAULT_OOS_START, replay as broker_replay  # noqa: E402
 
 
 CASH_TICKERS = {"CASH", "__CASH__"}
@@ -365,11 +366,57 @@ def maybe_run_broker_replay(args: argparse.Namespace, output_dir: Path, books: d
             cost_bps=float(args.cost_bps),
             max_fill_lag_days=int(args.max_fill_lag_days),
             disable_concentrated_champion_filter=portfolio_kind == "concentrated",
+            oos_start=DEFAULT_OOS_START,
+            oos2_start=DEFAULT_OOS2_START,
         )
         out["portfolios"][portfolio_kind] = metrics
         if metrics.get("status") != "completed":
             out["status"] = "partial"
     return out
+
+
+def evaluate_goal_contract(replay_summary: dict[str, Any]) -> dict[str, Any]:
+    verdicts: dict[str, Any] = {}
+    for portfolio_kind, metrics in (replay_summary.get("portfolios") or {}).items():
+        if not isinstance(metrics, dict) or metrics.get("status") != "completed":
+            verdicts[str(portfolio_kind)] = {
+                "status": "not_evaluated",
+                "reason": metrics.get("reason") if isinstance(metrics, dict) else "missing_metrics",
+                "target_pass": False,
+                "strengthened_pass": False,
+                "promotion_review_status": "not_eligible",
+            }
+            continue
+        target = target_for(str(portfolio_kind))
+        cagr = safe_float(metrics.get("cagr"), math.nan)
+        max_dd = safe_float(metrics.get("max_dd"), math.nan)
+        target_pass = bool(math.isfinite(cagr) and math.isfinite(max_dd) and cagr >= target["cagr"] and max_dd >= target["max_dd"])
+        tier2 = evaluate_strengthened_gates(metrics, strengthened_gate_for(str(portfolio_kind)))
+        strengthened_pass = bool(target_pass and tier2.get("passing"))
+        verdicts[str(portfolio_kind)] = {
+            "status": "evaluated",
+            "metric_mode": metrics.get("metric_mode"),
+            "start_date": metrics.get("start_date"),
+            "end_date": metrics.get("end_date"),
+            "years": metrics.get("years"),
+            "days": metrics.get("days"),
+            "cagr": cagr,
+            "cagr_target": target["cagr"],
+            "max_dd": max_dd,
+            "max_dd_target": target["max_dd"],
+            "target_pass": target_pass,
+            "tier2_gates": tier2,
+            "strengthened_pass": strengthened_pass,
+            "promotion_review_status": "eligible_for_review" if strengthened_pass else "not_eligible",
+            "production_activation_allowed": False,
+        }
+    return {
+        "schema_version": "era-aware-goal-verdict-v1",
+        "production_activation_allowed": False,
+        "promotion_requires_separate_ab": True,
+        "portfolios": verdicts,
+        "all_strengthened_pass": bool(verdicts) and all(bool(row.get("strengthened_pass")) for row in verdicts.values()),
+    }
 
 
 def render_report(summary: dict[str, Any]) -> str:
@@ -391,6 +438,20 @@ def render_report(summary: dict[str, Any]) -> str:
     ]
     for portfolio, meta in sorted(summary.get("target_books", {}).items()):
         lines.append(f"| {portfolio} | `{meta.get('path')}` | {int(meta.get('rows', 0))} |")
+    goal = summary.get("goal_verdicts") or {}
+    if goal.get("portfolios"):
+        lines.extend(["", "## Goal Verdicts", "", "| Portfolio | CAGR | MaxDD | Tier-1 | Tier-2 | Review Status |", "| --- | ---: | ---: | :---: | :---: | --- |"])
+        for portfolio, verdict in sorted((goal.get("portfolios") or {}).items()):
+            lines.append(
+                "| {portfolio} | {cagr:.2%} | {max_dd:.2%} | {tier1} | {tier2} | {status} |".format(
+                    portfolio=portfolio,
+                    cagr=safe_float(verdict.get("cagr")),
+                    max_dd=safe_float(verdict.get("max_dd")),
+                    tier1="OK" if verdict.get("target_pass") else "FAIL",
+                    tier2="OK" if verdict.get("strengthened_pass") else "FAIL",
+                    status=verdict.get("promotion_review_status") or "not_eligible",
+                )
+            )
     lines.extend(
         [
             "",
@@ -451,6 +512,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_csv(output_dir / "selection_audit.csv", pd.concat([main_audit, concentrated_audit], ignore_index=True))
 
     replay_summary = maybe_run_broker_replay(args, output_dir, {"main": main_path, "concentrated": concentrated_path})
+    goal_verdicts = evaluate_goal_contract(replay_summary)
     summary = {
         "schema_version": "era-aware-scoring-challenger-v1",
         "status": "completed",
@@ -472,6 +534,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             },
         },
         "broker_replay": replay_summary,
+        "goal_verdicts": goal_verdicts,
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
     }
     write_json(output_dir / "summary.json", summary)

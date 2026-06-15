@@ -13,7 +13,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_era_aware_scoring_challenger import run  # noqa: E402
+from tools.run_era_aware_scoring_challenger import evaluate_goal_contract, run  # noqa: E402
 
 
 def base_row(date: str, ticker: str) -> dict[str, object]:
@@ -117,6 +117,62 @@ def test_era_aware_challenger_builds_review_only_books() -> None:
         assert saved["broker_replay"]["status"] == "skipped"
 
 
+def test_goal_contract_verdict_scores_replay_metrics() -> None:
+    verdicts = evaluate_goal_contract(
+        {
+            "requested": True,
+            "status": "completed",
+            "portfolios": {
+                "main": {
+                    "status": "completed",
+                    "metric_mode": "broker_ledger_next_close",
+                    "start_date": "2019-06-03",
+                    "end_date": "2026-06-12",
+                    "years": 7.025,
+                    "days": 1768,
+                    "cagr": 0.35,
+                    "max_dd": -0.24,
+                    "sharpe": 1.5,
+                    "avg_cash_weight": 0.25,
+                    "windows": {
+                        "is": {"cagr": 0.27, "max_dd": -0.24},
+                        "oos": {"cagr": 0.50, "max_dd": -0.20},
+                        "oos2": {"cagr": 0.40, "max_dd": -0.22},
+                    },
+                },
+                "concentrated": {
+                    "status": "completed",
+                    "metric_mode": "broker_ledger_next_close",
+                    "start_date": "2019-06-03",
+                    "end_date": "2026-06-12",
+                    "years": 7.025,
+                    "days": 1749,
+                    "cagr": 0.4443,
+                    "max_dd": -0.2592,
+                    "sharpe": 1.4,
+                    "avg_cash_weight": 0.42,
+                    "windows": {
+                        "is": {"cagr": 0.2241, "max_dd": -0.2592},
+                        "oos": {"cagr": 1.2326, "max_dd": -0.2303},
+                        "oos2": {"cagr": 0.80, "max_dd": -0.2303},
+                    },
+                },
+            },
+        }
+    )
+    assert verdicts["production_activation_allowed"] is False
+    assert verdicts["promotion_requires_separate_ab"] is True
+    assert verdicts["portfolios"]["main"]["status"] == "evaluated"
+    assert verdicts["portfolios"]["main"]["target_pass"] is True
+    assert verdicts["portfolios"]["main"]["strengthened_pass"] is True
+    conc = verdicts["portfolios"]["concentrated"]
+    assert conc["target_pass"] is False
+    assert conc["strengthened_pass"] is False
+    assert "is_cagr_min" in conc["tier2_gates"]["failing"]
+    assert "oos_is_cagr_ratio_max" in conc["tier2_gates"]["failing"]
+
+
 if __name__ == "__main__":
     test_era_aware_challenger_builds_review_only_books()
+    test_goal_contract_verdict_scores_replay_metrics()
     print("era_aware_scoring_challenger_smoke: PASS")
