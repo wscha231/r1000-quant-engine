@@ -10,6 +10,7 @@ ready, not-ready, or merely review-ready against the current objective:
 - data readiness
 - target-book / broker cash-contract evidence
 - operational paper-order bridge evidence
+- attribution package evidence for year leaks, MDD trough holdings, and per-name contribution
 - era-aware challenger evidence
 - daily crisis/paper-action guardrails
 - self-correction queue
@@ -18,6 +19,7 @@ ready, not-ready, or merely review-ready against the current objective:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import shlex
@@ -85,6 +87,36 @@ def read_json(path: Path) -> dict[str, Any]:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def csv_info(path: Path, required_columns: set[str] | None = None) -> dict[str, Any]:
+    required_columns = required_columns or set()
+    if not path.exists():
+        return {
+            "exists": False,
+            "row_count": 0,
+            "columns": [],
+            "missing_columns": sorted(required_columns),
+        }
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            columns = list(reader.fieldnames or [])
+            row_count = sum(1 for _ in reader)
+    except Exception as exc:
+        return {
+            "exists": True,
+            "read_error": str(exc),
+            "row_count": 0,
+            "columns": [],
+            "missing_columns": sorted(required_columns),
+        }
+    return {
+        "exists": True,
+        "row_count": int(row_count),
+        "columns": columns,
+        "missing_columns": sorted(required_columns.difference(columns)),
+    }
 
 
 def safe_float(value: Any, default: float | None = None) -> float | None:
@@ -416,6 +448,98 @@ def evaluate_operational_order_bridge(latest_run: Path) -> dict[str, Any]:
     )
 
 
+def evaluate_attribution_package(latest_run: Path) -> dict[str, Any]:
+    is_summary = read_json(latest_run / "is_attribution" / "summary.json")
+    era_summary = read_json(latest_run / "era_leadership" / "summary.json")
+    era_leaders = csv_info(latest_run / "era_leadership" / "era_leaders.csv", {"era", "ticker", "contribution"})
+    mdd_summary = read_json(latest_run / "mdd_cash_overlay_research" / "summary.json")
+    failures: list[str] = []
+    if not is_summary:
+        failures.append("is_attribution_summary_missing")
+    if era_summary.get("status") != "completed":
+        failures.append("era_leadership_summary_not_completed")
+    if not era_leaders["exists"] or era_leaders["row_count"] <= 0 or era_leaders["missing_columns"]:
+        failures.append("era_leaders_per_name_contribution_missing")
+    if not mdd_summary:
+        failures.append("mdd_cash_overlay_summary_missing")
+
+    portfolios: dict[str, Any] = {}
+    for portfolio in PORTFOLIOS:
+        is_row = is_summary.get(portfolio) if isinstance(is_summary.get(portfolio), dict) else {}
+        yearly = csv_info(
+            latest_run / "is_attribution" / f"{portfolio}_yearly.csv",
+            {"year", "year_return", "year_cagr", "max_dd_in_year", "leak_tag"},
+        )
+        trade_findings = read_json(latest_run / "trade_attribution" / portfolio / "findings.json")
+        mdd_window = trade_findings.get("mdd_window") if isinstance(trade_findings.get("mdd_window"), dict) else {}
+        mdd_contributors = mdd_window.get("top_position_pnl_contributors")
+        trade_csv = csv_info(
+            latest_run / "trade_attribution" / portfolio / "mdd_position_pnl_by_ticker.csv",
+            {"ticker"},
+        )
+        mdd_metrics = read_json(latest_run / "mdd_cash_overlay_research" / portfolio / "metrics.json")
+        mdd_base = mdd_metrics.get("base_metrics") if isinstance(mdd_metrics.get("base_metrics"), dict) else {}
+        trough_csv = csv_info(
+            latest_run / "mdd_cash_overlay_research" / portfolio / "mdd_holdings_contributors.csv",
+            {"ticker", "trough_weight", "peak_to_trough_value_delta_usd"},
+        )
+        portfolios[portfolio] = {
+            "is_status": is_row.get("status") or "completed" if is_row else "missing",
+            "is_cagr": is_row.get("is_cagr"),
+            "oos_is_ratio": is_row.get("oos_is_ratio"),
+            "leak_year_tag_count": len(is_row.get("leak_year_tags") or {}) if isinstance(is_row, dict) else 0,
+            "yearly_rows": yearly["row_count"],
+            "trade_attribution_status": trade_findings.get("status") or "missing",
+            "trade_mdd_peak_date": mdd_window.get("peak_date"),
+            "trade_mdd_trough_date": mdd_window.get("trough_date"),
+            "trade_mdd_contributor_count": len(mdd_contributors) if isinstance(mdd_contributors, list) else 0,
+            "trade_mdd_position_rows": trade_csv["row_count"],
+            "mdd_research_status": mdd_metrics.get("status") or "completed" if mdd_metrics else "missing",
+            "mdd_peak_date": mdd_base.get("max_dd_peak_date"),
+            "mdd_trough_date": mdd_base.get("max_dd_trough_date"),
+            "mdd_trough_holding_rows": trough_csv["row_count"],
+        }
+        if not is_row or is_row.get("status") == "missing_equity_curve":
+            failures.append(f"{portfolio}:is_attribution_missing")
+        if is_row and safe_float(is_row.get("is_cagr")) is None:
+            failures.append(f"{portfolio}:is_cagr_missing")
+        if is_row and not is_row.get("leak_year_tags"):
+            failures.append(f"{portfolio}:leak_year_tags_missing")
+        if not yearly["exists"] or yearly["row_count"] <= 0 or yearly["missing_columns"]:
+            failures.append(f"{portfolio}:yearly_attribution_csv_missing")
+        if trade_findings.get("status") != "completed":
+            failures.append(f"{portfolio}:trade_attribution_not_completed")
+        if not (mdd_window.get("peak_date") and mdd_window.get("trough_date")):
+            failures.append(f"{portfolio}:trade_mdd_window_missing")
+        if not isinstance(mdd_contributors, list) or not mdd_contributors:
+            failures.append(f"{portfolio}:trade_mdd_per_name_contributors_missing")
+        if not trade_csv["exists"] or trade_csv["row_count"] <= 0 or trade_csv["missing_columns"]:
+            failures.append(f"{portfolio}:trade_mdd_position_csv_missing")
+        if not mdd_metrics:
+            failures.append(f"{portfolio}:mdd_research_metrics_missing")
+        if not (mdd_base.get("max_dd_peak_date") and mdd_base.get("max_dd_trough_date")):
+            failures.append(f"{portfolio}:mdd_trough_window_missing")
+        if not trough_csv["exists"] or trough_csv["row_count"] <= 0 or trough_csv["missing_columns"]:
+            failures.append(f"{portfolio}:mdd_trough_holdings_missing")
+
+    return requirement(
+        "attribution_package_year_mdd_name",
+        status="pass" if not failures else "fail",
+        hard_blocker=bool(failures),
+        summary="year leak, MDD trough holdings, and per-name contribution evidence are present" if not failures else "attribution evidence package is incomplete",
+        evidence={
+            "failures": failures,
+            "is_attribution_exists": bool(is_summary),
+            "era_leadership_status": era_summary.get("status"),
+            "era_leader_rows": era_leaders["row_count"],
+            "era_leader_missing_columns": era_leaders["missing_columns"],
+            "mdd_cash_overlay_summary_exists": bool(mdd_summary),
+            "portfolios": portfolios,
+        },
+        next_action="Run IS attribution, era leadership, trade attribution, and MDD cash overlay sidecars before treating any promoted result as official." if failures else "",
+    )
+
+
 def evaluate_era(latest_run: Path) -> dict[str, Any]:
     leadership = read_json(latest_run / "era_leadership" / "summary.json")
     challenger = read_json(latest_run / "era_aware_scoring_challenger" / "summary.json")
@@ -574,6 +698,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         evaluate_data_readiness(latest_run),
         evaluate_broker_realism(latest_run),
         evaluate_cash_contract(latest_run),
+        evaluate_attribution_package(latest_run),
         evaluate_operational_order_bridge(latest_run),
         evaluate_era(latest_run),
         evaluate_crisis(latest_run),

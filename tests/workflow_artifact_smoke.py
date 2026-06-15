@@ -67,6 +67,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/weekly_leader_broker_replay/",
         "outputs/cost_sensitivity/",
         "outputs/trade_attribution/",
+        "copy_dir_clean outputs/trade_attribution",
         "outputs/broker_position_risk_replay/",
         "outputs/broker_parabolic_risk_replay/",
         "outputs/broker_execution_policy_replay/",
@@ -432,6 +433,20 @@ def test_sidecar_promotion_hook_runs_before_primary_broker_replay() -> None:
     assert build_idx < hook_idx < replay_idx
     assert "build_long_crisis_inputs" in sidecar_tool
     assert "tools/run_long_crisis_dataset_builder.py" in sidecar_tool
+
+
+def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    operating_idx = sidecar_tool.index('if [ "$SIDECAR_PROFILE" = "operating_minimal" ]')
+    mdd_idx = sidecar_tool.index("tools/run_mdd_cash_overlay_research.py", operating_idx)
+    trade_idx = sidecar_tool.index("tools/run_trade_attribution_analysis.py", operating_idx)
+    is_idx = sidecar_tool.index("tools/run_is_attribution.py", operating_idx)
+    era_idx = sidecar_tool.index("tools/run_era_leadership_sidecar.py", operating_idx)
+    acceptance_idx = sidecar_tool.index("tools/run_system_acceptance_audit.py", operating_idx)
+    assert mdd_idx < acceptance_idx
+    assert trade_idx < acceptance_idx
+    assert is_idx < acceptance_idx
+    assert era_idx < acceptance_idx
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:

@@ -87,6 +87,63 @@ def seed_common_sidecars(root: Path) -> None:
         {"status": "official_eight_year_ready", "official_window_ready": True, "blockers": []},
     )
     write_json(root / "era_leadership" / "summary.json", {"status": "completed", "feature_count": 3, "row_count": 100})
+    write_text(root / "era_leadership" / "era_leaders.csv", "era,ticker,contribution\n2023_2024_ai_bull,AAA,0.125\n")
+    write_json(
+        root / "is_attribution" / "summary.json",
+        {
+            portfolio: {
+                "portfolio": portfolio,
+                "start_date": "2018-06-01",
+                "end_date": "2026-06-12",
+                "full_cagr": 0.35 if portfolio == "main" else 0.52,
+                "is_cagr": 0.27 if portfolio == "main" else 0.32,
+                "oos_cagr": 0.40,
+                "oos_is_ratio": 1.48 if portfolio == "main" else 1.25,
+                "leak_year_tags": {"2019": "healthy", "2022": "mixed"},
+                "structural_underinvestment_bull_years": [],
+            }
+            for portfolio in ("main", "concentrated")
+        },
+    )
+    for portfolio in ("main", "concentrated"):
+        write_text(
+            root / "is_attribution" / f"{portfolio}_yearly.csv",
+            "year,year_return,year_cagr,max_dd_in_year,avg_cash_weight,leak_tag\n"
+            "2019,0.20,0.24,-0.08,0.20,healthy\n"
+            "2022,-0.05,-0.05,-0.14,0.35,mixed\n",
+        )
+        write_json(
+            root / "trade_attribution" / portfolio / "findings.json",
+            {
+                "status": "completed",
+                "production_activation_allowed": False,
+                "mdd_window": {
+                    "peak_date": "2022-01-03",
+                    "trough_date": "2022-10-14",
+                    "top_position_pnl_contributors": [{"ticker": "AAA", "pnl_usd": -1250.0}],
+                },
+            },
+        )
+        write_text(root / "trade_attribution" / portfolio / "mdd_position_pnl_by_ticker.csv", "ticker,pnl_usd\nAAA,-1250\n")
+        write_json(
+            root / "mdd_cash_overlay_research" / portfolio / "metrics.json",
+            {
+                "status": "completed",
+                "base_metrics": {
+                    "max_dd_peak_date": "2022-01-03",
+                    "max_dd_trough_date": "2022-10-14",
+                    "max_dd": -0.20,
+                },
+                "production_activation_allowed": False,
+                "research_only": True,
+            },
+        )
+        write_text(
+            root / "mdd_cash_overlay_research" / portfolio / "mdd_holdings_contributors.csv",
+            "ticker,peak_market_value_usd,peak_weight,trough_market_value_usd,trough_weight,peak_to_trough_value_delta_usd\n"
+            "AAA,10000,0.10,8000,0.08,-2000\n",
+        )
+    write_json(root / "mdd_cash_overlay_research" / "summary.json", {"status": "completed", "portfolios": {"main": {}, "concentrated": {}}})
     write_json(
         root / "era_aware_scoring_challenger" / "summary.json",
         {
@@ -270,11 +327,16 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         ids = {row["requirement_id"]: row["status"] for row in payload["requirements"]}
         assert ids["official_broker_ledger_metrics"] == "pass"
         assert ids["target_book_broker_cash_contract"] == "pass"
+        assert ids["attribution_package_year_mdd_name"] == "pass"
         assert ids["operational_order_preview_safety_bridge"] == "pass"
         assert ids["daily_crisis_paper_action_wire"] == "pass"
         cash_contract = next(row for row in payload["requirements"] if row["requirement_id"] == "target_book_broker_cash_contract")
         assert cash_contract["evidence"]["portfolios"]["main"]["missing_explicit_cash_date_count"] == 0
         assert cash_contract["evidence"]["portfolios"]["concentrated"]["cash_drift_pass"] is True
+        attribution = next(row for row in payload["requirements"] if row["requirement_id"] == "attribution_package_year_mdd_name")
+        assert attribution["evidence"]["era_leader_rows"] == 1
+        assert attribution["evidence"]["portfolios"]["main"]["trade_mdd_contributor_count"] == 1
+        assert attribution["evidence"]["portfolios"]["concentrated"]["mdd_trough_holding_rows"] == 1
         bridge = next(row for row in payload["requirements"] if row["requirement_id"] == "operational_order_preview_safety_bridge")
         assert bridge["evidence"]["live_order_submission_allowed"] is False
         assert bridge["evidence"]["risk_controls_status"] == "pass"
@@ -325,10 +387,27 @@ def test_acceptance_audit_blocks_when_cash_contract_fails() -> None:
         assert cash_contract["evidence"]["portfolios"]["concentrated"]["missing_explicit_cash_date_count"] == 1
 
 
+def test_acceptance_audit_blocks_when_attribution_package_missing() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        (latest / "trade_attribution" / "concentrated" / "findings.json").unlink()
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "attribution_package_year_mdd_name" in blockers
+        attribution = next(row for row in payload["requirements"] if row["requirement_id"] == "attribution_package_year_mdd_name")
+        assert "concentrated:trade_attribution_not_completed" in attribution["evidence"]["failures"]
+        assert "concentrated:trade_mdd_window_missing" in attribution["evidence"]["failures"]
+
+
 if __name__ == "__main__":
     test_acceptance_audit_reports_not_ready_for_short_concentrated_fail()
     test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short()
     test_acceptance_audit_passes_when_evidence_contract_is_complete()
     test_acceptance_audit_blocks_when_operational_order_bridge_missing()
     test_acceptance_audit_blocks_when_cash_contract_fails()
+    test_acceptance_audit_blocks_when_attribution_package_missing()
     print("system_acceptance_audit_smoke: PASS")

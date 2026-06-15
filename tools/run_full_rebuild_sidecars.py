@@ -176,6 +176,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # profile we use for fast iteration. Cheap (just FIFO-pairs broker trades),
   # failures stay non-fatal.
   python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
+  python tools/run_trade_attribution_analysis.py --latest-run outputs --output-dir outputs/trade_attribution 2>&1 | tee outputs/full_rebuild_logs/trade_attribution_analysis.log || true
   python tools/run_leader_lifecycle_audit.py --latest-run outputs --output-dir outputs/leader_lifecycle_audit 2>&1 | tee outputs/full_rebuild_logs/leader_lifecycle_audit.log || true
   # Stage T2 — sub-monthly exit overlay measurement. PRWV walks daily closes
   # between monthly rebalances and fires hard/trailing/relative stops; the
