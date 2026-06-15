@@ -12,6 +12,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - bull-floor verdict: current state now reflects ledger row `27516185696` (`cd48042`): Main IS-CAGR `22.90%`, Main full CAGR `35.20%`, Main MDD `-24.49%`, Concentrated IS-CAGR `22.41%`, Concentrated full CAGR `44.43%`, Concentrated MDD `-25.92%`. Verdict is `partial_pass`: useful IS improvement, but both portfolios still fail strengthened gates and Concentrated still misses canonical mission targets.
 - probability update: `SG-2026Q3-01` probability estimate changes from `0.50` to `0.33` because the measured bull-floor lift is roughly 1pp, while the remaining IS-CAGR gap is about `5.10pp` Main and `9.59pp` Concentrated.
 - evidence caveat: the proposal now states that 8-year data expansion is an official-promotion evidence gate, not an alpha lever; IS-CAGR recovery must be measured separately.
+- Concentrated A/B priority: `TG-WK25-02` now prioritizes continuation-winner / leader-hysteresis first, then bull-floor confirmation, reentry quality, theme leadership, concentration-cap relaxation, and era-aware challenger review. The new `OG-CONC-AB-REENTRY` goal captures reentry lag / rebound capture / false-rally risk as a separate measured lever.
 - breaking_changes: none. Review-only goals proposal; no workflow dispatch, no ledger mutation, no universe edit, no live trading.
 
 ### 19:47 KST - codex mandatory next-goals proposal

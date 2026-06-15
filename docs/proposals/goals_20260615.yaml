@@ -352,8 +352,15 @@ tactical_goals:
       - "candidate worsens MDD below -0.25 even if CAGR improves"
       - "candidate lacks explicit portfolio_policy=alphaops_vnext_production"
     probability_estimate: 0.45
-    probability_reasoning: "The known gap is large: Concentrated needs roughly 5.4pp headline CAGR and about 8.7pp IS-CAGR improvement. Bull exposure fixes may help, but false positives from multiple A/Bs are likely."
-    operational_breakdown: [OG-CONC-AB-BULL-FLOOR, OG-CONC-AB-CONTINUATION, OG-CONC-AB-THEME, OG-CONC-AB-CAP]
+    probability_reasoning: "The known gap is large: Concentrated needs roughly 5.6pp headline CAGR and about 7.6pp IS-CAGR improvement after the bull-floor row. Continuation winner / leader hysteresis and reentry quality are higher-priority next levers than concentration-cap relaxation because cap relaxation can quickly worsen MDD near the -25% canonical limit."
+    ab_priority_order:
+      - OG-CONC-AB-CONTINUATION
+      - OG-CONC-AB-BULL-FLOOR
+      - OG-CONC-AB-REENTRY
+      - OG-CONC-AB-THEME
+      - OG-CONC-AB-CAP
+      - OG-ERA-CHALLENGER-VERIFY
+    operational_breakdown: [OG-CONC-AB-CONTINUATION, OG-CONC-AB-BULL-FLOOR, OG-CONC-AB-REENTRY, OG-CONC-AB-THEME, OG-CONC-AB-CAP]
 
   - id: TG-WK25-03
     title: Add queue closure status to the self-correction loop
@@ -426,20 +433,28 @@ operational_goals:
     fallback_on_failure: "Keep era challenger as diagnostics only and do not run promotion review."
 
   - id: OG-CONC-AB-BULL-FLOOR
-    action: "Run Concentrated bull-floor stock-min A/B after official 8-year rebuild."
+    action: "Re-run or confirm Concentrated bull-floor stock-min A/B after official 8-year rebuild."
     owner: dispatcher
     deadline: "2026-06-26T23:00:00+09:00"
-    success_kpi: "run_ab_result_verifier returns promote_candidate_review_only"
+    success_kpi: "run_ab_result_verifier returns partial_pass_or_better and Concentrated MDD does not worsen beyond canonical -25%"
     failure: "candidate fails system acceptance or worsens MDD below -0.25"
     fallback_on_failure: "Reject and mark measured; do not repeat same payload."
 
   - id: OG-CONC-AB-CONTINUATION
-    action: "Run continuation-winner relaxation A/B after official 8-year rebuild."
+    action: "Run continuation-winner / leader-hysteresis A/B after official 8-year rebuild."
     owner: dispatcher
     deadline: "2026-06-26T23:00:00+09:00"
-    success_kpi: "candidate improves Conc IS-CAGR with OOS/IS <= 3.0x"
-    failure: "candidate only improves OOS or fails strengthened gates"
+    success_kpi: "candidate improves Conc IS-CAGR with OOS/IS <= 3.0x, median_holding_days >= 60, pct_held_180d_plus >= 15%, and no MDD degradation"
+    failure: "candidate only improves OOS, fails strengthened gates, or holds losers long enough to worsen MDD"
     fallback_on_failure: "Reject and mark measured; do not promote."
+
+  - id: OG-CONC-AB-REENTRY
+    action: "Run reentry-quality A/B after official 8-year rebuild."
+    owner: dispatcher
+    deadline: "2026-06-27T23:00:00+09:00"
+    success_kpi: "reentry_lag <= 20 trading days, rebound_capture >= 0.60, false_rally_loss controlled, and Conc IS-CAGR improves"
+    failure: "candidate catches false rallies or worsens 2022-style MDD while improving headline CAGR"
+    fallback_on_failure: "Reject and route to crisis/reentry diagnostic review."
 
   - id: OG-CONC-AB-THEME
     action: "Run theme-leadership boost A/B after official 8-year rebuild."
