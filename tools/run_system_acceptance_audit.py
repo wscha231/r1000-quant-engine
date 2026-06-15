@@ -658,24 +658,36 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             evidence={},
             next_action="Run performance ledger and self-correction router after IS attribution.",
         )
-    safe = router.get("production_mutation_allowed") is False
+    review_tasks = router.get("queued_review_tasks") if isinstance(router.get("queued_review_tasks"), list) else []
+    unsafe_review_tasks = [
+        str(task.get("task_id") or task.get("failure") or idx)
+        for idx, task in enumerate(review_tasks)
+        if isinstance(task, dict)
+        and (
+            task.get("production_mutation_allowed") is not False
+            or task.get("requires_user_approval") is not True
+            or str(task.get("dispatch_mode") or "") != "manual_review_no_workflow_dispatch"
+        )
+    ]
+    safe = router.get("production_mutation_allowed") is False and not unsafe_review_tasks
     oos_robustness = router.get("oos_robustness") if isinstance(router.get("oos_robustness"), dict) else {}
     return requirement(
         "self_correction_router_queue",
         status="pass" if safe else "fail",
         hard_blocker=not safe,
-        summary="self-correction queue is review-only" if safe else "self-correction queue may mutate production",
+        summary="self-correction queue is review-only" if safe else "self-correction queue may mutate production or auto-dispatch review tasks",
         evidence={
             "latest_focus": router.get("latest_focus"),
             "repeat_confirmed": router.get("repeat_confirmed"),
             "queued_count": len(router.get("queued_experiments") or []),
-            "queued_review_task_count": len(router.get("queued_review_tasks") or []),
+            "queued_review_task_count": len(review_tasks),
+            "unsafe_review_tasks": unsafe_review_tasks,
             "oos_lock_status_seen": oos_robustness.get("status"),
             "oos_robustness_task_count": oos_robustness.get("queued_review_task_count"),
             "dispatch_payload_count": router.get("dispatch_payload_count"),
             "production_mutation_allowed": router.get("production_mutation_allowed"),
         },
-        next_action="" if safe else "Set production_mutation_allowed=false and require user approval.",
+        next_action="" if safe else "Set production_mutation_allowed=false, require user approval, and keep manual review tasks out of workflow dispatch.",
     )
 
 
@@ -763,6 +775,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         status = "review_ready_with_warnings"
     else:
         status = "production_evidence_ready"
+    manual_review_tasks = collect_manual_review_tasks(latest_run)
     return {
         "schema_version": "system-acceptance-audit-v1",
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -774,6 +787,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "warning_count": len(warnings),
         "requirements": checks,
         "next_actions": [row["next_action"] for row in checks if row.get("next_action")],
+        "manual_review_tasks": manual_review_tasks,
+        "manual_review_task_count": len(manual_review_tasks),
     }
 
 
@@ -782,6 +797,31 @@ def requirement_by_id(payload: dict[str, Any], requirement_id: str) -> dict[str,
         if row.get("requirement_id") == requirement_id:
             return row
     return {}
+
+
+def collect_manual_review_tasks(latest_run: Path) -> list[dict[str, Any]]:
+    router = read_json(latest_run / "self_correction_router" / "router_queue.json")
+    tasks = router.get("queued_review_tasks") if isinstance(router.get("queued_review_tasks"), list) else []
+    out: list[dict[str, Any]] = []
+    for idx, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            continue
+        out.append(
+            {
+                "task_id": task.get("task_id") or f"review_task_{idx}",
+                "source": task.get("source") or "self_correction_router",
+                "portfolio": task.get("portfolio"),
+                "failure": task.get("failure"),
+                "description": task.get("description"),
+                "next_action": task.get("next_action"),
+                "review_artifacts": task.get("review_artifacts") or [],
+                "dispatch_mode": task.get("dispatch_mode"),
+                "requires_user_approval": task.get("requires_user_approval"),
+                "production_mutation_allowed": task.get("production_mutation_allowed"),
+                "metrics": task.get("metrics") if isinstance(task.get("metrics"), dict) else {},
+            }
+        )
+    return out
 
 
 def concentrated_goal_needs_recovery(payload: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
@@ -942,6 +982,30 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.extend(f"- {item}" for item in actions)
     else:
         lines.append("- none")
+    lines.extend(["", "## Manual Review Tasks", ""])
+    tasks = payload.get("manual_review_tasks") or []
+    if tasks:
+        lines.extend(
+            [
+                "- These tasks are review-only and must not dispatch workflows or mutate production.",
+                "",
+                "| Task | Source | Portfolio | Failure | Dispatch Mode | Next Action |",
+                "| --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for item in tasks:
+            lines.append(
+                "| {task} | {source} | {portfolio} | {failure} | {mode} | {next_action} |".format(
+                    task=item.get("task_id"),
+                    source=item.get("source"),
+                    portfolio=item.get("portfolio") or "",
+                    failure=item.get("failure") or "",
+                    mode=item.get("dispatch_mode") or "",
+                    next_action=item.get("next_action") or "",
+                )
+            )
+    else:
+        lines.append("- none")
     lines.extend(["", "## Review Dispatch Plan", ""])
     dispatches = payload.get("workflow_dispatch_payloads") or []
     if dispatches:
@@ -973,6 +1037,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "summary.json", payload)
     write_json(output_dir / "workflow_dispatch_payloads.json", dispatch_payloads)
+    write_json(output_dir / "manual_review_tasks.json", payload.get("manual_review_tasks") or [])
     (output_dir / "workflow_dispatch_commands.sh").write_text(
         render_dispatch_script(dispatch_payloads, repo) + "\n",
         encoding="utf-8",

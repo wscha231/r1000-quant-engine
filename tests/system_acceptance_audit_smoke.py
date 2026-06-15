@@ -456,6 +456,74 @@ def test_acceptance_audit_blocks_when_oos_lock_fails() -> None:
         assert oos["evidence"]["failures"]["concentrated"] == ["oos_cagr_degradation_above_lock"]
 
 
+def test_acceptance_audit_surfaces_oos_manual_review_tasks() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        write_json(
+            latest / "oos_lock" / "summary.json",
+            {
+                "status": "fail",
+                "lock_pass": False,
+                "config": {"oos_start": "2024-07-01"},
+                "failures": {"concentrated": ["oos_is_cagr_ratio_above_lock"]},
+                "portfolios": {
+                    "concentrated": {
+                        "status": "fail",
+                        "cagr_is": 0.22,
+                        "cagr_oos": 1.20,
+                        "oos_is_cagr_ratio": 5.45,
+                        "max_oos_is_cagr_ratio": 3.0,
+                        "oos_trading_days": 490,
+                    }
+                },
+            },
+        )
+        write_json(
+            latest / "self_correction_router" / "router_queue.json",
+            {
+                "production_mutation_allowed": False,
+                "latest_focus": "concentrated:structural_underinvestment_bull",
+                "repeat_confirmed": True,
+                "queued_experiments": [],
+                "dispatch_payload_count": 0,
+                "oos_robustness": {"status": "fail", "queued_review_task_count": 1},
+                "queued_review_tasks": [
+                    {
+                        "task_id": "concentrated_oos_lottery_era_name_review",
+                        "source": "oos_lock",
+                        "portfolio": "concentrated",
+                        "failure": "oos_is_cagr_ratio_above_lock",
+                        "description": "review OOS lottery risk",
+                        "next_action": "Compare IS/OOS top-name contribution and era buckets.",
+                        "review_artifacts": ["oos_lock/report.md", "era_leadership/summary.json"],
+                        "dispatch_mode": "manual_review_no_workflow_dispatch",
+                        "requires_user_approval": True,
+                        "production_mutation_allowed": False,
+                        "metrics": {"oos_is_cagr_ratio": 5.45},
+                    }
+                ],
+            },
+        )
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        assert payload["manual_review_task_count"] == 1
+        task = payload["manual_review_tasks"][0]
+        assert task["task_id"] == "concentrated_oos_lottery_era_name_review"
+        assert task["dispatch_mode"] == "manual_review_no_workflow_dispatch"
+        assert task["production_mutation_allowed"] is False
+        assert json.loads((out / "manual_review_tasks.json").read_text(encoding="utf-8"))[0]["failure"] == "oos_is_cagr_ratio_above_lock"
+        report = (out / "report.md").read_text(encoding="utf-8")
+        assert "## Manual Review Tasks" in report
+        assert "concentrated_oos_lottery_era_name_review" in report
+        self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
+        assert self_correction["status"] == "pass"
+        assert self_correction["evidence"]["queued_review_task_count"] == 1
+        assert self_correction["evidence"]["unsafe_review_tasks"] == []
+
+
 def test_acceptance_audit_blocks_when_attribution_package_missing() -> None:
     with TemporaryDirectory() as tmp:
         latest = Path(tmp) / "latest"
@@ -479,5 +547,6 @@ if __name__ == "__main__":
     test_acceptance_audit_blocks_when_operational_order_bridge_missing()
     test_acceptance_audit_blocks_when_cash_contract_fails()
     test_acceptance_audit_blocks_when_oos_lock_fails()
+    test_acceptance_audit_surfaces_oos_manual_review_tasks()
     test_acceptance_audit_blocks_when_attribution_package_missing()
     print("system_acceptance_audit_smoke: PASS")
