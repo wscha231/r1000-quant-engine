@@ -85,6 +85,18 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def read_json_list(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
@@ -658,8 +670,14 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             evidence={},
             next_action="Run performance ledger and self-correction router after IS attribution.",
         )
+    dispatch_payloads = read_json_list(latest_run / "self_correction_router" / "workflow_dispatch_payloads.json")
     review_tasks = router.get("queued_review_tasks") if isinstance(router.get("queued_review_tasks"), list) else []
     queued_experiments = router.get("queued_experiments") if isinstance(router.get("queued_experiments"), list) else []
+    queued_experiment_ids = {
+        str(item.get("experiment_id") or item.get("plan_id"))
+        for item in queued_experiments
+        if isinstance(item, dict) and (item.get("experiment_id") or item.get("plan_id"))
+    }
     unsafe_queued_experiments = [
         str(item.get("experiment_id") or item.get("plan_id") or idx)
         for idx, item in enumerate(queued_experiments)
@@ -670,6 +688,26 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             or str(item.get("dispatch_mode") or "") != "workflow_dispatch_payload_only"
         )
     ]
+    expected_payload_count = int(safe_float(router.get("dispatch_payload_count"), 0.0) or 0)
+    dispatch_payload_count_mismatch = expected_payload_count != len(dispatch_payloads)
+    unsafe_dispatch_payloads = []
+    unknown_dispatch_payloads = []
+    for idx, payload in enumerate(dispatch_payloads):
+        payload_id = str(payload.get("plan_id") or payload.get("experiment_id") or payload.get("id") or idx)
+        if queued_experiment_ids and payload_id not in queued_experiment_ids:
+            unknown_dispatch_payloads.append(payload_id)
+        inputs = payload.get("inputs")
+        unsafe = (
+            payload.get("production_mutation_allowed") is not False
+            or payload.get("requires_user_approval") is not True
+            or str(payload.get("workflow_id") or "") != "full_rebuild_manual.yml"
+            or not isinstance(inputs, dict)
+        )
+        if isinstance(inputs, dict):
+            unsafe = unsafe or str(inputs.get("backtest_years") or "") != "8"
+            unsafe = unsafe or str(inputs.get("portfolio_policy") or "") != "alphaops_vnext_production"
+        if unsafe:
+            unsafe_dispatch_payloads.append(payload_id)
     unsafe_review_tasks = [
         str(task.get("task_id") or task.get("failure") or idx)
         for idx, task in enumerate(review_tasks)
@@ -680,7 +718,14 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             or str(task.get("dispatch_mode") or "") != "manual_review_no_workflow_dispatch"
         )
     ]
-    safe = router.get("production_mutation_allowed") is False and not unsafe_queued_experiments and not unsafe_review_tasks
+    safe = (
+        router.get("production_mutation_allowed") is False
+        and not unsafe_queued_experiments
+        and not unsafe_review_tasks
+        and not dispatch_payload_count_mismatch
+        and not unsafe_dispatch_payloads
+        and not unknown_dispatch_payloads
+    )
     oos_robustness = router.get("oos_robustness") if isinstance(router.get("oos_robustness"), dict) else {}
     return requirement(
         "self_correction_router_queue",
@@ -693,6 +738,10 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             "queued_count": len(queued_experiments),
             "queued_review_task_count": len(review_tasks),
             "unsafe_queued_experiments": unsafe_queued_experiments,
+            "dispatch_payload_file_count": len(dispatch_payloads),
+            "dispatch_payload_count_mismatch": dispatch_payload_count_mismatch,
+            "unsafe_dispatch_payloads": unsafe_dispatch_payloads,
+            "unknown_dispatch_payloads": unknown_dispatch_payloads,
             "unsafe_review_tasks": unsafe_review_tasks,
             "oos_lock_status_seen": oos_robustness.get("status"),
             "oos_robustness_task_count": oos_robustness.get("queued_review_task_count"),

@@ -211,6 +211,25 @@ def seed_common_sidecars(root: Path) -> None:
         },
     )
     write_json(
+        root / "self_correction_router" / "workflow_dispatch_payloads.json",
+        [
+            {
+                "plan_id": "main_era_aware_scoring_challenger_review",
+                "experiment_id": "main_era_aware_scoring_challenger_review",
+                "workflow_id": "full_rebuild_manual.yml",
+                "ref": "master",
+                "requires_user_approval": True,
+                "production_mutation_allowed": False,
+                "inputs": {
+                    "backtest_years": "8",
+                    "portfolio_policy": "alphaops_vnext_production",
+                    "cache_key_suffix": "main_era_aware_scoring_challenger_review",
+                    "experiment_env_json": "{\"PHASE_ERA_AWARE_SCORING_CHALLENGER_REVIEW\": \"1\"}",
+                },
+            }
+        ],
+    )
+    write_json(
         root / "adr_candidates" / "adr_universe_update_manifest.json",
         {
             "schema_version": "adr-universe-update-manifest-v1",
@@ -541,6 +560,7 @@ def test_acceptance_audit_surfaces_oos_manual_review_tasks() -> None:
                 ],
             },
         )
+        write_json(latest / "self_correction_router" / "workflow_dispatch_payloads.json", [])
         out = Path(tmp) / "audit"
         payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
         assert payload["status"] == "not_ready"
@@ -583,6 +603,38 @@ def test_acceptance_audit_blocks_unsafe_self_correction_experiments() -> None:
         self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
         assert self_correction["status"] == "fail"
         assert self_correction["evidence"]["unsafe_queued_experiments"] == ["unsafe_auto_mutation"]
+
+
+def test_acceptance_audit_blocks_unsafe_self_correction_payload_file() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        payload_path = latest / "self_correction_router" / "workflow_dispatch_payloads.json"
+        payloads = json.loads(payload_path.read_text(encoding="utf-8"))
+        payloads[0]["production_mutation_allowed"] = True
+        payload_path.write_text(json.dumps(payloads, indent=2, sort_keys=True), encoding="utf-8")
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "self_correction_router_queue" in blockers
+        self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
+        assert self_correction["status"] == "fail"
+        assert self_correction["evidence"]["unsafe_dispatch_payloads"] == ["main_era_aware_scoring_challenger_review"]
+
+
+def test_acceptance_audit_blocks_self_correction_payload_count_mismatch() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        write_json(latest / "self_correction_router" / "workflow_dispatch_payloads.json", [])
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
+        assert self_correction["evidence"]["dispatch_payload_count_mismatch"] is True
 
 
 def test_acceptance_audit_warns_when_adr_candidates_need_review() -> None:
@@ -657,6 +709,8 @@ if __name__ == "__main__":
     test_acceptance_audit_blocks_when_oos_lock_fails()
     test_acceptance_audit_surfaces_oos_manual_review_tasks()
     test_acceptance_audit_blocks_unsafe_self_correction_experiments()
+    test_acceptance_audit_blocks_unsafe_self_correction_payload_file()
+    test_acceptance_audit_blocks_self_correction_payload_count_mismatch()
     test_acceptance_audit_warns_when_adr_candidates_need_review()
     test_acceptance_audit_blocks_when_attribution_package_missing()
     print("system_acceptance_audit_smoke: PASS")
