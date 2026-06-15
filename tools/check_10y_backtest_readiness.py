@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Audit whether the engine is ready for 10-year proxy or official backtests."""
+"""Audit whether the engine is ready for a requested multi-year backtest window.
+
+The original artifact was 10-year research readiness. PR64 also needs an
+official 8-year broker-ledger readiness artifact, so this tool keeps the old
+10-year keys for compatibility and emits generic window keys for the actual
+requested horizon.
+"""
 from __future__ import annotations
 
 import argparse
@@ -18,6 +24,22 @@ DEFAULT_MANIFEST = "manifests/free_data/latest_manifest.json"
 DEFAULT_PRICE_CACHE = "cache_prices"
 DEFAULT_PRICE_MANIFEST = "data_raw/free/prices/replay_price_cache_manifest.json"
 DEFAULT_OUTPUT_DIR = "outputs/ten_year_backtest_readiness"
+
+
+def window_slug(min_years: float) -> str:
+    if min_years >= 9.5:
+        return "ten_year"
+    if 7.95 <= min_years < 8.5:
+        return "eight_year"
+    return f"{str(min_years).replace('.', 'p')}_year"
+
+
+def window_label(min_years: float) -> str:
+    if min_years >= 9.5:
+        return "10-year"
+    if 7.95 <= min_years < 8.5:
+        return "8-year"
+    return f"{min_years:g}-year"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -143,7 +165,9 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     effective_price_files = max(local_price_files, manifest_price_files)
 
     min_years = float(args.min_years)
-    price_10y_ready = (
+    slug = window_slug(min_years)
+    label = window_label(min_years)
+    price_window_ready = (
         coverage.get("readiness") == "ready_for_proxy_replay"
         and years_ready(price_start, price_end, min_years)
         and required_tickers > 0
@@ -160,9 +184,9 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     sec_available = (repo_path("data_raw/free/sec/companyfacts.zip").exists() or coverage_sec.get("status") == "available")
     pit_safe = coverage.get("pit_label") == "pit_safe"
 
-    proxy_ready = price_10y_ready
+    proxy_ready = price_window_ready
     official_ready = (
-        price_10y_ready
+        price_window_ready
         and main_book_ready
         and concentrated_book_ready
         and main_official_ready
@@ -173,12 +197,12 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     blockers: list[str] = []
     warnings: list[str] = []
-    if not price_10y_ready:
-        blockers.append("10-year price cache/manifest is not ready for proxy replay")
+    if not price_window_ready:
+        blockers.append(f"{label} price cache/manifest is not ready for proxy replay")
     if not main_book_ready or not concentrated_book_ready:
-        blockers.append("monthly target books do not cover the requested 10-year window")
+        blockers.append(f"monthly target books do not cover the requested {label} window")
     if not main_official_ready or not concentrated_official_ready:
-        blockers.append("broker-ledger official replay does not yet cover the requested 10-year window")
+        blockers.append(f"broker-ledger official replay does not yet cover the requested {label} window")
     if not sec_available:
         warnings.append("SEC companyfacts archive is not available under data_raw/free/sec")
     if not pit_safe:
@@ -187,14 +211,22 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         if gap not in warnings:
             warnings.append(str(gap))
 
-    status = "official_10y_ready" if official_ready else ("proxy_10y_price_ready" if proxy_ready else "not_ready")
+    if slug == "ten_year":
+        status = "official_10y_ready" if official_ready else ("proxy_10y_price_ready" if proxy_ready else "not_ready")
+    else:
+        status = f"official_{slug}_ready" if official_ready else (f"proxy_{slug}_price_ready" if proxy_ready else "not_ready")
     return {
-        "schema_version": "ten-year-backtest-readiness-v1",
+        "schema_version": "backtest-window-readiness-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "min_years": min_years,
+        "requested_years": min_years,
+        "window_label": label,
+        "window_slug": slug,
         "status": status,
-        "proxy_10y_price_ready": proxy_ready,
-        "official_10y_ready": official_ready,
+        "proxy_price_ready": proxy_ready,
+        "official_window_ready": official_ready,
+        "proxy_10y_price_ready": proxy_ready if slug == "ten_year" else False,
+        "official_10y_ready": official_ready if slug == "ten_year" else False,
         "pit_label": coverage.get("pit_label"),
         "coverage_readiness": coverage.get("readiness"),
         "price_cache": {
@@ -207,17 +239,20 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "effective_price_files": effective_price_files,
             "required_target_book_tickers": required_tickers,
             "requested_tickers": requested_tickers,
-            "ten_year_ready": price_10y_ready,
+            "window_ready": price_window_ready,
+            "ten_year_ready": price_window_ready if slug == "ten_year" else False,
         },
         "target_books": {
             "main": main_book,
             "concentrated": concentrated_book,
-            "ten_year_ready": main_book_ready and concentrated_book_ready,
+            "window_ready": main_book_ready and concentrated_book_ready,
+            "ten_year_ready": (main_book_ready and concentrated_book_ready) if slug == "ten_year" else False,
         },
         "broker_replay": {
             "main": main_broker,
             "concentrated": concentrated_broker,
-            "ten_year_ready": main_official_ready and concentrated_official_ready,
+            "window_ready": main_official_ready and concentrated_official_ready,
+            "ten_year_ready": (main_official_ready and concentrated_official_ready) if slug == "ten_year" else False,
         },
         "free_data": {
             "manifest_exists": repo_path(args.manifest).exists(),
@@ -227,19 +262,20 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         },
         "blockers": blockers,
         "warnings": warnings,
-        "next_actions": next_actions(status, blockers, warnings),
+        "next_actions": next_actions(status, blockers, warnings, min_years=min_years, label=label),
     }
 
 
-def next_actions(status: str, blockers: list[str], warnings: list[str]) -> list[str]:
-    if status == "official_10y_ready":
+def next_actions(status: str, blockers: list[str], warnings: list[str], *, min_years: float, label: str) -> list[str]:
+    if status.startswith("official_") and status.endswith("_ready"):
         return [
-            "Run the full 10-year broker-ledger backtest and compare main/concentrated production metrics.",
+            f"Run the full {label} broker-ledger backtest and compare main/concentrated production metrics.",
             "Promote only if broker-ledger metrics pass production gates without proxy-only labels.",
         ]
     actions: list[str] = []
-    if status == "proxy_10y_price_ready":
-        actions.append("Run a 10-year full rebuild with backtest_years=10 so monthly target books extend to the full window.")
+    if status.startswith("proxy_") and status.endswith("_price_ready"):
+        years_arg = "10" if min_years >= 9.5 else "8"
+        actions.append(f"Run a {label} full rebuild with backtest_years={years_arg} so monthly target books extend to the full window.")
         actions.append("Keep results labeled pit_proxy_universe until historical membership and delisted coverage are solved.")
     else:
         actions.append("Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.")
@@ -254,8 +290,10 @@ def render_report(payload: dict[str, Any]) -> str:
     pc = payload["price_cache"]
     tb = payload["target_books"]
     br = payload["broker_replay"]
+    label = payload.get("window_label") or "10-year"
+    title = label[:1].upper() + label[1:]
     lines = [
-        "# 10-Year Backtest Readiness",
+        f"# {title} Backtest Readiness",
         "",
         f"- Status: `{payload['status']}`",
         f"- Min years: `{payload['min_years']}`",
@@ -266,19 +304,19 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         f"- Range: `{pc.get('start_date')}` to `{pc.get('end_date')}`",
         f"- Effective files: `{pc.get('effective_price_files')}` / required `{pc.get('required_target_book_tickers')}`",
-        f"- 10-year ready: `{pc.get('ten_year_ready')}`",
+        f"- Window ready: `{pc.get('window_ready')}`",
         "",
         "## Target Books",
         "",
         f"- Main: `{tb['main'].get('min_date')}` to `{tb['main'].get('max_date')}`, rows `{tb['main'].get('rows')}`",
         f"- Concentrated: `{tb['concentrated'].get('min_date')}` to `{tb['concentrated'].get('max_date')}`, rows `{tb['concentrated'].get('rows')}`",
-        f"- 10-year ready: `{tb.get('ten_year_ready')}`",
+        f"- Window ready: `{tb.get('window_ready')}`",
         "",
         "## Broker Replay",
         "",
         f"- Main: `{br['main'].get('start_date')}` to `{br['main'].get('end_date')}`, CAGR `{br['main'].get('cagr')}`",
         f"- Concentrated: `{br['concentrated'].get('start_date')}` to `{br['concentrated'].get('end_date')}`, CAGR `{br['concentrated'].get('cagr')}`",
-        f"- 10-year ready: `{br.get('ten_year_ready')}`",
+        f"- Window ready: `{br.get('window_ready')}`",
         "",
         "## Blockers",
         "",
