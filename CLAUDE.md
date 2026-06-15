@@ -1,5 +1,11 @@
 # r1000 Quant Engine - Project Guide
 
+## Active Cross-Agent Handoff
+- Read `SESSION_HANDOFF_20260615.md` first for the current shared plan.
+- Read `docs/AGENT_COORDINATION.md` before coordinating work across Claude Code, ChatGPT Pro, Codex, GitHub, or Google Drive.
+- GitHub Markdown is the coordination source of truth. Google Drive is for large artifacts and exported reports; record exact Drive paths or file IDs in GitHub when they matter.
+- Do not rely on chat-only state for decisions another agent must inherit.
+
 ## Project Overview
 Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과수익 목표.
 
