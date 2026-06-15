@@ -46,6 +46,7 @@ except Exception:  # pragma: no cover - smoke fallback
 PORTFOLIOS = ("main", "concentrated")
 OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 MIN_YEARS = 8.0
+CRISIS_ALLOWED_ACTION_TYPES = {"raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op"}
 CONCENTRATED_RECOVERY_EXPERIMENTS = [
     {
         "plan_id": "ab_conc_bull_floor_stock_min",
@@ -627,33 +628,96 @@ def evaluate_era(latest_run: Path) -> dict[str, Any]:
 def evaluate_crisis(latest_run: Path) -> dict[str, Any]:
     monitor = read_json(latest_run / "daily_crisis_monitor" / "summary.json")
     bridge = read_json(latest_run / "crisis_paper_order_bridge" / "summary.json")
-    monitor_ok = bool(monitor) and monitor.get("auto_trade_allowed") is False
-    bridge_ok = bool(bridge) and bridge.get("paper_only") is True and bridge.get("approval_required") is True
-    if monitor_ok and bridge_ok:
+    monitor_candidates = monitor.get("paper_action_candidates") if isinstance(monitor.get("paper_action_candidates"), list) else []
+    monitor_action_types = sorted(
+        {
+            str(item.get("action_type") or "")
+            for item in monitor_candidates
+            if isinstance(item, dict) and item.get("action_type")
+        }
+    )
+    monitor_allowed_declared = monitor.get("allowed_action_types") if isinstance(monitor.get("allowed_action_types"), list) else []
+    monitor_declared_unknown = sorted({str(item) for item in monitor_allowed_declared if str(item) not in CRISIS_ALLOWED_ACTION_TYPES})
+    monitor_unknown_actions = sorted({item for item in monitor_action_types if item not in CRISIS_ALLOWED_ACTION_TYPES})
+    bridge_action_types = sorted({str(item) for item in (bridge.get("paper_action_types") or []) if str(item)})
+    bridge_unknown_actions = sorted({item for item in bridge_action_types if item not in CRISIS_ALLOWED_ACTION_TYPES})
+    unsafe_portfolio_previews: list[str] = []
+    for row in bridge.get("portfolios") or []:
+        if not isinstance(row, dict):
+            continue
+        portfolio = str(row.get("portfolio") or "unknown")
+        if (
+            row.get("auto_trade_allowed") is not False
+            or row.get("paper_only") is not True
+            or row.get("approval_required") is not True
+        ):
+            unsafe_portfolio_previews.append(portfolio)
+
+    monitor_has_unsafe_flags = bool(monitor) and (
+        monitor.get("auto_trade_allowed") is True
+        or monitor.get("paper_actions_only") is False
+    )
+    bridge_has_unsafe_flags = bool(bridge) and (
+        bridge.get("auto_trade_allowed") is True
+        or bridge.get("paper_only") is not True
+        or bridge.get("approval_required") is not True
+    )
+    unsafe = bool(
+        monitor_has_unsafe_flags
+        or bridge_has_unsafe_flags
+        or monitor_unknown_actions
+        or monitor_declared_unknown
+        or bridge_unknown_actions
+        or unsafe_portfolio_previews
+    )
+    monitor_ok = bool(monitor) and monitor.get("auto_trade_allowed") is False and monitor.get("paper_actions_only") is True
+    bridge_ok = (
+        bool(bridge)
+        and bridge.get("status") == "completed"
+        and bridge.get("auto_trade_allowed") is False
+        and bridge.get("paper_only") is True
+        and bridge.get("approval_required") is True
+    )
+    if unsafe:
+        status = "fail"
+        hard_blocker = True
+        summary = "crisis monitor or paper-order bridge contains unsafe action or execution flags"
+        next_action = "Keep crisis actions limited to raise_cash, trim_position, block_new_buys, reentry_watch, and no_op; keep every output paper-only with user approval required."
+    elif monitor_ok and bridge_ok:
         status = "pass"
+        hard_blocker = False
         summary = "crisis monitor and paper-order bridge are wired with approval gates"
         next_action = ""
     elif monitor_ok:
         status = "warn"
+        hard_blocker = False
         summary = "crisis monitor is wired, but paper-order bridge output is missing"
         next_action = "Run run_crisis_paper_order_bridge.py after daily crisis monitor."
     else:
         status = "warn"
+        hard_blocker = False
         summary = "daily crisis monitor output is missing"
         next_action = "Run run_daily_crisis_monitor.py and keep auto_trade_allowed=false."
     return requirement(
         "daily_crisis_paper_action_wire",
         status=status,
-        hard_blocker=False,
+        hard_blocker=hard_blocker,
         summary=summary,
         evidence={
             "monitor_state": monitor.get("state"),
             "monitor_raw_state": monitor.get("raw_state"),
             "auto_trade_allowed": monitor.get("auto_trade_allowed"),
             "paper_actions_only": monitor.get("paper_actions_only"),
+            "monitor_action_types": monitor_action_types,
+            "monitor_unknown_actions": monitor_unknown_actions,
+            "monitor_declared_unknown_action_types": monitor_declared_unknown,
             "bridge_status": bridge.get("status"),
+            "bridge_auto_trade_allowed": bridge.get("auto_trade_allowed"),
             "bridge_paper_only": bridge.get("paper_only"),
             "bridge_approval_required": bridge.get("approval_required"),
+            "bridge_action_types": bridge_action_types,
+            "bridge_unknown_actions": bridge_unknown_actions,
+            "unsafe_portfolio_previews": unsafe_portfolio_previews,
         },
         next_action=next_action,
     )

@@ -187,11 +187,28 @@ def seed_common_sidecars(root: Path) -> None:
     )
     write_json(
         root / "daily_crisis_monitor" / "summary.json",
-        {"state": "GREEN", "raw_state": "GREEN", "auto_trade_allowed": False, "paper_actions_only": True},
+        {
+            "state": "GREEN",
+            "raw_state": "GREEN",
+            "auto_trade_allowed": False,
+            "paper_actions_only": True,
+            "allowed_action_types": ["raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op"],
+            "paper_action_candidates": [{"action_type": "no_op", "priority": 0}],
+        },
     )
     write_json(
         root / "crisis_paper_order_bridge" / "summary.json",
-        {"status": "completed", "paper_only": True, "approval_required": True},
+        {
+            "status": "completed",
+            "auto_trade_allowed": False,
+            "paper_only": True,
+            "approval_required": True,
+            "paper_action_types": ["no_op"],
+            "portfolios": [
+                {"portfolio": "main", "auto_trade_allowed": False, "paper_only": True, "approval_required": True},
+                {"portfolio": "concentrated", "auto_trade_allowed": False, "paper_only": True, "approval_required": True},
+            ],
+        },
     )
     write_json(
         root / "self_correction_router" / "router_queue.json",
@@ -455,6 +472,11 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert bridge["evidence"]["live_order_submission_allowed"] is False
         assert bridge["evidence"]["risk_controls_status"] == "pass"
         assert bridge["evidence"]["previews"]["main"]["order_batch_manifest_exists"] is True
+        crisis = next(row for row in payload["requirements"] if row["requirement_id"] == "daily_crisis_paper_action_wire")
+        assert crisis["evidence"]["monitor_action_types"] == ["no_op"]
+        assert crisis["evidence"]["monitor_unknown_actions"] == []
+        assert crisis["evidence"]["bridge_action_types"] == ["no_op"]
+        assert crisis["evidence"]["unsafe_portfolio_previews"] == []
         self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
         assert self_correction["evidence"]["dispatcher_summary_exists"] is True
         assert self_correction["evidence"]["dispatcher_execute_requested"] is False
@@ -537,6 +559,49 @@ def test_acceptance_audit_blocks_when_oos_lock_fails() -> None:
         assert "oos_holdout_lock" in blockers
         oos = next(row for row in payload["requirements"] if row["requirement_id"] == "oos_holdout_lock")
         assert oos["evidence"]["failures"]["concentrated"] == ["oos_cagr_degradation_above_lock"]
+
+
+def test_acceptance_audit_blocks_unsafe_crisis_action_types() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        monitor_path = latest / "daily_crisis_monitor" / "summary.json"
+        monitor = json.loads(monitor_path.read_text(encoding="utf-8"))
+        monitor["paper_action_candidates"] = [{"action_type": "market_sell_all", "priority": 0}]
+        monitor_path.write_text(json.dumps(monitor, indent=2, sort_keys=True), encoding="utf-8")
+        bridge_path = latest / "crisis_paper_order_bridge" / "summary.json"
+        bridge = json.loads(bridge_path.read_text(encoding="utf-8"))
+        bridge["paper_action_types"] = ["market_sell_all"]
+        bridge_path.write_text(json.dumps(bridge, indent=2, sort_keys=True), encoding="utf-8")
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "daily_crisis_paper_action_wire" in blockers
+        crisis = next(row for row in payload["requirements"] if row["requirement_id"] == "daily_crisis_paper_action_wire")
+        assert crisis["status"] == "fail"
+        assert crisis["evidence"]["monitor_unknown_actions"] == ["market_sell_all"]
+        assert crisis["evidence"]["bridge_unknown_actions"] == ["market_sell_all"]
+
+
+def test_acceptance_audit_blocks_unsafe_crisis_portfolio_preview_flags() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        bridge_path = latest / "crisis_paper_order_bridge" / "summary.json"
+        bridge = json.loads(bridge_path.read_text(encoding="utf-8"))
+        bridge["portfolios"][0]["approval_required"] = False
+        bridge_path.write_text(json.dumps(bridge, indent=2, sort_keys=True), encoding="utf-8")
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "daily_crisis_paper_action_wire" in blockers
+        crisis = next(row for row in payload["requirements"] if row["requirement_id"] == "daily_crisis_paper_action_wire")
+        assert crisis["status"] == "fail"
+        assert crisis["evidence"]["unsafe_portfolio_previews"] == ["main"]
 
 
 def test_acceptance_audit_surfaces_oos_manual_review_tasks() -> None:
@@ -784,6 +849,8 @@ if __name__ == "__main__":
     test_acceptance_audit_blocks_when_operational_order_bridge_missing()
     test_acceptance_audit_blocks_when_cash_contract_fails()
     test_acceptance_audit_blocks_when_oos_lock_fails()
+    test_acceptance_audit_blocks_unsafe_crisis_action_types()
+    test_acceptance_audit_blocks_unsafe_crisis_portfolio_preview_flags()
     test_acceptance_audit_surfaces_oos_manual_review_tasks()
     test_acceptance_audit_blocks_missing_self_correction_dispatcher_summary()
     test_acceptance_audit_blocks_executed_self_correction_dispatcher_summary()
