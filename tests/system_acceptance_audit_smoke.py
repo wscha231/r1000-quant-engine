@@ -86,6 +86,38 @@ def seed_common_sidecars(root: Path) -> None:
         root / "eight_year_backtest_readiness" / "summary.json",
         {"status": "official_eight_year_ready", "official_window_ready": True, "blockers": []},
     )
+    write_json(
+        root / "oos_lock" / "summary.json",
+        {
+            "status": "pass",
+            "lock_pass": True,
+            "production_activation_allowed": False,
+            "config": {"oos_start": "2024-07-01"},
+            "failures": {},
+            "portfolios": {
+                "main": {
+                    "status": "pass",
+                    "cagr_is": 0.27,
+                    "cagr_oos": 0.31,
+                    "oos_degradation_pp": -4.0,
+                    "oos_is_cagr_ratio": 1.15,
+                    "max_allowed_degradation_pp": 5.0,
+                    "max_oos_is_cagr_ratio": 3.0,
+                    "oos_trading_days": 490,
+                },
+                "concentrated": {
+                    "status": "pass",
+                    "cagr_is": 0.32,
+                    "cagr_oos": 0.38,
+                    "oos_degradation_pp": -6.0,
+                    "oos_is_cagr_ratio": 1.19,
+                    "max_allowed_degradation_pp": 6.0,
+                    "max_oos_is_cagr_ratio": 3.0,
+                    "oos_trading_days": 490,
+                },
+            },
+        },
+    )
     write_json(root / "era_leadership" / "summary.json", {"status": "completed", "feature_count": 3, "row_count": 100})
     write_text(root / "era_leadership" / "era_leaders.csv", "era,ticker,contribution\n2023_2024_ai_bull,AAA,0.125\n")
     write_json(
@@ -329,6 +361,7 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert dispatches == []
         ids = {row["requirement_id"]: row["status"] for row in payload["requirements"]}
         assert ids["official_broker_ledger_metrics"] == "pass"
+        assert ids["oos_holdout_lock"] == "pass"
         assert ids["target_book_broker_cash_contract"] == "pass"
         assert ids["attribution_package_year_mdd_name"] == "pass"
         assert ids["operational_order_preview_safety_bridge"] == "pass"
@@ -390,6 +423,39 @@ def test_acceptance_audit_blocks_when_cash_contract_fails() -> None:
         assert cash_contract["evidence"]["portfolios"]["concentrated"]["missing_explicit_cash_date_count"] == 1
 
 
+def test_acceptance_audit_blocks_when_oos_lock_fails() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        write_json(
+            latest / "oos_lock" / "summary.json",
+            {
+                "status": "fail",
+                "lock_pass": False,
+                "config": {"oos_start": "2024-07-01"},
+                "failures": {"concentrated": ["oos_cagr_degradation_above_lock"]},
+                "portfolios": {
+                    "concentrated": {
+                        "status": "fail",
+                        "cagr_is": 0.45,
+                        "cagr_oos": 0.25,
+                        "oos_degradation_pp": 20.0,
+                        "max_allowed_degradation_pp": 6.0,
+                        "oos_trading_days": 490,
+                    }
+                },
+            },
+        )
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "oos_holdout_lock" in blockers
+        oos = next(row for row in payload["requirements"] if row["requirement_id"] == "oos_holdout_lock")
+        assert oos["evidence"]["failures"]["concentrated"] == ["oos_cagr_degradation_above_lock"]
+
+
 def test_acceptance_audit_blocks_when_attribution_package_missing() -> None:
     with TemporaryDirectory() as tmp:
         latest = Path(tmp) / "latest"
@@ -412,5 +478,6 @@ if __name__ == "__main__":
     test_acceptance_audit_passes_when_evidence_contract_is_complete()
     test_acceptance_audit_blocks_when_operational_order_bridge_missing()
     test_acceptance_audit_blocks_when_cash_contract_fails()
+    test_acceptance_audit_blocks_when_oos_lock_fails()
     test_acceptance_audit_blocks_when_attribution_package_missing()
     print("system_acceptance_audit_smoke: PASS")

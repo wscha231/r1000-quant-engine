@@ -7,6 +7,7 @@ ready, not-ready, or merely review-ready against the current objective:
 
 - official broker-ledger next-close metrics
 - 8-year window readiness
+- locked IS/OOS holdout evidence
 - data readiness
 - target-book / broker cash-contract evidence
 - operational paper-order bridge evidence
@@ -262,6 +263,49 @@ def evaluate_eight_year(latest_run: Path) -> dict[str, Any]:
             "blockers": readiness.get("blockers") or [],
         },
         next_action="Extend price/universe/cache and target books back to at least mid-2018, then rerun full rebuild." if blocker else "",
+    )
+
+
+def evaluate_oos_lock(latest_run: Path) -> dict[str, Any]:
+    lock = read_json(latest_run / "oos_lock" / "summary.json")
+    if not lock:
+        return requirement(
+            "oos_holdout_lock",
+            status="fail",
+            hard_blocker=True,
+            summary="OOS holdout lock audit is missing",
+            evidence={},
+            next_action="Run tools/run_oos_lock_audit.py after broker replay and before system acceptance.",
+        )
+    failures = lock.get("failures") if isinstance(lock.get("failures"), dict) else {}
+    portfolios = lock.get("portfolios") if isinstance(lock.get("portfolios"), dict) else {}
+    passed = lock.get("status") == "pass" and lock.get("lock_pass") is True and not failures
+    return requirement(
+        "oos_holdout_lock",
+        status="pass" if passed else "fail",
+        hard_blocker=not passed,
+        summary="locked IS/OOS holdout audit passed" if passed else "locked IS/OOS holdout audit failed",
+        evidence={
+            "status": lock.get("status"),
+            "lock_pass": lock.get("lock_pass"),
+            "oos_start": (lock.get("config") or {}).get("oos_start") if isinstance(lock.get("config"), dict) else None,
+            "failures": failures,
+            "portfolios": {
+                portfolio: {
+                    "status": row.get("status"),
+                    "cagr_is": row.get("cagr_is"),
+                    "cagr_oos": row.get("cagr_oos"),
+                    "oos_is_cagr_ratio": row.get("oos_is_cagr_ratio"),
+                    "oos_degradation_pp": row.get("oos_degradation_pp"),
+                    "max_allowed_degradation_pp": row.get("max_allowed_degradation_pp"),
+                    "max_oos_is_cagr_ratio": row.get("max_oos_is_cagr_ratio"),
+                    "oos_trading_days": row.get("oos_trading_days"),
+                }
+                for portfolio, row in portfolios.items()
+                if isinstance(row, dict)
+            },
+        },
+        next_action="Treat the candidate as non-promotable; inspect outputs/oos_lock/report.md before another SHIP retry." if not passed else "",
     )
 
 
@@ -695,6 +739,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         evaluate_official_metrics(latest_run),
         evaluate_goal_contract(latest_run),
         evaluate_eight_year(latest_run),
+        evaluate_oos_lock(latest_run),
         evaluate_data_readiness(latest_run),
         evaluate_broker_realism(latest_run),
         evaluate_cash_contract(latest_run),

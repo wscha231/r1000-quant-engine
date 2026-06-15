@@ -603,6 +603,7 @@ jobs:
             outputs/alphaops_vnext/variants/*_target_book.csv
             outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
+            outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
             outputs/era_aware_scoring_challenger/
             outputs/metric_hygiene/
@@ -655,6 +656,7 @@ jobs:
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
             outputs/full_rebuild_logs/metric_hygiene_report.log
+            outputs/full_rebuild_logs/oos_lock.log
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
             outputs/full_rebuild_logs/eight_year_backtest_readiness.log
             outputs/full_rebuild_logs/era_aware_scoring_challenger.log
@@ -669,6 +671,7 @@ jobs:
           name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
           path: |
             outputs/account_evaluation/
+            outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
             outputs/broker_replay/
             outputs/legacy_monthly_broker_replay/
@@ -810,6 +813,7 @@ jobs:
             outputs/promotion_review/
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
+            outputs/oos_lock/
             outputs/metric_hygiene/
             outputs/cash_contract/
             outputs/governance_catalyst/
@@ -1248,6 +1252,7 @@ jobs:
             copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+            copy_dir_clean outputs/oos_lock "$DEST/oos_lock"
             copy_dir_clean outputs/eight_year_backtest_readiness "$DEST/eight_year_backtest_readiness"
             copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
             copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
@@ -1363,6 +1368,7 @@ jobs:
           copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
           copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+          copy_dir_clean outputs/oos_lock "$DEST/oos_lock"
           copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
           copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
           copy_dir_clean outputs/trade_attribution "$DEST/trade_attribution"

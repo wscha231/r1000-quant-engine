@@ -84,6 +84,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/portfolio_system_guard/",
         "outputs/system_acceptance_audit/",
         "outputs/account_evaluation/",
+        "outputs/oos_lock/",
         "outputs/eight_year_backtest_readiness/",
         "outputs/era_aware_scoring_challenger/",
         "outputs/metric_hygiene/",
@@ -270,6 +271,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_metric_hygiene_report.py",
         "--account-mode simulated",
         "tools/run_account_evaluation.py",
+        "tools/run_oos_lock_audit.py",
         "tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness",
         'tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"',
         "tools/run_era_aware_scoring_challenger.py",
@@ -365,6 +367,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/portfolio_system_guard.log",
         "outputs/full_rebuild_logs/system_acceptance_audit.log",
         "outputs/full_rebuild_logs/account_evaluation.log",
+        "outputs/full_rebuild_logs/oos_lock.log",
         "outputs/full_rebuild_logs/metric_hygiene_report.log",
         "outputs/full_rebuild_logs/selection_audit.log",
         "outputs/full_rebuild_logs/dataset_coverage_audit.log",
@@ -444,11 +447,13 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     trade_idx = sidecar_tool.index("tools/run_trade_attribution_analysis.py", operating_idx)
     is_idx = sidecar_tool.index("tools/run_is_attribution.py", operating_idx)
     era_idx = sidecar_tool.index("tools/run_era_leadership_sidecar.py", operating_idx)
+    oos_idx = sidecar_tool.index("tools/run_oos_lock_audit.py", operating_idx)
     acceptance_idx = sidecar_tool.index("tools/run_system_acceptance_audit.py", operating_idx)
     assert mdd_idx < acceptance_idx
     assert trade_idx < acceptance_idx
     assert is_idx < acceptance_idx
     assert era_idx < acceptance_idx
+    assert oos_idx < acceptance_idx
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:

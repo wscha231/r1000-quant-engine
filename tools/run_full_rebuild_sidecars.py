@@ -208,6 +208,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
   python tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/eight_year_backtest_readiness.log || true
   python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
+  python tools/run_oos_lock_audit.py --latest-run outputs --output-dir outputs/oos_lock --config research/oos_lock.yaml 2>&1 | tee outputs/full_rebuild_logs/oos_lock.log || true
   # IS-only attribution sidecar — surfaces year-by-year where the IS CAGR is
   # leaking. Run 27498401423 conc 2021/2023 were tagged
   # structural_underinvestment_bull (~14pp of the IS gap). Cheap (rolls the
@@ -390,6 +391,7 @@ python tools/run_crisis_reentry_replay.py --latest-run outputs --output-dir outp
 python tools/run_broker_crisis_reentry_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/broker_crisis_reentry_replay/main --policy-id fast_reentry --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_crisis_reentry_replay.log || true
 python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
 python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
+python tools/run_oos_lock_audit.py --latest-run outputs --output-dir outputs/oos_lock --config research/oos_lock.yaml 2>&1 | tee outputs/full_rebuild_logs/oos_lock.log || true
 run_cash_contract_validator
 run_metric_hygiene_report
 python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
