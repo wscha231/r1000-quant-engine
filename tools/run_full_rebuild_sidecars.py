@@ -221,6 +221,9 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # broker-replayable review-only target books. It never replaces operating
   # books; promotion requires a separate A/B and account-evaluation gate.
   python tools/run_era_aware_scoring_challenger.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/era_aware_scoring_challenger --promotion-review-dir outputs/promotion_review --source-run-id "${GITHUB_RUN_ID:-local}" --run-broker-replay 2>&1 | tee outputs/full_rebuild_logs/era_aware_scoring_challenger.log || true
+  # ADR candidate scan: review-only universe expansion artifact. It never
+  # mutates adr_universe.yaml, but gives system acceptance a current manifest.
+  python tools/run_adr_candidate_scanner.py --adr-universe adr_universe.yaml --price-cache cache_prices --scan-price-cache --output-dir outputs/adr_candidates 2>&1 | tee outputs/full_rebuild_logs/adr_candidate_scanner.log || true
   # Performance ledger — the self-sustaining evaluation memory. Appends ONE
   # row per run to cloud_results/performance_ledger/ledger.jsonl (a path
   # OUTSIDE the per-date full_rebuild rotation, so it accumulates across runs
@@ -401,6 +404,7 @@ python tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 
 python tools/check_10y_backtest_readiness.py --latest-run outputs --output-dir outputs/ten_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log || true
 python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
 python tools/run_weekly_evaluation.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_evaluation --stale-days-threshold 10 2>&1 | tee outputs/full_rebuild_logs/weekly_evaluation.log || true
+python tools/run_adr_candidate_scanner.py --adr-universe adr_universe.yaml --price-cache cache_prices --scan-price-cache --output-dir outputs/adr_candidates 2>&1 | tee outputs/full_rebuild_logs/adr_candidate_scanner.log || true
 python tools/run_theme_leadership_tape.py --scored outputs/scored_latest.csv --price-cache cache_prices --output-dir outputs/theme_leadership_tape 2>&1 | tee outputs/full_rebuild_logs/theme_leadership_tape.log || true
 python tools/run_theme_concentration_challenger.py --latest-run outputs --output-dir outputs/theme_concentration_challenger --top-n 3 --single-name-cap 0.50 --cost-bps 50 2>&1 | tee outputs/full_rebuild_logs/theme_concentration_challenger.log || true
 BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"

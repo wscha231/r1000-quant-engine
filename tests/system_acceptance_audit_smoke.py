@@ -197,6 +197,17 @@ def seed_common_sidecars(root: Path) -> None:
         root / "self_correction_router" / "router_queue.json",
         {"production_mutation_allowed": False, "latest_focus": "main:flat_alpha_invested", "repeat_confirmed": True, "queued_experiments": [{}], "dispatch_payload_count": 1},
     )
+    write_json(
+        root / "adr_candidates" / "adr_universe_update_manifest.json",
+        {
+            "schema_version": "adr-universe-update-manifest-v1",
+            "production_mutation_allowed": False,
+            "manual_review_required": True,
+            "proposed_add_count": 0,
+            "proposed_additions": [],
+            "review_steps": [],
+        },
+    )
     for portfolio in ("main", "concentrated"):
         preview = root / "account_ledger_preview" / portfolio
         write_json(
@@ -524,6 +535,53 @@ def test_acceptance_audit_surfaces_oos_manual_review_tasks() -> None:
         assert self_correction["evidence"]["unsafe_review_tasks"] == []
 
 
+def test_acceptance_audit_warns_when_adr_candidates_need_review() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        write_json(
+            latest / "adr_candidates" / "adr_universe_update_manifest.json",
+            {
+                "schema_version": "adr-universe-update-manifest-v1",
+                "production_mutation_allowed": False,
+                "manual_review_required": True,
+                "proposed_add_count": 1,
+                "proposed_additions": [
+                    {
+                        "ticker": "TSM",
+                        "candidate_status": "review_add",
+                        "proposed_entry": {
+                            "ticker": "TSM",
+                            "name": "",
+                            "country": "",
+                            "sector": "ADR_REVIEW_REQUIRED",
+                            "sub_sector": "",
+                            "listed_since": "",
+                            "themes": [],
+                        },
+                    }
+                ],
+                "review_steps": ["fill metadata before apply"],
+            },
+        )
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "review_ready_with_warnings"
+        adr = next(row for row in payload["requirements"] if row["requirement_id"] == "adr_universe_review_automation")
+        assert adr["status"] == "warn"
+        assert adr["evidence"]["proposed_add_count"] == 1
+        assert adr["evidence"]["placeholder_proposed_count"] == 1
+        assert payload["manual_review_task_count"] == 1
+        task = payload["manual_review_tasks"][0]
+        assert task["task_id"] == "adr_universe_metadata_review"
+        assert task["production_mutation_allowed"] is False
+        assert task["dispatch_mode"] == "manual_review_no_workflow_dispatch"
+        assert task["metrics"]["proposed_tickers"] == ["TSM"]
+        report = (out / "report.md").read_text(encoding="utf-8")
+        assert "adr_universe_metadata_review" in report
+
+
 def test_acceptance_audit_blocks_when_attribution_package_missing() -> None:
     with TemporaryDirectory() as tmp:
         latest = Path(tmp) / "latest"
@@ -548,5 +606,6 @@ if __name__ == "__main__":
     test_acceptance_audit_blocks_when_cash_contract_fails()
     test_acceptance_audit_blocks_when_oos_lock_fails()
     test_acceptance_audit_surfaces_oos_manual_review_tasks()
+    test_acceptance_audit_warns_when_adr_candidates_need_review()
     test_acceptance_audit_blocks_when_attribution_package_missing()
     print("system_acceptance_audit_smoke: PASS")

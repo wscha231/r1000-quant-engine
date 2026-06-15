@@ -691,6 +691,40 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
     )
 
 
+def adr_manifest_state(latest_run: Path) -> dict[str, Any]:
+    manifest_path = latest_run / "adr_candidates" / "adr_universe_update_manifest.json"
+    manifest = read_json(manifest_path)
+    if not manifest:
+        return {
+            "manifest_path": str(manifest_path),
+            "manifest_exists": False,
+            "proposed_add_count": None,
+            "placeholder_proposed_count": None,
+            "manual_review_required": None,
+            "proposed_tickers": [],
+        }
+    additions = manifest.get("proposed_additions") if isinstance(manifest.get("proposed_additions"), list) else []
+    placeholder_count = 0
+    tickers: list[str] = []
+    for record in additions:
+        if not isinstance(record, dict):
+            continue
+        tickers.append(str(record.get("ticker") or "").upper())
+        entry = record.get("proposed_entry") if isinstance(record.get("proposed_entry"), dict) else {}
+        missing_required = any(not str(entry.get(field) or "").strip() for field in ("name", "country", "sector", "sub_sector", "listed_since"))
+        if missing_required or str(entry.get("sector") or "").strip() == "ADR_REVIEW_REQUIRED":
+            placeholder_count += 1
+    return {
+        "manifest_path": str(manifest_path),
+        "manifest_exists": True,
+        "proposed_add_count": int(manifest.get("proposed_add_count") or len(additions)),
+        "placeholder_proposed_count": placeholder_count,
+        "manual_review_required": manifest.get("manual_review_required"),
+        "proposed_tickers": [ticker for ticker in tickers if ticker],
+        "review_steps": manifest.get("review_steps") if isinstance(manifest.get("review_steps"), list) else [],
+    }
+
+
 def evaluate_adr_automation(latest_run: Path) -> dict[str, Any]:
     workflow = REPO / ".github" / "workflows" / "adr_candidate_monthly.yml"
     scanner = REPO / "tools" / "run_adr_candidate_scanner.py"
@@ -699,6 +733,7 @@ def evaluate_adr_automation(latest_run: Path) -> dict[str, Any]:
     scanner_text = scanner.read_text(encoding="utf-8", errors="ignore") if scanner.exists() else ""
     updater_text = updater.read_text(encoding="utf-8", errors="ignore") if updater.exists() else ""
     workflow_text = workflow.read_text(encoding="utf-8", errors="ignore") if workflow.exists() else ""
+    manifest_state = adr_manifest_state(latest_run)
     wired = (
         workflow.exists()
         and scanner.exists()
@@ -709,21 +744,43 @@ def evaluate_adr_automation(latest_run: Path) -> dict[str, Any]:
         and "placeholder_sector_not_reviewed" in updater_text
         and "schedule:" in workflow_text
     )
+    proposed_add_count = safe_float(manifest_state.get("proposed_add_count"), 0.0)
+    if not wired:
+        status = "warn"
+        summary = "ADR review automation is incomplete"
+        next_action = "Wire ADR scanner, guarded updater, and monthly workflow."
+    elif not manifest_state.get("manifest_exists"):
+        status = "warn"
+        summary = "ADR review automation is wired, but this run has no ADR candidate manifest"
+        next_action = "Run the full rebuild ADR scanner sidecar or adr_candidate_monthly.yml so acceptance has current universe review evidence."
+    elif proposed_add_count and proposed_add_count > 0:
+        status = "warn"
+        summary = "ADR candidate manifest has proposed additions requiring metadata review"
+        next_action = "Review ADR candidate metadata, dry-run apply_adr_universe_update.py, and merge only fully reviewed entries."
+    else:
+        status = "pass"
+        summary = "monthly ADR candidate review and guarded apply automation are present"
+        next_action = ""
     return requirement(
         "adr_universe_review_automation",
-        status="pass" if wired else "warn",
+        status=status,
         hard_blocker=False,
-        summary="monthly ADR candidate review and guarded apply automation are present" if wired else "ADR review automation is incomplete",
+        summary=summary,
         evidence={
             "workflow_exists": workflow.exists(),
             "scanner_exists": scanner.exists(),
             "updater_exists": updater.exists(),
             "run_manifest_exists": run_manifest.exists(),
+            "run_manifest_path": str(run_manifest),
+            "proposed_add_count": manifest_state.get("proposed_add_count"),
+            "placeholder_proposed_count": manifest_state.get("placeholder_proposed_count"),
+            "manual_review_required": manifest_state.get("manual_review_required"),
+            "proposed_tickers": manifest_state.get("proposed_tickers"),
             "scanner_target_mutation_allowed": False if "production_mutation_allowed" in scanner_text else None,
             "updater_requires_approval_token": "APPROVE_ADR_UNIVERSE_UPDATE" in updater_text,
             "updater_blocks_placeholders": "placeholder_sector_not_reviewed" in updater_text,
         },
-        next_action="Run adr_candidate_monthly.yml, review metadata, then dry-run apply_adr_universe_update.py." if wired else "Wire ADR scanner, guarded updater, and monthly workflow.",
+        next_action=next_action,
     )
 
 
@@ -821,7 +878,55 @@ def collect_manual_review_tasks(latest_run: Path) -> list[dict[str, Any]]:
                 "metrics": task.get("metrics") if isinstance(task.get("metrics"), dict) else {},
             }
         )
+    out.extend(collect_adr_review_tasks(latest_run))
     return out
+
+
+def collect_adr_review_tasks(latest_run: Path) -> list[dict[str, Any]]:
+    state = adr_manifest_state(latest_run)
+    if not state.get("manifest_exists"):
+        return [
+            {
+                "task_id": "adr_candidate_manifest_missing",
+                "source": "adr_universe_review_automation",
+                "portfolio": "",
+                "failure": "adr_candidate_manifest_missing",
+                "description": "ADR scanner output is missing from this run, so universe expansion review is not current.",
+                "next_action": "Run the ADR scanner sidecar or monthly workflow and inspect outputs/adr_candidates before treating ADR automation as current.",
+                "review_artifacts": ["adr_candidates/summary.json", "adr_candidates/adr_universe_update_manifest.json"],
+                "dispatch_mode": "manual_review_no_workflow_dispatch",
+                "requires_user_approval": True,
+                "production_mutation_allowed": False,
+                "metrics": {},
+            }
+        ]
+    proposed = int(safe_float(state.get("proposed_add_count"), 0.0) or 0)
+    if proposed <= 0:
+        return []
+    return [
+        {
+            "task_id": "adr_universe_metadata_review",
+            "source": "adr_universe_review_automation",
+            "portfolio": "",
+            "failure": "adr_metadata_review_required",
+            "description": "ADR scanner found candidate additions that require human metadata review before adr_universe.yaml changes.",
+            "next_action": "Fill name, country, sector, sub_sector, listed_since, and themes; then dry-run apply_adr_universe_update.py before any PR.",
+            "review_artifacts": [
+                "adr_candidates/adr_candidate_review.csv",
+                "adr_candidates/adr_candidate_review.md",
+                "adr_candidates/adr_universe_update_manifest.json",
+                "adr_candidates/adr_universe_additions.yaml",
+            ],
+            "dispatch_mode": "manual_review_no_workflow_dispatch",
+            "requires_user_approval": True,
+            "production_mutation_allowed": False,
+            "metrics": {
+                "proposed_add_count": proposed,
+                "placeholder_proposed_count": state.get("placeholder_proposed_count"),
+                "proposed_tickers": state.get("proposed_tickers"),
+            },
+        }
+    ]
 
 
 def concentrated_goal_needs_recovery(payload: dict[str, Any]) -> tuple[bool, dict[str, Any]]:

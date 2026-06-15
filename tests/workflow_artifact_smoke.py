@@ -83,6 +83,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/user_portfolio_reports/",
         "outputs/portfolio_system_guard/",
         "outputs/system_acceptance_audit/",
+        "outputs/adr_candidates/",
         "outputs/account_evaluation/",
         "outputs/oos_lock/",
         "outputs/eight_year_backtest_readiness/",
@@ -267,6 +268,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_user_portfolio_reports.py",
         "tools/run_position_cleanup_review.py",
         "tools/run_portfolio_system_guard.py",
+        "tools/run_adr_candidate_scanner.py",
         "tools/run_system_acceptance_audit.py",
         "tools/run_metric_hygiene_report.py",
         "--account-mode simulated",
@@ -365,6 +367,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/user_portfolio_reports.log",
         "outputs/full_rebuild_logs/position_cleanup_review.log",
         "outputs/full_rebuild_logs/portfolio_system_guard.log",
+        "outputs/full_rebuild_logs/adr_candidate_scanner.log",
         "outputs/full_rebuild_logs/system_acceptance_audit.log",
         "outputs/full_rebuild_logs/account_evaluation.log",
         "outputs/full_rebuild_logs/oos_lock.log",
@@ -448,12 +451,14 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     is_idx = sidecar_tool.index("tools/run_is_attribution.py", operating_idx)
     era_idx = sidecar_tool.index("tools/run_era_leadership_sidecar.py", operating_idx)
     oos_idx = sidecar_tool.index("tools/run_oos_lock_audit.py", operating_idx)
+    adr_idx = sidecar_tool.index("tools/run_adr_candidate_scanner.py", operating_idx)
     acceptance_idx = sidecar_tool.index("tools/run_system_acceptance_audit.py", operating_idx)
     assert mdd_idx < acceptance_idx
     assert trade_idx < acceptance_idx
     assert is_idx < acceptance_idx
     assert era_idx < acceptance_idx
     assert oos_idx < acceptance_idx
+    assert adr_idx < acceptance_idx
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:

@@ -641,6 +641,7 @@ jobs:
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
             outputs/data_readiness/
+            outputs/adr_candidates/
             data/catalog.json
             outputs/coverage_gate.json
             outputs/operating_snapshot/current_operating_holdings_latest.csv
@@ -656,6 +657,7 @@ jobs:
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
             outputs/full_rebuild_logs/metric_hygiene_report.log
+            outputs/full_rebuild_logs/adr_candidate_scanner.log
             outputs/full_rebuild_logs/oos_lock.log
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
             outputs/full_rebuild_logs/eight_year_backtest_readiness.log
@@ -756,6 +758,7 @@ jobs:
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            outputs/adr_candidates/
             outputs/crisis_paper_order_bridge/
             data/catalog.json
             outputs/coverage_gate.json
@@ -1273,6 +1276,7 @@ jobs:
             copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
             cp outputs/latest_price_date_audit.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+            copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
             mkdir -p "$DEST/manifests"
             cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
@@ -1332,6 +1336,7 @@ jobs:
           cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
           copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
           copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+          copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
           copy_dir_clean outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"
           copy_dir_clean outputs/auto_learning "$DEST/auto_learning"
