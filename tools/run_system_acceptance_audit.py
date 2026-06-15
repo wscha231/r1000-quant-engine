@@ -671,6 +671,7 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             next_action="Run performance ledger and self-correction router after IS attribution.",
         )
     dispatch_payloads = read_json_list(latest_run / "self_correction_router" / "workflow_dispatch_payloads.json")
+    dispatcher = read_json(latest_run / "review_dispatcher_self_correction" / "summary.json")
     review_tasks = router.get("queued_review_tasks") if isinstance(router.get("queued_review_tasks"), list) else []
     queued_experiments = router.get("queued_experiments") if isinstance(router.get("queued_experiments"), list) else []
     queued_experiment_ids = {
@@ -718,6 +719,25 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             or str(task.get("dispatch_mode") or "") != "manual_review_no_workflow_dispatch"
         )
     ]
+    dispatcher_plan_rows = dispatcher.get("plan_rows") if isinstance(dispatcher.get("plan_rows"), list) else []
+    dispatcher_plan_ids = [
+        str(row.get("id") or idx)
+        for idx, row in enumerate(dispatcher_plan_rows)
+        if isinstance(row, dict)
+    ]
+    dispatch_payload_ids = [
+        str(payload.get("plan_id") or payload.get("experiment_id") or payload.get("id") or idx)
+        for idx, payload in enumerate(dispatch_payloads)
+    ]
+    dispatcher_selected_count = int(safe_float(dispatcher.get("selected_count"), 0.0) or 0) if dispatcher else 0
+    dispatcher_dispatched_count = int(safe_float(dispatcher.get("dispatched_count"), 0.0) or 0) if dispatcher else 0
+    dispatcher_summary_missing = expected_payload_count > 0 and not dispatcher
+    dispatcher_schema_invalid = bool(dispatcher) and dispatcher.get("schema_version") != "review-dispatcher-v1"
+    dispatcher_status_invalid = bool(dispatcher) and dispatcher.get("status") not in {"dry_run_ready", "dry_run_blocked"}
+    dispatcher_execution_requested = bool(dispatcher) and dispatcher.get("execute_requested") is not False
+    dispatcher_dispatched = bool(dispatcher) and dispatcher_dispatched_count != 0
+    dispatcher_selected_count_mismatch = bool(dispatcher) and dispatcher_selected_count != len(dispatch_payloads)
+    dispatcher_plan_id_mismatch = bool(dispatcher) and sorted(dispatcher_plan_ids) != sorted(dispatch_payload_ids)
     safe = (
         router.get("production_mutation_allowed") is False
         and not unsafe_queued_experiments
@@ -725,13 +745,24 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
         and not dispatch_payload_count_mismatch
         and not unsafe_dispatch_payloads
         and not unknown_dispatch_payloads
+        and not dispatcher_summary_missing
+        and not dispatcher_schema_invalid
+        and not dispatcher_status_invalid
+        and not dispatcher_execution_requested
+        and not dispatcher_dispatched
+        and not dispatcher_selected_count_mismatch
+        and not dispatcher_plan_id_mismatch
     )
     oos_robustness = router.get("oos_robustness") if isinstance(router.get("oos_robustness"), dict) else {}
     return requirement(
         "self_correction_router_queue",
         status="pass" if safe else "fail",
         hard_blocker=not safe,
-        summary="self-correction queue is review-only" if safe else "self-correction queue may mutate production or bypass review gates",
+        summary=(
+            "self-correction queue and dispatcher dry-run are review-only"
+            if safe
+            else "self-correction queue or dispatcher may mutate production, skip review, or lack persisted dry-run evidence"
+        ),
         evidence={
             "latest_focus": router.get("latest_focus"),
             "repeat_confirmed": router.get("repeat_confirmed"),
@@ -747,8 +778,26 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             "oos_robustness_task_count": oos_robustness.get("queued_review_task_count"),
             "dispatch_payload_count": router.get("dispatch_payload_count"),
             "production_mutation_allowed": router.get("production_mutation_allowed"),
+            "dispatcher_summary_exists": bool(dispatcher),
+            "dispatcher_schema_version": dispatcher.get("schema_version"),
+            "dispatcher_status": dispatcher.get("status"),
+            "dispatcher_execute_requested": dispatcher.get("execute_requested"),
+            "dispatcher_dispatched_count": dispatcher.get("dispatched_count"),
+            "dispatcher_selected_count": dispatcher.get("selected_count"),
+            "dispatcher_plan_ids": dispatcher_plan_ids,
+            "dispatcher_summary_missing": dispatcher_summary_missing,
+            "dispatcher_schema_invalid": dispatcher_schema_invalid,
+            "dispatcher_status_invalid": dispatcher_status_invalid,
+            "dispatcher_execution_requested": dispatcher_execution_requested,
+            "dispatcher_dispatched": dispatcher_dispatched,
+            "dispatcher_selected_count_mismatch": dispatcher_selected_count_mismatch,
+            "dispatcher_plan_id_mismatch": dispatcher_plan_id_mismatch,
         },
-        next_action="" if safe else "Set production_mutation_allowed=false, require user approval, keep experiments payload-only, and keep manual review tasks out of workflow dispatch.",
+        next_action=(
+            ""
+            if safe
+            else "Set production_mutation_allowed=false, require user approval, run review_dispatcher_self_correction in dry-run mode, and keep manual review tasks out of workflow dispatch."
+        ),
     )
 
 

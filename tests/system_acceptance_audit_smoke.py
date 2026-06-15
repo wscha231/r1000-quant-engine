@@ -230,6 +230,29 @@ def seed_common_sidecars(root: Path) -> None:
         ],
     )
     write_json(
+        root / "review_dispatcher_self_correction" / "summary.json",
+        {
+            "schema_version": "review-dispatcher-v1",
+            "status": "dry_run_ready",
+            "execute_requested": False,
+            "repo": "wscha231/r1000-quant-engine",
+            "selected_count": 1,
+            "ready_count": 1,
+            "blocked_count": 0,
+            "dispatched_count": 0,
+            "plan_rows": [
+                {
+                    "id": "main_era_aware_scoring_challenger_review",
+                    "status": "ready",
+                    "workflow_id": "full_rebuild_manual.yml",
+                    "requires_user_approval": True,
+                    "production_mutation_allowed": False,
+                    "errors": [],
+                }
+            ],
+        },
+    )
+    write_json(
         root / "adr_candidates" / "adr_universe_update_manifest.json",
         {
             "schema_version": "adr-universe-update-manifest-v1",
@@ -420,6 +443,7 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert ids["attribution_package_year_mdd_name"] == "pass"
         assert ids["operational_order_preview_safety_bridge"] == "pass"
         assert ids["daily_crisis_paper_action_wire"] == "pass"
+        assert ids["self_correction_router_queue"] == "pass"
         cash_contract = next(row for row in payload["requirements"] if row["requirement_id"] == "target_book_broker_cash_contract")
         assert cash_contract["evidence"]["portfolios"]["main"]["missing_explicit_cash_date_count"] == 0
         assert cash_contract["evidence"]["portfolios"]["concentrated"]["cash_drift_pass"] is True
@@ -431,6 +455,11 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert bridge["evidence"]["live_order_submission_allowed"] is False
         assert bridge["evidence"]["risk_controls_status"] == "pass"
         assert bridge["evidence"]["previews"]["main"]["order_batch_manifest_exists"] is True
+        self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
+        assert self_correction["evidence"]["dispatcher_summary_exists"] is True
+        assert self_correction["evidence"]["dispatcher_execute_requested"] is False
+        assert self_correction["evidence"]["dispatcher_dispatched_count"] == 0
+        assert self_correction["evidence"]["dispatcher_selected_count"] == 1
         adr = next(row for row in payload["requirements"] if row["requirement_id"] == "adr_universe_review_automation")
         assert adr["status"] == "pass"
         assert adr["evidence"]["updater_exists"] is True
@@ -561,6 +590,19 @@ def test_acceptance_audit_surfaces_oos_manual_review_tasks() -> None:
             },
         )
         write_json(latest / "self_correction_router" / "workflow_dispatch_payloads.json", [])
+        write_json(
+            latest / "review_dispatcher_self_correction" / "summary.json",
+            {
+                "schema_version": "review-dispatcher-v1",
+                "status": "dry_run_ready",
+                "execute_requested": False,
+                "selected_count": 0,
+                "ready_count": 0,
+                "blocked_count": 0,
+                "dispatched_count": 0,
+                "plan_rows": [],
+            },
+        )
         out = Path(tmp) / "audit"
         payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
         assert payload["status"] == "not_ready"
@@ -577,6 +619,41 @@ def test_acceptance_audit_surfaces_oos_manual_review_tasks() -> None:
         assert self_correction["status"] == "pass"
         assert self_correction["evidence"]["queued_review_task_count"] == 1
         assert self_correction["evidence"]["unsafe_review_tasks"] == []
+
+
+def test_acceptance_audit_blocks_missing_self_correction_dispatcher_summary() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        (latest / "review_dispatcher_self_correction" / "summary.json").unlink()
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "self_correction_router_queue" in blockers
+        self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
+        assert self_correction["evidence"]["dispatcher_summary_missing"] is True
+
+
+def test_acceptance_audit_blocks_executed_self_correction_dispatcher_summary() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        dispatcher_path = latest / "review_dispatcher_self_correction" / "summary.json"
+        dispatcher = json.loads(dispatcher_path.read_text(encoding="utf-8"))
+        dispatcher["execute_requested"] = True
+        dispatcher["dispatched_count"] = 1
+        dispatcher_path.write_text(json.dumps(dispatcher, indent=2, sort_keys=True), encoding="utf-8")
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "self_correction_router_queue" in blockers
+        self_correction = next(row for row in payload["requirements"] if row["requirement_id"] == "self_correction_router_queue")
+        assert self_correction["evidence"]["dispatcher_execution_requested"] is True
+        assert self_correction["evidence"]["dispatcher_dispatched"] is True
 
 
 def test_acceptance_audit_blocks_unsafe_self_correction_experiments() -> None:
@@ -708,6 +785,8 @@ if __name__ == "__main__":
     test_acceptance_audit_blocks_when_cash_contract_fails()
     test_acceptance_audit_blocks_when_oos_lock_fails()
     test_acceptance_audit_surfaces_oos_manual_review_tasks()
+    test_acceptance_audit_blocks_missing_self_correction_dispatcher_summary()
+    test_acceptance_audit_blocks_executed_self_correction_dispatcher_summary()
     test_acceptance_audit_blocks_unsafe_self_correction_experiments()
     test_acceptance_audit_blocks_unsafe_self_correction_payload_file()
     test_acceptance_audit_blocks_self_correction_payload_count_mismatch()
