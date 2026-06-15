@@ -330,8 +330,14 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         assert not any(row["production_mutation_allowed"] for row in dispatches)
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "gh workflow run free_data_lake_bootstrap.yml" in commands
-        assert "gh workflow run full_rebuild_manual.yml" in commands
+        assert "blocked until completed_plan_id: bootstrap_free_data_for_8y_window" in commands
+        assert "blocked until completed_plan_id: full_rebuild_8y_official_after_data_bootstrap" in commands
+        assert "# gh workflow run full_rebuild_manual.yml" in commands
+        assert "\ngh workflow run full_rebuild_manual.yml" not in commands
         assert "cache_key_suffix=ab_conc_bull_floor_stock_min" in commands
+        report = (out / "report.md").read_text(encoding="utf-8")
+        assert "| Plan | Workflow | Dependencies | Reason |" in report
+        assert "full_rebuild_8y_official_after_data_bootstrap | full_rebuild_manual.yml | bootstrap_free_data_for_8y_window" in report
         assert payload["production_activation_allowed"] is False
         saved = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert saved["live_trading_allowed"] is False
@@ -354,6 +360,9 @@ def test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short() 
             "ab_conc_concentration_cap_relaxation",
         ]
         assert all(row["depends_on_plan_ids"] == [] for row in dispatches)
+        commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "blocked until completed_plan_id" not in commands
+        assert "\ngh workflow run full_rebuild_manual.yml" in commands
         assert all(row["source_evidence"]["target_pass"] is False for row in dispatches)
         assert all(row["source_evidence"]["tier2_failing"] for row in dispatches)
         assert all(row["post_run_review"]["tool"] == "tools/run_ab_result_verifier.py" for row in dispatches)

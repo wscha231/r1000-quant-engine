@@ -592,6 +592,7 @@ def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
         "",
     ]
     for payload in payloads:
+        dependencies = [str(item) for item in payload.get("depends_on_plan_ids") or []]
         workflow_id = shlex.quote(str(payload.get("workflow_id") or ""))
         ref = shlex.quote(str(payload.get("ref") or "master"))
         parts = ["gh", "workflow", "run", workflow_id, "--repo", shlex.quote(repo), "--ref", ref]
@@ -599,7 +600,12 @@ def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
             parts.extend(["-f", shlex.quote(f"{key}={value}")])
         lines.append("# " + str(payload.get("plan_id") or payload.get("workflow_id")))
         lines.append("# " + str(payload.get("reason") or ""))
-        lines.append(" ".join(parts))
+        command = " ".join(parts)
+        if dependencies:
+            lines.append("# blocked until completed_plan_id: " + ",".join(dependencies))
+            lines.append("# " + command)
+        else:
+            lines.append(command)
         lines.append("")
     return "\n".join(lines)
 

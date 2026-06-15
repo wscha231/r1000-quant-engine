@@ -256,6 +256,9 @@ def test_eight_year_readiness_emits_bootstrap_dependency_when_price_not_ready() 
         assert "full_rebuild_manual.yml" in task_rows
         commands = (root / "outputs" / "eight_year_backtest_readiness" / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "gh workflow run free_data_lake_bootstrap.yml" in commands
+        assert "blocked until completed_plan_id: bootstrap_free_data_for_eight_year_window" in commands
+        assert "# gh workflow run full_rebuild_manual.yml" in commands
+        assert "\ngh workflow run full_rebuild_manual.yml" not in commands
         assert "backtest_years=8" in commands
 
 
