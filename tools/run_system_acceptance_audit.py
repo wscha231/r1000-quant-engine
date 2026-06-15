@@ -8,6 +8,7 @@ ready, not-ready, or merely review-ready against the current objective:
 - official broker-ledger next-close metrics
 - 8-year window readiness
 - data readiness
+- operational paper-order bridge evidence
 - era-aware challenger evidence
 - daily crisis/paper-action guardrails
 - self-correction queue
@@ -282,6 +283,83 @@ def evaluate_broker_realism(latest_run: Path) -> dict[str, Any]:
     )
 
 
+def evaluate_operational_order_bridge(latest_run: Path) -> dict[str, Any]:
+    previews: dict[str, Any] = {}
+    failures: list[str] = []
+    for portfolio in PORTFOLIOS:
+        preview_dir = latest_run / "account_ledger_preview" / portfolio
+        metrics = read_json(preview_dir / "preview_metrics.json")
+        manifest = read_json(preview_dir / "order_batch_manifest.json")
+        orders_path = preview_dir / "orders_preview.csv"
+        positions_path = preview_dir / "positions_current.csv"
+        projected_path = preview_dir / "projected_positions_after_orders.csv"
+        target_path = str(metrics.get("target") or "")
+        account_state_path = str(metrics.get("account_state") or "")
+        row = {
+            "status": metrics.get("status") or "missing",
+            "preview_semantics": metrics.get("preview_semantics"),
+            "account_source_kind": metrics.get("account_source_kind"),
+            "target": target_path,
+            "account_state": account_state_path,
+            "cost_bps_per_side": metrics.get("cost_bps_per_side"),
+            "integer_shares": metrics.get("integer_shares"),
+            "blocked_order_count": metrics.get("blocked_order_count"),
+            "ready_order_count": metrics.get("ready_order_count"),
+            "order_count": metrics.get("order_count"),
+            "orders_preview_exists": orders_path.exists(),
+            "positions_current_exists": positions_path.exists(),
+            "projected_positions_exists": projected_path.exists(),
+            "order_batch_manifest_exists": bool(manifest),
+        }
+        previews[portfolio] = row
+        normalized_target = target_path.replace("\\", "/")
+        normalized_account = account_state_path.replace("\\", "/")
+        if metrics.get("status") != "completed":
+            failures.append(f"{portfolio}:preview_missing_or_not_completed")
+        if metrics.get("preview_semantics") != "order_preview_not_operating_snapshot":
+            failures.append(f"{portfolio}:preview_semantics_invalid")
+        if "operating_" not in normalized_target or "target_book.csv" not in normalized_target:
+            failures.append(f"{portfolio}:not_operating_target_book")
+        if "broker_replay" not in normalized_account:
+            failures.append(f"{portfolio}:not_broker_replay_account_state")
+        if safe_float(metrics.get("cost_bps_per_side"), -1.0) != 25.0:
+            failures.append(f"{portfolio}:cost_bps_not_25")
+        if metrics.get("integer_shares") is not True:
+            failures.append(f"{portfolio}:integer_shares_not_true")
+        if int(safe_float(metrics.get("blocked_order_count"), 0.0) or 0) > 0:
+            failures.append(f"{portfolio}:blocked_orders_present")
+        for exists_key in ("orders_preview_exists", "positions_current_exists", "projected_positions_exists", "order_batch_manifest_exists"):
+            if not row[exists_key]:
+                failures.append(f"{portfolio}:{exists_key}_missing")
+
+    safety = read_json(latest_run / "live_trading_safety" / "safety_audit_summary.json")
+    risk = read_json(latest_run / "live_trading_risk_controls" / "risk_controls_summary.json")
+    if safety.get("status") != "pass" or int(safe_float(safety.get("error_count"), 999.0)) != 0:
+        failures.append("live_trading_safety:not_pass")
+    if risk.get("status") != "pass" or int(safe_float(risk.get("error_count"), 999.0)) != 0:
+        failures.append("live_trading_risk_controls:not_pass")
+    if risk and risk.get("strict_live") is not False:
+        failures.append("live_trading_risk_controls:strict_live_unexpected")
+    return requirement(
+        "operational_order_preview_safety_bridge",
+        status="pass" if not failures else "fail",
+        hard_blocker=bool(failures),
+        summary="operating target books are bridged to safe paper order manifests" if not failures else "operating target book order bridge is missing or unsafe",
+        evidence={
+            "failures": failures,
+            "previews": previews,
+            "safety_status": safety.get("status"),
+            "safety_error_count": safety.get("error_count"),
+            "risk_controls_status": risk.get("status"),
+            "risk_controls_error_count": risk.get("error_count"),
+            "risk_controls_account_mode": risk.get("account_mode"),
+            "risk_controls_manifest_order_count": risk.get("manifest_order_count"),
+            "live_order_submission_allowed": False,
+        },
+        next_action="" if not failures else "Run account order previews, live trading safety audit, and risk controls before treating results as operationally ready.",
+    )
+
+
 def evaluate_era(latest_run: Path) -> dict[str, Any]:
     leadership = read_json(latest_run / "era_leadership" / "summary.json")
     challenger = read_json(latest_run / "era_aware_scoring_challenger" / "summary.json")
@@ -439,6 +517,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         evaluate_eight_year(latest_run),
         evaluate_data_readiness(latest_run),
         evaluate_broker_realism(latest_run),
+        evaluate_operational_order_bridge(latest_run),
         evaluate_era(latest_run),
         evaluate_crisis(latest_run),
         evaluate_self_correction(latest_run),

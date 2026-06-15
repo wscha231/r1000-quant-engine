@@ -19,6 +19,11 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
 def broker_metrics(*, years: float, cagr: float, max_dd: float, kind: str) -> dict:
     return {
         "status": "completed",
@@ -71,6 +76,43 @@ def seed_common_sidecars(root: Path) -> None:
     write_json(
         root / "self_correction_router" / "router_queue.json",
         {"production_mutation_allowed": False, "latest_focus": "main:flat_alpha_invested", "repeat_confirmed": True, "queued_experiments": [{}], "dispatch_payload_count": 1},
+    )
+    for portfolio in ("main", "concentrated"):
+        preview = root / "account_ledger_preview" / portfolio
+        write_json(
+            preview / "preview_metrics.json",
+            {
+                "status": "completed",
+                "schema_version": "account-ledger-preview-v1",
+                "portfolio_kind": portfolio,
+                "preview_semantics": "order_preview_not_operating_snapshot",
+                "account_source_kind": "simulated_broker_replay",
+                "target_source_kind": "sleeve_model_target",
+                "account_state": f"outputs/broker_replay/{portfolio}/account_state_latest.json",
+                "target": f"outputs/reports/operating_{portfolio}_target_book.csv",
+                "cost_bps_per_side": 25.0,
+                "integer_shares": True,
+                "blocked_order_count": 0,
+                "ready_order_count": 1,
+                "order_count": 1,
+            },
+        )
+        write_json(preview / "order_batch_manifest.json", {"schema_version": "account-ledger-preview-order-batch-v1", "order_count": 1})
+        write_text(preview / "orders_preview.csv", "ticker,side,quantity,status,client_order_id\nAAA,BUY,1,ready,r1k-test\n")
+        write_text(preview / "positions_current.csv", "ticker,shares,price,price_date\nAAA,0,100,2026-06-12\n")
+        write_text(preview / "projected_positions_after_orders.csv", "ticker,projected_weight\nAAA,0.1\nCASH,0.9\n")
+    write_json(root / "live_trading_safety" / "safety_audit_summary.json", {"status": "pass", "error_count": 0, "warning_count": 0})
+    write_json(
+        root / "live_trading_risk_controls" / "risk_controls_summary.json",
+        {
+            "status": "pass",
+            "account_mode": "simulated",
+            "strict_live": False,
+            "error_count": 0,
+            "warning_count": 0,
+            "manifest_order_count": 2,
+            "fill_template_order_count": 2,
+        },
     )
     write_json(root / "portfolio_system_guard" / "error_check.json", {"hard_error_count": 0, "checks": [{"passed": True}]})
 
@@ -196,7 +238,12 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert dispatches == []
         ids = {row["requirement_id"]: row["status"] for row in payload["requirements"]}
         assert ids["official_broker_ledger_metrics"] == "pass"
+        assert ids["operational_order_preview_safety_bridge"] == "pass"
         assert ids["daily_crisis_paper_action_wire"] == "pass"
+        bridge = next(row for row in payload["requirements"] if row["requirement_id"] == "operational_order_preview_safety_bridge")
+        assert bridge["evidence"]["live_order_submission_allowed"] is False
+        assert bridge["evidence"]["risk_controls_status"] == "pass"
+        assert bridge["evidence"]["previews"]["main"]["order_batch_manifest_exists"] is True
         adr = next(row for row in payload["requirements"] if row["requirement_id"] == "adr_universe_review_automation")
         assert adr["status"] == "pass"
         assert adr["evidence"]["updater_exists"] is True
@@ -205,8 +252,24 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert (out / "report.md").exists()
 
 
+def test_acceptance_audit_blocks_when_operational_order_bridge_missing() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+        (latest / "live_trading_risk_controls" / "risk_controls_summary.json").unlink()
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
+        assert "operational_order_preview_safety_bridge" in blockers
+        bridge = next(row for row in payload["requirements"] if row["requirement_id"] == "operational_order_preview_safety_bridge")
+        assert "live_trading_risk_controls:not_pass" in bridge["evidence"]["failures"]
+
+
 if __name__ == "__main__":
     test_acceptance_audit_reports_not_ready_for_short_concentrated_fail()
     test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short()
     test_acceptance_audit_passes_when_evidence_contract_is_complete()
+    test_acceptance_audit_blocks_when_operational_order_bridge_missing()
     print("system_acceptance_audit_smoke: PASS")
