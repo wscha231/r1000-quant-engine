@@ -999,6 +999,7 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
                 "ref": ref,
                 "requires_user_approval": True,
                 "production_mutation_allowed": False,
+                "depends_on_plan_ids": ["bootstrap_free_data_for_8y_window"],
                 "reason": "After free-data bootstrap, run the official 8-year broker-ledger rebuild with the production policy.",
                 "inputs": {
                     "universe_mode": "global_alpha_universe",

@@ -301,6 +301,8 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
             "bootstrap_free_data_for_8y_window",
             "full_rebuild_8y_official_after_data_bootstrap",
         ]
+        assert dispatches[0].get("depends_on_plan_ids", []) == []
+        assert dispatches[1]["depends_on_plan_ids"] == ["bootstrap_free_data_for_8y_window"]
         assert [row["plan_id"] for row in dispatches[2:]] == [
             "ab_conc_bull_floor_stock_min",
             "ab_conc_continuation_winner_relaxation",

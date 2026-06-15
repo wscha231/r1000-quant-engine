@@ -30,7 +30,12 @@ def write_payloads(path: Path) -> None:
             "ref": "master",
             "requires_user_approval": True,
             "production_mutation_allowed": False,
-            "inputs": {"backtest_years": "8", "portfolio_policy": "alphaops_vnext_production"},
+            "depends_on_plan_ids": ["bootstrap_free_data_for_8y_window"],
+            "inputs": {
+                "backtest_years": "8",
+                "portfolio_policy": "alphaops_vnext_production",
+                "cache_key_suffix": "official-8y-window",
+            },
         },
         {
             "plan_id": "ab_conc_bull_floor_stock_min",
@@ -74,14 +79,41 @@ def test_review_dispatcher_dry_run_blocks_unmet_ab_dependency() -> None:
         out = root / "dispatch"
         summary = run(base_args(payloads, out))
         assert summary["status"] == "dry_run_blocked"
-        assert summary["ready_count"] == 2
-        assert summary["blocked_count"] == 1
+        assert summary["ready_count"] == 1
+        assert summary["blocked_count"] == 2
         blocked = [row for row in summary["plan_rows"] if row["status"] == "blocked"]
-        assert blocked[0]["id"] == "ab_conc_bull_floor_stock_min"
-        assert "unmet_dependencies:full_rebuild_8y_official_after_data_bootstrap" in blocked[0]["errors"]
+        assert [row["id"] for row in blocked] == [
+            "full_rebuild_8y_official_after_data_bootstrap",
+            "ab_conc_bull_floor_stock_min",
+        ]
+        assert "unmet_dependencies:bootstrap_free_data_for_8y_window" in blocked[0]["errors"]
+        assert "unmet_dependencies:full_rebuild_8y_official_after_data_bootstrap" in blocked[1]["errors"]
         commands = (out / "dispatch_commands.sh").read_text(encoding="utf-8")
         assert "gh workflow run free_data_lake_bootstrap.yml" in commands
+        assert "blocked: full_rebuild_8y_official_after_data_bootstrap" in commands
         assert "blocked: ab_conc_bull_floor_stock_min" in commands
+
+
+def test_review_dispatcher_allows_official_rebuild_after_bootstrap_complete() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        payloads = root / "payloads.json"
+        write_payloads(payloads)
+        out = root / "dispatch"
+        summary = run(
+            base_args(
+                payloads,
+                out,
+                only=["full_rebuild_8y_official_after_data_bootstrap"],
+                completed_plan_id=["bootstrap_free_data_for_8y_window"],
+            )
+        )
+        assert summary["status"] == "dry_run_ready"
+        assert summary["ready_count"] == 1
+        assert summary["blocked_count"] == 0
+        commands = (out / "dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "gh workflow run full_rebuild_manual.yml" in commands
+        assert "cache_key_suffix=official-8y-window" in commands
 
 
 def test_review_dispatcher_allows_ab_after_dependency_marked_complete() -> None:
@@ -166,6 +198,7 @@ def test_review_dispatcher_accepts_empty_payload_file() -> None:
 
 if __name__ == "__main__":
     test_review_dispatcher_dry_run_blocks_unmet_ab_dependency()
+    test_review_dispatcher_allows_official_rebuild_after_bootstrap_complete()
     test_review_dispatcher_allows_ab_after_dependency_marked_complete()
     test_review_dispatcher_execute_requires_approval_token()
     test_review_dispatcher_rejects_mutating_payload()
