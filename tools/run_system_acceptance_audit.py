@@ -659,6 +659,7 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             next_action="Run performance ledger and self-correction router after IS attribution.",
         )
     safe = router.get("production_mutation_allowed") is False
+    oos_robustness = router.get("oos_robustness") if isinstance(router.get("oos_robustness"), dict) else {}
     return requirement(
         "self_correction_router_queue",
         status="pass" if safe else "fail",
@@ -668,6 +669,9 @@ def evaluate_self_correction(latest_run: Path) -> dict[str, Any]:
             "latest_focus": router.get("latest_focus"),
             "repeat_confirmed": router.get("repeat_confirmed"),
             "queued_count": len(router.get("queued_experiments") or []),
+            "queued_review_task_count": len(router.get("queued_review_tasks") or []),
+            "oos_lock_status_seen": oos_robustness.get("status"),
+            "oos_robustness_task_count": oos_robustness.get("queued_review_task_count"),
             "dispatch_payload_count": router.get("dispatch_payload_count"),
             "production_mutation_allowed": router.get("production_mutation_allowed"),
         },
