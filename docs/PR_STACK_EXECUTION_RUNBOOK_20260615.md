@@ -33,6 +33,41 @@ after fetch.
 
 After #64 and #66 land on `master`, run the evidence loop in this order.
 
+## Latest Local Readiness Probe
+
+`[LOCAL]` A non-committed probe against
+`cloud_results/full_rebuild/latest_global_alpha_universe` on 2026-06-15 returned
+`status=not_ready`.
+
+Key evidence:
+
+| Field | Value |
+| --- | --- |
+| target_start_date | `2018-06-12` |
+| target_end_date | `2026-06-12` |
+| selected_target_book_ticker_count | `417` |
+| main_target_book_ticker_count | `372` |
+| concentrated_target_book_ticker_count | `269` |
+| hard_blocker_count | `7` |
+
+Hard blockers:
+
+- `price_cache_window`
+- `price_cache_ticker_count`
+- `main_target_book_window`
+- `concentrated_target_book_window`
+- `main_broker_replay_window`
+- `concentrated_broker_replay_window`
+- `pit_universe_label`
+
+Generated review-only dispatch order:
+
+1. `bootstrap_free_data_for_eight_year_window`
+2. `full_rebuild_eight_year_official_window`
+
+The second payload depends on the first. Do not bypass this dependency with a
+hand-written `gh workflow run` command.
+
 ### 1. Generate 8-Year Readiness
 
 Run on the merged default branch:
