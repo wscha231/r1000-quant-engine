@@ -3,6 +3,21 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-15
+
+### 13:05 KST - integrated system gates + review-only improvement loop
+
+- scope: implement the r1000 integrated audit plan as production-safe gates and sidecars, not live trading automation.
+- goal contract: `r1000_config.PORTFOLIO_GOAL_TARGETS` now uses Main `30% CAGR / -25% MaxDD` and Concentrated `50% CAGR / -28% MaxDD`. Strengthened IS/OOS lottery gates remain active.
+- official evidence gate: `tools/run_account_evaluation.py` now requires an 8-year broker-ledger window (`8.0 years / 2016 trading days`) before `target_pass` or `valid_for_production` can be true. A 2019-06-03 to 2026-06-12 run is therefore `invalid_window` even if headline CAGR/MDD passes.
+- ADR automation: `tools/run_adr_candidate_scanner.py` creates review-only `outputs/adr_candidates/*` artifacts from a candidate feed or price cache. It never edits `adr_universe.yaml`. `.github/workflows/adr_candidate_monthly.yml` runs this monthly and uploads the artifact.
+- era leadership v1: `tools/run_era_leadership_sidecar.py` computes era/regime factor IC and top-name contribution for `2019_2021_pre_ai_bull`, `2022_bear`, `2023_2024_ai_bull`, and `2025_plus`. Output is sidecar-only with `production_activation_allowed=false`.
+- crisis action wire: `tools/run_daily_crisis_monitor.py` still sets `auto_trade_allowed=false`, but now emits whitelisted paper action candidates only: `raise_cash`, `trim_position`, `block_new_buys`, `reentry_watch`, `no_op`.
+- self-correction router: `tools/run_self_correction_router.py` reads the performance ledger; if `dominant_open_leak` repeats 2 runs, it writes workflow-dispatch/A-B queue artifacts. For `concentrated:structural_underinvestment_bull`, it queues bull floor, continuation winner, theme leadership, and concentration cap experiments. Production mutation remains false.
+- full rebuild wiring: `tools/run_full_rebuild_sidecars.py` runs era leadership and self-correction router after IS attribution / ledger; `full_rebuild_manual.yml` now preserves `is_attribution`, `era_leadership`, and `self_correction_router` under `cloud_results/full_rebuild/<date>`.
+- tests: added smoke coverage for 8-year gate, ADR scanner, era sidecar, daily crisis paper actions, and self-correction router; registered them in PR validation.
+- validation: py_compile passed for all touched tools. Local smoke passed for `account_evaluation_window_gate`, `account_evaluation`, `adr_candidate_scanner`, `era_leadership_sidecar`, `daily_crisis_paper_actions`, `self_correction_router`, and `performance_ledger`. Existing `daily_crisis_monitor_long_crisis_smoke.py` could not be run locally because the bundled Python lacks pyarrow/fastparquet; CI requirements include `pyarrow>=15.0.0`.
+
 ## 2026-06-13
 
 ## 2026-06-14

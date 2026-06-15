@@ -515,8 +515,8 @@ MANDATE_REGISTRY = {
 
 
 PORTFOLIO_GOAL_TARGETS = {
-    "main": {"cagr": 0.35, "max_dd": -0.25},
-    "concentrated": {"cagr": 0.50, "max_dd": -0.25},
+    "main": {"cagr": 0.30, "max_dd": -0.25},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.28},
 }
 
 # Strengthened evaluation gates beyond headline CAGR / MDD. Run

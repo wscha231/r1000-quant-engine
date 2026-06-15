@@ -31,18 +31,20 @@ try:
     from r1000_config import PORTFOLIO_GOAL_TARGETS, PORTFOLIO_GOAL_GATES
 except Exception:  # pragma: no cover - fallback for isolated smoke contexts
     PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.35, "max_dd": -0.25},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.25},
+        "main": {"cagr": 0.30, "max_dd": -0.25},
+        "concentrated": {"cagr": 0.50, "max_dd": -0.28},
     }
     PORTFOLIO_GOAL_GATES = {
         "main": {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
-        "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
+        "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.28},
     }
 
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/account_evaluation"
 PORTFOLIOS = ("main", "concentrated")
+MIN_BROKER_LEDGER_YEARS = 8.0
+MIN_BROKER_LEDGER_TRADING_DAYS = 252 * 8
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -109,6 +111,26 @@ def metric(row: dict[str, Any], *names: str) -> float | None:
     return None
 
 
+def parse_date(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    try:
+        return datetime.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def estimate_trading_days(start_date: Any, end_date: Any, years: float | None) -> int | None:
+    explicit_days = int(round(years * 252.0)) if years is not None else None
+    start = parse_date(start_date)
+    end = parse_date(end_date)
+    calendar_days = None
+    if start is not None and end is not None and end >= start:
+        calendar_days = int(round((end - start).days * 252.0 / 365.25))
+    candidates = [x for x in (explicit_days, calendar_days) if x is not None]
+    return max(candidates) if candidates else None
+
+
 def legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]:
     if portfolio == "main":
         return read_json(latest_run / "backtest_metrics.json")
@@ -117,9 +139,11 @@ def legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]:
 
 def target_for(portfolio: str) -> dict[str, float]:
     target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
+    default_cagr = 0.30 if portfolio == "main" else 0.50
+    default_max_dd = -0.25 if portfolio == "main" else -0.28
     return {
-        "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.45)),
-        "max_dd": float(target.get("max_dd", -0.25)),
+        "cagr": float(target.get("cagr", default_cagr)),
+        "max_dd": float(target.get("max_dd", default_max_dd)),
     }
 
 
@@ -135,7 +159,7 @@ def evaluate_strengthened_gates(
     """Score Tier-2 acceptance gates beyond the headline CAGR / MDD check.
 
     Tier-2 gates exist because a 7-year headline CAGR can be inflated by a
-    short OOS lottery while the engine's IS-period CAGR is half of target —
+    short OOS lottery while the engine's IS-period CAGR is half of target;
     exactly what the 27498401423 evaluation surfaced (Main 21.45% IS vs
     75.75% OOS; Conc 21.29% IS vs 129.36% OOS). The headline passes the
     Tier-1 35/50 gate eventually but the engine isn't earning it. Tier-2
@@ -168,6 +192,33 @@ def evaluate_strengthened_gates(
     return {"checks": checks, "passing": not failing, "failing": failing, "is_cagr": is_cagr, "oos_cagr": oos_cagr, "is_mdd": is_mdd, "recent_mdd": recent_mdd}
 
 
+def evaluate_window_gate(broker_metrics: dict[str, Any]) -> dict[str, Any]:
+    """Require an 8-year broker-ledger evidence window for official verdicts."""
+    start_date = broker_metrics.get("start_date")
+    end_date = broker_metrics.get("end_date")
+    years = metric(broker_metrics, "years")
+    trading_days = estimate_trading_days(start_date, end_date, years)
+    reasons: list[str] = []
+    if not start_date or not end_date:
+        reasons.append("missing_start_or_end_date")
+    if years is None or years < MIN_BROKER_LEDGER_YEARS:
+        reasons.append("broker_ledger_years_below_8")
+    if trading_days is None or trading_days < MIN_BROKER_LEDGER_TRADING_DAYS:
+        reasons.append("broker_ledger_trading_days_below_8y")
+    status = "ok" if not reasons else "invalid_window"
+    return {
+        "status": status,
+        "valid": status == "ok",
+        "reasons": reasons,
+        "min_years": MIN_BROKER_LEDGER_YEARS,
+        "min_trading_days": MIN_BROKER_LEDGER_TRADING_DAYS,
+        "start_date": start_date,
+        "end_date": end_date,
+        "years": years,
+        "trading_days_estimate": trading_days,
+    }
+
+
 def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     broker_metrics = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
@@ -177,11 +228,13 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     target = target_for(portfolio)
     gate = strengthened_gate_for(portfolio)
     tier2 = evaluate_strengthened_gates(broker_metrics, gate)
+    window_gate = evaluate_window_gate(broker_metrics)
 
     cagr = metric(broker_metrics, "cagr", "strategy_cagr")
     max_dd = metric(broker_metrics, "max_dd", "max_drawdown")
     sharpe = metric(broker_metrics, "sharpe")
-    valid_for_production = bool(broker_metrics.get("valid_for_production")) and broker_metrics.get("status") == "completed"
+    replay_valid = bool(broker_metrics.get("valid_for_production")) and broker_metrics.get("status") == "completed"
+    valid_for_production = replay_valid and bool(window_gate["valid"])
     cagr_pass = valid_for_production and cagr is not None and cagr >= target["cagr"]
     dd_pass = valid_for_production and max_dd is not None and max_dd >= target["max_dd"]
     cagr_gap = None if cagr is None else max(0.0, target["cagr"] - cagr)
@@ -194,7 +247,9 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "official_metric_mode": broker_metrics.get("metric_mode") or "broker_ledger_next_close",
         "official_source": f"broker_replay/{portfolio}/metrics.json",
         "status": broker_metrics.get("status") or "missing",
+        "verdict_status": "ok" if valid_for_production else window_gate["status"] if replay_valid else broker_metrics.get("status") or "missing",
         "valid_for_production": valid_for_production,
+        "broker_ledger_window_gate": window_gate,
         "target_pass": bool(cagr_pass and dd_pass),
         "strengthened_pass": strengthened_pass,
         "tier2_gates": tier2,
@@ -214,6 +269,7 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "start_date": broker_metrics.get("start_date"),
         "end_date": broker_metrics.get("end_date"),
         "years": metric(broker_metrics, "years"),
+        "broker_ledger_trading_days_estimate": window_gate.get("trading_days_estimate"),
         "starting_capital_usd": metric(broker_metrics, "starting_capital_usd"),
         "ending_capital_usd": metric(broker_metrics, "ending_capital_usd"),
         "avg_cash_weight": metric(broker_metrics, "avg_cash_weight"),
@@ -256,6 +312,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "official_metric_mode",
         "status",
         "valid_for_production",
+        "verdict_status",
         "target_pass",
         "cagr",
         "cagr_target",
@@ -267,6 +324,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "start_date",
         "end_date",
         "years",
+        "broker_ledger_trading_days_estimate",
         "ending_capital_usd",
         "avg_cash_weight",
         "latest_cash_weight",
@@ -367,12 +425,29 @@ def render_report(payload: dict[str, Any]) -> str:
                 sh=f"{safe_float(row.get('sharpe'), 0.0):.2f}",
                 ac=pct(row.get("avg_cash_weight")),
                 rm=pct(row.get("recent_mdd")),
-                fl=", ".join(row.get("tier2_failing") or []) or "—",
+                fl=", ".join(row.get("tier2_failing") or []) or "none",
                 pas="OK" if row.get("strengthened_pass") else "FAIL",
+            )
+        )
+    lines.extend(["", "## Broker-Ledger Window Gate", ""])
+    lines.append("| Portfolio | Status | Years | Trading Days Est. | Start | End | Reasons |")
+    lines.append("| --- | --- | ---: | ---: | --- | --- | --- |")
+    for row in rows:
+        gate = row.get("broker_ledger_window_gate") or {}
+        lines.append(
+            "| {p} | {status} | {years:.2f} | {days} | {start} | {end} | {reasons} |".format(
+                p=row.get("portfolio"),
+                status=gate.get("status") or "missing",
+                years=safe_float(gate.get("years"), 0.0) or 0.0,
+                days=gate.get("trading_days_estimate") or "",
+                start=gate.get("start_date") or "",
+                end=gate.get("end_date") or "",
+                reasons=", ".join(gate.get("reasons") or []) or "none",
             )
         )
     lines.extend(["", "## Governance", ""])
     lines.append(f"- Official metric mode: `{payload.get('official_metric_mode')}`")
+    lines.append(f"- Minimum official broker-ledger window: `{MIN_BROKER_LEDGER_YEARS:.1f} years / {MIN_BROKER_LEDGER_TRADING_DAYS} trading days`")
     lines.append(f"- Production target pass (Tier-1: full CAGR/MDD): `{str(payload.get('production_target_pass')).lower()}`")
     lines.append(f"- Strengthened pass (Tier-1 AND Tier-2 IS/Sharpe/ratio/cash/recent-MDD): `{str(payload.get('strengthened_pass')).lower()}`")
     lines.append(f"- Research target pass: `{str(payload.get('research_target_pass')).lower()}`")

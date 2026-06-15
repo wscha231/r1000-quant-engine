@@ -24,6 +24,8 @@ from tools.crisis_state_engine import (  # noqa: E402
     infer_latest_long_crisis_state,
 )
 
+ALLOWED_PAPER_ACTION_TYPES = ("raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op")
+
 
 def repo_path(value: str | Path) -> Path:
     path = Path(value)
@@ -55,6 +57,56 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return out if pd.notna(out) else default
     except Exception:
         return default
+
+
+def first_existing_column(frame: pd.DataFrame, names: list[str]) -> str | None:
+    lower = {str(c).lower(): c for c in frame.columns}
+    for name in names:
+        if name.lower() in lower:
+            return str(lower[name.lower()])
+    return None
+
+
+def top_trim_candidates(holdings: pd.DataFrame, limit: int = 5) -> list[dict[str, Any]]:
+    if holdings.empty:
+        return []
+    ticker_col = first_existing_column(holdings, ["ticker", "symbol"])
+    weight_col = first_existing_column(holdings, ["weight", "current_weight", "actual_weight", "target_weight"])
+    if not ticker_col or not weight_col:
+        return []
+    work = holdings[[ticker_col, weight_col]].copy()
+    work["_weight"] = pd.to_numeric(work[weight_col], errors="coerce").fillna(0.0)
+    work = work.sort_values("_weight", ascending=False).head(limit)
+    rows: list[dict[str, Any]] = []
+    for _, row in work.iterrows():
+        rows.append({"ticker": str(row.get(ticker_col)), "current_weight": float(row.get("_weight", 0.0))})
+    return rows
+
+
+def build_paper_action_candidates(
+    *,
+    state: str,
+    raw_state: str,
+    reasons: list[str],
+    holdings: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    context = {"state": state, "raw_state": raw_state, "reasons": reasons[:5]}
+    if state == "GREEN":
+        actions.append({"action_type": "no_op", "priority": 0, "context": context})
+    elif state == "WATCH":
+        actions.append({"action_type": "block_new_buys", "priority": 1, "scope": "new_positions", "context": context})
+    elif state in {"DEFENSE_REVIEW", "CRISIS_DEFENSE"}:
+        target_cash = 0.30 if state == "DEFENSE_REVIEW" else 0.50
+        actions.append({"action_type": "block_new_buys", "priority": 1, "scope": "new_positions", "context": context})
+        actions.append({"action_type": "raise_cash", "priority": 2, "target_cash_weight": target_cash, "context": context})
+        for item in top_trim_candidates(holdings):
+            actions.append({"action_type": "trim_position", "priority": 3, **item, "context": context})
+    elif state == "REENTRY_READY":
+        actions.append({"action_type": "reentry_watch", "priority": 1, "scope": "approved_watchlist_only", "context": context})
+    else:
+        actions.append({"action_type": "no_op", "priority": 0, "context": context})
+    return [item for item in actions if item.get("action_type") in ALLOWED_PAPER_ACTION_TYPES]
 
 
 def infer_raw_state(latest_run: Path, long_crisis_features: Path, long_crisis_thresholds: Path) -> tuple[str, list[str], dict[str, Any]]:
@@ -122,12 +174,16 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if not holdings.empty:
         text = holdings.astype(str).agg(" ".join, axis=1).str.lower()
         leader_rows = int(text.str.contains("leader|monster|future_winner", regex=True).sum())
+    paper_actions = build_paper_action_candidates(state=state, raw_state=raw_state, reasons=reasons, holdings=holdings)
 
     payload = {
         "schema_version": "daily-crisis-monitor-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
         "auto_trade_allowed": False,
+        "paper_actions_only": True,
+        "allowed_action_types": list(ALLOWED_PAPER_ACTION_TYPES),
+        "paper_action_candidates": paper_actions,
         "state": state,
         "raw_state": raw_state,
         "long_crisis": long_crisis,
@@ -168,6 +224,26 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
     ]
     lines.extend([f"- {item}" for item in payload.get("reasons") or []])
+    lines.extend(
+        [
+            "",
+            "## Paper Action Candidates",
+            "",
+            "- paper_actions_only: `true`",
+            "- production_mutation_allowed: `false`",
+            "",
+            "| Action | Priority | Scope/Ticker | Detail |",
+            "| --- | ---: | --- | --- |",
+        ]
+    )
+    for item in payload.get("paper_action_candidates") or []:
+        scope = item.get("ticker") or item.get("scope") or ""
+        detail = ""
+        if item.get("action_type") == "raise_cash":
+            detail = f"target_cash_weight={safe_float(item.get('target_cash_weight'), 0.0):.2f}"
+        elif item.get("action_type") == "trim_position":
+            detail = f"current_weight={safe_float(item.get('current_weight'), 0.0):.4f}"
+        lines.append(f"| {item.get('action_type')} | {item.get('priority')} | {scope} | {detail} |")
     if long_crisis.get("available"):
         lines.extend(
             [

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Longitudinal performance ledger — the self-sustaining evaluation memory.
+"""Longitudinal performance ledger: the self-sustaining evaluation memory.
 
 Every full rebuild appends ONE row to a persistent append-only JSONL ledger
 that survives the per-date `cloud_results/full_rebuild/<date>` rotation. The
@@ -15,7 +15,7 @@ Each row captures, per portfolio (main + concentrated):
 
 It then computes, against the existing ledger:
   - delta vs the immediately previous run
-  - delta vs the best IS-CAGR ever recorded (the real KPI — see Tier-2 work)
+  - delta vs the best IS-CAGR ever recorded (the real KPI; see Tier-2 work)
   - a trend verdict per portfolio: IMPROVING / FLAT / REGRESSING on IS-CAGR
   - the dominant next-action (the most common leak tag still open)
 
@@ -185,7 +185,7 @@ def compute_verdict(
 
 
 def _render_summary(history: list[dict[str, Any]], verdict: dict[str, Any], last_n: int = 12) -> str:
-    lines = ["# Performance Ledger — IS-CAGR Trajectory", ""]
+    lines = ["# Performance Ledger IS-CAGR Trajectory", ""]
     lines.append(f"- Overall trend this run: **{verdict.get('overall')}**")
     dl = verdict.get("dominant_open_leak")
     lines.append(f"- Dominant open leak (recommended next focus): `{dl or 'none'}`")
@@ -199,9 +199,9 @@ def _render_summary(history: list[dict[str, Any]], verdict: dict[str, Any], last
         lines.append(
             f"- IS-CAGR `{(is_c*100 if is_c is not None else float('nan')):.2f}%` "
             f"| state **{pv.get('state')}** "
-            f"| Δprev `{('%+.2fpp' % dprev) if dprev is not None else 'n/a'}` "
+            f"| delta prev `{('%+.2fpp' % dprev) if dprev is not None else 'n/a'}` "
             f"| best `{(best*100 if best is not None else float('nan')):.2f}%`"
-            f"{'  🏆 NEW BEST' if pv.get('new_best') else ''}"
+            f"{'  NEW BEST' if pv.get('new_best') else ''}"
         )
     lines.append("")
     lines.append(f"## Last {last_n} runs")
@@ -213,7 +213,7 @@ def _render_summary(history: list[dict[str, Any]], verdict: dict[str, Any], last
         cp = (r.get("portfolios") or {}).get("concentrated") or {}
         def pct(x):
             v = _safe_float(x)
-            return f"{v*100:.2f}%" if v is not None else "—"
+            return f"{v*100:.2f}%" if v is not None else "n/a"
         lines.append(
             f"| {str(r.get('run_id'))[:12]} | {str(r.get('commit'))[:8]} | "
             f"{pct(mp.get('is_cagr'))} | {pct(mp.get('full_cagr'))} | "
@@ -242,7 +242,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         account_eval, is_attribution,
         run_id=args.run_id, commit=args.commit, universe=args.universe,
     )
-    # dedup by run_id — re-running the ledger for the same run replaces its row
+    # dedup by run_id: re-running the ledger for the same run replaces its row
     history = [r for r in history if r.get("run_id") != row.get("run_id")]
     full_history = history + [row]
 
