@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -102,11 +103,26 @@ def build_queue(ledger_rows: list[dict[str, Any]], latest_verdict: dict[str, Any
     templates = LEAK_EXPERIMENTS.get(str(latest_focus), []) if repeated else []
     queued = []
     for template in templates:
+        env_payload = dict(template.get("env") or {})
+        workflow_inputs = {
+            "universe_mode": "global_alpha_universe",
+            "backtest_years": "8",
+            "skip_collector": "true",
+            "fast_mode": "true",
+            "sidecar_profile": "operating_minimal",
+            "artifact_profile": "minimal",
+            "gdrive_sync_mode": "minimal",
+            "portfolio_policy": "alphaops_vnext_production",
+            "cache_key_suffix": str(template.get("experiment_id") or "self_correction"),
+            "experiment_env_json": json.dumps(env_payload, sort_keys=True),
+        }
+        workflow_inputs.update({str(k): str(v).lower() if isinstance(v, bool) else str(v) for k, v in (template.get("workflow_inputs") or {}).items()})
         queued.append(
             {
                 **template,
-                "workflow": ".github/workflows/full_rebuild_manual.yml",
+                "workflow": "full_rebuild_manual.yml",
                 "dispatch_mode": "workflow_dispatch_payload_only",
+                "workflow_dispatch_inputs": workflow_inputs,
                 "production_mutation_allowed": False,
                 "requires_user_approval": True,
                 "source_leak": latest_focus,
@@ -124,6 +140,42 @@ def build_queue(ledger_rows: list[dict[str, Any]], latest_verdict: dict[str, Any
     }
 
 
+def build_dispatch_payloads(queue: dict[str, Any], ref: str) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for item in queue.get("queued_experiments") or []:
+        payloads.append(
+            {
+                "experiment_id": item.get("experiment_id"),
+                "source_leak": item.get("source_leak"),
+                "workflow_id": item.get("workflow") or "full_rebuild_manual.yml",
+                "ref": ref,
+                "inputs": item.get("workflow_dispatch_inputs") or {},
+                "requires_user_approval": True,
+                "production_mutation_allowed": False,
+            }
+        )
+    return payloads
+
+
+def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "# Review-only generated commands. Inspect before running.",
+        "",
+    ]
+    for payload in payloads:
+        workflow_id = shlex.quote(str(payload.get("workflow_id") or "full_rebuild_manual.yml"))
+        ref = shlex.quote(str(payload.get("ref") or "master"))
+        parts = ["gh", "workflow", "run", workflow_id, "--repo", shlex.quote(repo), "--ref", ref]
+        for key, value in sorted((payload.get("inputs") or {}).items()):
+            parts.extend(["-f", shlex.quote(f"{key}={value}")])
+        lines.append("# " + str(payload.get("experiment_id")))
+        lines.append(" ".join(parts))
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_markdown(queue: dict[str, Any]) -> str:
     lines = [
         "# Self-Correction Router Queue",
@@ -138,6 +190,16 @@ def render_markdown(queue: dict[str, Any]) -> str:
     for item in queue.get("queued_experiments") or []:
         env = ", ".join(f"{k}={v}" for k, v in (item.get("env") or {}).items())
         lines.append(f"| {item.get('experiment_id')} | {item.get('source_leak')} | {env} | yes |")
+    lines.extend(
+        [
+            "",
+            "## Dispatch Artifacts",
+            "",
+            "- `workflow_dispatch_payloads.json`: REST/GraphQL-ready workflow dispatch payloads.",
+            "- `workflow_dispatch_commands.sh`: equivalent `gh workflow run` commands for manual review.",
+            "- These files are generated only; this router never dispatches workflows itself.",
+        ]
+    )
     lines.append("")
     return "\n".join(lines)
 
@@ -149,7 +211,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     rows = read_ledger(ledger_dir / "ledger.jsonl")
     latest_verdict = read_json(ledger_dir / "latest_verdict.json")
     queue = build_queue(rows, latest_verdict, int(args.min_repeat))
+    dispatch_payloads = build_dispatch_payloads(queue, args.ref)
+    queue["dispatch_payload_count"] = len(dispatch_payloads)
     (output_dir / "router_queue.json").write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (output_dir / "workflow_dispatch_payloads.json").write_text(json.dumps(dispatch_payloads, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (output_dir / "workflow_dispatch_commands.sh").write_text(render_dispatch_script(dispatch_payloads, args.repo) + "\n", encoding="utf-8")
     (output_dir / "router_queue.md").write_text(render_markdown(queue), encoding="utf-8")
     print(json.dumps({"latest_focus": queue.get("latest_focus"), "queued": len(queue.get("queued_experiments") or [])}, indent=2))
     return queue
@@ -160,6 +226,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ledger-dir", default="cloud_results/performance_ledger")
     parser.add_argument("--output-dir", default="outputs/self_correction_router")
     parser.add_argument("--min-repeat", type=int, default=2)
+    parser.add_argument("--ref", default="master")
+    parser.add_argument("--repo", default="wscha231/r1000-quant-engine")
     return parser.parse_args(argv)
 
 

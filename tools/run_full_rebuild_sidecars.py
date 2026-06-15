@@ -18,7 +18,7 @@ set -o pipefail
 SIDECAR_PROFILE="${SIDECAR_PROFILE:-research_full}"
 ARTIFACT_PROFILE="${ARTIFACT_PROFILE:-unknown}"
 GDRIVE_SYNC_MODE="${GDRIVE_SYNC_MODE:-unknown}"
-PORTFOLIO_POLICY="${PORTFOLIO_POLICY:-production_baseline}"
+PORTFOLIO_POLICY="${PORTFOLIO_POLICY:-alphaops_vnext_production}"
 APPROVED_TARGET_POLICY_PATH="${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
 echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE} portfolio_policy=${PORTFOLIO_POLICY}"
 
@@ -445,7 +445,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--artifact-profile", default=os.environ.get("ARTIFACT_PROFILE", "unknown"))
     parser.add_argument("--gdrive-sync-mode", default=os.environ.get("GDRIVE_SYNC_MODE", "unknown"))
-    parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "market_leader_shadow", "approved_integrated", "alphaops_vnext_production"], default=os.environ.get("PORTFOLIO_POLICY", "production_baseline"))
+    parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "market_leader_shadow", "approved_integrated", "alphaops_vnext_production"], default=os.environ.get("PORTFOLIO_POLICY", "alphaops_vnext_production"))
     parser.add_argument("--approved-target-policy-path", default=os.environ.get("APPROVED_TARGET_POLICY_PATH", "outputs/promotion_review/approved_target_policy.json"))
     return parser.parse_args()
 

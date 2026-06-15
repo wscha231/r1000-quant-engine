@@ -18,7 +18,7 @@ without encoding loss.
 | ADR automation | `run_adr_candidate_scanner.py` plus monthly workflow generate review-only candidate artifacts | review-only wired |
 | Era leadership | `run_era_leadership_sidecar.py` computes era/regime factor IC and top-name contribution for 2019-2021, 2022, 2023-2024, 2025+ | sidecar wired |
 | Crisis action wire | `run_daily_crisis_monitor.py` still has `auto_trade_allowed=false`, but emits paper candidates from a strict action whitelist | paper-only wired |
-| Self-correction | `run_self_correction_router.py` queues A/B workflow payload candidates when a ledger leak repeats 2 runs | queue-only wired |
+| Self-correction | `run_self_correction_router.py` queues A/B candidates and emits review-ready workflow_dispatch payloads/commands when a ledger leak repeats 2 runs | dispatch-prep wired |
 | Full rebuild persistence | `is_attribution`, `era_leadership`, `self_correction_router`, `data_readiness`, and account evaluation are preserved under `cloud_results/full_rebuild/<date>` | wired |
 
 ## Not Yet Complete
@@ -29,7 +29,7 @@ without encoding loss.
 | Era leadership is diagnostic, not a production model | Production still uses one global model plus post-hoc sidecars; it does not train separate era/regime coefficients | Add an era-aware scoring challenger, then A/B with broker-ledger next-close |
 | ADR automation is candidate-only | It finds additions but does not safely merge universe changes | Add an operator-reviewed manifest diff or PR generator for `adr_universe.yaml` |
 | Crisis actions are paper-only | This is correct for safety, but paper/live executors do not consume the structured candidates yet | Add a paper executor bridge that writes approval-required order previews |
-| Self-correction does not dispatch automatically | Router writes queue artifacts, but does not call workflow_dispatch | Add a guarded dispatch script that opens a PR or requires user approval before launching A/B |
+| Self-correction does not dispatch automatically | Router writes queue and dispatch payload artifacts, but does not call workflow_dispatch by itself | Add a guarded dispatcher that requires user approval before launching A/B |
 | Concentrated CAGR still lacks proof of 50% | Latest known headline was 44.43% and IS-CAGR was near 22%; PR64 makes evidence stricter, not higher | Run queued concentrated bull experiments and promote only if IS-CAGR improves and MDD remains within -28% |
 
 ## Operational Interpretation

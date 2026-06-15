@@ -43,12 +43,20 @@ def test_self_correction_router_queues_repeated_concentrated_bull_leak() -> None
             encoding="utf-8",
         )
         out = root / "router"
-        queue = run(Namespace(ledger_dir=str(ledger_dir), output_dir=str(out), min_repeat=2))
+        queue = run(Namespace(ledger_dir=str(ledger_dir), output_dir=str(out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
         assert queue["production_mutation_allowed"] is False
         assert queue["repeat_confirmed"] is True
         assert len(queue["queued_experiments"]) == 4
         assert all(item["requires_user_approval"] is True for item in queue["queued_experiments"])
+        payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert len(payloads) == 4
+        first_inputs = payloads[0]["inputs"]
+        assert first_inputs["backtest_years"] == "8"
+        assert first_inputs["portfolio_policy"] == "alphaops_vnext_production"
+        assert "experiment_env_json" in first_inputs
+        assert "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED" in first_inputs["experiment_env_json"]
         assert (out / "router_queue.md").exists()
+        assert "gh workflow run" in (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

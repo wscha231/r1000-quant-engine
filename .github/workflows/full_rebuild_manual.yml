@@ -114,11 +114,15 @@ on:
           - market_leader_shadow
           - approved_integrated
           - alphaops_vnext_production
-        default: production_baseline
+        default: alphaops_vnext_production
       approved_target_policy_path:
         description: 'approved_integrated policy file path; default stays unapproved'
         type: string
         default: outputs/promotion_review/approved_target_policy.json
+      experiment_env_json:
+        description: 'review-approved A/B env overrides as JSON object; keys must start with PHASE_, R1000_, or ALPHAOPS_'
+        type: string
+        default: ''
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -168,6 +172,41 @@ jobs:
           pip install -r requirements_github.txt
           # Heavy ML deps for full rebuild (not in requirements_github.txt by default)
           pip install "catboost>=1.2" "lightgbm>=4.0" "xgboost>=2.0" "scikit-learn>=1.4"
+
+      - name: Apply review-approved experiment env
+        env:
+          EXPERIMENT_ENV_JSON: ${{ github.event.inputs.experiment_env_json || '' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          raw = os.environ.get("EXPERIMENT_ENV_JSON", "").strip()
+          if not raw:
+              print("[experiment-env] no overrides")
+              raise SystemExit(0)
+          try:
+              payload = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              print(f"[experiment-env] invalid JSON: {exc}", file=sys.stderr)
+              raise SystemExit(2)
+          if not isinstance(payload, dict):
+              print("[experiment-env] payload must be a JSON object", file=sys.stderr)
+              raise SystemExit(2)
+          allowed = re.compile(r"^(PHASE_|R1000_|ALPHAOPS_)[A-Z0-9_]+$")
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as fh:
+              for key, value in sorted(payload.items()):
+                  key = str(key).strip().upper()
+                  if not allowed.match(key):
+                      print(f"[experiment-env] rejected key: {key}", file=sys.stderr)
+                      raise SystemExit(2)
+                  text = str(value).replace("\n", " ").replace("\r", " ").strip()
+                  fh.write(f"{key}={text}\n")
+                  print(f"[experiment-env] applied {key}={text}")
+          PY
 
       # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
       # These are slow to fetch (rate limits) and rarely change.
@@ -503,7 +542,18 @@ jobs:
       - name: Portfolio target replay + goal search (sidecar)
         if: always()
         run: |
-          python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}" --artifact-profile "${{ inputs.artifact_profile }}" --gdrive-sync-mode "${{ inputs.gdrive_sync_mode }}" --portfolio-policy "${{ inputs.portfolio_policy }}" --approved-target-policy-path "${{ inputs.approved_target_policy_path }}"
+          python tools/run_full_rebuild_sidecars.py \
+            --profile "${SIDECAR_PROFILE:-operating_minimal}" \
+            --artifact-profile "${ARTIFACT_PROFILE:-minimal}" \
+            --gdrive-sync-mode "${GDRIVE_SYNC_MODE:-minimal}" \
+            --portfolio-policy "${PORTFOLIO_POLICY:-alphaops_vnext_production}" \
+            --approved-target-policy-path "${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
+        env:
+          SIDECAR_PROFILE: ${{ github.event.inputs.sidecar_profile || 'operating_minimal' }}
+          ARTIFACT_PROFILE: ${{ github.event.inputs.artifact_profile || 'minimal' }}
+          GDRIVE_SYNC_MODE: ${{ github.event.inputs.gdrive_sync_mode || 'minimal' }}
+          PORTFOLIO_POLICY: ${{ github.event.inputs.portfolio_policy || 'alphaops_vnext_production' }}
+          APPROVED_TARGET_POLICY_PATH: ${{ github.event.inputs.approved_target_policy_path || 'outputs/promotion_review/approved_target_policy.json' }}
 
       - name: Data health (catalog + coverage gate, warn-only)
         if: always()
