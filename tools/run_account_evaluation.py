@@ -19,7 +19,7 @@ import csv
 import json
 import math
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -131,6 +131,32 @@ def estimate_trading_days(start_date: Any, end_date: Any, years: float | None) -
     return max(candidates) if candidates else None
 
 
+def equity_curve_window(path: Path) -> dict[str, Any]:
+    """Return actual broker-ledger equity-curve date coverage using stdlib CSV."""
+    if not path.exists():
+        return {"path": str(path), "exists": False, "trading_day_count": None, "start_date": None, "end_date": None}
+    dates: set[date] = set()
+    try:
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                value = row.get("date") or row.get("Date") or row.get("as_of_date")
+                parsed = parse_date(value)
+                if parsed is not None:
+                    dates.add(parsed.date())
+    except Exception:
+        return {"path": str(path), "exists": True, "read_error": True, "trading_day_count": None, "start_date": None, "end_date": None}
+    if not dates:
+        return {"path": str(path), "exists": True, "trading_day_count": 0, "start_date": None, "end_date": None}
+    return {
+        "path": str(path),
+        "exists": True,
+        "trading_day_count": len(dates),
+        "start_date": min(dates).isoformat(),
+        "end_date": max(dates).isoformat(),
+    }
+
+
 def legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]:
     if portfolio == "main":
         return read_json(latest_run / "backtest_metrics.json")
@@ -192,19 +218,41 @@ def evaluate_strengthened_gates(
     return {"checks": checks, "passing": not failing, "failing": failing, "is_cagr": is_cagr, "oos_cagr": oos_cagr, "is_mdd": is_mdd, "recent_mdd": recent_mdd}
 
 
-def evaluate_window_gate(broker_metrics: dict[str, Any]) -> dict[str, Any]:
+def evaluate_window_gate(
+    broker_metrics: dict[str, Any],
+    *,
+    equity_window: dict[str, Any] | None = None,
+    data_readiness: dict[str, Any] | None = None,
+    require_data_readiness: bool = False,
+) -> dict[str, Any]:
     """Require an 8-year broker-ledger evidence window for official verdicts."""
     start_date = broker_metrics.get("start_date")
     end_date = broker_metrics.get("end_date")
     years = metric(broker_metrics, "years")
-    trading_days = estimate_trading_days(start_date, end_date, years)
+    estimated_trading_days = estimate_trading_days(start_date, end_date, years)
+    equity_window = equity_window or {}
+    actual_trading_days = safe_int(equity_window.get("trading_day_count"), default=-1)
+    actual_trading_days = actual_trading_days if actual_trading_days >= 0 else None
+    trading_days = actual_trading_days if actual_trading_days is not None else estimated_trading_days
     reasons: list[str] = []
     if not start_date or not end_date:
         reasons.append("missing_start_or_end_date")
     if years is None or years < MIN_BROKER_LEDGER_YEARS:
         reasons.append("broker_ledger_years_below_8")
+    if equity_window and not equity_window.get("exists"):
+        reasons.append("broker_ledger_equity_curve_missing")
     if trading_days is None or trading_days < MIN_BROKER_LEDGER_TRADING_DAYS:
         reasons.append("broker_ledger_trading_days_below_8y")
+    readiness = data_readiness or {}
+    readiness_status = readiness.get("status") if isinstance(readiness, dict) else None
+    policy_ready = readiness.get("ready_for_policy_replay") if isinstance(readiness, dict) else None
+    known_gaps = ((readiness.get("free_data_coverage") or {}).get("known_gaps") or []) if isinstance(readiness, dict) else []
+    if require_data_readiness and not readiness:
+        reasons.append("data_readiness_summary_missing")
+    elif readiness and not bool(policy_ready):
+        reasons.append("data_readiness_not_ready_for_policy_replay")
+    if known_gaps:
+        reasons.append("free_data_coverage_known_gaps")
     status = "ok" if not reasons else "invalid_window"
     return {
         "status": status,
@@ -216,6 +264,15 @@ def evaluate_window_gate(broker_metrics: dict[str, Any]) -> dict[str, Any]:
         "end_date": end_date,
         "years": years,
         "trading_days_estimate": trading_days,
+        "estimated_trading_days": estimated_trading_days,
+        "actual_trading_days": actual_trading_days,
+        "equity_curve_window": equity_window,
+        "data_readiness": {
+            "status": readiness_status,
+            "ready_for_policy_replay": policy_ready,
+            "ready_for_fullrun": readiness.get("ready_for_fullrun") if isinstance(readiness, dict) else None,
+            "known_gaps_count": len(known_gaps),
+        },
     }
 
 
@@ -224,11 +281,17 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
     preview = read_json(latest_run / "account_ledger_preview" / portfolio / "preview_metrics.json")
     journal = read_json(latest_run / "broker_trade_journal" / portfolio / "summary.json")
+    data_readiness = read_json(latest_run / "data_readiness" / "summary.json")
     legacy = legacy_metrics(latest_run, portfolio)
     target = target_for(portfolio)
     gate = strengthened_gate_for(portfolio)
     tier2 = evaluate_strengthened_gates(broker_metrics, gate)
-    window_gate = evaluate_window_gate(broker_metrics)
+    window_gate = evaluate_window_gate(
+        broker_metrics,
+        equity_window=equity_curve_window(latest_run / "broker_replay" / portfolio / "equity_curve.csv"),
+        data_readiness=data_readiness,
+        require_data_readiness=True,
+    )
 
     cagr = metric(broker_metrics, "cagr", "strategy_cagr")
     max_dd = metric(broker_metrics, "max_dd", "max_drawdown")
@@ -270,6 +333,9 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "end_date": broker_metrics.get("end_date"),
         "years": metric(broker_metrics, "years"),
         "broker_ledger_trading_days_estimate": window_gate.get("trading_days_estimate"),
+        "broker_ledger_actual_trading_days": window_gate.get("actual_trading_days"),
+        "data_readiness_status": (window_gate.get("data_readiness") or {}).get("status"),
+        "data_readiness_policy_replay_ready": (window_gate.get("data_readiness") or {}).get("ready_for_policy_replay"),
         "starting_capital_usd": metric(broker_metrics, "starting_capital_usd"),
         "ending_capital_usd": metric(broker_metrics, "ending_capital_usd"),
         "avg_cash_weight": metric(broker_metrics, "avg_cash_weight"),
@@ -325,6 +391,9 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "end_date",
         "years",
         "broker_ledger_trading_days_estimate",
+        "broker_ledger_actual_trading_days",
+        "data_readiness_status",
+        "data_readiness_policy_replay_ready",
         "ending_capital_usd",
         "avg_cash_weight",
         "latest_cash_weight",
@@ -430,16 +499,19 @@ def render_report(payload: dict[str, Any]) -> str:
             )
         )
     lines.extend(["", "## Broker-Ledger Window Gate", ""])
-    lines.append("| Portfolio | Status | Years | Trading Days Est. | Start | End | Reasons |")
-    lines.append("| --- | --- | ---: | ---: | --- | --- | --- |")
+    lines.append("| Portfolio | Status | Years | Actual Trading Days | Trading Days Evidence | Data Ready | Start | End | Reasons |")
+    lines.append("| --- | --- | ---: | ---: | ---: | :---: | --- | --- | --- |")
     for row in rows:
         gate = row.get("broker_ledger_window_gate") or {}
+        data_ready = (gate.get("data_readiness") or {}).get("ready_for_policy_replay")
         lines.append(
-            "| {p} | {status} | {years:.2f} | {days} | {start} | {end} | {reasons} |".format(
+            "| {p} | {status} | {years:.2f} | {actual_days} | {days} | {data_ready} | {start} | {end} | {reasons} |".format(
                 p=row.get("portfolio"),
                 status=gate.get("status") or "missing",
                 years=safe_float(gate.get("years"), 0.0) or 0.0,
+                actual_days=gate.get("actual_trading_days") or "",
                 days=gate.get("trading_days_estimate") or "",
+                data_ready=str(bool(data_ready)).lower(),
                 start=gate.get("start_date") or "",
                 end=gate.get("end_date") or "",
                 reasons=", ".join(gate.get("reasons") or []) or "none",

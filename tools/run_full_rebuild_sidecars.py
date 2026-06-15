@@ -202,6 +202,9 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
   python tools/run_cash_policy_attribution.py --latest-run outputs --output-dir outputs/cash_policy 2>&1 | tee outputs/full_rebuild_logs/cash_policy_attribution.log || true
   python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
+  # Official account evaluation reads this summary as part of the 8-year
+  # broker-ledger/data-coverage gate, so it must exist before the verdict.
+  python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
   python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
   # IS-only attribution sidecar — surfaces year-by-year where the IS CAGR is
   # leaking. Run 27498401423 conc 2021/2023 were tagged
@@ -229,7 +232,6 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
   python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
   run_decision_cadence_review
-  python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
   python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
   python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
   if [ "$SIDECAR_PROFILE" = "official" ]; then

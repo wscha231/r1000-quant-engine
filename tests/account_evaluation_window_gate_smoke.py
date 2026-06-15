@@ -19,13 +19,41 @@ def test_window_gate_rejects_short_run() -> None:
 
 
 def test_window_gate_accepts_8_year_run() -> None:
-    gate = evaluate_window_gate({"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03})
+    gate = evaluate_window_gate(
+        {"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03},
+        equity_window={"exists": True, "trading_day_count": 2025, "start_date": "2018-06-01", "end_date": "2026-06-12"},
+        data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
     assert gate["valid"] is True
     assert gate["status"] == "ok"
     assert gate["trading_days_estimate"] >= 252 * 8
 
 
+def test_window_gate_rejects_short_actual_equity_curve_even_if_metrics_years_pass() -> None:
+    gate = evaluate_window_gate(
+        {"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03},
+        equity_window={"exists": True, "trading_day_count": 1200, "start_date": "2018-06-01", "end_date": "2026-06-12"},
+        data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is False
+    assert "broker_ledger_trading_days_below_8y" in gate["reasons"]
+
+
+def test_window_gate_rejects_missing_data_readiness_when_required() -> None:
+    gate = evaluate_window_gate(
+        {"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03},
+        equity_window={"exists": True, "trading_day_count": 2025, "start_date": "2018-06-01", "end_date": "2026-06-12"},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is False
+    assert "data_readiness_summary_missing" in gate["reasons"]
+
+
 if __name__ == "__main__":
     test_window_gate_rejects_short_run()
     test_window_gate_accepts_8_year_run()
+    test_window_gate_rejects_short_actual_equity_curve_even_if_metrics_years_pass()
+    test_window_gate_rejects_missing_data_readiness_when_required()
     print("account_evaluation_window_gate_smoke: PASS")
