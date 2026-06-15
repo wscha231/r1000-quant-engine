@@ -651,6 +651,7 @@ jobs:
             outputs/review_dispatcher/
             outputs/review_dispatcher_self_correction/
             outputs/self_correction_queue/
+            outputs/ab_result_verifier/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/cash_contract.log
@@ -692,6 +693,7 @@ jobs:
             outputs/shadow_operating/
             outputs/promotion_review/
             outputs/self_correction_queue/
+            outputs/ab_result_verifier/
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
@@ -1276,6 +1278,7 @@ jobs:
             copy_dir_clean outputs/review_dispatcher "$DEST/review_dispatcher"
             copy_dir_clean outputs/review_dispatcher_self_correction "$DEST/review_dispatcher_self_correction"
             copy_dir_clean outputs/self_correction_queue "$DEST/self_correction_queue"
+            copy_dir_clean outputs/ab_result_verifier "$DEST/ab_result_verifier"
             # P3 integrated leader+crisis evidence + P0 freshness + governor
             # learning trail. Without these, the run leaves no auditable
             # record of why the governor moved or did not.
@@ -1383,6 +1386,7 @@ jobs:
           copy_dir_clean outputs/review_dispatcher "$DEST/review_dispatcher"
           copy_dir_clean outputs/review_dispatcher_self_correction "$DEST/review_dispatcher_self_correction"
           copy_dir_clean outputs/self_correction_queue "$DEST/self_correction_queue"
+          copy_dir_clean outputs/ab_result_verifier "$DEST/ab_result_verifier"
           copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/oos_lock "$DEST/oos_lock"

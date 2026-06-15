@@ -178,6 +178,9 @@ Priority order:
 
 Use router/system-acceptance payloads, not hand-written workflow inputs, unless
 the payload is stale and has been regenerated.
+System-acceptance A/B payloads must carry `experiment_id`, `payload_hash`, and
+`post_run_review.verifier_args`; use those values directly when running the
+verifier so queue closure can join results back to the review queue.
 
 ```powershell
 # [LOCAL]
@@ -200,6 +203,7 @@ python tools\run_ab_result_verifier.py `
   --experiment-id <experiment_id> `
   --payload-hash <payload_hash> `
   --workflow-run-id <github_actions_run_id> `
+  --dispatch-run-id <plan_id> `
   --output-dir outputs/ab_result_verifier/<experiment_id>
 ```
 
