@@ -35,6 +35,9 @@ def seed_run(
     system_acceptance: bool = True,
     hard_blockers: int = 0,
     production_activation_allowed: bool = False,
+    oos_lock: bool = True,
+    oos_lock_pass: bool = True,
+    oos_is_ratio: float = 1.8,
 ) -> None:
     row = {
         "portfolio": "concentrated",
@@ -97,20 +100,53 @@ def seed_run(
         },
     )
     if system_acceptance:
-        status = "production_evidence_ready" if hard_blockers == 0 else "not_ready"
+        effective_blockers = hard_blockers + (0 if oos_lock_pass else 1)
+        status = "production_evidence_ready" if effective_blockers == 0 else "not_ready"
+        requirements = [
+            {
+                "requirement_id": "attribution_package_year_mdd_name",
+                "status": "pass" if hard_blockers == 0 else "fail",
+                "hard_blocker": hard_blockers != 0,
+            }
+        ]
+        if oos_lock:
+            requirements.append(
+                {
+                    "requirement_id": "oos_holdout_lock",
+                    "status": "pass" if oos_lock_pass else "fail",
+                    "hard_blocker": not oos_lock_pass,
+                }
+            )
         write_json(
             root / "system_acceptance_audit" / "summary.json",
             {
                 "status": status,
                 "production_activation_allowed": production_activation_allowed,
-                "hard_blocker_count": hard_blockers,
-                "requirements": [
-                    {
-                        "requirement_id": "attribution_package_year_mdd_name",
-                        "status": "pass" if hard_blockers == 0 else "fail",
-                        "hard_blocker": hard_blockers != 0,
+                "hard_blocker_count": effective_blockers,
+                "requirements": requirements,
+            },
+        )
+    if oos_lock:
+        failures = [] if oos_lock_pass else ["oos_is_cagr_ratio_above_lock"]
+        write_json(
+            root / "oos_lock" / "summary.json",
+            {
+                "status": "pass" if oos_lock_pass else "fail",
+                "lock_pass": oos_lock_pass,
+                "hard_blocker_count": 0 if oos_lock_pass else 1,
+                "production_activation_allowed": False,
+                "config": {"oos_start": "2024-07-01", "max_oos_is_cagr_ratio": 3.0},
+                "failures": {} if oos_lock_pass else {"concentrated": failures},
+                "portfolios": {
+                    "concentrated": {
+                        "status": "pass" if oos_lock_pass else "fail",
+                        "cagr_is": is_cagr,
+                        "cagr_oos": 0.55,
+                        "oos_is_cagr_ratio": oos_is_ratio,
+                        "max_oos_is_cagr_ratio": 3.0,
+                        "failures": failures,
                     }
-                ],
+                },
             },
         )
 
@@ -206,9 +242,59 @@ def test_verifier_blocks_missing_acceptance_evidence() -> None:
         assert "system_acceptance_audit_missing" in row["issues"]
 
 
+def test_verifier_blocks_missing_oos_lock_evidence() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=8.10,
+            target_pass=True,
+            strengthened_pass=True,
+            oos_lock=False,
+        )
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked"
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_missing_evidence"
+        assert "oos_lock_summary_missing" in row["issues"]
+        assert "oos_holdout_lock:missing" in row["issues"]
+
+
+def test_verifier_blocks_failed_oos_lock() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=8.10,
+            target_pass=True,
+            strengthened_pass=True,
+            oos_lock_pass=False,
+            oos_is_ratio=5.5,
+        )
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked"
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_oos_lock"
+        assert "oos_is_cagr_ratio_above_lock" in row["issues"]
+
+
 if __name__ == "__main__":
     test_verifier_marks_clean_candidate_review_promotable()
     test_verifier_rejects_is_cagr_regression_even_if_headline_passes()
     test_verifier_invalidates_short_candidate_window()
     test_verifier_blocks_missing_acceptance_evidence()
+    test_verifier_blocks_missing_oos_lock_evidence()
+    test_verifier_blocks_failed_oos_lock()
     print("ab_result_verifier_smoke: PASS")

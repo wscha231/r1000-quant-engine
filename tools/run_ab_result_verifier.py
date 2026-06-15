@@ -42,6 +42,7 @@ OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 MIN_BROKER_LEDGER_YEARS = 8.0
 MIN_BROKER_LEDGER_TRADING_DAYS = 252 * 8
 ATTRIBUTION_REQUIREMENT_ID = "attribution_package_year_mdd_name"
+OOS_LOCK_REQUIREMENT_ID = "oos_holdout_lock"
 
 
 def repo_path(value: str | Path) -> Path:
@@ -114,6 +115,13 @@ def requirement_status(system: dict[str, Any], requirement_id: str) -> str:
     return ""
 
 
+def requirement_row(system: dict[str, Any], requirement_id: str) -> dict[str, Any]:
+    for row in system.get("requirements") or []:
+        if isinstance(row, dict) and row.get("requirement_id") == requirement_id:
+            return row
+    return {}
+
+
 def run_label(path: Path) -> str:
     parts = [part for part in path.parts if part]
     return parts[-1] if parts else str(path)
@@ -132,6 +140,11 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     is_attr_path = run_dir / "is_attribution" / "summary.json"
     is_attr = read_json(is_attr_path)
     attr_row = is_attr.get(portfolio) if isinstance(is_attr.get(portfolio), dict) else {}
+    oos_lock_path = run_dir / "oos_lock" / "summary.json"
+    oos_lock = read_json(oos_lock_path)
+    oos_portfolios = oos_lock.get("portfolios") if isinstance(oos_lock.get("portfolios"), dict) else {}
+    oos_row = oos_portfolios.get(portfolio) if isinstance(oos_portfolios.get(portfolio), dict) else {}
+    oos_requirement = requirement_row(system, OOS_LOCK_REQUIREMENT_ID)
 
     windows = broker.get("windows") if isinstance(broker.get("windows"), dict) else {}
     is_window = windows.get("is") if isinstance(windows.get("is"), dict) else {}
@@ -164,6 +177,8 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "system_acceptance_exists": system_path.exists(),
         "is_attribution_path": str(is_attr_path),
         "is_attribution_exists": is_attr_path.exists(),
+        "oos_lock_path": str(oos_lock_path),
+        "oos_lock_exists": oos_lock_path.exists(),
         "official_metric_mode": mode,
         "status": row.get("status") or broker.get("status") or "missing",
         "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production", False))),
@@ -177,6 +192,14 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "is_cagr": is_cagr,
         "is_cagr_target": gate_for(portfolio)["is_cagr_min"],
         "oos_cagr": oos_cagr,
+        "oos_lock_status": oos_lock.get("status") or "",
+        "oos_lock_pass": oos_lock.get("lock_pass"),
+        "oos_lock_hard_blocker_count": safe_int(oos_lock.get("hard_blocker_count"), 0 if oos_lock else None),
+        "oos_lock_portfolio_status": oos_row.get("status") or "",
+        "oos_is_cagr_ratio": safe_float(oos_row.get("oos_is_cagr_ratio")),
+        "oos_lock_failures": list(oos_row.get("failures") or []),
+        "oos_lock_requirement_status": str(oos_requirement.get("status") or ""),
+        "oos_lock_requirement_hard_blocker": oos_requirement.get("hard_blocker") if oos_requirement else None,
         "sharpe": safe_float(row.get("sharpe"), safe_float(broker.get("sharpe"))),
         "avg_cash_weight": safe_float(row.get("avg_cash_weight"), safe_float(broker.get("avg_cash_weight"))),
         "years": years,
@@ -282,12 +305,33 @@ def classify_candidate(
             missing.append("system_acceptance_audit_missing")
         if not candidate.get("is_attribution_exists"):
             missing.append("is_attribution_summary_missing")
+        if not candidate.get("oos_lock_exists"):
+            missing.append("oos_lock_summary_missing")
         if candidate.get("attribution_requirement_status") != "pass":
             missing.append(f"{ATTRIBUTION_REQUIREMENT_ID}:{candidate.get('attribution_requirement_status') or 'missing'}")
+        if not candidate.get("oos_lock_requirement_status"):
+            missing.append(f"{OOS_LOCK_REQUIREMENT_ID}:{candidate.get('oos_lock_requirement_status') or 'missing'}")
         if candidate.get("system_acceptance_production_activation_allowed") is not False:
             missing.append("system_acceptance_production_activation_allowed_not_false")
         if missing:
             return "blocked_missing_evidence", missing
+        oos_lock_blockers = safe_int(candidate.get("oos_lock_hard_blocker_count"), 0) or 0
+        if (
+            candidate.get("oos_lock_status") != "pass"
+            or candidate.get("oos_lock_pass") is not True
+            or candidate.get("oos_lock_portfolio_status") != "pass"
+            or candidate.get("oos_lock_requirement_status") != "pass"
+            or oos_lock_blockers > 0
+            or candidate.get("oos_lock_failures")
+        ):
+            issues = [
+                f"status:{candidate.get('oos_lock_status') or 'missing'}",
+                f"portfolio_status:{candidate.get('oos_lock_portfolio_status') or 'missing'}",
+                f"system_acceptance_requirement:{candidate.get('oos_lock_requirement_status') or 'missing'}",
+                f"hard_blocker_count:{oos_lock_blockers}",
+            ]
+            issues.extend(str(item) for item in candidate.get("oos_lock_failures") or [])
+            return "blocked_oos_lock", sorted(set(issues))
         hard_blockers = safe_int(candidate.get("system_acceptance_hard_blocker_count"), 0) or 0
         if hard_blockers > 0 or candidate.get("system_acceptance_status") != "production_evidence_ready":
             return "blocked_system_acceptance", [
@@ -354,17 +398,18 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- requires_user_approval: `{str(payload.get('requires_user_approval')).lower()}`",
         f"- baseline: `{baseline.get('run_label')}` ({pct(baseline.get('cagr'))} / {pct(baseline.get('max_dd'))}, IS {pct(baseline.get('is_cagr'))})",
         "",
-        "| Candidate | Decision | CAGR | MDD | IS-CAGR | CAGR vs Base | IS vs Base | MDD vs Base | Issues |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Candidate | Decision | CAGR | MDD | IS-CAGR | OOS/IS | CAGR vs Base | IS vs Base | MDD vs Base | Issues |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for row in payload.get("candidates") or []:
         lines.append(
-            "| {run} | `{decision}` | {cagr} | {mdd} | {is_cagr} | {dcagr}pp | {dis}pp | {dmdd}pp | {issues} |".format(
+            "| {run} | `{decision}` | {cagr} | {mdd} | {is_cagr} | {oos_ratio} | {dcagr}pp | {dis}pp | {dmdd}pp | {issues} |".format(
                 run=row.get("run_label"),
                 decision=row.get("decision"),
                 cagr=pct(row.get("cagr")),
                 mdd=pct(row.get("max_dd")),
                 is_cagr=pct(row.get("is_cagr")),
+                oos_ratio="n/a" if row.get("oos_is_cagr_ratio") is None else f"{float(row.get('oos_is_cagr_ratio')):.2f}x",
                 dcagr=row.get("cagr_delta_vs_baseline_pp"),
                 dis=row.get("is_cagr_delta_vs_baseline_pp"),
                 dmdd=row.get("max_dd_delta_vs_baseline_pp"),
@@ -376,7 +421,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
             "Rules:",
             "- Review-only: this verifier never edits production config or submits orders.",
-            "- A promotable candidate must pass the target contract, strengthened IS gates, 8-year broker-ledger window, attribution evidence, and system acceptance evidence.",
+            "- A promotable candidate must pass the target contract, strengthened IS gates, 8-year broker-ledger window, OOS lock, attribution evidence, and system acceptance evidence.",
             "- `promote_candidate_review_only` still requires human review and a separate PR before any production change.",
             "",
         ]
@@ -398,6 +443,9 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "max_dd_delta_vs_baseline_pp",
         "years",
         "trading_days",
+        "oos_lock_status",
+        "oos_lock_portfolio_status",
+        "oos_is_cagr_ratio",
         "system_acceptance_status",
         "system_acceptance_hard_blocker_count",
         "issues",
