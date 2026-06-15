@@ -149,9 +149,25 @@ def test_review_dispatcher_rejects_mutating_payload() -> None:
         assert "production_mutation_allowed_not_false" in summary["plan_rows"][0]["errors"]
 
 
+def test_review_dispatcher_accepts_empty_payload_file() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        payloads = root / "payloads.json"
+        payloads.write_text("[]\n", encoding="utf-8")
+        out = root / "dispatch"
+        summary = run(base_args(payloads, out))
+        assert summary["status"] == "dry_run_ready"
+        assert summary["selected_count"] == 0
+        assert summary["ready_count"] == 0
+        assert summary["blocked_count"] == 0
+        assert (out / "dispatch_commands.sh").exists()
+        assert (out / "report.md").exists()
+
+
 if __name__ == "__main__":
     test_review_dispatcher_dry_run_blocks_unmet_ab_dependency()
     test_review_dispatcher_allows_ab_after_dependency_marked_complete()
     test_review_dispatcher_execute_requires_approval_token()
     test_review_dispatcher_rejects_mutating_payload()
+    test_review_dispatcher_accepts_empty_payload_file()
     print("review_dispatcher_smoke: PASS")

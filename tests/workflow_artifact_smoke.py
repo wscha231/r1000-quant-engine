@@ -83,6 +83,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/user_portfolio_reports/",
         "outputs/portfolio_system_guard/",
         "outputs/system_acceptance_audit/",
+        "outputs/review_dispatcher/",
         "outputs/adr_candidates/",
         "outputs/account_evaluation/",
         "outputs/oos_lock/",
@@ -270,6 +271,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_portfolio_system_guard.py",
         "tools/run_adr_candidate_scanner.py",
         "tools/run_system_acceptance_audit.py",
+        "tools/run_review_dispatcher.py",
         "tools/run_metric_hygiene_report.py",
         "--account-mode simulated",
         "tools/run_account_evaluation.py",
@@ -369,6 +371,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/portfolio_system_guard.log",
         "outputs/full_rebuild_logs/adr_candidate_scanner.log",
         "outputs/full_rebuild_logs/system_acceptance_audit.log",
+        "outputs/full_rebuild_logs/review_dispatcher.log",
         "outputs/full_rebuild_logs/account_evaluation.log",
         "outputs/full_rebuild_logs/oos_lock.log",
         "outputs/full_rebuild_logs/metric_hygiene_report.log",
@@ -453,12 +456,14 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     oos_idx = sidecar_tool.index("tools/run_oos_lock_audit.py", operating_idx)
     adr_idx = sidecar_tool.index("tools/run_adr_candidate_scanner.py", operating_idx)
     acceptance_idx = sidecar_tool.index("tools/run_system_acceptance_audit.py", operating_idx)
+    dispatcher_idx = sidecar_tool.index("tools/run_review_dispatcher.py", acceptance_idx)
     assert mdd_idx < acceptance_idx
     assert trade_idx < acceptance_idx
     assert is_idx < acceptance_idx
     assert era_idx < acceptance_idx
     assert oos_idx < acceptance_idx
     assert adr_idx < acceptance_idx
+    assert acceptance_idx < dispatcher_idx
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
