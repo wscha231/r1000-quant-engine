@@ -49,7 +49,22 @@ As of 2026-06-15 after fetch:
 | `origin/master` | default branch and final merge target |
 | `origin/codex/self-sustaining-loop-20260615` | PR64 implementation base for control-loop and 8-year evidence work |
 | `origin/codex/goals-2026-06-15` | PR65 review-only goals proposal, stacked on PR64 |
+| `origin/codex/pr64-coordination-ledger-router-20260615` | PR66 coordination, ledger preservation, target-contract metadata, and self-correction queue closure stacked on PR64 |
+| `origin/codex/goals-update-bull-floor-contract-20260615` | PR67 review-only goals update stacked on PR65 |
 | `origin/claude/analyze-updated-code-OfEbu` | Claude research/docs source; never whole-merge |
+
+## Active PR Stack
+
+| PR | Base | Head | Merge order |
+| --- | --- | --- | --- |
+| #64 | `master` | `codex/self-sustaining-loop-20260615` | 1 |
+| #66 | `codex/self-sustaining-loop-20260615` | `codex/pr64-coordination-ledger-router-20260615` | 2 |
+| #65 | `codex/self-sustaining-loop-20260615` | `codex/goals-2026-06-15` | 3 |
+| #67 | `codex/goals-2026-06-15` | `codex/goals-update-bull-floor-contract-20260615` | 4 |
+
+Do not retarget PR65/PR67 onto `master` until the implementation stack has
+landed. If a base branch is merged and deleted, rebase or retarget the next PR
+only after confirming the merged commit is present on `origin/master`.
 
 ## Review Boundaries
 
