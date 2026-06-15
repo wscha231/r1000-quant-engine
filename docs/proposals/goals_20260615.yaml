@@ -1,0 +1,502 @@
+metadata:
+  proposer: codex
+  brief_version: "Codex Goal-Setting Brief v1.0, 2026-06-15 KST"
+  proposed_at: 2026-06-15T10:55:00Z
+  reviewer_required: chatgpt_pro
+  user_approval_required: true
+  repository: wscha231/r1000-quant-engine
+  work_branch: codex/goals-2026-06-15
+  base_branch_used: codex/self-sustaining-loop-20260615
+  target_base_after_pr64_merge: master
+  pr64_head_at_proposal: 272155325ec5f1a7cfaba654716bc72eb3974201
+  authority_limits:
+    codex_can_decide:
+      - operational per-run and per-A/B goals
+      - tactical weekly or sprint goals in this schema
+    codex_can_only_propose:
+      - strategic quarterly goals requiring ChatGPT Pro review and user approval
+    codex_must_not_redefine:
+      - CLAUDE.md mission targets
+      - r1000_config.PORTFOLIO_GOAL_TARGETS
+      - r1000_config.PORTFOLIO_GOAL_GATES
+  source_data_checked:
+    - source: docs/CODEX_GOAL_SETTING_BRIEF.md
+      ref: origin/claude/analyze-updated-code-OfEbu
+      status: read
+      key_sections: ["0", "3", "6.2", "9"]
+    - source: SESSION_HANDOFF_20260615.md
+      ref: origin/claude/analyze-updated-code-OfEbu
+      status: read
+      note: "Handoff still describes claude/analyze-updated-code-OfEbu HEAD 3bd08c9b and bull-floor A/B in flight; PR64 branch has newer dispatcher/router contracts."
+    - source: SYSTEM_INTEGRATION_ANALYSIS_20260615.md
+      ref: codex/self-sustaining-loop-20260615
+      status: read
+      key_findings: ["F1", "F2", "F3", "F4", "F5", "F6"]
+    - source: CLAUDE.md
+      ref: codex/self-sustaining-loop-20260615
+      status: read
+      mission_line: "Current official acceptance targets are broker-ledger next-close only: Main CAGR >= 35% and MDD no worse than -25%; Concentrated CAGR >= 50% and MDD no worse than -25%."
+    - source: docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md
+      ref: codex/self-sustaining-loop-20260615
+      status: read
+      key_rule: "Performance work starts only after data readiness and data utilization pass."
+    - source: CHANGELOG.md
+      ref: codex/self-sustaining-loop-20260615
+      status: read
+      key_entries:
+        - "2026-06-15 13:05 KST integrated system gates + review-only improvement loop"
+        - "2026-06-15 09:30 KST self-sustaining loop: ledger + bull-floor fix + weekly cron"
+        - "2026-06-15 07:00 KST is-attribution sidecar + leak diagnosis"
+        - "2026-06-14 23:40 KST run-27498401423 evaluation + Tier-2 strengthened gates"
+    - source: cloud_results/performance_ledger/ledger.jsonl
+      ref: codex/self-sustaining-loop-20260615
+      status: read
+      rows_read: 2
+      latest_row_run_id: "27498401423"
+      latest_row_commit: d42daf82
+    - source: cloud_results/performance_ledger/ledger_summary.md
+      ref: codex/self-sustaining-loop-20260615
+      status: read
+      trend: REGRESSING
+      dominant_open_leak: concentrated:structural_underinvestment_bull
+    - source: cloud_results/full_rebuild/latest_global_alpha_universe/account_evaluation/official_metrics.json
+      ref: codex/self-sustaining-loop-20260615
+      status: read
+      note: "This file reflects the 27457206698/a8b271ea latest snapshot, while ledger latest row is 27498401423/d42daf82."
+    - source: cloud_results/full_rebuild/latest_global_alpha_universe/is_attribution
+      ref: codex/self-sustaining-loop-20260615
+      status: missing
+      note: "Use ledger leak_year_tags until latest is_attribution sidecar artifact is restored."
+    - source: outputs/eight_year_readiness
+      ref: local_worktree
+      status: missing
+    - source: outputs/eight_year_backtest_readiness/summary.json
+      ref: local_worktree
+      status: missing
+    - source: outputs/data_readiness/summary.json
+      ref: local_worktree
+      status: missing
+  current_state:
+    main_is_cagr: 0.21451935628911056
+    conc_is_cagr: 0.21288533192198789
+    main_full_cagr_from_latest_ledger: 0.3433467646244528
+    conc_full_cagr_from_latest_ledger: 0.4456994566932744
+    main_full_cagr_from_latest_official_metrics_file: 0.3450613033496317
+    conc_full_cagr_from_latest_official_metrics_file: 0.44862681887517564
+    main_mdd: -0.2593350230450131
+    conc_mdd: -0.25878262050008727
+    broker_window_years: 7.025325119780972
+    broker_start_date: "2019-06-03"
+    broker_end_date: "2026-06-12"
+    required_8y_start_date_hint: "2018-06-12"
+    ledger_trend: REGRESSING
+    dominant_open_leak: concentrated:structural_underinvestment_bull
+    main_tier2_failing: ["is_cagr_min", "oos_is_cagr_ratio_max"]
+    concentrated_tier2_failing: ["is_cagr_min", "oos_is_cagr_ratio_max"]
+    concentrated_underinvestment_bull_years: [2021, 2023]
+    main_underinvestment_bull_years: []
+    over_defense_bear_ok_years: [2022]
+    open_loop_chains: 5
+    closed_loop_chains: 2
+    source_drift_flags:
+      - "latest official_metrics file and latest ledger row are not the same run_id"
+      - "latest is_attribution sidecar artifact missing from cloud_results/latest path"
+      - "local outputs/data_readiness and eight_year readiness artifacts missing"
+
+mission:
+  source: CLAUDE.md
+  immutable: true
+  targets:
+    main:
+      cagr: 0.35
+      max_dd: -0.25
+    concentrated:
+      cagr: 0.50
+      max_dd: -0.25
+  metric_mode: broker_ledger_next_close
+  window_years_required: 8.0
+  primary_quality_anchor: IS-CAGR and Tier-2 strengthened gates
+
+strategic_goals:
+  - id: SG-2026Q3-01
+    title: Close the IS-CAGR honesty gap without accepting OOS lottery results
+    horizon: "2026-Q3 (2026-07-01 to 2026-09-30)"
+    contributes_to: mission.targets
+    success_kpis:
+      - kpi: main_is_cagr
+        baseline: 0.21451935628911056
+        target: 0.28
+        source: "cloud_results/performance_ledger/ledger.jsonl -> portfolios.main.is_cagr"
+      - kpi: conc_is_cagr
+        baseline: 0.21288533192198789
+        target: 0.32
+        source: "cloud_results/performance_ledger/ledger.jsonl -> portfolios.concentrated.is_cagr"
+      - kpi: oos_is_ratio_main
+        baseline: 3.53
+        target_max: 3.0
+        source: "account_evaluation official_metrics -> tier2_gates.oos_is_cagr_ratio_max"
+      - kpi: oos_is_ratio_concentrated
+        baseline: 6.08
+        target_max: 3.0
+        source: "account_evaluation official_metrics -> tier2_gates.oos_is_cagr_ratio_max"
+    failure_criteria:
+      - "main_is_cagr < 0.24 at 2026-Q3 end"
+      - "conc_is_cagr < 0.25 at 2026-Q3 end"
+      - "ledger trend REGRESSING for 3 consecutive official 8-year runs"
+      - "any promoted result has OOS/IS ratio > 3.0x"
+    probability_estimate: 0.50
+    probability_reasoning: >
+      The available evidence says the current IS engine is near 21-22%, while
+      mission-level full CAGR targets need 35/50. Concentrated bull underinvestment
+      in 2021 and 2023 gives a plausible sizing lever, but Main appears to need
+      a selection-IC or era-model lever. The 8-year bootstrap is mechanical but
+      does not by itself guarantee alpha. This is feasible only if the bull-floor
+      and era-aware challenger produce IS gains, not OOS-only gains.
+    dependencies:
+      - TG-WK24-01
+      - TG-WK24-02
+      - TG-WK25-01
+    decomposes_into: [TG-WK24-01, TG-WK24-02, TG-WK25-01, TG-WK25-02]
+
+  - id: SG-2026Q3-02
+    title: Turn the integrated loop into review-only, dependency-safe self-correction
+    horizon: "2026-Q3 (2026-07-01 to 2026-09-30)"
+    contributes_to: mission.targets
+    success_kpis:
+      - kpi: closed_loop_chain_count
+        baseline: 2
+        target: 4
+        source: "SYSTEM_INTEGRATION_ANALYSIS_20260615.md + system_acceptance_audit summary"
+      - kpi: queued_experiment_duplicate_rate
+        baseline: null
+        target_max: 0.0
+        source: "outputs/self_correction_router/router_queue.json"
+      - kpi: review_dispatcher_dry_run_count
+        baseline: 2
+        target_min: 2
+        source: "outputs/review_dispatcher*/summary.json"
+      - kpi: unsafe_dispatch_count
+        baseline: 0
+        target: 0
+        source: "outputs/system_acceptance_audit/summary.json"
+    failure_criteria:
+      - "any workflow_dispatch command with unmet dependencies is uncommented"
+      - "any self-correction dispatcher summary has execute_requested=true without user approval"
+      - "production_activation_allowed=true appears without P1.2 gate evidence"
+    probability_estimate: 0.70
+    probability_reasoning: >
+      PR64 already introduced router payload validation, dependency-blocked
+      commands, and dispatcher dry-run preservation. The remaining work is mostly
+      queue hygiene, duplicate suppression, and post-run closure reporting.
+    dependencies:
+      - TG-WK24-03
+      - TG-WK25-03
+    decomposes_into: [TG-WK24-03, TG-WK25-03]
+
+tactical_goals:
+  - id: TG-WK24-01
+    title: Publish the bull-floor A/B verdict and next A/B decision
+    horizon: "2026-W24 (2026-06-15 to 2026-06-21)"
+    contributes_to: SG-2026Q3-01
+    parent_dependencies: []
+    success_kpis:
+      - kpi: ledger_row_count
+        baseline: 2
+        target_min: 3
+        source: "cloud_results/performance_ledger/ledger.jsonl"
+      - kpi: a_b_verdict_published
+        target: true
+        source: "CHANGELOG.md 2026-06-15 or newer"
+      - kpi: conc_is_cagr_delta_from_27498401423
+        baseline: 0.0
+        target_min: 0.03
+        source: "ledger.portfolios.concentrated.is_cagr - 0.21288533192198789"
+      - kpi: main_is_cagr_regression
+        baseline: 0.21451935628911056
+        target_min: 0.20451935628911055
+        source: "cloud_results/performance_ledger/ledger.jsonl"
+    failure_criteria:
+      - "bull-floor A/B produces conc_is_cagr < 0.23"
+      - "bull-floor A/B worsens main_is_cagr by more than 1.0pp"
+      - "bull-floor A/B worsens either portfolio MDD below -0.28"
+    probability_estimate: 0.90
+    probability_reasoning: "Mostly mechanical: the run either appears in ledger or remains missing. Performance improvement probability is lower, but verdict publication probability is high."
+    operational_breakdown: [OG-AB27516-READ, OG-AB27516-DECIDE]
+
+  - id: TG-WK24-02
+    title: Complete 8-year data bootstrap and official 8-year rebuild chain
+    horizon: "2026-W24 (2026-06-15 to 2026-06-21)"
+    contributes_to: SG-2026Q3-01
+    parent_dependencies: []
+    success_kpis:
+      - kpi: broker_window_years
+        baseline: 7.025325119780972
+        target_min: 8.0
+        source: "broker_replay/<portfolio>/metrics.json -> years"
+      - kpi: broker_start_date
+        baseline: "2019-06-03"
+        target_max_date: "2018-06-12"
+        source: "broker_replay/<portfolio>/metrics.json -> start_date"
+      - kpi: system_acceptance_status
+        baseline: missing
+        target: production_evidence_ready
+        source: "outputs/system_acceptance_audit/summary.json -> status"
+    failure_criteria:
+      - "price cache cannot provide required start date for selected target-book tickers"
+      - "target-book coverage remains after 2018-06-12 after bootstrap"
+      - "data_readiness reports any hard blocker for official rebuild"
+    probability_estimate: 0.80
+    probability_reasoning: "This is mostly deterministic data restoration, but free data PIT coverage and older universe labels can still block official evidence."
+    operational_breakdown: [OG-8Y-BOOTSTRAP, OG-8Y-OFFICIAL-REBUILD]
+
+  - id: TG-WK24-03
+    title: Keep self-correction dispatcher review-only and dependency-safe
+    horizon: "2026-W24 (2026-06-15 to 2026-06-21)"
+    contributes_to: SG-2026Q3-02
+    parent_dependencies: []
+    success_kpis:
+      - kpi: unsafe_self_correction_dispatcher_count
+        baseline: 0
+        target: 0
+        source: "outputs/system_acceptance_audit/summary.json -> self_correction_router_queue.evidence"
+      - kpi: dependency_bypass_count
+        baseline: 0
+        target: 0
+        source: "outputs/review_dispatcher*/summary.json"
+      - kpi: duplicate_plan_id_count
+        baseline: null
+        target: 0
+        source: "outputs/self_correction_router/router_queue.json"
+    failure_criteria:
+      - "review_dispatcher_self_correction summary missing when dispatch_payload_count > 0"
+      - "execute_requested=true or dispatched_count>0 in a dry-run dispatcher artifact"
+      - "selected dispatcher plan ids differ from router payload plan ids"
+    probability_estimate: 0.85
+    probability_reasoning: "PR64 already hard-gates the core unsafe cases; duplicate and stale queue handling remains to be implemented."
+    operational_breakdown: [OG-QUEUE-HEALTH]
+
+  - id: TG-WK25-01
+    title: Evaluate era-aware challenger without replacing production target books
+    horizon: "2026-W25 (2026-06-22 to 2026-06-28)"
+    contributes_to: SG-2026Q3-01
+    parent_dependencies: [TG-WK24-02]
+    success_kpis:
+      - kpi: era_factor_ic_coverage
+        baseline: sidecar_exists
+        target: all_4_era_buckets
+        source: "outputs/era_leadership/summary.json"
+      - kpi: era_challenger_broker_replay_status
+        baseline: review_only
+        target: completed
+        source: "outputs/era_aware_scoring_challenger/summary.json"
+      - kpi: production_target_book_replaced_by_challenger
+        baseline: false
+        target: false
+        source: "outputs/era_aware_scoring_challenger/summary.json -> production_activation_allowed"
+    failure_criteria:
+      - "challenger uses different dates, costs, universe, or portfolio_policy than baseline"
+      - "challenger target books replace outputs/reports/operating_*_target_book.csv"
+      - "era result lacks per-era attribution for 2019_2021, 2022, 2023_2024, and 2025_plus"
+    probability_estimate: 0.65
+    probability_reasoning: "The sidecar exists, but making it statistically comparable without overfitting small era buckets requires careful review."
+    operational_breakdown: [OG-ERA-CHALLENGER-VERIFY]
+
+  - id: TG-WK25-02
+    title: Run dependency-gated Concentrated 50% recovery A/B set
+    horizon: "2026-W25 (2026-06-22 to 2026-06-28)"
+    contributes_to: SG-2026Q3-01
+    parent_dependencies: [TG-WK24-02]
+    success_kpis:
+      - kpi: concentrated_full_cagr
+        baseline: 0.4456994566932744
+        target_min: 0.50
+        source: "candidate account_evaluation/official_metrics.json -> portfolios.concentrated.cagr"
+      - kpi: concentrated_max_dd
+        baseline: -0.25878262050008727
+        target_min: -0.25
+        source: "candidate account_evaluation/official_metrics.json -> portfolios.concentrated.max_dd"
+      - kpi: concentrated_is_cagr
+        baseline: 0.21288533192198789
+        target_min: 0.30
+        source: "candidate account_evaluation/official_metrics.json -> portfolios.concentrated.is_cagr"
+      - kpi: candidate_ab_verifier_verdict
+        target: promote_candidate_review_only
+        source: "tools/run_ab_result_verifier.py output"
+    failure_criteria:
+      - "candidate has any system_acceptance hard blocker"
+      - "candidate increases OOS/IS ratio above 3.0x"
+      - "candidate worsens MDD below -0.25 even if CAGR improves"
+      - "candidate lacks explicit portfolio_policy=alphaops_vnext_production"
+    probability_estimate: 0.45
+    probability_reasoning: "The known gap is large: Concentrated needs roughly 5.4pp headline CAGR and about 8.7pp IS-CAGR improvement. Bull exposure fixes may help, but false positives from multiple A/Bs are likely."
+    operational_breakdown: [OG-CONC-AB-BULL-FLOOR, OG-CONC-AB-CONTINUATION, OG-CONC-AB-THEME, OG-CONC-AB-CAP]
+
+  - id: TG-WK25-03
+    title: Add queue closure status to the self-correction loop
+    horizon: "2026-W25 (2026-06-22 to 2026-06-28)"
+    contributes_to: SG-2026Q3-02
+    parent_dependencies: [TG-WK24-03]
+    success_kpis:
+      - kpi: queued_experiments_with_status
+        baseline: 0
+        target_ratio: 1.0
+        source: "outputs/self_correction_router/router_queue.json"
+      - kpi: closed_loop_chain_count
+        baseline: 2
+        target_min: 3
+        source: "system acceptance + router closure status"
+    failure_criteria:
+      - "router cannot distinguish queued, dispatched, measured, rejected, and ready_for_human_review"
+      - "router writes or rewrites ledger rows"
+    probability_estimate: 0.75
+    probability_reasoning: "This is mostly artifact bookkeeping and should not require model or data changes."
+    operational_breakdown: [OG-QUEUE-CLOSURE-STATUS]
+
+operational_goals:
+  - id: OG-AB27516-READ
+    action: "Read run 27516185696 or its replacement from performance ledger and cloud_results artifacts."
+    owner: claude_code
+    deadline: "2026-06-16T12:00:00+09:00"
+    success_kpi: "ledger row count >= 3 and run_id/commit/policy/config are recorded"
+    failure: "no new ledger row or no explicit portfolio_policy"
+    fallback_on_failure: "Treat A/B as missing evidence; do not promote; dispatch or rerun with explicit portfolio_policy."
+
+  - id: OG-AB27516-DECIDE
+    action: "Apply PASS/PARTIAL/FAIL decision rule for bull-floor and publish CHANGELOG verdict."
+    owner: claude_code
+    deadline: "2026-06-16T18:00:00+09:00"
+    success_kpi: "CHANGELOG contains the verdict and follow-up action"
+    failure: "verdict cannot be reproduced from artifacts"
+    fallback_on_failure: "Escalate to ChatGPT Pro methodology review and keep feature default OFF."
+
+  - id: OG-8Y-BOOTSTRAP
+    action: "Dispatch bootstrap_free_data_for_8y_window from review-only payloads."
+    owner: user_or_dispatcher
+    deadline: "2026-06-16T23:00:00+09:00"
+    success_kpi: "eight_year_backtest_readiness artifact lists window_ready true or exact blockers"
+    failure: "bootstrap cannot restore price/universe data to 2018-06-12"
+    fallback_on_failure: "Keep all results labelled non-official; allow only research A/B with explicit non-official label."
+
+  - id: OG-8Y-OFFICIAL-REBUILD
+    action: "Dispatch full_rebuild_8y_official_after_data_bootstrap only after OG-8Y-BOOTSTRAP completes."
+    owner: user_or_dispatcher
+    deadline: "2026-06-18T23:00:00+09:00"
+    success_kpi: "system_acceptance_audit status is production_evidence_ready or lists non-window blockers"
+    failure: "workflow command is run before bootstrap dependency is complete"
+    fallback_on_failure: "Invalidate the run for goal-setting evidence and rerun in dependency order."
+
+  - id: OG-QUEUE-HEALTH
+    action: "Add duplicate/stale payload checks to self-correction router and system acceptance."
+    owner: codex
+    deadline: "2026-06-21T23:00:00+09:00"
+    success_kpi: "self_correction_router_smoke and system_acceptance_audit_smoke cover duplicate/stale payload cases"
+    failure: "router can emit duplicate plan ids without a hard blocker"
+    fallback_on_failure: "Disable self-correction workflow payload generation until duplicate suppression passes."
+
+  - id: OG-ERA-CHALLENGER-VERIFY
+    action: "Verify era-aware challenger parity: same universe, dates, costs, and portfolio_policy as baseline."
+    owner: claude_code
+    deadline: "2026-06-24T23:00:00+09:00"
+    success_kpi: "era challenger report includes parity checklist and per-era attribution"
+    failure: "challenger comparison uses non-identical data or policy"
+    fallback_on_failure: "Keep era challenger as diagnostics only and do not run promotion review."
+
+  - id: OG-CONC-AB-BULL-FLOOR
+    action: "Run Concentrated bull-floor stock-min A/B after official 8-year rebuild."
+    owner: dispatcher
+    deadline: "2026-06-26T23:00:00+09:00"
+    success_kpi: "run_ab_result_verifier returns promote_candidate_review_only"
+    failure: "candidate fails system acceptance or worsens MDD below -0.25"
+    fallback_on_failure: "Reject and mark measured; do not repeat same payload."
+
+  - id: OG-CONC-AB-CONTINUATION
+    action: "Run continuation-winner relaxation A/B after official 8-year rebuild."
+    owner: dispatcher
+    deadline: "2026-06-26T23:00:00+09:00"
+    success_kpi: "candidate improves Conc IS-CAGR with OOS/IS <= 3.0x"
+    failure: "candidate only improves OOS or fails strengthened gates"
+    fallback_on_failure: "Reject and mark measured; do not promote."
+
+  - id: OG-CONC-AB-THEME
+    action: "Run theme-leadership boost A/B after official 8-year rebuild."
+    owner: dispatcher
+    deadline: "2026-06-27T23:00:00+09:00"
+    success_kpi: "candidate improves Concentrated CAGR and per-era attribution explains the gain"
+    failure: "gain comes from a single OOS era without IS improvement"
+    fallback_on_failure: "Reject and route to era model design review."
+
+  - id: OG-CONC-AB-CAP
+    action: "Run concentration-cap relaxation A/B after official 8-year rebuild."
+    owner: dispatcher
+    deadline: "2026-06-27T23:00:00+09:00"
+    success_kpi: "candidate reaches 50% CAGR without MDD worse than -25%"
+    failure: "MDD or turnover/cost drag worsens despite CAGR lift"
+    fallback_on_failure: "Reject and keep cap unchanged."
+
+  - id: OG-QUEUE-CLOSURE-STATUS
+    action: "Add measured/rejected/ready_for_human_review status fields to queued self-correction experiments."
+    owner: codex
+    deadline: "2026-06-28T23:00:00+09:00"
+    success_kpi: "router queue report can be used to avoid rerunning completed experiments"
+    failure: "status cannot be derived from available artifacts"
+    fallback_on_failure: "Document artifact requirements before implementing closure."
+
+risk_register:
+  - risk_id: R-1
+    description: "8-year bootstrap cannot prove PIT-safe universe and price coverage back to 2018-06-12."
+    likelihood: medium
+    impact: high
+    mitigation: "Keep all sub-8-year metrics non-official; run research A/B only with explicit label and no promotion."
+  - risk_id: R-2
+    description: "Bull-floor improves headline CAGR by adding OOS exposure but leaves IS-CAGR near 21%."
+    likelihood: medium
+    impact: high
+    mitigation: "Require IS-CAGR target and OOS/IS <= 3.0x before any promotion."
+  - risk_id: R-3
+    description: "Era-aware challenger overfits sparse 2022 bear or 2025+ samples."
+    likelihood: high
+    impact: medium
+    mitigation: "Keep sidecar review-only; require ChatGPT Pro methodology review before implementation in production path."
+  - risk_id: R-4
+    description: "Self-correction queue dispatches stale or duplicate A/Bs and wastes full rebuild budget."
+    likelihood: medium
+    impact: medium
+    mitigation: "Add duplicate suppression and closure status before expanding auto-queue usage."
+  - risk_id: R-5
+    description: "Target contract drift between PR64 temporary 30/-25, 50/-28 and CLAUDE.md immutable 35/-25, 50/-25 causes inconsistent acceptance."
+    likelihood: high
+    impact: high
+    mitigation: "Use CLAUDE.md mission targets for goal-setting; ask user/ChatGPT Pro to resolve code target constants separately."
+
+anti_goals:
+  - "Do not redefine the CLAUDE.md mission targets."
+  - "Do not use full-period CAGR or OOS-only CAGR as a primary success target."
+  - "Do not propose any goal without source fields, deadline, failure criteria, and fallback."
+  - "Do not set production_activation_allowed=true outside an approved gate."
+  - "Do not dispatch or trust any A/B without explicit portfolio_policy=alphaops_vnext_production."
+  - "Do not directly edit cloud_results/performance_ledger/ledger.jsonl."
+  - "Do not add live broker order automation."
+  - "Do not auto-edit adr_universe.yaml from scanner output."
+  - "Do not add selection, sizing, cash, or risk rules to compensate for missing data."
+  - "Do not add feature columns without PHASE_*_COLUMNS and keep_cols survival tests."
+
+acceptance_protocol:
+  who_reviews:
+    strategic_goals: "chatgpt_pro then user"
+    tactical_goals: "chatgpt_pro advisory; user approval for workflow spend or merge"
+    operational_goals: "dispatcher or Claude Code after dependencies and user approval where required"
+  review_sla_hours: 48
+  pr_title_required: "proposal(goals): 2026-W24/W25 targets — 8y evidence and IS-CAGR recovery"
+  pr_body_must_include:
+    - "KPI source field validity"
+    - "current_state reproducibility from source_data_checked"
+    - "automatic detection path for each failure_criteria"
+    - "ChatGPT Pro review request"
+  rejection_handling: >
+    On rejection, Codex rewrites this YAML within 24 hours using reviewer
+    feedback. Maximum two rewrite rounds; a third round escalates to the user.
+  promotion_rule: >
+    Tactical goal Achieved requires KPI pass and committed evidence. Strategic
+    goal Achieved requires all tactical children achieved plus at least a two-run
+    non-regressing official ledger streak. Mission achieved requires user
+    acceptance and must not be declared by Codex.

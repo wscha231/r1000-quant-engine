@@ -5,21 +5,24 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-15
 
-### 19:47 KST - codex next-goals proposal draft
+### 19:47 KST - codex mandatory next-goals proposal
 
-- scope: add a review-only next-goals proposal for Codex as the parallel-breadth agent. The proposal is based on the current PR64 dispatcher/router contracts and the available project handoff, system integration audit, CLAUDE mission targets, data-first contract, and latest changelog decisions.
+- scope: add a review-only next-goals proposal for Codex as the parallel-breadth agent using the exact mandatory protocol from `docs/CODEX_GOAL_SETTING_BRIEF.md`. The proposal is based on PR64 dispatcher/router contracts, the restored session handoff, the system integration audit, immutable `CLAUDE.md` mission targets, the data-first contract, current ledger rows, and latest changelog decisions.
 - files:
-  - `docs/CODEX_GOALS_20260615.yaml` -> new inferred-schema goal proposal. It defines the north-star goal, seven program goals, execution tasks, dependencies, inferred KPI categories, hard constraints, and open questions. It explicitly records that `docs/CODEX_GOAL_SETTING_BRIEF.md` was requested but missing from the current worktree and searched remote refs, so mandatory-schema validation is blocked until that authority file is restored.
+  - `docs/CODEX_GOAL_SETTING_BRIEF.md` -> restored from `origin/claude/analyze-updated-code-OfEbu` so Codex goal proposals have the authoritative schema, KPI categories, authority limits, and hard prohibitions in-repo.
+  - `SESSION_HANDOFF_20260615.md` -> restored from `origin/claude/analyze-updated-code-OfEbu` so future agents can read the same role split, hard rules, and P0/P1/P2 priorities from the repo.
+  - `docs/proposals/goals_20260615.yaml` -> mandatory-schema proposal with `metadata`, `mission`, `strategic_goals`, `tactical_goals`, `operational_goals`, `risk_register`, `anti_goals`, and `acceptance_protocol`.
 - symbols_added: none
 - symbols_changed: none
 - config_fields_added: none
 - breaking_changes: none
 - outputs:
-  - `docs/CODEX_GOALS_20260615.yaml`
+  - `docs/proposals/goals_20260615.yaml`
 - validation:
-  - `tools.aggressive_lab_common.load_yaml(Path("docs/CODEX_GOALS_20260615.yaml"))` -> PASS.
+  - `tools.aggressive_lab_common.load_yaml(Path("docs/proposals/goals_20260615.yaml"))` -> PASS.
+  - `git diff --check` -> PASS.
 - risks_or_notes:
-  - The proposal uses the stricter `CLAUDE.md` target contract (Main 35% / -25% and Concentrated 50% / -25%) because the requested protocol named CLAUDE.md as immutable, while the PR64 changelog records a temporary Main 30% / -25% and Concentrated 50% / -28% goal contract.
+  - The proposal keeps the stricter `CLAUDE.md` target contract (Main 35% / -25% and Concentrated 50% / -25%) because the goal-setting brief explicitly forbids Codex from redefining mission targets or `PORTFOLIO_GOAL_TARGETS` / `PORTFOLIO_GOAL_GATES`.
   - This is not a production policy change and does not dispatch workflows, mutate ledgers, edit universes, or enable live trading.
 
 ### 13:05 KST - integrated system gates + review-only improvement loop
