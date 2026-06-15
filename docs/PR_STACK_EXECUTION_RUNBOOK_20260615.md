@@ -68,6 +68,18 @@ Generated review-only dispatch order:
 The second payload depends on the first. Do not bypass this dependency with a
 hand-written `gh workflow run` command.
 
+Dispatcher dry-run verification:
+
+| Field | Value |
+| --- | --- |
+| status | `dry_run_blocked` |
+| ready_count | `1` |
+| blocked_count | `1` |
+| dispatched_count | `0` |
+| ready payload | `bootstrap_free_data_for_eight_year_window` |
+| blocked payload | `full_rebuild_eight_year_official_window` |
+| blocked reason | `unmet_dependencies:bootstrap_free_data_for_eight_year_window` |
+
 ### 1. Generate 8-Year Readiness
 
 Run on the merged default branch:
