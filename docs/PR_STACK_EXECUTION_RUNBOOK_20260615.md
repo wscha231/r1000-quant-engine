@@ -3,6 +3,46 @@
 This runbook is the shared next-step contract for Claude Code, Codex, and
 ChatGPT Pro. It uses the location tags from `docs/AGENT_LOCATION_DISCIPLINE.md`.
 
+## Master Objective
+
+Stabilize AlphaOps vNext governance and evidence-controlled recovery workflow
+before any further production promotion.
+
+The objective is not to promise a Concentrated CAGR recovery result. The
+objective is to make sure every agent can safely run and review evidence so
+that only broker-ledger, 8-year, IS/OOS-valid candidates can become
+`ready_for_human_review`.
+
+Scope:
+
+1. Enforce shared `[LOCAL]`, `[GITHUB]`, and `[DRIVE]` source-of-truth
+   discipline for Claude Code, Codex, and ChatGPT Pro.
+2. Safely organize the stacked PR sequence: #64, #66, #65, #67. Codex and
+   Claude must not merge; the user owns merges.
+3. Treat PR64 Main `30% / -25%` and Concentrated `50% / -28%` as interim
+   operating gates only. Canonical mission remains Main `35% / -25%` and
+   Concentrated `50% / -25%` until explicit user approval.
+4. Enforce 8-year broker-ledger evidence before official promotion. Seven-year
+   headline wins are `invalid_window` for promotion.
+5. Close the self-correction queue lifecycle: `queued -> dispatched -> measured
+   -> rejected / ready_for_human_review / closed`, with duplicate suppression,
+   stale payload detection, payload hash, and A/B result verifier linkage.
+6. Run Concentrated recovery A/B as evidence experiments only. Priority is
+   continuation winner / hysteresis, bull-floor stock exposure, reentry
+   quality, theme leadership boost, concentration-cap relaxation, and
+   era-aware challenger as review-only.
+7. Allow paper actions only as approval-required previews. Live broker
+   automation remains forbidden.
+
+Non-goals:
+
+- No live trading.
+- No automatic production mutation.
+- No whole Claude branch merge.
+- No legacy/proxy metric promotion.
+- No target-contract rewrite without user approval.
+- No headline CAGR-only promotion.
+
 ## Current Stack
 
 | PR | Purpose | Base | Head | Required before merge |

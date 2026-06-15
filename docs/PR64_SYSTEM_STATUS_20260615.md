@@ -70,3 +70,10 @@ merges, a 7-year run that looks good can no longer be called official. The next
 milestone is a full broker-ledger rebuild with actual 8-year equity-curve
 coverage, ready price/universe data, era/year attribution, and self-correction
 queue artifacts.
+
+Concentrated recovery is an evidence-selection workflow, not a guaranteed
+outcome. The recovery A/B queue should only move candidates to
+`ready_for_human_review` after broker-ledger next-close verification, 8-year
+validity, IS/OOS robustness, and system-acceptance evidence pass. Failed or
+blocked candidates stay `rejected`, `measured`, `queued`, or `stale`; they do
+not mutate production target books.
