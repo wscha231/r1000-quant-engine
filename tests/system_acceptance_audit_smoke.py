@@ -122,11 +122,17 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
         assert "goal_contract_main30_conc50_mdd" in blockers
         assert "eight_year_broker_ledger_window" in blockers
-        assert payload["workflow_dispatch_payload_count"] == 2
+        assert payload["workflow_dispatch_payload_count"] == 6
         dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
-        assert [row["plan_id"] for row in dispatches] == [
+        assert [row["plan_id"] for row in dispatches[:2]] == [
             "bootstrap_free_data_for_8y_window",
             "full_rebuild_8y_official_after_data_bootstrap",
+        ]
+        assert [row["plan_id"] for row in dispatches[2:]] == [
+            "ab_conc_bull_floor_stock_min",
+            "ab_conc_continuation_winner_relaxation",
+            "ab_conc_theme_leadership_boost",
+            "ab_conc_concentration_cap_relaxation",
         ]
         assert dispatches[0]["workflow_id"] == "free_data_lake_bootstrap.yml"
         assert dispatches[0]["inputs"]["price_mode"] == "target_books"
@@ -134,14 +140,45 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         assert dispatches[1]["workflow_id"] == "full_rebuild_manual.yml"
         assert dispatches[1]["inputs"]["backtest_years"] == "8"
         assert dispatches[1]["inputs"]["portfolio_policy"] == "alphaops_vnext_production"
+        for row in dispatches[2:]:
+            assert row["workflow_id"] == "full_rebuild_manual.yml"
+            assert row["source_portfolio"] == "concentrated"
+            assert row["source_requirement_id"] == "goal_contract_main30_conc50_mdd"
+            assert row["depends_on_plan_ids"] == ["full_rebuild_8y_official_after_data_bootstrap"]
+            assert row["inputs"]["backtest_years"] == "8"
+            assert row["inputs"]["skip_collector"] == "true"
+            assert row["inputs"]["portfolio_policy"] == "alphaops_vnext_production"
+            assert "PHASE_" in row["inputs"]["experiment_env_json"]
         assert all(row["requires_user_approval"] for row in dispatches)
         assert not any(row["production_mutation_allowed"] for row in dispatches)
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "gh workflow run free_data_lake_bootstrap.yml" in commands
         assert "gh workflow run full_rebuild_manual.yml" in commands
+        assert "cache_key_suffix=ab_conc_bull_floor_stock_min" in commands
         assert payload["production_activation_allowed"] is False
         saved = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert saved["live_trading_allowed"] is False
+
+
+def test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=False)
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        assert payload["status"] == "not_ready"
+        assert payload["workflow_dispatch_payload_count"] == 4
+        dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert [row["plan_id"] for row in dispatches] == [
+            "ab_conc_bull_floor_stock_min",
+            "ab_conc_continuation_winner_relaxation",
+            "ab_conc_theme_leadership_boost",
+            "ab_conc_concentration_cap_relaxation",
+        ]
+        assert all(row["depends_on_plan_ids"] == [] for row in dispatches)
+        assert all(row["source_evidence"]["target_pass"] is False for row in dispatches)
+        assert all(row["source_evidence"]["tier2_failing"] for row in dispatches)
 
 
 def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
@@ -165,5 +202,6 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
 
 if __name__ == "__main__":
     test_acceptance_audit_reports_not_ready_for_short_concentrated_fail()
+    test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short()
     test_acceptance_audit_passes_when_evidence_contract_is_complete()
     print("system_acceptance_audit_smoke: PASS")

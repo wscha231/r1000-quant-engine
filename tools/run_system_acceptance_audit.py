@@ -41,6 +41,28 @@ except Exception:  # pragma: no cover - smoke fallback
 PORTFOLIOS = ("main", "concentrated")
 OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 MIN_YEARS = 8.0
+CONCENTRATED_RECOVERY_EXPERIMENTS = [
+    {
+        "plan_id": "ab_conc_bull_floor_stock_min",
+        "reason": "Concentrated CAGR or Tier-2 gate is short; measure bull/strong_bull stock-floor exposure as an isolated A/B.",
+        "env": {"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"},
+    },
+    {
+        "plan_id": "ab_conc_continuation_winner_relaxation",
+        "reason": "Concentrated CAGR or Tier-2 gate is short; relax continuation-winner filters only as a review A/B.",
+        "env": {"PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED": "1"},
+    },
+    {
+        "plan_id": "ab_conc_theme_leadership_boost",
+        "reason": "Concentrated CAGR or Tier-2 gate is short; test theme-leadership confirmation boost as an isolated A/B.",
+        "env": {"PHASE_THEME_LEADERSHIP_BOOST_ENABLED": "1"},
+    },
+    {
+        "plan_id": "ab_conc_concentration_cap_relaxation",
+        "reason": "Concentrated CAGR or Tier-2 gate is short; test confirmed-winner cap relaxation while preserving broker-ledger gates.",
+        "env": {"PHASE_CONCENTRATED_CAP_RELAX_ENABLED": "1"},
+    },
+]
 
 
 def repo_path(value: str | Path) -> Path:
@@ -444,6 +466,47 @@ def requirement_by_id(payload: dict[str, Any], requirement_id: str) -> dict[str,
     return {}
 
 
+def concentrated_goal_needs_recovery(payload: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    goal = requirement_by_id(payload, "goal_contract_main30_conc50_mdd")
+    evidence = goal.get("evidence") if isinstance(goal.get("evidence"), dict) else {}
+    portfolios = evidence.get("portfolios") if isinstance(evidence.get("portfolios"), dict) else {}
+    concentrated = portfolios.get("concentrated") if isinstance(portfolios.get("concentrated"), dict) else {}
+    if not concentrated:
+        return False, {}
+    target_pass = bool(concentrated.get("target_pass"))
+    strengthened_pass = bool(concentrated.get("strengthened_pass"))
+    cagr = safe_float(concentrated.get("cagr"))
+    cagr_target = safe_float(concentrated.get("cagr_target"), PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"])
+    tier2_failing = concentrated.get("tier2_failing") if isinstance(concentrated.get("tier2_failing"), list) else []
+    needs_recovery = (not target_pass) or (not strengthened_pass) or bool(tier2_failing)
+    if cagr is not None and cagr_target is not None:
+        needs_recovery = needs_recovery or cagr < cagr_target - 1e-12
+    return needs_recovery, {
+        "cagr": cagr,
+        "cagr_target": cagr_target,
+        "max_dd": safe_float(concentrated.get("max_dd")),
+        "max_dd_target": safe_float(concentrated.get("max_dd_target"), PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"]),
+        "target_pass": target_pass,
+        "strengthened_pass": strengthened_pass,
+        "tier2_failing": tier2_failing,
+    }
+
+
+def full_rebuild_ab_inputs(plan_id: str, env_payload: dict[str, str]) -> dict[str, str]:
+    return {
+        "universe_mode": "global_alpha_universe",
+        "backtest_years": "8",
+        "skip_collector": "true",
+        "fast_mode": "true",
+        "sidecar_profile": "operating_minimal",
+        "artifact_profile": "minimal",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "cache_key_suffix": plan_id,
+        "experiment_env_json": json.dumps(env_payload, sort_keys=True),
+    }
+
+
 def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[str, Any]]:
     dispatches: list[dict[str, Any]] = []
     eight_year = requirement_by_id(payload, "eight_year_broker_ledger_window")
@@ -488,6 +551,26 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
                 },
             }
         )
+    needs_concentrated_recovery, concentrated_evidence = concentrated_goal_needs_recovery(payload)
+    if needs_concentrated_recovery:
+        depends_on = ["full_rebuild_8y_official_after_data_bootstrap"] if eight_year.get("status") != "pass" else []
+        for experiment in CONCENTRATED_RECOVERY_EXPERIMENTS:
+            plan_id = str(experiment["plan_id"])
+            dispatches.append(
+                {
+                    "plan_id": plan_id,
+                    "workflow_id": "full_rebuild_manual.yml",
+                    "ref": ref,
+                    "requires_user_approval": True,
+                    "production_mutation_allowed": False,
+                    "depends_on_plan_ids": depends_on,
+                    "reason": experiment["reason"],
+                    "source_requirement_id": "goal_contract_main30_conc50_mdd",
+                    "source_portfolio": "concentrated",
+                    "source_evidence": concentrated_evidence,
+                    "inputs": full_rebuild_ab_inputs(plan_id, dict(experiment["env"])),
+                }
+            )
     return dispatches
 
 

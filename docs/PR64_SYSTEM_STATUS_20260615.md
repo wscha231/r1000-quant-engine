@@ -21,7 +21,7 @@ without encoding loss.
 | Era-aware scoring challenger | `run_era_aware_scoring_challenger.py` converts era buckets into review-only broker-replayable target books under `outputs/era_aware_scoring_challenger/`, runs optional broker replay, and writes goal-contract verdicts without replacing operating books | review challenger wired |
 | Crisis action wire | `run_daily_crisis_monitor.py` emits whitelisted paper candidates and `run_crisis_paper_order_bridge.py` turns them into approval-required paper order previews | paper-order bridge wired |
 | Self-correction | `run_self_correction_router.py` queues A/B candidates and emits review-ready workflow_dispatch payloads/commands when a ledger leak repeats 2 runs; bull underinvestment maps to exposure experiments, flat alpha maps to era-aware challenger review | dispatch-prep wired |
-| System acceptance audit | `run_system_acceptance_audit.py` aggregates official metrics, 8-year readiness, data readiness, broker realism, era challenger, crisis bridge, self-correction, ADR automation, and guard evidence into one PASS/FAIL/WARN matrix | wired |
+| System acceptance audit | `run_system_acceptance_audit.py` aggregates official metrics, 8-year readiness, data readiness, broker realism, era challenger, crisis bridge, self-correction, ADR automation, and guard evidence into one PASS/FAIL/WARN matrix; it also emits review-only workflow dispatch plans for 8-year bootstrap/rebuild and Concentrated recovery A/B when those blockers are present | wired |
 | Full rebuild persistence | `eight_year_backtest_readiness`, `is_attribution`, `era_leadership`, `era_aware_scoring_challenger`, `self_correction_router`, `system_acceptance_audit`, `data_readiness`, and account evaluation are preserved under `cloud_results/full_rebuild/<date>` | wired |
 
 ## Not Yet Complete
@@ -33,7 +33,7 @@ without encoding loss.
 | ADR automation is review-only | It now creates a manifest/YAML fragment, but does not open or merge a PR by itself | Add a guarded PR generator for `adr_universe.yaml` after the manifest format is reviewed |
 | Crisis actions are paper-only | This is correct for safety; the new bridge writes approval-required order previews but live execution is still intentionally absent | Add a live executor only after paper-mode evidence and explicit user approval |
 | Self-correction does not dispatch automatically | Router writes queue and dispatch payload artifacts, but does not call workflow_dispatch by itself | Add a guarded dispatcher that requires user approval before launching A/B |
-| Concentrated CAGR still lacks proof of 50% | Latest known headline was 44.43% and IS-CAGR was near 22%; PR64 makes evidence stricter, not higher | Run queued concentrated bull experiments and promote only if IS-CAGR improves and MDD remains within -28% |
+| Concentrated CAGR still lacks proof of 50% | Latest known headline was 44.43% and IS-CAGR was near 22%; PR64 makes evidence stricter, not higher | Run the generated `system_acceptance_audit` Concentrated recovery A/B payloads and promote only if IS-CAGR improves and MDD remains within -28% |
 
 ## Operational Interpretation
 
