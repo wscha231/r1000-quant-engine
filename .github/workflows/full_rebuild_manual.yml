@@ -603,6 +603,7 @@ jobs:
             outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
             outputs/eight_year_backtest_readiness/
+            outputs/era_aware_scoring_challenger/
             outputs/metric_hygiene/
             outputs/cash_contract/
             outputs/broker_replay/main/metrics.json
@@ -654,6 +655,7 @@ jobs:
             outputs/full_rebuild_logs/metric_hygiene_report.log
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
             outputs/full_rebuild_logs/eight_year_backtest_readiness.log
+            outputs/full_rebuild_logs/era_aware_scoring_challenger.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -1246,6 +1248,7 @@ jobs:
             copy_dir_clean outputs/eight_year_backtest_readiness "$DEST/eight_year_backtest_readiness"
             copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
             copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
+            copy_dir_clean outputs/era_aware_scoring_challenger "$DEST/era_aware_scoring_challenger"
             copy_dir_clean outputs/self_correction_router "$DEST/self_correction_router"
             copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
             copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
@@ -1356,6 +1359,7 @@ jobs:
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
           copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
+          copy_dir_clean outputs/era_aware_scoring_challenger "$DEST/era_aware_scoring_challenger"
           copy_dir_clean outputs/self_correction_router "$DEST/self_correction_router"
           copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
           copy_dir_clean outputs/cash_contract "$DEST/cash_contract"

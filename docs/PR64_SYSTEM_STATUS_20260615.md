@@ -17,17 +17,18 @@ without encoding loss.
 | 8-year readiness artifact | `check_10y_backtest_readiness.py --min-years 8` writes `outputs/eight_year_backtest_readiness/` with price, target-book, and broker-ledger window blockers | wired |
 | Price/universe readiness | `audit_data_readiness.py` now runs before account evaluation in `run_full_rebuild_sidecars.py`; failed readiness makes official verdict invalid | wired |
 | ADR automation | `run_adr_candidate_scanner.py` plus monthly workflow generate review-only candidate CSV/Markdown, JSON update manifest, and YAML addition fragment | review-manifest wired |
-| Era leadership | `run_era_leadership_sidecar.py` computes era/regime factor IC and top-name contribution for 2019-2021, 2022, 2023-2024, 2025+ | sidecar wired |
+| Era leadership | `run_era_leadership_sidecar.py` computes era/regime factor IC and top-name contribution for 2019-2021, 2022, 2023-2024, 2025+ | diagnostic wired |
+| Era-aware scoring challenger | `run_era_aware_scoring_challenger.py` converts era buckets into review-only broker-replayable target books under `outputs/era_aware_scoring_challenger/` without replacing operating books | review challenger wired |
 | Crisis action wire | `run_daily_crisis_monitor.py` emits whitelisted paper candidates and `run_crisis_paper_order_bridge.py` turns them into approval-required paper order previews | paper-order bridge wired |
 | Self-correction | `run_self_correction_router.py` queues A/B candidates and emits review-ready workflow_dispatch payloads/commands when a ledger leak repeats 2 runs | dispatch-prep wired |
-| Full rebuild persistence | `eight_year_backtest_readiness`, `is_attribution`, `era_leadership`, `self_correction_router`, `data_readiness`, and account evaluation are preserved under `cloud_results/full_rebuild/<date>` | wired |
+| Full rebuild persistence | `eight_year_backtest_readiness`, `is_attribution`, `era_leadership`, `era_aware_scoring_challenger`, `self_correction_router`, `data_readiness`, and account evaluation are preserved under `cloud_results/full_rebuild/<date>` | wired |
 
 ## Not Yet Complete
 
 | Gap | Why it matters for true 8-year CAGR/MDD | Next code or ops action |
 | --- | --- | --- |
 | 8-year data extension is not proven | The gate rejects short runs and the readiness artifact will identify missing price/target-book/broker-ledger coverage, but it does not create missing 2018-era universe history by itself | Extend collectors and replay cache/universe to at least mid-2018, then dispatch a full rebuild that passes the new gate |
-| Era leadership is diagnostic, not a production model | Production still uses one global model plus post-hoc sidecars; it does not train separate era/regime coefficients | Add an era-aware scoring challenger, then A/B with broker-ledger next-close |
+| Era-aware scoring is not promoted | The challenger now emits broker-replayable books, but production still uses the existing AlphaOps vNext operating books until an A/B proves IS-CAGR improvement | Dispatch an era-aware A/B against broker-ledger next-close and promote only if Tier-2 gates improve |
 | ADR automation is review-only | It now creates a manifest/YAML fragment, but does not open or merge a PR by itself | Add a guarded PR generator for `adr_universe.yaml` after the manifest format is reviewed |
 | Crisis actions are paper-only | This is correct for safety; the new bridge writes approval-required order previews but live execution is still intentionally absent | Add a live executor only after paper-mode evidence and explicit user approval |
 | Self-correction does not dispatch automatically | Router writes queue and dispatch payload artifacts, but does not call workflow_dispatch by itself | Add a guarded dispatcher that requires user approval before launching A/B |

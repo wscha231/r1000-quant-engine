@@ -215,6 +215,10 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # Era leadership diagnostic: factor IC and top-name contribution by era.
   # Review-only sidecar; no production scoring or target-book mutation.
   python tools/run_era_leadership_sidecar.py --latest-run outputs --output-dir outputs/era_leadership 2>&1 | tee outputs/full_rebuild_logs/era_leadership.log || true
+  # Era-aware scoring challenger: converts the era diagnosis into
+  # broker-replayable review-only target books. It never replaces operating
+  # books; promotion requires a separate A/B and account-evaluation gate.
+  python tools/run_era_aware_scoring_challenger.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/era_aware_scoring_challenger --run-broker-replay 2>&1 | tee outputs/full_rebuild_logs/era_aware_scoring_challenger.log || true
   # Performance ledger — the self-sustaining evaluation memory. Appends ONE
   # row per run to cloud_results/performance_ledger/ledger.jsonl (a path
   # OUTSIDE the per-date full_rebuild rotation, so it accumulates across runs
