@@ -20,6 +20,20 @@ agents one clear review target before any next code or workflow step.
 | `[GITHUB]` review head | latest `origin/codex/pr64-coordination-ledger-router-20260615` containing this packet |
 | `[DRIVE]` role | read-only mirror/research artifact source unless copied into `[LOCAL]` |
 
+Canonical source rules:
+
+| Question | Source of truth | Rule |
+| --- | --- | --- |
+| What code is under review? | `[GITHUB]` PR diff and head SHA | Fetch `origin/*`; do not rely on stale local files. |
+| What branch/PR status is current? | `[GITHUB]` PR metadata and CI checks | Local branch state is advisory until fetched. |
+| What did an agent edit or test locally? | `[LOCAL]` working tree and local test logs | Not official until committed and pushed. |
+| What can a user inspect visually? | `[DRIVE]` mirror or `H:/codex/...` artifacts | Drive is a mirror, not primary evidence. |
+| What is official run evidence? | `[GITHUB]` workflow run ID, commit SHA, and artifact | Drive-only files are not official promotion evidence. |
+
+Google Drive is a mirror, not the primary source of truth. Official evidence
+must trace back to a GitHub `run_id`, commit SHA, and artifact or committed
+`cloud_results` tree.
+
 Before reviewing, run:
 
 ```powershell
@@ -65,6 +79,32 @@ The accepted framing is:
 
 This replaces any wording that implies Codex promises to "achieve" a
 Concentrated recovery result.
+
+## PR66 Non-Goals
+
+PR66 is not a strategy-performance PR. It must not be used to justify any of
+the following:
+
+- no strategy promotion;
+- no production target mutation;
+- no workflow dispatch execution;
+- no live broker automation;
+- no universe mutation;
+- no target-contract rewrite;
+- no whole merge or whole cherry-pick of the Claude research branch.
+
+## Target Contract Conflict
+
+PR66 must keep the target conflict visible without resolving it implicitly:
+
+| Contract | Main | Concentrated | Status |
+| --- | --- | --- | --- |
+| Canonical mission | `35% / -25%` | `50% / -25%` | unchanged until explicit user approval |
+| PR64 interim operating gate | `30% / -25%` | `50% / -28%` | review/evidence gate only |
+
+Status: `unresolved_user_decision_required`.
+
+Rule: do not rewrite official mission targets without explicit user approval.
 
 ## What PR66 Adds
 
@@ -119,6 +159,45 @@ Key changes to verify:
    - `conc_theme_leadership_boost`
    - `conc_concentration_cap_relaxation`
    - Era-aware challenger remains review-only.
+
+## Queue Lifecycle Contract
+
+Review the self-correction queue as a state machine, not as an auto-trader:
+
+| State | Meaning | Production effect |
+| --- | --- | --- |
+| `queued` | Router generated a review candidate from repeated ledger evidence. | none |
+| `deduped` | Duplicate leak/parameter candidates were suppressed or grouped. | none |
+| `dispatched` | A workflow payload was generated or explicitly launched with approval. | none |
+| `measured` | Broker-ledger artifact and verifier output are linked, but gates did not produce a review-ready promotion candidate. | none |
+| `rejected` | Candidate failed gates, had invalid evidence, or was superseded. | none |
+| `ready_for_human_review` | Candidate passed verifier gates and can be reviewed by the user in a separate PR. | no direct mutation |
+| `stale` | Payload was generated against stale base, target contract, ledger, or source run evidence. | none |
+| `closed` | Human decision recorded or queue item superseded by newer evidence. | none |
+
+No queue state may directly mutate production target books, merge code, dispatch
+unapproved workflows, or place broker orders.
+
+## Payload Identity And Stale Criteria
+
+Payload identity should be treated as the stable hash of:
+
+- `leak_id`;
+- `portfolio`;
+- `experiment_family`;
+- `parameter_hash`;
+- `source_run_id`;
+- `base_sha`;
+- `target_contract_version`.
+
+Minimum stale conditions:
+
+- `base_sha` changed;
+- target contract changed;
+- source run was superseded by newer ledger evidence;
+- artifact expired or cannot be traced to GitHub run ID + commit SHA;
+- same leak/parameter payload was already measured;
+- queue item is older than the agreed review threshold.
 
 ## Latest Local Validation
 
@@ -175,6 +254,8 @@ Please answer these before Codex continues implementation:
    copied into another run-level directory?
 5. Should PR65/PR67 goal YAML be updated after PR66 lands to mirror this exact
    master-objective wording, or is the current stacked docs plan sufficient?
+6. Could PR66 still be mistaken for a strategy-performance or recovery PR? If
+   yes, which wording should be tightened before merge?
 
 ## Stop Conditions
 
@@ -184,6 +265,8 @@ Until the review feedback returns:
 - Do not dispatch 8-year bootstrap/full rebuild workflows.
 - Do not run Concentrated recovery A/B workflows.
 - Do not modify production target books.
+- Do not mutate the universe or ADR YAML directly.
+- Do not whole-merge or whole-cherry-pick the Claude research branch.
 - Do not enable live trading.
 - Do not continue broad implementation beyond review feedback fixes.
 

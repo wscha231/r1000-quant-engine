@@ -15,6 +15,11 @@ location:
 | `[GITHUB]` | `github.com/wscha231/r1000-quant-engine`, including `origin/*`, PRs, CI, and workflow runs. | branch SHAs, PR status, CI status, remote artifacts committed to git |
 | `[DRIVE]` | Drive mirror or `H:/codex/...` artifact storage. Treat as read-only input unless copied into `[LOCAL]`. | long-term run artifacts that are not committed to GitHub |
 
+Google Drive is a mirror, not the primary source of truth. Official promotion
+evidence must trace back to a GitHub workflow `run_id`, commit SHA, and artifact
+or a committed `cloud_results` tree. A Drive-only file may guide review, but it
+does not prove production readiness by itself.
+
 ## Required Preamble
 
 Before any multi-step work, the agent must report:
