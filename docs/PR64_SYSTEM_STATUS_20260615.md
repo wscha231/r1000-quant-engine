@@ -6,6 +6,20 @@ This note updates the older `SYSTEM_INTEGRATION_ANALYSIS_20260615.md` with the
 current PR state. It is intentionally ASCII-only so future agents can read it
 without encoding loss.
 
+## Target Contract Status
+
+PR64 currently uses an interim operating gate in code:
+
+| Contract | Main | Concentrated | Status |
+| --- | --- | --- | --- |
+| Canonical mission (`CLAUDE.md`) | 35% CAGR / -25% MaxDD | 50% CAGR / -25% MaxDD | final mission target until the user explicitly changes it |
+| PR64 interim operating gate (`PORTFOLIO_GOAL_TARGETS`) | 30% CAGR / -25% MaxDD | 50% CAGR / -28% MaxDD | evidence-control gate only; unresolved user decision |
+
+Rule: do not treat the interim gate as a mission rewrite. No official gate,
+handoff, or goals proposal may claim the mission target changed until the user
+approves that change explicitly. The strengthened IS/OOS gates and 8-year
+broker-ledger window remain promotion blockers under both contracts.
+
 ## Wired In PR64
 
 | Requirement | Current implementation | Status |

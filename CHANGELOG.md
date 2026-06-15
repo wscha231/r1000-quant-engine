@@ -5,6 +5,17 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-15
 
+### 22:30 KST - agent location discipline + bull-floor ledger preservation + router queue closure v1
+
+- scope: implement the Claude/ChatGPT Pro coordination review as a PR64 follow-up. This keeps PR64 as the implementation base but makes cross-agent location state explicit, preserves the bull-floor A/B data point, and starts closing the self-correction queue loop without enabling production mutation or live trading.
+- agent location discipline: `docs/AGENT_LOCATION_DISCIPLINE.md` defines `[LOCAL]`, `[GITHUB]`, and `[DRIVE]` source-of-truth rules for Claude Code, Codex, and ChatGPT Pro. It requires `git fetch origin` before branch/SHA decisions, forbids whole-merging `origin/claude/analyze-updated-code-OfEbu`, forbids direct `master` pushes, and treats `H:/codex/...` Drive artifacts as read-only inputs unless copied into a local branch and pushed by PR.
+- target contract status: `docs/PR64_SYSTEM_STATUS_20260615.md` now explicitly separates canonical `CLAUDE.md` mission targets (Main `35% / -25%`, Concentrated `50% / -25%`) from PR64 interim operating gates (Main `30% / -25%`, Concentrated `50% / -28%`). The interim gate is not a mission rewrite until the user explicitly approves it.
+- ledger reconciliation: `docs/proposals/ledger_reconciliation_20260615.md` documents that Codex's PR64 ledger implementation is canonical, Claude's branch is a research/data source only, and the bull-floor row schema matched PR64 exactly.
+- bull-floor verdict row: ported run `27516185696` (`cd48042`) from `origin/claude/analyze-updated-code-OfEbu` into `cloud_results/performance_ledger/ledger.jsonl` and regenerated `ledger_summary.md` / `latest_verdict.json`. Ledger now has 3 rows and reports `IMPROVING`: Main IS-CAGR `22.90%` (+1.45pp vs previous) and Concentrated IS-CAGR `22.41%` (+1.12pp). Strengthened gates still fail, so this is evidence preservation, not promotion.
+- self-correction queue closure v1: router queue artifacts now carry status-oriented metadata, deterministic payload hashes, ledger source run/SHA provenance, duplicate suppression, and stale previous-payload detection. The router remains review-only and never dispatches workflows itself.
+- outputs_added: `docs/AGENT_LOCATION_DISCIPLINE.md`, `docs/proposals/ledger_reconciliation_20260615.md`.
+- breaking_changes: none. No live trading, no production mutation, no official target rewrite, no PR merge.
+
 ### 13:05 KST - integrated system gates + review-only improvement loop
 
 - scope: implement the r1000 integrated audit plan as production-safe gates and sidecars, not live trading automation.
