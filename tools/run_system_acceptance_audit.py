@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shlex
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -436,6 +437,80 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def requirement_by_id(payload: dict[str, Any], requirement_id: str) -> dict[str, Any]:
+    for row in payload.get("requirements") or []:
+        if row.get("requirement_id") == requirement_id:
+            return row
+    return {}
+
+
+def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[str, Any]]:
+    dispatches: list[dict[str, Any]] = []
+    eight_year = requirement_by_id(payload, "eight_year_broker_ledger_window")
+    if eight_year.get("status") != "pass":
+        dispatches.append(
+            {
+                "plan_id": "bootstrap_free_data_for_8y_window",
+                "workflow_id": "free_data_lake_bootstrap.yml",
+                "ref": ref,
+                "requires_user_approval": True,
+                "production_mutation_allowed": False,
+                "reason": "8-year broker-ledger window is not ready; extend/restore price and free-data cache first.",
+                "inputs": {
+                    "latest_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+                    "sec_companyfacts": "true",
+                    "price_mode": "target_books",
+                    "max_price_tickers": "0",
+                    "run_proxy_replay": "true",
+                    "sync_to_gdrive": "true",
+                },
+            }
+        )
+        dispatches.append(
+            {
+                "plan_id": "full_rebuild_8y_official_after_data_bootstrap",
+                "workflow_id": "full_rebuild_manual.yml",
+                "ref": ref,
+                "requires_user_approval": True,
+                "production_mutation_allowed": False,
+                "reason": "After free-data bootstrap, run the official 8-year broker-ledger rebuild with the production policy.",
+                "inputs": {
+                    "universe_mode": "global_alpha_universe",
+                    "backtest_years": "8",
+                    "skip_collector": "false",
+                    "fast_mode": "true",
+                    "sidecar_profile": "operating_minimal",
+                    "artifact_profile": "minimal",
+                    "gdrive_sync_mode": "minimal",
+                    "portfolio_policy": "alphaops_vnext_production",
+                    "cache_key_suffix": "official-8y-window",
+                    "experiment_env_json": "",
+                },
+            }
+        )
+    return dispatches
+
+
+def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "# Review-only generated commands. Inspect before running.",
+        "",
+    ]
+    for payload in payloads:
+        workflow_id = shlex.quote(str(payload.get("workflow_id") or ""))
+        ref = shlex.quote(str(payload.get("ref") or "master"))
+        parts = ["gh", "workflow", "run", workflow_id, "--repo", shlex.quote(repo), "--ref", ref]
+        for key, value in sorted((payload.get("inputs") or {}).items()):
+            parts.extend(["-f", shlex.quote(f"{key}={value}")])
+        lines.append("# " + str(payload.get("plan_id") or payload.get("workflow_id")))
+        lines.append("# " + str(payload.get("reason") or ""))
+        lines.append(" ".join(parts))
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_report(payload: dict[str, Any]) -> str:
     lines = [
         "# System Acceptance Audit",
@@ -459,15 +534,41 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.extend(f"- {item}" for item in actions)
     else:
         lines.append("- none")
+    lines.extend(["", "## Review Dispatch Plan", ""])
+    dispatches = payload.get("workflow_dispatch_payloads") or []
+    if dispatches:
+        lines.extend(
+            [
+                "- `workflow_dispatch_payloads.json` and `workflow_dispatch_commands.sh` are review-only.",
+                "- They require explicit user approval before use.",
+                "",
+                "| Plan | Workflow | Reason |",
+                "| --- | --- | --- |",
+            ]
+        )
+        for item in dispatches:
+            lines.append(f"| {item.get('plan_id')} | {item.get('workflow_id')} | {item.get('reason')} |")
+    else:
+        lines.append("- none")
     lines.append("")
     return "\n".join(lines)
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = build_payload(args)
+    ref = getattr(args, "ref", "master")
+    repo = getattr(args, "repo", "wscha231/r1000-quant-engine")
+    dispatch_payloads = build_dispatch_payloads(payload, ref=ref)
+    payload["workflow_dispatch_payloads"] = dispatch_payloads
+    payload["workflow_dispatch_payload_count"] = len(dispatch_payloads)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "summary.json", payload)
+    write_json(output_dir / "workflow_dispatch_payloads.json", dispatch_payloads)
+    (output_dir / "workflow_dispatch_commands.sh").write_text(
+        render_dispatch_script(dispatch_payloads, repo) + "\n",
+        encoding="utf-8",
+    )
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
     print(json.dumps({"status": payload["status"], "hard_blockers": payload["hard_blocker_count"]}, indent=2))
     return payload
@@ -477,6 +578,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default="outputs")
     parser.add_argument("--output-dir", default="outputs/system_acceptance_audit")
+    parser.add_argument("--ref", default="master")
+    parser.add_argument("--repo", default="wscha231/r1000-quant-engine")
     return parser.parse_args(argv)
 
 

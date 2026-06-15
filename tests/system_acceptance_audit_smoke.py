@@ -110,11 +110,35 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
             {"status": "not_ready", "official_window_ready": False, "blockers": ["broker-ledger official replay does not yet cover 8 years"]},
         )
         out = Path(tmp) / "audit"
-        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        payload = run(
+            Namespace(
+                latest_run=str(latest),
+                output_dir=str(out),
+                ref="codex/self-sustaining-loop-20260615",
+                repo="wscha231/r1000-quant-engine",
+            )
+        )
         assert payload["status"] == "not_ready"
         blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
         assert "goal_contract_main30_conc50_mdd" in blockers
         assert "eight_year_broker_ledger_window" in blockers
+        assert payload["workflow_dispatch_payload_count"] == 2
+        dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert [row["plan_id"] for row in dispatches] == [
+            "bootstrap_free_data_for_8y_window",
+            "full_rebuild_8y_official_after_data_bootstrap",
+        ]
+        assert dispatches[0]["workflow_id"] == "free_data_lake_bootstrap.yml"
+        assert dispatches[0]["inputs"]["price_mode"] == "target_books"
+        assert dispatches[0]["inputs"]["run_proxy_replay"] == "true"
+        assert dispatches[1]["workflow_id"] == "full_rebuild_manual.yml"
+        assert dispatches[1]["inputs"]["backtest_years"] == "8"
+        assert dispatches[1]["inputs"]["portfolio_policy"] == "alphaops_vnext_production"
+        assert all(row["requires_user_approval"] for row in dispatches)
+        assert not any(row["production_mutation_allowed"] for row in dispatches)
+        commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "gh workflow run free_data_lake_bootstrap.yml" in commands
+        assert "gh workflow run full_rebuild_manual.yml" in commands
         assert payload["production_activation_allowed"] is False
         saved = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert saved["live_trading_allowed"] is False
@@ -130,6 +154,9 @@ def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:
         assert payload["status"] == "production_evidence_ready"
         assert payload["hard_blocker_count"] == 0
         assert payload["warning_count"] == 0
+        assert payload["workflow_dispatch_payload_count"] == 0
+        dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert dispatches == []
         ids = {row["requirement_id"]: row["status"] for row in payload["requirements"]}
         assert ids["official_broker_ledger_metrics"] == "pass"
         assert ids["daily_crisis_paper_action_wire"] == "pass"
