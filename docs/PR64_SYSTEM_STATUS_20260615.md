@@ -17,7 +17,7 @@ without encoding loss.
 | Price/universe readiness | `audit_data_readiness.py` now runs before account evaluation in `run_full_rebuild_sidecars.py`; failed readiness makes official verdict invalid | wired |
 | ADR automation | `run_adr_candidate_scanner.py` plus monthly workflow generate review-only candidate artifacts | review-only wired |
 | Era leadership | `run_era_leadership_sidecar.py` computes era/regime factor IC and top-name contribution for 2019-2021, 2022, 2023-2024, 2025+ | sidecar wired |
-| Crisis action wire | `run_daily_crisis_monitor.py` still has `auto_trade_allowed=false`, but emits paper candidates from a strict action whitelist | paper-only wired |
+| Crisis action wire | `run_daily_crisis_monitor.py` emits whitelisted paper candidates and `run_crisis_paper_order_bridge.py` turns them into approval-required paper order previews | paper-order bridge wired |
 | Self-correction | `run_self_correction_router.py` queues A/B candidates and emits review-ready workflow_dispatch payloads/commands when a ledger leak repeats 2 runs | dispatch-prep wired |
 | Full rebuild persistence | `is_attribution`, `era_leadership`, `self_correction_router`, `data_readiness`, and account evaluation are preserved under `cloud_results/full_rebuild/<date>` | wired |
 
@@ -28,7 +28,7 @@ without encoding loss.
 | 8-year data extension is not proven | The gate rejects short runs, but it does not create missing 2018-era price/universe/cache history by itself | Extend collectors and replay cache/universe to at least mid-2018, then dispatch a full rebuild that passes the new gate |
 | Era leadership is diagnostic, not a production model | Production still uses one global model plus post-hoc sidecars; it does not train separate era/regime coefficients | Add an era-aware scoring challenger, then A/B with broker-ledger next-close |
 | ADR automation is candidate-only | It finds additions but does not safely merge universe changes | Add an operator-reviewed manifest diff or PR generator for `adr_universe.yaml` |
-| Crisis actions are paper-only | This is correct for safety, but paper/live executors do not consume the structured candidates yet | Add a paper executor bridge that writes approval-required order previews |
+| Crisis actions are paper-only | This is correct for safety; the new bridge writes approval-required order previews but live execution is still intentionally absent | Add a live executor only after paper-mode evidence and explicit user approval |
 | Self-correction does not dispatch automatically | Router writes queue and dispatch payload artifacts, but does not call workflow_dispatch by itself | Add a guarded dispatcher that requires user approval before launching A/B |
 | Concentrated CAGR still lacks proof of 50% | Latest known headline was 44.43% and IS-CAGR was near 22%; PR64 makes evidence stricter, not higher | Run queued concentrated bull experiments and promote only if IS-CAGR improves and MDD remains within -28% |
 

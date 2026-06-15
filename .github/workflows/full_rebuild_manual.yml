@@ -580,6 +580,7 @@ jobs:
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/daily_crisis_monitor/
+            outputs/crisis_paper_order_bridge/
             outputs/decision_cadence/
             outputs/operator_review/dust_positions_report.csv
             outputs/operator_review/dust_cleanup_orders.csv
@@ -645,6 +646,7 @@ jobs:
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/cash_contract.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
+            outputs/full_rebuild_logs/crisis_paper_order_bridge.log
             outputs/full_rebuild_logs/decision_cadence_review.log
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
@@ -743,6 +745,7 @@ jobs:
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            outputs/crisis_paper_order_bridge/
             data/catalog.json
             outputs/coverage_gate.json
             outputs/reports/tactical_monthly_weights.csv
@@ -1233,6 +1236,7 @@ jobs:
             copy_alphaops_vnext_light
             copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
+            copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
             copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
@@ -1329,6 +1333,7 @@ jobs:
           copy_dir_clean outputs/broker_replay "$DEST/broker_replay"
           copy_dir_clean outputs/legacy_monthly_broker_replay "$DEST/legacy_monthly_broker_replay"
           copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
+          copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
           copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
           copy_dir_clean outputs/broker_parabolic_risk_replay "$DEST/broker_parabolic_risk_replay"
           copy_dir_clean outputs/broker_execution_policy_replay "$DEST/broker_execution_policy_replay"
