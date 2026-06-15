@@ -2,6 +2,7 @@
 """Smoke test for review-only ADR candidate scanner."""
 from __future__ import annotations
 
+import json
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -44,10 +45,19 @@ def test_adr_candidate_scanner_outputs_review_artifact_without_yaml_mutation() -
         )
         assert summary["production_mutation_allowed"] is False
         assert summary["review_add_count"] == 1
+        assert summary["manual_review_required"] is True
+        assert summary["proposed_add_count"] == 1
         assert yaml_path.read_text(encoding="utf-8") == before
         review = pd.read_csv(out / "adr_candidate_review.csv")
         assert set(review["candidate_status"]) == {"already_listed", "review_add"}
         assert (out / "adr_candidate_review.md").exists()
+        manifest = json.loads((out / "adr_universe_update_manifest.json").read_text(encoding="utf-8"))
+        assert manifest["production_mutation_allowed"] is False
+        assert manifest["manual_review_required"] is True
+        assert manifest["proposed_additions"][0]["ticker"] == "TSM"
+        fragment = (out / "adr_universe_additions.yaml").read_text(encoding="utf-8")
+        assert "ticker: TSM" in fragment
+        assert "ADR_REVIEW_REQUIRED" in fragment
 
 
 if __name__ == "__main__":
