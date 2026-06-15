@@ -143,18 +143,21 @@ because the local Python environments are missing some repo-wide dependencies
 (`pandas`/`numpy` in the default Python, plus `requests` and a parquet engine in
 the bundled Python path). Use GitHub CI as the broad validation source.
 
-## Current CI Caveat
+## Current CI Status
 
-At the time this packet was written:
+At the time this packet was last updated:
 
 - `[GITHUB]` PR66 code head before this packet was
   `c20d64e21d1d60de7898d2f6b308996da32bd945`.
-- `[GITHUB]` classic commit status API returned `pending` with `total_count=0`.
-- Check-runs may still be running or may need to be viewed from the GitHub
-  Actions UI.
+- `[GITHUB]` PR66 packet head is
+  `12288ac4ca416a0064a318da624cba9051ff27ff`.
+- `[GITHUB]` latest-head CI is green:
+  - Portfolio System Guard `27551912627`: success
+  - PR Validation (Fast), pull_request `27551911641`: success
+  - PR Validation (Fast), push `27551908558`: success
 
-Do not claim PR66 is merge-ready until the latest head's GitHub checks are
-confirmed green.
+This only means PR66 is ready for human/agent review. It does not authorize a
+merge, workflow dispatch, production mutation, or live trading.
 
 ## Review Questions For Claude / ChatGPT Pro
 
