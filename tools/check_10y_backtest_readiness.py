@@ -13,7 +13,7 @@ import csv
 import json
 import math
 import shlex
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +93,21 @@ def count_price_files(path: Path) -> int:
     return sum(1 for item in path.glob("*.parquet") if item.is_file())
 
 
+def non_cash_tickers_from_csv(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    out: set[str] = set()
+    with path.open("r", encoding="utf-8", errors="ignore", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if "ticker" not in (reader.fieldnames or []):
+            return set()
+        for row in reader:
+            ticker = str(row.get("ticker") or "").strip().upper()
+            if ticker and ticker not in {"CASH", "__CASH__"}:
+                out.add(ticker)
+    return out
+
+
 def csv_date_range(path: Path, columns: tuple[str, ...]) -> dict[str, Any]:
     if not path.exists():
         return {"exists": False, "rows": 0, "min_date": None, "max_date": None, "unique_months": 0}
@@ -146,6 +161,162 @@ def years_ready(start: date | None, end: date | None, min_years: float) -> bool:
     if not start or not end:
         return False
     return ((end - start).days / 365.25) >= min_years
+
+
+def required_start_date(end: date | None, min_years: float) -> date | None:
+    if not end:
+        return None
+    return end - timedelta(days=int(math.ceil(min_years * 365.25)))
+
+
+def iso_or_none(value: date | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def plan_status(ok: bool) -> str:
+    return "ready" if ok else "needs_extension"
+
+
+def add_plan_task(
+    tasks: list[dict[str, Any]],
+    *,
+    task_id: str,
+    scope: str,
+    ready: bool,
+    current: Any,
+    required: Any,
+    action: str,
+    hard_blocker: bool = True,
+) -> None:
+    tasks.append(
+        {
+            "task_id": task_id,
+            "scope": scope,
+            "status": plan_status(ready),
+            "hard_blocker": bool(hard_blocker and not ready),
+            "current": current,
+            "required": required,
+            "action": action if not ready else "none",
+        }
+    )
+
+
+def build_data_extension_plan(
+    *,
+    latest_run: Path,
+    price_start: date | None,
+    price_end: date | None,
+    required_tickers: int,
+    requested_tickers: int,
+    effective_price_files: int,
+    main_book: dict[str, Any],
+    concentrated_book: dict[str, Any],
+    main_broker: dict[str, Any],
+    concentrated_broker: dict[str, Any],
+    sec_available: bool,
+    pit_safe: bool,
+    min_years: float,
+    label: str,
+) -> dict[str, Any]:
+    observed_ends = [
+        item
+        for item in [
+            price_end,
+            parse_date(main_book.get("max_date")),
+            parse_date(concentrated_book.get("max_date")),
+            parse_date(main_broker.get("end_date")),
+            parse_date(concentrated_broker.get("end_date")),
+        ]
+        if item is not None
+    ]
+    target_end = max(observed_ends) if observed_ends else datetime.now(timezone.utc).date()
+    target_start = required_start_date(target_end, min_years)
+    main_tickers = non_cash_tickers_from_csv(latest_run / "reports" / "main_monthly_weights.csv")
+    concentrated_tickers = non_cash_tickers_from_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv")
+    target_book_tickers = sorted(main_tickers.union(concentrated_tickers))
+    effective_required_tickers = required_tickers if required_tickers > 0 else len(target_book_tickers)
+
+    tasks: list[dict[str, Any]] = []
+    price_window_ready = years_ready(price_start, price_end, min_years)
+    add_plan_task(
+        tasks,
+        task_id="price_cache_window",
+        scope="prices",
+        ready=price_window_ready,
+        current={"start_date": iso_or_none(price_start), "end_date": iso_or_none(price_end)},
+        required={"start_date_on_or_before": iso_or_none(target_start), "end_date_on_or_after": iso_or_none(target_end)},
+        action="Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.",
+    )
+    files_ready = effective_required_tickers > 0 and effective_price_files >= effective_required_tickers
+    add_plan_task(
+        tasks,
+        task_id="price_cache_ticker_count",
+        scope="prices",
+        ready=files_ready,
+        current={"effective_price_files": effective_price_files, "requested_tickers": requested_tickers},
+        required={"required_target_book_tickers": effective_required_tickers},
+        action="Refresh replay price cache for every non-cash ticker selected by the operating target books.",
+    )
+    for portfolio, book in (("main", main_book), ("concentrated", concentrated_book)):
+        book_start = parse_date(book.get("min_date"))
+        book_end = parse_date(book.get("max_date"))
+        add_plan_task(
+            tasks,
+            task_id=f"{portfolio}_target_book_window",
+            scope="target_books",
+            ready=years_ready(book_start, book_end, min_years),
+            current={"start_date": book.get("min_date"), "end_date": book.get("max_date"), "rows": book.get("rows")},
+            required={"start_date_on_or_before": iso_or_none(target_start), "end_date_on_or_after": iso_or_none(target_end)},
+            action=f"Run full_rebuild_manual.yml with backtest_years={years_input(min_years)} after price readiness so {portfolio} target books extend across the full {label} window.",
+        )
+    for portfolio, broker in (("main", main_broker), ("concentrated", concentrated_broker)):
+        broker_start = parse_date(broker.get("start_date"))
+        broker_end = parse_date(broker.get("end_date"))
+        add_plan_task(
+            tasks,
+            task_id=f"{portfolio}_broker_replay_window",
+            scope="broker_replay",
+            ready=years_ready(broker_start, broker_end, min_years),
+            current={"start_date": broker.get("start_date"), "end_date": broker.get("end_date"), "years": broker.get("years")},
+            required={"start_date_on_or_before": iso_or_none(target_start), "end_date_on_or_after": iso_or_none(target_end)},
+            action=f"Rerun broker-ledger replay/account evaluation after target books cover the full {label} window.",
+        )
+    add_plan_task(
+        tasks,
+        task_id="sec_companyfacts_archive",
+        scope="macro_sec_fundamentals",
+        ready=sec_available,
+        current={"available": sec_available},
+        required={"available": True},
+        action="Run or restore SEC companyfacts into data_raw/free/sec/companyfacts.zip before official evaluation.",
+        hard_blocker=False,
+    )
+    add_plan_task(
+        tasks,
+        task_id="pit_universe_label",
+        scope="universe",
+        ready=pit_safe,
+        current={"pit_safe": pit_safe},
+        required={"pit_safe": True},
+        action="Keep the run labeled proxy until historical membership, delistings, ADR eligibility, and ticker changes are PIT-safe.",
+    )
+
+    blockers = [row["task_id"] for row in tasks if row.get("hard_blocker")]
+    return {
+        "schema_version": "data-extension-plan-v1",
+        "window_label": label,
+        "target_start_date": iso_or_none(target_start),
+        "target_end_date": iso_or_none(target_end),
+        "selected_target_book_ticker_count": len(target_book_tickers),
+        "effective_required_price_tickers": effective_required_tickers,
+        "sample_target_book_tickers": target_book_tickers[:50],
+        "main_target_book_ticker_count": len(main_tickers),
+        "concentrated_target_book_ticker_count": len(concentrated_tickers),
+        "tasks": tasks,
+        "hard_blocker_count": len(blockers),
+        "hard_blockers": blockers,
+        "next_dispatch_hint": "bootstrap_price_cache_then_full_rebuild" if blockers else "none",
+    }
 
 
 def build_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -219,6 +390,22 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     for gap in coverage.get("known_gaps", []) or []:
         if gap not in warnings:
             warnings.append(str(gap))
+    data_extension_plan = build_data_extension_plan(
+        latest_run=latest_run,
+        price_start=price_start,
+        price_end=price_end,
+        required_tickers=required_tickers,
+        requested_tickers=requested_tickers,
+        effective_price_files=effective_price_files,
+        main_book=main_book,
+        concentrated_book=concentrated_book,
+        main_broker=main_broker,
+        concentrated_broker=concentrated_broker,
+        sec_available=sec_available,
+        pit_safe=pit_safe,
+        min_years=min_years,
+        label=label,
+    )
 
     if slug == "ten_year":
         status = "official_10y_ready" if official_ready else ("proxy_10y_price_ready" if proxy_ready else "not_ready")
@@ -272,8 +459,46 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         },
         "blockers": blockers,
         "warnings": warnings,
+        "data_extension_plan": data_extension_plan,
         "next_actions": next_actions(status, blockers, warnings, min_years=min_years, label=label),
     }
+
+
+def write_tasks_csv(path: Path, tasks: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = ["task_id", "scope", "status", "hard_blocker", "current", "required", "action"]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for row in tasks:
+            out = dict(row)
+            out["current"] = json.dumps(out.get("current"), sort_keys=True, default=str)
+            out["required"] = json.dumps(out.get("required"), sort_keys=True, default=str)
+            writer.writerow(out)
+
+
+def render_data_extension_plan(plan: dict[str, Any]) -> str:
+    lines = [
+        "# Data Extension Plan",
+        "",
+        f"- window: `{plan.get('window_label')}`",
+        f"- target start: `{plan.get('target_start_date')}`",
+        f"- target end: `{plan.get('target_end_date')}`",
+        f"- selected target-book tickers: `{plan.get('selected_target_book_ticker_count')}`",
+        f"- hard blockers: `{plan.get('hard_blocker_count')}`",
+        "",
+        "| Task | Scope | Status | Hard Blocker | Action |",
+        "| --- | --- | --- | :---: | --- |",
+    ]
+    for row in plan.get("tasks") or []:
+        lines.append(
+            f"| {row.get('task_id')} | {row.get('scope')} | {row.get('status')} | {str(row.get('hard_blocker')).lower()} | {row.get('action')} |"
+        )
+    lines.extend(["", "## Sample Target-Book Tickers", ""])
+    tickers = plan.get("sample_target_book_tickers") or []
+    lines.append(", ".join(str(item) for item in tickers) if tickers else "none")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def next_actions(status: str, blockers: list[str], warnings: list[str], *, min_years: float, label: str) -> list[str]:
@@ -292,7 +517,7 @@ def next_actions(status: str, blockers: list[str], warnings: list[str], *, min_y
     if any("SEC companyfacts" in item for item in warnings):
         actions.append("Restore or copy companyfacts.zip into data_raw/free/sec/companyfacts.zip, or run with sec_companyfacts=true.")
     if any("broker-ledger" in item for item in blockers):
-        actions.append("After 10-year target books exist, rerun broker-ledger replay and account evaluation.")
+        actions.append(f"After {label} target books exist, rerun broker-ledger replay and account evaluation.")
     return actions
 
 
@@ -425,6 +650,22 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.append("- none")
     lines.extend(["", "## Next Actions", ""])
     lines.extend(f"- {item}" for item in payload["next_actions"])
+    plan = payload.get("data_extension_plan") or {}
+    lines.extend(
+        [
+            "",
+            "## Data Extension Plan",
+            "",
+            f"- Target window: `{plan.get('target_start_date')}` to `{plan.get('target_end_date')}`",
+            f"- Target-book tickers: `{plan.get('selected_target_book_ticker_count')}`",
+            f"- Hard blockers: `{plan.get('hard_blocker_count')}`",
+            "",
+            "| Task | Status | Action |",
+            "| --- | --- | --- |",
+        ]
+    )
+    for row in plan.get("tasks") or []:
+        lines.append(f"| {row.get('task_id')} | {row.get('status')} | {row.get('action')} |")
     dispatches = payload.get("workflow_dispatch_payloads") or []
     lines.extend(["", "## Review Dispatch Plan", ""])
     if dispatches:
@@ -455,6 +696,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "summary.json", payload)
+    write_json(output_dir / "data_extension_plan.json", payload.get("data_extension_plan") or {})
+    write_tasks_csv(output_dir / "data_extension_tasks.csv", (payload.get("data_extension_plan") or {}).get("tasks") or [])
+    (output_dir / "data_extension_plan.md").write_text(
+        render_data_extension_plan(payload.get("data_extension_plan") or {}),
+        encoding="utf-8",
+    )
     write_json(output_dir / "workflow_dispatch_payloads.json", dispatch_payloads)
     (output_dir / "workflow_dispatch_commands.sh").write_text(render_dispatch_script(dispatch_payloads, repo) + "\n", encoding="utf-8")
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")

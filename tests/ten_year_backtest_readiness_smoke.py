@@ -89,6 +89,13 @@ def test_ten_year_readiness_distinguishes_proxy_from_official() -> None:
         assert dispatches[0]["depends_on_plan_ids"] == []
         assert dispatches[0]["inputs"]["backtest_years"] == "10"
         assert dispatches[0]["inputs"]["portfolio_policy"] == "alphaops_vnext_production"
+        plan = payload["data_extension_plan"]
+        assert plan["window_label"] == "10-year"
+        assert plan["hard_blocker_count"] >= 3
+        assert "main_target_book_window" in plan["hard_blockers"]
+        assert "pit_universe_label" in plan["hard_blockers"]
+        assert (root / "outputs" / "ten_year_backtest_readiness" / "data_extension_plan.json").exists()
+        assert (root / "outputs" / "ten_year_backtest_readiness" / "data_extension_tasks.csv").exists()
 
 
 def test_ten_year_readiness_can_pass_official_gate() -> None:
@@ -133,8 +140,10 @@ def test_ten_year_readiness_can_pass_official_gate() -> None:
         assert payload["official_window_ready"] is True
         assert payload["workflow_dispatch_payload_count"] == 0
         assert payload["broker_replay"]["window_ready"] is True
+        assert payload["data_extension_plan"]["hard_blocker_count"] == 0
         assert (root / "outputs" / "ten_year_backtest_readiness" / "summary.json").exists()
         assert (root / "outputs" / "ten_year_backtest_readiness" / "report.md").exists()
+        assert (root / "outputs" / "ten_year_backtest_readiness" / "data_extension_plan.md").exists()
 
 
 def test_eight_year_readiness_reports_official_window_separately() -> None:
@@ -181,6 +190,8 @@ def test_eight_year_readiness_reports_official_window_separately() -> None:
         assert payload["official_10y_ready"] is False
         assert payload["workflow_dispatch_payload_count"] == 0
         assert payload["price_cache"]["window_ready"] is True
+        assert payload["data_extension_plan"]["target_start_date"] <= "2018-06-13"
+        assert payload["data_extension_plan"]["hard_blocker_count"] == 0
         assert (root / "outputs" / "eight_year_backtest_readiness" / "summary.json").exists()
         assert "8-year" in (root / "outputs" / "eight_year_backtest_readiness" / "report.md").read_text(encoding="utf-8")
 
@@ -234,6 +245,15 @@ def test_eight_year_readiness_emits_bootstrap_dependency_when_price_not_ready() 
         assert dispatches[0]["inputs"]["price_mode"] == "target_books"
         assert dispatches[0]["inputs"]["max_price_tickers"] == "0"
         assert dispatches[1]["depends_on_plan_ids"] == ["bootstrap_free_data_for_eight_year_window"]
+        plan = payload["data_extension_plan"]
+        assert plan["window_label"] == "8-year"
+        assert plan["target_start_date"] <= "2018-06-13"
+        assert "price_cache_window" in plan["hard_blockers"]
+        assert "price_cache_ticker_count" in plan["hard_blockers"]
+        assert "main_broker_replay_window" in plan["hard_blockers"]
+        task_rows = (root / "outputs" / "eight_year_backtest_readiness" / "data_extension_tasks.csv").read_text(encoding="utf-8")
+        assert "price_cache_window" in task_rows
+        assert "full_rebuild_manual.yml" in task_rows
         commands = (root / "outputs" / "eight_year_backtest_readiness" / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "gh workflow run free_data_lake_bootstrap.yml" in commands
         assert "backtest_years=8" in commands
