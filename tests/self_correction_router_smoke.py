@@ -65,13 +65,17 @@ def test_self_correction_router_queues_repeated_concentrated_bull_leak() -> None
         assert all(item["requires_user_approval"] is True for item in queue["queued_experiments"])
         payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
         assert len(payloads) == 4
+        assert all(payload["depends_on_plan_ids"] == ["full_rebuild_8y_official_after_data_bootstrap"] for payload in payloads)
+        assert all(payload["plan_id"] == payload["experiment_id"] for payload in payloads)
         first_inputs = payloads[0]["inputs"]
         assert first_inputs["backtest_years"] == "8"
         assert first_inputs["portfolio_policy"] == "alphaops_vnext_production"
         assert "experiment_env_json" in first_inputs
         assert "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED" in first_inputs["experiment_env_json"]
         assert (out / "router_queue.md").exists()
-        assert "gh workflow run" in (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "blocked until completed_plan_id: full_rebuild_8y_official_after_data_bootstrap" in commands
+        assert "# gh workflow run" in commands
 
 
 def test_self_correction_router_routes_flat_alpha_to_era_challenger() -> None:
@@ -95,10 +99,40 @@ def test_self_correction_router_routes_flat_alpha_to_era_challenger() -> None:
         assert item["experiment_id"] == "main_era_aware_scoring_challenger_review"
         assert item["production_mutation_allowed"] is False
         payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert payloads[0]["depends_on_plan_ids"] == ["full_rebuild_8y_official_after_data_bootstrap"]
         inputs = payloads[0]["inputs"]
         assert inputs["cache_key_suffix"] == "main_era_aware_scoring_challenger_review"
         assert "PHASE_ERA_AWARE_SCORING_CHALLENGER_REVIEW" in inputs["experiment_env_json"]
         assert "PHASE_ERA_AWARE_PORTFOLIO_KIND" in inputs["experiment_env_json"]
+
+
+def test_self_correction_router_allows_payload_after_official_8y_window() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ledger_dir = root / "ledger"
+        latest = root / "latest"
+        ledger_dir.mkdir()
+        (ledger_dir / "ledger.jsonl").write_text(
+            json.dumps(row("a")) + "\n" + json.dumps(row("b")) + "\n",
+            encoding="utf-8",
+        )
+        (ledger_dir / "latest_verdict.json").write_text(
+            json.dumps({"dominant_open_leak": "concentrated:structural_underinvestment_bull"}),
+            encoding="utf-8",
+        )
+        (latest / "eight_year_backtest_readiness").mkdir(parents=True)
+        (latest / "eight_year_backtest_readiness" / "summary.json").write_text(
+            json.dumps({"status": "official_eight_year_ready", "official_window_ready": True}),
+            encoding="utf-8",
+        )
+        out = root / "router"
+        queue = run(Namespace(ledger_dir=str(ledger_dir), latest_run=str(latest), output_dir=str(out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
+        assert queue["requires_completed_plan_ids"] == []
+        payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert all(payload["depends_on_plan_ids"] == [] for payload in payloads)
+        commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "blocked until completed_plan_id" not in commands
+        assert "\ngh workflow run" in commands
 
 
 def test_self_correction_router_queues_oos_robustness_review_without_dispatch() -> None:
@@ -153,5 +187,6 @@ def test_self_correction_router_queues_oos_robustness_review_without_dispatch() 
 if __name__ == "__main__":
     test_self_correction_router_queues_repeated_concentrated_bull_leak()
     test_self_correction_router_routes_flat_alpha_to_era_challenger()
+    test_self_correction_router_allows_payload_after_official_8y_window()
     test_self_correction_router_queues_oos_robustness_review_without_dispatch()
     print("self_correction_router_smoke: PASS")

@@ -111,6 +111,8 @@ OOS_ROBUSTNESS_ACTIONS = {
     },
 }
 
+EIGHT_YEAR_OFFICIAL_PLAN_ID = "full_rebuild_8y_official_after_data_bootstrap"
+
 
 def repo_path(value: str | Path) -> Path:
     path = Path(value)
@@ -123,6 +125,14 @@ def read_json(path: Path) -> dict[str, Any]:
         return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
+
+
+def has_official_eight_year_window(latest_run: Path) -> bool:
+    summary = read_json(latest_run / "eight_year_backtest_readiness" / "summary.json")
+    if not summary:
+        return False
+    status = str(summary.get("status") or "")
+    return bool(summary.get("official_window_ready") is True or status == "official_eight_year_ready")
 
 
 def read_ledger(path: Path) -> list[dict[str, Any]]:
@@ -231,6 +241,7 @@ def build_queue(
     *,
     latest_run: Path | None = None,
 ) -> dict[str, Any]:
+    dependency_ids = [] if latest_run is not None and has_official_eight_year_window(latest_run) else [EIGHT_YEAR_OFFICIAL_PLAN_ID]
     latest_focus = latest_verdict.get("dominant_open_leak") or (dominant_for_row(ledger_rows[-1]) if ledger_rows else None)
     recent_focuses = [dominant_for_row(row) for row in ledger_rows[-min_repeat:]]
     repeated = bool(latest_focus and len(recent_focuses) >= min_repeat and all(item == latest_focus for item in recent_focuses))
@@ -259,6 +270,7 @@ def build_queue(
                 "workflow_dispatch_inputs": workflow_inputs,
                 "production_mutation_allowed": False,
                 "requires_user_approval": True,
+                "depends_on_plan_ids": dependency_ids,
                 "source_leak": latest_focus,
             }
         )
@@ -274,6 +286,7 @@ def build_queue(
         "recent_focuses": recent_focuses,
         "min_repeat": min_repeat,
         "repeat_confirmed": repeated,
+        "requires_completed_plan_ids": dependency_ids,
         "queued_experiments": queued,
         "oos_robustness": {
             key: value
@@ -289,6 +302,7 @@ def build_dispatch_payloads(queue: dict[str, Any], ref: str) -> list[dict[str, A
     for item in queue.get("queued_experiments") or []:
         payloads.append(
             {
+                "plan_id": item.get("experiment_id"),
                 "experiment_id": item.get("experiment_id"),
                 "source_leak": item.get("source_leak"),
                 "workflow_id": item.get("workflow") or "full_rebuild_manual.yml",
@@ -296,6 +310,7 @@ def build_dispatch_payloads(queue: dict[str, Any], ref: str) -> list[dict[str, A
                 "inputs": item.get("workflow_dispatch_inputs") or {},
                 "requires_user_approval": True,
                 "production_mutation_allowed": False,
+                "depends_on_plan_ids": item.get("depends_on_plan_ids") or [],
             }
         )
     return payloads
@@ -309,13 +324,20 @@ def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
         "",
     ]
     for payload in payloads:
+        payload_name = str(payload.get("plan_id") or payload.get("experiment_id") or "payload")
+        dependencies = [str(item) for item in payload.get("depends_on_plan_ids") or []]
         workflow_id = shlex.quote(str(payload.get("workflow_id") or "full_rebuild_manual.yml"))
         ref = shlex.quote(str(payload.get("ref") or "master"))
         parts = ["gh", "workflow", "run", workflow_id, "--repo", shlex.quote(repo), "--ref", ref]
         for key, value in sorted((payload.get("inputs") or {}).items()):
             parts.extend(["-f", shlex.quote(f"{key}={value}")])
-        lines.append("# " + str(payload.get("experiment_id")))
-        lines.append(" ".join(parts))
+        command = " ".join(parts)
+        lines.append("# " + payload_name)
+        if dependencies:
+            lines.append("# blocked until completed_plan_id: " + ",".join(dependencies))
+            lines.append("# " + command)
+        else:
+            lines.append(command)
         lines.append("")
     return "\n".join(lines)
 
@@ -328,6 +350,7 @@ def render_markdown(queue: dict[str, Any]) -> str:
         "- production_mutation_allowed: `false`",
         f"- latest_focus: `{queue.get('latest_focus') or 'none'}`",
         f"- repeat_confirmed: `{str(queue.get('repeat_confirmed')).lower()}`",
+        f"- requires_completed_plan_ids: `{','.join(queue.get('requires_completed_plan_ids') or []) or 'none'}`",
         f"- oos_lock_status: `{oos.get('status') or 'not_checked'}`",
         "",
         "| Experiment | Source Leak | Env | Requires Approval |",
