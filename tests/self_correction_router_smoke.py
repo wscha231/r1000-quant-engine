@@ -29,6 +29,21 @@ def row(run_id: str) -> dict:
     }
 
 
+def flat_alpha_row(run_id: str) -> dict:
+    return {
+        "run_id": run_id,
+        "portfolios": {
+            "main": {
+                "leak_year_tags": {
+                    "2021": "flat_alpha_invested",
+                    "2023": "flat_alpha_invested",
+                }
+            },
+            "concentrated": {"leak_year_tags": {}},
+        },
+    }
+
+
 def test_self_correction_router_queues_repeated_concentrated_bull_leak() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -59,6 +74,34 @@ def test_self_correction_router_queues_repeated_concentrated_bull_leak() -> None
         assert "gh workflow run" in (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
 
 
+def test_self_correction_router_routes_flat_alpha_to_era_challenger() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ledger_dir = root / "ledger"
+        ledger_dir.mkdir()
+        (ledger_dir / "ledger.jsonl").write_text(
+            json.dumps(flat_alpha_row("a")) + "\n" + json.dumps(flat_alpha_row("b")) + "\n",
+            encoding="utf-8",
+        )
+        (ledger_dir / "latest_verdict.json").write_text(
+            json.dumps({"dominant_open_leak": "main:flat_alpha_invested"}),
+            encoding="utf-8",
+        )
+        out = root / "router"
+        queue = run(Namespace(ledger_dir=str(ledger_dir), output_dir=str(out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
+        assert queue["repeat_confirmed"] is True
+        assert len(queue["queued_experiments"]) == 1
+        item = queue["queued_experiments"][0]
+        assert item["experiment_id"] == "main_era_aware_scoring_challenger_review"
+        assert item["production_mutation_allowed"] is False
+        payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        inputs = payloads[0]["inputs"]
+        assert inputs["cache_key_suffix"] == "main_era_aware_scoring_challenger_review"
+        assert "PHASE_ERA_AWARE_SCORING_CHALLENGER_REVIEW" in inputs["experiment_env_json"]
+        assert "PHASE_ERA_AWARE_PORTFOLIO_KIND" in inputs["experiment_env_json"]
+
+
 if __name__ == "__main__":
     test_self_correction_router_queues_repeated_concentrated_bull_leak()
+    test_self_correction_router_routes_flat_alpha_to_era_challenger()
     print("self_correction_router_smoke: PASS")

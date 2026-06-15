@@ -50,6 +50,28 @@ LEAK_EXPERIMENTS = {
             "env": {"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"},
         }
     ],
+    "main:flat_alpha_invested": [
+        {
+            "experiment_id": "main_era_aware_scoring_challenger_review",
+            "description": "Route main selection-IC decay into the era-aware scoring challenger review.",
+            "workflow_inputs": {"portfolio_policy": "alphaops_vnext_production", "artifact_profile": "minimal"},
+            "env": {
+                "PHASE_ERA_AWARE_SCORING_CHALLENGER_REVIEW": "1",
+                "PHASE_ERA_AWARE_PORTFOLIO_KIND": "main",
+            },
+        }
+    ],
+    "concentrated:flat_alpha_invested": [
+        {
+            "experiment_id": "conc_era_aware_scoring_challenger_review",
+            "description": "Route concentrated selection-IC decay into the era-aware scoring challenger review.",
+            "workflow_inputs": {"portfolio_policy": "alphaops_vnext_production", "artifact_profile": "minimal"},
+            "env": {
+                "PHASE_ERA_AWARE_SCORING_CHALLENGER_REVIEW": "1",
+                "PHASE_ERA_AWARE_PORTFOLIO_KIND": "concentrated",
+            },
+        }
+    ],
 }
 
 
