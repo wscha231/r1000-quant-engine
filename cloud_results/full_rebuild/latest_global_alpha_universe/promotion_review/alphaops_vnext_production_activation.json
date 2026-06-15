@@ -92,7 +92,7 @@
   "crisis_overlay_status": "applied",
   "current_holdings_source": "alphaops_vnext_policy_target_book",
   "first_rebalance_date": "2019-05-31",
-  "generated_at_utc": "2026-06-14T16:03:26.541103+00:00",
+  "generated_at_utc": "2026-06-15T03:12:33.196527+00:00",
   "last_operating_signal_date": "2026-06-12",
   "last_rebalance_date": "2026-04-30",
   "main_defense_review_balanced_new_entry_block": {
@@ -110,7 +110,7 @@
         "regime_state": "neutral",
         "sector": "Energy",
         "ticker": "AM",
-        "weight_dropped": 0.04169145589308242
+        "weight_dropped": 0.04164924465548548
       },
       {
         "breakout_setup_quality_score": 0.4692922716887734,
@@ -125,7 +125,7 @@
         "regime_state": "neutral",
         "sector": "Consumer Discretionary",
         "ticker": "CHH",
-        "weight_dropped": 0.04169145589308242
+        "weight_dropped": 0.04164924465548548
       },
       {
         "breakout_setup_quality_score": 0.1729634026950282,
@@ -140,7 +140,7 @@
         "regime_state": "neutral",
         "sector": "Industrials",
         "ticker": "EFX",
-        "weight_dropped": 0.04169145589308242
+        "weight_dropped": 0.04164924465548548
       },
       {
         "breakout_setup_quality_score": 0.2392862338712547,
@@ -155,7 +155,7 @@
         "regime_state": "neutral",
         "sector": "Industrials",
         "ticker": "HEI",
-        "weight_dropped": 0.04169145589308242
+        "weight_dropped": 0.04164924465548548
       },
       {
         "breakout_setup_quality_score": 0.0281959512718055,
@@ -170,7 +170,7 @@
         "regime_state": "neutral",
         "sector": "Consumer Discretionary",
         "ticker": "POOL",
-        "weight_dropped": 0.04169145589308242
+        "weight_dropped": 0.04164924465548548
       },
       {
         "breakout_setup_quality_score": -0.0639773421506977,
@@ -185,16 +185,16 @@
         "regime_state": "neutral",
         "sector": "Materials",
         "ticker": "STLD",
-        "weight_dropped": 0.04169145589308242
+        "weight_dropped": 0.04164924465548548
       }
     ],
     "blocked_new_entries": 6,
     "breakout_threshold": 0.5,
     "cash_rebuilt_explicitly": true,
     "crisis_state": "DEFENSE_REVIEW",
-    "input_row_count": 1286,
+    "input_row_count": 1290,
     "lane": "QUALITY_COMPOUNDER",
-    "output_row_count": 1280,
+    "output_row_count": 1284,
     "portfolio": "main",
     "production_activation_allowed": true,
     "regime_state": "neutral",
@@ -229,7 +229,7 @@
         "ticker": "STLD"
       }
     ],
-    "weight_dropped_total": 0.2501487353584945
+    "weight_dropped_total": 0.24989546793291287
   },
   "main_defense_review_turnaround_new_entry_block": {
     "blocked_entries_sample": [
@@ -245,7 +245,7 @@
         "regime_state": "neutral",
         "sector": "Industrials",
         "ticker": "CPRT",
-        "weight_dropped": 0.09678587670492322
+        "weight_dropped": 0.09037727090711095
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -259,7 +259,7 @@
         "regime_state": "neutral",
         "sector": "Consumer Discretionary",
         "ticker": "ORLY",
-        "weight_dropped": 0.06875376823526787
+        "weight_dropped": 0.0634989623282593
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -273,35 +273,7 @@
         "regime_state": "neutral",
         "sector": "Information Technology",
         "ticker": "MSFT",
-        "weight_dropped": 0.045058211314562405
-      },
-      {
-        "crisis_state": "DEFENSE_REVIEW",
-        "hold_replace_decision": "new_entry",
-        "holding_state": "NEW",
-        "industry_group": "Commercial Services",
-        "market_style_regime_label": "turnaround_accumulation",
-        "primary_lane": "QUALITY_COMPOUNDER",
-        "prior_weight": 0.0,
-        "rebalance_date": "2022-11-30",
-        "regime_state": "neutral",
-        "sector": "Industrials",
-        "ticker": "CTAS",
-        "weight_dropped": 0.042981765952444725
-      },
-      {
-        "crisis_state": "DEFENSE_REVIEW",
-        "hold_replace_decision": "new_entry",
-        "holding_state": "NEW",
-        "industry_group": "Semiconductors",
-        "market_style_regime_label": "turnaround_accumulation",
-        "primary_lane": "QUALITY_COMPOUNDER",
-        "prior_weight": 0.0,
-        "rebalance_date": "2022-11-30",
-        "regime_state": "neutral",
-        "sector": "Information Technology",
-        "ticker": "MTSI",
-        "weight_dropped": 0.039301315488241596
+        "weight_dropped": 0.04609242307681784
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -315,35 +287,21 @@
         "regime_state": "neutral",
         "sector": "Information Technology",
         "ticker": "KLAC",
-        "weight_dropped": 0.03872816413184458
+        "weight_dropped": 0.04031170399989864
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
-        "industry_group": "Consumer Finance",
+        "industry_group": "Commercial Services",
         "market_style_regime_label": "turnaround_accumulation",
         "primary_lane": "QUALITY_COMPOUNDER",
         "prior_weight": 0.0,
         "rebalance_date": "2022-11-30",
         "regime_state": "neutral",
-        "sector": "Financials",
-        "ticker": "V",
-        "weight_dropped": 0.03820148900177678
-      },
-      {
-        "crisis_state": "DEFENSE_REVIEW",
-        "hold_replace_decision": "new_entry",
-        "holding_state": "NEW",
-        "industry_group": "Internet Content & Information",
-        "market_style_regime_label": "turnaround_accumulation",
-        "primary_lane": "QUALITY_COMPOUNDER",
-        "prior_weight": 0.0,
-        "rebalance_date": "2022-11-30",
-        "regime_state": "neutral",
-        "sector": "Internet",
-        "ticker": "JD",
-        "weight_dropped": 0.03522084989515971
+        "sector": "Industrials",
+        "ticker": "CTAS",
+        "weight_dropped": 0.03895177876180095
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -357,36 +315,64 @@
         "regime_state": "neutral",
         "sector": "Health Care",
         "ticker": "REGN",
-        "weight_dropped": 0.034213875021020884
+        "weight_dropped": 0.0358362722645921
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
-        "industry_group": "Specialty Retail",
+        "industry_group": "Semiconductors",
         "market_style_regime_label": "turnaround_accumulation",
         "primary_lane": "QUALITY_COMPOUNDER",
         "prior_weight": 0.0,
         "rebalance_date": "2022-11-30",
         "regime_state": "neutral",
-        "sector": "Consumer Discretionary",
-        "ticker": "DKS",
-        "weight_dropped": 0.02812937434267041
+        "sector": "Information Technology",
+        "ticker": "MTSI",
+        "weight_dropped": 0.03532377279806803
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Consumer Finance",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Financials",
+        "ticker": "V",
+        "weight_dropped": 0.03447122794336893
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Internet Content & Information",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Internet",
+        "ticker": "JD",
+        "weight_dropped": 0.03138151041572973
       }
     ],
-    "blocked_new_entries": 10,
+    "blocked_new_entries": 9,
     "cash_rebuilt_explicitly": true,
     "crisis_state": "DEFENSE_REVIEW",
-    "input_row_count": 1296,
+    "input_row_count": 1299,
     "lane": "QUALITY_COMPOUNDER",
-    "output_row_count": 1286,
+    "output_row_count": 1290,
     "portfolio": "main",
     "production_activation_allowed": true,
     "regime_state": "neutral",
     "research_only": false,
     "schema_version": "alphaops-vnext-main-defense-review-turnaround-new-entry-block-v1",
     "status": "completed",
-    "stock_rows_removed": 10,
+    "stock_rows_removed": 9,
     "style_regime": "turnaround_accumulation",
     "top_blocked_tickers": [
       {
@@ -403,15 +389,19 @@
       },
       {
         "count": 1,
+        "ticker": "KLAC"
+      },
+      {
+        "count": 1,
         "ticker": "CTAS"
       },
       {
         "count": 1,
-        "ticker": "MTSI"
+        "ticker": "REGN"
       },
       {
         "count": 1,
-        "ticker": "KLAC"
+        "ticker": "MTSI"
       },
       {
         "count": 1,
@@ -420,28 +410,12 @@
       {
         "count": 1,
         "ticker": "JD"
-      },
-      {
-        "count": 1,
-        "ticker": "REGN"
-      },
-      {
-        "count": 1,
-        "ticker": "DKS"
       }
     ],
-    "weight_dropped_total": 0.46737469008791216
+    "weight_dropped_total": 0.41624492249564643
   },
   "main_neutral_churn_filter": {
     "blocked_entries_sample": [
-      {
-        "action": "blocked_entry",
-        "rebalance_date": "2019-10-31",
-        "regime_state": "neutral",
-        "swap_count": 2,
-        "ticker": "AEM",
-        "weight_dropped": 0.01
-      },
       {
         "action": "blocked_entry",
         "rebalance_date": "2019-10-31",
@@ -454,7 +428,7 @@
         "action": "blocked_entry",
         "rebalance_date": "2020-01-31",
         "regime_state": "neutral",
-        "swap_count": 4,
+        "swap_count": 3,
         "ticker": "PODD",
         "weight_dropped": 0.05615384615384615
       },
@@ -464,7 +438,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "GOOGL",
-        "weight_dropped": 0.06861179939411344
+        "weight_dropped": 0.06847079452135538
       },
       {
         "action": "blocked_entry",
@@ -472,7 +446,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "PDD",
-        "weight_dropped": 0.03732846649880134
+        "weight_dropped": 0.03788223522237073
       },
       {
         "action": "blocked_entry",
@@ -480,7 +454,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "CHWY",
-        "weight_dropped": 0.03787412324519073
+        "weight_dropped": 0.037892443335153986
       },
       {
         "action": "blocked_entry",
@@ -488,7 +462,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "ETSY",
-        "weight_dropped": 0.060471284784629424
+        "weight_dropped": 0.06088003294872338
       },
       {
         "action": "blocked_entry",
@@ -504,7 +478,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "NTRA",
-        "weight_dropped": 0.03787412324519073
+        "weight_dropped": 0.037892443335153986
       },
       {
         "action": "blocked_entry",
@@ -512,7 +486,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "PDD",
-        "weight_dropped": 0.0951576243927879
+        "weight_dropped": 0.09507831092141075
       },
       {
         "action": "blocked_entry",
@@ -528,7 +502,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "MRNA",
-        "weight_dropped": 0.08029988631147325
+        "weight_dropped": 0.08030811542362647
       },
       {
         "action": "blocked_entry",
@@ -548,6 +522,14 @@
       },
       {
         "action": "blocked_entry",
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "swap_count": 3,
+        "ticker": "MA",
+        "weight_dropped": 0.06654599295923874
+      },
+      {
+        "action": "blocked_entry",
         "rebalance_date": "2023-01-31",
         "regime_state": "neutral",
         "swap_count": 2,
@@ -560,7 +542,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "LRCX",
-        "weight_dropped": 0.0762482768323291
+        "weight_dropped": 0.0762358834082242
       },
       {
         "action": "blocked_entry",
@@ -568,7 +550,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "PANW",
-        "weight_dropped": 0.09796619183515569
+        "weight_dropped": 0.09783222587671482
       },
       {
         "action": "blocked_entry",
@@ -576,7 +558,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "ELF",
-        "weight_dropped": 0.10158634018747148
+        "weight_dropped": 0.10158588899292698
       },
       {
         "action": "blocked_entry",
@@ -584,7 +566,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "ELF",
-        "weight_dropped": 0.1184800500924519
+        "weight_dropped": 0.1184789530790986
       },
       {
         "action": "blocked_entry",
@@ -592,7 +574,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "SFM",
-        "weight_dropped": 0.04688225535739067
+        "weight_dropped": 0.046943726274233426
       },
       {
         "action": "blocked_entry",
@@ -600,7 +582,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "SFM",
-        "weight_dropped": 0.0637612011935513
+        "weight_dropped": 0.06358772709423743
       },
       {
         "action": "blocked_entry",
@@ -616,7 +598,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "CORT",
-        "weight_dropped": 0.1162111349171504
+        "weight_dropped": 0.11618422508804013
       },
       {
         "action": "blocked_entry",
@@ -624,7 +606,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "FLNC",
-        "weight_dropped": 0.06792434599566927
+        "weight_dropped": 0.06766201635032659
       },
       {
         "action": "blocked_entry",
@@ -632,7 +614,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "CAVA",
-        "weight_dropped": 0.035341342322907116
+        "weight_dropped": 0.031636021524330135
       },
       {
         "action": "blocked_entry",
@@ -640,7 +622,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "CORT",
-        "weight_dropped": 0.035341342322907116
+        "weight_dropped": 0.031636021524330135
       },
       {
         "action": "blocked_entry",
@@ -648,7 +630,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "FLNC",
-        "weight_dropped": 0.055338974756504566
+        "weight_dropped": 0.04753517592887264
       },
       {
         "action": "blocked_entry",
@@ -656,7 +638,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "TPL",
-        "weight_dropped": 0.10363712021842034
+        "weight_dropped": 0.10081397109881535
       },
       {
         "action": "blocked_entry",
@@ -664,7 +646,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "CORT",
-        "weight_dropped": 0.0628132908927844
+        "weight_dropped": 0.06233586599953083
       },
       {
         "action": "blocked_entry",
@@ -676,9 +658,9 @@
       }
     ],
     "cash_rebuilt_explicitly": true,
-    "input_row_count": 1343,
+    "input_row_count": 1344,
     "neutral_entries_blocked": 37,
-    "output_row_count": 1306,
+    "output_row_count": 1307,
     "portfolio": "main",
     "production_activation_allowed": true,
     "research_only": false,
@@ -740,18 +722,18 @@
       },
       {
         "count": 1,
-        "ticker": "AEM"
-      },
-      {
-        "count": 1,
         "ticker": "PODD"
       },
       {
         "count": 1,
         "ticker": "GOOGL"
+      },
+      {
+        "count": 1,
+        "ticker": "CHWY"
       }
     ],
-    "weight_dropped_total": 2.3672073046065973,
+    "weight_dropped_total": 2.405238713102636,
     "window_months": 6
   },
   "neutral_metals_new_entry_block": {
@@ -781,7 +763,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "STLD",
-          "weight_dropped": 0.045387038429239426
+          "weight_dropped": 0.04517673371007687
         }
       ],
       "blocked_new_entries": 2,
@@ -816,7 +798,7 @@
           "ticker": "STLD"
         }
       ],
-      "weight_dropped_total": 0.10238703842923942
+      "weight_dropped_total": 0.10217673371007686
     },
     "main": {
       "blocked_entries_sample": [
@@ -832,32 +814,6 @@
           "sector": "Materials",
           "ticker": "RGLD",
           "weight_dropped": 0.06133333333333334
-        },
-        {
-          "hold_replace_decision": "new_entry",
-          "holding_state": "NEW",
-          "industry_group": "Metals & Mining",
-          "market_style_regime_label": "quality_compounder",
-          "primary_lane": "MARKET_LEADER",
-          "prior_weight": 0.0,
-          "rebalance_date": "2019-08-30",
-          "regime_state": "neutral",
-          "sector": "Materials",
-          "ticker": "AEM",
-          "weight_dropped": 0.04
-        },
-        {
-          "hold_replace_decision": "new_entry",
-          "holding_state": "NEW",
-          "industry_group": "Metals & Mining",
-          "market_style_regime_label": "quality_compounder",
-          "primary_lane": "MARKET_LEADER",
-          "prior_weight": 0.0,
-          "rebalance_date": "2021-11-30",
-          "regime_state": "neutral",
-          "sector": "Materials",
-          "ticker": "MP",
-          "weight_dropped": 0.033366648287788805
         },
         {
           "hold_replace_decision": "new_entry",
@@ -922,7 +878,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "SCCO",
-          "weight_dropped": 0.045283735691815555
+          "weight_dropped": 0.045284618243666225
         },
         {
           "hold_replace_decision": "new_entry",
@@ -935,7 +891,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "RGLD",
-          "weight_dropped": 0.07213315267723786
+          "weight_dropped": 0.07250977051923455
         },
         {
           "hold_replace_decision": "new_entry",
@@ -948,27 +904,27 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "SCCO",
-          "weight_dropped": 0.10870494004401605
+          "weight_dropped": 0.10933071786452768
         }
       ],
-      "blocked_new_entries": 10,
+      "blocked_new_entries": 8,
       "cash_rebuilt_explicitly": true,
       "industry_terms": [
         "metals",
         "mining"
       ],
-      "input_row_count": 1306,
+      "input_row_count": 1307,
       "lanes": [
         "MARKET_LEADER"
       ],
-      "output_row_count": 1296,
+      "output_row_count": 1299,
       "portfolio": "main",
       "production_activation_allowed": true,
       "research_only": false,
       "schema_version": "alphaops-vnext-neutral-metals-new-entry-block-v1",
       "sector": "Materials",
       "status": "completed",
-      "stock_rows_removed": 10,
+      "stock_rows_removed": 8,
       "style_regime": "quality_compounder",
       "target_regimes": [
         "neutral"
@@ -984,14 +940,6 @@
         },
         {
           "count": 1,
-          "ticker": "AEM"
-        },
-        {
-          "count": 1,
-          "ticker": "MP"
-        },
-        {
-          "count": 1,
           "ticker": "FCX"
         },
         {
@@ -999,7 +947,7 @@
           "ticker": "STLD"
         }
       ],
-      "weight_dropped_total": 0.4008218100341916
+      "weight_dropped_total": 0.3284584399607618
     }
   },
   "official_target_books": {
@@ -1014,8 +962,10 @@
     "status": "applied",
     "summaries": {
       "concentrated_N3": {
-        "avg_cash_weight": 0.49517120119903213,
-        "max_cash_weight": 0.9722095388725387,
+        "avg_cash_weight": 0.49807310121799664,
+        "bull_floor": 0.85,
+        "bull_floor_enabled": false,
+        "max_cash_weight": 0.9722100882127294,
         "multipliers": {
           "bear": 0.5,
           "bull": 1.0,
@@ -1026,13 +976,16 @@
           "unknown": 1.0
         },
         "portfolio": "concentrated",
+        "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 62,
         "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "concentrated_N3"
       },
       "concentrated_N5": {
-        "avg_cash_weight": 0.4242984363816674,
+        "avg_cash_weight": 0.42694181078247684,
+        "bull_floor": 0.85,
+        "bull_floor_enabled": false,
         "max_cash_weight": 0.97125,
         "multipliers": {
           "bear": 0.5,
@@ -1044,14 +997,17 @@
           "unknown": 1.0
         },
         "portfolio": "concentrated",
+        "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 62,
         "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "concentrated_N5"
       },
       "main_N12": {
-        "avg_cash_weight": 0.2365150004950263,
-        "max_cash_weight": 0.8351398964448365,
+        "avg_cash_weight": 0.23442213613219465,
+        "bull_floor": 0.9,
+        "bull_floor_enabled": false,
+        "max_cash_weight": 0.8347339863322136,
         "multipliers": {
           "bear": 1.0,
           "bull": 1.0,
@@ -1062,14 +1018,17 @@
           "unknown": 1.0
         },
         "portfolio": "main",
+        "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 0,
         "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "main_N12"
       },
       "main_N15": {
-        "avg_cash_weight": 0.22813039170085106,
-        "max_cash_weight": 0.8320000000000001,
+        "avg_cash_weight": 0.22681911253251036,
+        "bull_floor": 0.9,
+        "bull_floor_enabled": false,
+        "max_cash_weight": 0.8016651477909748,
         "multipliers": {
           "bear": 1.0,
           "bull": 1.0,
@@ -1080,13 +1039,16 @@
           "unknown": 1.0
         },
         "portfolio": "main",
+        "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 0,
         "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "main_N15"
       },
       "main_N18": {
-        "avg_cash_weight": 0.2232922690848987,
+        "avg_cash_weight": 0.22190659350656733,
+        "bull_floor": 0.9,
+        "bull_floor_enabled": false,
         "max_cash_weight": 0.79,
         "multipliers": {
           "bear": 1.0,
@@ -1098,6 +1060,7 @@
           "unknown": 1.0
         },
         "portfolio": "main",
+        "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 0,
         "rebalance_dates_total": 85,
         "status": "completed",
