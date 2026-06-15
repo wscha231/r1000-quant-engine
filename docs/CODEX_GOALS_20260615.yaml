@@ -1,0 +1,418 @@
+schema_version: codex_goal_proposals_2026_06_15_inferred_v1
+schema_status:
+  requested_authority_file: docs/CODEX_GOAL_SETTING_BRIEF.md
+  status: blocked_missing_authority_file
+  evidence:
+    - searched_current_branch: codex/goals-2026-06-15
+    - searched_base_branch: codex/self-sustaining-loop-20260615
+    - searched_origin_master: true
+    - searched_origin_claude_analyze_updated_code_OfEbu: true
+    - searched_origin_codex_github_agent_coordination_docs_20260615: true
+    - result: docs/CODEX_GOAL_SETTING_BRIEF.md not found in local worktree or remote refs
+  consequence: >
+    This file is a review-ready goal proposal drafted from the available project
+    contracts. It must be reconciled with docs/CODEX_GOAL_SETTING_BRIEF.md before
+    being treated as the final mandatory-schema output.
+
+metadata:
+  generated_at_kst: "2026-06-15"
+  repo: wscha231/r1000-quant-engine
+  work_branch: codex/goals-2026-06-15
+  base_branch_used: codex/self-sustaining-loop-20260615
+  target_pr_base_after_pr64_merge: master
+  pr64_head_at_draft: "27215532"
+  author_role: codex_parallel_breadth_agent
+  proposal_mode: review_only_no_code_execution
+
+documents_read:
+  - path: docs/CODEX_GOAL_SETTING_BRIEF.md
+    status: missing
+    note: mandatory authority/schema source unavailable
+  - path: SESSION_HANDOFF_20260615.md
+    status: read_from_origin_codex_github_agent_coordination_docs_20260615
+    key_constraints:
+      - GitHub Markdown is the coordination source of truth.
+      - Codex owns breadth implementation, docs, smoke backfill, config cleanup, diagnostics, and diff review.
+      - No default branch merge, force push, hook skip, ledger rewrite, or live trading.
+      - P0.1 latest A/B verdict, P0.2 paper signal-to-action, P0.3 era-aware model evaluation.
+  - path: SYSTEM_INTEGRATION_ANALYSIS_20260615.md
+    status: read_current_branch
+    key_findings:
+      - F1 era leadership is not a production model; current scoring is a global model plus post-hoc regime/blend logic.
+      - F2 crisis signal to action has a 1-30 day gap; daily monitor is advisory.
+      - F3 auto-learning remains mostly open-loop with production_activation_allowed false.
+      - F4 full-period CAGR is OOS-inflated; IS-CAGR is near 21-22 percent.
+      - F5 portfolio_policy footgun was fixed by defaulting scheduled sidecars to alphaops_vnext_production.
+      - F6 current broker-ledger window is about 7.03 years, short of the 8-year requirement.
+  - path: CLAUDE.md
+    status: read_current_branch
+    key_constraints:
+      - Main CAGR at or above 35 percent and MDD no worse than -25 percent.
+      - Concentrated CAGR at or above 50 percent and MDD no worse than -25 percent.
+      - Official evidence is broker-ledger next-close only.
+      - Data readiness and portfolio guard evidence must support any production-valid interpretation.
+  - path: docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md
+    status: read_current_branch
+    key_constraints:
+      - Fix data readiness and utilization before changing selection, sizing, cash, or risk rules.
+      - Use SEC-enriched candidate replay when evidence exists.
+      - Missing evidence is neutral and never a standalone buy rule.
+      - Keep large data in Drive/object storage, not GitHub.
+      - No production-valid CAGR/MDD claims without data_readiness, dataset coverage, alphaops_vnext, sec enrichment, and portfolio guard evidence.
+  - path: CHANGELOG.md
+    status: read_current_branch
+    key_recent_decisions:
+      - 2026-06-15 integrated gates and review-only improvement loop.
+      - 8-year broker-ledger gate rejects short windows even if headline metrics pass.
+      - ADR automation is review-only and never edits adr_universe.yaml directly.
+      - Era leadership and era-aware scoring challenger are sidecar-only.
+      - Crisis paper actions are whitelisted and approval-required.
+      - Self-correction router queues review-only workflow payloads when a leak repeats.
+      - System acceptance audit aggregates objective-level evidence and keeps production/live activation false.
+
+inferred_kpi_framework:
+  note: >
+    The requested 5-category KPI framework could not be verified because
+    docs/CODEX_GOAL_SETTING_BRIEF.md is missing. These categories are inferred
+    from CLAUDE.md, ALPHAOPS_DATA_SYSTEM_CONTRACT.md, CHANGELOG.md, and PR64 code.
+  categories:
+    - id: performance_quality
+      definition: IS-anchored CAGR, broker-ledger CAGR, strengthened gates, and OOS/IS lottery control.
+    - id: drawdown_risk
+      definition: MaxDD target compliance, recent MDD, crisis defense, and MDD trough attribution.
+    - id: data_validity
+      definition: 8-year window, PIT evidence, SEC/Form4/13F/ETF readiness, price coverage, and universe eligibility.
+    - id: execution_realism
+      definition: broker-ledger next-close fills, integer shares, cash ledger, costs, fill lag, and explicit portfolio_policy.
+    - id: governance_automation
+      definition: review-only dispatch, immutable ledgers, human approval, no live trading, and fail-closed promotion.
+
+hard_constraints:
+  - Do not claim production validity without broker_ledger_next_close evidence.
+  - Do not trust any A/B or rebuild verdict without explicit portfolio_policy.
+  - Do not use full-period headline CAGR as engine-quality proof.
+  - Do not optimize selection, sizing, cash, or risk rules before data validity passes.
+  - Do not compensate for missing data with policy rules.
+  - Do not mutate append-only ledgers.
+  - Do not make live broker orders or live-trading automation.
+  - Do not allow production_activation_allowed true from missing or partial evidence.
+  - Do not bypass dependency-blocked workflow commands.
+  - Do not directly edit ADR universe from scanner output; generate a reviewed PR candidate only.
+
+hierarchy_definition:
+  level_1: north_star
+  level_2: program
+  level_3: initiative
+  level_4: execution_task
+
+goals:
+  - id: NS-20260615-001
+    level: north_star
+    parent_id: null
+    title: Sustainable 8-year broker-ledger CAGR/MDD engine
+    owner: user
+    agent_roles:
+      claude_code: primary_executor
+      chatgpt_pro: strategy_and_statistics_reviewer
+      codex: breadth_docs_tests_diagnostics
+    kpi_categories:
+      - performance_quality
+      - drawdown_risk
+      - data_validity
+      - execution_realism
+      - governance_automation
+    target_contract:
+      main:
+        cagr_min: 0.35
+        max_dd_min: -0.25
+      concentrated:
+        cagr_min: 0.50
+        max_dd_min: -0.25
+      official_metric_mode: broker_ledger_next_close
+      minimum_window_years: 8.0
+      strengthened_gates_required: true
+    acceptance:
+      - official 8-year broker-ledger run is production_evidence_ready in system_acceptance_audit
+      - data_readiness and portfolio_system_guard have no hard blockers
+      - OOS/IS lottery gate passes for both portfolios
+      - all promoted changes are backed by run_ab_result_verifier and human approval
+    non_goals:
+      - live trading automation
+      - production mutation from sidecar research
+      - accepting OOS-inflated headline CAGR as proof
+
+  - id: PRG-20260615-001
+    level: program
+    parent_id: NS-20260615-001
+    title: Prove or reject the current system on an official 8-year evidence base
+    priority: P0
+    owner_agent: claude_code
+    codex_support:
+      - artifact parsing
+      - smoke coverage
+      - docs and report tables
+    kpi_categories:
+      - data_validity
+      - execution_realism
+      - performance_quality
+    rationale: >
+      The latest known window is about 7.03 years. Any 35/50 CAGR claim remains
+      non-official until price, universe, target-book, and broker-ledger coverage
+      reach the requested 8-year window and system acceptance stops hard-blocking.
+    initiatives:
+      - id: INIT-20260615-001A
+        title: Bootstrap free data and target-book coverage to the 8-year window
+        execution_tasks:
+          - id: TASK-20260615-001A-1
+            title: Run bootstrap_free_data_for_8y_window review payload
+            command_source: outputs/system_acceptance_audit/workflow_dispatch_payloads.json
+            dependency: none
+            approval_required: true
+            production_mutation_allowed: false
+            acceptance:
+              - eight_year_backtest_readiness summary reports price_cache.window_ready true or lists exact blockers
+              - target book start date reaches the requested 8-year start
+              - no large data artifacts are committed to GitHub
+          - id: TASK-20260615-001A-2
+            title: Run full_rebuild_8y_official_after_data_bootstrap
+            dependency: TASK-20260615-001A-1
+            approval_required: true
+            production_mutation_allowed: false
+            acceptance:
+              - account_evaluation valid_for_production is not invalid_window
+              - system_acceptance_audit exists in cloud_results
+              - broker_replay equity curves cover at least 8.0 years
+
+  - id: PRG-20260615-002
+    level: program
+    parent_id: NS-20260615-001
+    title: Recover Concentrated 50 percent CAGR without worsening drawdown or OOS lottery risk
+    priority: P0
+    owner_agent: claude_code
+    reviewer_agent: chatgpt_pro
+    codex_support:
+      - A/B payload review
+      - verifier smoke tests
+      - per-name and per-year attribution tables
+    kpi_categories:
+      - performance_quality
+      - drawdown_risk
+      - execution_realism
+      - governance_automation
+    rationale: >
+      System status says Concentrated headline is around 44 percent while IS-CAGR
+      is near 22 percent. The dominant repeated leak is concentrated structural
+      underinvestment in bull regimes, so recovery work must be isolated A/B
+      experiments, not direct production mutation.
+    initiatives:
+      - id: INIT-20260615-002A
+        title: Execute dependency-gated Concentrated recovery A/B payloads
+        dependency: TASK-20260615-001A-2
+        candidate_payloads:
+          - ab_conc_bull_floor_stock_min
+          - ab_conc_continuation_winner_relaxation
+          - ab_conc_theme_leadership_boost
+          - ab_conc_concentration_cap_relaxation
+        execution_tasks:
+          - id: TASK-20260615-002A-1
+            title: Dispatch only after official 8-year rebuild completes
+            acceptance:
+              - review_dispatcher reports dry_run_ready for selected payloads
+              - dependency-blocked shell commands remain commented until completed_plan_id is supplied
+              - each run uses portfolio_policy alphaops_vnext_production and backtest_years 8
+          - id: TASK-20260615-002A-2
+            title: Verify candidates with run_ab_result_verifier
+            acceptance:
+              - candidate has system_acceptance_status production_evidence_ready
+              - production_activation_allowed remains false pending human approval
+              - Concentrated CAGR reaches at least 50 percent and MaxDD is no worse than -25 percent
+              - IS-CAGR materially improves and OOS/IS ratio stays within lock
+
+  - id: PRG-20260615-003
+    level: program
+    parent_id: NS-20260615-001
+    title: Convert era leadership from sidecar diagnosis into a promotion-safe challenger path
+    priority: P0
+    owner_agent: claude_code
+    reviewer_agent: chatgpt_pro
+    codex_support:
+      - era attribution tables
+      - factor registry cleanup
+      - smoke tests for keep_cols survival
+    kpi_categories:
+      - performance_quality
+      - data_validity
+      - governance_automation
+    rationale: >
+      Current code still lacks a true era-specific production model. PR64 adds
+      era_leadership and era_aware_scoring_challenger as review-only sidecars;
+      the next goal is to make their evidence comparable, not to promote them.
+    initiatives:
+      - id: INIT-20260615-003A
+        title: Establish era-aware challenger evaluation gates
+        execution_tasks:
+          - id: TASK-20260615-003A-1
+            title: Require per-era IC, top-name contribution, and broker replay parity
+            acceptance:
+              - same universe, costs, dates, and portfolio_policy as baseline
+              - per-era attribution covers 2019_2021_pre_ai_bull, 2022_bear, 2023_2024_ai_bull, and 2025_plus
+              - challenger target books never replace operating target books
+          - id: TASK-20260615-003A-2
+            title: Add a promotion review checklist for era-aware scoring
+            acceptance:
+              - checklist requires strengthened gates and OOS lock
+              - checklist requires data-readiness evidence for every era feature
+              - checklist outputs review-only markdown or YAML, not production code mutation
+
+  - id: PRG-20260615-004
+    level: program
+    parent_id: NS-20260615-001
+    title: Close the crisis signal-to-paper-action evidence loop
+    priority: P1
+    owner_agent: claude_code
+    codex_support:
+      - bridge fixture expansion
+      - system acceptance assertions
+      - report rendering
+    kpi_categories:
+      - drawdown_risk
+      - execution_realism
+      - governance_automation
+    rationale: >
+      Daily crisis monitoring is now paper-only and whitelisted. The next goal is
+      not live trading, but reproducible paper-action evidence that can be
+      compared against broker-ledger drawdown and missed-reentry outcomes.
+    initiatives:
+      - id: INIT-20260615-004A
+        title: Measure crisis paper actions against MDD and reentry outcomes
+        execution_tasks:
+          - id: TASK-20260615-004A-1
+            title: Add crisis paper-action outcome attribution
+            acceptance:
+              - every paper action records action_type, state, raw_state, approval_required, and target_cash_weight or ticker
+              - unknown actions hard-fail system acceptance
+              - report shows hypothetical MDD impact and reentry lag without placing orders
+          - id: TASK-20260615-004A-2
+            title: Preserve crisis bridge artifacts under cloud_results
+            acceptance:
+              - summary, derived paper target books, and paper order previews are preserved
+              - no live order submission path is introduced
+
+  - id: PRG-20260615-005
+    level: program
+    parent_id: NS-20260615-001
+    title: Make self-correction actionable while remaining review-only and dependency-safe
+    priority: P1
+    owner_agent: claude_code
+    codex_support:
+      - dispatcher validation tests
+      - queue reports
+      - dependency graph docs
+    kpi_categories:
+      - governance_automation
+      - performance_quality
+      - data_validity
+    rationale: >
+      The ledger and router now identify repeated leaks and emit payloads. The
+      next goal is to make the queue operationally useful without allowing
+      hidden production mutation or dependency bypass.
+    initiatives:
+      - id: INIT-20260615-005A
+        title: Add queue health and duplicate suppression
+        execution_tasks:
+          - id: TASK-20260615-005A-1
+            title: Detect stale, duplicate, and already-measured queued experiments
+            acceptance:
+              - router reports duplicate plan ids and prior completed runs
+              - dispatcher refuses selected payloads with unmet dependencies
+              - ledger remains append-only
+          - id: TASK-20260615-005A-2
+            title: Add post-run closure status to queued experiments
+            acceptance:
+              - each queued A/B can be marked measured, rejected, or ready_for_human_review from artifacts
+              - no automatic production_activation_allowed true
+
+  - id: PRG-20260615-006
+    level: program
+    parent_id: NS-20260615-001
+    title: Build missing attribution diagnostics before adding more alpha rules
+    priority: P1
+    owner_agent: codex
+    reviewer_agent: claude_code
+    kpi_categories:
+      - performance_quality
+      - drawdown_risk
+      - execution_realism
+    rationale: >
+      The current stack can say which year leaked, but still needs per-name CAGR
+      contribution and MDD trough holdings to explain which holdings or cash
+      decisions moved the broker-ledger result.
+    initiatives:
+      - id: INIT-20260615-006A
+        title: Per-name CAGR contribution and MDD trough holdings package
+        execution_tasks:
+          - id: TASK-20260615-006A-1
+            title: Add per-name broker-ledger contribution sidecar
+            acceptance:
+              - decomposes return contribution by ticker, cash drag, and cost drag
+              - supports baseline vs candidate comparison
+              - output is preserved under cloud_results/full_rebuild
+          - id: TASK-20260615-006A-2
+            title: Add MDD trough holdings snapshot and top offender table
+            acceptance:
+              - captures peak date, trough date, holdings, weights, and ticker PnL
+              - system_acceptance_audit hard-blocks missing MDD package for promotion-ready evidence
+
+  - id: PRG-20260615-007
+    level: program
+    parent_id: NS-20260615-001
+    title: Keep universe and data automation review-only but current
+    priority: P2
+    owner_agent: codex
+    reviewer_agent: claude_code
+    kpi_categories:
+      - data_validity
+      - governance_automation
+    rationale: >
+      ADR automation now creates review artifacts, but universe changes still
+      require human-reviewed metadata. This avoids unreviewed symbol drift while
+      reducing stale whitelist risk.
+    initiatives:
+      - id: INIT-20260615-007A
+        title: ADR and cycle-play candidate review pipeline
+        execution_tasks:
+          - id: TASK-20260615-007A-1
+            title: Extend ADR scanner evidence and manual-review checklist
+            acceptance:
+              - candidate manifest includes price, dollar volume, market cap, tradability, country, sector, and PIT caveats
+              - placeholders block apply_adr_universe_update
+              - scanner never edits adr_universe.yaml directly
+          - id: TASK-20260615-007A-2
+            title: Align cycle-play refresh with the same review-only manifest pattern
+            acceptance:
+              - cycle_play_universe.yaml is not automatically rewritten by scheduled jobs
+              - candidate additions and removals are emitted as PR-ready review artifacts
+
+recommended_execution_order:
+  - TASK-20260615-001A-1
+  - TASK-20260615-001A-2
+  - TASK-20260615-002A-1
+  - TASK-20260615-002A-2
+  - TASK-20260615-003A-1
+  - TASK-20260615-004A-1
+  - TASK-20260615-005A-1
+  - TASK-20260615-006A-1
+  - TASK-20260615-006A-2
+  - TASK-20260615-007A-1
+
+status:
+  production_activation_allowed: false
+  live_trading_allowed: false
+  ready_for_human_review: true
+  ready_for_mandatory_schema_validation: false
+
+open_questions_for_user_or_chatgpt_pro:
+  - "Resolve the target mismatch: PR64 CHANGELOG says Main 30% / -25% and Concentrated 50% / -28%, while CLAUDE.md says immutable Main 35% / -25% and Concentrated 50% / -25%. This proposal uses CLAUDE.md as the stricter mission contract."
+  - "Restore docs/CODEX_GOAL_SETTING_BRIEF.md or paste its section 6.2 schema so this proposal can be converted from inferred schema to the mandatory schema."
+  - "Decide whether 8-year bootstrap should run before any more A/B work, or whether non-official research A/B can proceed in parallel with clear labels."
+  - "Decide whether Concentrated drawdown target is -25% from CLAUDE.md or -28% from the PR64 plan/user summary."
