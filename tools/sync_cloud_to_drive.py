@@ -66,6 +66,7 @@ SYNC_DIRS = [
     "reports",
     "target_snapshots",
     "data_readiness",
+    "data_freshness_contract",
     "trade_journal",
     "broker_replay",
     "legacy_monthly_broker_replay",

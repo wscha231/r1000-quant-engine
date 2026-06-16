@@ -132,6 +132,20 @@ run_metric_hygiene_report() {
   python tools/run_metric_hygiene_report.py --latest-run outputs --output-dir outputs/metric_hygiene 2>&1 | tee outputs/full_rebuild_logs/metric_hygiene_report.log || true
 }
 
+run_data_freshness_contract() {
+  echo "[data-freshness] validating restored data watermarks before operating recommendations"
+  python tools/run_data_freshness_contract.py \
+    --latest-run outputs \
+    --price-cache cache_prices \
+    --output-dir outputs/data_freshness_contract \
+    --require-current-operating-books \
+    --source-run-id "${GITHUB_RUN_ID:-local}" \
+    --source-commit-sha "${GITHUB_SHA:-}" \
+    --source-branch "${GITHUB_REF_NAME:-}" \
+    --source-artifact-name "${ARTIFACT_PROFILE}_${SIDECAR_PROFILE}_${GITHUB_RUN_ID:-local}" \
+    2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log || true
+}
+
 write_alpha_plane_measurement_status() {
   echo "[alpha-plane] writing measurement sidecar status"
   python - <<'PY'
@@ -217,6 +231,8 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   fi
   build_long_crisis_inputs
   run_alphaops_vnext_production
+  python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
+  run_data_freshness_contract
   run_sidecar_promotion_hook
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
@@ -354,6 +370,8 @@ python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outp
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
 python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
 run_alphaops_vnext_production
+python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
+run_data_freshness_contract
 run_sidecar_promotion_hook
 python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
 python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true

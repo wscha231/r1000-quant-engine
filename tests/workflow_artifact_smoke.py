@@ -11,6 +11,7 @@ REPLAY_WORKFLOW = ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_man
 FREE_DATA_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_lake_bootstrap.yml"
 FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_update.yml"
 DATA_PREFLIGHT_WORKFLOW = ROOT / ".github" / "workflows" / "data_readiness_preflight.yml"
+DAILY_OPERATING_WORKFLOW = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
 PIPELINE = ROOT / "r1000_pipeline.py"
 
 MONTHLY_BOOK_TOKENS = [
@@ -55,6 +56,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/concentrated_policy_replay/",
         "outputs/target_snapshots/",
         "outputs/data_readiness/",
+        "outputs/data_freshness_contract/",
         "outputs/concentrated_trade_journal/",
         "outputs/alpha_sprint_backtest/",
         "outputs/position_aware_risk_replay/",
@@ -100,10 +102,12 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/stock_selection_quality/",
         "outputs/entry_exit_timing_audit/",
         "outputs/cash_reentry_quality/",
+        "outputs/data_freshness_contract/",
         "outputs/alpha_plane_measurement_status.json",
         "copy_dir_clean outputs/stock_selection_quality",
         "copy_dir_clean outputs/entry_exit_timing_audit",
         "copy_dir_clean outputs/cash_reentry_quality",
+        "copy_dir_clean outputs/data_freshness_contract",
         'cp outputs/alpha_plane_measurement_status.json "$DEST/"',
         "outputs/main_cash_drag_replay/",
         "outputs/crisis_reentry_replay/",
@@ -257,6 +261,9 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_stock_selection_quality_audit.py",
         "tools/run_entry_exit_timing_audit.py",
         "tools/run_cash_reentry_quality_audit.py",
+        "tools/run_data_freshness_contract.py",
+        "run_data_freshness_contract",
+        "outputs/data_freshness_contract/",
         "write_alpha_plane_measurement_status",
         "alpha_plane_measurement_status_v1",
         "--source-run-id",
@@ -350,6 +357,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/replay_price_cache_refresh.log",
         "outputs/full_rebuild_logs/target_snapshot_archive.log",
         "outputs/full_rebuild_logs/data_readiness.log",
+        "outputs/full_rebuild_logs/data_readiness_pre_broker.log",
+        "outputs/full_rebuild_logs/data_freshness_contract.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_main.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log",
         "outputs/full_rebuild_logs/legacy_monthly_broker_replay_main.log",
@@ -767,6 +776,37 @@ def test_data_readiness_preflight_workflow_restores_drive_and_audits_without_ful
         "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]:
         assert token in text, token
+
+
+def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract() -> None:
+    text = DAILY_OPERATING_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "Daily Operating Selection Refresh",
+        "15 1 * * 2-6",
+        "force_run",
+        "strict_selection",
+        "LATEST_RUN_INPUT",
+        "hydrate outputs/ from requested latest_run",
+        "cache_prices",
+        "data_pit/sec",
+        "data_pit/etf_holdings",
+        "data_pit/macro",
+        "tools/build_replay_price_cache.py",
+        "tools/build_operating_target_books.py",
+        "--require-current-latest-target",
+        "tools/audit_data_readiness.py",
+        "tools/run_data_freshness_contract.py",
+        "--strict-selection",
+        "--require-current-operating-books",
+        "outputs/data_freshness_contract/",
+        "outputs/full_rebuild_logs/data_freshness_contract.log",
+        "daily-operating-selection-refresh-${{ github.run_id }}",
+        "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh",
+        "actions/cache/save@v4",
+        "RCLONE_CONFIG_GDRIVE",
+        "GOOGLE_SERVICE_ACCOUNT_KEY",
+    ]:
+        assert token in text, token
     for forbidden in [
         "python run_local.py --full",
         "git commit",
@@ -786,6 +826,7 @@ def main() -> int:
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
+    test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
     print("workflow artifact smoke passed")
     return 0
 

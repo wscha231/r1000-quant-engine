@@ -3,6 +3,20 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-16
+
+### 10:45 KST - data freshness contract + daily operating selection refresh
+
+- scope: turn the data-system review into an operating refresh path. This keeps large historical data in Google Drive/object-lake storage, refreshes only new increments on schedule, and blocks current recommendations when required fresh data is missing or stale.
+- data freshness contract: `tools/run_data_freshness_contract.py` emits read-only `outputs/data_freshness_contract/status.json`, `data_watermarks.json`, `data_snapshot_manifest.json`, and `report.md`. It gates current operating recommendations on fresh prices, macro/crisis data, data-readiness status, PIT `available_from` checks, and current operating target books. It keeps promotion stricter than selection by requiring ETF/SEC/13F/smart-money/top-manager coverage floors before `promotion_allowed=true`.
+- operating refresh workflow: `.github/workflows/daily_operating_selection_refresh.yml` runs Tue-Sat after the data-readiness preflight window, restores GitHub cache plus Google Drive data lake paths, refreshes replay prices, rebuilds `outputs/reports/operating_*_target_book.csv` with `--require-current-latest-target`, runs data readiness and the freshness contract in strict-selection mode, then uploads/syncs a review-only operating bundle.
+- full rebuild wiring: `tools/run_full_rebuild_sidecars.py` now runs `audit_data_readiness.py` and `run_data_freshness_contract.py` before primary broker replay in operating and official paths, so broker-ledger outputs carry the data snapshot they used.
+- persistence: `full_rebuild_manual.yml`, `tools/build_gdrive_sync_manifest.py`, and `tools/sync_cloud_to_drive.py` now preserve/sync `outputs/data_freshness_contract/` with artifacts, `cloud_results`, Drive allowlist sync, and local Drive sync.
+- operating plan doc: `docs/DATA_REFRESH_OPERATING_PLAN_20260616.md` records `[LOCAL]` / `[GITHUB]` / `[DRIVE]` source-of-truth boundaries, persistent data lake paths, update schedules, freshness gates, and review rules.
+- tests: added `tests/data_freshness_contract_smoke.py` and registered it in `tools/run_pr_validation.py`; `tests/workflow_artifact_smoke.py` now verifies the daily operating refresh workflow and data freshness artifact/log persistence.
+- validation: `python tests/data_freshness_contract_smoke.py` 6/6 passed; `python tests/workflow_artifact_smoke.py` passed; `python tests/data_coverage_gate_smoke.py` 6/6 passed; bundled Python `tests/data_catalog_smoke.py` 5/5 passed; `python -m py_compile tools/run_data_freshness_contract.py tests/data_freshness_contract_smoke.py` passed. A local contract check against committed `cloud_results/full_rebuild/latest_global_alpha_universe` correctly blocks current selection because the latest local price manifest is stale at `2026-06-12` and the root macro source is not restored in this local clone.
+- breaking_changes: none. No strategy mutation, no production target mutation, no workflow dispatch, no live trading.
+
 ## 2026-06-15
 
 ### 22:30 KST - agent location discipline + bull-floor ledger preservation + router queue closure v1
