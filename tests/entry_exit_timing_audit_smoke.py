@@ -30,7 +30,27 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer.writerows(rows)
 
 
-def _build_inputs(latest: Path) -> None:
+def _write_price_cache(price_cache: Path) -> None:
+    price_cache.mkdir(parents=True, exist_ok=True)
+    dates = pd.date_range("2026-01-02", "2026-12-31", freq="B")
+    aaa = pd.DataFrame(
+        {
+            "date": dates.strftime("%Y-%m-%d"),
+            "Adj Close": [90.0 + i * 0.60 for i in range(len(dates))],
+        }
+    )
+    zzz = pd.DataFrame(
+        {
+            "date": dates.strftime("%Y-%m-%d"),
+            "Adj Close": [100.0 + i * 0.05 for i in range(len(dates))],
+        }
+    )
+    aaa.to_csv(price_cache / "AAA.csv", index=False)
+    zzz.to_csv(price_cache / "ZZZ.csv", index=False)
+
+
+def _build_inputs(latest: Path, price_cache: Path) -> None:
+    _write_price_cache(price_cache)
     for portfolio in ("main", "concentrated"):
         _write_csv(
             latest / "broker_trade_journal" / portfolio / "round_trips.csv",
@@ -81,12 +101,23 @@ def main() -> int:
     with TemporaryDirectory() as td:
         root = Path(td)
         latest = root / "latest"
-        _build_inputs(latest)
+        price_cache = root / "cache_prices"
+        _build_inputs(latest, price_cache)
         out_dir = root / "out"
-        summary = run(latest, out_dir)
+        summary = run(
+            latest,
+            out_dir,
+            price_cache=price_cache,
+            source_run_id="run-123",
+            source_commit_sha="abc123",
+            source_branch="codex/alpha-plane-measurement-audits-20260615",
+            source_artifact_name="entry-exit-test-artifact",
+        )
         assert summary["status"] == "completed", summary
         assert summary["production_mutation_allowed"] is False, summary
         assert summary["metric_mode"] == "broker_ledger_next_close", summary
+        assert summary["source_run_id"] == "run-123", summary
+        assert summary["source_of_truth_level"] == "GITHUB_ARTIFACT", summary
 
         entry = pd.read_csv(out_dir / "entry_timing_audit.csv")
         exits = pd.read_csv(out_dir / "exit_timing_audit.csv")
@@ -96,12 +127,23 @@ def main() -> int:
         assert "entry_state" in entry.columns
         assert "exit_state" in exits.columns
         assert not premature.empty
+        assert "counterfactual_price_source" in premature.columns
+        assert "counterfactual_price_available" in premature.columns
+        assert "counterfactual_missing_reason" in premature.columns
+        assert bool(premature["counterfactual_price_available"].astype(bool).any()), premature
         assert bool(premature["premature_sell_candidate"].astype(bool).any()), premature
         assert "pct_held_180d_plus" in hold.columns
         assert "premature_sell_candidate" in set(repl["replacement_reason"])
 
         payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
         assert payload["premature_sell_candidates"] >= 1
+
+        missing_out = root / "missing_price_out"
+        missing_summary = run(latest, missing_out, price_cache=root / "missing_cache")
+        assert missing_summary["status"] == "completed", missing_summary
+        missing = pd.read_csv(missing_out / "premature_sell_counterfactual.csv")
+        assert not bool(missing["counterfactual_price_available"].astype(bool).any()), missing
+        assert missing["counterfactual_missing_reason"].astype(str).str.contains("missing_price_cache_dir").any(), missing
     print("entry exit timing audit smoke passed")
     return 0
 

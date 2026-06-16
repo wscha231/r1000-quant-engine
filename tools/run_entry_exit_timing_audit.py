@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,9 +20,16 @@ import pandas as pd
 
 from historical_replay_lib import read_table, repo_path, safe_float, write_json, write_text
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.run_weekly_evaluation import load_price_series, price_on_or_after, px_cache_name
+
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/entry_exit_timing_audit"
+DEFAULT_PRICE_CACHE = "cache_prices"
 CASH_TICKERS = {"CASH", "__CASH__", "BIL", "SGOV"}
 PORTFOLIOS = ("main", "concentrated")
 HORIZONS = (63, 126)
@@ -34,6 +43,8 @@ COMMON_METADATA_COLUMNS = [
     "official_metric_source",
     "candidate_source",
     "target_book_source",
+    "source_artifact_name",
+    "source_of_truth_level",
     "generated_at",
     "production_mutation_allowed",
 ]
@@ -50,16 +61,47 @@ def _git_value(args: list[str], default: str = "unknown") -> str:
         return default
 
 
-def _metadata(latest_run: Path, generated_at: str) -> dict[str, Any]:
+def _infer_run_id_from_path(path: Path) -> str:
+    for part in reversed(path.parts):
+        if re.fullmatch(r"\d{8,}", str(part)):
+            return str(part)
+    return "local"
+
+
+def _source_of_truth_level(latest_run: Path, source_run_id: str, source_artifact_name: str, explicit: str = "") -> str:
+    if explicit:
+        return explicit
+    if source_artifact_name or (source_run_id and source_run_id != "local") or os.environ.get("GITHUB_RUN_ID"):
+        return "GITHUB_ARTIFACT"
+    text = str(latest_run).replace("\\", "/").lower()
+    if "research_runs/" in text or "google drive" in text or "/drive/" in text or "gdrive" in text:
+        return "DRIVE_MIRROR"
+    return "LOCAL"
+
+
+def _metadata(
+    latest_run: Path,
+    generated_at: str,
+    *,
+    source_run_id: str = "",
+    source_commit_sha: str = "",
+    source_branch: str = "",
+    source_artifact_name: str = "",
+    source_of_truth_level: str = "",
+) -> dict[str, Any]:
+    resolved_run_id = source_run_id or os.environ.get("GITHUB_RUN_ID") or _infer_run_id_from_path(latest_run)
+    resolved_artifact = source_artifact_name or os.environ.get("GITHUB_ARTIFACT_NAME", "")
     return {
-        "source_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
-        "source_commit_sha": os.environ.get("GITHUB_SHA") or _git_value(["rev-parse", "--short", "HEAD"]),
-        "source_branch": os.environ.get("GITHUB_REF_NAME") or _git_value(["branch", "--show-current"]),
+        "source_run_id": resolved_run_id,
+        "source_commit_sha": source_commit_sha or os.environ.get("GITHUB_SHA") or _git_value(["rev-parse", "--short", "HEAD"]),
+        "source_branch": source_branch or os.environ.get("GITHUB_REF_NAME") or _git_value(["branch", "--show-current"]),
         "portfolio_policy": os.environ.get("PORTFOLIO_POLICY", "alphaops_vnext_production"),
         "metric_mode": "broker_ledger_next_close",
         "official_metric_source": "outputs/account_evaluation/official_metrics.json",
         "candidate_source": str(latest_run / "reports" / "candidate_replay_book.csv"),
         "target_book_source": str(latest_run / "reports" / "operating_*_target_book.csv"),
+        "source_artifact_name": resolved_artifact,
+        "source_of_truth_level": _source_of_truth_level(latest_run, resolved_run_id, resolved_artifact, source_of_truth_level),
         "generated_at": generated_at,
         "production_mutation_allowed": False,
     }
@@ -142,44 +184,83 @@ def _exit_state(row: pd.Series) -> str:
     return "EXIT_REPLACE" if safe_float(row.get("realized_return"), 0.0) < 0 else "TRIM_REVIEW"
 
 
-def _price_timelines(trades: pd.DataFrame) -> dict[str, list[tuple[pd.Timestamp, float]]]:
-    timelines: dict[str, list[tuple[pd.Timestamp, float]]] = {}
-    if trades.empty or "date" not in trades.columns or "fill_price" not in trades.columns:
-        return timelines
-    for _, row in trades.dropna(subset=["date", "fill_price"]).sort_values("date").iterrows():
-        price = safe_float(row.get("fill_price"), math.nan)
-        if not math.isfinite(price) or price <= 0:
-            continue
-        timelines.setdefault(str(row["ticker"]).upper(), []).append((row["date"], price))
-    return timelines
+def _load_price_cache_frame(price_cache: Path, ticker: str, cache: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    ticker = str(ticker).upper()
+    if ticker in cache:
+        return cache[ticker]
+    px = load_price_series(price_cache, ticker)
+    if px.empty:
+        for name in (f"{ticker}.csv", f"{ticker.lower()}.csv", Path(px_cache_name(ticker)).with_suffix(".csv").name):
+            path = price_cache / name
+            if not path.exists():
+                continue
+            raw = read_table(path)
+            if raw.empty:
+                continue
+            d = raw.copy()
+            if "date" in d.columns:
+                d["date"] = pd.to_datetime(d["date"], errors="coerce")
+                d = d.dropna(subset=["date"]).set_index("date")
+            else:
+                d.index = pd.to_datetime(d.index, errors="coerce")
+                d = d[d.index.notna()]
+            if d.empty:
+                continue
+            close_col = next((col for col in ("Adj Close", "Close", "adj_close", "close") if col in d.columns), "")
+            if not close_col:
+                continue
+            px = pd.DataFrame(index=pd.to_datetime(d.index, errors="coerce"))
+            px["close"] = pd.to_numeric(d[close_col], errors="coerce")
+            px = px.dropna(subset=["close"]).sort_index()
+            if not px.empty:
+                break
+    cache[ticker] = px
+    return px
 
 
-def _future_return(timelines: dict[str, list[tuple[pd.Timestamp, float]]], ticker: str, date: pd.Timestamp, price: float, horizon: int) -> float | None:
-    target = date + pd.Timedelta(days=int(horizon))
-    best_price = None
-    best_dist = 10**9
-    for obs_date, obs_price in timelines.get(ticker, []):
-        if obs_date <= date:
-            continue
-        dist = abs((obs_date - target).days)
-        if dist <= 18 and dist < best_dist:
-            best_price = obs_price
-            best_dist = dist
-    if best_price is None or price <= 0:
-        return None
-    return float(best_price / price - 1.0)
+def _price_cache_return(
+    price_cache: Path,
+    ticker: str,
+    date: pd.Timestamp,
+    price: float,
+    horizon: int,
+    cache: dict[str, pd.DataFrame],
+) -> tuple[float | None, str, str]:
+    if not price_cache.exists():
+        return None, "missing_price_cache_dir", ""
+    px = _load_price_cache_frame(price_cache, ticker, cache)
+    if px.empty:
+        return None, "missing_ticker_price_cache", ""
+    target = pd.Timestamp(date) + pd.offsets.BDay(int(horizon))
+    actual_date, future_price = price_on_or_after(px, target, "close")
+    if future_price is None or not math.isfinite(price) or price <= 0:
+        return None, "missing_horizon_price", ""
+    return float(future_price / price - 1.0), "", actual_date.date().isoformat() if actual_date is not None else ""
 
 
-def _same_day_replacement_return(trades: pd.DataFrame, timelines: dict[str, list[tuple[pd.Timestamp, float]]], date: pd.Timestamp, horizon: int) -> float | None:
+def _same_day_replacement_return(
+    trades: pd.DataFrame,
+    price_cache: Path,
+    cache: dict[str, pd.DataFrame],
+    date: pd.Timestamp,
+    horizon: int,
+) -> tuple[float | None, str]:
     if trades.empty or "side" not in trades.columns:
-        return None
+        return None, "missing_trade_replacement_baseline"
     same_day = trades[(trades["date"].eq(date)) & (trades["side"].eq("BUY"))].copy()
     returns = []
     for _, row in same_day.iterrows():
-        ret = _future_return(timelines, str(row["ticker"]).upper(), date, safe_float(row.get("fill_price"), math.nan), horizon)
+        ret, reason, _actual = _price_cache_return(
+            price_cache,
+            str(row["ticker"]).upper(),
+            date,
+            safe_float(row.get("fill_price"), math.nan),
+            horizon,
+            cache,
+        )
         if ret is not None:
             returns.append(ret)
-    return float(sum(returns) / len(returns)) if returns else None
+    return (float(sum(returns) / len(returns)), "") if returns else (None, "missing_replacement_horizon_price")
 
 
 def _build_entry_exit_rows(round_trips: pd.DataFrame, meta: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -228,7 +309,7 @@ def _build_entry_exit_rows(round_trips: pd.DataFrame, meta: dict[str, Any]) -> t
     return rt[entry_cols].copy(), rt[exit_cols].copy()
 
 
-def _premature_rows(round_trips: pd.DataFrame, trades: pd.DataFrame, meta: dict[str, Any]) -> pd.DataFrame:
+def _premature_rows(round_trips: pd.DataFrame, trades: pd.DataFrame, price_cache: Path, meta: dict[str, Any]) -> pd.DataFrame:
     columns = [
         *COMMON_METADATA_COLUMNS,
         "portfolio",
@@ -236,9 +317,14 @@ def _premature_rows(round_trips: pd.DataFrame, trades: pd.DataFrame, meta: dict[
         "sell_date",
         "leader_state_at_exit",
         "exit_price",
+        "counterfactual_price_source",
+        "counterfactual_price_available",
+        "counterfactual_missing_reason",
+        "future_price_date_63d",
         "sold_forward_return_63d",
         "same_day_replacement_return_63d",
         "premature_sell_excess_63d",
+        "future_price_date_126d",
         "sold_forward_return_126d",
         "same_day_replacement_return_126d",
         "premature_sell_excess_126d",
@@ -249,7 +335,7 @@ def _premature_rows(round_trips: pd.DataFrame, trades: pd.DataFrame, meta: dict[
     rt = round_trips.copy()
     rt["exit_date_ts"] = pd.to_datetime(rt.get("exit_date"), errors="coerce")
     rt = rt.dropna(subset=["exit_date_ts"])
-    timelines = _price_timelines(trades)
+    price_cache_frames: dict[str, pd.DataFrame] = {}
     rows: list[dict[str, Any]] = []
     for _, row in rt.iterrows():
         ticker = str(row.get("ticker", "")).upper()
@@ -269,12 +355,21 @@ def _premature_rows(round_trips: pd.DataFrame, trades: pd.DataFrame, meta: dict[
             "sell_date": exit_date.date().isoformat(),
             "leader_state_at_exit": leader_state,
             "exit_price": exit_price,
+            "counterfactual_price_source": str(price_cache),
+            "counterfactual_price_available": False,
+            "counterfactual_missing_reason": "",
             "premature_sell_candidate": False,
         }
         any_positive = False
+        missing_reasons: list[str] = []
         for horizon in HORIZONS:
-            sold_ret = _future_return(timelines, ticker, exit_date, exit_price, horizon)
-            repl_ret = _same_day_replacement_return(trades, timelines, exit_date, horizon)
+            sold_ret, sold_missing, actual_date = _price_cache_return(price_cache, ticker, exit_date, exit_price, horizon, price_cache_frames)
+            repl_ret, repl_missing = _same_day_replacement_return(trades, price_cache, price_cache_frames, exit_date, horizon)
+            if sold_missing:
+                missing_reasons.append(f"{horizon}d:{sold_missing}")
+            if repl_missing:
+                missing_reasons.append(f"{horizon}d:{repl_missing}")
+            payload[f"future_price_date_{horizon}d"] = actual_date
             payload[f"sold_forward_return_{horizon}d"] = sold_ret if sold_ret is not None else ""
             payload[f"same_day_replacement_return_{horizon}d"] = repl_ret if repl_ret is not None else ""
             payload[f"premature_sell_excess_{horizon}d"] = (
@@ -282,6 +377,10 @@ def _premature_rows(round_trips: pd.DataFrame, trades: pd.DataFrame, meta: dict[
             )
             if sold_ret is not None and sold_ret > 0:
                 any_positive = True
+        payload["counterfactual_price_available"] = bool(
+            payload.get("sold_forward_return_63d") != "" or payload.get("sold_forward_return_126d") != ""
+        )
+        payload["counterfactual_missing_reason"] = ";".join(sorted(set(missing_reasons)))
         payload["premature_sell_candidate"] = bool(any_positive and leader_state in {"HOLD", "SHAKEOUT_GUARD", "WARNING_1"})
         rows.append(payload)
     return pd.DataFrame(rows, columns=columns)
@@ -373,9 +472,26 @@ def _summary(
     return payload
 
 
-def run(latest_run: Path, output_dir: Path) -> dict[str, Any]:
+def run(
+    latest_run: Path,
+    output_dir: Path,
+    price_cache: Path = repo_path(DEFAULT_PRICE_CACHE),
+    source_run_id: str = "",
+    source_commit_sha: str = "",
+    source_branch: str = "",
+    source_artifact_name: str = "",
+    source_of_truth_level: str = "",
+) -> dict[str, Any]:
     generated_at = _now_iso()
-    meta = _metadata(latest_run, generated_at)
+    meta = _metadata(
+        latest_run,
+        generated_at,
+        source_run_id=source_run_id,
+        source_commit_sha=source_commit_sha,
+        source_branch=source_branch,
+        source_artifact_name=source_artifact_name,
+        source_of_truth_level=source_of_truth_level,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     entry_frames = []
     exit_frames = []
@@ -386,7 +502,7 @@ def run(latest_run: Path, output_dir: Path) -> dict[str, Any]:
         entry, exit_audit = _build_entry_exit_rows(round_trips, meta)
         entry_frames.append(entry)
         exit_frames.append(exit_audit)
-        premature_frames.append(_premature_rows(round_trips, trades, meta))
+        premature_frames.append(_premature_rows(round_trips, trades, price_cache, meta))
 
     entry_all = pd.concat(entry_frames, ignore_index=True) if entry_frames else pd.DataFrame()
     exit_all = pd.concat(exit_frames, ignore_index=True) if exit_frames else pd.DataFrame()
@@ -447,12 +563,27 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--price-cache", default=DEFAULT_PRICE_CACHE)
+    parser.add_argument("--source-run-id", default="")
+    parser.add_argument("--source-commit-sha", default="")
+    parser.add_argument("--source-branch", default="")
+    parser.add_argument("--source-artifact-name", default="")
+    parser.add_argument("--source-of-truth-level", default="")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    payload = run(repo_path(args.latest_run), repo_path(args.output_dir))
+    payload = run(
+        repo_path(args.latest_run),
+        repo_path(args.output_dir),
+        price_cache=repo_path(args.price_cache),
+        source_run_id=args.source_run_id,
+        source_commit_sha=args.source_commit_sha,
+        source_branch=args.source_branch,
+        source_artifact_name=args.source_artifact_name,
+        source_of_truth_level=args.source_of_truth_level,
+    )
     print(f"[entry-exit-timing] {payload.get('status')} -> {repo_path(args.output_dir)}")
     return 0
 

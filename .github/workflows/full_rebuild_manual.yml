@@ -611,6 +611,7 @@ jobs:
             outputs/stock_selection_quality/
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
+            outputs/alpha_plane_measurement_status.json
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/main/account_state_latest.json
             outputs/broker_replay/main/positions_latest.csv
@@ -703,6 +704,7 @@ jobs:
             outputs/stock_selection_quality/
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
+            outputs/alpha_plane_measurement_status.json
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
@@ -741,6 +743,7 @@ jobs:
             outputs/stock_selection_quality/
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
+            outputs/alpha_plane_measurement_status.json
           if-no-files-found: warn
           retention-days: 365
 
@@ -846,6 +849,7 @@ jobs:
             outputs/stock_selection_quality/
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
+            outputs/alpha_plane_measurement_status.json
             outputs/main_cash_drag_replay/
             outputs/crisis_reentry_replay/
             outputs/broker_crisis_reentry_replay/
@@ -1287,6 +1291,10 @@ jobs:
             copy_dir_clean outputs/self_correction_router "$DEST/self_correction_router"
             copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
             copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
+            copy_dir_clean outputs/stock_selection_quality "$DEST/stock_selection_quality"
+            copy_dir_clean outputs/entry_exit_timing_audit "$DEST/entry_exit_timing_audit"
+            copy_dir_clean outputs/cash_reentry_quality "$DEST/cash_reentry_quality"
+            cp outputs/alpha_plane_measurement_status.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
@@ -1412,6 +1420,10 @@ jobs:
           copy_dir_clean outputs/self_correction_router "$DEST/self_correction_router"
           copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
           copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
+          copy_dir_clean outputs/stock_selection_quality "$DEST/stock_selection_quality"
+          copy_dir_clean outputs/entry_exit_timing_audit "$DEST/entry_exit_timing_audit"
+          copy_dir_clean outputs/cash_reentry_quality "$DEST/cash_reentry_quality"
+          cp outputs/alpha_plane_measurement_status.json "$DEST/" 2>/dev/null || true
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
           copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
           copy_dir_clean outputs/promotion_review "$DEST/promotion_review"

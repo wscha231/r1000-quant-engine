@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,8 @@ COMMON_METADATA_COLUMNS = [
     "official_metric_source",
     "candidate_source",
     "target_book_source",
+    "source_artifact_name",
+    "source_of_truth_level",
     "generated_at",
     "production_mutation_allowed",
 ]
@@ -50,6 +53,12 @@ FEATURE_COLUMNS = [
     "subindustry",
     "leader_rank_ex_ante",
     "selected_rank",
+    "candidate_source_mode",
+    "historical_valid",
+    "ex_ante_source_valid",
+    "feature_available_from_max",
+    "leader_score_components_used",
+    "used_forward_return_in_ranking",
     "was_selected",
     "was_missed_leader",
     "selection_reason",
@@ -161,21 +170,49 @@ def _git_value(args: list[str], default: str = "unknown") -> str:
         return default
 
 
+def _infer_run_id_from_path(path: Path) -> str:
+    for part in reversed(path.parts):
+        if re.fullmatch(r"\d{8,}", str(part)):
+            return str(part)
+    return "local"
+
+
+def _source_of_truth_level(latest_run: Path, source_run_id: str, source_artifact_name: str, explicit: str = "") -> str:
+    if explicit:
+        return explicit
+    if source_artifact_name or (source_run_id and source_run_id != "local") or os.environ.get("GITHUB_RUN_ID"):
+        return "GITHUB_ARTIFACT"
+    text = str(latest_run).replace("\\", "/").lower()
+    if "research_runs/" in text or "google drive" in text or "/drive/" in text or "gdrive" in text:
+        return "DRIVE_MIRROR"
+    return "LOCAL"
+
+
 def _metadata(
     latest_run: Path,
     candidate_source: str,
     target_book_source: str,
     generated_at: str,
+    *,
+    source_run_id: str = "",
+    source_commit_sha: str = "",
+    source_branch: str = "",
+    source_artifact_name: str = "",
+    source_of_truth_level: str = "",
 ) -> dict[str, Any]:
+    resolved_run_id = source_run_id or os.environ.get("GITHUB_RUN_ID") or _infer_run_id_from_path(latest_run)
+    resolved_artifact = source_artifact_name or os.environ.get("GITHUB_ARTIFACT_NAME", "")
     return {
-        "source_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
-        "source_commit_sha": os.environ.get("GITHUB_SHA") or _git_value(["rev-parse", "--short", "HEAD"]),
-        "source_branch": os.environ.get("GITHUB_REF_NAME") or _git_value(["branch", "--show-current"]),
+        "source_run_id": resolved_run_id,
+        "source_commit_sha": source_commit_sha or os.environ.get("GITHUB_SHA") or _git_value(["rev-parse", "--short", "HEAD"]),
+        "source_branch": source_branch or os.environ.get("GITHUB_REF_NAME") or _git_value(["branch", "--show-current"]),
         "portfolio_policy": os.environ.get("PORTFOLIO_POLICY", "alphaops_vnext_production"),
         "metric_mode": "broker_ledger_next_close",
         "official_metric_source": "outputs/account_evaluation/official_metrics.json",
         "candidate_source": candidate_source,
         "target_book_source": target_book_source,
+        "source_artifact_name": resolved_artifact,
+        "source_of_truth_level": _source_of_truth_level(latest_run, resolved_run_id, resolved_artifact, source_of_truth_level),
         "generated_at": generated_at,
         "production_mutation_allowed": False,
         "latest_run": str(latest_run),
@@ -214,22 +251,35 @@ def _numeric(frame: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
     return pd.to_numeric(frame[name], errors="coerce").fillna(default).astype(float)
 
 
-def _load_candidates(latest_run: Path, candidate_book: Path | None = None) -> tuple[pd.DataFrame, str]:
-    paths = []
+def _candidate_mode(path: Path, explicit: bool = False) -> tuple[str, bool]:
+    name = path.name.lower()
+    text = str(path).replace("\\", "/").lower()
+    if "scored_latest" in name:
+        return "latest_only", False
+    if "sec_enriched_candidate_replay" in text:
+        return "sec_enriched_historical_candidate_replay", True
+    if "candidate_replay_book" in name or explicit:
+        return "historical_candidate_replay", True
+    return "missing", False
+
+
+def _load_candidates(latest_run: Path, candidate_book: Path | None = None) -> tuple[pd.DataFrame, str, str, bool]:
+    paths: list[tuple[Path, bool]] = []
     if candidate_book is not None:
-        paths.append(candidate_book)
+        paths.append((candidate_book, True))
     paths.extend(
         [
-            latest_run / "reports" / "candidate_replay_book.csv",
-            latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
-            latest_run / "scored_latest.csv",
+            (latest_run / "reports" / "candidate_replay_book.csv", False),
+            (latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv", False),
+            (latest_run / "scored_latest.csv", False),
         ]
     )
-    for path in paths:
+    for path, explicit in paths:
         frame = _normalize_ticker(read_table(path))
         if not frame.empty:
-            return _normalize_date(frame), str(path)
-    return pd.DataFrame(), ""
+            mode, valid = _candidate_mode(path, explicit=explicit)
+            return _normalize_date(frame), str(path), mode, valid
+    return pd.DataFrame(), "", "missing", False
 
 
 def _load_target(path: Path, portfolio: str, fallback_date: str) -> pd.DataFrame:
@@ -292,6 +342,7 @@ def _load_targets(latest_run: Path, fallback_date: str) -> tuple[pd.DataFrame, s
 
 def _prepare_candidates(candidates: pd.DataFrame) -> pd.DataFrame:
     out = candidates.copy()
+    components_used: list[str] = []
     for canonical, aliases in COLUMN_ALIASES.items():
         if canonical not in out.columns:
             out[canonical] = _first_existing(out, aliases)
@@ -309,6 +360,7 @@ def _prepare_candidates(candidates: pd.DataFrame) -> pd.DataFrame:
         ranks = values.groupby(out["rebalance_date"]).rank(pct=True, method="average").fillna(0.0)
         score += ranks
         used += 1
+        components_used.append(col)
     if used == 0:
         score = pd.Series(0.0, index=out.index, dtype=float)
     else:
@@ -319,6 +371,14 @@ def _prepare_candidates(candidates: pd.DataFrame) -> pd.DataFrame:
         .rank(ascending=False, method="first")
         .astype(int)
     )
+    available_cols = [col for col in out.columns if "available_from" in col.lower()]
+    if available_cols:
+        available = out[available_cols].apply(lambda row: max([str(v) for v in row if str(v) and str(v).lower() != "nan"], default=""), axis=1)
+    else:
+        available = pd.Series([""] * len(out), index=out.index)
+    out["feature_available_from_max"] = available
+    out["leader_score_components_used"] = ",".join(components_used)
+    out["used_forward_return_in_ranking"] = False
     return out
 
 
@@ -434,15 +494,32 @@ def run(
     output_dir: Path,
     candidate_book: Path | None = None,
     leaders_per_date: int = 25,
+    source_run_id: str = "",
+    source_commit_sha: str = "",
+    source_branch: str = "",
+    source_artifact_name: str = "",
+    source_of_truth_level: str = "",
 ) -> dict[str, Any]:
     generated_at = _now_iso()
     output_dir.mkdir(parents=True, exist_ok=True)
-    candidates_raw, candidate_source = _load_candidates(latest_run, candidate_book)
+    candidates_raw, candidate_source, candidate_source_mode, historical_valid = _load_candidates(latest_run, candidate_book)
     if candidates_raw.empty:
         payload = {
             "status": "blocked",
             "reason": "missing candidate_replay_book/scored_latest",
-            **_metadata(latest_run, candidate_source, "", generated_at),
+            "candidate_source_mode": candidate_source_mode,
+            "historical_valid": False,
+            **_metadata(
+                latest_run,
+                candidate_source,
+                "",
+                generated_at,
+                source_run_id=source_run_id,
+                source_commit_sha=source_commit_sha,
+                source_branch=source_branch,
+                source_artifact_name=source_artifact_name,
+                source_of_truth_level=source_of_truth_level,
+            ),
         }
         write_json(output_dir / "summary.json", payload)
         write_text(output_dir / "report.md", "# Stock Selection Quality Audit\n\nBlocked: missing candidate data.\n")
@@ -451,7 +528,19 @@ def run(
     candidates = _prepare_candidates(candidates_raw)
     latest_candidate_date = sorted(candidates["rebalance_date"].astype(str).unique())[-1]
     targets, target_source, cash_by_date = _load_targets(latest_run, latest_candidate_date)
-    meta = _metadata(latest_run, candidate_source, target_source, generated_at)
+    meta = _metadata(
+        latest_run,
+        candidate_source,
+        target_source,
+        generated_at,
+        source_run_id=source_run_id,
+        source_commit_sha=source_commit_sha,
+        source_branch=source_branch,
+        source_artifact_name=source_artifact_name,
+        source_of_truth_level=source_of_truth_level,
+    )
+    meta["candidate_source_mode"] = candidate_source_mode
+    meta["historical_valid"] = bool(historical_valid)
 
     selected_rows: list[pd.DataFrame] = []
     target_keys = set()
@@ -469,6 +558,10 @@ def run(
         selected["was_selected"] = True
         selected["was_missed_leader"] = False
         selected["selected_rank"] = selected["leader_rank_ex_ante"].fillna("").astype(str)
+        selected["candidate_source_mode"] = candidate_source_mode
+        selected["historical_valid"] = bool(historical_valid)
+        selected["ex_ante_source_valid"] = bool(historical_valid)
+        selected["used_forward_return_in_ranking"] = False
         selected["selection_reason"] = selected.apply(_selection_reason, axis=1)
         selected["rejection_reason"] = ""
         selected["binding_constraint"] = ""
@@ -489,6 +582,8 @@ def run(
     if not target_groups:
         target_groups = [("main", latest_candidate_date), ("concentrated", latest_candidate_date)]  # type: ignore[list-item]
     for key in target_groups:
+        if not historical_valid:
+            continue
         if isinstance(key[0], tuple):
             (portfolio, date), group = key
         else:
@@ -508,6 +603,10 @@ def run(
         leaders["was_missed_leader"] = ~leaders["selected"]
         leaders["target_weight"] = leaders["ticker"].map({str(r["ticker"]): safe_float(r.get("target_weight"), 0.0) for _, r in group.iterrows()}) if not group.empty else 0.0
         leaders["selected_rank"] = leaders["leader_rank_ex_ante"].where(leaders["selected"], "")
+        leaders["candidate_source_mode"] = candidate_source_mode
+        leaders["historical_valid"] = bool(historical_valid)
+        leaders["ex_ante_source_valid"] = bool(historical_valid)
+        leaders["used_forward_return_in_ranking"] = False
         leaders["_candidate_missing"] = False
         leaders["_cash_binding"] = _cash_binding(cash_by_date, portfolio, date)
         leaders["_cap_binding"] = (~leaders["selected"]) & (selected_count >= 5)
@@ -552,7 +651,7 @@ def run(
     rejection_summary.to_csv(output_dir / "rejection_reason_summary.csv", index=False)
 
     payload = {
-        "status": "completed",
+        "status": "completed" if historical_valid else "REVIEW_ONLY_LATEST_SOURCE",
         "schema_version": "stock_selection_quality_audit_v1",
         **meta,
         "candidate_rows": int(len(candidates)),
@@ -560,6 +659,10 @@ def run(
         "available_leader_rows": int(len(available)),
         "missed_leader_rows": int(len(missed)),
         "leaders_per_date": int(leaders_per_date),
+        "candidate_source_mode": candidate_source_mode,
+        "historical_valid": bool(historical_valid),
+        "used_forward_return_in_ranking": False,
+        "historical_audit_enabled": bool(historical_valid),
         "rejection_reason_counts": {
             str(k): int(v)
             for k, v in (missed["rejection_reason"].value_counts(dropna=False).to_dict() if not missed.empty else {}).items()
@@ -616,6 +719,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--candidate-book", default="")
     parser.add_argument("--leaders-per-date", type=int, default=25)
+    parser.add_argument("--source-run-id", default="")
+    parser.add_argument("--source-commit-sha", default="")
+    parser.add_argument("--source-branch", default="")
+    parser.add_argument("--source-artifact-name", default="")
+    parser.add_argument("--source-of-truth-level", default="")
     return parser.parse_args()
 
 
@@ -627,6 +735,11 @@ def main() -> int:
         repo_path(args.output_dir),
         candidate_book=candidate_book,
         leaders_per_date=int(args.leaders_per_date),
+        source_run_id=args.source_run_id,
+        source_commit_sha=args.source_commit_sha,
+        source_branch=args.source_branch,
+        source_artifact_name=args.source_artifact_name,
+        source_of_truth_level=args.source_of_truth_level,
     )
     print(f"[stock-selection-quality] {payload.get('status')} -> {repo_path(args.output_dir)}")
     return 0 if payload.get("status") == "completed" else 1

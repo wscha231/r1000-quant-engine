@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,8 @@ COMMON_METADATA_COLUMNS = [
     "official_metric_source",
     "candidate_source",
     "target_book_source",
+    "source_artifact_name",
+    "source_of_truth_level",
     "generated_at",
     "production_mutation_allowed",
 ]
@@ -50,16 +53,47 @@ def _git_value(args: list[str], default: str = "unknown") -> str:
         return default
 
 
-def _metadata(latest_run: Path, generated_at: str) -> dict[str, Any]:
+def _infer_run_id_from_path(path: Path) -> str:
+    for part in reversed(path.parts):
+        if re.fullmatch(r"\d{8,}", str(part)):
+            return str(part)
+    return "local"
+
+
+def _source_of_truth_level(latest_run: Path, source_run_id: str, source_artifact_name: str, explicit: str = "") -> str:
+    if explicit:
+        return explicit
+    if source_artifact_name or (source_run_id and source_run_id != "local") or os.environ.get("GITHUB_RUN_ID"):
+        return "GITHUB_ARTIFACT"
+    text = str(latest_run).replace("\\", "/").lower()
+    if "research_runs/" in text or "google drive" in text or "/drive/" in text or "gdrive" in text:
+        return "DRIVE_MIRROR"
+    return "LOCAL"
+
+
+def _metadata(
+    latest_run: Path,
+    generated_at: str,
+    *,
+    source_run_id: str = "",
+    source_commit_sha: str = "",
+    source_branch: str = "",
+    source_artifact_name: str = "",
+    source_of_truth_level: str = "",
+) -> dict[str, Any]:
+    resolved_run_id = source_run_id or os.environ.get("GITHUB_RUN_ID") or _infer_run_id_from_path(latest_run)
+    resolved_artifact = source_artifact_name or os.environ.get("GITHUB_ARTIFACT_NAME", "")
     return {
-        "source_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
-        "source_commit_sha": os.environ.get("GITHUB_SHA") or _git_value(["rev-parse", "--short", "HEAD"]),
-        "source_branch": os.environ.get("GITHUB_REF_NAME") or _git_value(["branch", "--show-current"]),
+        "source_run_id": resolved_run_id,
+        "source_commit_sha": source_commit_sha or os.environ.get("GITHUB_SHA") or _git_value(["rev-parse", "--short", "HEAD"]),
+        "source_branch": source_branch or os.environ.get("GITHUB_REF_NAME") or _git_value(["branch", "--show-current"]),
         "portfolio_policy": os.environ.get("PORTFOLIO_POLICY", "alphaops_vnext_production"),
         "metric_mode": "broker_ledger_next_close",
         "official_metric_source": "outputs/account_evaluation/official_metrics.json",
         "candidate_source": str(latest_run / "reports" / "candidate_replay_book.csv"),
         "target_book_source": str(latest_run / "reports" / "operating_*_target_book.csv"),
+        "source_artifact_name": resolved_artifact,
+        "source_of_truth_level": _source_of_truth_level(latest_run, resolved_run_id, resolved_artifact, source_of_truth_level),
         "generated_at": generated_at,
         "production_mutation_allowed": False,
     }
@@ -149,8 +183,10 @@ def _load_cash_rows(latest_run: Path, portfolio: str, meta: dict[str, Any]) -> p
                 "portfolio": portfolio,
                 "rebalance_date": date,
                 "cash_weight": cash_weight,
+                "target_cash_weight": cash_weight,
                 "explicit_cash_weight": explicit_cash,
                 "implicit_cash_weight": implicit_cash,
+                "cash_source": "explicit_cash_row" if explicit_cash > 1e-12 else "implicit_target_cash",
                 "stock_count": stock_count,
                 "target_book_source": source,
             }
@@ -158,19 +194,71 @@ def _load_cash_rows(latest_run: Path, portfolio: str, meta: dict[str, Any]) -> p
     return pd.DataFrame(rows)
 
 
+def _broker_cash_daily(latest_run: Path, portfolio: str) -> pd.DataFrame:
+    cash = read_table(latest_run / "broker_replay" / portfolio / "cash_ledger.csv")
+    if cash.empty:
+        return pd.DataFrame(columns=["date", "broker_cash_weight", "broker_cash_source"])
+    if "date" not in cash.columns or "cash_weight" not in cash.columns:
+        return pd.DataFrame(columns=["date", "broker_cash_weight", "broker_cash_source"])
+    d = cash.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    d["broker_cash_weight"] = pd.to_numeric(d["cash_weight"], errors="coerce")
+    d = d.dropna(subset=["date", "broker_cash_weight"]).sort_values("date")
+    if d.empty:
+        return pd.DataFrame(columns=["date", "broker_cash_weight", "broker_cash_source"])
+    out = d.groupby("date", as_index=False).agg(broker_cash_weight=("broker_cash_weight", "last"))
+    out["broker_cash_source"] = "broker_cash_ledger"
+    return out
+
+
+def _attach_broker_cash(rows: pd.DataFrame, latest_run: Path) -> pd.DataFrame:
+    if rows.empty:
+        return rows
+    frames = []
+    for portfolio, group in rows.groupby("portfolio", dropna=False):
+        broker = _broker_cash_daily(latest_run, str(portfolio))
+        g = group.sort_values("rebalance_date").copy()
+        if broker.empty:
+            g["broker_cash_weight"] = ""
+            g["broker_cash_source"] = "missing_broker_cash_ledger"
+            g["cash_drift"] = ""
+            g["cash_contract_drift_flag"] = True
+            frames.append(g)
+            continue
+        merged = pd.merge_asof(
+            g,
+            broker.sort_values("date"),
+            left_on="rebalance_date",
+            right_on="date",
+            direction="forward",
+            tolerance=pd.Timedelta(days=7),
+        ).drop(columns=["date"], errors="ignore")
+        merged["broker_cash_source"] = merged["broker_cash_source"].fillna("missing_broker_cash_match")
+        merged["cash_drift"] = pd.to_numeric(merged["broker_cash_weight"], errors="coerce") - pd.to_numeric(
+            merged["target_cash_weight"], errors="coerce"
+        )
+        merged["cash_contract_drift_flag"] = pd.to_numeric(merged["cash_drift"], errors="coerce").abs().gt(0.05).fillna(True)
+        frames.append(merged)
+    return pd.concat(frames, ignore_index=True) if frames else rows
+
+
 def _attach_crisis(cash_rows: pd.DataFrame, crisis: pd.DataFrame) -> pd.DataFrame:
     if cash_rows.empty:
         return cash_rows
     out = cash_rows.copy()
     if crisis.empty:
-        out["crisis_state"] = "UNKNOWN"
-        out["crisis_bucket"] = "GREEN"
+        out["crisis_state"] = "DATA_MISSING"
+        out["crisis_bucket"] = "MISSING"
+        out["cash_audit_status"] = "REVIEW_REQUIRED_MISSING_CRISIS_STATE"
         return out
     c = crisis.sort_values("date").copy()
     out = out.sort_values("rebalance_date").copy()
     merged = pd.merge_asof(out, c, left_on="rebalance_date", right_on="date", direction="backward")
-    merged["crisis_state"] = merged["crisis_state"].fillna("UNKNOWN")
-    merged["crisis_bucket"] = merged["crisis_bucket"].fillna("GREEN")
+    merged["crisis_state"] = merged["crisis_state"].fillna("DATA_MISSING")
+    merged["crisis_bucket"] = merged["crisis_bucket"].fillna("MISSING")
+    merged["cash_audit_status"] = merged["crisis_bucket"].map(
+        lambda value: "REVIEW_REQUIRED_MISSING_CRISIS_STATE" if str(value).upper() == "MISSING" else "OK"
+    )
     return merged.drop(columns=["date"], errors="ignore")
 
 
@@ -178,6 +266,8 @@ def _cash_reason(row: pd.Series) -> str:
     bucket = str(row.get("crisis_bucket", "GREEN")).upper()
     cash = safe_float(row.get("cash_weight"), 0.0)
     stock_count = safe_float(row.get("stock_count"), 0.0)
+    if bucket == "MISSING":
+        return "unknown"
     if bucket in {"CRISIS", "DEFENSE"} and cash >= 0.05:
         return "crisis_state"
     if cash <= 0.02:
@@ -351,6 +441,8 @@ def _summary(rows: pd.DataFrame, normalization: pd.DataFrame, rebound: pd.DataFr
         **meta,
         "rows": int(len(rows)),
         "cash_trap_rows": int(pd.Series(rows.get("cash_trap_flag", [])).astype(bool).sum()) if not rows.empty else 0,
+        "missing_crisis_state_rows": int(rows.get("crisis_bucket", pd.Series(dtype=str)).astype(str).str.upper().eq("MISSING").sum()) if not rows.empty else 0,
+        "cash_contract_drift_rows": int(pd.Series(rows.get("cash_contract_drift_flag", [])).astype(bool).sum()) if not rows.empty else 0,
         "by_portfolio": {},
     }
     for portfolio, group in rows.groupby("portfolio", dropna=False) if not rows.empty else []:
@@ -364,15 +456,33 @@ def _summary(rows: pd.DataFrame, normalization: pd.DataFrame, rebound: pd.DataFr
             "defense_avg_cash": float(defense["cash_weight"].mean()) if not defense.empty else 0.0,
             "crisis_avg_cash": float(crisis["cash_weight"].mean()) if not crisis.empty else 0.0,
             "latest_cash": safe_float(group.sort_values("rebalance_date").tail(1).iloc[0].get("cash_weight"), 0.0),
+            "latest_broker_cash": safe_float(group.sort_values("rebalance_date").tail(1).iloc[0].get("broker_cash_weight"), math.nan),
+            "cash_contract_drift_rows": int(pd.Series(group.get("cash_contract_drift_flag", [])).astype(bool).sum()),
             "cash_trap_flag": bool(pd.Series(group["cash_trap_flag"]).astype(bool).any()),
             "unknown_cash_reason_share": float((group["cash_reason"].eq("unknown")).mean()) if "cash_reason" in group.columns else 0.0,
         }
     return payload
 
 
-def run(latest_run: Path, output_dir: Path) -> dict[str, Any]:
+def run(
+    latest_run: Path,
+    output_dir: Path,
+    source_run_id: str = "",
+    source_commit_sha: str = "",
+    source_branch: str = "",
+    source_artifact_name: str = "",
+    source_of_truth_level: str = "",
+) -> dict[str, Any]:
     generated_at = _now_iso()
-    meta = _metadata(latest_run, generated_at)
+    meta = _metadata(
+        latest_run,
+        generated_at,
+        source_run_id=source_run_id,
+        source_commit_sha=source_commit_sha,
+        source_branch=source_branch,
+        source_artifact_name=source_artifact_name,
+        source_of_truth_level=source_of_truth_level,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     crisis = _read_crisis_state(latest_run)
     frames = []
@@ -381,6 +491,7 @@ def run(latest_run: Path, output_dir: Path) -> dict[str, Any]:
         if not frame.empty:
             frames.append(frame)
     rows = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    rows = _attach_broker_cash(rows, latest_run)
     rows = _attach_crisis(rows, crisis)
     if not rows.empty:
         rows["cash_reason"] = rows.apply(_cash_reason, axis=1)
@@ -419,6 +530,8 @@ def _render_report(payload: dict[str, Any]) -> str:
         f"- production mutation allowed: `{payload.get('production_mutation_allowed')}`",
         f"- rows: {payload.get('rows', 0)}",
         f"- cash trap rows: {payload.get('cash_trap_rows', 0)}",
+        f"- missing crisis-state rows: {payload.get('missing_crisis_state_rows', 0)}",
+        f"- cash contract drift rows: {payload.get('cash_contract_drift_rows', 0)}",
         "",
         "## Portfolio Cash",
         "",
@@ -450,12 +563,25 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--source-run-id", default="")
+    parser.add_argument("--source-commit-sha", default="")
+    parser.add_argument("--source-branch", default="")
+    parser.add_argument("--source-artifact-name", default="")
+    parser.add_argument("--source-of-truth-level", default="")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    payload = run(repo_path(args.latest_run), repo_path(args.output_dir))
+    payload = run(
+        repo_path(args.latest_run),
+        repo_path(args.output_dir),
+        source_run_id=args.source_run_id,
+        source_commit_sha=args.source_commit_sha,
+        source_branch=args.source_branch,
+        source_artifact_name=args.source_artifact_name,
+        source_of_truth_level=args.source_of_truth_level,
+    )
     print(f"[cash-reentry-quality] {payload.get('status')} -> {repo_path(args.output_dir)}")
     return 0
 

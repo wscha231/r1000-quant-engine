@@ -109,9 +109,22 @@ def main() -> int:
         before_candidate = _sha(candidate)
         before_target = _sha(target)
         out_dir = root / "out"
-        summary = run(latest, out_dir, leaders_per_date=3)
+        summary = run(
+            latest,
+            out_dir,
+            leaders_per_date=3,
+            source_run_id="27516185696",
+            source_commit_sha="abc123",
+            source_branch="codex/alpha-plane-measurement-audits-20260615",
+            source_artifact_name="user-operating-minimal-test",
+        )
         assert summary["status"] == "completed", summary
         assert summary["production_mutation_allowed"] is False, summary
+        assert summary["source_run_id"] == "27516185696", summary
+        assert summary["source_of_truth_level"] == "GITHUB_ARTIFACT", summary
+        assert summary["candidate_source_mode"] == "historical_candidate_replay", summary
+        assert summary["historical_valid"] is True, summary
+        assert summary["used_forward_return_in_ranking"] is False, summary
         assert _sha(candidate) == before_candidate, "candidate book was mutated"
         assert _sha(target) == before_target, "target book was mutated"
 
@@ -121,6 +134,8 @@ def main() -> int:
         assert "source_commit_sha" in selected.columns
         assert "production_mutation_allowed" in selected.columns
         assert "AAA" in set(selected["ticker"])
+        assert "used_forward_return_in_ranking" in selected.columns
+        assert not selected["used_forward_return_in_ranking"].astype(bool).any()
         assert "NVDA" in set(missed["ticker"]), missed
         assert "EVID" not in set(missed["ticker"]), "evidence-only low-RS name became ex-ante missed leader"
         emrg = available[available["ticker"].eq("EMRG")]
@@ -131,6 +146,29 @@ def main() -> int:
         assert not capture.empty
         payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
         assert payload["metric_mode"] == "broker_ledger_next_close"
+
+        rank_out = root / "rank_out"
+        run(latest, rank_out, leaders_per_date=4)
+        rank_available = pd.read_csv(rank_out / "selected_vs_available_leaders.csv")
+        assert int(rank_available.loc[rank_available["ticker"].eq("EVID"), "leader_rank_ex_ante"].iloc[0]) > int(
+            rank_available.loc[rank_available["ticker"].eq("NVDA"), "leader_rank_ex_ante"].iloc[0]
+        ), "forward return must not improve ex-ante leader rank"
+
+        latest_only = root / "latest_only"
+        latest_reports = latest_only / "reports"
+        _write_csv(latest_only / "scored_latest.csv", list(pd.read_csv(candidate).to_dict("records")))
+        _write_csv(
+            latest_reports / "operating_concentrated_target_book.csv",
+            [{"rebalance_date": "2026-05-31", "ticker": "AAA", "weight": 0.40}],
+        )
+        latest_out = root / "latest_out"
+        latest_summary = run(latest_only, latest_out, leaders_per_date=3)
+        assert latest_summary["status"] == "REVIEW_ONLY_LATEST_SOURCE", latest_summary
+        assert latest_summary["candidate_source_mode"] == "latest_only", latest_summary
+        assert latest_summary["historical_valid"] is False, latest_summary
+        assert latest_summary["historical_audit_enabled"] is False, latest_summary
+        latest_missed = pd.read_csv(latest_out / "missed_leaders_audit.csv")
+        assert latest_missed.empty, latest_missed
     print("stock selection quality audit smoke passed")
     return 0
 
