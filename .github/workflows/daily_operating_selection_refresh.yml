@@ -212,22 +212,55 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_enriched_candidate_replay
-          CANDIDATE_BOOK=""
-          for p in outputs/reports/candidate_replay_book.csv outputs/candidate_replay_book.csv; do
-            if [ -s "$p" ]; then
-              CANDIDATE_BOOK="$p"
-              break
-            fi
-          done
-          if [ -s outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv ]; then
-            echo "[daily-operating] using restored SEC-enriched candidate replay" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
-          elif [ -n "$CANDIDATE_BOOK" ]; then
+          mkdir -p outputs/daily_operating_selection_refresh
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import pandas as pd
+
+          latest_close = pd.to_datetime(os.environ.get("LAST_NYSE_CLOSE_UTC", ""), errors="coerce")
+          latest_close_date = latest_close.date().isoformat() if pd.notna(latest_close) else pd.Timestamp.utcnow().date().isoformat()
+          paths = [Path("outputs/portfolio_latest.csv"), Path("outputs/concentrated_portfolio_latest.csv")]
+          frames = []
+          for path in paths:
+              if not path.exists() or path.stat().st_size == 0:
+                  continue
+              frame = pd.read_csv(path, low_memory=False)
+              if frame.empty or "ticker" not in frame.columns:
+                  continue
+              frame["daily_candidate_source"] = str(path)
+              frames.append(frame)
+          if not frames:
+              raise SystemExit(0)
+          out = pd.concat(frames, ignore_index=True, sort=False)
+          out["ticker"] = out["ticker"].astype(str).str.upper().str.strip()
+          out = out[out["ticker"].ne("") & out["ticker"].ne("NAN")].copy()
+          date_cols = [c for c in ["rebalance_date", "feature_date", "as_of_date", "last_trade_date"] if c in out.columns]
+          if date_cols:
+              parsed = pd.DataFrame({c: pd.to_datetime(out[c], errors="coerce") for c in date_cols})
+              row_dates = parsed.max(axis=1)
+          else:
+              row_dates = pd.Series(pd.NaT, index=out.index)
+          cutoff = pd.Timestamp(latest_close_date)
+          row_dates = row_dates.where(row_dates.notna(), cutoff)
+          row_dates = row_dates.mask(row_dates > cutoff, cutoff)
+          out["rebalance_date"] = pd.to_datetime(row_dates, errors="coerce").dt.strftime("%Y-%m-%d")
+          out = out.drop_duplicates(subset=["rebalance_date", "ticker"], keep="last")
+          output = Path("outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          out.to_csv(output, index=False)
+          print(f"[daily-operating] latest target candidate book rows={len(out)} path={output}")
+          PY
+          CANDIDATE_BOOK="outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv"
+          if [ -s "$CANDIDATE_BOOK" ]; then
             echo "[daily-operating] building SEC-enriched candidate replay from $CANDIDATE_BOOK" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
             timeout 8m python tools/run_sec_enriched_candidate_replay.py \
               --candidate-book "$CANDIDATE_BOOK" \
               --output-dir outputs/sec_enriched_candidate_replay \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log || \
               echo "[daily-operating] SEC-enriched candidate replay failed or timed out; continuing with restored artifacts if any" | tee -a outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
+          elif [ -s outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv ]; then
+            echo "[daily-operating] using restored SEC-enriched candidate replay" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
           else
             echo "[daily-operating] missing candidate replay book; SEC-enriched candidate replay skipped" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
           fi
@@ -383,6 +416,8 @@ jobs:
             outputs/user_portfolio_reports/
             outputs/account_ledger_preview/
             outputs/sec_enriched_candidate_replay/
+            outputs/portfolio_latest.csv
+            outputs/concentrated_portfolio_latest.csv
             data_pit/macro/latest.json
             data_raw/free/macro/daily_snapshot/latest.json
             outputs/full_rebuild_logs/daily_*.log
