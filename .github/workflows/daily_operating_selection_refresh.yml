@@ -186,16 +186,22 @@ jobs:
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
           BOOKS=()
-          [ -s outputs/reports/main_monthly_weights.csv ] && BOOKS+=(outputs/reports/main_monthly_weights.csv)
-          [ -s outputs/reports/concentrated_strategy_holdings.csv ] && BOOKS+=(outputs/reports/concentrated_strategy_holdings.csv)
+          [ -s outputs/portfolio_latest.csv ] && BOOKS+=(outputs/portfolio_latest.csv)
+          [ -s outputs/concentrated_portfolio_latest.csv ] && BOOKS+=(outputs/concentrated_portfolio_latest.csv)
+          if [ "${#BOOKS[@]}" -eq 0 ]; then
+            [ -s outputs/reports/main_monthly_weights.csv ] && BOOKS+=(outputs/reports/main_monthly_weights.csv)
+            [ -s outputs/reports/concentrated_strategy_holdings.csv ] && BOOKS+=(outputs/reports/concentrated_strategy_holdings.csv)
+          fi
           if [ "${#BOOKS[@]}" -gt 0 ]; then
+            printf '[daily-operating] price refresh books:\n' | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+            printf '  %s\n' "${BOOKS[@]}" | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
             python tools/build_replay_price_cache.py \
               --books "${BOOKS[@]}" \
-              --scored outputs/scored_latest.csv \
               --output-dir cache_prices \
-              --required-tickers SPY QQQ \
+              --required-tickers SPY QQQ SMH SOXX \
               --refresh-stale-days 2 \
-              2>&1 | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+              --max-scored 0 \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
           else
             echo "[daily-operating] missing monthly books; price refresh skipped" | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
           fi
