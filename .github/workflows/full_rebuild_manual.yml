@@ -983,20 +983,7 @@ jobs:
           # base are routed to failed_runs/ instead of canonical outputs.
           UNIVERSE_HEALTHY="yes"
           if [ "${{ inputs.universe_mode }}" != "adr" ]; then
-            UNIVERSE_HEALTHY="$(python - <<'PY' 2>/dev/null || echo no
-import csv, json
-from pathlib import Path
-audit = Path("outputs/universe_health/universe_source_audit.json")
-if audit.exists():
-    payload = json.loads(audit.read_text(encoding="utf-8"))
-    print("yes" if payload.get("promotion_allowed") is True else "no")
-else:
-    p = Path("outputs/scored_latest.csv")
-    rows = list(csv.DictReader(p.open())) if p.exists() else []
-    base = sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source", "")) or "historical_membership_file" in str(r.get("universe_source", "")))
-    print("yes" if (rows and "universe_source" in rows[0] and base >= 400) else "no")
-PY
-)"
+            UNIVERSE_HEALTHY="$(python -c 'import csv,json; from pathlib import Path; audit=Path("outputs/universe_health/universe_source_audit.json"); p=Path("outputs/scored_latest.csv"); rows=list(csv.DictReader(p.open())) if p.exists() else []; healthy=(json.loads(audit.read_text(encoding="utf-8")).get("promotion_allowed") is True) if audit.exists() else (bool(rows) and "universe_source" in rows[0] and sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))) >= 400); print("yes" if healthy else "no")' 2>/dev/null || echo no)"
             echo "[gdrive-sync] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
           fi
           VALID_PRIMARY_OUTPUTS="no"
@@ -1235,20 +1222,7 @@ PY
           # Require the scored set to carry the R1000 base for non-adr modes.
           UNIVERSE_HEALTHY="yes"
           if [ "${{ inputs.universe_mode }}" != "adr" ]; then
-            UNIVERSE_HEALTHY="$(python - <<'PY' 2>/dev/null || echo no
-import csv, json
-from pathlib import Path
-audit = Path("outputs/universe_health/universe_source_audit.json")
-if audit.exists():
-    payload = json.loads(audit.read_text(encoding="utf-8"))
-    print("yes" if payload.get("promotion_allowed") is True else "no")
-else:
-    p = Path("outputs/scored_latest.csv")
-    rows = list(csv.DictReader(p.open())) if p.exists() else []
-    base = sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source", "")) or "historical_membership_file" in str(r.get("universe_source", "")))
-    print("yes" if (rows and "universe_source" in rows[0] and base >= 400) else "no")
-PY
-)"
+            UNIVERSE_HEALTHY="$(python -c 'import csv,json; from pathlib import Path; audit=Path("outputs/universe_health/universe_source_audit.json"); p=Path("outputs/scored_latest.csv"); rows=list(csv.DictReader(p.open())) if p.exists() else []; healthy=(json.loads(audit.read_text(encoding="utf-8")).get("promotion_allowed") is True) if audit.exists() else (bool(rows) and "universe_source" in rows[0] and sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))) >= 400); print("yes" if healthy else "no")' 2>/dev/null || echo no)"
             echo "[push] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
           fi
           RUN_ARTIFACT_VALID="no"
