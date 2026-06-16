@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -28,6 +29,14 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _input_hashes(paths: list[Path]) -> dict[str, str]:
+    return {str(path): _sha(path) for path in paths if path.exists() and path.is_file()}
 
 
 def _write_price_cache(price_cache: Path) -> None:
@@ -103,6 +112,15 @@ def main() -> int:
         latest = root / "latest"
         price_cache = root / "cache_prices"
         _build_inputs(latest, price_cache)
+        protected_inputs = [
+            latest / "broker_trade_journal" / "main" / "round_trips.csv",
+            latest / "broker_trade_journal" / "concentrated" / "round_trips.csv",
+            latest / "broker_replay" / "main" / "trades.csv",
+            latest / "broker_replay" / "concentrated" / "trades.csv",
+            price_cache / "AAA.csv",
+            price_cache / "ZZZ.csv",
+        ]
+        before_inputs = _input_hashes(protected_inputs)
         out_dir = root / "out"
         summary = run(
             latest,
@@ -118,6 +136,7 @@ def main() -> int:
         assert summary["metric_mode"] == "broker_ledger_next_close", summary
         assert summary["source_run_id"] == "run-123", summary
         assert summary["source_of_truth_level"] == "GITHUB_ARTIFACT", summary
+        assert _input_hashes(protected_inputs) == before_inputs, "entry/exit audit mutated input artifacts"
 
         entry = pd.read_csv(out_dir / "entry_timing_audit.csv")
         exits = pd.read_csv(out_dir / "exit_timing_audit.csv")

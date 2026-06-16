@@ -124,6 +124,8 @@ def main() -> int:
         assert summary["source_of_truth_level"] == "GITHUB_ARTIFACT", summary
         assert summary["candidate_source_mode"] == "historical_candidate_replay", summary
         assert summary["historical_valid"] is True, summary
+        assert summary["latest_only_review_flag"] is False, summary
+        assert summary["missed_leader_historical_audit_allowed"] is True, summary
         assert summary["used_forward_return_in_ranking"] is False, summary
         assert _sha(candidate) == before_candidate, "candidate book was mutated"
         assert _sha(target) == before_target, "target book was mutated"
@@ -133,6 +135,8 @@ def main() -> int:
         available = pd.read_csv(out_dir / "selected_vs_available_leaders.csv")
         assert "source_commit_sha" in selected.columns
         assert "production_mutation_allowed" in selected.columns
+        assert "latest_only_review_flag" in selected.columns
+        assert "missed_leader_historical_audit_allowed" in selected.columns
         assert "AAA" in set(selected["ticker"])
         assert "used_forward_return_in_ranking" in selected.columns
         assert not selected["used_forward_return_in_ranking"].astype(bool).any()
@@ -166,6 +170,8 @@ def main() -> int:
         assert latest_summary["status"] == "REVIEW_ONLY_LATEST_SOURCE", latest_summary
         assert latest_summary["candidate_source_mode"] == "latest_only", latest_summary
         assert latest_summary["historical_valid"] is False, latest_summary
+        assert latest_summary["latest_only_review_flag"] is True, latest_summary
+        assert latest_summary["missed_leader_historical_audit_allowed"] is False, latest_summary
         assert latest_summary["historical_audit_enabled"] is False, latest_summary
         latest_missed = pd.read_csv(latest_out / "missed_leaders_audit.csv")
         assert latest_missed.empty, latest_missed

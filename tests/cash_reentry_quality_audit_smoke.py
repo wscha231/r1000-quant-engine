@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -28,6 +29,14 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _input_hashes(paths: list[Path]) -> dict[str, str]:
+    return {str(path): _sha(path) for path in paths if path.exists() and path.is_file()}
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -89,6 +98,18 @@ def main() -> int:
         root = Path(td)
         latest = root / "latest"
         _build_inputs(latest)
+        protected_inputs = [
+            latest / "reports" / "operating_main_target_book.csv",
+            latest / "reports" / "operating_concentrated_target_book.csv",
+            latest / "alphaops_vnext" / "daily_crisis_state.csv",
+            latest / "broker_replay" / "main" / "metrics.json",
+            latest / "broker_replay" / "main" / "cash_ledger.csv",
+            latest / "broker_replay" / "main" / "equity_curve.csv",
+            latest / "broker_replay" / "concentrated" / "metrics.json",
+            latest / "broker_replay" / "concentrated" / "cash_ledger.csv",
+            latest / "broker_replay" / "concentrated" / "equity_curve.csv",
+        ]
+        before_inputs = _input_hashes(protected_inputs)
         out_dir = root / "out"
         summary = run(
             latest,
@@ -105,6 +126,7 @@ def main() -> int:
         assert summary["source_of_truth_level"] == "GITHUB_ARTIFACT", summary
         assert summary["cash_trap_rows"] > 0, summary
         assert summary["cash_contract_drift_rows"] > 0, summary
+        assert _input_hashes(protected_inputs) == before_inputs, "cash/reentry audit mutated input artifacts"
 
         cash_drag = pd.read_csv(out_dir / "cash_drag_report.csv")
         by_regime = pd.read_csv(out_dir / "cash_by_regime.csv")

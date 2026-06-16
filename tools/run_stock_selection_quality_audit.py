@@ -55,6 +55,8 @@ FEATURE_COLUMNS = [
     "selected_rank",
     "candidate_source_mode",
     "historical_valid",
+    "latest_only_review_flag",
+    "missed_leader_historical_audit_allowed",
     "ex_ante_source_valid",
     "feature_available_from_max",
     "leader_score_components_used",
@@ -541,6 +543,8 @@ def run(
     )
     meta["candidate_source_mode"] = candidate_source_mode
     meta["historical_valid"] = bool(historical_valid)
+    meta["latest_only_review_flag"] = bool(candidate_source_mode == "latest_only")
+    meta["missed_leader_historical_audit_allowed"] = bool(historical_valid)
 
     selected_rows: list[pd.DataFrame] = []
     target_keys = set()
@@ -560,6 +564,8 @@ def run(
         selected["selected_rank"] = selected["leader_rank_ex_ante"].fillna("").astype(str)
         selected["candidate_source_mode"] = candidate_source_mode
         selected["historical_valid"] = bool(historical_valid)
+        selected["latest_only_review_flag"] = bool(candidate_source_mode == "latest_only")
+        selected["missed_leader_historical_audit_allowed"] = bool(historical_valid)
         selected["ex_ante_source_valid"] = bool(historical_valid)
         selected["used_forward_return_in_ranking"] = False
         selected["selection_reason"] = selected.apply(_selection_reason, axis=1)
@@ -605,6 +611,8 @@ def run(
         leaders["selected_rank"] = leaders["leader_rank_ex_ante"].where(leaders["selected"], "")
         leaders["candidate_source_mode"] = candidate_source_mode
         leaders["historical_valid"] = bool(historical_valid)
+        leaders["latest_only_review_flag"] = bool(candidate_source_mode == "latest_only")
+        leaders["missed_leader_historical_audit_allowed"] = bool(historical_valid)
         leaders["ex_ante_source_valid"] = bool(historical_valid)
         leaders["used_forward_return_in_ranking"] = False
         leaders["_candidate_missing"] = False
@@ -661,6 +669,8 @@ def run(
         "leaders_per_date": int(leaders_per_date),
         "candidate_source_mode": candidate_source_mode,
         "historical_valid": bool(historical_valid),
+        "latest_only_review_flag": bool(candidate_source_mode == "latest_only"),
+        "missed_leader_historical_audit_allowed": bool(historical_valid),
         "used_forward_return_in_ranking": False,
         "historical_audit_enabled": bool(historical_valid),
         "rejection_reason_counts": {
