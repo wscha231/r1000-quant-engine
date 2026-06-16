@@ -5,6 +5,16 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-15
 
+### 22:45 KST - goals proposal update with target conflict and bull-floor verdict
+
+- scope: update the review-only Codex goals proposal after Claude and ChatGPT Pro review.
+- target_contract_conflict: `docs/proposals/goals_20260615.yaml` now explicitly separates immutable `CLAUDE.md` mission targets (Main `35% / -25%`, Concentrated `50% / -25%`) from PR64 interim operating gates (Main `30% / -25%`, Concentrated `50% / -28%`). The proposal marks this as `unresolved_user_decision_required` and forbids treating interim gates as a mission rewrite without explicit user approval.
+- bull-floor verdict: current state now reflects ledger row `27516185696` (`cd48042`): Main IS-CAGR `22.90%`, Main full CAGR `35.20%`, Main MDD `-24.49%`, Concentrated IS-CAGR `22.41%`, Concentrated full CAGR `44.43%`, Concentrated MDD `-25.92%`. Verdict is `partial_pass`: useful IS improvement, but both portfolios still fail strengthened gates and Concentrated still misses canonical mission targets.
+- probability update: `SG-2026Q3-01` probability estimate changes from `0.50` to `0.33` because the measured bull-floor lift is roughly 1pp, while the remaining IS-CAGR gap is about `5.10pp` Main and `9.59pp` Concentrated.
+- evidence caveat: the proposal now states that 8-year data expansion is an official-promotion evidence gate, not an alpha lever; IS-CAGR recovery must be measured separately.
+- Concentrated A/B priority: `TG-WK25-02` now prioritizes continuation-winner / leader-hysteresis first, then bull-floor confirmation, reentry quality, theme leadership, concentration-cap relaxation, and era-aware challenger review. The new `OG-CONC-AB-REENTRY` goal captures reentry lag / rebound capture / false-rally risk as a separate measured lever.
+- breaking_changes: none. Review-only goals proposal; no workflow dispatch, no ledger mutation, no universe edit, no live trading.
+
 ### 22:30 KST - agent location discipline + bull-floor ledger preservation + router queue closure v1
 
 - scope: implement the Claude/ChatGPT Pro coordination review as a PR64 follow-up. This keeps PR64 as the implementation base but makes cross-agent location state explicit, preserves the bull-floor A/B data point, and starts closing the self-correction queue loop without enabling production mutation or live trading.
