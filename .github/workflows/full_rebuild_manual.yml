@@ -547,13 +547,17 @@ jobs:
             --artifact-profile "${ARTIFACT_PROFILE:-minimal}" \
             --gdrive-sync-mode "${GDRIVE_SYNC_MODE:-minimal}" \
             --portfolio-policy "${PORTFOLIO_POLICY:-alphaops_vnext_production}" \
-            --approved-target-policy-path "${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
+            --approved-target-policy-path "${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}" \
+            --universe-mode "${UNIVERSE_MODE:-global_alpha_universe}" \
+            --backtest-years "${BACKTEST_YEARS:-}"
         env:
           SIDECAR_PROFILE: ${{ github.event.inputs.sidecar_profile || 'operating_minimal' }}
           ARTIFACT_PROFILE: ${{ github.event.inputs.artifact_profile || 'minimal' }}
           GDRIVE_SYNC_MODE: ${{ github.event.inputs.gdrive_sync_mode || 'minimal' }}
           PORTFOLIO_POLICY: ${{ github.event.inputs.portfolio_policy || 'alphaops_vnext_production' }}
           APPROVED_TARGET_POLICY_PATH: ${{ github.event.inputs.approved_target_policy_path || 'outputs/promotion_review/approved_target_policy.json' }}
+          UNIVERSE_MODE: ${{ inputs.universe_mode }}
+          BACKTEST_YEARS: ${{ inputs.backtest_years }}
 
       - name: Data health (catalog + coverage gate, warn-only)
         if: always()
@@ -605,6 +609,7 @@ jobs:
             outputs/account_evaluation/official_metrics.json
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
+            outputs/universe_health/
             outputs/era_aware_scoring_challenger/
             outputs/metric_hygiene/
             outputs/cash_contract/
@@ -675,6 +680,7 @@ jobs:
             outputs/full_rebuild_logs/oos_lock.log
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
             outputs/full_rebuild_logs/eight_year_backtest_readiness.log
+            outputs/full_rebuild_logs/universe_health_audit.log
             outputs/full_rebuild_logs/era_aware_scoring_challenger.log
             outputs/full_rebuild_logs/system_acceptance_audit.log
             outputs/full_rebuild_logs/review_dispatcher.log
@@ -683,7 +689,7 @@ jobs:
           retention-days: 30
 
       - name: Upload artifact (official broker-ledger evidence)
-        if: always() && inputs.artifact_profile != 'minimal'
+        if: always() && (inputs.artifact_profile != 'minimal' || inputs.backtest_years == '8')
         uses: actions/upload-artifact@v4
         with:
           name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
@@ -691,6 +697,7 @@ jobs:
             outputs/account_evaluation/
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
+            outputs/universe_health/
             outputs/data_freshness_contract/
             outputs/broker_replay/
             outputs/legacy_monthly_broker_replay/
@@ -748,6 +755,7 @@ jobs:
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
+            outputs/full_rebuild_logs/universe_health_audit.log
           if-no-files-found: warn
           retention-days: 365
 
@@ -785,6 +793,7 @@ jobs:
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            outputs/universe_health/
             outputs/adr_candidates/
             outputs/crisis_paper_order_bridge/
             data/catalog.json
@@ -974,7 +983,20 @@ jobs:
           # base are routed to failed_runs/ instead of canonical outputs.
           UNIVERSE_HEALTHY="yes"
           if [ "${{ inputs.universe_mode }}" != "adr" ]; then
-            UNIVERSE_HEALTHY="$(python -c 'import csv; from pathlib import Path; p=Path("outputs/scored_latest.csv"); rows=(list(csv.DictReader(p.open())) if p.exists() else []); base=sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))); print("yes" if (rows and "universe_source" in rows[0] and base>=400) else "no")' 2>/dev/null || echo no)"
+            UNIVERSE_HEALTHY="$(python - <<'PY' 2>/dev/null || echo no
+import csv, json
+from pathlib import Path
+audit = Path("outputs/universe_health/universe_source_audit.json")
+if audit.exists():
+    payload = json.loads(audit.read_text(encoding="utf-8"))
+    print("yes" if payload.get("promotion_allowed") is True else "no")
+else:
+    p = Path("outputs/scored_latest.csv")
+    rows = list(csv.DictReader(p.open())) if p.exists() else []
+    base = sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source", "")) or "historical_membership_file" in str(r.get("universe_source", "")))
+    print("yes" if (rows and "universe_source" in rows[0] and base >= 400) else "no")
+PY
+)"
             echo "[gdrive-sync] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
           fi
           VALID_PRIMARY_OUTPUTS="no"
@@ -1213,7 +1235,20 @@ jobs:
           # Require the scored set to carry the R1000 base for non-adr modes.
           UNIVERSE_HEALTHY="yes"
           if [ "${{ inputs.universe_mode }}" != "adr" ]; then
-            UNIVERSE_HEALTHY="$(python -c 'import csv; from pathlib import Path; p=Path("outputs/scored_latest.csv"); rows=(list(csv.DictReader(p.open())) if p.exists() else []); base=sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))); print("yes" if (rows and "universe_source" in rows[0] and base>=400) else "no")' 2>/dev/null || echo no)"
+            UNIVERSE_HEALTHY="$(python - <<'PY' 2>/dev/null || echo no
+import csv, json
+from pathlib import Path
+audit = Path("outputs/universe_health/universe_source_audit.json")
+if audit.exists():
+    payload = json.loads(audit.read_text(encoding="utf-8"))
+    print("yes" if payload.get("promotion_allowed") is True else "no")
+else:
+    p = Path("outputs/scored_latest.csv")
+    rows = list(csv.DictReader(p.open())) if p.exists() else []
+    base = sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source", "")) or "historical_membership_file" in str(r.get("universe_source", "")))
+    print("yes" if (rows and "universe_source" in rows[0] and base >= 400) else "no")
+PY
+)"
             echo "[push] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
           fi
           RUN_ARTIFACT_VALID="no"
@@ -1315,6 +1350,7 @@ jobs:
             copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
             cp outputs/latest_price_date_audit.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+            copy_dir_clean outputs/universe_health "$DEST/universe_health"
             copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
             copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
@@ -1376,6 +1412,7 @@ jobs:
           cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
           copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
           copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+          copy_dir_clean outputs/universe_health "$DEST/universe_health"
           copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
           copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"

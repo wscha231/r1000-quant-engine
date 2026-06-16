@@ -20,7 +20,9 @@ ARTIFACT_PROFILE="${ARTIFACT_PROFILE:-unknown}"
 GDRIVE_SYNC_MODE="${GDRIVE_SYNC_MODE:-unknown}"
 PORTFOLIO_POLICY="${PORTFOLIO_POLICY:-alphaops_vnext_production}"
 APPROVED_TARGET_POLICY_PATH="${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
-echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE} portfolio_policy=${PORTFOLIO_POLICY}"
+UNIVERSE_MODE="${UNIVERSE_MODE:-global_alpha_universe}"
+BACKTEST_YEARS="${BACKTEST_YEARS:-}"
+echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE} portfolio_policy=${PORTFOLIO_POLICY} universe_mode=${UNIVERSE_MODE} backtest_years=${BACKTEST_YEARS}"
 
 run_patch_manifest() {
   local run_id="${GITHUB_RUN_ID:-local}"
@@ -148,6 +150,18 @@ run_data_freshness_contract() {
     2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log || true
 }
 
+run_universe_health_audit() {
+  echo "[universe-health] auditing R1000/IWB source chain before official broker evidence"
+  mkdir -p outputs/full_rebuild_logs
+  python tools/run_universe_health_audit.py \
+    --latest-run outputs \
+    --price-cache cache_prices \
+    --output-dir outputs/universe_health \
+    --min-r1000-base 400 \
+    --universe-mode "$UNIVERSE_MODE" \
+    2>&1 | tee outputs/full_rebuild_logs/universe_health_audit.log || true
+}
+
 write_alpha_plane_measurement_status() {
   echo "[alpha-plane] writing measurement sidecar status"
   python - <<'PY'
@@ -233,6 +247,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   fi
   build_long_crisis_inputs
   run_alphaops_vnext_production
+  run_universe_health_audit
   python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
   run_data_freshness_contract
   run_sidecar_promotion_hook
@@ -372,6 +387,7 @@ python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outp
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
 python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
 run_alphaops_vnext_production
+run_universe_health_audit
 python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
 run_data_freshness_contract
 run_sidecar_promotion_hook
@@ -549,6 +565,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gdrive-sync-mode", default=os.environ.get("GDRIVE_SYNC_MODE", "unknown"))
     parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "market_leader_shadow", "approved_integrated", "alphaops_vnext_production"], default=os.environ.get("PORTFOLIO_POLICY", "alphaops_vnext_production"))
     parser.add_argument("--approved-target-policy-path", default=os.environ.get("APPROVED_TARGET_POLICY_PATH", "outputs/promotion_review/approved_target_policy.json"))
+    parser.add_argument("--universe-mode", default=os.environ.get("UNIVERSE_MODE", "global_alpha_universe"))
+    parser.add_argument("--backtest-years", default=os.environ.get("BACKTEST_YEARS", ""))
     return parser.parse_args()
 
 
@@ -560,6 +578,8 @@ def main() -> int:
     env["GDRIVE_SYNC_MODE"] = args.gdrive_sync_mode
     env["PORTFOLIO_POLICY"] = args.portfolio_policy
     env["APPROVED_TARGET_POLICY_PATH"] = args.approved_target_policy_path
+    env["UNIVERSE_MODE"] = args.universe_mode
+    env["BACKTEST_YEARS"] = str(args.backtest_years or "")
     if os.name == "nt":
         print("run_full_rebuild_sidecars.py is intended for the GitHub Linux runner", file=sys.stderr)
         return 2

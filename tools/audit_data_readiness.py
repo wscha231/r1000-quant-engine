@@ -634,6 +634,28 @@ def feature_source_coverage_summary(latest_run: Path) -> dict[str, Any]:
     }
 
 
+def universe_health_summary(latest_run: Path) -> dict[str, Any]:
+    candidates = [
+        latest_run / "universe_health" / "universe_source_audit.json",
+        latest_run / "universe_health" / "summary.json",
+    ]
+    for path in candidates:
+        payload = read_json(path)
+        if payload:
+            payload = dict(payload)
+            payload["path"] = str(path)
+            payload["exists"] = True
+            return payload
+    return {
+        "exists": False,
+        "path": str(candidates[0]),
+        "status": "missing",
+        "promotion_allowed": None,
+        "r1000_base_count": None,
+        "min_r1000_base": None,
+    }
+
+
 def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     price_cache = repo_path(args.price_cache)
@@ -658,6 +680,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     operating_summary = read_json(latest_run / "reports" / "operating_target_books_summary.json")
     snapshots = target_snapshot_summary(latest_run)
     feature_source_coverage = feature_source_coverage_summary(latest_run)
+    universe_health = universe_health_summary(latest_run)
 
     blockers: list[str] = []
     warnings: list[str] = []
@@ -694,6 +717,11 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     if int(scored.get("row_count") or 0) < int(args.min_scored_rows):
         blockers.append(f"scored_latest.csv row count is below threshold: {scored.get('row_count')}")
+    if universe_health.get("exists") and universe_health.get("promotion_allowed") is False:
+        r1000_count = universe_health.get("r1000_base_count")
+        floor = universe_health.get("min_r1000_base")
+        blockers.append(f"universe health gate failed: scored R1000 base {r1000_count} below floor {floor}")
+        next_actions.append("Repair the IWB/R1000 universe source chain before official rebuild or strategy A/B.")
     if not main_latest.get("exists"):
         blockers.append("portfolio_latest.csv is missing")
     if not concentrated_latest.get("exists"):
@@ -794,6 +822,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "operating_summary": operating_summary,
         },
         "feature_source_coverage": feature_source_coverage,
+        "universe_health": universe_health,
         "target_snapshots": snapshots,
         "blockers": blockers,
         "warnings": warnings,
@@ -858,6 +887,20 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.append(
             f"| {portfolio} | {book.get('row_count', 0)} | {book.get('non_cash_row_count', 0)} | {book.get('min_date') or ''} to {book.get('max_date') or ''} | {len(pit.get('available_from_columns') or [])} |"
         )
+    universe_health = payload.get("universe_health") or {}
+    lines.extend(
+        [
+            "",
+            "## Universe Health",
+            "",
+            f"- status: `{universe_health.get('status') or ''}`",
+            f"- promotion_allowed: `{str(universe_health.get('promotion_allowed')).lower()}`",
+            f"- r1000_base_count: `{universe_health.get('r1000_base_count') if universe_health.get('r1000_base_count') is not None else ''}`",
+            f"- min_r1000_base: `{universe_health.get('min_r1000_base') if universe_health.get('min_r1000_base') is not None else ''}`",
+            f"- primary_universe_source: `{universe_health.get('primary_universe_source') or ''}`",
+            f"- fallback_used: `{str(universe_health.get('fallback_used')).lower()}`",
+        ]
+    )
     lines.extend(["", "## Blockers", ""])
     blockers = payload.get("blockers") or []
     lines.extend([f"- {item}" for item in blockers] if blockers else ["- none"])
