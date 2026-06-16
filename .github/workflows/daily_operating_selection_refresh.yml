@@ -180,7 +180,7 @@ jobs:
             cp -a cloud_results/full_rebuild/latest_global_alpha_universe/. outputs/
           fi
 
-      - name: Refresh price cache and operating target books
+      - name: Refresh current price cache
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
@@ -195,16 +195,23 @@ jobs:
           if [ "${#BOOKS[@]}" -gt 0 ]; then
             printf '[daily-operating] price refresh books:\n' | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
             printf '  %s\n' "${BOOKS[@]}" | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
-            python tools/build_replay_price_cache.py \
+            timeout 8m python tools/build_replay_price_cache.py \
               --books "${BOOKS[@]}" \
               --output-dir cache_prices \
               --required-tickers SPY QQQ SMH SOXX \
               --refresh-stale-days 2 \
               --max-scored 0 \
-              2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log || \
+              echo "[daily-operating] price cache refresh failed or timed out; continuing to freshness contract" | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
           else
             echo "[daily-operating] missing monthly books; price refresh skipped" | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
           fi
+
+      - name: Refresh SEC-enriched candidate replay
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs outputs/sec_enriched_candidate_replay
           CANDIDATE_BOOK=""
           for p in outputs/reports/candidate_replay_book.csv outputs/candidate_replay_book.csv; do
             if [ -s "$p" ]; then
@@ -212,21 +219,31 @@ jobs:
               break
             fi
           done
-          if [ -n "$CANDIDATE_BOOK" ]; then
+          if [ -s outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv ]; then
+            echo "[daily-operating] using restored SEC-enriched candidate replay" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
+          elif [ -n "$CANDIDATE_BOOK" ]; then
             echo "[daily-operating] building SEC-enriched candidate replay from $CANDIDATE_BOOK" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
-            python tools/run_sec_enriched_candidate_replay.py \
+            timeout 8m python tools/run_sec_enriched_candidate_replay.py \
               --candidate-book "$CANDIDATE_BOOK" \
               --output-dir outputs/sec_enriched_candidate_replay \
-              2>&1 | tee -a outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log || true
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log || \
+              echo "[daily-operating] SEC-enriched candidate replay failed or timed out; continuing with restored artifacts if any" | tee -a outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
           else
             echo "[daily-operating] missing candidate replay book; SEC-enriched candidate replay skipped" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
           fi
-          python tools/build_operating_target_books.py \
+
+      - name: Build operating target books
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          timeout 3m python tools/build_operating_target_books.py \
             --latest-run outputs \
             --price-cache cache_prices \
             --output-dir outputs/reports \
             --require-current-latest-target \
-            2>&1 | tee outputs/full_rebuild_logs/daily_operating_target_books.log || true
+            2>&1 | tee outputs/full_rebuild_logs/daily_operating_target_books.log || \
+            echo "[daily-operating] operating target book build failed or timed out; freshness contract will block selection" | tee -a outputs/full_rebuild_logs/daily_operating_target_books.log
 
       - name: Refresh daily macro snapshot
         if: steps.market.outputs.ready == 'yes'
