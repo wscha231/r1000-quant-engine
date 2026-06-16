@@ -233,13 +233,72 @@ def load_official_metrics(latest_run: Path) -> dict[str, Any]:
 
 
 def production_valid(metrics: dict[str, Any]) -> bool:
+    return not production_blockers(metrics)
+
+
+def portfolio_metric_items(metrics: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    items: list[tuple[str, dict[str, Any]]] = []
+    nested = metrics.get("portfolios") if isinstance(metrics.get("portfolios"), dict) else {}
+    for portfolio in PORTFOLIOS:
+        item = nested.get(portfolio) if isinstance(nested, dict) else {}
+        if isinstance(item, dict) and item:
+            items.append((portfolio, item))
+    seen = {portfolio for portfolio, _ in items}
+    for portfolio in PORTFOLIOS:
+        if portfolio in seen:
+            continue
+        item = metrics.get(portfolio)
+        if isinstance(item, dict) and item:
+            items.append((portfolio, item))
+    return items
+
+
+def bad_status(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return bool(text) and text not in {"ok", "pass", "passed", "ready", "completed"}
+
+
+def production_blockers(metrics: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    if not metrics or metrics.get("status") == "missing":
+        return ["official_metrics_missing"]
+    mode = official_metric_mode(metrics)
+    if not mode:
+        blockers.append("official_metric_mode_missing")
+    elif mode != "broker_ledger_next_close":
+        blockers.append(f"official_metric_mode={mode}")
     if metrics.get("valid_for_production") is False:
-        return False
-    for key in PORTFOLIOS:
-        item = metrics.get(key)
-        if isinstance(item, dict) and item.get("valid_for_production") is False:
-            return False
-    return True
+        blockers.append("official_metrics.valid_for_production=false")
+    if metrics.get("production_target_pass") is False:
+        blockers.append("official_metrics.production_target_pass=false")
+    if metrics.get("strengthened_pass") is False:
+        blockers.append("official_metrics.strengthened_pass=false")
+    for portfolio, item in portfolio_metric_items(metrics):
+        if item.get("valid_for_production") is False:
+            blockers.append(f"{portfolio}.valid_for_production=false")
+        if bad_status(item.get("verdict_status")):
+            blockers.append(f"{portfolio}.verdict_status={item.get('verdict_status')}")
+        if bad_status(item.get("data_readiness_status")):
+            blockers.append(f"{portfolio}.data_readiness_status={item.get('data_readiness_status')}")
+        if item.get("data_readiness_policy_replay_ready") is False:
+            blockers.append(f"{portfolio}.data_readiness_policy_replay_ready=false")
+        if item.get("target_pass") is False:
+            blockers.append(f"{portfolio}.target_pass=false")
+        if item.get("strengthened_pass") is False:
+            blockers.append(f"{portfolio}.strengthened_pass=false")
+        gate = item.get("broker_ledger_window_gate")
+        if isinstance(gate, dict):
+            if gate.get("valid") is False:
+                blockers.append(f"{portfolio}.broker_ledger_window_gate.valid=false")
+            if bad_status(gate.get("status")):
+                blockers.append(f"{portfolio}.broker_ledger_window_gate.status={gate.get('status')}")
+            readiness = gate.get("data_readiness")
+            if isinstance(readiness, dict):
+                if bad_status(readiness.get("status")):
+                    blockers.append(f"{portfolio}.broker_ledger_window_gate.data_readiness.status={readiness.get('status')}")
+                if readiness.get("ready_for_policy_replay") is False:
+                    blockers.append(f"{portfolio}.broker_ledger_window_gate.data_readiness.ready_for_policy_replay=false")
+    return blockers
 
 
 def official_metric_mode(metrics: dict[str, Any]) -> str:
@@ -365,7 +424,7 @@ def attach_broker_rule_columns(current: pd.DataFrame, broker_rule: dict[str, Any
         "daily_monitoring_position_risk_max_dd",
         "daily_monitoring_risk_action_count",
     ]:
-        out[col] = ""
+        out[col] = pd.Series([""] * len(out), index=out.index, dtype=object)
     portfolios = broker_rule.get("portfolios") if isinstance(broker_rule.get("portfolios"), dict) else {}
     for idx, row in out.iterrows():
         portfolio = str(row.get("portfolio_kind") or "").lower().strip()
@@ -565,8 +624,9 @@ def build_action_summary(latest_run: Path, metrics: dict[str, Any], cash: dict[s
     mode = official_metric_mode(metrics)
     if mode and mode != "broker_ledger_next_close":
         return "DO_NOT_USE", [f"official_metric_mode is {mode}, not broker_ledger_next_close"]
-    if not production_valid(metrics):
-        return "DO_NOT_USE", ["official metrics are missing or valid_for_production=false"]
+    blockers = production_blockers(metrics)
+    if blockers:
+        return "DO_NOT_TRADE", [f"production_promotion_blocker={item}" for item in blockers]
     hard_fail, safety_reasons = safety_hard_fail(latest_run)
     if hard_fail:
         return "DO_NOT_TRADE", safety_reasons
@@ -595,12 +655,17 @@ def render_action_summary(
     research: dict[str, Any],
     broker_rule: dict[str, Any],
 ) -> str:
+    promotion_allowed = production_valid(metrics)
+    production_promotion_allowed = promotion_allowed and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
+    recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_allowed else "REVIEW_REQUIRED"
     lines = [
         "# User Current Action Summary",
         "",
         f"- action_status: `{status}`",
+        f"- recommendation_status: `{recommendation_status}`",
         f"- official_metric_mode: `{official_metric_mode(metrics) or 'missing'}`",
-        f"- valid_for_production: `{production_valid(metrics)}`",
+        f"- valid_for_production: `{promotion_allowed}`",
+        f"- production_promotion_allowed: `{production_promotion_allowed}`",
         f"- production_applied: `{str(research.get('production_applied')).lower()}`",
         f"- sidecar_only: `{str(research.get('sidecar_only')).lower()}`",
         f"- production_policy: `{research.get('production_policy')}`",
@@ -677,6 +742,8 @@ def render_action_summary(
             "## Operating Rules",
             "",
             "- This report shows current simulated broker-ledger holdings only.",
+            "- This is NOT a live broker account and must not be treated as live holdings.",
+            "- Do not trade while action_status is DO_NOT_TRADE or recommendation_status is DO_NOT_USE_REVIEW_REQUIRED.",
             "- Current holdings follow the production operating book generated before broker replay.",
             "- If integrated_shadow is enabled, projected holdings show what the H-case target would do before approval.",
             "- If market_leader_shadow is enabled, projected holdings show what the Market Leader target would do before approval.",
@@ -701,6 +768,8 @@ This folder is the default user-facing operating view.
 - `04_official_metrics.json` is the official broker-ledger metric payload.
 - `07_research_sidecar_context.json` explains whether AlphaOps vNext or research sidecars altered current holdings.
 - `08_broker_rule_backtest.json` summarizes official broker-rule backtests and the separate daily monitoring overlay.
+- This is NOT a live broker account. It is a simulated broker-ledger holdings snapshot from AlphaOps target-book replay.
+- Do not trade while `action_status=DO_NOT_TRADE` or `recommendation_status=DO_NOT_USE_REVIEW_REQUIRED`.
 - Target recommendation books are not current holdings and are hidden by default.
 - Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted; `alphaops_vnext_production` replaces the operating book before broker replay.
 - `outputs/operator_review/projected_holdings_after_integrated_target.csv` shows the shadow target delta when available.
@@ -738,6 +807,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "08_broker_rule_backtest.json", broker_rule)
 
     status, reasons = build_action_summary(latest_run, metrics, cash)
+    blockers = production_blockers(metrics)
+    promotion_valid = not blockers
+    production_promotion_allowed = promotion_valid and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
+    recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_valid else "REVIEW_REQUIRED"
     (output_dir / "05_action_summary.md").write_text(
         render_action_summary(status, reasons, metrics, cash, research, broker_rule),
         encoding="utf-8",
@@ -751,6 +824,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "latest_run": str(latest_run),
         "output_dir": str(output_dir),
         "action_status": status,
+        "recommendation_status": recommendation_status,
+        "valid_for_production": promotion_valid,
+        "production_promotion_allowed": production_promotion_allowed,
+        "production_blockers": blockers,
         "reason_count": len(reasons),
         "current_holding_rows": int(len(current)),
         "period_return_rows": int(len(period)),
