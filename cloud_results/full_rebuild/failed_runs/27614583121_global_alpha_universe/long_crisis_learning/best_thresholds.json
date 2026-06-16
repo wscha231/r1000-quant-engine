@@ -1,0 +1,33 @@
+{
+  "cash_hard_gate": {
+    "credit_gate": 0.55,
+    "liquidity_gate": 0.2,
+    "trend_gate": 0.2
+  },
+  "crisis_gate": 0.65,
+  "governor_thresholds": {
+    "high": 0.8500000000000001,
+    "low": 0.5,
+    "mid": 0.65
+  },
+  "liquidity_gate": 0.2,
+  "trend_gate": 0.2,
+  "validation": {
+    "crisis_gate": 0.65,
+    "false_positive_rate": 0.001430615164520744,
+    "fn": 81,
+    "fp": 1,
+    "liquidity_gate": 0.2,
+    "precision": 0.6666666666666666,
+    "recall": 0.024096385542168676,
+    "rows": 782,
+    "score": 0.25515710802112107,
+    "signal_rate": 0.0038363171355498722,
+    "split": "validation",
+    "status": "ok",
+    "tn": 698,
+    "tp": 2,
+    "trend_gate": 0.2,
+    "whipsaw_rate": 0.0
+  }
+}

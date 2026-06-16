@@ -1,0 +1,18 @@
+{
+  "adr_universe_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/adr_universe.yaml",
+  "candidate_count": 1122,
+  "existing_adr_count": 106,
+  "generated_at_utc": "2026-06-16T15:50:21+00:00",
+  "manual_review_required": true,
+  "production_mutation_allowed": false,
+  "proposed_add_count": 0,
+  "review_add_count": 0,
+  "schema_version": "adr-candidate-scanner-v1",
+  "thresholds": {
+    "min_dollar_volume": 5000000.0,
+    "min_market_cap": 1000000000.0,
+    "min_price": 5.0
+  },
+  "update_manifest_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/adr_candidates/adr_universe_update_manifest.json",
+  "yaml_additions_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/adr_candidates/adr_universe_additions.yaml"
+}

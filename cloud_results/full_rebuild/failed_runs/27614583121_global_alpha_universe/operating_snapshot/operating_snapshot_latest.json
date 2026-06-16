@@ -1,0 +1,110 @@
+{
+  "account_source": "simulated_broker_replay",
+  "account_source_note": "Current holdings come from broker replay account_state_latest.json, not a live broker account snapshot.",
+  "approval_note": "Live trading safety audit did not pass.",
+  "approval_status": "blocked_by_safety_audit",
+  "as_of_date": "2026-06-15",
+  "cash_policy_flag": "below_combined_cash_target",
+  "cash_policy_review_action": "RESERVE_CASH",
+  "cash_usd": 117453.98538566592,
+  "current_cash_weight": 0.05362061162848445,
+  "current_portfolio_snapshot": {
+    "as_of_date": "2026-06-15",
+    "cash_policy_flag": "below_combined_cash_target",
+    "cash_policy_review_action": "RESERVE_CASH",
+    "cash_row_count": 2,
+    "combined_cash_gap_weight": 0.067833769935839,
+    "combined_current_cash_weight": 0.05362061162848445,
+    "combined_target_cash_weight": 0.12145438156432345,
+    "generated_at_utc": "2026-06-16T15:50:22.663852+00:00",
+    "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+    "macro_cash_raise_confirmation_count": 0.0,
+    "macro_cash_raise_gate": "none",
+    "macro_recommended_cash_floor": 0.03,
+    "monster_recommendation_count": 0,
+    "notes": [
+      "This is the current simulated broker-ledger account state marked to the latest available close.",
+      "current_operating_holdings_latest.csv is the primary current-only user view.",
+      "proposed_target_deltas_latest.csv is the separate recommendation/review delta view.",
+      "portfolio_latest.csv and concentrated_portfolio_latest.csv remain target recommendation books, not current holdings snapshots.",
+      "Account-ledger preview target_weights are preferred over orchestrator unified target when computing operating cash/target deltas because they match the visible order preview.",
+      "Review actions are suggestions from the order preview; this tool does not place orders.",
+      "Cash policy fields are combined-account policy context, not duplicated per-portfolio cash targets."
+    ],
+    "outputs": {
+      "csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_latest.csv",
+      "current_operating_holdings_concentrated_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_concentrated_latest.csv",
+      "current_operating_holdings_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv",
+      "current_operating_holdings_main_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_main_latest.csv",
+      "current_operating_row_count": 20,
+      "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_summary.json",
+      "proposed_target_delta_row_count": 20,
+      "proposed_target_deltas_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/proposed_target_deltas_latest.csv",
+      "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_report.md"
+    },
+    "portfolio_position_counts": {
+      "concentrated": 5,
+      "main": 13
+    },
+    "primary_user_view": "current_operating_holdings_latest.csv",
+    "row_count": 20,
+    "schema_version": "current-portfolio-snapshot-v2",
+    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+    "status": "completed"
+  },
+  "equity_row_count": 14,
+  "error_count": 2,
+  "generated_at_utc": "2026-06-16T15:50:22.665010+00:00",
+  "issue_count": 3,
+  "issues": [
+    {
+      "check_id": "simulated_broker_account",
+      "details": "{}",
+      "message": "simulated broker-ledger account is the intended account source; live broker snapshot reconciliation was intentionally skipped",
+      "path": "",
+      "severity": "info",
+      "source": "live_trading_risk_controls"
+    },
+    {
+      "check_id": "main_target_missing_price_rows",
+      "details": "{\"missing\": [\"ASML\", \"BWA\", \"DDOG\", \"DELL\", \"DVA\", \"KLAC\", \"KNX\", \"NOK\", \"NVT\", \"ONTO\", \"RKLB\", \"RL\", \"SNDR\", \"URI\", \"VRT\"]}",
+      "message": "some target tickers are absent from positions_current, usually missing price cache",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/main/positions_current.csv",
+      "severity": "error",
+      "source": "live_trading_safety"
+    },
+    {
+      "check_id": "concentrated_target_missing_price_rows",
+      "details": "{\"missing\": [\"ASML\", \"KLAC\", \"MTSI\"]}",
+      "message": "some target tickers are absent from positions_current, usually missing price cache",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/concentrated/positions_current.csv",
+      "severity": "error",
+      "source": "live_trading_safety"
+    }
+  ],
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "macro_cash_raise_confirmation_count": 0.0,
+  "macro_cash_raise_gate": "none",
+  "macro_recommended_cash_floor": 0.03,
+  "monster_recommendation_count": 0,
+  "orchestrator_target_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/orchestrator/unified_target_latest.csv",
+  "outputs": {
+    "csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_latest.csv",
+    "current_portfolio_snapshot_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_latest.csv",
+    "current_portfolio_snapshot_json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_summary.json",
+    "current_portfolio_snapshot_report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_report.md",
+    "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_latest.json",
+    "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_report.md"
+  },
+  "preview_order_count": 12,
+  "risk_controls_status": "pass",
+  "row_count": 15,
+  "safety_audit_status": "blocked",
+  "schema_version": "operating-snapshot-v1",
+  "status": "blocked",
+  "target_cash_weight": 0.12145438156432345,
+  "target_precedence": "account_ledger_preview_target_weights",
+  "target_source": "account_ledger_preview/*/target_weights.csv",
+  "total_equity_usd": 2190463.3650853727,
+  "warning_count": 0
+}

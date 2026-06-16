@@ -1,0 +1,56 @@
+[
+  {
+    "description": "OOS CAGR is too high relative to locked IS CAGR; inspect whether the result is a narrow era/name lottery before any SHIP retry.",
+    "dispatch_mode": "manual_review_no_workflow_dispatch",
+    "failure": "oos_is_cagr_ratio_above_lock",
+    "metrics": {
+      "cagr_is": 0.21647722009605275,
+      "cagr_oos": 1.2963435779634662,
+      "max_allowed_degradation_pp": 6.0,
+      "max_oos_is_cagr_ratio": 3.0,
+      "oos_degradation_pp": -107.98663578674135,
+      "oos_is_cagr_ratio": 5.988360241268193,
+      "oos_trading_days": 491
+    },
+    "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",
+    "portfolio": "concentrated",
+    "production_mutation_allowed": false,
+    "requires_user_approval": true,
+    "review_artifacts": [
+      "oos_lock/report.md",
+      "is_attribution/summary.json",
+      "era_leadership/summary.json",
+      "era_aware_scoring_challenger/summary.json",
+      "trade_attribution/concentrated/findings.json"
+    ],
+    "source": "oos_lock",
+    "task_id": "concentrated_oos_lottery_era_name_review"
+  },
+  {
+    "description": "OOS CAGR is too high relative to locked IS CAGR; inspect whether the result is a narrow era/name lottery before any SHIP retry.",
+    "dispatch_mode": "manual_review_no_workflow_dispatch",
+    "failure": "oos_is_cagr_ratio_above_lock",
+    "metrics": {
+      "cagr_is": 0.2235985602712085,
+      "cagr_oos": 0.7532807580278431,
+      "max_allowed_degradation_pp": 5.0,
+      "max_oos_is_cagr_ratio": 3.0,
+      "oos_degradation_pp": -52.968219775663464,
+      "oos_is_cagr_ratio": 3.3688980694427073,
+      "oos_trading_days": 491
+    },
+    "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",
+    "portfolio": "main",
+    "production_mutation_allowed": false,
+    "requires_user_approval": true,
+    "review_artifacts": [
+      "oos_lock/report.md",
+      "is_attribution/summary.json",
+      "era_leadership/summary.json",
+      "era_aware_scoring_challenger/summary.json",
+      "trade_attribution/main/findings.json"
+    ],
+    "source": "oos_lock",
+    "task_id": "main_oos_lottery_era_name_review"
+  }
+]

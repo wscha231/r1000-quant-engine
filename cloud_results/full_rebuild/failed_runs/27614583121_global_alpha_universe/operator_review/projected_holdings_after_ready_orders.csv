@@ -1,0 +1,39 @@
+portfolio_kind,ticker,current_weight,target_weight,cleanup_action,cleanup_reason,projected_weight_after_cleanup_review
+concentrated,SNDK,0.3946771161729354,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,BE,0.2775922640212315,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,WDC,0.1794442592625895,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,CIEN,0.0843181411450077,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+concentrated,LITE,0.0638334253720196,0.0,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.0638334253720196
+concentrated,CASH,0.0001347940262161,0.0,CASH_NO_ACTION,cash row,0.0001347940262161
+main,SNDK,0.1606453320862574,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,WDC,0.1158802702113782,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,MRVL,0.1158309933814626,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,STM,0.1061161013586189,0.0691996334519522,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.1061161013586189
+main,CIEN,0.06210397863963,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,LITE,0.0614331653287035,0.0,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.0614331653287035
+main,PWR,0.0526266699070994,0.0268956671160359,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.0526266699070994
+main,ON,0.0514770007201756,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,MU,0.0463564066701792,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,FIX,0.0378190346958816,0.08,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.08
+main,COHR,0.0237777596922583,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,TER,0.0126940461854927,0.0,FULL_EXIT_REVIEW,no current production target weight,0.0
+main,KEYS,0.0112376308017435,0.0,HOLD_REVIEW,protected HOLD/SHAKEOUT state,0.0112376308017435
+main,CASH,0.1420016103211184,0.0538018818446697,CASH_NO_ACTION,cash row,0.1420016103211184
+main,ASML,0.0,0.0691996334519522,NEW_POSITION_REVIEW,target-only position from production target,0.0691996334519522
+main,BWA,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,DDOG,0.0,0.0691996334519522,NEW_POSITION_REVIEW,target-only position from production target,0.0691996334519522
+main,DELL,0.0,0.0691996334519522,NEW_POSITION_REVIEW,target-only position from production target,0.0691996334519522
+main,DVA,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,KLAC,0.0,0.0691996334519522,NEW_POSITION_REVIEW,target-only position from production target,0.0691996334519522
+main,KNX,0.0,0.0244656304830669,NEW_POSITION_REVIEW,target-only position from production target,0.0244656304830669
+main,NOK,0.0,0.0691996334519522,NEW_POSITION_REVIEW,target-only position from production target,0.0691996334519522
+main,NVT,0.0,0.0306787695114655,NEW_POSITION_REVIEW,target-only position from production target,0.0306787695114655
+main,ONTO,0.0,0.04,NEW_POSITION_REVIEW,target-only position from production target,0.04
+main,RKLB,0.0,0.0339322899645097,NEW_POSITION_REVIEW,target-only position from production target,0.0339322899645097
+main,RL,0.0,0.0648021992882866,NEW_POSITION_REVIEW,target-only position from production target,0.0648021992882866
+main,SNDR,0.0,0.0231155314377433,NEW_POSITION_REVIEW,target-only position from production target,0.0231155314377433
+main,URI,0.0,0.0260323483761454,NEW_POSITION_REVIEW,target-only position from production target,0.0260323483761454
+main,VRT,0.0,0.1010778812663632,NEW_POSITION_REVIEW,target-only position from production target,0.1010778812663632
+concentrated,ASML,0.0,0.2951148054059587,NEW_POSITION_REVIEW,target-only position from production target,0.2951148054059587
+concentrated,KLAC,0.0,0.5,NEW_POSITION_REVIEW,target-only position from production target,0.5
+concentrated,MTSI,0.0,0.2048851945940412,NEW_POSITION_REVIEW,target-only position from production target,0.2048851945940412

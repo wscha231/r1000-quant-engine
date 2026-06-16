@@ -1,0 +1,42 @@
+{
+  "production_mutation_allowed": false,
+  "schema_version": "alpha_plane_measurement_status_v1",
+  "tools": {
+    "cash_reentry_quality": {
+      "log_exists": true,
+      "log_path": "outputs/full_rebuild_logs/cash_reentry_quality_audit.log",
+      "production_mutation_allowed": false,
+      "source_artifact_name": "minimal_operating_minimal_27614583121",
+      "source_commit_sha": "0c59381ad1e3b4bc85df8ea6b29796d088d8522c",
+      "source_of_truth_level": "GITHUB_ARTIFACT",
+      "source_run_id": "27614583121",
+      "status": "completed",
+      "summary_exists": true,
+      "summary_path": "outputs/cash_reentry_quality/summary.json"
+    },
+    "entry_exit_timing": {
+      "log_exists": true,
+      "log_path": "outputs/full_rebuild_logs/entry_exit_timing_audit.log",
+      "production_mutation_allowed": false,
+      "source_artifact_name": "minimal_operating_minimal_27614583121",
+      "source_commit_sha": "0c59381ad1e3b4bc85df8ea6b29796d088d8522c",
+      "source_of_truth_level": "GITHUB_ARTIFACT",
+      "source_run_id": "27614583121",
+      "status": "completed",
+      "summary_exists": true,
+      "summary_path": "outputs/entry_exit_timing_audit/summary.json"
+    },
+    "stock_selection_quality": {
+      "log_exists": true,
+      "log_path": "outputs/full_rebuild_logs/stock_selection_quality_audit.log",
+      "production_mutation_allowed": false,
+      "source_artifact_name": "minimal_operating_minimal_27614583121",
+      "source_commit_sha": "0c59381ad1e3b4bc85df8ea6b29796d088d8522c",
+      "source_of_truth_level": "GITHUB_ARTIFACT",
+      "source_run_id": "27614583121",
+      "status": "completed",
+      "summary_exists": true,
+      "summary_path": "outputs/stock_selection_quality/summary.json"
+    }
+  }
+}

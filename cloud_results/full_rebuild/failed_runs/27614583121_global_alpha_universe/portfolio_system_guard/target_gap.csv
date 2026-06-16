@@ -1,0 +1,3 @@
+portfolio,metric_source,official_source_pass,cagr,cagr_target,cagr_pass,cagr_gap_pp,max_dd,max_dd_target,max_dd_pass,max_dd_improvement_needed_pp,sharpe,avg_turnover_monthly,target_pass
+main,broker_ledger_next_close,True,0.3500822982419973,0.3,True,0.0,-0.260506696589315,-0.25,False,1.0507,1.2912352207008047,0.0,False
+concentrated,broker_ledger_next_close,True,0.450012338209671,0.5,False,4.9988,-0.2581903349486949,-0.28,True,0.0,1.411290321568764,0.0,False

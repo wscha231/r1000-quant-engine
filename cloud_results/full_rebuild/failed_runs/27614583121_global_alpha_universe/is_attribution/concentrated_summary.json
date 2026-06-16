@@ -1,0 +1,23 @@
+{
+  "portfolio": "concentrated",
+  "start_date": "2019-06-03",
+  "end_date": "2026-06-15",
+  "full_cagr": 0.45009743233113975,
+  "is_cagr": 0.21647722009605275,
+  "oos_cagr": 1.2963435779634662,
+  "oos_is_ratio": 5.988360241268193,
+  "leak_year_tags": {
+    "2019": "mixed",
+    "2020": "healthy",
+    "2021": "structural_underinvestment_bull",
+    "2022": "over_defense_bear_ok",
+    "2023": "structural_underinvestment_bull",
+    "2024": "healthy",
+    "2025": "healthy",
+    "2026": "healthy"
+  },
+  "structural_underinvestment_bull_years": [
+    2021,
+    2023
+  ]
+}

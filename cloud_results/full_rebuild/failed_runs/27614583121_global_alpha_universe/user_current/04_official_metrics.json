@@ -1,0 +1,321 @@
+{
+  "official_metric_mode": "broker_ledger_next_close",
+  "portfolios": {
+    "concentrated": {
+      "avg_cash_weight": 0.4228938877524497,
+      "broker_ledger_actual_trading_days": 1750,
+      "broker_ledger_trading_days_estimate": 1750,
+      "broker_ledger_window_gate": {
+        "actual_trading_days": 1750,
+        "data_readiness": {
+          "known_gaps_count": 0,
+          "ready_for_fullrun": false,
+          "ready_for_policy_replay": false,
+          "status": "blocked"
+        },
+        "end_date": "2026-06-15",
+        "equity_curve_window": {
+          "end_date": "2026-06-15",
+          "exists": true,
+          "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/equity_curve.csv",
+          "start_date": "2019-06-03",
+          "trading_day_count": 1750
+        },
+        "estimated_trading_days": 1772,
+        "min_trading_days": 2016,
+        "min_years": 8.0,
+        "reasons": [
+          "broker_ledger_years_below_8",
+          "broker_ledger_trading_days_below_8y",
+          "data_readiness_not_ready_for_policy_replay"
+        ],
+        "start_date": "2019-06-03",
+        "status": "invalid_window",
+        "trading_days_estimate": 1750,
+        "valid": false,
+        "years": 7.0335386721423685
+      },
+      "broker_trade_count": 597,
+      "cagr": 0.450012338209671,
+      "cagr_gap_pp": 4.9988,
+      "cagr_target": 0.5,
+      "canonical_cagr_target": 0.5,
+      "canonical_max_dd_target": -0.25,
+      "data_readiness_policy_replay_ready": false,
+      "data_readiness_status": "blocked",
+      "end_date": "2026-06-15",
+      "ending_capital_usd": 1364627.3657360529,
+      "gross_traded_usd": 17100525.674038887,
+      "is_cagr": 0.21647722009605275,
+      "is_mdd": -0.2581903349486949,
+      "journal_avg_holding_days": 53.42424242424242,
+      "journal_avg_realized_return": 0.12614899286457648,
+      "journal_profit_factor": 4.013573845168149,
+      "journal_status": "completed",
+      "journal_trade_count": 396,
+      "journal_win_rate": 0.5631313131313131,
+      "latest_cash_usd": 183.94361691233644,
+      "latest_cash_weight": 0.0001347940262161758,
+      "latest_equity_usd": 1364627.3657360529,
+      "latest_position_count": 5,
+      "legacy_cagr": 0.5034562499355868,
+      "legacy_max_dd": -0.2667727780171453,
+      "legacy_metric_mode": "weight_level_research_comparison",
+      "legacy_sharpe": 1.7111522543095041,
+      "max_dd": -0.2581903349486949,
+      "max_dd_gap_pp": 0.0,
+      "max_dd_target": -0.28,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/concentrated/metrics.json",
+      "oos_cagr": 1.2963435779634662,
+      "order_preview_blocked_count": 0,
+      "order_preview_buy_count": 2,
+      "order_preview_count": 4,
+      "order_preview_sell_count": 2,
+      "order_preview_status": "completed",
+      "portfolio": "concentrated",
+      "recent_mdd": -0.23138861173999115,
+      "sharpe": 1.411290321568764,
+      "start_date": "2019-06-03",
+      "starting_capital_usd": 100000.0,
+      "status": "completed",
+      "strengthened_pass": false,
+      "target_contract": {
+        "active_gate": {
+          "cagr": 0.5,
+          "max_dd": -0.28
+        },
+        "canonical_mission": {
+          "cagr": 0.5,
+          "max_dd": -0.25
+        },
+        "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+        "status": "unresolved_user_decision_required",
+        "target_type": "interim_operating_gate"
+      },
+      "target_contract_status": "unresolved_user_decision_required",
+      "target_pass": false,
+      "target_type": "interim_operating_gate",
+      "tier2_failing": [
+        "is_cagr_min",
+        "oos_is_cagr_ratio_max"
+      ],
+      "tier2_gates": {
+        "checks": {
+          "avg_cash_weight_max": {
+            "pass": true,
+            "threshold": 0.55,
+            "value": 0.4228938877524497
+          },
+          "is_cagr_min": {
+            "pass": false,
+            "threshold": 0.3,
+            "value": 0.21647722009605275
+          },
+          "max_dd_recent_3y_min": {
+            "pass": true,
+            "threshold": -0.25,
+            "value": -0.23138861173999115
+          },
+          "oos_is_cagr_ratio_max": {
+            "pass": false,
+            "threshold": 3.0,
+            "value": 5.988360241268193
+          },
+          "sharpe_min": {
+            "pass": true,
+            "threshold": 1.4,
+            "value": 1.411290321568764
+          }
+        },
+        "failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max"
+        ],
+        "is_cagr": 0.21647722009605275,
+        "is_mdd": -0.2581903349486949,
+        "oos_cagr": 1.2963435779634662,
+        "passing": false,
+        "recent_mdd": -0.23138861173999115
+      },
+      "total_fees_usd": 42751.31418509722,
+      "total_return": 12.64627365736053,
+      "valid_for_production": false,
+      "verdict_status": "invalid_window",
+      "years": 7.0335386721423685
+    },
+    "main": {
+      "avg_cash_weight": 0.26665424595335424,
+      "broker_ledger_actual_trading_days": 1769,
+      "broker_ledger_trading_days_estimate": 1769,
+      "broker_ledger_window_gate": {
+        "actual_trading_days": 1769,
+        "data_readiness": {
+          "known_gaps_count": 0,
+          "ready_for_fullrun": false,
+          "ready_for_policy_replay": false,
+          "status": "blocked"
+        },
+        "end_date": "2026-06-15",
+        "equity_curve_window": {
+          "end_date": "2026-06-15",
+          "exists": true,
+          "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main/equity_curve.csv",
+          "start_date": "2019-06-03",
+          "trading_day_count": 1769
+        },
+        "estimated_trading_days": 1772,
+        "min_trading_days": 2016,
+        "min_years": 8.0,
+        "reasons": [
+          "broker_ledger_years_below_8",
+          "broker_ledger_trading_days_below_8y",
+          "data_readiness_not_ready_for_policy_replay"
+        ],
+        "start_date": "2019-06-03",
+        "status": "invalid_window",
+        "trading_days_estimate": 1769,
+        "valid": false,
+        "years": 7.0335386721423685
+      },
+      "broker_trade_count": 1680,
+      "cagr": 0.3500822982419973,
+      "cagr_gap_pp": 0.0,
+      "cagr_target": 0.3,
+      "canonical_cagr_target": 0.35,
+      "canonical_max_dd_target": -0.25,
+      "data_readiness_policy_replay_ready": false,
+      "data_readiness_status": "blocked",
+      "end_date": "2026-06-15",
+      "ending_capital_usd": 825835.99934932,
+      "gross_traded_usd": 16397775.349535942,
+      "is_cagr": 0.2235985602712085,
+      "is_mdd": -0.260506696589315,
+      "journal_avg_holding_days": 60.08523725834798,
+      "journal_avg_realized_return": 0.11560942853951349,
+      "journal_profit_factor": 3.8387862708189826,
+      "journal_status": "completed",
+      "journal_trade_count": 1138,
+      "journal_win_rate": 0.5843585237258347,
+      "latest_cash_usd": 117270.04176875358,
+      "latest_cash_weight": 0.14200161032111847,
+      "latest_equity_usd": 825835.99934932,
+      "latest_position_count": 13,
+      "legacy_cagr": 0.33219761062103803,
+      "legacy_max_dd": -0.18654394278288633,
+      "legacy_metric_mode": "weight_level_research_comparison",
+      "legacy_sharpe": 1.8168617181270432,
+      "max_dd": -0.260506696589315,
+      "max_dd_gap_pp": 1.0507,
+      "max_dd_target": -0.25,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/main/metrics.json",
+      "oos_cagr": 0.7532807580278431,
+      "order_preview_blocked_count": 0,
+      "order_preview_buy_count": 4,
+      "order_preview_count": 8,
+      "order_preview_sell_count": 4,
+      "order_preview_status": "completed",
+      "portfolio": "main",
+      "recent_mdd": -0.23733633002469756,
+      "sharpe": 1.2912352207008047,
+      "start_date": "2019-06-03",
+      "starting_capital_usd": 100000.0,
+      "status": "completed",
+      "strengthened_pass": false,
+      "target_contract": {
+        "active_gate": {
+          "cagr": 0.3,
+          "max_dd": -0.25
+        },
+        "canonical_mission": {
+          "cagr": 0.35,
+          "max_dd": -0.25
+        },
+        "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+        "status": "unresolved_user_decision_required",
+        "target_type": "interim_operating_gate"
+      },
+      "target_contract_status": "unresolved_user_decision_required",
+      "target_pass": false,
+      "target_type": "interim_operating_gate",
+      "tier2_failing": [
+        "is_cagr_min",
+        "oos_is_cagr_ratio_max"
+      ],
+      "tier2_gates": {
+        "checks": {
+          "avg_cash_weight_max": {
+            "pass": true,
+            "threshold": 0.55,
+            "value": 0.26665424595335424
+          },
+          "is_cagr_min": {
+            "pass": false,
+            "threshold": 0.25,
+            "value": 0.2235985602712085
+          },
+          "max_dd_recent_3y_min": {
+            "pass": true,
+            "threshold": -0.25,
+            "value": -0.23733633002469756
+          },
+          "oos_is_cagr_ratio_max": {
+            "pass": false,
+            "threshold": 3.0,
+            "value": 3.3688980694427073
+          },
+          "sharpe_min": {
+            "pass": true,
+            "threshold": 1.2,
+            "value": 1.2912352207008047
+          }
+        },
+        "failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max"
+        ],
+        "is_cagr": 0.2235985602712085,
+        "is_mdd": -0.260506696589315,
+        "oos_cagr": 0.7532807580278431,
+        "passing": false,
+        "recent_mdd": -0.23733633002469756
+      },
+      "total_fees_usd": 40994.43837383986,
+      "total_return": 7.258359993493199,
+      "valid_for_production": false,
+      "verdict_status": "invalid_window",
+      "years": 7.0335386721423685
+    }
+  },
+  "production_target_pass": false,
+  "schema_version": "account-evaluation-v1",
+  "strengthened_pass": false,
+  "target_contract": {
+    "active_gate": {
+      "concentrated": {
+        "cagr": 0.5,
+        "max_dd": -0.28
+      },
+      "main": {
+        "cagr": 0.3,
+        "max_dd": -0.25
+      }
+    },
+    "active_target_type": "interim_operating_gate",
+    "canonical_mission": {
+      "concentrated": {
+        "cagr": 0.5,
+        "max_dd": -0.25
+      },
+      "main": {
+        "cagr": 0.35,
+        "max_dd": -0.25
+      }
+    },
+    "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+    "status": "unresolved_user_decision_required"
+  },
+  "target_contract_status": "unresolved_user_decision_required",
+  "target_type": "interim_operating_gate"
+}
