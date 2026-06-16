@@ -179,14 +179,71 @@ def benchmark_period_returns(price_cache: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def normalize_current_holdings(latest_run: Path) -> pd.DataFrame:
-    candidates = [
-        latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv",
-        latest_run / "user_portfolio_reports" / "main_current_operating_holdings_latest.csv",
+def load_current_holdings_source(latest_run: Path, output_dir: Path) -> tuple[pd.DataFrame, str, str]:
+    candidates: list[tuple[str, str, list[Path]]] = [
+        (
+            "operating_snapshot",
+            "fresh operating_snapshot/current_operating_holdings_latest.csv",
+            [latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv"],
+        ),
+        (
+            "restored_user_current_snapshot",
+            "restored user_current/01_current_holdings.csv",
+            [output_dir / "01_current_holdings.csv", latest_run / "user_current" / "01_current_holdings.csv"],
+        ),
+        (
+            "committed_cloud_results_snapshot",
+            "committed cloud_results latest user_current/01_current_holdings.csv",
+            [
+                latest_run.parent
+                / "cloud_results"
+                / "full_rebuild"
+                / "latest_global_alpha_universe"
+                / "user_current"
+                / "01_current_holdings.csv",
+                REPO_ROOT
+                / "cloud_results"
+                / "full_rebuild"
+                / "latest_global_alpha_universe"
+                / "user_current"
+                / "01_current_holdings.csv",
+            ],
+        ),
+        (
+            "user_portfolio_reports",
+            "restored user_portfolio_reports current holdings",
+            [
+                latest_run / "user_portfolio_reports" / "main_current_operating_holdings_latest.csv",
+                latest_run / "user_portfolio_reports" / "concentrated_current_operating_holdings_latest.csv",
+                latest_run / "user_portfolio_reports" / "main" / "current_operating_holdings_latest.csv",
+                latest_run / "user_portfolio_reports" / "concentrated" / "current_operating_holdings_latest.csv",
+            ],
+        ),
     ]
-    frame = next((read_csv(path) for path in candidates if path.exists()), pd.DataFrame())
+    seen: set[Path] = set()
+    for mode, detail, paths in candidates:
+        frames: list[pd.DataFrame] = []
+        used: list[str] = []
+        for path in paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            frame = read_csv(path)
+            if frame.empty:
+                continue
+            frames.append(frame)
+            used.append(str(path))
+            if mode != "user_portfolio_reports":
+                break
+        if frames:
+            return pd.concat(frames, ignore_index=True), mode, f"{detail}: {'; '.join(used)}"
+    return pd.DataFrame(), "missing", "no non-empty current holdings snapshot found"
+
+
+def normalize_current_holdings(latest_run: Path, output_dir: Path | None = None) -> tuple[pd.DataFrame, str, str]:
+    frame, source_mode, source_detail = load_current_holdings_source(latest_run, output_dir or latest_run / "user_current")
     if frame.empty:
-        return frame
+        return frame, source_mode, source_detail
     out = frame.copy()
     if "ticker" in out.columns:
         out["ticker"] = out["ticker"].map(clean_ticker)
@@ -217,7 +274,7 @@ def normalize_current_holdings(latest_run: Path) -> pd.DataFrame:
     for col in wanted:
         if col not in out.columns:
             out[col] = ""
-    return out[wanted].copy()
+    return out[wanted].copy(), source_mode, source_detail
 
 
 def load_official_metrics(latest_run: Path) -> dict[str, Any]:
@@ -671,6 +728,8 @@ def render_action_summary(
         f"- production_policy: `{research.get('production_policy')}`",
         f"- sidecar_applied_to_production: `{str(research.get('sidecar_applied_to_production')).lower()}`",
         f"- current_holdings_source: `{research.get('current_holdings_source')}`",
+        f"- current_holdings_snapshot_source_mode: `{research.get('current_holdings_snapshot_source_mode') or ''}`",
+        f"- current_holdings_snapshot_restored: `{str(research.get('current_holdings_snapshot_restored')).lower()}`",
         f"- source_target_run_id: `{research.get('source_target_run_id') or ''}`",
         f"- source_target_case_id: `{research.get('source_target_case_id') or ''}`",
         f"- promotion_status: `{research.get('promotion_status')}`",
@@ -787,7 +846,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     price_cache = repo_path(args.price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    current = normalize_current_holdings(latest_run)
+    current, current_source_mode, current_source_detail = normalize_current_holdings(latest_run, output_dir)
     metrics = load_official_metrics(latest_run)
     broker_rule = build_broker_rule_backtest(latest_run, metrics)
     current = attach_broker_rule_columns(current, broker_rule)
@@ -803,6 +862,14 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     write_json(output_dir / "04_official_metrics.json", metrics)
     research = research_sidecar_context(latest_run)
+    research["current_holdings_snapshot_source_mode"] = current_source_mode
+    research["current_holdings_snapshot_source_detail"] = current_source_detail
+    research["current_holdings_snapshot_restored"] = current_source_mode in {
+        "restored_user_current_snapshot",
+        "committed_cloud_results_snapshot",
+        "user_portfolio_reports",
+    }
+    research["current_holdings_missing"] = current.empty
     write_json(output_dir / "07_research_sidecar_context.json", research)
     write_json(output_dir / "08_broker_rule_backtest.json", broker_rule)
 
@@ -830,6 +897,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "production_blockers": blockers,
         "reason_count": len(reasons),
         "current_holding_rows": int(len(current)),
+        "current_holdings_source_mode": current_source_mode,
+        "current_holdings_source_detail": current_source_detail,
+        "current_holdings_snapshot_restored": current_source_mode
+        in {"restored_user_current_snapshot", "committed_cloud_results_snapshot", "user_portfolio_reports"},
+        "current_holdings_missing": current.empty,
         "period_return_rows": int(len(period)),
         "production_applied": bool(research.get("production_applied")),
         "sidecar_only": bool(research.get("sidecar_only")),
