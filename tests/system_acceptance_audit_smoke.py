@@ -367,7 +367,7 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         blockers = {row["requirement_id"] for row in payload["requirements"] if row["hard_blocker"]}
         assert "goal_contract_main30_conc50_mdd" in blockers
         assert "eight_year_broker_ledger_window" in blockers
-        assert payload["workflow_dispatch_payload_count"] == 6
+        assert payload["workflow_dispatch_payload_count"] == 7
         dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
         assert [row["plan_id"] for row in dispatches[:2]] == [
             "bootstrap_free_data_for_8y_window",
@@ -376,10 +376,18 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         assert dispatches[0].get("depends_on_plan_ids", []) == []
         assert dispatches[1]["depends_on_plan_ids"] == ["bootstrap_free_data_for_8y_window"]
         assert [row["plan_id"] for row in dispatches[2:]] == [
-            "ab_conc_bull_floor_stock_min",
             "ab_conc_continuation_winner_relaxation",
+            "ab_conc_bull_floor_stock_min",
+            "ab_conc_reentry_quality",
             "ab_conc_theme_leadership_boost",
             "ab_conc_concentration_cap_relaxation",
+        ]
+        assert [row["experiment_id"] for row in dispatches[2:]] == [
+            "conc_continuation_winner_relaxation",
+            "conc_bull_floor_stock_min",
+            "conc_reentry_quality",
+            "conc_theme_leadership_boost",
+            "conc_concentration_cap_relaxation",
         ]
         assert dispatches[0]["workflow_id"] == "free_data_lake_bootstrap.yml"
         assert dispatches[0]["inputs"]["price_mode"] == "target_books"
@@ -396,7 +404,13 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
             assert row["inputs"]["skip_collector"] == "true"
             assert row["inputs"]["portfolio_policy"] == "alphaops_vnext_production"
             assert "PHASE_" in row["inputs"]["experiment_env_json"]
+            assert row["payload_hash"]
             assert row["post_run_review"]["tool"] == "tools/run_ab_result_verifier.py"
+            assert row["post_run_review"]["experiment_id"] == row["experiment_id"]
+            assert row["post_run_review"]["payload_hash"] == row["payload_hash"]
+            assert row["post_run_review"]["dispatch_run_id"] == row["plan_id"]
+            assert "--experiment-id" in row["post_run_review"]["verifier_args"]
+            assert "--payload-hash" in row["post_run_review"]["verifier_args"]
             assert row["post_run_review"]["production_mutation_allowed"] is False
         assert all(row["requires_user_approval"] for row in dispatches)
         assert not any(row["production_mutation_allowed"] for row in dispatches)
@@ -406,7 +420,7 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         assert "blocked until completed_plan_id: full_rebuild_8y_official_after_data_bootstrap" in commands
         assert "# gh workflow run full_rebuild_manual.yml" in commands
         assert "\ngh workflow run full_rebuild_manual.yml" not in commands
-        assert "cache_key_suffix=ab_conc_bull_floor_stock_min" in commands
+        assert "cache_key_suffix=ab_conc_continuation_winner_relaxation" in commands
         report = (out / "report.md").read_text(encoding="utf-8")
         assert "| Plan | Workflow | Dependencies | Reason |" in report
         assert "full_rebuild_8y_official_after_data_bootstrap | full_rebuild_manual.yml | bootstrap_free_data_for_8y_window" in report
@@ -423,11 +437,12 @@ def test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short() 
         out = Path(tmp) / "audit"
         payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
         assert payload["status"] == "not_ready"
-        assert payload["workflow_dispatch_payload_count"] == 4
+        assert payload["workflow_dispatch_payload_count"] == 5
         dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
         assert [row["plan_id"] for row in dispatches] == [
-            "ab_conc_bull_floor_stock_min",
             "ab_conc_continuation_winner_relaxation",
+            "ab_conc_bull_floor_stock_min",
+            "ab_conc_reentry_quality",
             "ab_conc_theme_leadership_boost",
             "ab_conc_concentration_cap_relaxation",
         ]
@@ -438,6 +453,8 @@ def test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short() 
         assert all(row["source_evidence"]["target_pass"] is False for row in dispatches)
         assert all(row["source_evidence"]["tier2_failing"] for row in dispatches)
         assert all(row["post_run_review"]["tool"] == "tools/run_ab_result_verifier.py" for row in dispatches)
+        assert all(row["post_run_review"]["experiment_id"] == row["experiment_id"] for row in dispatches)
+        assert all(row["post_run_review"]["payload_hash"] == row["payload_hash"] for row in dispatches)
 
 
 def test_acceptance_audit_passes_when_evidence_contract_is_complete() -> None:

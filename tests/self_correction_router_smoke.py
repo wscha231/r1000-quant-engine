@@ -61,19 +61,39 @@ def test_self_correction_router_queues_repeated_concentrated_bull_leak() -> None
         out = root / "router"
         queue = run(Namespace(ledger_dir=str(ledger_dir), output_dir=str(out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
         assert queue["production_mutation_allowed"] is False
+        assert queue["schema_version"] == "self-correction-router-v1.1"
         assert queue["repeat_confirmed"] is True
-        assert len(queue["queued_experiments"]) == 4
+        assert len(queue["queued_experiments"]) == 5
+        assert [item["experiment_id"] for item in queue["queued_experiments"]] == [
+            "conc_continuation_winner_relaxation",
+            "conc_bull_floor_stock_min",
+            "conc_reentry_quality",
+            "conc_theme_leadership_boost",
+            "conc_concentration_cap_relaxation",
+        ]
         assert all(item["requires_user_approval"] is True for item in queue["queued_experiments"])
+        assert all(item["status"] == "queued" for item in queue["queued_experiments"])
+        assert all(item["source_run_id"] == "b" for item in queue["queued_experiments"])
+        assert all(item["payload_hash"] for item in queue["queued_experiments"])
+        assert all(item["ledger_sha_at_queue"] for item in queue["queued_experiments"])
         payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
-        assert len(payloads) == 4
+        assert len(payloads) == 5
         assert all(payload["depends_on_plan_ids"] == ["full_rebuild_8y_official_after_data_bootstrap"] for payload in payloads)
         assert all(payload["plan_id"] == payload["experiment_id"] for payload in payloads)
+        assert all(payload["status"] == "queued" for payload in payloads)
+        assert all(payload["payload_hash"] for payload in payloads)
         first_inputs = payloads[0]["inputs"]
         assert first_inputs["backtest_years"] == "8"
         assert first_inputs["portfolio_policy"] == "alphaops_vnext_production"
         assert "experiment_env_json" in first_inputs
-        assert "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED" in first_inputs["experiment_env_json"]
+        assert "PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED" in first_inputs["experiment_env_json"]
+        assert "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED" in payloads[1]["inputs"]["experiment_env_json"]
+        assert "PHASE_CONCENTRATED_REENTRY_QUALITY_ENABLED" in payloads[2]["inputs"]["experiment_env_json"]
         assert (out / "router_queue.md").exists()
+        assert (out / "queue_state.jsonl").exists()
+        assert (out / "deduped_queue.json").exists()
+        assert (out / "stale_payloads.json").exists()
+        assert (out / "closure_report.md").exists()
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "blocked until completed_plan_id: full_rebuild_8y_official_after_data_bootstrap" in commands
         assert "# gh workflow run" in commands
@@ -131,9 +151,84 @@ def test_self_correction_router_allows_payload_after_official_8y_window() -> Non
         assert queue["requires_completed_plan_ids"] == []
         payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
         assert all(payload["depends_on_plan_ids"] == [] for payload in payloads)
+        assert all(payload["status"] == "queued" for payload in payloads)
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "blocked until completed_plan_id" not in commands
         assert "\ngh workflow run" in commands
+
+
+def test_self_correction_router_suppresses_duplicate_active_payloads() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ledger_dir = root / "ledger"
+        ledger_dir.mkdir()
+        (ledger_dir / "ledger.jsonl").write_text(
+            json.dumps(row("a")) + "\n" + json.dumps(row("b")) + "\n",
+            encoding="utf-8",
+        )
+        (ledger_dir / "latest_verdict.json").write_text(
+            json.dumps({"dominant_open_leak": "concentrated:structural_underinvestment_bull"}),
+            encoding="utf-8",
+        )
+        first_out = root / "router_first"
+        first_queue = run(Namespace(ledger_dir=str(ledger_dir), output_dir=str(first_out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
+        assert len(first_queue["queued_experiments"]) == 5
+
+        second_out = root / "router_second"
+        second_queue = run(
+            Namespace(
+                ledger_dir=str(ledger_dir),
+                output_dir=str(second_out),
+                previous_queue=str(first_out / "router_queue.json"),
+                min_repeat=2,
+                ref="master",
+                repo="wscha231/r1000-quant-engine",
+            )
+        )
+        assert second_queue["queued_experiments"] == []
+        assert second_queue["duplicate_suppressed_count"] == 5
+        assert second_queue["stale_payload_count"] == 0
+        payloads = json.loads((second_out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert payloads == []
+
+
+def test_self_correction_router_marks_previous_payloads_stale_when_ledger_changes() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ledger_dir = root / "ledger"
+        ledger_dir.mkdir()
+        (ledger_dir / "ledger.jsonl").write_text(
+            json.dumps(row("a")) + "\n" + json.dumps(row("b")) + "\n",
+            encoding="utf-8",
+        )
+        (ledger_dir / "latest_verdict.json").write_text(
+            json.dumps({"dominant_open_leak": "concentrated:structural_underinvestment_bull"}),
+            encoding="utf-8",
+        )
+        first_out = root / "router_first"
+        run(Namespace(ledger_dir=str(ledger_dir), output_dir=str(first_out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
+
+        (ledger_dir / "ledger.jsonl").write_text(
+            json.dumps(row("a")) + "\n" + json.dumps(row("c")) + "\n",
+            encoding="utf-8",
+        )
+        second_out = root / "router_second"
+        second_queue = run(
+            Namespace(
+                ledger_dir=str(ledger_dir),
+                output_dir=str(second_out),
+                previous_queue=str(first_out / "router_queue.json"),
+                min_repeat=2,
+                ref="master",
+                repo="wscha231/r1000-quant-engine",
+            )
+        )
+        assert len(second_queue["queued_experiments"]) == 5
+        assert second_queue["duplicate_suppressed_count"] == 0
+        assert second_queue["stale_payload_count"] == 5
+        stale_payloads = json.loads((second_out / "stale_payloads.json").read_text(encoding="utf-8"))
+        assert len(stale_payloads) == 5
+        assert all(item["status"] == "stale" for item in stale_payloads)
 
 
 def test_self_correction_router_queues_oos_robustness_review_without_dispatch() -> None:
@@ -209,6 +304,8 @@ if __name__ == "__main__":
     test_self_correction_router_queues_repeated_concentrated_bull_leak()
     test_self_correction_router_routes_flat_alpha_to_era_challenger()
     test_self_correction_router_allows_payload_after_official_8y_window()
+    test_self_correction_router_suppresses_duplicate_active_payloads()
+    test_self_correction_router_marks_previous_payloads_stale_when_ledger_changes()
     test_self_correction_router_queues_oos_robustness_review_without_dispatch()
     test_self_correction_router_defaults_to_github_context_ref_and_repo()
     print("self_correction_router_smoke: PASS")
