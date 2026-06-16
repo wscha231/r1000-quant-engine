@@ -178,6 +178,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
   python tools/run_trade_attribution_analysis.py --latest-run outputs --output-dir outputs/trade_attribution 2>&1 | tee outputs/full_rebuild_logs/trade_attribution_analysis.log || true
   python tools/run_leader_lifecycle_audit.py --latest-run outputs --output-dir outputs/leader_lifecycle_audit 2>&1 | tee outputs/full_rebuild_logs/leader_lifecycle_audit.log || true
+  python tools/run_entry_exit_timing_audit.py --latest-run outputs --output-dir outputs/entry_exit_timing_audit 2>&1 | tee outputs/full_rebuild_logs/entry_exit_timing_audit.log || true
   # Stage T2 — sub-monthly exit overlay measurement. PRWV walks daily closes
   # between monthly rebalances and fires hard/trailing/relative stops; the
   # compare tool surfaces the CAGR/MDD trade-off vs monthly broker baseline.
@@ -202,6 +203,8 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_live_trading_risk_controls.py --latest-run outputs --price-cache cache_prices --output-dir outputs/live_trading_risk_controls --account-mode simulated 2>&1 | tee outputs/full_rebuild_logs/live_trading_risk_controls.log || true
   python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
   python tools/run_cash_policy_attribution.py --latest-run outputs --output-dir outputs/cash_policy 2>&1 | tee outputs/full_rebuild_logs/cash_policy_attribution.log || true
+  python tools/run_stock_selection_quality_audit.py --latest-run outputs --output-dir outputs/stock_selection_quality 2>&1 | tee outputs/full_rebuild_logs/stock_selection_quality_audit.log || true
+  python tools/run_cash_reentry_quality_audit.py --latest-run outputs --output-dir outputs/cash_reentry_quality 2>&1 | tee outputs/full_rebuild_logs/cash_reentry_quality_audit.log || true
   python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
   # Official account evaluation reads this summary as part of the 8-year
   # broker-ledger/data-coverage gate, so it must exist before the verdict.
@@ -391,6 +394,7 @@ python tools/run_governance_catalyst_report.py --latest-run outputs --output-dir
 python tools/run_style_regime_report.py --latest-run outputs --output-dir outputs/style_regime_report 2>&1 | tee outputs/full_rebuild_logs/style_regime_report.log || true
 python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
 python tools/run_cash_policy_attribution.py --latest-run outputs --output-dir outputs/cash_policy 2>&1 | tee outputs/full_rebuild_logs/cash_policy_attribution.log || true
+python tools/run_cash_reentry_quality_audit.py --latest-run outputs --output-dir outputs/cash_reentry_quality 2>&1 | tee outputs/full_rebuild_logs/cash_reentry_quality_audit.log || true
 python tools/run_main_cash_drag_replay.py --latest-run outputs --output-dir outputs/main_cash_drag_replay 2>&1 | tee outputs/full_rebuild_logs/main_cash_drag_replay.log || true
 python tools/run_crisis_reentry_replay.py --latest-run outputs --output-dir outputs/crisis_reentry_replay 2>&1 | tee outputs/full_rebuild_logs/crisis_reentry_replay.log || true
 python tools/run_broker_crisis_reentry_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/broker_crisis_reentry_replay/main --policy-id fast_reentry --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_crisis_reentry_replay.log || true
@@ -401,6 +405,8 @@ run_cash_contract_validator
 run_metric_hygiene_report
 python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
 python tools/run_selection_audit.py --latest-run outputs --output-dir outputs/selection_audit 2>&1 | tee outputs/full_rebuild_logs/selection_audit.log || true
+python tools/run_stock_selection_quality_audit.py --latest-run outputs --output-dir outputs/stock_selection_quality 2>&1 | tee outputs/full_rebuild_logs/stock_selection_quality_audit.log || true
+python tools/run_entry_exit_timing_audit.py --latest-run outputs --output-dir outputs/entry_exit_timing_audit 2>&1 | tee outputs/full_rebuild_logs/entry_exit_timing_audit.log || true
 python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
 python tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/eight_year_backtest_readiness.log || true
 python tools/check_10y_backtest_readiness.py --latest-run outputs --output-dir outputs/ten_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log || true

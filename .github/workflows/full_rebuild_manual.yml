@@ -608,6 +608,9 @@ jobs:
             outputs/era_aware_scoring_challenger/
             outputs/metric_hygiene/
             outputs/cash_contract/
+            outputs/stock_selection_quality/
+            outputs/entry_exit_timing_audit/
+            outputs/cash_reentry_quality/
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/main/account_state_latest.json
             outputs/broker_replay/main/positions_latest.csv
@@ -661,6 +664,9 @@ jobs:
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
             outputs/full_rebuild_logs/metric_hygiene_report.log
+            outputs/full_rebuild_logs/stock_selection_quality_audit.log
+            outputs/full_rebuild_logs/entry_exit_timing_audit.log
+            outputs/full_rebuild_logs/cash_reentry_quality_audit.log
             outputs/full_rebuild_logs/adr_candidate_scanner.log
             outputs/full_rebuild_logs/oos_lock.log
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
@@ -694,6 +700,9 @@ jobs:
             outputs/promotion_review/
             outputs/self_correction_queue/
             outputs/ab_result_verifier/
+            outputs/stock_selection_quality/
+            outputs/entry_exit_timing_audit/
+            outputs/cash_reentry_quality/
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
@@ -729,6 +738,9 @@ jobs:
             outputs/metric_hygiene/
             outputs/cash_contract/
             outputs/decision_cadence/
+            outputs/stock_selection_quality/
+            outputs/entry_exit_timing_audit/
+            outputs/cash_reentry_quality/
           if-no-files-found: warn
           retention-days: 365
 
@@ -831,6 +843,9 @@ jobs:
             outputs/style_regime_report/
             outputs/macro_policy_engine/
             outputs/cash_policy/
+            outputs/stock_selection_quality/
+            outputs/entry_exit_timing_audit/
+            outputs/cash_reentry_quality/
             outputs/main_cash_drag_replay/
             outputs/crisis_reentry_replay/
             outputs/broker_crisis_reentry_replay/
