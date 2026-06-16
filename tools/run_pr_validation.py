@@ -148,6 +148,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     # repairs (Top7 lane join, ETF N-PORT historical PIT series).
     ("tests/data_catalog_smoke.py", []),
     ("tests/data_coverage_gate_smoke.py", []),
+    ("tests/data_freshness_contract_smoke.py", []),
     ("tests/top_manager_discovery_signals_smoke.py", []),
     ("tests/etf_nport_history_smoke.py", []),
 ]

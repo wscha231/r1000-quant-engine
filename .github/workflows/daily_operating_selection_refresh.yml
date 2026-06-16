@@ -1,0 +1,360 @@
+name: Daily Operating Selection Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Run even if no fresh NYSE close is detected'
+        type: boolean
+        default: false
+      latest_run:
+        description: 'Run directory restored/used as operating source'
+        type: string
+        default: 'outputs'
+      strict_selection:
+        description: 'Fail when data freshness contract blocks operating selection'
+        type: boolean
+        default: true
+  schedule:
+    # 10:15 KST Tue-Sat, after crisis, Form4, free-data, and readiness windows.
+    - cron: '15 1 * * 2-6'
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Check latest NYSE close
+        id: market
+        env:
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run || 'false' }}
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          import os
+          import pandas as pd
+          import pandas_market_calendars as mcal
+
+          force = str(os.environ.get("FORCE_RUN", "false")).lower() == "true"
+          now = datetime.now(timezone.utc)
+          cal = mcal.get_calendar("NYSE")
+          sched = cal.schedule(start_date=(now - timedelta(days=5)).date(), end_date=now.date())
+          ready = force
+          last_close = ""
+          if not sched.empty:
+              close = sched["market_close"].max()
+              if isinstance(close, pd.Timestamp):
+                  close_utc = close.to_pydatetime()
+                  if close_utc.tzinfo is None:
+                      close_utc = close_utc.replace(tzinfo=timezone.utc)
+                  last_close = close_utc.isoformat()
+                  ready = ready or (timedelta(0) <= now - close_utc <= timedelta(hours=22))
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"MARKET_READY={'yes' if ready else 'no'}\n")
+              handle.write(f"LAST_NYSE_CLOSE_UTC={last_close}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"ready={'yes' if ready else 'no'}\n")
+              handle.write(f"last_close={last_close}\n")
+          print(f"[market] ready={ready} force={force} last_close={last_close}")
+          PY
+
+      - name: Restore GitHub cache
+        if: steps.market.outputs.ready == 'yes'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            cache_prices
+            data_raw/free
+            data_pit/free
+            data_pit/sec
+            data_pit/etf_holdings
+            data_pit/macro
+            manifests/free_data
+          key: daily-operating-selection-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            daily-operating-selection-${{ runner.os }}-
+            collector-cache-${{ runner.os }}-
+            replay-price-cache-${{ runner.os }}-
+
+      - name: Configure rclone
+        if: steps.market.outputs.ready == 'yes'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[gdrive] no auth configured; continuing cache/local only"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore persistent data and operating outputs
+        if: steps.market.outputs.ready == 'yes'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          LATEST_RUN_INPUT: ${{ github.event.inputs.latest_run || 'outputs' }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          if [ "${GDRIVE_READY:-no}" = "yes" ]; then
+            if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+              BASE="gdrive:"
+            else
+              BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+            fi
+            restore_dir() {
+              local remote="$1"
+              local local_dir="$2"
+              mkdir -p "$local_dir"
+              if rclone lsf "$BASE$remote" >/dev/null 2>&1; then
+                echo "[gdrive] restore $remote -> $local_dir"
+                timeout 12m rclone copy "$BASE$remote" "$local_dir/" --transfers 6 --checkers 12 --stats 30s --stats-one-line || true
+              else
+                echo "[gdrive] missing $remote"
+              fi
+            }
+            restore_dir cache_prices cache_prices
+            restore_dir data_raw/free data_raw/free
+            restore_dir data_pit/free data_pit/free
+            restore_dir data_pit/sec data_pit/sec
+            restore_dir data_pit/etf_holdings data_pit/etf_holdings
+            restore_dir data_pit/macro data_pit/macro
+            restore_dir manifests/free_data manifests/free_data
+            restore_dir outputs outputs
+            if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ]; then
+              restore_dir "$LATEST_RUN_INPUT" "$LATEST_RUN_INPUT"
+            fi
+          fi
+          if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ] && [ -d "$LATEST_RUN_INPUT" ]; then
+            echo "[source] hydrate outputs/ from requested latest_run=$LATEST_RUN_INPUT"
+            rm -rf outputs
+            mkdir -p outputs
+            cp -a "$LATEST_RUN_INPUT"/. outputs/
+          fi
+          if [ ! -s outputs/scored_latest.csv ] && [ -d cloud_results/full_rebuild/latest_global_alpha_universe ]; then
+            echo "[fallback] hydrate outputs/ from committed cloud_results latest mirror"
+            mkdir -p outputs
+            cp -a cloud_results/full_rebuild/latest_global_alpha_universe/. outputs/
+          fi
+
+      - name: Refresh price cache and operating target books
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          BOOKS=()
+          [ -s outputs/reports/main_monthly_weights.csv ] && BOOKS+=(outputs/reports/main_monthly_weights.csv)
+          [ -s outputs/reports/concentrated_strategy_holdings.csv ] && BOOKS+=(outputs/reports/concentrated_strategy_holdings.csv)
+          if [ "${#BOOKS[@]}" -gt 0 ]; then
+            python tools/build_replay_price_cache.py \
+              --books "${BOOKS[@]}" \
+              --scored outputs/scored_latest.csv \
+              --output-dir cache_prices \
+              --required-tickers SPY QQQ \
+              --refresh-stale-days 2 \
+              2>&1 | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+          else
+            echo "[daily-operating] missing monthly books; price refresh skipped" | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+          fi
+          python tools/build_operating_target_books.py \
+            --latest-run outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/reports \
+            --require-current-latest-target \
+            2>&1 | tee outputs/full_rebuild_logs/daily_operating_target_books.log || true
+
+      - name: Validate freshness contract
+        if: steps.market.outputs.ready == 'yes'
+        env:
+          STRICT_SELECTION: ${{ inputs.strict_selection }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          python tools/audit_data_readiness.py \
+            --latest-run outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/data_readiness \
+            2>&1 | tee outputs/full_rebuild_logs/daily_operating_data_readiness.log || true
+          python tools/run_data_freshness_contract.py \
+            --latest-run outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/data_freshness_contract \
+            --require-current-operating-books \
+            --source-run-id "${GITHUB_RUN_ID}" \
+            --source-commit-sha "${GITHUB_SHA}" \
+            --source-branch "${GITHUB_REF_NAME}" \
+            --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
+            --source-context daily_operating_refresh \
+            2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          status_path = Path("outputs/data_freshness_contract/status.json")
+          status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+          summary = {
+              "schema_version": "daily-operating-selection-refresh-v1",
+              "daily_operating_refresh": True,
+              "review_only": True,
+              "canonical_production_sync": False,
+              "live_trading_enabled": False,
+              "production_mutation_allowed": False,
+              "source_of_truth_level": "GITHUB_ARTIFACT",
+              "source_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              "source_commit_sha": os.environ.get("GITHUB_SHA", ""),
+              "source_branch": os.environ.get("GITHUB_REF_NAME", ""),
+              "source_artifact_name": f"daily-operating-selection-refresh-{os.environ.get('GITHUB_RUN_ID', '')}",
+              "selection_allowed": bool(status.get("selection_allowed", False)),
+              "promotion_allowed": bool(status.get("promotion_allowed", False)),
+              "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
+              "data_freshness_contract": "outputs/data_freshness_contract/status.json",
+              "canonical_output_note": "This workflow syncs review artifacts under research_runs only; it does not update canonical production outputs.",
+          }
+          out = Path("outputs/daily_operating_selection_refresh")
+          out.mkdir(parents=True, exist_ok=True)
+          (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          (out / "README.md").write_text(
+              "# Daily Operating Selection Refresh\n\n"
+              "- review_only: `true`\n"
+              "- canonical_production_sync: `false`\n"
+              "- live_trading_enabled: `false`\n"
+              "- source_of_truth_level: `GITHUB_ARTIFACT`\n",
+              encoding="utf-8",
+          )
+          if os.environ.get("STRICT_SELECTION", "true").lower() == "true" and not summary["selection_allowed"]:
+              raise SystemExit(2)
+          PY
+
+      - name: Build operating review outputs
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/daily_operating_snapshot.log || true
+          python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/daily_user_portfolio_reports.log || true
+          if [ -s outputs/broker_replay/main/account_state_latest.json ] && [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/daily_account_order_preview_main.log || true
+          fi
+          if [ -s outputs/broker_replay/concentrated/account_state_latest.json ] && [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/daily_account_order_preview_concentrated.log || true
+          fi
+          python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log || true
+          mkdir -p outputs/user_current
+          cat > outputs/user_current/DAILY_REVIEW_ONLY.md <<'EOF'
+          # Daily Review-Only Current Output
+
+          - daily_operating_refresh: `true`
+          - review_only: `true`
+          - canonical_production_sync: `false`
+          - live_trading_enabled: `false`
+          - source_of_truth_level: `GITHUB_ARTIFACT`
+
+          This directory was produced by `daily_operating_selection_refresh.yml`
+          and is synced under `research_runs/`. It must not be treated as a
+          canonical production output without a separate user-approved promotion.
+          EOF
+
+      - name: Upload daily operating artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-operating-selection-refresh-${{ github.run_id }}
+          path: |
+            outputs/data_freshness_contract/
+            outputs/daily_operating_selection_refresh/
+            outputs/data_readiness/
+            outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_target_books_*
+            outputs/operating_snapshot/
+            outputs/user_current/
+            outputs/user_portfolio_reports/
+            outputs/account_ledger_preview/
+            outputs/full_rebuild_logs/daily_*.log
+            outputs/full_rebuild_logs/data_freshness_contract.log
+            cache_prices/replay_price_cache_manifest.json
+          retention-days: 45
+
+      - name: Sync daily operating artifact to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
+            echo "[gdrive] not configured; skip daily operating sync"
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
+          DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
+          for d in outputs/data_freshness_contract outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview; do
+            if [ -d "$d" ]; then
+              rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+            fi
+          done
+          if [ -s cache_prices/replay_price_cache_manifest.json ]; then
+            rclone copyto cache_prices/replay_price_cache_manifest.json "$DEST/cache_prices/replay_price_cache_manifest.json" || true
+          fi
+
+      - name: Save refreshed GitHub cache
+        if: always() && steps.market.outputs.ready == 'yes'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            cache_prices
+            data_raw/free
+            data_pit/free
+            data_pit/sec
+            data_pit/etf_holdings
+            data_pit/macro
+            manifests/free_data
+          key: daily-operating-selection-${{ runner.os }}-${{ github.run_id }}

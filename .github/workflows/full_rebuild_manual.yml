@@ -645,6 +645,7 @@ jobs:
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
             outputs/data_readiness/
+            outputs/data_freshness_contract/
             outputs/adr_candidates/
             data/catalog.json
             outputs/coverage_gate.json
@@ -657,6 +658,8 @@ jobs:
             outputs/self_correction_queue/
             outputs/ab_result_verifier/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
+            outputs/full_rebuild_logs/data_freshness_contract.log
+            outputs/full_rebuild_logs/data_readiness_pre_broker.log
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/cash_contract.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
@@ -688,6 +691,7 @@ jobs:
             outputs/account_evaluation/
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
+            outputs/data_freshness_contract/
             outputs/broker_replay/
             outputs/legacy_monthly_broker_replay/
             outputs/operating_snapshot/
@@ -1311,6 +1315,7 @@ jobs:
             copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
             cp outputs/latest_price_date_audit.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+            copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
             copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
             mkdir -p "$DEST/manifests"
@@ -1371,6 +1376,7 @@ jobs:
           cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
           copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
           copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+          copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
           copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
           copy_dir_clean outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"
