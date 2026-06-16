@@ -218,10 +218,6 @@ jobs:
             --price-cache cache_prices \
             --output-dir outputs/data_readiness \
             2>&1 | tee outputs/full_rebuild_logs/daily_operating_data_readiness.log || true
-          STRICT_FLAG=""
-          if [ "${STRICT_SELECTION:-true}" = "true" ]; then
-            STRICT_FLAG="--strict-selection"
-          fi
           python tools/run_data_freshness_contract.py \
             --latest-run outputs \
             --price-cache cache_prices \
@@ -231,8 +227,47 @@ jobs:
             --source-commit-sha "${GITHUB_SHA}" \
             --source-branch "${GITHUB_REF_NAME}" \
             --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
-            $STRICT_FLAG \
+            --source-context daily_operating_refresh \
             2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          status_path = Path("outputs/data_freshness_contract/status.json")
+          status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+          summary = {
+              "schema_version": "daily-operating-selection-refresh-v1",
+              "daily_operating_refresh": True,
+              "review_only": True,
+              "canonical_production_sync": False,
+              "live_trading_enabled": False,
+              "production_mutation_allowed": False,
+              "source_of_truth_level": "GITHUB_ARTIFACT",
+              "source_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              "source_commit_sha": os.environ.get("GITHUB_SHA", ""),
+              "source_branch": os.environ.get("GITHUB_REF_NAME", ""),
+              "source_artifact_name": f"daily-operating-selection-refresh-{os.environ.get('GITHUB_RUN_ID', '')}",
+              "selection_allowed": bool(status.get("selection_allowed", False)),
+              "promotion_allowed": bool(status.get("promotion_allowed", False)),
+              "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
+              "data_freshness_contract": "outputs/data_freshness_contract/status.json",
+              "canonical_output_note": "This workflow syncs review artifacts under research_runs only; it does not update canonical production outputs.",
+          }
+          out = Path("outputs/daily_operating_selection_refresh")
+          out.mkdir(parents=True, exist_ok=True)
+          (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          (out / "README.md").write_text(
+              "# Daily Operating Selection Refresh\n\n"
+              "- review_only: `true`\n"
+              "- canonical_production_sync: `false`\n"
+              "- live_trading_enabled: `false`\n"
+              "- source_of_truth_level: `GITHUB_ARTIFACT`\n",
+              encoding="utf-8",
+          )
+          if os.environ.get("STRICT_SELECTION", "true").lower() == "true" and not summary["selection_allowed"]:
+              raise SystemExit(2)
+          PY
 
       - name: Build operating review outputs
         if: steps.market.outputs.ready == 'yes'
@@ -248,6 +283,20 @@ jobs:
             python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/daily_account_order_preview_concentrated.log || true
           fi
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log || true
+          mkdir -p outputs/user_current
+          cat > outputs/user_current/DAILY_REVIEW_ONLY.md <<'EOF'
+          # Daily Review-Only Current Output
+
+          - daily_operating_refresh: `true`
+          - review_only: `true`
+          - canonical_production_sync: `false`
+          - live_trading_enabled: `false`
+          - source_of_truth_level: `GITHUB_ARTIFACT`
+
+          This directory was produced by `daily_operating_selection_refresh.yml`
+          and is synced under `research_runs/`. It must not be treated as a
+          canonical production output without a separate user-approved promotion.
+          EOF
 
       - name: Upload daily operating artifact
         if: always()
@@ -256,6 +305,7 @@ jobs:
           name: daily-operating-selection-refresh-${{ github.run_id }}
           path: |
             outputs/data_freshness_contract/
+            outputs/daily_operating_selection_refresh/
             outputs/data_readiness/
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
@@ -286,7 +336,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview; do
+          for d in outputs/data_freshness_contract outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi

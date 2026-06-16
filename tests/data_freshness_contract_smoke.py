@@ -108,6 +108,8 @@ def args(tmp: Path, latest: Path, price: Path, **overrides):
         "source_commit_sha": "abc",
         "source_branch": "test",
         "source_artifact_name": "artifact",
+        "source_context": "unit_test",
+        "freshness_contract_non_fatal": False,
         "max_prices_stale_days": 3,
         "max_macro_stale_days": 3,
         "max_sec_companyfacts_stale_days": 7,
@@ -125,7 +127,12 @@ def test_healthy_core_allows_selection(tmp: Path) -> None:
     payload = dfc.build_payload(args(tmp, latest, price))
     assert payload["selection_allowed"] is True, payload["blockers"]
     assert payload["promotion_allowed"] is False, "ETF/sec_v1 coverage warnings should keep promotion conservative"
+    assert payload["source_context"] == "unit_test"
+    assert payload["freshness_contract_non_fatal"] is False
     assert any(w["source_name"] == "prices" for w in payload["watermarks"])
+    macro_sources = [w for w in payload["watermarks"] if w["source_name"] == "macro"]
+    assert macro_sources and macro_sources[0]["freshness_basis"] == "directory_mtime_proxy", macro_sources
+    assert any("macro freshness uses directory_mtime_proxy" in w for w in payload["warnings"]), payload["warnings"]
     print("PASS test_healthy_core_allows_selection")
 
 
@@ -182,6 +189,23 @@ def test_noncurrent_operating_book_blocks_when_required(tmp: Path) -> None:
     print("PASS test_noncurrent_operating_book_blocks_when_required")
 
 
+def test_source_context_non_fatal_metadata(tmp: Path) -> None:
+    latest, price = base_fixture(tmp)
+    payload = dfc.build_payload(
+        args(
+            tmp,
+            latest,
+            price,
+            source_context="full_rebuild_sidecar",
+            freshness_contract_non_fatal=True,
+        )
+    )
+    assert payload["source_context"] == "full_rebuild_sidecar"
+    assert payload["freshness_contract_non_fatal"] is True
+    assert payload["data_snapshot_manifest"]["freshness_contract_non_fatal"] is True
+    print("PASS test_source_context_non_fatal_metadata")
+
+
 def test_main_writes_contract_files(tmp: Path) -> None:
     latest, price = base_fixture(tmp)
     parsed = args(tmp, latest, price)
@@ -204,6 +228,7 @@ def main() -> int:
         test_future_available_from_blocks_selection,
         test_latest_run_price_manifest_fallback,
         test_noncurrent_operating_book_blocks_when_required,
+        test_source_context_non_fatal_metadata,
         test_main_writes_contract_files,
     ]
     tmp = Path(tempfile.mkdtemp())

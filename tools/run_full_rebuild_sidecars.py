@@ -143,6 +143,8 @@ run_data_freshness_contract() {
     --source-commit-sha "${GITHUB_SHA:-}" \
     --source-branch "${GITHUB_REF_NAME:-}" \
     --source-artifact-name "${ARTIFACT_PROFILE}_${SIDECAR_PROFILE}_${GITHUB_RUN_ID:-local}" \
+    --source-context full_rebuild_sidecar \
+    --freshness-contract-non-fatal \
     2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log || true
 }
 

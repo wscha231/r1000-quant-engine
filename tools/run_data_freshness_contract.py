@@ -252,6 +252,27 @@ def select_existing_path(primary: str, alternate: str = "", alternate_paths: lis
     return p
 
 
+def directory_manifest_watermark(path: Path) -> tuple[str, str, str]:
+    for name in ("latest_manifest.json", "manifest.json", "summary.json", "latest.json"):
+        candidate = path / name
+        payload = read_json(candidate)
+        if not payload:
+            continue
+        for key in (
+            "latest_asof",
+            "asof_date",
+            "latest_observable_close_date",
+            "effective_latest_target_date",
+            "generated_at_utc",
+            "end",
+            "date",
+        ):
+            value = str(payload.get(key) or "")
+            if value:
+                return value, str(candidate), key
+    return "", "", ""
+
+
 def source_watermark(spec: dict[str, Any], today: date) -> dict[str, Any]:
     path = select_existing_path(
         str(spec["path"]),
@@ -260,14 +281,24 @@ def source_watermark(spec: dict[str, Any], today: date) -> dict[str, Any]:
     )
     stats = path_stats(path)
     latest_value = ""
+    freshness_basis = ""
     manifest_payload: dict[str, Any] = {}
     if path.is_file() and path.suffix.lower() == ".json":
         manifest_payload = read_json(path)
         latest_key = str(spec.get("latest_key") or "")
         if latest_key:
             latest_value = str(manifest_payload.get(latest_key) or "")
+            if latest_value:
+                freshness_basis = f"manifest:{latest_key}"
+    if path.is_dir():
+        latest_value, manifest_path, manifest_key = directory_manifest_watermark(path)
+        if latest_value:
+            freshness_basis = f"manifest:{manifest_key}"
+            stats["freshness_manifest_path"] = manifest_path
     if not latest_value:
         latest_value = str(stats.get("modified_utc") or "")
+        if latest_value:
+            freshness_basis = "directory_mtime_proxy" if path.is_dir() else "file_mtime"
     age = days_old(latest_value, today=today)
     cadence = int(spec.get("cadence_days") or 0)
     exists = bool(stats.get("exists"))
@@ -288,6 +319,7 @@ def source_watermark(spec: dict[str, Any], today: date) -> dict[str, Any]:
         "owner_workflow": spec["owner_workflow"],
         "cadence_days": cadence,
         "latest_asof": latest_value,
+        "freshness_basis": freshness_basis or "missing",
         "age_days": age,
         "status": status,
         "hard_required_for_selection": hard,
@@ -443,6 +475,8 @@ def build_snapshot_manifest(
         "source_commit_sha": str(args.source_commit_sha or os.environ.get("GITHUB_SHA") or ""),
         "source_branch": str(args.source_branch or os.environ.get("GITHUB_REF_NAME") or ""),
         "source_artifact_name": str(args.source_artifact_name or ""),
+        "source_context": str(getattr(args, "source_context", "") or ""),
+        "freshness_contract_non_fatal": bool(getattr(args, "freshness_contract_non_fatal", False)),
         "latest_run": str(latest_run),
         "price_cache": str(price_cache),
         "watermarks": watermarks,
@@ -522,6 +556,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     blockers: list[str] = []
     warnings: list[str] = []
     for item in watermarks:
+        if item.get("source_name") == "macro" and item.get("freshness_basis") == "directory_mtime_proxy":
+            warnings.append("macro freshness uses directory_mtime_proxy; add a macro latest_manifest.json/asof watermark")
         if item["status"] in {"missing", "stale", "unknown"}:
             msg = f"{item['source_name']} is {item['status']} (latest_asof={item.get('latest_asof') or ''})"
             if item.get("hard_required_for_selection"):
@@ -574,6 +610,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "recommendation_status": "READY_FOR_OPERATING_SELECTION" if selection_allowed else "DO_NOT_USE_REVIEW_REQUIRED",
         "promotion_allowed": bool(promotion_allowed),
         "production_mutation_allowed": False,
+        "source_context": str(getattr(args, "source_context", "") or ""),
+        "freshness_contract_non_fatal": bool(getattr(args, "freshness_contract_non_fatal", False)),
         "latest_run": str(latest_run),
         "price_cache": str(price_cache),
         "readiness": readiness,
@@ -609,6 +647,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-commit-sha", default="")
     parser.add_argument("--source-branch", default="")
     parser.add_argument("--source-artifact-name", default="")
+    parser.add_argument("--source-context", default="")
+    parser.add_argument("--freshness-contract-non-fatal", action="store_true")
     parser.add_argument("--max-prices-stale-days", type=int, default=3)
     parser.add_argument("--max-macro-stale-days", type=int, default=3)
     parser.add_argument("--max-sec-companyfacts-stale-days", type=int, default=7)

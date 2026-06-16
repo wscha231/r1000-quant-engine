@@ -17,6 +17,16 @@ All entries must be written in English. Entries must be predictable and machine-
 - validation: `python tests/data_freshness_contract_smoke.py` 6/6 passed; `python tests/workflow_artifact_smoke.py` passed; `python tests/data_coverage_gate_smoke.py` 6/6 passed; bundled Python `tests/data_catalog_smoke.py` 5/5 passed; `python -m py_compile tools/run_data_freshness_contract.py tests/data_freshness_contract_smoke.py` passed. A local contract check against committed `cloud_results/full_rebuild/latest_global_alpha_universe` correctly blocks current selection because the latest local price manifest is stale at `2026-06-12` and the root macro source is not restored in this local clone.
 - breaking_changes: none. No strategy mutation, no production target mutation, no workflow dispatch, no live trading.
 
+### 11:35 KST - PR68/PR69 review fixes: explicit review-only and freshness provenance
+
+- scope: apply ChatGPT Pro/Claude review feedback to the stacked PR68/PR69 drafts without changing strategy behavior.
+- PR68 measurement safety: `tools/run_stock_selection_quality_audit.py` now emits explicit `latest_only_review_flag` and `missed_leader_historical_audit_allowed` fields in summary/CSV output, in addition to the existing `candidate_source_mode`, `historical_valid`, and `used_forward_return_in_ranking=false` markers. Entry/exit and cash/reentry smoke tests now hash protected input artifacts before/after the audit to prove no input mutation.
+- PR69 daily review-only status: `daily_operating_selection_refresh.yml` now writes `outputs/daily_operating_selection_refresh/summary.json` before enforcing strict selection, with `daily_operating_refresh=true`, `review_only=true`, `canonical_production_sync=false`, `live_trading_enabled=false`, `production_mutation_allowed=false`, and `source_of_truth_level=GITHUB_ARTIFACT`. If `user_current/` is produced, it also receives `DAILY_REVIEW_ONLY.md`.
+- PR69 failure-path evidence: strict selection is enforced only after `outputs/data_freshness_contract/status.json`, `report.md`, and `data_freshness_contract.log` have been written, so blocked daily runs still leave reviewable artifacts.
+- PR69 freshness provenance: `tools/run_data_freshness_contract.py` now records `source_context` and `freshness_contract_non_fatal`. Full rebuild sidecars pass `source_context=full_rebuild_sidecar` and `freshness_contract_non_fatal=true`; daily refresh passes `source_context=daily_operating_refresh`.
+- PR69 macro freshness: macro directory freshness now records `freshness_basis`; when only directory mtime is available it emits a warning telling agents to add a macro manifest/asof watermark.
+- breaking_changes: none. These are metadata/test/failure-path hardening changes only.
+
 ## 2026-06-15
 
 ### 22:30 KST - agent location discipline + bull-floor ledger preservation + router queue closure v1

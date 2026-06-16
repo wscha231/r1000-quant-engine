@@ -99,15 +99,21 @@ portfolio sizing, cash policy, universe files, or broker actions.
 4. rebuild `outputs/reports/operating_*_target_book.csv` with
    `--require-current-latest-target`;
 5. run `audit_data_readiness.py`;
-6. run `run_data_freshness_contract.py --require-current-operating-books
-   --strict-selection`;
+6. run `run_data_freshness_contract.py --require-current-operating-books`,
+   write `outputs/daily_operating_selection_refresh/summary.json`, and only
+   then enforce strict selection from the written status;
 7. produce operating snapshots, user portfolio reports, and paper-only order
    previews when broker state exists;
 8. upload the run artifact and sync the review bundle to
    `research_runs/<branch>/<run_id>/daily_operating_selection_refresh`.
 
-If the freshness contract exits non-zero under strict selection, current
-recommendations are `DO_NOT_USE_REVIEW_REQUIRED`.
+If strict selection blocks the run, `status.json`, `report.md`,
+`data_freshness_contract.log`, and the daily review-only summary remain in the
+artifact. Current recommendations are `DO_NOT_USE_REVIEW_REQUIRED`.
+
+The daily workflow also writes a `DAILY_REVIEW_ONLY.md` marker inside
+`outputs/user_current/` when that directory is produced. Daily outputs sync
+under `research_runs/`; they do not update canonical production outputs.
 
 ## Full Rebuild Integration
 
@@ -119,6 +125,12 @@ outputs are preserved in:
 - `cloud_results/full_rebuild/<date>_<mode>/data_freshness_contract/`
 - Drive allowlist sync via `tools/build_gdrive_sync_manifest.py`
 - local Drive helper sync via `tools/sync_cloud_to_drive.py`
+
+In full rebuild sidecars the freshness contract is non-fatal and records
+`source_context=full_rebuild_sidecar` plus
+`freshness_contract_non_fatal=true`. In the daily operating refresh context,
+strict selection can fail the workflow after the status/report/log have been
+written.
 
 ## Review Rules
 
