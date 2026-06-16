@@ -3,6 +3,19 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-17
+
+### 00:30 KST - universe substrate hard gate and run-27614583121 goal update
+
+- scope: stop recovery A/B progression after full rebuild run `27614583121` proved the blocker is data/universe substrate, not alpha logic. The workflow succeeded, but the evidence verdict was `invalid_window`: broker window `2019-06-03` to `2026-06-15` (`7.03y`), `data_readiness=blocked`, `scored_latest` collapsed to `259` rows, and the audited R1000 base count was only `234`.
+- universe health audit: added `tools/run_universe_health_audit.py`, a read-only diagnostic that emits `outputs/universe_health/universe_source_audit.json`, `summary.json`, `scored_row_count_by_date.csv`, `universe_membership_by_month.csv`, `iwb_fetch_status.json`, `iwd_iwb_fetch_status.json`, and `universe_fallback_decision.md`.
+- readiness gate: `tools/audit_data_readiness.py` now reads `outputs/universe_health/` when present and turns `promotion_allowed=false` into a hard readiness blocker. Missing universe-health artifacts remain backward-compatible for older runs.
+- full rebuild wiring: `tools/run_full_rebuild_sidecars.py` runs the universe health audit before broker replay readiness checks in operating/official and research paths. `full_rebuild_manual.yml` passes `universe_mode` and `backtest_years` into the sidecar, preserves `outputs/universe_health/` in artifacts/cloud_results, and uploads official broker-ledger evidence for 8-year runs even when `artifact_profile=minimal`.
+- Drive/GitHub sync: `tools/build_gdrive_sync_manifest.py` includes the universe health diagnostics in official/minimal/research allowlists; workflow promotion gates now prefer `universe_source_audit.json` and fall back to the legacy scored_latest R1000-base count.
+- goals: `docs/proposals/goals_20260615.yaml` now records run `27614583121` as non-promotable and makes universe/data substrate recovery the P0 dependency before T3, replacement cap, bull-floor, reentry, theme, concentration cap, or era A/B.
+- report: `docs/RUN_27614583121_SUBSTRATE_REVIEW.md` captures the exact metrics and blockers for Claude/ChatGPT Pro review.
+- breaking_changes: none to strategy behavior. This is measurement, gating, artifact persistence, and goal-contract hardening only. It does not mutate selection, sizing, cash policy, production targets, or live trading.
+
 ## 2026-06-16
 
 ### 10:45 KST - data freshness contract + daily operating selection refresh

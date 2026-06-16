@@ -113,6 +113,31 @@ metadata:
       main_is_cagr_delta_pp: 1.4505
       concentrated_is_cagr_delta_pp: 1.1183
       note: "Main headline target passes after bull-floor, but both portfolios still fail strengthened gates; Concentrated still misses canonical CAGR/MDD."
+    latest_official_8y_attempt:
+      run_id: "27614583121"
+      commit: fb6b6db4
+      workflow_conclusion: success
+      evidence_verdict: invalid_window
+      valid_for_production: false
+      broker_start_date: "2019-06-03"
+      broker_end_date: "2026-06-15"
+      broker_window_years: 7.0335386721423685
+      data_readiness_status: blocked
+      invalid_universe: true
+      scored_latest_row_count: 259
+      audited_r1000_base_count: 234
+      official_broker_evidence_artifact: skipped_minimal_profile
+      main:
+        cagr: 0.3500822982419973
+        max_dd: -0.260506696589315
+        is_cagr: 0.2235985602712085
+        oos_is_ratio: 3.3688980694427073
+      concentrated:
+        cagr: 0.450012338209671
+        max_dd: -0.2581903349486949
+        is_cagr: 0.21647722009605275
+        oos_is_ratio: 5.988360241268193
+      rule: "Do not run T3/recovery A/B or promote any result until universe health, data readiness, and 8-year broker-ledger window pass."
 
 mission:
   source: CLAUDE.md
@@ -248,7 +273,7 @@ tactical_goals:
     operational_breakdown: [OG-AB27516-READ, OG-AB27516-DECIDE]
 
   - id: TG-WK24-02
-    title: Complete 8-year data bootstrap and official 8-year rebuild chain
+    title: Recover universe/data substrate and complete official 8-year rebuild chain
     horizon: "2026-W24 (2026-06-15 to 2026-06-21)"
     contributes_to: SG-2026Q3-01
     parent_dependencies: []
@@ -265,10 +290,29 @@ tactical_goals:
         baseline: missing
         target: production_evidence_ready
         source: "outputs/system_acceptance_audit/summary.json -> status"
+      - kpi: scored_r1000_base_count
+        baseline: 234
+        target_min: 400
+        source: "outputs/universe_health/universe_source_audit.json -> r1000_base_count"
+      - kpi: universe_health_promotion_allowed
+        baseline: false
+        target: true
+        source: "outputs/universe_health/universe_source_audit.json -> promotion_allowed"
+      - kpi: data_readiness_ready_for_policy_replay
+        baseline: false
+        target: true
+        source: "outputs/data_readiness/summary.json -> ready_for_policy_replay"
+      - kpi: official_broker_evidence_artifact_uploaded
+        baseline: false
+        target: true
+        source: "GitHub Actions artifact official-broker-ledger-<universe>-<run_id>"
     failure_criteria:
       - "price cache cannot provide required start date for selected target-book tickers"
       - "target-book coverage remains after 2018-06-12 after bootstrap"
       - "data_readiness reports any hard blocker for official rebuild"
+      - "outputs/universe_health reports promotion_allowed=false or r1000_base_count < 400"
+      - "workflow emits INVALID_UNIVERSE or preserves the run under failed_runs"
+      - "official broker-ledger evidence artifact is skipped on an 8-year run"
     probability_estimate: 0.80
     probability_reasoning: "This is mostly deterministic data restoration, but free data PIT coverage and older universe labels can still block official evidence. It raises evidence quality; it should not be counted as alpha improvement by itself."
     operational_breakdown: [OG-8Y-BOOTSTRAP, OG-8Y-OFFICIAL-REBUILD]
@@ -326,7 +370,7 @@ tactical_goals:
     operational_breakdown: [OG-ERA-CHALLENGER-VERIFY]
 
   - id: TG-WK25-02
-    title: Run dependency-gated Concentrated 50% recovery A/B set
+    title: Run dependency-gated Concentrated 50% recovery A/B set only after valid substrate
     horizon: "2026-W25 (2026-06-22 to 2026-06-28)"
     contributes_to: SG-2026Q3-01
     parent_dependencies: [TG-WK24-02]
@@ -347,6 +391,8 @@ tactical_goals:
         target: promote_candidate_review_only
         source: "tools/run_ab_result_verifier.py output"
     failure_criteria:
+      - "candidate source run has invalid_window, INVALID_UNIVERSE, or data_readiness blocked"
+      - "candidate starts before universe health and 8-year broker-ledger evidence pass"
       - "candidate has any system_acceptance hard blocker"
       - "candidate increases OOS/IS ratio above 3.0x"
       - "candidate worsens MDD below -0.25 even if CAGR improves"
@@ -355,6 +401,7 @@ tactical_goals:
     probability_reasoning: "The known gap is large: Concentrated needs roughly 5.6pp headline CAGR and about 7.6pp IS-CAGR improvement after the bull-floor row. Continuation winner / leader hysteresis and reentry quality are higher-priority next levers than concentration-cap relaxation because cap relaxation can quickly worsen MDD near the -25% canonical limit."
     ab_priority_order:
       - OG-CONC-AB-CONTINUATION
+      - OG-CONC-AB-REPLACEMENT-CAP
       - OG-CONC-AB-BULL-FLOOR
       - OG-CONC-AB-REENTRY
       - OG-CONC-AB-THEME
@@ -401,20 +448,20 @@ operational_goals:
     fallback_on_failure: "Escalate to ChatGPT Pro methodology review and keep feature default OFF."
 
   - id: OG-8Y-BOOTSTRAP
-    action: "Dispatch bootstrap_free_data_for_8y_window from review-only payloads."
+    action: "Repair the IWB/R1000 universe source chain and dispatch bootstrap_free_data_for_8y_window from review-only payloads."
     owner: user_or_dispatcher
     deadline: "2026-06-16T23:00:00+09:00"
-    success_kpi: "eight_year_backtest_readiness artifact lists window_ready true or exact blockers"
+    success_kpi: "universe_health promotion_allowed=true and eight_year_backtest_readiness artifact lists window_ready true or exact blockers"
     failure: "bootstrap cannot restore price/universe data to 2018-06-12"
-    fallback_on_failure: "Keep all results labelled non-official; allow only research A/B with explicit non-official label."
+    fallback_on_failure: "Keep all results labelled non-official; do not run recovery A/B from invalid universe/window evidence."
 
   - id: OG-8Y-OFFICIAL-REBUILD
-    action: "Dispatch full_rebuild_8y_official_after_data_bootstrap only after OG-8Y-BOOTSTRAP completes."
+    action: "Dispatch full_rebuild_8y_official_after_data_bootstrap only after universe_health, data_readiness, and OG-8Y-BOOTSTRAP pass."
     owner: user_or_dispatcher
     deadline: "2026-06-18T23:00:00+09:00"
-    success_kpi: "system_acceptance_audit status is production_evidence_ready or lists non-window blockers"
-    failure: "workflow command is run before bootstrap dependency is complete"
-    fallback_on_failure: "Invalidate the run for goal-setting evidence and rerun in dependency order."
+    success_kpi: "system_acceptance_audit status is production_evidence_ready or lists non-window blockers, with official broker-ledger evidence artifact uploaded"
+    failure: "workflow command is run before universe/data substrate dependency is complete"
+    fallback_on_failure: "Invalidate the run for goal-setting evidence, stop A/B, and rerun after universe/data substrate repair."
 
   - id: OG-QUEUE-HEALTH
     action: "Add duplicate/stale payload checks to self-correction router and system acceptance."
@@ -447,6 +494,14 @@ operational_goals:
     success_kpi: "candidate improves Conc IS-CAGR with OOS/IS <= 3.0x, median_holding_days >= 60, pct_held_180d_plus >= 15%, and no MDD degradation"
     failure: "candidate only improves OOS, fails strengthened gates, or holds losers long enough to worsen MDD"
     fallback_on_failure: "Reject and mark measured; do not promote."
+
+  - id: OG-CONC-AB-REPLACEMENT-CAP
+    action: "Wire and measure hard replacement-cap A/B after valid 8-year substrate and entry/exit audit evidence."
+    owner: dispatcher
+    deadline: "2026-06-26T23:00:00+09:00"
+    success_kpi: "turnover and premature_sell_candidates fall without CAGR/MDD degradation; main replacements <= 5 and concentrated replacements <= 2 per rebalance"
+    failure: "replacement caps preserve losers, worsen CAGR/MDD, or run on invalid universe/window evidence"
+    fallback_on_failure: "Reject and keep replacement caps disabled or review-only."
 
   - id: OG-CONC-AB-REENTRY
     action: "Run reentry-quality A/B after official 8-year rebuild."
@@ -517,6 +572,7 @@ anti_goals:
   - "Do not add live broker order automation."
   - "Do not auto-edit adr_universe.yaml from scanner output."
   - "Do not add selection, sizing, cash, or risk rules to compensate for missing data."
+  - "Do not run T3, recovery, reentry, theme, cap, or era A/B from invalid_window or INVALID_UNIVERSE evidence."
   - "Do not add feature columns without PHASE_*_COLUMNS and keep_cols survival tests."
 
 acceptance_protocol:
