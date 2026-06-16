@@ -85,6 +85,8 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/system_acceptance_audit/",
         "outputs/review_dispatcher/",
         "outputs/review_dispatcher_self_correction/",
+        "outputs/self_correction_queue/",
+        "outputs/ab_result_verifier/",
         "outputs/adr_candidates/",
         "outputs/account_evaluation/",
         "outputs/oos_lock/",

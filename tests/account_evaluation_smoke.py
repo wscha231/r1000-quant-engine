@@ -111,18 +111,27 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
 
         result = run(Namespace(latest_run=str(root), output_dir=str(out)))
         assert result["official_metric_mode"] == "broker_ledger_next_close"
+        assert result["target_type"] == "interim_operating_gate"
+        assert result["target_contract_status"] == "unresolved_user_decision_required"
+        assert result["target_contract"]["canonical_mission"]["main"]["cagr"] == 0.35
         assert result["production_target_pass"] is False
         assert result["research_target_pass"] is True
 
         main = result["portfolios"][0]
         concentrated = result["portfolios"][1]
         assert main["portfolio"] == "main"
+        assert main["target_type"] == "interim_operating_gate"
+        assert main["canonical_cagr_target"] == 0.35
+        assert main["canonical_max_dd_target"] == -0.25
         assert main["target_pass"] is True
         assert main["broker_ledger_actual_trading_days"] >= 252 * 8
         assert main["legacy_cagr"] == 0.99
         assert concentrated["target_pass"] is False
+        assert concentrated["canonical_max_dd_target"] == -0.25
         assert concentrated["cagr_gap_pp"] == 1.0
-        assert (out / "official_metrics.json").exists()
+        official = json.loads((out / "official_metrics.json").read_text(encoding="utf-8"))
+        assert official["target_type"] == "interim_operating_gate"
+        assert official["target_contract"]["canonical_mission"]["concentrated"]["max_dd"] == -0.25
         assert (out / "portfolio_account_metrics.csv").exists()
         assert (out / "account_evaluation_report.md").exists()
 
