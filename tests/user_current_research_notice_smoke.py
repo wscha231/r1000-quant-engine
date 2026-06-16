@@ -172,7 +172,108 @@ def test_user_current_marks_alphaops_vnext_production_as_applied() -> None:
         assert broker_rule["official_metric_mode"] == "broker_ledger_next_close"
 
 
+def test_user_current_blocks_nested_invalid_official_metrics() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        (latest / "operating_snapshot").mkdir(parents=True)
+        (latest / "account_evaluation").mkdir()
+        (latest / "broker_replay" / "main").mkdir(parents=True)
+        (latest / "broker_replay" / "concentrated").mkdir(parents=True)
+        (latest / "alphaops_vnext").mkdir(parents=True)
+        pd.DataFrame(
+            [
+                {
+                    "as_of_date": "2026-06-15",
+                    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                    "account_source": "simulated_broker_replay",
+                    "approval_status": "blocked_by_safety_audit",
+                    "portfolio_kind": "concentrated",
+                    "row_type": "stock",
+                    "ticker": "SNDK",
+                    "current_weight": 0.2,
+                }
+            ]
+        ).to_csv(latest / "operating_snapshot" / "current_operating_holdings_latest.csv", index=False)
+        invalid_portfolio = {
+            "status": "completed",
+            "valid_for_production": False,
+            "verdict_status": "invalid_window",
+            "data_readiness_status": "blocked",
+            "data_readiness_policy_replay_ready": False,
+            "target_pass": False,
+            "strengthened_pass": False,
+            "broker_ledger_window_gate": {
+                "status": "invalid_window",
+                "valid": False,
+                "data_readiness": {
+                    "status": "blocked",
+                    "ready_for_policy_replay": False,
+                },
+            },
+        }
+        (latest / "account_evaluation" / "official_metrics.json").write_text(
+            json.dumps(
+                {
+                    "official_metric_mode": "broker_ledger_next_close",
+                    "production_target_pass": False,
+                    "strengthened_pass": False,
+                    "portfolios": {
+                        "main": {**invalid_portfolio, "cagr": 0.3501, "max_dd": -0.2605},
+                        "concentrated": {**invalid_portfolio, "cagr": 0.45, "max_dd": -0.2582},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        for portfolio in ("main", "concentrated"):
+            pd.DataFrame(
+                [
+                    {"date": "2019-06-03", "equity_usd": 100000, "cash_weight": 0.05},
+                    {"date": "2026-06-15", "equity_usd": 200000, "cash_weight": 0.05},
+                ]
+            ).to_csv(latest / "broker_replay" / portfolio / "equity_curve.csv", index=False)
+            (latest / "broker_replay" / portfolio / "metrics.json").write_text(
+                json.dumps(
+                    {
+                        "status": "completed",
+                        "metric_mode": "broker_ledger_next_close",
+                        "valid_for_production": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+        (latest / "alphaops_vnext" / "production_activation.json").write_text(
+            json.dumps(
+                {
+                    "status": "applied",
+                    "production_policy": "alphaops_vnext_production",
+                    "current_holdings_source": "alphaops_vnext_policy_target_book",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        payload = build_report(Namespace(latest_run=str(latest), price_cache=str(root / "cache_prices"), output_dir=str(root / "user_current"), strict=False))
+        out = root / "user_current"
+        summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+        action_summary = (out / "05_action_summary.md").read_text(encoding="utf-8")
+        readme = (out / "README_FIRST.md").read_text(encoding="utf-8")
+
+        assert payload["action_status"] == "DO_NOT_TRADE"
+        assert payload["valid_for_production"] is False
+        assert payload["production_promotion_allowed"] is False
+        assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
+        assert any("invalid_window" in item for item in payload["production_blockers"])
+        assert summary["production_promotion_allowed"] is False
+        assert "- valid_for_production: `False`" in action_summary
+        assert "- production_promotion_allowed: `False`" in action_summary
+        assert "- recommendation_status: `DO_NOT_USE_REVIEW_REQUIRED`" in action_summary
+        assert "This is NOT a live broker account" in readme
+
+
 if __name__ == "__main__":
     test_user_current_explains_research_sidecars_do_not_alter_holdings()
     test_user_current_marks_alphaops_vnext_production_as_applied()
+    test_user_current_blocks_nested_invalid_official_metrics()
     print("user_current_research_notice_smoke: PASS")
