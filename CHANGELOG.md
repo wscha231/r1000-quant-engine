@@ -24,6 +24,26 @@ All entries must be written in English. Entries must be predictable and machine-
 - outputs_added: `docs/AGENT_LOCATION_DISCIPLINE.md`, `docs/proposals/ledger_reconciliation_20260615.md`, `docs/PR_STACK_EXECUTION_RUNBOOK_20260615.md`.
 - breaking_changes: none. No live trading, no production mutation, no official target rewrite, no PR merge.
 
+### 19:47 KST - codex mandatory next-goals proposal
+
+- scope: add a review-only next-goals proposal for Codex as the parallel-breadth agent using the exact mandatory protocol from `docs/CODEX_GOAL_SETTING_BRIEF.md`. The proposal is based on PR64 dispatcher/router contracts, the restored session handoff, the system integration audit, immutable `CLAUDE.md` mission targets, the data-first contract, current ledger rows, and latest changelog decisions.
+- files:
+  - `docs/CODEX_GOAL_SETTING_BRIEF.md` -> restored from `origin/claude/analyze-updated-code-OfEbu` so Codex goal proposals have the authoritative schema, KPI categories, authority limits, and hard prohibitions in-repo.
+  - `SESSION_HANDOFF_20260615.md` -> restored from `origin/claude/analyze-updated-code-OfEbu` so future agents can read the same role split, hard rules, and P0/P1/P2 priorities from the repo.
+  - `docs/proposals/goals_20260615.yaml` -> mandatory-schema proposal with `metadata`, `mission`, `strategic_goals`, `tactical_goals`, `operational_goals`, `risk_register`, `anti_goals`, and `acceptance_protocol`.
+- symbols_added: none
+- symbols_changed: none
+- config_fields_added: none
+- breaking_changes: none
+- outputs:
+  - `docs/proposals/goals_20260615.yaml`
+- validation:
+  - `tools.aggressive_lab_common.load_yaml(Path("docs/proposals/goals_20260615.yaml"))` -> PASS.
+  - `git diff --check` -> PASS.
+- risks_or_notes:
+  - The proposal keeps the stricter `CLAUDE.md` target contract (Main 35% / -25% and Concentrated 50% / -25%) because the goal-setting brief explicitly forbids Codex from redefining mission targets or `PORTFOLIO_GOAL_TARGETS` / `PORTFOLIO_GOAL_GATES`.
+  - This is not a production policy change and does not dispatch workflows, mutate ledgers, edit universes, or enable live trading.
+
 ### 13:05 KST - integrated system gates + review-only improvement loop
 
 - scope: implement the r1000 integrated audit plan as production-safe gates and sidecars, not live trading automation.
