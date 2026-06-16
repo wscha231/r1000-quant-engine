@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import shlex
@@ -49,22 +50,32 @@ MIN_YEARS = 8.0
 CRISIS_ALLOWED_ACTION_TYPES = {"raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op"}
 CONCENTRATED_RECOVERY_EXPERIMENTS = [
     {
-        "plan_id": "ab_conc_bull_floor_stock_min",
-        "reason": "Concentrated CAGR or Tier-2 gate is short; measure bull/strong_bull stock-floor exposure as an isolated A/B.",
-        "env": {"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"},
-    },
-    {
         "plan_id": "ab_conc_continuation_winner_relaxation",
+        "experiment_id": "conc_continuation_winner_relaxation",
         "reason": "Concentrated CAGR or Tier-2 gate is short; relax continuation-winner filters only as a review A/B.",
         "env": {"PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED": "1"},
     },
     {
+        "plan_id": "ab_conc_bull_floor_stock_min",
+        "experiment_id": "conc_bull_floor_stock_min",
+        "reason": "Concentrated CAGR or Tier-2 gate is short; measure bull/strong_bull stock-floor exposure as an isolated A/B.",
+        "env": {"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"},
+    },
+    {
+        "plan_id": "ab_conc_reentry_quality",
+        "experiment_id": "conc_reentry_quality",
+        "reason": "Concentrated CAGR or Tier-2 gate is short; measure reentry quality after cash/defense states as an isolated A/B.",
+        "env": {"PHASE_CONCENTRATED_REENTRY_QUALITY_ENABLED": "1"},
+    },
+    {
         "plan_id": "ab_conc_theme_leadership_boost",
+        "experiment_id": "conc_theme_leadership_boost",
         "reason": "Concentrated CAGR or Tier-2 gate is short; test theme-leadership confirmation boost as an isolated A/B.",
         "env": {"PHASE_THEME_LEADERSHIP_BOOST_ENABLED": "1"},
     },
     {
         "plan_id": "ab_conc_concentration_cap_relaxation",
+        "experiment_id": "conc_concentration_cap_relaxation",
         "reason": "Concentrated CAGR or Tier-2 gate is short; test confirmed-winner cap relaxation while preserving broker-ledger gates.",
         "env": {"PHASE_CONCENTRATED_CAP_RELAX_ENABLED": "1"},
     },
@@ -101,6 +112,11 @@ def read_json_list(path: Path) -> list[dict[str, Any]]:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def stable_payload_hash(payload: dict[str, Any]) -> str:
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()[:16]
 
 
 def csv_info(path: Path, required_columns: set[str] | None = None) -> dict[str, Any]:
@@ -1194,9 +1210,23 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
         depends_on = ["full_rebuild_8y_official_after_data_bootstrap"] if eight_year.get("status") != "pass" else []
         for experiment in CONCENTRATED_RECOVERY_EXPERIMENTS:
             plan_id = str(experiment["plan_id"])
+            experiment_id = str(experiment.get("experiment_id") or plan_id)
+            inputs = full_rebuild_ab_inputs(plan_id, dict(experiment["env"]))
+            payload_hash = stable_payload_hash(
+                {
+                    "plan_id": plan_id,
+                    "experiment_id": experiment_id,
+                    "workflow_id": "full_rebuild_manual.yml",
+                    "ref": ref,
+                    "inputs": inputs,
+                    "source_requirement_id": "goal_contract_main30_conc50_mdd",
+                    "source_portfolio": "concentrated",
+                }
+            )
             dispatches.append(
                 {
                     "plan_id": plan_id,
+                    "experiment_id": experiment_id,
                     "workflow_id": "full_rebuild_manual.yml",
                     "ref": ref,
                     "requires_user_approval": True,
@@ -1206,14 +1236,39 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
                     "source_requirement_id": "goal_contract_main30_conc50_mdd",
                     "source_portfolio": "concentrated",
                     "source_evidence": concentrated_evidence,
+                    "payload_hash": payload_hash,
                     "post_run_review": {
                         "tool": "tools/run_ab_result_verifier.py",
+                        "experiment_id": experiment_id,
+                        "payload_hash": payload_hash,
+                        "workflow_run_id": "<candidate_workflow_run_id>",
+                        "dispatch_run_id": plan_id,
                         "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
                         "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
                         "portfolio": "concentrated",
+                        "verifier_output_dir": f"outputs/ab_result_verifier/{experiment_id}",
+                        "queue_closure_output_dir": "outputs/self_correction_queue",
+                        "verifier_args": [
+                            "--baseline-run",
+                            "cloud_results/full_rebuild/latest_global_alpha_universe",
+                            "--candidate-run",
+                            "cloud_results/full_rebuild/<candidate_run_dir>",
+                            "--portfolio",
+                            "concentrated",
+                            "--experiment-id",
+                            experiment_id,
+                            "--payload-hash",
+                            payload_hash,
+                            "--workflow-run-id",
+                            "<candidate_workflow_run_id>",
+                            "--dispatch-run-id",
+                            plan_id,
+                            "--output-dir",
+                            f"outputs/ab_result_verifier/{experiment_id}",
+                        ],
                         "production_mutation_allowed": False,
                     },
-                    "inputs": full_rebuild_ab_inputs(plan_id, dict(experiment["env"])),
+                    "inputs": inputs,
                 }
             )
     return dispatches

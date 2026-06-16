@@ -290,6 +290,28 @@ def test_verifier_blocks_failed_oos_lock() -> None:
         assert "oos_is_cagr_ratio_above_lock" in row["issues"]
 
 
+def test_verifier_carries_dispatch_context_for_queue_closure() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(candidate, cagr=0.52, max_dd=-0.26, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
+        ns = args(baseline, [candidate], root / "out")
+        ns.experiment_id = "conc_continuation_winner_relaxation"
+        ns.payload_hash = "payload-ready"
+        ns.workflow_run_id = "27599999999"
+        ns.dispatch_run_id = "dispatcher-smoke"
+        payload = run(ns)
+        row = payload["candidates"][0]
+        assert payload["dispatch_context"]["experiment_id"] == "conc_continuation_winner_relaxation"
+        assert row["experiment_id"] == "conc_continuation_winner_relaxation"
+        assert row["payload_hash"] == "payload-ready"
+        assert row["workflow_run_id"] == "27599999999"
+        assert row["dispatch_run_id"] == "dispatcher-smoke"
+        assert row["candidate_run"] == "candidate"
+
+
 if __name__ == "__main__":
     test_verifier_marks_clean_candidate_review_promotable()
     test_verifier_rejects_is_cagr_regression_even_if_headline_passes()
@@ -297,4 +319,5 @@ if __name__ == "__main__":
     test_verifier_blocks_missing_acceptance_evidence()
     test_verifier_blocks_missing_oos_lock_evidence()
     test_verifier_blocks_failed_oos_lock()
+    test_verifier_carries_dispatch_context_for_queue_closure()
     print("ab_result_verifier_smoke: PASS")

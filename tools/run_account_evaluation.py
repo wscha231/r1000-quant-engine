@@ -45,6 +45,12 @@ DEFAULT_OUTPUT_DIR = "outputs/account_evaluation"
 PORTFOLIOS = ("main", "concentrated")
 MIN_BROKER_LEDGER_YEARS = 8.0
 MIN_BROKER_LEDGER_TRADING_DAYS = 252 * 8
+CANONICAL_MISSION_TARGETS = {
+    "main": {"cagr": 0.35, "max_dd": -0.25},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.25},
+}
+TARGET_CONTRACT_STATUS = "unresolved_user_decision_required"
+ACTIVE_TARGET_TYPE = "interim_operating_gate"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -173,6 +179,18 @@ def target_for(portfolio: str) -> dict[str, float]:
     }
 
 
+def target_contract_for(portfolio: str) -> dict[str, Any]:
+    active = target_for(portfolio)
+    canonical = CANONICAL_MISSION_TARGETS.get(portfolio, active)
+    return {
+        "target_type": ACTIVE_TARGET_TYPE,
+        "status": TARGET_CONTRACT_STATUS,
+        "active_gate": active,
+        "canonical_mission": canonical,
+        "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+    }
+
+
 def strengthened_gate_for(portfolio: str) -> dict[str, float]:
     gate = PORTFOLIO_GOAL_GATES.get(portfolio, {})
     defaults = {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25}
@@ -284,6 +302,7 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     data_readiness = read_json(latest_run / "data_readiness" / "summary.json")
     legacy = legacy_metrics(latest_run, portfolio)
     target = target_for(portfolio)
+    target_contract = target_contract_for(portfolio)
     gate = strengthened_gate_for(portfolio)
     tier2 = evaluate_strengthened_gates(broker_metrics, gate)
     window_gate = evaluate_window_gate(
@@ -313,6 +332,9 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "verdict_status": "ok" if valid_for_production else window_gate["status"] if replay_valid else broker_metrics.get("status") or "missing",
         "valid_for_production": valid_for_production,
         "broker_ledger_window_gate": window_gate,
+        "target_type": target_contract["target_type"],
+        "target_contract_status": target_contract["status"],
+        "target_contract": target_contract,
         "target_pass": bool(cagr_pass and dd_pass),
         "strengthened_pass": strengthened_pass,
         "tier2_gates": tier2,
@@ -323,9 +345,11 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "tier2_failing": tier2.get("failing"),
         "cagr": cagr,
         "cagr_target": target["cagr"],
+        "canonical_cagr_target": target_contract["canonical_mission"]["cagr"],
         "cagr_gap_pp": pp(cagr_gap),
         "max_dd": max_dd,
         "max_dd_target": target["max_dd"],
+        "canonical_max_dd_target": target_contract["canonical_mission"]["max_dd"],
         "max_dd_gap_pp": pp(dd_gap),
         "sharpe": sharpe,
         "total_return": metric(broker_metrics, "total_return"),
@@ -376,15 +400,19 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fieldnames = [
         "portfolio",
         "official_metric_mode",
+        "target_type",
+        "target_contract_status",
         "status",
         "valid_for_production",
         "verdict_status",
         "target_pass",
         "cagr",
         "cagr_target",
+        "canonical_cagr_target",
         "cagr_gap_pp",
         "max_dd",
         "max_dd_target",
+        "canonical_max_dd_target",
         "max_dd_gap_pp",
         "sharpe",
         "start_date",
@@ -429,18 +457,23 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         "## Official Targets",
         "",
-        "| Portfolio | CAGR | Target | Gap | MaxDD | Target | Gap | Sharpe | Avg Cash | Pass |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        f"Active target type: `{payload.get('target_type')}`. Canonical mission targets are shown separately and remain unresolved until explicit user approval.",
+        "",
+        "| Portfolio | Target Type | CAGR | Active Target | Canonical Target | Gap | MaxDD | Active Target | Canonical Target | Gap | Sharpe | Avg Cash | Pass |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
-            "| {portfolio} | {cagr} | {cagr_target} | {cagr_gap}pp | {max_dd} | {max_dd_target} | {dd_gap}pp | {sharpe:.3f} | {avg_cash} | {passed} |".format(
+            "| {portfolio} | {target_type} | {cagr} | {cagr_target} | {canonical_cagr_target} | {cagr_gap}pp | {max_dd} | {max_dd_target} | {canonical_max_dd_target} | {dd_gap}pp | {sharpe:.3f} | {avg_cash} | {passed} |".format(
                 portfolio=row.get("portfolio"),
+                target_type=row.get("target_type"),
                 cagr=pct(row.get("cagr")),
                 cagr_target=pct(row.get("cagr_target")),
+                canonical_cagr_target=pct(row.get("canonical_cagr_target")),
                 cagr_gap="" if row.get("cagr_gap_pp") is None else f"{safe_float(row.get('cagr_gap_pp'), 0.0):.2f}",
                 max_dd=pct(row.get("max_dd")),
                 max_dd_target=pct(row.get("max_dd_target")),
+                canonical_max_dd_target=pct(row.get("canonical_max_dd_target")),
                 dd_gap="" if row.get("max_dd_gap_pp") is None else f"{safe_float(row.get('max_dd_gap_pp'), 0.0):.2f}",
                 sharpe=safe_float(row.get("sharpe"), 0.0) or 0.0,
                 avg_cash=pct(row.get("avg_cash_weight")),
@@ -519,6 +552,9 @@ def render_report(payload: dict[str, Any]) -> str:
         )
     lines.extend(["", "## Governance", ""])
     lines.append(f"- Official metric mode: `{payload.get('official_metric_mode')}`")
+    lines.append(f"- Active target type: `{payload.get('target_type')}`")
+    lines.append(f"- Target contract status: `{payload.get('target_contract_status')}`")
+    lines.append("- Canonical mission targets remain Main `35% / -25%` and Concentrated `50% / -25%` until explicit user approval changes them.")
     lines.append(f"- Minimum official broker-ledger window: `{MIN_BROKER_LEDGER_YEARS:.1f} years / {MIN_BROKER_LEDGER_TRADING_DAYS} trading days`")
     lines.append(f"- Production target pass (Tier-1: full CAGR/MDD): `{str(payload.get('production_target_pass')).lower()}`")
     lines.append(f"- Strengthened pass (Tier-1 AND Tier-2 IS/Sharpe/ratio/cash/recent-MDD): `{str(payload.get('strengthened_pass')).lower()}`")
@@ -539,6 +575,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = {
         "schema_version": "account-evaluation-v1",
         "official_metric_mode": "broker_ledger_next_close",
+        "target_type": ACTIVE_TARGET_TYPE,
+        "target_contract_status": TARGET_CONTRACT_STATUS,
+        "target_contract": {
+            "active_target_type": ACTIVE_TARGET_TYPE,
+            "status": TARGET_CONTRACT_STATUS,
+            "canonical_mission": CANONICAL_MISSION_TARGETS,
+            "active_gate": {name: target_for(name) for name in PORTFOLIOS},
+            "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+        },
         "latest_run": str(latest_run),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "production_target_pass": production_target_pass,
@@ -550,6 +595,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     official_metrics = {
         "schema_version": payload["schema_version"],
         "official_metric_mode": payload["official_metric_mode"],
+        "target_type": payload["target_type"],
+        "target_contract_status": payload["target_contract_status"],
+        "target_contract": payload["target_contract"],
         "production_target_pass": production_target_pass,
         "strengthened_pass": strengthened_pass_all,
         "portfolios": {row["portfolio"]: row for row in portfolios},
