@@ -13,8 +13,8 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+import tools.build_operating_target_books as operating_books  # noqa: E402
 from tools.build_operating_target_books import build, clean_filter_value  # noqa: E402
-from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -24,21 +24,6 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-
-
-def write_price_cache(cache: Path, ticker: str, end_date: str) -> None:
-    cache.mkdir(parents=True, exist_ok=True)
-    dates = pd.bdate_range("2026-05-01", end_date)
-    frame = pd.DataFrame(
-        {
-            "Open": [100.0 + i for i in range(len(dates))],
-            "Close": [101.0 + i for i in range(len(dates))],
-            "Adj Close": [101.0 + i for i in range(len(dates))],
-            "Volume": [1_000_000] * len(dates),
-        },
-        index=dates,
-    )
-    frame.to_parquet(cache / px_cache_name(ticker))
 
 
 def test_operating_books_append_latest_close_targets() -> None:
@@ -104,10 +89,50 @@ def test_operating_books_append_latest_close_targets() -> None:
                 },
             ],
         )
-        for ticker in ["ON", "MU", "WDC", "SNDK"]:
-            write_price_cache(price_cache, ticker, "2026-05-08")
-
-        payload = build(Namespace(latest_run=str(latest), price_cache=str(price_cache), output_dir=str(out_dir)))
+        write_csv(
+            latest / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
+            [
+                {
+                    "rebalance_date": "2026-05-08",
+                    "ticker": "ON",
+                    "smart_money_score": 0.25,
+                    "sec_13f_smart_money_score": 0.5,
+                    "sec_combined_evidence_score": 0.7,
+                    "latest_available_from": "2026-05-07",
+                    "sec_evidence_research_only": True,
+                    "sec_evidence_production_activation_allowed": False,
+                    "sec_evidence_source": "form4_13f_etf_shadow",
+                },
+                {
+                    "rebalance_date": "2026-06-01",
+                    "ticker": "ON",
+                    "smart_money_score": 0.99,
+                    "sec_13f_smart_money_score": 0.99,
+                    "sec_combined_evidence_score": 0.99,
+                    "latest_available_from": "2026-06-01",
+                    "sec_evidence_research_only": True,
+                    "sec_evidence_production_activation_allowed": False,
+                    "sec_evidence_source": "form4_13f_etf_shadow",
+                },
+                {
+                    "rebalance_date": "2026-05-08",
+                    "ticker": "WDC",
+                    "smart_money_score": 0.35,
+                    "sec_13f_smart_money_score": 0.6,
+                    "sec_combined_evidence_score": 0.8,
+                    "latest_available_from": "2026-05-07",
+                    "sec_evidence_research_only": True,
+                    "sec_evidence_production_activation_allowed": False,
+                    "sec_evidence_source": "form4_13f_etf_shadow",
+                },
+            ],
+        )
+        original_latest_price_close_date = operating_books.latest_price_close_date
+        operating_books.latest_price_close_date = lambda price_cache, tickers: pd.Timestamp("2026-05-08")
+        try:
+            payload = build(Namespace(latest_run=str(latest), price_cache=str(price_cache), output_dir=str(out_dir)))
+        finally:
+            operating_books.latest_price_close_date = original_latest_price_close_date
         assert payload["status"] == "completed"
 
         main = pd.read_csv(out_dir / "operating_main_target_book.csv")
@@ -115,6 +140,10 @@ def test_operating_books_append_latest_close_targets() -> None:
         assert set(main.loc[main["rebalance_date"].eq("2026-05-08"), "ticker"]) == {"ON", "MU"}
         concentrated_latest = concentrated[concentrated["rebalance_date"].eq("2026-05-08")].copy()
         assert set(concentrated_latest["ticker"]) == {"WDC", "SNDK"}
+        assert "smart_money_score" in main.columns
+        assert "sec_13f_smart_money_score" in main.columns
+        assert float(main.loc[main["ticker"].eq("ON"), "smart_money_score"].iloc[-1]) == 0.25
+        assert float(concentrated_latest.loc[concentrated_latest["ticker"].eq("WDC"), "sec_13f_smart_money_score"].iloc[-1]) == 0.6
         assert set(concentrated_latest["target_stock_names"].map(clean_filter_value)) == {"4"}
         assert set(concentrated_latest["target_n"].map(clean_filter_value)) == {"4"}
         assert set(concentrated_latest["weighting_mode"].astype(str)) == {"score_power"}
@@ -126,6 +155,9 @@ def test_operating_books_append_latest_close_targets() -> None:
         assert books["main"]["history_max_rebalance_date"] == "2026-02-27"
         assert books["main"]["operating_signal_date"] == "2026-05-08"
         assert books["main"]["latest_target_appended"] is True
+        assert books["main"]["sec_evidence_feature_rows_matched"] == 1
+        assert books["main"]["sec_evidence_feature_future_rows_excluded"] == 1
+        assert "smart_money_score" in books["main"]["sec_evidence_feature_columns_added"]
         assert books["concentrated"]["operating_signal_date"] == "2026-05-08"
         assert (out_dir / "operating_target_books_summary.json").exists()
         assert (out_dir / "operating_target_books_report.md").exists()
