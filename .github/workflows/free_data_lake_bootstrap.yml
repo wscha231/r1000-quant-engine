@@ -182,7 +182,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          python tools/check_10y_backtest_readiness.py --latest-run "${{ inputs.latest_run }}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+          python tools/check_10y_backtest_readiness.py --latest-run "${{ inputs.latest_run }}" --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
 
       - name: Upload bootstrap artifact
         if: always()

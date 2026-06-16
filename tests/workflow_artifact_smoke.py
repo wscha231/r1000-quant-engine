@@ -67,6 +67,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/weekly_leader_broker_replay/",
         "outputs/cost_sensitivity/",
         "outputs/trade_attribution/",
+        "copy_dir_clean outputs/trade_attribution",
         "outputs/broker_position_risk_replay/",
         "outputs/broker_parabolic_risk_replay/",
         "outputs/broker_execution_policy_replay/",
@@ -81,7 +82,14 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/operating_snapshot/",
         "outputs/user_portfolio_reports/",
         "outputs/portfolio_system_guard/",
+        "outputs/system_acceptance_audit/",
+        "outputs/review_dispatcher/",
+        "outputs/review_dispatcher_self_correction/",
+        "outputs/adr_candidates/",
         "outputs/account_evaluation/",
+        "outputs/oos_lock/",
+        "outputs/eight_year_backtest_readiness/",
+        "outputs/era_aware_scoring_challenger/",
         "outputs/metric_hygiene/",
         "outputs/governance_catalyst/",
         "outputs/style_regime_report/",
@@ -96,6 +104,8 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/monster_lifecycle_review_concentrated/",
         "outputs/historical_trade_journey/",
         "outputs/selection_audit/",
+        "outputs/eight_year_backtest_readiness/",
+        "outputs/era_aware_scoring_challenger/",
         "outputs/ten_year_backtest_readiness/",
         "outputs/weekly_evaluation/",
         "outputs/theme_leadership_tape/",
@@ -108,6 +118,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/strategy_logic_ledger/",
         "outputs/shadow_operating/",
         "outputs/promotion_review/",
+        "outputs/promotion_review/era_aware_approved_target_policy_candidate.json",
         "outputs/decision_cadence/",
         "outputs/patch_application_manifest.json",
         "outputs/replay_integrity/patch_application_manifest.json",
@@ -259,9 +270,16 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_user_portfolio_reports.py",
         "tools/run_position_cleanup_review.py",
         "tools/run_portfolio_system_guard.py",
+        "tools/run_adr_candidate_scanner.py",
+        "tools/run_system_acceptance_audit.py",
+        "tools/run_review_dispatcher.py",
         "tools/run_metric_hygiene_report.py",
         "--account-mode simulated",
         "tools/run_account_evaluation.py",
+        "tools/run_oos_lock_audit.py",
+        "tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness",
+        'tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"',
+        "tools/run_era_aware_scoring_challenger.py",
         "--max-fill-lag-days 7",
         "tools/run_selection_audit.py",
         "tools/run_dataset_coverage_audit.py",
@@ -352,10 +370,17 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/user_portfolio_reports.log",
         "outputs/full_rebuild_logs/position_cleanup_review.log",
         "outputs/full_rebuild_logs/portfolio_system_guard.log",
+        "outputs/full_rebuild_logs/adr_candidate_scanner.log",
+        "outputs/full_rebuild_logs/system_acceptance_audit.log",
+        "outputs/full_rebuild_logs/review_dispatcher.log",
+        "outputs/full_rebuild_logs/review_dispatcher_self_correction.log",
         "outputs/full_rebuild_logs/account_evaluation.log",
+        "outputs/full_rebuild_logs/oos_lock.log",
         "outputs/full_rebuild_logs/metric_hygiene_report.log",
         "outputs/full_rebuild_logs/selection_audit.log",
         "outputs/full_rebuild_logs/dataset_coverage_audit.log",
+        "outputs/full_rebuild_logs/eight_year_backtest_readiness.log",
+        "outputs/full_rebuild_logs/era_aware_scoring_challenger.log",
         "outputs/full_rebuild_logs/ten_year_backtest_readiness.log",
         "outputs/full_rebuild_logs/weekly_evaluation.log",
         "outputs/full_rebuild_logs/theme_leadership_tape.log",
@@ -421,6 +446,34 @@ def test_sidecar_promotion_hook_runs_before_primary_broker_replay() -> None:
     assert build_idx < hook_idx < replay_idx
     assert "build_long_crisis_inputs" in sidecar_tool
     assert "tools/run_long_crisis_dataset_builder.py" in sidecar_tool
+
+
+def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    operating_idx = sidecar_tool.index('if [ "$SIDECAR_PROFILE" = "operating_minimal" ]')
+    mdd_idx = sidecar_tool.index("tools/run_mdd_cash_overlay_research.py", operating_idx)
+    trade_idx = sidecar_tool.index("tools/run_trade_attribution_analysis.py", operating_idx)
+    is_idx = sidecar_tool.index("tools/run_is_attribution.py", operating_idx)
+    era_idx = sidecar_tool.index("tools/run_era_leadership_sidecar.py", operating_idx)
+    oos_idx = sidecar_tool.index("tools/run_oos_lock_audit.py", operating_idx)
+    adr_idx = sidecar_tool.index("tools/run_adr_candidate_scanner.py", operating_idx)
+    self_correction_idx = sidecar_tool.index("tools/run_self_correction_router.py", operating_idx)
+    self_dispatcher_idx = sidecar_tool.index("--payloads outputs/self_correction_router/workflow_dispatch_payloads.json", self_correction_idx)
+    acceptance_idx = sidecar_tool.index("tools/run_system_acceptance_audit.py", operating_idx)
+    dispatcher_idx = sidecar_tool.index("--payloads outputs/system_acceptance_audit/workflow_dispatch_payloads.json", acceptance_idx)
+    assert mdd_idx < acceptance_idx
+    assert trade_idx < acceptance_idx
+    assert is_idx < acceptance_idx
+    assert era_idx < acceptance_idx
+    assert oos_idx < acceptance_idx
+    assert adr_idx < acceptance_idx
+    assert self_correction_idx < self_dispatcher_idx < acceptance_idx
+    assert acceptance_idx < dispatcher_idx
+    self_correction_call = sidecar_tool[self_correction_idx:acceptance_idx]
+    assert "--latest-run outputs" in self_correction_call
+    assert '--ref "${GITHUB_REF_NAME:-master}"' in self_correction_call
+    assert '--repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"' in self_correction_call
+    assert "--output-dir outputs/review_dispatcher_self_correction" in self_correction_call
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
@@ -601,6 +654,8 @@ def test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay() -> None:
         "tools/run_free_data_lake_bootstrap.py",
         "tools/run_free_data_engine_validation.py",
         "tools/check_10y_backtest_readiness.py",
+        '--ref "${GITHUB_REF_NAME:-master}"',
+        '--repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"',
         "data_raw/free",
         "data_pit/free",
         "manifests/free_data",
@@ -643,6 +698,8 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
         "outputs/free_data_proxy_backtest/",
         "tools/run_free_data_engine_validation.py",
         "tools/check_10y_backtest_readiness.py",
+        '--ref "${GITHUB_REF_NAME:-master}"',
+        '--repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"',
         "outputs/free_data_engine_validation/",
         "outputs/ten_year_backtest_readiness/",
         "CAGR",

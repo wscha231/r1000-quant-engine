@@ -1,0 +1,10 @@
+schema_version: oos-lock-v1
+oos_start: 2024-07-01
+oos2_start: 2023-01-01
+max_degradation_floor_pp: 5.0
+max_degradation_is_fraction: 0.20
+max_oos_is_cagr_ratio: 3.0
+min_oos_trading_days: 252
+baseline_is_cagr:
+  main: 0.25
+  concentrated: 0.30

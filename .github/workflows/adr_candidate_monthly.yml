@@ -1,0 +1,62 @@
+name: ADR Candidate Monthly
+
+on:
+  schedule:
+    # Monthly review artifact; never mutates adr_universe.yaml directly.
+    - cron: '20 9 2 * *'
+  workflow_dispatch:
+    inputs:
+      candidate_csv:
+        description: Optional CSV seed/feed with ticker, exchange, price, volume, market_cap, tradability.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  adr-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Run ADR candidate scanner
+        run: |
+          CANDIDATE_CSV="${{ github.event.inputs.candidate_csv || '' }}"
+          if [ -n "$CANDIDATE_CSV" ] && [ -s "$CANDIDATE_CSV" ]; then
+            python tools/run_adr_candidate_scanner.py \
+              --adr-universe adr_universe.yaml \
+              --candidate-csv "$CANDIDATE_CSV" \
+              --output-dir outputs/adr_candidates
+          else
+            python tools/run_adr_candidate_scanner.py \
+              --adr-universe adr_universe.yaml \
+              --price-cache cache_prices \
+              --scan-price-cache \
+              --output-dir outputs/adr_candidates
+          fi
+
+      - name: Upload ADR candidate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adr-candidate-review-${{ github.run_id }}
+          path: outputs/adr_candidates/
+          retention-days: 60

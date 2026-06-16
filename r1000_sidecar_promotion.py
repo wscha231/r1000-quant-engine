@@ -35,7 +35,8 @@ CASH_TICKERS = {"CASH", "__CASH__"}
 H_CASE_LABEL = "multi_lane_crisis_hold_replace"
 SOURCE_INTEGRATED_H = "integrated_h"
 SOURCE_MARKET_LEADER = "market_leader"
-SOURCE_POLICIES = {SOURCE_INTEGRATED_H, SOURCE_MARKET_LEADER}
+SOURCE_ERA_AWARE = "era_aware"
+SOURCE_POLICIES = {SOURCE_INTEGRATED_H, SOURCE_MARKET_LEADER, SOURCE_ERA_AWARE}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -216,6 +217,10 @@ def market_leader_target_path(latest_run: Path, portfolio: str) -> Path:
     return latest_run / "market_leader_challenger" / f"{portfolio}_target_book.csv"
 
 
+def era_aware_target_path(latest_run: Path, portfolio: str) -> Path:
+    return latest_run / "era_aware_scoring_challenger" / f"{portfolio}_target_book.csv"
+
+
 def load_h_case_target(integrated_dir: Path, portfolio: str) -> tuple[pd.DataFrame, Path, str]:
     direct = h_case_target_path(integrated_dir, portfolio)
     if direct.exists():
@@ -239,6 +244,13 @@ def load_market_leader_target(latest_run: Path, portfolio: str) -> tuple[pd.Data
     return normalize_target_book(read_csv(path)), path, "market_leader_target_book"
 
 
+def load_era_aware_target(latest_run: Path, portfolio: str) -> tuple[pd.DataFrame, Path, str]:
+    path = era_aware_target_path(latest_run, portfolio)
+    if not path.exists():
+        return pd.DataFrame(columns=["rebalance_date", "ticker", "weight"]), path, "missing"
+    return normalize_target_book(read_csv(path)), path, "era_aware_target_book"
+
+
 def load_target_source(
     *,
     latest_run: Path,
@@ -249,6 +261,8 @@ def load_target_source(
     policy = source_policy if source_policy in SOURCE_POLICIES else SOURCE_INTEGRATED_H
     if policy == SOURCE_MARKET_LEADER:
         return load_market_leader_target(latest_run, portfolio)
+    if policy == SOURCE_ERA_AWARE:
+        return load_era_aware_target(latest_run, portfolio)
     return load_h_case_target(integrated_dir, portfolio)
 
 
@@ -620,7 +634,9 @@ def source_policy_from_policy(policy: dict[str, Any], portfolio: str) -> str:
 def source_case_id_from_policy(policy: dict[str, Any], portfolio: str) -> str:
     key = f"source_case_id_{portfolio}"
     specific = policy.get(portfolio, {}) if isinstance(policy.get(portfolio), dict) else {}
-    return str(specific.get("source_case_id") or policy.get(key) or ("market_leader" if source_policy_from_policy(policy, portfolio) == SOURCE_MARKET_LEADER else "H"))
+    source_policy = source_policy_from_policy(policy, portfolio)
+    default_case = "market_leader" if source_policy == SOURCE_MARKET_LEADER else ("era_aware" if source_policy == SOURCE_ERA_AWARE else "H")
+    return str(specific.get("source_case_id") or policy.get(key) or default_case)
 
 
 def source_path_from_policy(policy: dict[str, Any], portfolio: str, *, latest_run: Path | None = None, integrated_dir: Path | None = None) -> Path:
@@ -632,6 +648,8 @@ def source_path_from_policy(policy: dict[str, Any], portfolio: str, *, latest_ru
     source_policy = source_policy_from_policy(policy, portfolio)
     if source_policy == SOURCE_MARKET_LEADER and latest_run is not None:
         return market_leader_target_path(latest_run, portfolio)
+    if source_policy == SOURCE_ERA_AWARE and latest_run is not None:
+        return era_aware_target_path(latest_run, portfolio)
     if integrated_dir is not None:
         return h_case_target_path(integrated_dir, portfolio)
     return repo_path("")

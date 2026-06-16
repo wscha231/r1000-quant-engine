@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from argparse import Namespace
+from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -19,6 +20,20 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def write_equity_curve(path: Path, start: str = "2018-05-01", end: str = "2026-05-08") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cur = date.fromisoformat(start)
+    last = date.fromisoformat(end)
+    rows = ["date,equity\n"]
+    value = 100000.0
+    while cur <= last:
+        if cur.weekday() < 5:
+            rows.append(f"{cur.isoformat()},{value:.2f}\n")
+            value += 10.0
+        cur += timedelta(days=1)
+    path.write_text("".join(rows), encoding="utf-8")
+
+
 def seed_portfolio(root: Path, portfolio: str, *, cagr: float, max_dd: float, sharpe: float) -> None:
     write_json(
         root / "broker_replay" / portfolio / "metrics.json",
@@ -26,9 +41,9 @@ def seed_portfolio(root: Path, portfolio: str, *, cagr: float, max_dd: float, sh
             "status": "completed",
             "metric_mode": "broker_ledger_next_close",
             "valid_for_production": True,
-            "start_date": "2020-01-02",
+            "start_date": "2018-05-01",
             "end_date": "2026-05-08",
-            "years": 6.35,
+            "years": 8.02,
             "starting_capital_usd": 100000,
             "ending_capital_usd": 400000,
             "cagr": cagr,
@@ -40,6 +55,7 @@ def seed_portfolio(root: Path, portfolio: str, *, cagr: float, max_dd: float, sh
             "gross_traded_usd": 49380,
         },
     )
+    write_equity_curve(root / "broker_replay" / portfolio / "equity_curve.csv")
     write_json(
         root / "broker_replay" / portfolio / "account_state_latest.json",
         {
@@ -79,10 +95,19 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
         root = Path(tmp) / "latest"
         out = Path(tmp) / "account_eval"
         seed_portfolio(root, "main", cagr=0.31, max_dd=-0.14, sharpe=1.2)
-        seed_portfolio(root, "concentrated", cagr=0.44, max_dd=-0.16, sharpe=1.4)
+        seed_portfolio(root, "concentrated", cagr=0.49, max_dd=-0.16, sharpe=1.4)
         write_json(root / "backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
         write_json(root / "concentrated_backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
         write_json(root / "portfolio_goal_search" / "goal_search_summary.json", {"research_target_pass": True})
+        write_json(
+            root / "data_readiness" / "summary.json",
+            {
+                "status": "ready",
+                "ready_for_fullrun": True,
+                "ready_for_policy_replay": True,
+                "free_data_coverage": {"known_gaps": []},
+            },
+        )
 
         result = run(Namespace(latest_run=str(root), output_dir=str(out)))
         assert result["official_metric_mode"] == "broker_ledger_next_close"
@@ -93,6 +118,7 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
         concentrated = result["portfolios"][1]
         assert main["portfolio"] == "main"
         assert main["target_pass"] is True
+        assert main["broker_ledger_actual_trading_days"] >= 252 * 8
         assert main["legacy_cagr"] == 0.99
         assert concentrated["target_pass"] is False
         assert concentrated["cagr_gap_pp"] == 1.0

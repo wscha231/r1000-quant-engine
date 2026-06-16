@@ -7,11 +7,24 @@ name: Full Rebuild (Manual / Long-Run)
 # Estimated runtime: ~3-5 hours (within GHA 6h timeout). Can use up to ~50%
 # of free-tier monthly minutes (2000) PER run, so trigger judiciously.
 #
-# Schedule: NONE (manual trigger only via workflow_dispatch).
-# Reason: A FULL rebuild is a deliberate decision. Auto-triggering would
-# burn the entire monthly free tier in 1-2 runs.
+# Schedule: WEEKLY (Mon 09:00 UTC) + manual workflow_dispatch.
+# The weekly cron is the self-sustaining loop's heartbeat: each run appends a
+# row to cloud_results/performance_ledger/ledger.jsonl (IS-CAGR trend, Tier-2
+# gate pass, IS-attribution leak tags), so the engine's trajectory accumulates
+# and self-evaluates without manual intervention.
+# CAVEAT: GitHub only fires `schedule:` from the repository's DEFAULT branch.
+# This cron stays dormant until this workflow is merged to the default branch;
+# until then the loop runs per manual/dispatched run (which already accumulate
+# the ledger). A scheduled run uses input DEFAULTS — note portfolio_policy now
+# defaults to alphaops_vnext_production, so the weekly run produces the
+# production cash-overlay book + ledger row automatically.
+# Budget: a FULL rebuild is ~3-5h and up to ~50% of the 2000-min monthly free
+# tier per run. Weekly (~4 runs/mo) is the affordable cadence; drop to monthly
+# if the budget tightens.
 
 on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 09:00 UTC — weekly self-sustaining ledger run
   workflow_dispatch:
     inputs:
       universe_mode:
@@ -101,11 +114,15 @@ on:
           - market_leader_shadow
           - approved_integrated
           - alphaops_vnext_production
-        default: production_baseline
+        default: alphaops_vnext_production
       approved_target_policy_path:
         description: 'approved_integrated policy file path; default stays unapproved'
         type: string
         default: outputs/promotion_review/approved_target_policy.json
+      experiment_env_json:
+        description: 'review-approved A/B env overrides as JSON object; keys must start with PHASE_, R1000_, or ALPHAOPS_'
+        type: string
+        default: ''
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -155,6 +172,41 @@ jobs:
           pip install -r requirements_github.txt
           # Heavy ML deps for full rebuild (not in requirements_github.txt by default)
           pip install "catboost>=1.2" "lightgbm>=4.0" "xgboost>=2.0" "scikit-learn>=1.4"
+
+      - name: Apply review-approved experiment env
+        env:
+          EXPERIMENT_ENV_JSON: ${{ github.event.inputs.experiment_env_json || '' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          raw = os.environ.get("EXPERIMENT_ENV_JSON", "").strip()
+          if not raw:
+              print("[experiment-env] no overrides")
+              raise SystemExit(0)
+          try:
+              payload = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              print(f"[experiment-env] invalid JSON: {exc}", file=sys.stderr)
+              raise SystemExit(2)
+          if not isinstance(payload, dict):
+              print("[experiment-env] payload must be a JSON object", file=sys.stderr)
+              raise SystemExit(2)
+          allowed = re.compile(r"^(PHASE_|R1000_|ALPHAOPS_)[A-Z0-9_]+$")
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as fh:
+              for key, value in sorted(payload.items()):
+                  key = str(key).strip().upper()
+                  if not allowed.match(key):
+                      print(f"[experiment-env] rejected key: {key}", file=sys.stderr)
+                      raise SystemExit(2)
+                  text = str(value).replace("\n", " ").replace("\r", " ").strip()
+                  fh.write(f"{key}={text}\n")
+                  print(f"[experiment-env] applied {key}={text}")
+          PY
 
       # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
       # These are slow to fetch (rate limits) and rarely change.
@@ -490,7 +542,18 @@ jobs:
       - name: Portfolio target replay + goal search (sidecar)
         if: always()
         run: |
-          python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}" --artifact-profile "${{ inputs.artifact_profile }}" --gdrive-sync-mode "${{ inputs.gdrive_sync_mode }}" --portfolio-policy "${{ inputs.portfolio_policy }}" --approved-target-policy-path "${{ inputs.approved_target_policy_path }}"
+          python tools/run_full_rebuild_sidecars.py \
+            --profile "${SIDECAR_PROFILE:-operating_minimal}" \
+            --artifact-profile "${ARTIFACT_PROFILE:-minimal}" \
+            --gdrive-sync-mode "${GDRIVE_SYNC_MODE:-minimal}" \
+            --portfolio-policy "${PORTFOLIO_POLICY:-alphaops_vnext_production}" \
+            --approved-target-policy-path "${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
+        env:
+          SIDECAR_PROFILE: ${{ github.event.inputs.sidecar_profile || 'operating_minimal' }}
+          ARTIFACT_PROFILE: ${{ github.event.inputs.artifact_profile || 'minimal' }}
+          GDRIVE_SYNC_MODE: ${{ github.event.inputs.gdrive_sync_mode || 'minimal' }}
+          PORTFOLIO_POLICY: ${{ github.event.inputs.portfolio_policy || 'alphaops_vnext_production' }}
+          APPROVED_TARGET_POLICY_PATH: ${{ github.event.inputs.approved_target_policy_path || 'outputs/promotion_review/approved_target_policy.json' }}
 
       - name: Data health (catalog + coverage gate, warn-only)
         if: always()
@@ -517,6 +580,7 @@ jobs:
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/daily_crisis_monitor/
+            outputs/crisis_paper_order_bridge/
             outputs/decision_cadence/
             outputs/operator_review/dust_positions_report.csv
             outputs/operator_review/dust_cleanup_orders.csv
@@ -528,6 +592,7 @@ jobs:
             outputs/operator_review/position_cleanup_review.md
             outputs/shadow_operating/
             outputs/promotion_review/
+            outputs/promotion_review/era_aware_approved_target_policy_candidate.json
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
@@ -538,6 +603,9 @@ jobs:
             outputs/alphaops_vnext/variants/*_target_book.csv
             outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
+            outputs/oos_lock/
+            outputs/eight_year_backtest_readiness/
+            outputs/era_aware_scoring_challenger/
             outputs/metric_hygiene/
             outputs/cash_contract/
             outputs/broker_replay/main/metrics.json
@@ -573,20 +641,32 @@ jobs:
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
             outputs/data_readiness/
+            outputs/adr_candidates/
             data/catalog.json
             outputs/coverage_gate.json
             outputs/operating_snapshot/current_operating_holdings_latest.csv
             outputs/operating_snapshot/current_portfolio_snapshot_summary.json
             outputs/portfolio_system_guard/
+            outputs/system_acceptance_audit/
+            outputs/review_dispatcher/
+            outputs/review_dispatcher_self_correction/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/cash_contract.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
+            outputs/full_rebuild_logs/crisis_paper_order_bridge.log
             outputs/full_rebuild_logs/decision_cadence_review.log
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
             outputs/full_rebuild_logs/metric_hygiene_report.log
+            outputs/full_rebuild_logs/adr_candidate_scanner.log
+            outputs/full_rebuild_logs/oos_lock.log
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
+            outputs/full_rebuild_logs/eight_year_backtest_readiness.log
+            outputs/full_rebuild_logs/era_aware_scoring_challenger.log
+            outputs/full_rebuild_logs/system_acceptance_audit.log
+            outputs/full_rebuild_logs/review_dispatcher.log
+            outputs/full_rebuild_logs/review_dispatcher_self_correction.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -597,6 +677,8 @@ jobs:
           name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
           path: |
             outputs/account_evaluation/
+            outputs/oos_lock/
+            outputs/eight_year_backtest_readiness/
             outputs/broker_replay/
             outputs/legacy_monthly_broker_replay/
             outputs/operating_snapshot/
@@ -680,6 +762,8 @@ jobs:
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            outputs/adr_candidates/
+            outputs/crisis_paper_order_bridge/
             data/catalog.json
             outputs/coverage_gate.json
             outputs/reports/tactical_monthly_weights.csv
@@ -736,6 +820,7 @@ jobs:
             outputs/promotion_review/
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
+            outputs/oos_lock/
             outputs/metric_hygiene/
             outputs/cash_contract/
             outputs/governance_catalyst/
@@ -751,6 +836,7 @@ jobs:
             outputs/monster_lifecycle_review_concentrated/
             outputs/historical_trade_journey/
             outputs/selection_audit/
+            outputs/eight_year_backtest_readiness/
             outputs/ten_year_backtest_readiness/
             outputs/weekly_evaluation/
             outputs/theme_leadership_tape/
@@ -1170,12 +1256,23 @@ jobs:
             copy_alphaops_vnext_light
             copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
+            copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+            copy_dir_clean outputs/oos_lock "$DEST/oos_lock"
+            copy_dir_clean outputs/eight_year_backtest_readiness "$DEST/eight_year_backtest_readiness"
+            copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
+            copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
+            copy_dir_clean outputs/trade_attribution "$DEST/trade_attribution"
+            copy_dir_clean outputs/era_aware_scoring_challenger "$DEST/era_aware_scoring_challenger"
+            copy_dir_clean outputs/self_correction_router "$DEST/self_correction_router"
             copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
             copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+            copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
+            copy_dir_clean outputs/review_dispatcher "$DEST/review_dispatcher"
+            copy_dir_clean outputs/review_dispatcher_self_correction "$DEST/review_dispatcher_self_correction"
             # P3 integrated leader+crisis evidence + P0 freshness + governor
             # learning trail. Without these, the run leaves no auditable
             # record of why the governor moved or did not.
@@ -1185,6 +1282,7 @@ jobs:
             copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
             cp outputs/latest_price_date_audit.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+            copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
             mkdir -p "$DEST/manifests"
             cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
@@ -1244,6 +1342,7 @@ jobs:
           cp cache_prices/replay_price_cache_manifest.json "$DEST/manifests/" 2>/dev/null || true
           copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
           copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
+          copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
           copy_dir_clean outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"
           copy_dir_clean outputs/auto_learning "$DEST/auto_learning"
@@ -1263,6 +1362,7 @@ jobs:
           copy_dir_clean outputs/broker_replay "$DEST/broker_replay"
           copy_dir_clean outputs/legacy_monthly_broker_replay "$DEST/legacy_monthly_broker_replay"
           copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
+          copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
           copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
           copy_dir_clean outputs/broker_parabolic_risk_replay "$DEST/broker_parabolic_risk_replay"
           copy_dir_clean outputs/broker_execution_policy_replay "$DEST/broker_execution_policy_replay"
@@ -1276,8 +1376,17 @@ jobs:
           copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
           copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+          copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
+          copy_dir_clean outputs/review_dispatcher "$DEST/review_dispatcher"
+          copy_dir_clean outputs/review_dispatcher_self_correction "$DEST/review_dispatcher_self_correction"
           copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+          copy_dir_clean outputs/oos_lock "$DEST/oos_lock"
+          copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
+          copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
+          copy_dir_clean outputs/trade_attribution "$DEST/trade_attribution"
+          copy_dir_clean outputs/era_aware_scoring_challenger "$DEST/era_aware_scoring_challenger"
+          copy_dir_clean outputs/self_correction_router "$DEST/self_correction_router"
           copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
           copy_dir_clean outputs/cash_contract "$DEST/cash_contract"
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
@@ -1297,6 +1406,7 @@ jobs:
           copy_dir_clean outputs/monster_lifecycle_review_concentrated "$DEST/monster_lifecycle_review_concentrated"
           copy_dir_clean outputs/historical_trade_journey "$DEST/historical_trade_journey"
           copy_dir_clean outputs/selection_audit "$DEST/selection_audit"
+          copy_dir_clean outputs/eight_year_backtest_readiness "$DEST/eight_year_backtest_readiness"
           copy_dir_clean outputs/ten_year_backtest_readiness "$DEST/ten_year_backtest_readiness"
           copy_dir_clean outputs/weekly_evaluation "$DEST/weekly_evaluation"
           copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"
