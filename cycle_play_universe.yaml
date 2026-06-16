@@ -27,7 +27,7 @@ cycle_play_universe:
   sector: Industrials
   sub_sector: Fuel Cell
   cycle_focus: clean_energy
-  mcap_usd_b: 1.1
+  mcap_usd_b: 1.2
   listed_since: 1992-06
   notes: Carbonate fuel cell. Borderline mcap — auto-refresh may drop if < $0.3B.
 - ticker: BLDP
@@ -53,7 +53,7 @@ cycle_play_universe:
   sector: Industrials
   sub_sector: Residential Solar
   cycle_focus: clean_energy
-  mcap_usd_b: 3.3
+  mcap_usd_b: 3.0
   listed_since: 2015-08
   notes: Residential solar leasing. Rate-sensitive.
 - ticker: ARRY
@@ -61,7 +61,7 @@ cycle_play_universe:
   sector: Industrials
   sub_sector: Solar Tracker
   cycle_focus: clean_energy
-  mcap_usd_b: 1.4
+  mcap_usd_b: 1.2
   listed_since: 2020-10
   notes: Single-axis solar tracker. Cap-ex cycle exposure.
 - ticker: NXT
@@ -99,7 +99,7 @@ cycle_play_universe:
   sector: Consumer Discretionary
   sub_sector: Luxury EV
   cycle_focus: ev_battery
-  mcap_usd_b: 2.4
+  mcap_usd_b: 2.0
   listed_since: 2021-07
   notes: Luxury EV. Saudi PIF-backed.
 - ticker: QS
@@ -107,7 +107,7 @@ cycle_play_universe:
   sector: Industrials
   sub_sector: Solid-State Battery
   cycle_focus: ev_battery
-  mcap_usd_b: 4.9
+  mcap_usd_b: 4.4
   listed_since: 2020-11
   notes: Solid-state battery R&D. Long-cycle commercialization.
 - ticker: SMCI
@@ -115,7 +115,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: AI Server
   cycle_focus: ai_infra
-  mcap_usd_b: 18.7
+  mcap_usd_b: 18.6
   listed_since: 2007-03
   notes: 'AI server hardware. Note: may already be R1000 — auto-refresh dedup.'
 - ticker: SOUN
@@ -123,7 +123,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: Voice AI
   cycle_focus: ai_infra
-  mcap_usd_b: 3.6
+  mcap_usd_b: 3.2
   listed_since: 2022-04
   notes: Voice AI for cars / customer service. NVDA stake.
 - ticker: BBAI
@@ -131,7 +131,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: Defense AI
   cycle_focus: ai_infra
-  mcap_usd_b: 2.0
+  mcap_usd_b: 1.9
   listed_since: 2021-12
   notes: Defense / national security AI.
 - ticker: HIMX
@@ -139,7 +139,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: Display Driver
   cycle_focus: memory_semi
-  mcap_usd_b: 3.3
+  mcap_usd_b: 3.1
   listed_since: 2006-04
   notes: Display driver IC. Cyclical. Taiwan but US-listed ADR.
 - ticker: ICHR
@@ -147,7 +147,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: Semi Equipment
   cycle_focus: memory_semi
-  mcap_usd_b: 2.5
+  mcap_usd_b: 3.1
   listed_since: 2016-12
   notes: Semi capex cycle. Gas/fluid delivery for fabs.
 - ticker: COHU
@@ -155,7 +155,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: Semi Test
   cycle_focus: memory_semi
-  mcap_usd_b: 2.2
+  mcap_usd_b: 3.0
   listed_since: 1971-01
   notes: Semi test equipment. Long history, deep cycle exposure.
 - ticker: ACLS
@@ -163,7 +163,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: Ion Implant
   cycle_focus: memory_semi
-  mcap_usd_b: 4.8
+  mcap_usd_b: 5.9
   listed_since: 2000-07
   notes: Ion implantation tools. Power chip + EV cycle.
 - ticker: ONTO
@@ -171,7 +171,7 @@ cycle_play_universe:
   sector: Information Technology
   sub_sector: Semi Metrology
   cycle_focus: memory_semi
-  mcap_usd_b: 13.5
+  mcap_usd_b: 16.7
   listed_since: 2019-10
   notes: Semi metrology / inspection. Already in concentrated portfolio sometimes.
 - ticker: NTLA
@@ -179,7 +179,7 @@ cycle_play_universe:
   sector: Health Care
   sub_sector: CRISPR
   cycle_focus: biotech
-  mcap_usd_b: 1.9
+  mcap_usd_b: 2.1
   listed_since: 2016-05
   notes: CRISPR/Cas9 gene editing. Pipeline catalysts.
 - ticker: BEAM
@@ -187,7 +187,7 @@ cycle_play_universe:
   sector: Health Care
   sub_sector: Base Editing
   cycle_focus: biotech
-  mcap_usd_b: 2.9
+  mcap_usd_b: 3.2
   listed_since: 2020-02
   notes: Base editing. Verve spin-off catalyst.
 - ticker: RGEN
@@ -195,7 +195,7 @@ cycle_play_universe:
   sector: Health Care
   sub_sector: Bioprocess
   cycle_focus: biotech
-  mcap_usd_b: 5.8
+  mcap_usd_b: 7.4
   listed_since: 1986-05
   notes: Biopharma manufacturing tools. Inventory destock cycle.
 - ticker: INSM
@@ -203,7 +203,7 @@ cycle_play_universe:
   sector: Health Care
   sub_sector: Rare Disease
   cycle_focus: biotech
-  mcap_usd_b: 23.7
+  mcap_usd_b: 21.1
   listed_since: 1999-08
   notes: Rare lung disease drug. Phase 3 catalysts.
 - ticker: SOFI
@@ -211,7 +211,7 @@ cycle_play_universe:
   sector: Financials
   sub_sector: Consumer Fintech
   cycle_focus: fintech
-  mcap_usd_b: 20.0
+  mcap_usd_b: 22.0
   listed_since: 2021-06
   notes: Consumer banking + lending fintech. Rate cycle.
 - ticker: AFRM
@@ -219,7 +219,7 @@ cycle_play_universe:
   sector: Financials
   sub_sector: BNPL
   cycle_focus: fintech
-  mcap_usd_b: 22.0
+  mcap_usd_b: 24.1
   listed_since: 2021-01
   notes: 'Buy-now-pay-later. Note: borderline R1000.'
 - ticker: U
@@ -227,7 +227,7 @@ cycle_play_universe:
   sector: Communication Services
   sub_sector: Game Engine
   cycle_focus: fintech
-  mcap_usd_b: 11.9
+  mcap_usd_b: 12.4
   listed_since: 2020-09
   notes: Game engine + ad tech. Restructure cycle.
 - ticker: OPEN
@@ -235,7 +235,7 @@ cycle_play_universe:
   sector: Real Estate
   sub_sector: iBuyer
   cycle_focus: fintech
-  mcap_usd_b: 4.2
+  mcap_usd_b: 4.4
   listed_since: 2020-12
   notes: Real estate iBuyer. Rate cycle exposure.
 - ticker: LEU
@@ -271,7 +271,7 @@ cycle_play_universe:
   sector: Energy
   sub_sector: Uranium Mining
   cycle_focus: uranium_materials
-  mcap_usd_b: 6.7
+  mcap_usd_b: 5.8
   listed_since: 2007-09
   notes: Uranium miner; tactical commodity-cycle name, not long-duration compounder
     by default.
@@ -289,7 +289,7 @@ cycle_play_universe:
   sector: Materials
   sub_sector: Lithium
   cycle_focus: critical_minerals
-  mcap_usd_b: 1.8
+  mcap_usd_b: 1.6
   listed_since: 2023-10
   notes: Lithium development; high commodity/policy risk, keep tactical.
 - ticker: GTLS
@@ -302,7 +302,7 @@ cycle_play_universe:
   notes: Cryogenic equipment for LNG, hydrogen, and industrial gas infrastructure.
 metadata:
   schema_version: 2026-04-29-v1
-  last_refreshed: 2026-05-15 23:38 UTC
+  last_refreshed: 2026-06-16 00:20 UTC
   curator: auto-refresh
   total_entries: 35
   min_mcap_usd_b: 0.3
