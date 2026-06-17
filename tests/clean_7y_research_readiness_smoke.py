@@ -195,6 +195,7 @@ def test_clean_7y_research_ready_even_if_not_production_valid() -> None:
         assert payload["review_only"] is True, payload
         assert payload["canonical_production_sync"] is False, payload
         assert payload["promotion_allowed"] is False, payload
+        assert payload["production_promotion_allowed"] is False, payload
         assert payload["ready_for_alpha_plane_ab_research"] is True, payload
         assert "official_promotion" in payload["blocked_uses"], payload
         assert payload["checks"]["broker_window_years_min_7"] is True, payload
@@ -212,6 +213,7 @@ def test_clean_7y_readiness_honors_external_user_current_dir() -> None:
         assert payload["status"] == READY, payload
         assert payload["ready_for_alpha_plane_ab_research"] is True, payload
         assert payload["source_files"]["daily_snapshot_contract"].startswith(str(external)), payload
+        assert payload["production_promotion_allowed"] is False, payload
 
 
 def test_dirty_7y_blocked_data_or_starved_universe_is_not_ready() -> None:
@@ -221,6 +223,7 @@ def test_dirty_7y_blocked_data_or_starved_universe_is_not_ready() -> None:
         payload = classify_clean_7y_readiness(root)
         assert payload["status"] == "not_ready", payload
         assert payload["ready_for_alpha_plane_ab_research"] is False, payload
+        assert payload["production_promotion_allowed"] is False, payload
         assert "data_readiness_policy_replay_ready" in payload["blockers"], payload
         assert any("universe" in item for item in payload["blockers"]), payload
         assert "alpha_plane_ab_research" in payload["blocked_uses"], payload
@@ -277,6 +280,7 @@ def test_pre_broker_recovery_surfaces_when_clean_7y_blocked() -> None:
         assert payload["source_summaries"]["universe_recovery_candidate_readiness_status"] == "candidate_readiness_pass", payload
         assert payload["source_summaries"]["ready_for_clean_7y_substrate_repair_review"] is True, payload
         assert payload["source_summaries"]["universe_recovery_candidate_row_count"] == 650, payload
+        assert payload["production_promotion_allowed"] is False, payload
         out = root / "out"
         write_outputs(payload, out)
         report = (out / "report.md").read_text(encoding="utf-8")
@@ -318,6 +322,7 @@ def test_outputs_are_written() -> None:
         report = (out / "report.md").read_text(encoding="utf-8")
         assert "Clean 7Y Research Readiness" in report
         assert "official_promotion" in report
+        assert "production promotion allowed: `False`" in report
 
 
 if __name__ == "__main__":
