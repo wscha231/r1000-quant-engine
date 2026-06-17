@@ -19,6 +19,11 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_csv(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = sorted({key for row in rows for key in row})
@@ -76,6 +81,13 @@ def test_universe_health_allows_broad_r1000_base() -> None:
         payload = run_audit(root, latest)
         assert payload["status"] == "pass"
         assert payload["verdict_code"] == "PASS"
+        assert payload["review_only"] is True
+        assert payload["canonical_production_sync"] is False
+        assert payload["production_mutation_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
+        assert payload["promotion_allowed_scope"] == "universe_substrate_health_only"
+        assert payload["live_trading_enabled"] is False
+        assert payload["human_approval_required"] is True
         assert payload["promotion_allowed"] is True
         assert payload["hard_fail_before_expensive_rebuild"] is False
         assert payload["monthly_universe_health_pass"] is True
@@ -84,8 +96,44 @@ def test_universe_health_allows_broad_r1000_base() -> None:
         assert payload["r1000_base_count"] == 450
         assert (root / "audit" / "universe_health" / "universe_source_audit.json").exists()
         assert (root / "audit" / "universe_health" / "universe_fallback_decision.md").exists()
+        assert (root / "audit" / "universe_health" / "scored_row_count_by_date.csv").exists()
         assert (root / "audit" / "universe_health" / "universe_membership_by_month.csv").exists()
         assert (root / "audit" / "universe_health" / "tradeable_universe_by_month.csv").exists()
+        assert (root / "audit" / "universe_health" / "iwb_fetch_status.json").exists()
+        assert (root / "audit" / "universe_health" / "iwd_iwb_fetch_status.json").exists()
+        scored_rows = load_csv(root / "audit" / "universe_health" / "scored_row_count_by_date.csv")
+        assert scored_rows
+        assert {
+            "date",
+            "r1000_base_count",
+            "scored_count",
+            "candidate_count",
+            "price_coverage_pct",
+            "fundamental_coverage_pct",
+            "universe_source",
+            "fallback_used",
+            "promotion_allowed",
+        }.issubset(scored_rows[0])
+        monthly_rows = load_csv(root / "audit" / "universe_health" / "universe_membership_by_month.csv")
+        assert monthly_rows
+        assert {
+            "date",
+            "membership_count",
+            "scored_count",
+            "tradeable_count",
+            "price_coverage_pct",
+            "fundamental_coverage_pct",
+            "survivorship_status",
+            "delisted_coverage",
+            "ticker_change_coverage",
+            "promotion_allowed",
+        }.issubset(monthly_rows[0])
+        fallback_status = load_json(root / "audit" / "universe_health" / "iwb_fetch_status.json")
+        assert "live_iwb_fetch_status" in fallback_status
+        assert "restored_drive_iwb" in fallback_status
+        assert "previous_healthy_universe_cache" in fallback_status
+        assert "static_iwb_seed" in fallback_status
+        assert "historical_universe_membership" in fallback_status
 
 
 def test_universe_health_blocks_starved_universe() -> None:
@@ -133,6 +181,14 @@ def test_universe_health_blocks_starved_universe() -> None:
         assert "recommended_recovery_source" in decision
         summary = load_json(root / "audit" / "universe_health" / "summary.json")
         assert summary["production_mutation_allowed"] is False
+        assert summary["review_only"] is True
+        assert summary["production_promotion_allowed"] is False
+        assert summary["live_trading_enabled"] is False
+        assert summary["human_approval_required"] is True
+        assert summary["promotion_allowed_scope"] == "universe_substrate_health_only"
+        decision = (root / "audit" / "universe_health" / "universe_fallback_decision.md").read_text(encoding="utf-8")
+        assert "review_only: `true`" in decision
+        assert "production_promotion_allowed: `false`" in decision
 
 
 def test_universe_health_distinguishes_available_fallback_from_used_fallback() -> None:
