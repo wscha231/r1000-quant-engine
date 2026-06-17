@@ -872,17 +872,22 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "human_approval_required",
         "source_of_truth_level",
         "tools/build_daily_user_current_contract.py",
+        "tools/check_proxy_10y_robustness.py",
         "tools/evidence_policy.py",
         "tools/check_clean_7y_research_readiness.py",
         "outputs/evidence_policy/",
         "outputs/clean_7y_research_readiness/",
+        "outputs/proxy_10y_robustness/",
         "outputs/user_current/02_target_weights.csv",
         "outputs/user_current/03_order_preview.csv",
         "outputs/user_current/08_rebalance_decision.json",
         "outputs/user_current/DAILY_REVIEW_ONLY.md",
         "outputs/full_rebuild_logs/daily_user_current_contract.log",
+        "outputs/full_rebuild_logs/daily_user_current_contract_final.log",
+        "outputs/full_rebuild_logs/daily_user_current_report_final.log",
         "outputs/full_rebuild_logs/evidence_policy.log",
         "outputs/full_rebuild_logs/clean_7y_research_readiness.log",
+        "outputs/full_rebuild_logs/proxy_10y_robustness.log",
         "STRICT_SELECTION",
         "outputs/full_rebuild_logs/data_freshness_contract.log",
         "daily-operating-selection-refresh-${{ github.run_id }}",
@@ -898,6 +903,12 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/run_broker_ledger_replay.py",
     ]:
         assert forbidden not in text, forbidden
+    proxy_idx = text.index("outputs/full_rebuild_logs/proxy_10y_robustness.log")
+    evidence_idx = text.index("outputs/full_rebuild_logs/evidence_policy.log")
+    clean7_idx = text.index("outputs/full_rebuild_logs/clean_7y_research_readiness.log")
+    final_current_idx = text.index("outputs/full_rebuild_logs/daily_user_current_report_final.log")
+    final_contract_idx = text.index("outputs/full_rebuild_logs/daily_user_current_contract_final.log")
+    assert proxy_idx < evidence_idx < clean7_idx < final_current_idx < final_contract_idx
 
 
 def main() -> int:
