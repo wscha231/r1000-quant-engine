@@ -528,13 +528,14 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         for row in rows_by_month
         if not bool(row.get("promotion_allowed")) and str(row.get("month") or row.get("date") or "").strip()
     ]
+    monthly_universe_health_pass = bool(rows_by_month) and not monthly_failures
     promotion_allowed = bool(
         args.universe_mode == "adr"
         or (
             r1000_base_count >= int(args.min_r1000_base)
             and scored_count >= int(args.min_r1000_base)
             and not source_unclear
-            and not monthly_failures
+            and monthly_universe_health_pass
         )
     )
     status = "pass" if promotion_allowed else "invalid_universe"
@@ -553,6 +554,15 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         )
     if args.universe_mode != "adr" and source_unclear:
         blockers.append("universe source is missing or unclear")
+    if args.universe_mode != "adr" and not rows_by_month:
+        blockers.append("monthly universe health is missing")
+    if args.universe_mode != "adr" and rows_by_month and not monthly_failures:
+        undated_only = all(not str(row.get("month") or row.get("date") or "").strip() for row in rows_by_month)
+        if undated_only:
+            blockers.append("monthly universe health has no dated months")
+            monthly_universe_health_pass = False
+            promotion_allowed = False
+            status = "invalid_universe"
     if args.universe_mode != "adr" and monthly_failures:
         sample = ", ".join(
             str(row.get("month") or row.get("date")) for row in monthly_failures[:6]
@@ -599,7 +609,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "min_monthly_membership_count": min((int(row.get("membership_count") or 0) for row in rows_by_month), default=0),
         "min_monthly_scored_count": min((int(row.get("scored_count") or 0) for row in rows_by_month), default=0),
         "min_monthly_tradeable_count": min((int(row.get("tradeable_count") or 0) for row in rows_by_month), default=0),
-        "monthly_universe_health_pass": bool(not monthly_failures and bool(rows_by_month)),
+        "monthly_universe_health_pass": monthly_universe_health_pass,
         "primary_universe_source": primary_source,
         "source_unclear": source_unclear,
         "fallback_used": fallback_used,

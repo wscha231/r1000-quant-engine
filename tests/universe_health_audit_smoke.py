@@ -136,6 +136,40 @@ def test_universe_health_allows_broad_r1000_base() -> None:
         assert "historical_universe_membership" in fallback_status
 
 
+def test_universe_health_blocks_undated_broad_universe() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        reports = latest / "reports"
+        reports.mkdir(parents=True)
+        rows = [
+            {
+                "ticker": f"T{i:04d}",
+                "universe_source": "current_constituents_proxy_static_seed",
+                "cik10": f"{i:010d}",
+            }
+            for i in range(450)
+        ]
+        write_csv(latest / "scored_latest.csv", rows)
+        write_csv(
+            reports / "candidate_replay_book.csv",
+            [
+                {
+                    "ticker": f"T{i:04d}",
+                    "universe_source": "current_constituents_proxy_static_seed",
+                }
+                for i in range(470)
+            ],
+        )
+
+        payload = run_audit(root, latest)
+        assert payload["status"] == "invalid_universe"
+        assert payload["promotion_allowed"] is False
+        assert payload["monthly_universe_health_pass"] is False
+        assert payload["hard_fail_before_expensive_rebuild"] is True
+        assert "monthly universe health has no dated months" in payload["blockers"]
+
+
 def test_universe_health_blocks_starved_universe() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -262,6 +296,7 @@ def test_universe_health_blocks_unclear_source_even_when_count_is_broad() -> Non
 
 if __name__ == "__main__":
     test_universe_health_allows_broad_r1000_base()
+    test_universe_health_blocks_undated_broad_universe()
     test_universe_health_blocks_starved_universe()
     test_universe_health_distinguishes_available_fallback_from_used_fallback()
     test_universe_health_blocks_unclear_source_even_when_count_is_broad()
