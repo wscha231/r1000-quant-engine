@@ -33,7 +33,11 @@ def write_candidate(root: Path, tickers: list[str]) -> None:
                 "universe_source",
                 "recovery_source_path",
                 "review_only",
+                "canonical_production_sync",
                 "production_mutation_allowed",
+                "production_promotion_allowed",
+                "live_trading_enabled",
+                "human_approval_required",
             ],
         )
         writer.writeheader()
@@ -47,7 +51,11 @@ def write_candidate(root: Path, tickers: list[str]) -> None:
                     "universe_source": "committed_static_IWB_seed",
                     "recovery_source_path": "data_static/iwb_holdings_seed.csv",
                     "review_only": "True",
+                    "canonical_production_sync": "False",
                     "production_mutation_allowed": "False",
+                    "production_promotion_allowed": "False",
+                    "live_trading_enabled": "False",
+                    "human_approval_required": "True",
                 }
             )
     write_json(
@@ -92,11 +100,20 @@ def test_proxy_10y_universe_substrate_passes_review_only() -> None:
         assert payload["status"] == "proxy_10y_universe_ready", payload
         assert payload["pit_label"] == "pit_proxy_universe"
         assert payload["official_russell_1000"] is False
+        assert payload["review_only"] is True
+        assert payload["canonical_production_sync"] is False
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
         assert payload["production_mutation_allowed"] is False
+        assert payload["promotion_allowed_scope"] == "proxy_10y_universe_substrate_review_only"
+        assert payload["live_trading_enabled"] is False
+        assert payload["human_approval_required"] is True
         assert payload["ready_for_proxy_10y_rebuild_review"] is True
         assert len(rows) == 3
         assert all(row["proxy_month_pass"] for row in rows)
+        assert all(row["review_only"] is True for row in rows)
+        assert all(row["canonical_production_sync"] is False for row in rows)
+        assert all(row["production_promotion_allowed"] is False for row in rows)
 
         out = root / "out"
         write_outputs(payload, rows, out)
@@ -147,8 +164,41 @@ def test_proxy_10y_universe_substrate_requires_candidate_readiness() -> None:
         assert payload["allowed_uses"] == ["diagnostics"]
 
 
+def test_proxy_10y_universe_substrate_blocks_unsafe_candidate_rows() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        tickers = ["AAA", "BBB", "CCC", "DDD", "EEE"]
+        write_candidate(root, tickers)
+        candidate_csv = root / "universe_recovery_candidate" / "candidate_universe_recovery.csv"
+        rows = list(csv.DictReader(candidate_csv.open("r", encoding="utf-8")))
+        rows[0]["canonical_production_sync"] = "True"
+        rows[1]["production_promotion_allowed"] = "True"
+        rows[2]["live_trading_enabled"] = "True"
+        rows[3]["human_approval_required"] = "False"
+        with candidate_csv.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        for ticker in [*tickers, "SPY", "QQQ", "SMH", "SOXX"]:
+            write_price(root / "cache_prices", ticker)
+
+        payload, _rows = classify_proxy_10y_universe_substrate(
+            root,
+            price_cache=root / "cache_prices",
+            start_date="2016-08-26",
+            end_date="2016-10-31",
+            min_membership_count=5,
+        )
+        assert payload["status"] == "not_ready"
+        assert "candidate_rows_allow_canonical_production_sync:1" in payload["blockers"]
+        assert "candidate_rows_allow_production_promotion:1" in payload["blockers"]
+        assert "candidate_rows_allow_live_trading:1" in payload["blockers"]
+        assert "candidate_rows_missing_human_approval_required:1" in payload["blockers"]
+
+
 if __name__ == "__main__":
     test_proxy_10y_universe_substrate_passes_review_only()
     test_proxy_10y_universe_substrate_blocks_missing_benchmark()
     test_proxy_10y_universe_substrate_requires_candidate_readiness()
+    test_proxy_10y_universe_substrate_blocks_unsafe_candidate_rows()
     print("proxy_10y_universe_substrate_smoke: PASS")

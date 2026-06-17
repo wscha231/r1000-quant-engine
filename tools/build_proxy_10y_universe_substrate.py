@@ -58,6 +58,14 @@ def clean_ticker(value: Any) -> str:
     return ticker.replace("-", ".")
 
 
+def truthy(value: Any) -> bool:
+    return value is True or str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+
+def falsey(value: Any) -> bool:
+    return value is False or str(value).strip().lower() in {"false", "0", "no", "n"}
+
+
 def parse_date(value: Any) -> date | None:
     if value in (None, ""):
         return None
@@ -94,6 +102,31 @@ def read_candidate_rows(path: Path) -> list[dict[str, Any]]:
                 row["ticker"] = ticker
                 rows.append(dict(row))
         return rows
+
+
+def candidate_safety_issues(rows: list[dict[str, Any]]) -> list[str]:
+    counts = {
+        "candidate_rows_not_review_only": 0,
+        "candidate_rows_allow_canonical_production_sync": 0,
+        "candidate_rows_allow_production_mutation": 0,
+        "candidate_rows_allow_production_promotion": 0,
+        "candidate_rows_allow_live_trading": 0,
+        "candidate_rows_missing_human_approval_required": 0,
+    }
+    for row in rows:
+        if not truthy(row.get("review_only")):
+            counts["candidate_rows_not_review_only"] += 1
+        if not falsey(row.get("canonical_production_sync")):
+            counts["candidate_rows_allow_canonical_production_sync"] += 1
+        if not falsey(row.get("production_mutation_allowed")):
+            counts["candidate_rows_allow_production_mutation"] += 1
+        if not falsey(row.get("production_promotion_allowed")):
+            counts["candidate_rows_allow_production_promotion"] += 1
+        if not falsey(row.get("live_trading_enabled")):
+            counts["candidate_rows_allow_live_trading"] += 1
+        if not truthy(row.get("human_approval_required")):
+            counts["candidate_rows_missing_human_approval_required"] += 1
+    return [f"{key}:{value}" for key, value in counts.items() if value]
 
 
 def manifest_symbols(payload: dict[str, Any]) -> set[str]:
@@ -234,6 +267,7 @@ def classify_proxy_10y_universe_substrate(
         blockers.append(f"universe_recovery_candidate_status:{recovery.get('status') or 'missing'}")
     if recovery.get("status") == "candidate_ready" and recovery_readiness.get("status") != "candidate_readiness_pass":
         blockers.append(f"universe_recovery_candidate_readiness_status:{recovery_readiness.get('status') or 'missing'}")
+    blockers.extend(candidate_safety_issues(candidates))
     if len(tickers) < int(min_membership_count):
         blockers.append(f"candidate_membership_below_floor:{len(tickers)}<{int(min_membership_count)}")
     if not prices:
@@ -261,6 +295,12 @@ def classify_proxy_10y_universe_substrate(
                 "universe_source": recovery.get("recommended_recovery_source") or "review_only_recovery_candidate",
                 "pit_label": "pit_proxy_universe",
                 "official_russell_1000": False,
+                "review_only": True,
+                "canonical_production_sync": False,
+                "production_mutation_allowed": False,
+                "production_promotion_allowed": False,
+                "live_trading_enabled": False,
+                "human_approval_required": True,
                 "survivorship_status": "proxy_current_or_fallback_membership_replayed_back_in_time",
                 "delisted_coverage": "not_available_in_free_proxy",
                 "ticker_change_coverage": "not_available_in_free_proxy",
@@ -285,8 +325,11 @@ def classify_proxy_10y_universe_substrate(
         "pit_label": "pit_proxy_universe",
         "official_russell_1000": False,
         "review_only": True,
+        "canonical_production_sync": False,
         "production_mutation_allowed": False,
+        "production_promotion_allowed": False,
         "promotion_allowed": False,
+        "promotion_allowed_scope": "proxy_10y_universe_substrate_review_only",
         "live_trading_enabled": False,
         "human_approval_required": True,
         "ready_for_proxy_10y_rebuild_review": status == "proxy_10y_universe_ready",
@@ -337,8 +380,14 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "tradeable_count_proxy",
         "universe_source",
         "pit_label",
-        "official_russell_1000",
-        "survivorship_status",
+            "official_russell_1000",
+            "review_only",
+            "canonical_production_sync",
+            "production_mutation_allowed",
+            "production_promotion_allowed",
+            "live_trading_enabled",
+            "human_approval_required",
+            "survivorship_status",
         "delisted_coverage",
         "ticker_change_coverage",
         "promotion_allowed",
@@ -359,7 +408,13 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- evidence_label: `{payload.get('evidence_label')}`",
         f"- pit_label: `{payload.get('pit_label')}`",
         f"- official_russell_1000: `{payload.get('official_russell_1000')}`",
+        f"- review_only: `{payload.get('review_only')}`",
+        f"- canonical_production_sync: `{payload.get('canonical_production_sync')}`",
         f"- production_mutation_allowed: `{payload.get('production_mutation_allowed')}`",
+        f"- production_promotion_allowed: `{payload.get('production_promotion_allowed')}`",
+        f"- promotion_allowed_scope: `{payload.get('promotion_allowed_scope')}`",
+        f"- live_trading_enabled: `{payload.get('live_trading_enabled')}`",
+        f"- human_approval_required: `{payload.get('human_approval_required')}`",
         f"- ready_for_proxy_10y_rebuild_review: `{payload.get('ready_for_proxy_10y_rebuild_review')}`",
         f"- month_count: `{payload.get('month_count')}`",
         f"- failed_month_count: `{payload.get('failed_month_count')}`",

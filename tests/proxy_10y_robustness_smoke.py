@@ -74,7 +74,9 @@ def seed_proxy_run(
             "evidence_label": "proxy_10y",
             "official_russell_1000": False,
             "review_only": True,
+            "canonical_production_sync": False,
             "promotion_allowed": False,
+            "production_promotion_allowed": False,
             "production_mutation_allowed": False,
             "live_trading_enabled": False,
             "human_approval_required": True,
@@ -135,13 +137,17 @@ def test_proxy_10y_robustness_requires_universe_safety_metadata() -> None:
         root = Path(tmp)
         seed_proxy_run(root)
         substrate = json.loads((root / "proxy_10y_universe_substrate" / "summary.json").read_text(encoding="utf-8"))
+        substrate["canonical_production_sync"] = True
         substrate["promotion_allowed"] = True
+        substrate["production_promotion_allowed"] = True
         substrate["live_trading_enabled"] = True
         substrate["human_approval_required"] = False
         write_json(root / "proxy_10y_universe_substrate" / "summary.json", substrate)
         payload = classify_proxy_10y_robustness(root)
         assert payload["proxy_10y_robustness_pass"] is False, payload
+        assert "proxy_10y_universe_canonical_sync_disabled" in payload["blockers"], payload
         assert "proxy_10y_universe_promotion_disabled" in payload["blockers"], payload
+        assert "proxy_10y_universe_production_promotion_disabled" in payload["blockers"], payload
         assert "proxy_10y_universe_live_trading_disabled" in payload["blockers"], payload
         assert "proxy_10y_universe_human_approval_required" in payload["blockers"], payload
 
