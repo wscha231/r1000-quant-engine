@@ -344,6 +344,7 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
     status_ok = payload.get("status") == "proxy_10y_robustness_pass"
     pass_flag = payload.get("proxy_10y_robustness_pass") is True
     promotion_disabled = payload.get("promotion_allowed") is False
+    production_promotion_disabled = payload.get("production_promotion_allowed") is False
     production_mutation_disabled = payload.get("production_mutation_allowed") is False
     live_trading_disabled = payload.get("live_trading_enabled") is False
     human_approval_required = payload.get("human_approval_required") is True
@@ -359,6 +360,7 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
         and label_is_proxy
         and not_official_r1000
         and promotion_disabled
+        and production_promotion_disabled
         and production_mutation_disabled
         and live_trading_disabled
         and human_approval_required
@@ -379,6 +381,8 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
         reasons.append("proxy_10y_official_russell_1000_not_false")
     if not promotion_disabled:
         reasons.append("proxy_10y_promotion_allowed_not_false")
+    if not production_promotion_disabled:
+        reasons.append("proxy_10y_production_promotion_allowed_not_false")
     if not production_mutation_disabled:
         reasons.append("proxy_10y_production_mutation_allowed_not_false")
     if not live_trading_disabled:

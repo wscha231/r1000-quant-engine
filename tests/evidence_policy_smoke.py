@@ -181,6 +181,7 @@ def proxy_10y_robustness_payload(
         "evidence_label": label,
         "official_russell_1000": official_russell_1000,
         "promotion_allowed": False,
+        "production_promotion_allowed": False,
         "production_mutation_allowed": False,
         "live_trading_enabled": False,
         "human_approval_required": True,
@@ -493,6 +494,7 @@ def test_proxy_10y_unsafe_metadata_is_not_tier3() -> None:
         seed_run(root, cash_trap_false=True)
         proxy = proxy_10y_robustness_payload()
         proxy["promotion_allowed"] = True
+        proxy["production_promotion_allowed"] = True
         proxy["live_trading_enabled"] = True
         write_json(root / "evidence_policy" / "proxy_10y_robustness.json", proxy)
 
@@ -500,6 +502,7 @@ def test_proxy_10y_unsafe_metadata_is_not_tier3() -> None:
         assert payload["tier"] == TIER1
         assert payload["proxy_10y_robustness_pass"] is False
         assert "proxy_10y_promotion_allowed_not_false" in payload["proxy_10y_reasons"]
+        assert "proxy_10y_production_promotion_allowed_not_false" in payload["proxy_10y_reasons"]
         assert "proxy_10y_live_trading_enabled_not_false" in payload["proxy_10y_reasons"]
 
 

@@ -109,6 +109,7 @@ def test_proxy_10y_robustness_passes_without_official_promotion() -> None:
         assert payload["evidence_label"] == "proxy_10y", payload
         assert payload["official_russell_1000"] is False, payload
         assert payload["promotion_allowed"] is False, payload
+        assert payload["production_promotion_allowed"] is False, payload
         assert "official_promotion" in payload["blocked_uses"], payload
 
 
