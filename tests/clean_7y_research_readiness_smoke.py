@@ -101,6 +101,7 @@ def seed_base(
             "canonical_production_sync": False,
             "human_approval_required": True,
             "valid_for_production": False,
+            "promotion_allowed": False,
             "production_promotion_allowed": False,
             "recommendation_status": "REVIEW_ONLY",
         },
@@ -125,6 +126,8 @@ def seed_base(
             "canonical_production_sync": False,
             "live_trading_enabled": False,
             "production_mutation_allowed": False,
+            "promotion_allowed": False,
+            "production_promotion_allowed": False,
             "human_approval_required": True,
         },
     )
@@ -137,6 +140,8 @@ def seed_base(
             "canonical_production_sync": False,
             "live_trading_enabled": False,
             "production_mutation_allowed": False,
+            "promotion_allowed": False,
+            "production_promotion_allowed": False,
             "human_approval_required": True,
         },
     )
