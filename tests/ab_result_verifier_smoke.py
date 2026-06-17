@@ -316,6 +316,52 @@ def test_verifier_blocks_clean_7y_candidate_without_readiness_artifact() -> None
         assert "clean_7y_research_readiness_missing" in row["issues"]
 
 
+def test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=7.50,
+            trading_days=1800,
+            target_pass=True,
+            strengthened_pass=True,
+            valid_for_production=False,
+            clean_7y_ready=False,
+        )
+        write_json(
+            candidate / "clean_7y_research_readiness" / "summary.json",
+            {
+                "status": "not_ready",
+                "ready_for_alpha_plane_ab_research": False,
+                "blockers": ["pre_broker_substrate_gate_blocked"],
+                "promotion_allowed": False,
+                "evidence_recovery": {
+                    "fallback_available": True,
+                    "recommended_recovery_source": "committed_static_IWB_seed",
+                    "recommended_recovery_reason": "static seed is available above floor",
+                    "recovery_action": "repair_universe_from_fallback",
+                },
+            },
+        )
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked"
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_clean_7y_readiness"
+        assert row["clean_7y_recovery_source"] == "committed_static_IWB_seed"
+        assert row["clean_7y_recovery_action"] == "repair_universe_from_fallback"
+        report = (root / "out" / "report.md").read_text(encoding="utf-8")
+        assert "repair_universe_from_fallback via committed_static_IWB_seed" in report
+        csv_text = (root / "out" / "candidate_verdicts.csv").read_text(encoding="utf-8")
+        assert "clean_7y_recovery_source" in csv_text
+        assert "committed_static_IWB_seed" in csv_text
+
+
 def test_verifier_blocks_missing_acceptance_evidence() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -415,6 +461,7 @@ if __name__ == "__main__":
     test_verifier_measures_clean_short_7y_candidate_without_promotion()
     test_verifier_rejects_dirty_short_7y_as_do_not_use()
     test_verifier_blocks_clean_7y_candidate_without_readiness_artifact()
+    test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked()
     test_verifier_blocks_missing_acceptance_evidence()
     test_verifier_blocks_missing_oos_lock_evidence()
     test_verifier_blocks_failed_oos_lock()
