@@ -23,6 +23,12 @@ SUBSTRATE_EVIDENCE_FILES = [
     "proxy_10y_universe_substrate/report.md",
     "proxy_10y_universe_substrate/proxy_universe_membership_by_month.csv",
 ]
+EVIDENCE_TIER_REVIEW_FILES = [
+    "clean_7y_research_readiness/summary.json",
+    "clean_7y_research_readiness/report.md",
+    "proxy_10y_robustness/summary.json",
+    "proxy_10y_robustness/report.md",
+]
 SUBSTRATE_RESEARCH_FILES = [
     "universe_recovery_candidate/candidate_universe_recovery.csv",
     "universe_recovery_candidate_readiness/missing_price_tickers.csv",
@@ -66,6 +72,11 @@ def seed_latest_run(root: Path) -> Path:
             write(latest / rel, "# Review-only substrate evidence\n")
         else:
             write(latest / rel, json.dumps({"production_mutation_allowed": False}) + "\n")
+    for rel in EVIDENCE_TIER_REVIEW_FILES:
+        if rel.endswith(".md"):
+            write(latest / rel, "# Evidence tier review\n")
+        else:
+            write(latest / rel, json.dumps({"promotion_allowed": False}) + "\n")
     for rel in SUBSTRATE_RESEARCH_FILES:
         write(latest / rel, "ticker\nAAA\n")
     return latest
@@ -88,6 +99,12 @@ def test_minimal_manifest_includes_review_only_substrate_evidence() -> None:
             assert row["semantic_type"] == "substrate_evidence_review"
             assert row["production_valid"] is False
             assert row["destination"].startswith("substrate_evidence/123456/")
+        for rel in EVIDENCE_TIER_REVIEW_FILES:
+            row = entries[rel]
+            assert row["exists"] is True
+            assert row["semantic_type"] == "evidence_tier_review"
+            assert row["production_valid"] is False
+            assert row["destination"].startswith("evidence_review/123456/")
         for rel in SUBSTRATE_RESEARCH_FILES:
             assert rel not in entries
 
@@ -102,6 +119,11 @@ def test_research_manifest_includes_supporting_substrate_csvs() -> None:
         for rel in SUBSTRATE_EVIDENCE_FILES:
             row = entries[rel]
             assert row["semantic_type"] == "substrate_evidence_review"
+            assert row["production_valid"] is False
+            assert row["metric_mode"] == ""
+        for rel in EVIDENCE_TIER_REVIEW_FILES:
+            row = entries[rel]
+            assert row["semantic_type"] == "evidence_tier_review"
             assert row["production_valid"] is False
             assert row["metric_mode"] == ""
         for rel in SUBSTRATE_RESEARCH_FILES:
