@@ -37,6 +37,7 @@ except Exception:  # pragma: no cover - smoke fallback
         "concentrated": {"is_cagr_min": 0.30},
     }
 
+from tools.evidence_policy import TIER0, TIER1, TIER2, TIER3, TIER4, classify_evidence  # noqa: E402
 
 OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 MIN_BROKER_LEDGER_YEARS = 8.0
@@ -151,6 +152,7 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     oos_window = windows.get("oos") if isinstance(windows.get("oos"), dict) else {}
     window_gate = row.get("broker_ledger_window_gate") if isinstance(row.get("broker_ledger_window_gate"), dict) else {}
     mode = str(row.get("official_metric_mode") or broker.get("metric_mode") or official.get("official_metric_mode") or "")
+    evidence = classify_evidence(run_dir)
     years = safe_float(row.get("years"), safe_float(broker.get("years")))
     trading_days = safe_int(
         row.get("broker_ledger_actual_trading_days"),
@@ -180,6 +182,15 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "oos_lock_path": str(oos_lock_path),
         "oos_lock_exists": oos_lock_path.exists(),
         "official_metric_mode": mode,
+        "evidence_tier": evidence.get("tier"),
+        "evidence_label": evidence.get("evidence_label"),
+        "evidence_allowed_uses": list(evidence.get("allowed_uses") or []),
+        "evidence_blocked_uses": list(evidence.get("blocked_uses") or []),
+        "evidence_reasons": list(evidence.get("reasons") or []),
+        "evidence_tier0_blockers": list(evidence.get("tier0_blockers") or []),
+        "research_ab_allowed": bool(evidence.get("research_ab_allowed")),
+        "ready_for_human_review_allowed": bool(evidence.get("ready_for_human_review_allowed")),
+        "evidence_promotion_allowed": bool(evidence.get("promotion_allowed")),
         "status": row.get("status") or broker.get("status") or "missing",
         "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production", False))),
         "target_pass": target_pass,
@@ -255,7 +266,10 @@ def classify_candidate(
         return "invalid_official_metrics", [f"official_metric_mode:{candidate.get('official_metric_mode') or 'missing'}"]
     if candidate.get("system_acceptance_production_activation_allowed") is True:
         return "reject_unsafe_production_activation", ["system_acceptance_production_activation_allowed_true"]
-    if not window_is_valid(candidate):
+    evidence_tier = str(candidate.get("evidence_tier") or "")
+    if evidence_tier == TIER0:
+        return "do_not_use_evidence_tier", list(candidate.get("evidence_tier0_blockers") or ["tier0_do_not_use"])
+    if evidence_tier not in {TIER1, TIER2, TIER3, TIER4} and not window_is_valid(candidate):
         issues.append("eight_year_window_not_valid")
         if (safe_float(candidate.get("years"), 0.0) or 0.0) < MIN_BROKER_LEDGER_YEARS:
             issues.append("broker_ledger_years_below_8")
@@ -299,6 +313,13 @@ def classify_candidate(
     if regression_issues:
         return "reject_regression", regression_issues
 
+    if evidence_tier == TIER1:
+        return "measured_research_7y", []
+    if evidence_tier == TIER2:
+        return "ready_for_human_review", []
+    if evidence_tier == TIER3:
+        return "robust_candidate_review_only", []
+
     if require_evidence:
         missing = []
         if not candidate.get("system_acceptance_exists"):
@@ -339,15 +360,17 @@ def classify_candidate(
                 f"hard_blocker_count:{hard_blockers}",
             ]
 
-    return "promote_candidate_review_only", []
+    return "promote_candidate_review_only" if evidence_tier == TIER4 else "robust_candidate_review_only", []
 
 
 def verdict_rank(decision: str) -> int:
-    if decision == "promote_candidate_review_only":
+    if decision in {"promote_candidate_review_only", "robust_candidate_review_only", "ready_for_human_review"}:
         return 0
-    if decision.startswith("blocked"):
+    if decision == "measured_research_7y":
         return 1
-    return 2
+    if decision.startswith("blocked"):
+        return 2
+    return 3
 
 
 def build_candidate_row(
@@ -378,6 +401,7 @@ def build_candidate_row(
         "decision": decision,
         "issues": issues,
         "review_valid_for_promotion": decision == "promote_candidate_review_only",
+        "ready_for_human_review": decision in {"ready_for_human_review", "robust_candidate_review_only", "promote_candidate_review_only"},
         "requires_user_approval": True,
         "production_activation_allowed": False,
         "baseline_run_label": baseline.get("run_label"),
@@ -398,13 +422,14 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- requires_user_approval: `{str(payload.get('requires_user_approval')).lower()}`",
         f"- baseline: `{baseline.get('run_label')}` ({pct(baseline.get('cagr'))} / {pct(baseline.get('max_dd'))}, IS {pct(baseline.get('is_cagr'))})",
         "",
-        "| Candidate | Decision | CAGR | MDD | IS-CAGR | OOS/IS | CAGR vs Base | IS vs Base | MDD vs Base | Issues |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Candidate | Tier | Decision | CAGR | MDD | IS-CAGR | OOS/IS | CAGR vs Base | IS vs Base | MDD vs Base | Issues |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for row in payload.get("candidates") or []:
         lines.append(
-            "| {run} | `{decision}` | {cagr} | {mdd} | {is_cagr} | {oos_ratio} | {dcagr}pp | {dis}pp | {dmdd}pp | {issues} |".format(
+            "| {run} | `{tier}` | `{decision}` | {cagr} | {mdd} | {is_cagr} | {oos_ratio} | {dcagr}pp | {dis}pp | {dmdd}pp | {issues} |".format(
                 run=row.get("run_label"),
+                tier=row.get("evidence_tier") or "",
                 decision=row.get("decision"),
                 cagr=pct(row.get("cagr")),
                 mdd=pct(row.get("max_dd")),
@@ -439,7 +464,10 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "candidate_run",
         "run_label",
         "decision",
+        "evidence_tier",
+        "evidence_label",
         "review_valid_for_promotion",
+        "ready_for_human_review",
         "cagr",
         "max_dd",
         "is_cagr",
@@ -519,6 +547,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         status = "blocked_missing_baseline"
     elif any(decision == "promote_candidate_review_only" for decision in decisions):
         status = "review_candidate_ready"
+    elif any(decision in {"ready_for_human_review", "robust_candidate_review_only"} for decision in decisions):
+        status = "human_review_candidate_ready"
+    elif any(decision == "measured_research_7y" for decision in decisions):
+        status = "measured_research_7y"
     elif any(decision.startswith("blocked") for decision in decisions):
         status = "blocked"
     else:

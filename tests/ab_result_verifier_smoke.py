@@ -38,6 +38,9 @@ def seed_run(
     oos_lock: bool = True,
     oos_lock_pass: bool = True,
     oos_is_ratio: float = 1.8,
+    data_ready: bool = True,
+    universe_count: int = 650,
+    cash_trap_false: bool = True,
 ) -> None:
     row = {
         "portfolio": "concentrated",
@@ -86,6 +89,32 @@ def seed_run(
             "years": years,
             "days": trading_days,
             "windows": {"is": {"cagr": is_cagr}, "oos": {"cagr": 0.55}},
+        },
+    )
+    write_json(
+        root / "data_readiness" / "summary.json",
+        {
+            "status": "ready" if data_ready else "blocked",
+            "ready_for_policy_replay": data_ready,
+            "ready_for_fullrun": data_ready,
+            "free_data_coverage": {"known_gaps": []},
+        },
+    )
+    write_json(
+        root / "universe_health" / "universe_source_audit.json",
+        {
+            "status": "ready" if universe_count >= 400 else "INVALID_UNIVERSE",
+            "promotion_allowed": universe_count >= 400,
+            "r1000_base_count": universe_count,
+            "min_r1000_base": 400,
+        },
+    )
+    write_json(
+        root / "cash_reentry_quality" / "summary.json",
+        {
+            "status": "completed",
+            "cash_trap_flag": not cash_trap_false,
+            "cash_trap_rows": 0 if cash_trap_false else 3,
         },
     )
     write_json(
@@ -195,7 +224,7 @@ def test_verifier_rejects_is_cagr_regression_even_if_headline_passes() -> None:
         assert any("is_cagr_delta_below_min" in issue for issue in row["issues"])
 
 
-def test_verifier_invalidates_short_candidate_window() -> None:
+def test_verifier_measures_clean_short_7y_candidate_without_promotion() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         baseline = root / "baseline"
@@ -213,10 +242,39 @@ def test_verifier_invalidates_short_candidate_window() -> None:
             valid_for_production=False,
         )
         payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "measured_research_7y"
+        row = payload["candidates"][0]
+        assert row["decision"] == "measured_research_7y"
+        assert row["evidence_tier"] == "1_research_7y"
+        assert row["review_valid_for_promotion"] is False
+        assert row["production_activation_allowed"] is False
+
+
+def test_verifier_rejects_dirty_short_7y_as_do_not_use() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=7.50,
+            trading_days=1800,
+            target_pass=True,
+            strengthened_pass=True,
+            valid_for_production=False,
+            data_ready=False,
+            universe_count=259,
+        )
+        payload = run(args(baseline, [candidate], root / "out"))
         assert payload["status"] == "rejected"
         row = payload["candidates"][0]
-        assert row["decision"] == "invalid_window"
-        assert "broker_ledger_years_below_8" in row["issues"]
+        assert row["decision"] == "do_not_use_evidence_tier"
+        assert row["evidence_tier"] == "0_do_not_use"
+        assert any("data_readiness" in issue for issue in row["issues"])
 
 
 def test_verifier_blocks_missing_acceptance_evidence() -> None:
@@ -315,7 +373,8 @@ def test_verifier_carries_dispatch_context_for_queue_closure() -> None:
 if __name__ == "__main__":
     test_verifier_marks_clean_candidate_review_promotable()
     test_verifier_rejects_is_cagr_regression_even_if_headline_passes()
-    test_verifier_invalidates_short_candidate_window()
+    test_verifier_measures_clean_short_7y_candidate_without_promotion()
+    test_verifier_rejects_dirty_short_7y_as_do_not_use()
     test_verifier_blocks_missing_acceptance_evidence()
     test_verifier_blocks_missing_oos_lock_evidence()
     test_verifier_blocks_failed_oos_lock()

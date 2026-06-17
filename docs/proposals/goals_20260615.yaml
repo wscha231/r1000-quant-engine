@@ -137,7 +137,7 @@ metadata:
         max_dd: -0.2581903349486949
         is_cagr: 0.21647722009605275
         oos_is_ratio: 5.988360241268193
-      rule: "Do not run T3/recovery A/B or promote any result until universe health, data readiness, and 8-year broker-ledger window pass."
+      rule: "Do not run T3/recovery A/B from Tier 0 evidence. Clean Tier 1 7-year broker-ledger evidence is valid for research/A-B; promotion requires Tier 3/4 or explicit user-approved alternative evidence."
 
 mission:
   source: CLAUDE.md
@@ -150,7 +150,7 @@ mission:
       cagr: 0.50
       max_dd: -0.25
   metric_mode: broker_ledger_next_close
-  window_years_required: 8.0
+  official_promotion_window_years_required: 8.0
   primary_quality_anchor: IS-CAGR and Tier-2 strengthened gates
   target_contract_conflict:
     status: unresolved_user_decision_required
@@ -161,7 +161,13 @@ mission:
       main: "30% CAGR / -25% MaxDD"
       concentrated: "50% CAGR / -28% MaxDD"
     rule: "Do not mutate or describe official mission gates as changed until the user explicitly approves a target-contract change."
-  evidence_caveat: "8-year coverage is an official-promotion evidence gate, not an alpha lever. IS-CAGR recovery must be measured separately from data-window expansion."
+  evidence_caveat: "8-year coverage is an official-promotion evidence gate, not an alpha lever. Clean 7-year broker-ledger evidence may drive Alpha Plane audit/A-B research; Tier 0 evidence may not. IS-CAGR recovery must be measured separately from data-window expansion."
+  evidence_tiers:
+    tier0_do_not_use: "data_readiness=false, starved universe, missing official broker metric, invalid current/order preview, or legacy/proxy-only metric"
+    tier1_research_7y: "clean 7-year broker_ledger_next_close, data readiness pass, universe healthy; audit/A-B only"
+    tier2_operating_candidate: "Tier 1 plus stable daily refresh, valid current/target/order preview, and cash_trap=false; ready_for_human_review only"
+    tier3_robust_candidate: "clean 8-year official or clean 7-year plus proxy_10y robustness pass; proxy_10y remains proxy-labelled"
+    tier4_official_promotion: "8-year official or user-approved alternative evidence contract plus IS/OOS, CAGR/MDD, cash trap, and human approval"
 
 strategic_goals:
   - id: SG-2026Q3-01
@@ -391,8 +397,8 @@ tactical_goals:
         target: promote_candidate_review_only
         source: "tools/run_ab_result_verifier.py output"
     failure_criteria:
-      - "candidate source run has invalid_window, INVALID_UNIVERSE, or data_readiness blocked"
-      - "candidate starts before universe health and 8-year broker-ledger evidence pass"
+      - "candidate source run is Tier 0, INVALID_UNIVERSE, or data_readiness blocked"
+      - "candidate is promoted before Tier 3/4 evidence or user-approved alternative evidence contract"
       - "candidate has any system_acceptance hard blocker"
       - "candidate increases OOS/IS ratio above 3.0x"
       - "candidate worsens MDD below -0.25 even if CAGR improves"
@@ -453,7 +459,7 @@ operational_goals:
     deadline: "2026-06-16T23:00:00+09:00"
     success_kpi: "universe_health promotion_allowed=true and eight_year_backtest_readiness artifact lists window_ready true or exact blockers"
     failure: "bootstrap cannot restore price/universe data to 2018-06-12"
-    fallback_on_failure: "Keep all results labelled non-official; do not run recovery A/B from invalid universe/window evidence."
+    fallback_on_failure: "Keep all results labelled non-official; do not run recovery A/B from Tier 0 evidence."
 
   - id: OG-8Y-OFFICIAL-REBUILD
     action: "Dispatch full_rebuild_8y_official_after_data_bootstrap only after universe_health, data_readiness, and OG-8Y-BOOTSTRAP pass."
@@ -461,7 +467,7 @@ operational_goals:
     deadline: "2026-06-18T23:00:00+09:00"
     success_kpi: "system_acceptance_audit status is production_evidence_ready or lists non-window blockers, with official broker-ledger evidence artifact uploaded"
     failure: "workflow command is run before universe/data substrate dependency is complete"
-    fallback_on_failure: "Invalidate the run for goal-setting evidence, stop A/B, and rerun after universe/data substrate repair."
+    fallback_on_failure: "Classify the run with evidence_policy; Tier 0 stops A/B, while clean Tier 1 may remain a research baseline."
 
   - id: OG-QUEUE-HEALTH
     action: "Add duplicate/stale payload checks to self-correction router and system acceptance."
@@ -480,7 +486,7 @@ operational_goals:
     fallback_on_failure: "Keep era challenger as diagnostics only and do not run promotion review."
 
   - id: OG-CONC-AB-BULL-FLOOR
-    action: "Re-run or confirm Concentrated bull-floor stock-min A/B after official 8-year rebuild."
+    action: "Re-run or confirm Concentrated bull-floor stock-min A/B from clean Tier 1+ evidence; require Tier 3/4 before promotion review."
     owner: dispatcher
     deadline: "2026-06-26T23:00:00+09:00"
     success_kpi: "run_ab_result_verifier returns partial_pass_or_better and Concentrated MDD does not worsen beyond canonical -25%"
@@ -488,7 +494,7 @@ operational_goals:
     fallback_on_failure: "Reject and mark measured; do not repeat same payload."
 
   - id: OG-CONC-AB-CONTINUATION
-    action: "Run continuation-winner / leader-hysteresis A/B after official 8-year rebuild."
+    action: "Run continuation-winner / leader-hysteresis A/B from clean Tier 1+ evidence; require Tier 3/4 before promotion review."
     owner: dispatcher
     deadline: "2026-06-26T23:00:00+09:00"
     success_kpi: "candidate improves Conc IS-CAGR with OOS/IS <= 3.0x, median_holding_days >= 60, pct_held_180d_plus >= 15%, and no MDD degradation"
@@ -496,7 +502,7 @@ operational_goals:
     fallback_on_failure: "Reject and mark measured; do not promote."
 
   - id: OG-CONC-AB-REPLACEMENT-CAP
-    action: "Wire and measure hard replacement-cap A/B after valid 8-year substrate and entry/exit audit evidence."
+    action: "Wire and measure hard replacement-cap A/B after clean Tier 1+ substrate and entry/exit audit evidence."
     owner: dispatcher
     deadline: "2026-06-26T23:00:00+09:00"
     success_kpi: "turnover and premature_sell_candidates fall without CAGR/MDD degradation; main replacements <= 5 and concentrated replacements <= 2 per rebalance"
@@ -504,7 +510,7 @@ operational_goals:
     fallback_on_failure: "Reject and keep replacement caps disabled or review-only."
 
   - id: OG-CONC-AB-REENTRY
-    action: "Run reentry-quality A/B after official 8-year rebuild."
+    action: "Run reentry-quality A/B from clean Tier 1+ evidence."
     owner: dispatcher
     deadline: "2026-06-27T23:00:00+09:00"
     success_kpi: "reentry_lag <= 20 trading days, rebound_capture >= 0.60, false_rally_loss controlled, and Conc IS-CAGR improves"
@@ -512,7 +518,7 @@ operational_goals:
     fallback_on_failure: "Reject and route to crisis/reentry diagnostic review."
 
   - id: OG-CONC-AB-THEME
-    action: "Run theme-leadership boost A/B after official 8-year rebuild."
+    action: "Run theme-leadership boost A/B from clean Tier 1+ evidence."
     owner: dispatcher
     deadline: "2026-06-27T23:00:00+09:00"
     success_kpi: "candidate improves Concentrated CAGR and per-era attribution explains the gain"
@@ -520,7 +526,7 @@ operational_goals:
     fallback_on_failure: "Reject and route to era model design review."
 
   - id: OG-CONC-AB-CAP
-    action: "Run concentration-cap relaxation A/B after official 8-year rebuild."
+    action: "Run concentration-cap relaxation A/B from clean Tier 1+ evidence."
     owner: dispatcher
     deadline: "2026-06-27T23:00:00+09:00"
     success_kpi: "candidate reaches 50% CAGR without MDD worse than -25%"
@@ -540,7 +546,7 @@ risk_register:
     description: "8-year bootstrap cannot prove PIT-safe universe and price coverage back to 2018-06-12."
     likelihood: medium
     impact: high
-    mitigation: "Keep all sub-8-year metrics non-official; run research A/B only with explicit label and no promotion."
+    mitigation: "Keep all sub-8-year metrics non-official; clean 7-year metrics may be Tier 1 research, while dirty or blocked runs remain Tier 0."
   - risk_id: R-2
     description: "Bull-floor improves headline CAGR by adding OOS exposure but leaves IS-CAGR near 21%."
     likelihood: medium
@@ -572,7 +578,7 @@ anti_goals:
   - "Do not add live broker order automation."
   - "Do not auto-edit adr_universe.yaml from scanner output."
   - "Do not add selection, sizing, cash, or risk rules to compensate for missing data."
-  - "Do not run T3, recovery, reentry, theme, cap, or era A/B from invalid_window or INVALID_UNIVERSE evidence."
+  - "Do not run T3, recovery, reentry, theme, cap, or era A/B from Tier 0 evidence. Clean Tier 1 7-year evidence is valid research but not promotion."
   - "Do not add feature columns without PHASE_*_COLUMNS and keep_cols survival tests."
 
 acceptance_protocol:

@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
+from tools.evidence_policy import classify_evidence  # noqa: E402
 
 
 HORIZONS: list[tuple[str, pd.DateOffset | None, bool]] = [
@@ -742,7 +743,9 @@ def render_action_summary(
     cash: dict[str, Any],
     research: dict[str, Any],
     broker_rule: dict[str, Any],
+    evidence: dict[str, Any] | None = None,
 ) -> str:
+    evidence = evidence or {}
     promotion_allowed = production_valid(metrics)
     production_promotion_allowed = promotion_allowed and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
     recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_allowed else "REVIEW_REQUIRED"
@@ -752,6 +755,11 @@ def render_action_summary(
         f"- action_status: `{status}`",
         f"- recommendation_status: `{recommendation_status}`",
         f"- official_metric_mode: `{official_metric_mode(metrics) or 'missing'}`",
+        f"- evidence_tier: `{evidence.get('tier') or metrics.get('evidence_tier') or ''}`",
+        f"- evidence_label: `{evidence.get('evidence_label') or metrics.get('evidence_label') or ''}`",
+        f"- evidence_allowed_uses: `{', '.join(evidence.get('allowed_uses') or metrics.get('allowed_uses') or [])}`",
+        f"- research_ab_allowed: `{str(evidence.get('research_ab_allowed', metrics.get('research_ab_allowed', False))).lower()}`",
+        f"- ready_for_human_review_allowed: `{str(evidence.get('ready_for_human_review_allowed', metrics.get('ready_for_human_review_allowed', False))).lower()}`",
         f"- valid_for_production: `{promotion_allowed}`",
         f"- production_promotion_allowed: `{production_promotion_allowed}`",
         f"- production_applied: `{str(research.get('production_applied')).lower()}`",
@@ -910,7 +918,15 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     production_promotion_allowed = promotion_valid and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
     recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_valid else "REVIEW_REQUIRED"
     (output_dir / "05_action_summary.md").write_text(
-        render_action_summary(status, reasons, metrics, cash, research, broker_rule),
+        render_action_summary(
+            status,
+            reasons,
+            metrics,
+            cash,
+            research,
+            broker_rule,
+            classify_evidence(latest_run, user_current_dir=output_dir, official_metrics_override=metrics),
+        ),
         encoding="utf-8",
     )
     write_readme(output_dir / "README_FIRST.md")
@@ -958,6 +974,20 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "required_files": REQUIRED_USER_FILES,
         "missing_required_files": [name for name in REQUIRED_USER_FILES if not (output_dir / name).exists()],
     }
+    evidence = classify_evidence(latest_run, user_current_dir=output_dir, official_metrics_override=metrics)
+    payload.update(
+        {
+            "evidence_tier": evidence.get("tier"),
+            "evidence_label": evidence.get("evidence_label"),
+            "allowed_uses": evidence.get("allowed_uses"),
+            "blocked_uses": evidence.get("blocked_uses"),
+            "evidence_reasons": evidence.get("reasons"),
+            "evidence_tier0_blockers": evidence.get("tier0_blockers"),
+            "research_ab_allowed": evidence.get("research_ab_allowed"),
+            "ready_for_human_review_allowed": evidence.get("ready_for_human_review_allowed"),
+            "evidence_promotion_allowed": evidence.get("promotion_allowed"),
+        }
+    )
     write_json(output_dir / "summary.json", payload)
     return payload
 

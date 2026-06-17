@@ -71,6 +71,23 @@ Current acceptance targets:
 - Main: CAGR at or above `35%`, MDD no worse than `-25%`
 - Concentrated: CAGR at or above `50%`, MDD no worse than `-25%`
 - Official evidence: broker trade / broker ledger next-close only
+- Evidence tiering: `tools/evidence_policy.py` writes
+  `outputs/evidence_policy/evidence_status.json`.
+  - Tier 0 `do_not_use`: data readiness false, starved universe, missing
+    official broker metric, invalid current/order preview, or legacy/proxy-only
+    metrics. No Alpha Plane A/B may start from Tier 0.
+  - Tier 1 `research_7y`: clean 7-year `broker_ledger_next_close`, data
+    readiness pass, and healthy universe. Usable for audit and A/B research,
+    not promotion.
+  - Tier 2 `operating_candidate`: Tier 1 plus stable daily refresh, valid
+    current/target/order preview, and `cash_trap=false`. Usable for
+    `ready_for_human_review`, not official promotion.
+  - Tier 3 `robust_candidate`: clean 8-year official evidence, or clean 7-year
+    plus labelled `proxy_10y` robustness. `proxy_10y` remains proxy evidence,
+    not official Russell 1000 evidence.
+  - Tier 4 `official_promotion`: 8-year official evidence or a
+    user-approved alternative evidence contract plus IS/OOS, CAGR/MDD, cash
+    trap, and human approval gates.
 
 Current target margins:
 

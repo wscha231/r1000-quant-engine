@@ -39,6 +39,8 @@ except Exception:  # pragma: no cover - fallback for isolated smoke contexts
         "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.28},
     }
 
+from tools.evidence_policy import classify_evidence  # noqa: E402
+
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/account_evaluation"
@@ -554,6 +556,9 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.append(f"- Official metric mode: `{payload.get('official_metric_mode')}`")
     lines.append(f"- Active target type: `{payload.get('target_type')}`")
     lines.append(f"- Target contract status: `{payload.get('target_contract_status')}`")
+    lines.append(f"- Evidence tier: `{payload.get('evidence_tier') or ''}`")
+    lines.append(f"- Evidence label: `{payload.get('evidence_label') or ''}`")
+    lines.append(f"- Evidence allowed uses: `{', '.join(payload.get('allowed_uses') or [])}`")
     lines.append("- Canonical mission targets remain Main `35% / -25%` and Concentrated `50% / -25%` until explicit user approval changes them.")
     lines.append(f"- Minimum official broker-ledger window: `{MIN_BROKER_LEDGER_YEARS:.1f} years / {MIN_BROKER_LEDGER_TRADING_DAYS} trading days`")
     lines.append(f"- Production target pass (Tier-1: full CAGR/MDD): `{str(payload.get('production_target_pass')).lower()}`")
@@ -602,6 +607,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "strengthened_pass": strengthened_pass_all,
         "portfolios": {row["portfolio"]: row for row in portfolios},
     }
+    evidence = classify_evidence(latest_run, official_metrics_override=official_metrics)
+    evidence_fields = {
+        "evidence_tier": evidence.get("tier"),
+        "evidence_label": evidence.get("evidence_label"),
+        "allowed_uses": evidence.get("allowed_uses"),
+        "blocked_uses": evidence.get("blocked_uses"),
+        "evidence_reasons": evidence.get("reasons"),
+        "evidence_tier0_blockers": evidence.get("tier0_blockers"),
+        "research_ab_allowed": evidence.get("research_ab_allowed"),
+        "ready_for_human_review_allowed": evidence.get("ready_for_human_review_allowed"),
+        "promotion_allowed": evidence.get("promotion_allowed"),
+        "requires_human_approval": True,
+    }
+    payload.update(evidence_fields)
+    payload["evidence_policy"] = evidence
+    official_metrics.update(evidence_fields)
+    official_metrics["evidence_policy"] = evidence
     write_json(output_dir / "account_evaluation_summary.json", payload)
     write_json(output_dir / "official_metrics.json", official_metrics)
     write_csv(output_dir / "portfolio_account_metrics.csv", portfolios)
