@@ -265,6 +265,27 @@ def window_is_valid(candidate: dict[str, Any]) -> bool:
     return False
 
 
+def baseline_evidence_issues(baseline: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
+    if not baseline.get("official_metrics_exists"):
+        issues.append("baseline_official_metrics_missing")
+    if baseline.get("official_metric_mode") != OFFICIAL_METRIC_MODE:
+        issues.append(f"baseline_official_metric_mode:{baseline.get('official_metric_mode') or 'missing'}")
+    evidence_tier = str(baseline.get("evidence_tier") or "")
+    if evidence_tier == TIER0:
+        issues.append("baseline_evidence_tier0")
+        issues.extend(f"baseline:{item}" for item in baseline.get("evidence_tier0_blockers") or [])
+    elif evidence_tier not in {TIER1, TIER2, TIER3, TIER4}:
+        issues.append(f"baseline_evidence_tier:{evidence_tier or 'missing'}")
+    if evidence_tier in {TIER1, TIER2}:
+        if baseline.get("clean_7y_readiness_status") != "clean_7y_research_ready" or baseline.get("clean_7y_ready_for_ab") is not True:
+            issues.append("baseline_clean_7y_research_readiness_not_ready")
+            if not baseline.get("clean_7y_readiness_exists"):
+                issues.append("baseline_clean_7y_research_readiness_missing")
+            issues.extend(f"baseline:{item}" for item in baseline.get("clean_7y_readiness_blockers") or [])
+    return sorted(set(str(item) for item in issues if item))
+
+
 def classify_candidate(
     baseline: dict[str, Any],
     candidate: dict[str, Any],
@@ -532,7 +553,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolio = str(getattr(args, "portfolio", "concentrated"))
     baseline = collect_evidence(repo_path(args.baseline_run), portfolio)
-    baseline_ok = baseline.get("official_metrics_exists") and baseline.get("official_metric_mode") == OFFICIAL_METRIC_MODE
+    baseline_issues = baseline_evidence_issues(baseline)
+    baseline_ok = not baseline_issues
     require_evidence = not bool(getattr(args, "allow_missing_evidence", False))
     min_cagr_delta = float(getattr(args, "min_cagr_delta_pp", 0.0)) / 100.0
     min_is_delta = float(getattr(args, "min_is_cagr_delta_pp", 0.5)) / 100.0
@@ -551,7 +573,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             row = {
                 **candidate,
                 "decision": "blocked_missing_baseline",
-                "issues": ["baseline_official_metrics_missing_or_invalid"],
+                "issues": baseline_issues or ["baseline_official_metrics_missing_or_invalid"],
                 "review_valid_for_promotion": False,
                 "requires_user_approval": True,
                 "production_activation_allowed": False,
@@ -599,6 +621,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "status": status,
         "portfolio": portfolio,
         "baseline": baseline,
+        "baseline_valid_for_research": baseline_ok,
+        "baseline_issues": baseline_issues,
         "candidate_count": len(candidate_rows),
         "review_valid_candidate_count": sum(1 for row in candidate_rows if row.get("review_valid_for_promotion")),
         "ready_for_human_review_candidate_count": sum(1 for row in candidate_rows if row.get("ready_for_human_review")),

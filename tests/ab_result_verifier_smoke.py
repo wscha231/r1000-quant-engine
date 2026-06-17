@@ -371,6 +371,33 @@ def test_verifier_rejects_dirty_short_7y_as_do_not_use() -> None:
         assert any("data_readiness" in issue for issue in row["issues"])
 
 
+def test_verifier_blocks_dirty_baseline_before_candidate_review() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(
+            baseline,
+            cagr=0.4443,
+            max_dd=-0.2592,
+            is_cagr=0.2241,
+            years=7.02,
+            target_pass=False,
+            strengthened_pass=False,
+            data_ready=False,
+            universe_count=259,
+        )
+        seed_run(candidate, cagr=0.52, max_dd=-0.26, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked_missing_baseline"
+        assert payload["baseline_valid_for_research"] is False
+        assert "baseline_evidence_tier0" in payload["baseline_issues"]
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_missing_baseline"
+        assert "baseline_evidence_tier0" in row["issues"]
+        assert any("baseline:data_readiness" in issue for issue in row["issues"])
+
+
 def test_verifier_blocks_clean_7y_candidate_without_readiness_artifact() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -541,6 +568,7 @@ if __name__ == "__main__":
     test_verifier_measures_clean_short_7y_candidate_without_promotion()
     test_verifier_marks_clean_7y_operating_candidate_for_human_review_only()
     test_verifier_rejects_dirty_short_7y_as_do_not_use()
+    test_verifier_blocks_dirty_baseline_before_candidate_review()
     test_verifier_blocks_clean_7y_candidate_without_readiness_artifact()
     test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked()
     test_verifier_blocks_missing_acceptance_evidence()
