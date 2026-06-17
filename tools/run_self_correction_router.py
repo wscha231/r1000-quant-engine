@@ -161,11 +161,41 @@ def stable_payload_hash(payload: dict[str, Any]) -> str:
 
 
 def has_clean_7y_research_readiness(latest_run: Path) -> bool:
-    summary = read_json(latest_run / "clean_7y_research_readiness" / "summary.json")
+    summary = load_clean_7y_research_readiness(latest_run)
     if not summary:
         return False
     status = str(summary.get("status") or "")
     return bool(status == "clean_7y_research_ready" and summary.get("ready_for_alpha_plane_ab_research") is True)
+
+
+def load_clean_7y_research_readiness(latest_run: Path | None) -> dict[str, Any]:
+    if latest_run is None:
+        return {}
+    path = latest_run / "clean_7y_research_readiness" / "summary.json"
+    summary = read_json(path)
+    if not summary:
+        return {
+            "summary_path": str(path),
+            "exists": False,
+            "status": "missing",
+            "ready_for_alpha_plane_ab_research": False,
+            "blockers": ["clean_7y_research_readiness_missing"],
+            "evidence_recovery": {},
+        }
+    return {
+        "summary_path": str(path),
+        "exists": True,
+        "status": summary.get("status"),
+        "ready_for_alpha_plane_ab_research": summary.get("ready_for_alpha_plane_ab_research"),
+        "evidence_tier": summary.get("evidence_tier"),
+        "evidence_label": summary.get("evidence_label"),
+        "blockers": summary.get("blockers") if isinstance(summary.get("blockers"), list) else [],
+        "evidence_recovery": summary.get("evidence_recovery") if isinstance(summary.get("evidence_recovery"), dict) else {},
+        "pre_broker_substrate_gate_pass": summary.get("pre_broker_substrate_gate_pass"),
+        "pre_broker_substrate_gate_reasons": summary.get("pre_broker_substrate_gate_reasons")
+        if isinstance(summary.get("pre_broker_substrate_gate_reasons"), list)
+        else [],
+    }
 
 
 def read_ledger(path: Path) -> list[dict[str, Any]]:
@@ -277,7 +307,9 @@ def build_queue(
     previous_queue: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    dependency_ids = [] if latest_run is not None and has_clean_7y_research_readiness(latest_run) else [CLEAN_7Y_RESEARCH_PLAN_ID]
+    clean_7y_readiness = load_clean_7y_research_readiness(latest_run)
+    clean_7y_ready = bool(latest_run is not None and has_clean_7y_research_readiness(latest_run))
+    dependency_ids = [] if clean_7y_ready else [CLEAN_7Y_RESEARCH_PLAN_ID]
     latest_focus = latest_verdict.get("dominant_open_leak") or (dominant_for_row(ledger_rows[-1]) if ledger_rows else None)
     recent_focuses = [dominant_for_row(row) for row in ledger_rows[-min_repeat:]]
     repeated = bool(latest_focus and len(recent_focuses) >= min_repeat and all(item == latest_focus for item in recent_focuses))
@@ -353,6 +385,7 @@ def build_queue(
                 "production_mutation_allowed": False,
                 "requires_user_approval": True,
                 "depends_on_plan_ids": dependency_ids,
+                "source_clean_7y_readiness": clean_7y_readiness,
                 "source_leak": latest_focus,
                 "source_run_id": latest_run_id,
                 "status": "queued",
@@ -383,6 +416,7 @@ def build_queue(
         "min_repeat": min_repeat,
         "repeat_confirmed": repeated,
         "requires_completed_plan_ids": dependency_ids,
+        "source_clean_7y_readiness": clean_7y_readiness,
         "queued_experiments": queued,
         "duplicate_suppressed_count": len(duplicate_suppressed),
         "duplicate_suppressed": duplicate_suppressed,
@@ -414,6 +448,7 @@ def build_dispatch_payloads(queue: dict[str, Any], ref: str) -> list[dict[str, A
                 "requires_user_approval": True,
                 "production_mutation_allowed": False,
                 "depends_on_plan_ids": item.get("depends_on_plan_ids") or [],
+                "source_clean_7y_readiness": item.get("source_clean_7y_readiness") or {},
                 "status": item.get("status") or "queued",
                 "payload_hash": item.get("payload_hash"),
                 "ledger_sha_at_queue": item.get("ledger_sha_at_queue"),
@@ -441,6 +476,12 @@ def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
         lines.append("# " + payload_name)
         if dependencies:
             lines.append("# blocked until completed_plan_id: " + ",".join(dependencies))
+            readiness = payload.get("source_clean_7y_readiness") if isinstance(payload.get("source_clean_7y_readiness"), dict) else {}
+            recovery = readiness.get("evidence_recovery") if isinstance(readiness.get("evidence_recovery"), dict) else {}
+            recovery_action = str(recovery.get("recovery_action") or "")
+            recovery_source = str(recovery.get("recommended_recovery_source") or "")
+            if recovery_action or recovery_source:
+                lines.append(f"# clean_7y_recovery: {recovery_action} via {recovery_source}".rstrip())
             lines.append("# " + command)
         else:
             lines.append(command)
@@ -450,6 +491,8 @@ def render_dispatch_script(payloads: list[dict[str, Any]], repo: str) -> str:
 
 def render_markdown(queue: dict[str, Any]) -> str:
     oos = queue.get("oos_robustness") if isinstance(queue.get("oos_robustness"), dict) else {}
+    readiness = queue.get("source_clean_7y_readiness") if isinstance(queue.get("source_clean_7y_readiness"), dict) else {}
+    recovery = readiness.get("evidence_recovery") if isinstance(readiness.get("evidence_recovery"), dict) else {}
     lines = [
         "# Self-Correction Router Queue",
         "",
@@ -460,6 +503,9 @@ def render_markdown(queue: dict[str, Any]) -> str:
         f"- duplicate_suppressed_count: `{queue.get('duplicate_suppressed_count') or 0}`",
         f"- stale_payload_count: `{queue.get('stale_payload_count') or 0}`",
         f"- oos_lock_status: `{oos.get('status') or 'not_checked'}`",
+        f"- clean_7y_readiness_status: `{readiness.get('status') or ''}`",
+        f"- clean_7y_recovery_source: `{recovery.get('recommended_recovery_source') or ''}`",
+        f"- clean_7y_recovery_action: `{recovery.get('recovery_action') or ''}`",
         "",
         "| Experiment | Status | Source Leak | Source Run | Env | Requires Approval |",
         "| --- | --- | --- | --- | --- | :---: |",

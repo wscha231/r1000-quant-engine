@@ -127,6 +127,54 @@ def test_self_correction_router_routes_flat_alpha_to_era_challenger() -> None:
         assert "PHASE_ERA_AWARE_PORTFOLIO_KIND" in inputs["experiment_env_json"]
 
 
+def test_self_correction_router_surfaces_clean_7y_recovery_when_blocked() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ledger_dir = root / "ledger"
+        latest = root / "latest"
+        ledger_dir.mkdir()
+        (ledger_dir / "ledger.jsonl").write_text(
+            json.dumps(row("a")) + "\n" + json.dumps(row("b")) + "\n",
+            encoding="utf-8",
+        )
+        (ledger_dir / "latest_verdict.json").write_text(
+            json.dumps({"dominant_open_leak": "concentrated:structural_underinvestment_bull"}),
+            encoding="utf-8",
+        )
+        (latest / "clean_7y_research_readiness").mkdir(parents=True)
+        (latest / "clean_7y_research_readiness" / "summary.json").write_text(
+            json.dumps(
+                {
+                    "status": "not_ready",
+                    "ready_for_alpha_plane_ab_research": False,
+                    "blockers": ["pre_broker_substrate_gate_blocked"],
+                    "evidence_recovery": {
+                        "fallback_available": True,
+                        "recommended_recovery_source": "committed_static_IWB_seed",
+                        "recommended_recovery_reason": "static seed is available above floor",
+                        "recovery_action": "repair_universe_from_fallback",
+                    },
+                    "pre_broker_substrate_gate_pass": False,
+                    "pre_broker_substrate_gate_reasons": ["pre_broker_substrate_gate_blocked"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        out = root / "router"
+        queue = run(Namespace(ledger_dir=str(ledger_dir), latest_run=str(latest), output_dir=str(out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
+        assert queue["requires_completed_plan_ids"] == ["clean_7y_research_readiness"]
+        assert queue["source_clean_7y_readiness"]["evidence_recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed"
+        payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert all(payload["depends_on_plan_ids"] == ["clean_7y_research_readiness"] for payload in payloads)
+        first_readiness = payloads[0]["source_clean_7y_readiness"]
+        assert first_readiness["evidence_recovery"]["recovery_action"] == "repair_universe_from_fallback"
+        commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "clean_7y_recovery: repair_universe_from_fallback via committed_static_IWB_seed" in commands
+        report = (out / "router_queue.md").read_text(encoding="utf-8")
+        assert "clean_7y_recovery_source: `committed_static_IWB_seed`" in report
+        assert "clean_7y_recovery_action: `repair_universe_from_fallback`" in report
+
+
 def test_self_correction_router_allows_payload_after_clean_7y_readiness() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -303,6 +351,7 @@ def test_self_correction_router_defaults_to_github_context_ref_and_repo() -> Non
 if __name__ == "__main__":
     test_self_correction_router_queues_repeated_concentrated_bull_leak()
     test_self_correction_router_routes_flat_alpha_to_era_challenger()
+    test_self_correction_router_surfaces_clean_7y_recovery_when_blocked()
     test_self_correction_router_allows_payload_after_clean_7y_readiness()
     test_self_correction_router_suppresses_duplicate_active_payloads()
     test_self_correction_router_marks_previous_payloads_stale_when_ledger_changes()
