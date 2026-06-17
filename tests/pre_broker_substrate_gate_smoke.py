@@ -58,10 +58,23 @@ def test_pre_broker_gate_passes_clean_substrate() -> None:
         payload = classify_pre_broker_substrate(latest)
         assert payload["status"] == "pass", payload
         assert payload["broker_replay_allowed"] is True, payload
+        assert payload["review_only"] is True, payload
+        assert payload["canonical_production_sync"] is False, payload
+        assert payload["production_mutation_allowed"] is False, payload
+        assert payload["production_promotion_allowed"] is False, payload
+        assert payload["promotion_allowed"] is False, payload
+        assert payload["promotion_allowed_scope"] == "pre_broker_substrate_gate_only", payload
+        assert payload["automatic_repair_allowed"] is False, payload
+        assert payload["live_trading_allowed"] is False, payload
+        assert payload["live_trading_enabled"] is False, payload
+        assert payload["human_approval_required"] is True, payload
         assert payload["blockers"] == [], payload
         write_outputs(payload, Path(tmp) / "out")
         assert (Path(tmp) / "out" / "summary.json").exists()
-        assert "broker_replay_allowed: `true`" in (Path(tmp) / "out" / "report.md").read_text(encoding="utf-8")
+        report = (Path(tmp) / "out" / "report.md").read_text(encoding="utf-8")
+        assert "broker_replay_allowed: `true`" in report
+        assert "production_promotion_allowed: `false`" in report
+        assert "human_approval_required: `true`" in report
 
 
 def test_pre_broker_gate_blocks_starved_universe() -> None:
@@ -71,6 +84,11 @@ def test_pre_broker_gate_blocks_starved_universe() -> None:
         payload = classify_pre_broker_substrate(latest)
         assert payload["status"] == "blocked", payload
         assert payload["broker_replay_allowed"] is False, payload
+        assert payload["review_only"] is True, payload
+        assert payload["production_promotion_allowed"] is False, payload
+        assert payload["automatic_repair_allowed"] is False, payload
+        assert payload["live_trading_enabled"] is False, payload
+        assert payload["human_approval_required"] is True, payload
         assert "universe_health_promotion_not_allowed" in payload["blockers"], payload
         assert "universe_health_hard_fail_before_expensive_rebuild" in payload["blockers"], payload
         assert any(str(item).startswith("scored_r1000_base_below_floor") for item in payload["blockers"]), payload
