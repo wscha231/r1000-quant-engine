@@ -927,7 +927,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/full_rebuild_logs/daily_user_current_contract_final.log",
         "outputs/full_rebuild_logs/daily_user_current_report_final.log",
         "outputs/full_rebuild_logs/evidence_policy.log",
+        "outputs/full_rebuild_logs/evidence_policy_final.log",
         "outputs/full_rebuild_logs/clean_7y_research_readiness.log",
+        "outputs/full_rebuild_logs/clean_7y_research_readiness_final.log",
         "outputs/full_rebuild_logs/proxy_10y_robustness.log",
         "outputs/full_rebuild_logs/proxy_10y_universe_substrate.log",
         "STRICT_SELECTION",
@@ -962,7 +964,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     clean7_idx = text.index("outputs/full_rebuild_logs/clean_7y_research_readiness.log")
     final_current_idx = text.index("outputs/full_rebuild_logs/daily_user_current_report_final.log")
     final_contract_idx = text.index("outputs/full_rebuild_logs/daily_user_current_contract_final.log")
+    final_evidence_idx = text.index("outputs/full_rebuild_logs/evidence_policy_final.log")
+    final_clean7_idx = text.index("outputs/full_rebuild_logs/clean_7y_research_readiness_final.log")
     assert proxy_universe_idx < proxy_idx < evidence_idx < clean7_idx < final_current_idx < final_contract_idx
+    assert final_contract_idx < final_evidence_idx < final_clean7_idx
 
 
 def main() -> int:

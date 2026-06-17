@@ -458,6 +458,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     run_proxy_10y_universe_substrate
     run_proxy_10y_robustness
     run_evidence_policy
+    run_clean_7y_research_readiness
   fi
   python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
@@ -466,6 +467,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   run_proxy_10y_universe_substrate
   run_proxy_10y_robustness
   run_evidence_policy
+  run_clean_7y_research_readiness
   echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
   exit 0
 fi
