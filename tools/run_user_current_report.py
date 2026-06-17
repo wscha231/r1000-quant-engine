@@ -179,21 +179,36 @@ def benchmark_period_returns(price_cache: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def snapshot_max_date(frame: pd.DataFrame) -> str:
+    if frame.empty or "as_of_date" not in frame.columns:
+        return ""
+    dates = pd.to_datetime(frame["as_of_date"], errors="coerce")
+    if not dates.notna().any():
+        return ""
+    return pd.Timestamp(dates.max()).date().isoformat()
+
+
+def snapshot_date_rank(value: str) -> pd.Timestamp:
+    if not value:
+        return pd.Timestamp.min
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return pd.Timestamp.min
+    return pd.Timestamp(parsed)
+
+
 def load_current_holdings_source(latest_run: Path, output_dir: Path) -> tuple[pd.DataFrame, str, str]:
-    candidates: list[tuple[str, str, list[Path]]] = [
+    candidates: list[tuple[str, str, int, list[Path]]] = [
         (
             "operating_snapshot",
             "fresh operating_snapshot/current_operating_holdings_latest.csv",
+            40,
             [latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv"],
-        ),
-        (
-            "restored_user_current_snapshot",
-            "restored user_current/01_current_holdings.csv",
-            [output_dir / "01_current_holdings.csv", latest_run / "user_current" / "01_current_holdings.csv"],
         ),
         (
             "committed_cloud_results_snapshot",
             "committed cloud_results latest user_current/01_current_holdings.csv",
+            30,
             [
                 latest_run.parent
                 / "cloud_results"
@@ -210,8 +225,15 @@ def load_current_holdings_source(latest_run: Path, output_dir: Path) -> tuple[pd
             ],
         ),
         (
+            "restored_user_current_snapshot",
+            "restored user_current/01_current_holdings.csv",
+            20,
+            [output_dir / "01_current_holdings.csv", latest_run / "user_current" / "01_current_holdings.csv"],
+        ),
+        (
             "user_portfolio_reports",
             "restored user_portfolio_reports current holdings",
+            10,
             [
                 latest_run / "user_portfolio_reports" / "main_current_operating_holdings_latest.csv",
                 latest_run / "user_portfolio_reports" / "concentrated_current_operating_holdings_latest.csv",
@@ -221,7 +243,8 @@ def load_current_holdings_source(latest_run: Path, output_dir: Path) -> tuple[pd
         ),
     ]
     seen: set[Path] = set()
-    for mode, detail, paths in candidates:
+    usable: list[tuple[pd.Timestamp, int, pd.DataFrame, str, str]] = []
+    for mode, detail, priority, paths in candidates:
         frames: list[pd.DataFrame] = []
         used: list[str] = []
         for path in paths:
@@ -236,7 +259,15 @@ def load_current_holdings_source(latest_run: Path, output_dir: Path) -> tuple[pd
             if mode != "user_portfolio_reports":
                 break
         if frames:
-            return pd.concat(frames, ignore_index=True), mode, f"{detail}: {'; '.join(used)}"
+            combined = pd.concat(frames, ignore_index=True)
+            as_of = snapshot_max_date(combined)
+            source_detail = f"{detail}: {'; '.join(used)}"
+            if as_of:
+                source_detail = f"{source_detail}; as_of_date={as_of}"
+            usable.append((snapshot_date_rank(as_of), priority, combined, mode, source_detail))
+    if usable:
+        _, _, frame, mode, detail = max(usable, key=lambda item: (item[0], item[1]))
+        return frame, mode, detail
     return pd.DataFrame(), "missing", "no non-empty current holdings snapshot found"
 
 

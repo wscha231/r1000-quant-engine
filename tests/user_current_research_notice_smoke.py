@@ -407,10 +407,92 @@ def test_user_current_falls_back_to_committed_cloud_results_snapshot() -> None:
         assert "current_holdings_snapshot_source_mode: `committed_cloud_results_snapshot`" in action_summary
 
 
+def test_user_current_prefers_newer_committed_snapshot_over_stale_restored_snapshot() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        user_current = latest / "user_current"
+        cloud_current = root / "cloud_results" / "full_rebuild" / "latest_global_alpha_universe" / "user_current"
+        (latest / "operating_snapshot").mkdir(parents=True)
+        (latest / "account_evaluation").mkdir()
+        (latest / "broker_replay" / "main").mkdir(parents=True)
+        (latest / "broker_replay" / "concentrated").mkdir(parents=True)
+        user_current.mkdir(parents=True)
+        cloud_current.mkdir(parents=True)
+        columns = [
+            "as_of_date",
+            "snapshot_semantics",
+            "portfolio_kind",
+            "row_type",
+            "ticker",
+            "current_shares",
+            "current_price",
+            "current_value_usd",
+            "current_weight",
+            "account_source",
+            "approval_status",
+        ]
+        pd.DataFrame(columns=columns).to_csv(latest / "operating_snapshot" / "current_operating_holdings_latest.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "as_of_date": "2026-05-22",
+                    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                    "portfolio_kind": "concentrated",
+                    "row_type": "stock",
+                    "ticker": "OLD",
+                    "current_shares": 10,
+                    "current_price": 20,
+                    "current_value_usd": 200,
+                    "current_weight": 0.4,
+                    "account_source": "simulated_broker_replay",
+                    "approval_status": "blocked_by_safety_audit",
+                }
+            ]
+        ).to_csv(user_current / "01_current_holdings.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "as_of_date": "2026-06-15",
+                    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                    "portfolio_kind": "concentrated",
+                    "row_type": "stock",
+                    "ticker": "NEW",
+                    "current_shares": 12,
+                    "current_price": 50,
+                    "current_value_usd": 600,
+                    "current_weight": 0.2,
+                    "account_source": "simulated_broker_replay",
+                    "approval_status": "blocked_by_safety_audit",
+                }
+            ]
+        ).to_csv(cloud_current / "01_current_holdings.csv", index=False)
+        (latest / "account_evaluation" / "official_metrics.json").write_text(
+            json.dumps({"official_metric_mode": "broker_ledger_next_close", "valid_for_production": False}),
+            encoding="utf-8",
+        )
+        for portfolio in ("main", "concentrated"):
+            pd.DataFrame(
+                [
+                    {"date": "2026-06-01", "equity_usd": 100000, "cash_weight": 0.05},
+                    {"date": "2026-06-15", "equity_usd": 101000, "cash_weight": 0.05},
+                ]
+            ).to_csv(latest / "broker_replay" / portfolio / "equity_curve.csv", index=False)
+
+        payload = build_report(Namespace(latest_run=str(latest), price_cache=str(root / "cache_prices"), output_dir=str(user_current), strict=False))
+        holdings = pd.read_csv(user_current / "01_current_holdings.csv")
+
+        assert len(holdings) == 1
+        assert holdings.iloc[0]["ticker"] == "NEW"
+        assert payload["current_holdings_source_mode"] == "committed_cloud_results_snapshot"
+        assert "as_of_date=2026-06-15" in payload["current_holdings_source_detail"]
+
+
 if __name__ == "__main__":
     test_user_current_explains_research_sidecars_do_not_alter_holdings()
     test_user_current_marks_alphaops_vnext_production_as_applied()
     test_user_current_blocks_nested_invalid_official_metrics()
     test_user_current_preserves_restored_snapshot_when_fresh_current_is_empty()
     test_user_current_falls_back_to_committed_cloud_results_snapshot()
+    test_user_current_prefers_newer_committed_snapshot_over_stale_restored_snapshot()
     print("user_current_research_notice_smoke: PASS")
