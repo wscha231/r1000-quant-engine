@@ -928,6 +928,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "data_freshness_selection_allowed",
         "substrate_selection_allowed",
         "selection_blockers",
+        "data_freshness_promotion_allowed",
+        "substrate_promotion_allowed",
         "universe_health_selection_blocked",
         "pre_broker_substrate_gate_blocked",
         "substrate_recovery",
@@ -990,6 +992,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     freshness_idx = text.index("outputs/full_rebuild_logs/data_freshness_contract.log")
     assert universe_idx < readiness_idx < pre_broker_idx < recovery_idx < recovery_readiness_idx < freshness_idx
     assert '"selection_allowed": substrate_selection_allowed' in text
+    assert '"promotion_allowed": substrate_promotion_allowed' in text
+    assert 'else "DO_NOT_USE_REVIEW_REQUIRED"' in text
     assert "data_freshness_selection_allowed and universe_healthy and pre_broker_allowed" in text
     proxy_universe_idx = text.index("outputs/full_rebuild_logs/proxy_10y_universe_substrate.log")
     proxy_idx = text.index("outputs/full_rebuild_logs/proxy_10y_robustness.log")

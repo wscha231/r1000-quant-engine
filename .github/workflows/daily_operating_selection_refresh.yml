@@ -381,6 +381,13 @@ jobs:
               selection_blockers.append("universe_health_selection_blocked")
           if not pre_broker_allowed:
               selection_blockers.append("pre_broker_substrate_gate_blocked")
+          data_freshness_promotion_allowed = bool(status.get("promotion_allowed", False))
+          substrate_promotion_allowed = data_freshness_promotion_allowed and universe_healthy and pre_broker_allowed
+          recommendation_status = (
+              status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED")
+              if substrate_selection_allowed
+              else "DO_NOT_USE_REVIEW_REQUIRED"
+          )
 
           summary = {
               "schema_version": "daily-operating-selection-refresh-v1",
@@ -399,8 +406,10 @@ jobs:
               "substrate_selection_allowed": substrate_selection_allowed,
               "selection_allowed": substrate_selection_allowed,
               "selection_blockers": selection_blockers,
-              "promotion_allowed": bool(status.get("promotion_allowed", False)),
-              "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
+              "data_freshness_promotion_allowed": data_freshness_promotion_allowed,
+              "substrate_promotion_allowed": substrate_promotion_allowed,
+              "promotion_allowed": substrate_promotion_allowed,
+              "recommendation_status": recommendation_status,
               "data_freshness_contract": "outputs/data_freshness_contract/status.json",
               "universe_health_status": universe.get("status"),
               "universe_health_promotion_allowed": universe.get("promotion_allowed"),
