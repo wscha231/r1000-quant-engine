@@ -142,6 +142,47 @@ def test_clean_7y_is_research_tier1_not_do_not_use() -> None:
         assert payload["promotion_allowed"] is False
 
 
+def test_pre_broker_substrate_gate_block_forces_tier0() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False)
+        write_json(
+            root / "pre_broker_substrate_gate" / "summary.json",
+            {
+                "status": "blocked",
+                "broker_replay_allowed": False,
+                "evidence_tier_when_blocked": "0_do_not_use",
+                "blockers": ["universe_health_promotion_not_allowed", "data_readiness_not_ready_for_policy_replay"],
+            },
+        )
+        payload = classify_evidence(root)
+        assert payload["tier"] == TIER0
+        assert payload["research_ab_allowed"] is False
+        assert payload["pre_broker_substrate_gate_pass"] is False
+        assert "pre_broker_substrate_gate_blocked" in payload["tier0_blockers"]
+        assert "pre_broker:universe_health_promotion_not_allowed" in payload["tier0_blockers"]
+        assert Path(payload["source_files"]["pre_broker_substrate_gate"]).name == "summary.json"
+        assert Path(payload["source_files"]["pre_broker_substrate_gate"]).parent.name == "pre_broker_substrate_gate"
+
+
+def test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False)
+        write_json(
+            root / "pre_broker_substrate_gate" / "summary.json",
+            {
+                "status": "pass",
+                "broker_replay_allowed": True,
+                "blockers": [],
+            },
+        )
+        payload = classify_evidence(root)
+        assert payload["tier"] == TIER1
+        assert payload["research_ab_allowed"] is True
+        assert payload["pre_broker_substrate_gate_pass"] is True
+
+
 def test_clean_7y_daily_cash_false_is_tier2() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -181,6 +222,8 @@ def test_8y_targets_and_cash_pass_is_tier4() -> None:
 if __name__ == "__main__":
     test_dirty_7y_is_tier0()
     test_clean_7y_is_research_tier1_not_do_not_use()
+    test_pre_broker_substrate_gate_block_forces_tier0()
+    test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1()
     test_clean_7y_daily_cash_false_is_tier2()
     test_clean_7y_with_proxy_10y_robustness_is_tier3()
     test_8y_targets_and_cash_pass_is_tier4()

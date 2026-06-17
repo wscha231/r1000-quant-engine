@@ -141,6 +141,14 @@ def load_proxy_robustness(run_dir: Path) -> dict[str, Any]:
     return {}
 
 
+def load_pre_broker_substrate_gate(run_dir: Path) -> dict[str, Any]:
+    path = run_dir / "pre_broker_substrate_gate" / "summary.json"
+    payload = read_json(path)
+    if payload:
+        payload["_source_path"] = str(path)
+    return payload
+
+
 def portfolio_items(official: dict[str, Any], run_dir: Path) -> dict[str, dict[str, Any]]:
     nested = official.get("portfolios") if isinstance(official.get("portfolios"), dict) else {}
     names = sorted(set(nested.keys()) | {"main", "concentrated"})
@@ -286,6 +294,17 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
     return False
 
 
+def pre_broker_gate_pass(payload: dict[str, Any], reasons: list[str]) -> bool | None:
+    if not payload:
+        return None
+    blockers = payload.get("blockers") if isinstance(payload.get("blockers"), list) else []
+    if payload.get("broker_replay_allowed") is False or status_failed(payload.get("status")) or blockers:
+        reasons.append("pre_broker_substrate_gate_blocked")
+        reasons.extend(f"pre_broker:{item}" for item in blockers)
+        return False
+    return True
+
+
 def classify_evidence(
     run_dir: str | Path,
     *,
@@ -302,6 +321,7 @@ def classify_evidence(
     readiness = read_json(run_path / "data_readiness" / "summary.json")
     universe = load_universe_health(run_path)
     proxy = load_proxy_robustness(run_path)
+    pre_broker_gate = load_pre_broker_substrate_gate(run_path)
     tier0: list[str] = []
     reasons: list[str] = []
 
@@ -323,6 +343,11 @@ def classify_evidence(
         pass
     if not universe_pass(universe, tier0):
         pass
+
+    pre_broker_reasons: list[str] = []
+    pre_broker_ok = pre_broker_gate_pass(pre_broker_gate, pre_broker_reasons)
+    if pre_broker_ok is False:
+        tier0.extend(pre_broker_reasons)
 
     daily_valid, daily_reasons = daily_output_state(user_current_path)
     if daily_valid is False:
@@ -398,6 +423,8 @@ def classify_evidence(
         "daily_output_reasons": daily_reasons,
         "proxy_10y_robustness_pass": has_proxy_robustness,
         "proxy_10y_reasons": proxy_reasons,
+        "pre_broker_substrate_gate_pass": pre_broker_ok,
+        "pre_broker_substrate_gate_reasons": pre_broker_reasons,
         "valid_for_production_semantics": "promotion_only; false does not invalidate clean Tier 1 research evidence",
         "source_files": {
             "official_metrics": str(official_path),
@@ -406,6 +433,7 @@ def classify_evidence(
             "user_current": str(user_current_path) if user_current_path is not None else "",
             "cash_reentry_quality": str(run_path / "cash_reentry_quality" / "summary.json"),
             "proxy_10y": str(proxy.get("_source_path") or ""),
+            "pre_broker_substrate_gate": str(pre_broker_gate.get("_source_path") or ""),
         },
         "portfolios": {
             name: {
