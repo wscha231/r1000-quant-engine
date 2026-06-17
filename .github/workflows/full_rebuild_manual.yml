@@ -680,6 +680,7 @@ jobs:
             outputs/full_rebuild_logs/data_freshness_contract.log
             outputs/full_rebuild_logs/data_readiness_pre_broker.log
             outputs/full_rebuild_logs/user_current_report.log
+            outputs/full_rebuild_logs/user_current_contract.log
             outputs/full_rebuild_logs/cash_contract.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
             outputs/full_rebuild_logs/crisis_paper_order_bridge.log

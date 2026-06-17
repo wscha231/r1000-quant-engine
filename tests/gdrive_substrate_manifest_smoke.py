@@ -33,6 +33,13 @@ SUBSTRATE_RESEARCH_FILES = [
     "universe_recovery_candidate/candidate_universe_recovery.csv",
     "universe_recovery_candidate_readiness/missing_price_tickers.csv",
 ]
+DAILY_USER_CURRENT_FILES = [
+    "02_target_weights.csv",
+    "03_order_preview.csv",
+    "08_rebalance_decision.json",
+    "09_daily_output_contract_summary.json",
+    "DAILY_REVIEW_ONLY.md",
+]
 
 
 def write(path: Path, text: str = "{}\n") -> None:
@@ -79,6 +86,13 @@ def seed_latest_run(root: Path) -> Path:
             write(latest / rel, json.dumps({"promotion_allowed": False}) + "\n")
     for rel in SUBSTRATE_RESEARCH_FILES:
         write(latest / rel, "ticker\nAAA\n")
+    for rel in DAILY_USER_CURRENT_FILES:
+        if rel.endswith(".csv"):
+            write(latest / "user_current" / rel, "portfolio,ticker\nmain,AAA\n")
+        elif rel.endswith(".md"):
+            write(latest / "user_current" / rel, "# Review-only daily output\n")
+        else:
+            write(latest / "user_current" / rel, json.dumps({"review_only": True}) + "\n")
     return latest
 
 
@@ -109,6 +123,21 @@ def test_minimal_manifest_includes_review_only_substrate_evidence() -> None:
             assert rel not in entries
 
 
+def test_manifest_includes_daily_user_current_contract_files() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_latest_run(root)
+        payload = build_manifest(build_args(root, mode="minimal"))
+        entries = by_source(payload)
+
+        for rel in DAILY_USER_CURRENT_FILES:
+            row = entries[f"user_current/{rel}"]
+            assert row["exists"] is True
+            assert row["destination"] == f"user_current/{rel}"
+            assert row["semantic_type"] == "daily_review_only"
+            assert row["production_valid"] is False
+
+
 def test_research_manifest_includes_supporting_substrate_csvs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -136,5 +165,6 @@ def test_research_manifest_includes_supporting_substrate_csvs() -> None:
 
 if __name__ == "__main__":
     test_minimal_manifest_includes_review_only_substrate_evidence()
+    test_manifest_includes_daily_user_current_contract_files()
     test_research_manifest_includes_supporting_substrate_csvs()
     print("gdrive_substrate_manifest_smoke: PASS")

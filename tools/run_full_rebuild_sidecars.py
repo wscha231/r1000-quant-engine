@@ -218,6 +218,19 @@ run_clean_7y_research_readiness() {
     2>&1 | tee outputs/full_rebuild_logs/clean_7y_research_readiness.log || true
 }
 
+run_daily_user_current_contract() {
+  echo "[user-current-contract] building review-only target/order preview contract"
+  mkdir -p outputs/full_rebuild_logs
+  python tools/build_daily_user_current_contract.py \
+    --latest-run outputs \
+    --output-dir outputs/user_current \
+    --source-run-id "${GITHUB_RUN_ID:-local}" \
+    --source-commit-sha "${GITHUB_SHA:-}" \
+    --source-branch "${GITHUB_REF_NAME:-}" \
+    --source-artifact-name "${ARTIFACT_PROFILE}_${SIDECAR_PROFILE}_${GITHUB_RUN_ID:-local}" \
+    2>&1 | tee outputs/full_rebuild_logs/user_current_contract.log || true
+}
+
 run_proxy_10y_robustness() {
   echo "[proxy-10y] checking proxy robustness without official promotion"
   mkdir -p outputs/full_rebuild_logs
@@ -415,6 +428,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
   python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
+  run_daily_user_current_contract
   run_proxy_10y_universe_substrate
   run_proxy_10y_robustness
   run_evidence_policy
@@ -455,17 +469,21 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     run_decision_cadence_review
     run_patch_manifest
     python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
+    run_daily_user_current_contract
     run_proxy_10y_universe_substrate
     run_proxy_10y_robustness
     run_evidence_policy
+    run_clean_7y_research_readiness
   fi
   python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
   run_patch_manifest
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
+  run_daily_user_current_contract
   run_proxy_10y_universe_substrate
   run_proxy_10y_robustness
   run_evidence_policy
+  run_clean_7y_research_readiness
   echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
   exit 0
 fi
@@ -641,6 +659,7 @@ run_decision_cadence_review
 python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
 run_patch_manifest
 python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
+run_daily_user_current_contract
 run_proxy_10y_universe_substrate
 run_proxy_10y_robustness
 run_evidence_policy
