@@ -360,6 +360,7 @@ def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> 
                     "status": "proxy_10y_robustness_pass",
                     "proxy_10y_robustness_pass": True,
                     "evidence_label": "proxy_10y",
+                    "official_russell_1000": False,
                     "promotion_allowed": False,
                 }
             ),
