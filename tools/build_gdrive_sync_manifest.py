@@ -40,10 +40,6 @@ OFFICIAL_FILES = [
     "account_evaluation/official_metrics.json",
     "pre_broker_substrate_gate/summary.json",
     "pre_broker_substrate_gate/report.md",
-    "clean_7y_research_readiness/summary.json",
-    "clean_7y_research_readiness/report.md",
-    "proxy_10y_robustness/summary.json",
-    "proxy_10y_robustness/report.md",
     "universe_health/summary.json",
     "universe_health/universe_source_audit.json",
     "universe_health/universe_fallback_decision.md",
@@ -84,10 +80,6 @@ MINIMAL_ANALYSIS_FILES = [
     "account_evaluation/official_metrics.json",
     "pre_broker_substrate_gate/summary.json",
     "pre_broker_substrate_gate/report.md",
-    "clean_7y_research_readiness/summary.json",
-    "clean_7y_research_readiness/report.md",
-    "proxy_10y_robustness/summary.json",
-    "proxy_10y_robustness/report.md",
     "universe_health/summary.json",
     "universe_health/universe_source_audit.json",
     "universe_health/universe_fallback_decision.md",
@@ -118,6 +110,25 @@ MINIMAL_ANALYSIS_FILES = [
     "broker_replay/concentrated/target_vs_actual_weights.csv",
     "reports/operating_main_target_book.csv",
     "reports/operating_concentrated_target_book.csv",
+]
+EVIDENCE_TIER_REVIEW_FILES = [
+    "clean_7y_research_readiness/summary.json",
+    "clean_7y_research_readiness/report.md",
+    "proxy_10y_robustness/summary.json",
+    "proxy_10y_robustness/report.md",
+]
+SUBSTRATE_EVIDENCE_FILES = [
+    "universe_recovery_candidate/summary.json",
+    "universe_recovery_candidate/report.md",
+    "universe_recovery_candidate_readiness/summary.json",
+    "universe_recovery_candidate_readiness/report.md",
+    "proxy_10y_universe_substrate/summary.json",
+    "proxy_10y_universe_substrate/report.md",
+    "proxy_10y_universe_substrate/proxy_universe_membership_by_month.csv",
+]
+SUBSTRATE_RESEARCH_FILES = [
+    "universe_recovery_candidate/candidate_universe_recovery.csv",
+    "universe_recovery_candidate_readiness/missing_price_tickers.csv",
 ]
 OPERATOR_REVIEW_FILES = [
     "operating_snapshot/proposed_target_deltas_latest.csv",
@@ -277,6 +288,30 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
                 )
             )
 
+    if mode in {"minimal", "official", "research"}:
+        for name in EVIDENCE_TIER_REVIEW_FILES:
+            entries.append(
+                entry(
+                    latest_run=latest_run,
+                    rel_source=name,
+                    rel_dest=f"evidence_review/{args.run_id}/{name}",
+                    required=False,
+                    semantic_type="evidence_tier_review",
+                    production_valid=False,
+                )
+            )
+        for name in SUBSTRATE_EVIDENCE_FILES:
+            entries.append(
+                entry(
+                    latest_run=latest_run,
+                    rel_source=name,
+                    rel_dest=f"substrate_evidence/{args.run_id}/{name}",
+                    required=False,
+                    semantic_type="substrate_evidence_review",
+                    production_valid=False,
+                )
+            )
+
     if mode in {"official", "research"}:
         for name in OFFICIAL_FILES:
             entries.append(
@@ -303,6 +338,17 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
             )
 
     if mode == "research":
+        for name in SUBSTRATE_RESEARCH_FILES:
+            entries.append(
+                entry(
+                    latest_run=latest_run,
+                    rel_source=name,
+                    rel_dest=f"research_runs/{args.safe_branch}/{args.run_id}/research_full/{name}",
+                    required=False,
+                    semantic_type="substrate_research",
+                    production_valid=False,
+                )
+            )
         for name in RESEARCH_FILES:
             semantic = "deprecated" if Path(name).name in DEPRECATED_NAMES else "research"
             entries.append(
