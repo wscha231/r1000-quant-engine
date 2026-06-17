@@ -207,6 +207,42 @@ def args(baseline: Path, candidates: list[Path], out: Path) -> Namespace:
     )
 
 
+def seed_daily_user_current(root: Path) -> None:
+    out = root / "user_current"
+    write_json(
+        out / "summary.json",
+        {
+            "review_only": True,
+            "valid_for_production": False,
+            "production_promotion_allowed": False,
+            "recommendation_status": "REVIEW_ONLY",
+        },
+    )
+    (out / "01_current_holdings.csv").parent.mkdir(parents=True, exist_ok=True)
+    (out / "01_current_holdings.csv").write_text("portfolio,ticker,current_weight\nconcentrated,AAA,0.20\n", encoding="utf-8")
+    (out / "02_target_weights.csv").write_text("portfolio,ticker,target_weight\nconcentrated,AAA,0.20\n", encoding="utf-8")
+    (out / "03_order_preview.csv").write_text("portfolio,ticker,action\nconcentrated,AAA,HOLD\n", encoding="utf-8")
+    write_json(
+        out / "08_rebalance_decision.json",
+        {
+            "review_only": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+            "canonical_production_sync": False,
+            "human_approval_required": True,
+        },
+    )
+    write_json(
+        out / "09_daily_output_contract_summary.json",
+        {
+            "current_snapshot_used_for_order_preview": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+            "human_approval_required": True,
+        },
+    )
+
+
 def test_verifier_marks_clean_candidate_review_promotable() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -261,6 +297,42 @@ def test_verifier_measures_clean_short_7y_candidate_without_promotion() -> None:
         assert row["decision"] == "measured_research_7y"
         assert row["evidence_tier"] == "1_research_7y"
         assert row["review_valid_for_promotion"] is False
+        assert row["production_activation_allowed"] is False
+        assert row["ready_for_human_review"] is False
+        assert payload["review_valid_candidate_count"] == 0
+        assert payload["ready_for_human_review_candidate_count"] == 0
+        assert payload["measured_research_7y_candidate_count"] == 1
+
+
+def test_verifier_marks_clean_7y_operating_candidate_for_human_review_only() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=7.50,
+            trading_days=1800,
+            target_pass=True,
+            strengthened_pass=True,
+            valid_for_production=False,
+            cash_trap_false=True,
+        )
+        seed_daily_user_current(candidate)
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "human_review_candidate_ready"
+        assert payload["review_valid_candidate_count"] == 0
+        assert payload["ready_for_human_review_candidate_count"] == 1
+        assert payload["production_activation_allowed"] is False
+        row = payload["candidates"][0]
+        assert row["decision"] == "ready_for_human_review"
+        assert row["evidence_tier"] == "2_operating_candidate"
+        assert row["review_valid_for_promotion"] is False
+        assert row["ready_for_human_review"] is True
         assert row["production_activation_allowed"] is False
 
 
@@ -459,6 +531,7 @@ if __name__ == "__main__":
     test_verifier_marks_clean_candidate_review_promotable()
     test_verifier_rejects_is_cagr_regression_even_if_headline_passes()
     test_verifier_measures_clean_short_7y_candidate_without_promotion()
+    test_verifier_marks_clean_7y_operating_candidate_for_human_review_only()
     test_verifier_rejects_dirty_short_7y_as_do_not_use()
     test_verifier_blocks_clean_7y_candidate_without_readiness_artifact()
     test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked()
