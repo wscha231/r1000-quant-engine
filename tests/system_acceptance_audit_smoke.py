@@ -452,6 +452,14 @@ def test_acceptance_audit_blocks_concentrated_ab_without_clean_7y_readiness() ->
                 "ready_for_alpha_plane_ab_research": False,
                 "promotion_allowed": False,
                 "blockers": ["daily_snapshot_contract_not_ready"],
+                "evidence_recovery": {
+                    "fallback_available": True,
+                    "recommended_recovery_source": "committed_static_IWB_seed",
+                    "recommended_recovery_reason": "static seed is available above floor",
+                    "recovery_action": "repair_universe_from_fallback",
+                },
+                "pre_broker_substrate_gate_pass": False,
+                "pre_broker_substrate_gate_reasons": ["pre_broker_substrate_gate_blocked"],
             },
         )
         out = Path(tmp) / "audit"
@@ -462,6 +470,10 @@ def test_acceptance_audit_blocks_concentrated_ab_without_clean_7y_readiness() ->
         assert len(dispatches) == 5
         assert all(row["depends_on_plan_ids"] == ["clean_7y_research_readiness"] for row in dispatches)
         assert all(row["source_clean_7y_readiness"]["status"] == "warn" for row in dispatches)
+        first_readiness = dispatches[0]["source_clean_7y_readiness"]["evidence"]
+        assert first_readiness["evidence_recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed"
+        assert first_readiness["evidence_recovery"]["recovery_action"] == "repair_universe_from_fallback"
+        assert first_readiness["pre_broker_substrate_gate_pass"] is False
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "blocked until completed_plan_id: clean_7y_research_readiness" in commands
         assert "# gh workflow run full_rebuild_manual.yml" in commands

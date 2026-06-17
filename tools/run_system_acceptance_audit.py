@@ -382,6 +382,7 @@ def evaluate_clean_7y_research_readiness(latest_run: Path) -> dict[str, Any]:
         )
     ready = data.get("status") == "clean_7y_research_ready" and data.get("ready_for_alpha_plane_ab_research") is True
     blockers = data.get("blockers") if isinstance(data.get("blockers"), list) else []
+    recovery = data.get("evidence_recovery") if isinstance(data.get("evidence_recovery"), dict) else {}
     return requirement(
         CLEAN_7Y_RESEARCH_PLAN_ID,
         status="pass" if ready else "warn",
@@ -398,6 +399,9 @@ def evaluate_clean_7y_research_readiness(latest_run: Path) -> dict[str, Any]:
             "evidence_label": data.get("evidence_label"),
             "promotion_allowed": data.get("promotion_allowed"),
             "blockers": blockers,
+            "evidence_recovery": recovery,
+            "pre_broker_substrate_gate_pass": data.get("pre_broker_substrate_gate_pass"),
+            "pre_broker_substrate_gate_reasons": data.get("pre_broker_substrate_gate_reasons"),
         },
         next_action="" if ready else "Resolve clean 7Y readiness blockers before dispatching T3/recovery A/B research.",
     )
