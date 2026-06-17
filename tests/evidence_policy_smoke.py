@@ -259,6 +259,7 @@ def test_clean_7y_is_research_tier1_not_do_not_use() -> None:
         assert payload["evidence_label"] == "research_7y"
         assert payload["research_ab_allowed"] is True
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
 
 
 def test_missing_pre_broker_substrate_gate_forces_tier0() -> None:
@@ -415,6 +416,7 @@ def test_clean_7y_daily_cash_false_is_tier2() -> None:
         assert payload["tier"] == TIER2
         assert payload["ready_for_human_review_allowed"] is True
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
 
 
 def test_daily_summary_must_be_explicit_review_only_for_tier2() -> None:
@@ -486,6 +488,7 @@ def test_clean_7y_with_proxy_10y_robustness_is_tier3() -> None:
         assert payload["tier"] == TIER3
         assert payload["ready_for_human_review_allowed"] is True
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
 
 
 def test_proxy_10y_unsafe_metadata_is_not_tier3() -> None:
@@ -549,11 +552,14 @@ def test_8y_targets_and_cash_pass_is_tier4() -> None:
         payload = classify_evidence(root)
         assert payload["tier"] == TIER4
         assert payload["promotion_allowed"] is True
+        assert payload["production_promotion_allowed"] is False
         assert payload["requires_human_approval"] is True
         out = root / "out"
         write_outputs(payload, out)
         assert (out / "evidence_status.json").exists()
-        assert "Clean 7-year broker-ledger evidence" in (out / "report.md").read_text(encoding="utf-8")
+        report = (out / "report.md").read_text(encoding="utf-8")
+        assert "Clean 7-year broker-ledger evidence" in report
+        assert "production_promotion_allowed: `false`" in report
 
 
 if __name__ == "__main__":
