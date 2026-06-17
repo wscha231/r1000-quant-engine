@@ -610,6 +610,7 @@ jobs:
             outputs/evidence_policy/
             outputs/clean_7y_research_readiness/
             outputs/proxy_10y_robustness/
+            outputs/proxy_10y_universe_substrate/
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
             outputs/universe_health/
@@ -626,6 +627,7 @@ jobs:
             outputs/full_rebuild_logs/evidence_policy.log
             outputs/full_rebuild_logs/clean_7y_research_readiness.log
             outputs/full_rebuild_logs/proxy_10y_robustness.log
+            outputs/full_rebuild_logs/proxy_10y_universe_substrate.log
             outputs/full_rebuild_logs/pre_broker_substrate_gate.log
             outputs/full_rebuild_logs/universe_recovery_candidate.log
             outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log
@@ -710,6 +712,7 @@ jobs:
             outputs/evidence_policy/
             outputs/clean_7y_research_readiness/
             outputs/proxy_10y_robustness/
+            outputs/proxy_10y_universe_substrate/
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
             outputs/universe_health/
@@ -737,6 +740,7 @@ jobs:
             outputs/full_rebuild_logs/evidence_policy.log
             outputs/full_rebuild_logs/clean_7y_research_readiness.log
             outputs/full_rebuild_logs/proxy_10y_robustness.log
+            outputs/full_rebuild_logs/proxy_10y_universe_substrate.log
             outputs/full_rebuild_logs/pre_broker_substrate_gate.log
             outputs/full_rebuild_logs/universe_recovery_candidate.log
             outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log
@@ -883,6 +887,7 @@ jobs:
             outputs/evidence_policy/
             outputs/clean_7y_research_readiness/
             outputs/proxy_10y_robustness/
+            outputs/proxy_10y_universe_substrate/
             outputs/oos_lock/
             outputs/metric_hygiene/
             outputs/cash_contract/
@@ -897,6 +902,7 @@ jobs:
             outputs/full_rebuild_logs/evidence_policy.log
             outputs/full_rebuild_logs/clean_7y_research_readiness.log
             outputs/full_rebuild_logs/proxy_10y_robustness.log
+            outputs/full_rebuild_logs/proxy_10y_universe_substrate.log
             outputs/full_rebuild_logs/pre_broker_substrate_gate.log
             outputs/full_rebuild_logs/universe_recovery_candidate.log
             outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log
@@ -1348,6 +1354,7 @@ jobs:
             copy_dir_clean outputs/evidence_policy "$DEST/evidence_policy"
             copy_dir_clean outputs/clean_7y_research_readiness "$DEST/clean_7y_research_readiness"
             copy_dir_clean outputs/proxy_10y_robustness "$DEST/proxy_10y_robustness"
+            copy_dir_clean outputs/proxy_10y_universe_substrate "$DEST/proxy_10y_universe_substrate"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
@@ -1490,6 +1497,7 @@ jobs:
           copy_dir_clean outputs/evidence_policy "$DEST/evidence_policy"
           copy_dir_clean outputs/clean_7y_research_readiness "$DEST/clean_7y_research_readiness"
           copy_dir_clean outputs/proxy_10y_robustness "$DEST/proxy_10y_robustness"
+          copy_dir_clean outputs/proxy_10y_universe_substrate "$DEST/proxy_10y_universe_substrate"
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
           copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
           copy_dir_clean outputs/promotion_review "$DEST/promotion_review"

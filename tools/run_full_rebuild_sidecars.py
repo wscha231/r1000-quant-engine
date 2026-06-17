@@ -227,6 +227,18 @@ run_proxy_10y_robustness() {
     2>&1 | tee outputs/full_rebuild_logs/proxy_10y_robustness.log || true
 }
 
+run_proxy_10y_universe_substrate() {
+  echo "[proxy-10y] building review-only proxy universe substrate"
+  mkdir -p outputs/full_rebuild_logs
+  python tools/build_proxy_10y_universe_substrate.py \
+    --latest-run outputs \
+    --price-cache cache_prices \
+    --output-dir outputs/proxy_10y_universe_substrate \
+    --start-date 2016-08-26 \
+    --min-membership-count 400 \
+    2>&1 | tee outputs/full_rebuild_logs/proxy_10y_universe_substrate.log || true
+}
+
 write_alpha_plane_measurement_status() {
   echo "[alpha-plane] writing measurement sidecar status"
   python - <<'PY'
@@ -403,6 +415,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
   python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
+  run_proxy_10y_universe_substrate
   run_proxy_10y_robustness
   run_evidence_policy
   run_clean_7y_research_readiness
@@ -442,6 +455,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     run_decision_cadence_review
     run_patch_manifest
     python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
+    run_proxy_10y_universe_substrate
     run_proxy_10y_robustness
     run_evidence_policy
   fi
@@ -449,6 +463,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
   run_patch_manifest
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
+  run_proxy_10y_universe_substrate
   run_proxy_10y_robustness
   run_evidence_policy
   echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
@@ -626,6 +641,7 @@ run_decision_cadence_review
 python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
 run_patch_manifest
 python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
+run_proxy_10y_universe_substrate
 run_proxy_10y_robustness
 run_evidence_policy
 run_clean_7y_research_readiness

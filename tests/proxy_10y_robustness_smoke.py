@@ -65,6 +65,17 @@ def seed_proxy_run(
         },
     )
     write_json(
+        root / "proxy_10y_universe_substrate" / "summary.json",
+        {
+            "status": "proxy_10y_universe_ready",
+            "pit_label": "pit_proxy_universe",
+            "evidence_label": "proxy_10y",
+            "official_russell_1000": False,
+            "promotion_allowed": False,
+            "production_mutation_allowed": False,
+        },
+    )
+    write_json(
         root / "cash_reentry_quality" / "summary.json",
         {
             "status": "completed",
@@ -97,6 +108,16 @@ def test_proxy_10y_robustness_blocks_official_label_confusion() -> None:
         assert "official_russell_1000_false" in payload["blockers"], payload
 
 
+def test_proxy_10y_robustness_requires_proxy_universe_substrate() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_proxy_run(root)
+        write_json(root / "proxy_10y_universe_substrate" / "summary.json", {"status": "not_ready"})
+        payload = classify_proxy_10y_robustness(root)
+        assert payload["proxy_10y_robustness_pass"] is False, payload
+        assert "proxy_10y_universe_substrate_pass" in payload["blockers"], payload
+
+
 def test_proxy_10y_robustness_blocks_weak_metrics_and_cash_trap() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -123,6 +144,7 @@ def test_proxy_10y_robustness_writes_evidence_policy_copy() -> None:
 if __name__ == "__main__":
     test_proxy_10y_robustness_passes_without_official_promotion()
     test_proxy_10y_robustness_blocks_official_label_confusion()
+    test_proxy_10y_robustness_requires_proxy_universe_substrate()
     test_proxy_10y_robustness_blocks_weak_metrics_and_cash_trap()
     test_proxy_10y_robustness_writes_evidence_policy_copy()
     print("proxy_10y_robustness_smoke: PASS")

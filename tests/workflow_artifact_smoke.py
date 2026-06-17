@@ -98,6 +98,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/evidence_policy/",
         "outputs/clean_7y_research_readiness/",
         "outputs/proxy_10y_robustness/",
+        "outputs/proxy_10y_universe_substrate/",
         "outputs/pre_broker_substrate_gate/",
         "outputs/universe_recovery_candidate/",
         "outputs/universe_recovery_candidate_readiness/",
@@ -117,6 +118,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/full_rebuild_logs/evidence_policy.log",
         "outputs/full_rebuild_logs/clean_7y_research_readiness.log",
         "outputs/full_rebuild_logs/proxy_10y_robustness.log",
+        "outputs/full_rebuild_logs/proxy_10y_universe_substrate.log",
         "outputs/full_rebuild_logs/pre_broker_substrate_gate.log",
         "outputs/full_rebuild_logs/universe_recovery_candidate.log",
         "outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log",
@@ -127,6 +129,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "copy_dir_clean outputs/evidence_policy",
         "copy_dir_clean outputs/clean_7y_research_readiness",
         "copy_dir_clean outputs/proxy_10y_robustness",
+        "copy_dir_clean outputs/proxy_10y_universe_substrate",
         "copy_dir_clean outputs/pre_broker_substrate_gate",
         "copy_dir_clean outputs/universe_recovery_candidate",
         "copy_dir_clean outputs/universe_recovery_candidate_readiness",
@@ -347,11 +350,14 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "run_evidence_policy",
         "tools/check_clean_7y_research_readiness.py",
         "run_clean_7y_research_readiness",
+        "tools/build_proxy_10y_universe_substrate.py",
+        "run_proxy_10y_universe_substrate",
         "tools/check_proxy_10y_robustness.py",
         "run_proxy_10y_robustness",
         "outputs/evidence_policy/",
         "outputs/clean_7y_research_readiness/",
         "outputs/proxy_10y_robustness/",
+        "outputs/proxy_10y_universe_substrate/",
         "tools/run_oos_lock_audit.py",
         "tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness",
         'tools/check_10y_backtest_readiness.py --latest-run outputs --min-years 8 --output-dir outputs/eight_year_backtest_readiness --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"',
@@ -905,12 +911,14 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "human_approval_required",
         "source_of_truth_level",
         "tools/build_daily_user_current_contract.py",
+        "tools/build_proxy_10y_universe_substrate.py",
         "tools/check_proxy_10y_robustness.py",
         "tools/evidence_policy.py",
         "tools/check_clean_7y_research_readiness.py",
         "outputs/evidence_policy/",
         "outputs/clean_7y_research_readiness/",
         "outputs/proxy_10y_robustness/",
+        "outputs/proxy_10y_universe_substrate/",
         "outputs/user_current/02_target_weights.csv",
         "outputs/user_current/03_order_preview.csv",
         "outputs/user_current/08_rebalance_decision.json",
@@ -921,6 +929,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/full_rebuild_logs/evidence_policy.log",
         "outputs/full_rebuild_logs/clean_7y_research_readiness.log",
         "outputs/full_rebuild_logs/proxy_10y_robustness.log",
+        "outputs/full_rebuild_logs/proxy_10y_universe_substrate.log",
         "STRICT_SELECTION",
         "outputs/full_rebuild_logs/data_freshness_contract.log",
         "outputs/full_rebuild_logs/daily_universe_health_audit.log",
@@ -947,12 +956,13 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     recovery_readiness_idx = text.index("outputs/full_rebuild_logs/daily_universe_recovery_candidate_readiness.log")
     freshness_idx = text.index("outputs/full_rebuild_logs/data_freshness_contract.log")
     assert universe_idx < readiness_idx < pre_broker_idx < recovery_idx < recovery_readiness_idx < freshness_idx
+    proxy_universe_idx = text.index("outputs/full_rebuild_logs/proxy_10y_universe_substrate.log")
     proxy_idx = text.index("outputs/full_rebuild_logs/proxy_10y_robustness.log")
     evidence_idx = text.index("outputs/full_rebuild_logs/evidence_policy.log")
     clean7_idx = text.index("outputs/full_rebuild_logs/clean_7y_research_readiness.log")
     final_current_idx = text.index("outputs/full_rebuild_logs/daily_user_current_report_final.log")
     final_contract_idx = text.index("outputs/full_rebuild_logs/daily_user_current_contract_final.log")
-    assert proxy_idx < evidence_idx < clean7_idx < final_current_idx < final_contract_idx
+    assert proxy_universe_idx < proxy_idx < evidence_idx < clean7_idx < final_current_idx < final_contract_idx
 
 
 def main() -> int:

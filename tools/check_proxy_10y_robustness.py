@@ -99,6 +99,7 @@ def _ratio(row: dict[str, Any]) -> float | None:
 def classify_proxy_10y_robustness(latest_run: str | Path) -> dict[str, Any]:
     run_dir = repo_path(latest_run)
     readiness = read_json(run_dir / "ten_year_backtest_readiness" / "summary.json")
+    universe_substrate = read_json(run_dir / "proxy_10y_universe_substrate" / "summary.json")
     official = read_json(run_dir / "account_evaluation" / "official_metrics.json")
     portfolios = _portfolio_items(run_dir, official)
     mode = _mode(official, portfolios)
@@ -109,6 +110,9 @@ def classify_proxy_10y_robustness(latest_run: str | Path) -> dict[str, Any]:
         "readiness_label_is_proxy_10y": readiness.get("evidence_label") == "proxy_10y",
         "official_russell_1000_false": readiness.get("official_russell_1000") is False,
         "proxy_10y_acceptance_pass": bool((readiness.get("proxy_10y_acceptance") or {}).get("pass")),
+        "proxy_10y_universe_substrate_pass": universe_substrate.get("status") == "proxy_10y_universe_ready",
+        "proxy_10y_universe_label": universe_substrate.get("pit_label") == "pit_proxy_universe",
+        "proxy_10y_universe_not_official": universe_substrate.get("official_russell_1000") is False,
         "future_available_from_zero": ((readiness.get("future_available_from") or {}).get("future_available_from_rows") in (0, "0", 0.0)),
         "benchmark_coverage_pass": bool((readiness.get("benchmark_coverage") or {}).get("pass")),
         "metric_mode_broker_ledger_next_close": mode == OFFICIAL_METRIC_MODE,
@@ -184,6 +188,7 @@ def classify_proxy_10y_robustness(latest_run: str | Path) -> dict[str, Any]:
         },
         "source_files": {
             "ten_year_backtest_readiness": str(run_dir / "ten_year_backtest_readiness" / "summary.json"),
+            "proxy_10y_universe_substrate": str(run_dir / "proxy_10y_universe_substrate" / "summary.json"),
             "official_metrics": str(run_dir / "account_evaluation" / "official_metrics.json"),
             "cash_reentry_quality": str(run_dir / "cash_reentry_quality" / "summary.json"),
         },

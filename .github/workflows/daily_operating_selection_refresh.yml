@@ -447,6 +447,13 @@ jobs:
             --source-branch "${GITHUB_REF_NAME}" \
             --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
             2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log || true
+          python tools/build_proxy_10y_universe_substrate.py \
+            --latest-run outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/proxy_10y_universe_substrate \
+            --start-date 2016-08-26 \
+            --min-membership-count 400 \
+            2>&1 | tee outputs/full_rebuild_logs/proxy_10y_universe_substrate.log || true
           python tools/check_proxy_10y_robustness.py \
             --latest-run outputs \
             --output-dir outputs/proxy_10y_robustness \
@@ -490,6 +497,7 @@ jobs:
             outputs/evidence_policy/
             outputs/clean_7y_research_readiness/
             outputs/proxy_10y_robustness/
+            outputs/proxy_10y_universe_substrate/
             outputs/user_current/
             outputs/user_portfolio_reports/
             outputs/account_ledger_preview/
@@ -505,6 +513,7 @@ jobs:
             outputs/full_rebuild_logs/evidence_policy.log
             outputs/full_rebuild_logs/clean_7y_research_readiness.log
             outputs/full_rebuild_logs/proxy_10y_robustness.log
+            outputs/full_rebuild_logs/proxy_10y_universe_substrate.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             outputs/full_rebuild_logs/daily_universe_health_audit.log
             outputs/full_rebuild_logs/daily_pre_broker_substrate_gate.log
@@ -531,7 +540,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_operating_selection_refresh outputs/data_readiness outputs/universe_health outputs/pre_broker_substrate_gate outputs/universe_recovery_candidate outputs/universe_recovery_candidate_readiness outputs/operating_snapshot outputs/evidence_policy outputs/clean_7y_research_readiness outputs/proxy_10y_robustness outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/sec_enriched_candidate_replay data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_operating_selection_refresh outputs/data_readiness outputs/universe_health outputs/pre_broker_substrate_gate outputs/universe_recovery_candidate outputs/universe_recovery_candidate_readiness outputs/operating_snapshot outputs/evidence_policy outputs/clean_7y_research_readiness outputs/proxy_10y_robustness outputs/proxy_10y_universe_substrate outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/sec_enriched_candidate_replay data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
