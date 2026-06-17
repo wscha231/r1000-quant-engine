@@ -87,6 +87,38 @@ def seed_base(
         },
     )
     write_json(
+        root / "user_current" / "summary.json",
+        {
+            "review_only": True,
+            "valid_for_production": False,
+            "production_promotion_allowed": False,
+            "recommendation_status": "REVIEW_ONLY",
+        },
+    )
+    (root / "user_current").mkdir(parents=True, exist_ok=True)
+    (root / "user_current" / "01_current_holdings.csv").write_text(
+        "portfolio,ticker,current_weight\nmain,AAA,0.10\n",
+        encoding="utf-8",
+    )
+    (root / "user_current" / "02_target_weights.csv").write_text(
+        "portfolio,ticker,target_weight\nmain,AAA,0.10\n",
+        encoding="utf-8",
+    )
+    (root / "user_current" / "03_order_preview.csv").write_text(
+        "portfolio,ticker,action\nmain,AAA,HOLD\n",
+        encoding="utf-8",
+    )
+    write_json(
+        root / "user_current" / "08_rebalance_decision.json",
+        {
+            "review_only": True,
+            "canonical_production_sync": False,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+            "human_approval_required": True,
+        },
+    )
+    write_json(
         root / "user_current" / "09_daily_output_contract_summary.json",
         {
             "snapshot_contract_pass": daily_snapshot_pass,

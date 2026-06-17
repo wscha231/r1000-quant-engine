@@ -255,12 +255,24 @@ def daily_output_state(user_current_dir: Path | None) -> tuple[bool | None, list
     target_rows = csv_row_count(user_current_dir / "02_target_weights.csv")
     order_rows = csv_row_count(user_current_dir / "03_order_preview.csv")
 
-    if current_rows is not None and current_rows <= 0:
+    if not summary:
+        reasons.append("user_current_summary_missing")
+    if current_rows is None:
+        reasons.append("current_holdings_missing")
+    elif current_rows <= 0:
         reasons.append("current_holdings_empty")
-    if target_rows is not None and target_rows <= 0:
+    if target_rows is None:
+        reasons.append("target_weights_missing")
+    elif target_rows <= 0:
         reasons.append("target_weights_empty")
-    if order_rows is not None and order_rows < 0:
+    if order_rows is None:
+        reasons.append("order_preview_missing")
+    elif order_rows < 0:
         reasons.append("order_preview_invalid")
+    if not decision:
+        reasons.append("rebalance_decision_missing")
+    if not contract:
+        reasons.append("daily_output_contract_missing")
     if summary:
         if summary.get("current_holdings_missing") is True:
             reasons.append("current_holdings_missing")
