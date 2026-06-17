@@ -36,6 +36,7 @@ def seed_proxy_run(
     write_json(
         root / "ten_year_backtest_readiness" / "summary.json",
         {
+            "schema_version": "backtest-window-readiness-v2",
             "status": "proxy_10y_price_ready",
             "evidence_label": label,
             "official_russell_1000": official_r1000,
@@ -67,12 +68,20 @@ def seed_proxy_run(
     write_json(
         root / "proxy_10y_universe_substrate" / "summary.json",
         {
+            "schema_version": "proxy-10y-universe-substrate-v1",
             "status": "proxy_10y_universe_ready",
             "pit_label": "pit_proxy_universe",
             "evidence_label": "proxy_10y",
             "official_russell_1000": False,
             "promotion_allowed": False,
             "production_mutation_allowed": False,
+            "ready_for_proxy_10y_rebuild_review": True,
+            "candidate_row_count": 500,
+            "min_membership_count": 400,
+            "month_count": 119,
+            "failed_month_count": 0,
+            "benchmark_coverage": {"pass": True, "missing": []},
+            "blockers": [],
         },
     )
     write_json(
@@ -118,6 +127,37 @@ def test_proxy_10y_robustness_requires_proxy_universe_substrate() -> None:
         assert "proxy_10y_universe_substrate_pass" in payload["blockers"], payload
 
 
+def test_proxy_10y_robustness_rejects_minimal_universe_substrate() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_proxy_run(root)
+        write_json(
+            root / "proxy_10y_universe_substrate" / "summary.json",
+            {
+                "status": "proxy_10y_universe_ready",
+                "pit_label": "pit_proxy_universe",
+                "official_russell_1000": False,
+            },
+        )
+        payload = classify_proxy_10y_robustness(root)
+        assert payload["proxy_10y_robustness_pass"] is False, payload
+        assert "proxy_10y_universe_schema" in payload["blockers"], payload
+        assert "proxy_10y_universe_ready_flag" in payload["blockers"], payload
+        assert "proxy_10y_universe_month_count_pass" in payload["blockers"], payload
+
+
+def test_proxy_10y_robustness_requires_readiness_schema() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_proxy_run(root)
+        readiness = json.loads((root / "ten_year_backtest_readiness" / "summary.json").read_text(encoding="utf-8"))
+        readiness.pop("schema_version")
+        write_json(root / "ten_year_backtest_readiness" / "summary.json", readiness)
+        payload = classify_proxy_10y_robustness(root)
+        assert payload["proxy_10y_robustness_pass"] is False, payload
+        assert "ten_year_readiness_schema" in payload["blockers"], payload
+
+
 def test_proxy_10y_robustness_blocks_weak_metrics_and_cash_trap() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -145,6 +185,8 @@ if __name__ == "__main__":
     test_proxy_10y_robustness_passes_without_official_promotion()
     test_proxy_10y_robustness_blocks_official_label_confusion()
     test_proxy_10y_robustness_requires_proxy_universe_substrate()
+    test_proxy_10y_robustness_rejects_minimal_universe_substrate()
+    test_proxy_10y_robustness_requires_readiness_schema()
     test_proxy_10y_robustness_blocks_weak_metrics_and_cash_trap()
     test_proxy_10y_robustness_writes_evidence_policy_copy()
     print("proxy_10y_robustness_smoke: PASS")

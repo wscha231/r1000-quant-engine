@@ -23,6 +23,7 @@ CONC_MDD_MIN = -0.25
 OOS_IS_RATIO_MAX = 3.0
 IS_CAGR_MIN = 0.20
 MIN_PROXY_YEARS = 9.8
+MIN_PROXY_MONTHS = 118
 
 
 def _metric(row: dict[str, Any], key: str) -> float | None:
@@ -96,6 +97,15 @@ def _ratio(row: dict[str, Any]) -> float | None:
     return None
 
 
+def _int_value(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def classify_proxy_10y_robustness(latest_run: str | Path) -> dict[str, Any]:
     run_dir = repo_path(latest_run)
     readiness = read_json(run_dir / "ten_year_backtest_readiness" / "summary.json")
@@ -107,12 +117,23 @@ def classify_proxy_10y_robustness(latest_run: str | Path) -> dict[str, Any]:
 
     checks: dict[str, bool] = {
         "ten_year_readiness_present": bool(readiness),
+        "ten_year_readiness_schema": readiness.get("schema_version") == "backtest-window-readiness-v2",
         "readiness_label_is_proxy_10y": readiness.get("evidence_label") == "proxy_10y",
         "official_russell_1000_false": readiness.get("official_russell_1000") is False,
         "proxy_10y_acceptance_pass": bool((readiness.get("proxy_10y_acceptance") or {}).get("pass")),
+        "proxy_10y_universe_schema": universe_substrate.get("schema_version") == "proxy-10y-universe-substrate-v1",
         "proxy_10y_universe_substrate_pass": universe_substrate.get("status") == "proxy_10y_universe_ready",
+        "proxy_10y_universe_ready_flag": universe_substrate.get("ready_for_proxy_10y_rebuild_review") is True,
+        "proxy_10y_universe_no_blockers": not bool(universe_substrate.get("blockers") or []),
         "proxy_10y_universe_label": universe_substrate.get("pit_label") == "pit_proxy_universe",
         "proxy_10y_universe_not_official": universe_substrate.get("official_russell_1000") is False,
+        "proxy_10y_universe_month_count_pass": _int_value(universe_substrate.get("month_count")) >= MIN_PROXY_MONTHS,
+        "proxy_10y_universe_failed_month_count_zero": _int_value(universe_substrate.get("failed_month_count")) == 0,
+        "proxy_10y_universe_candidate_floor_pass": _int_value(universe_substrate.get("candidate_row_count"))
+        >= _int_value(universe_substrate.get("min_membership_count"), 400),
+        "proxy_10y_universe_benchmark_coverage_pass": bool(
+            (universe_substrate.get("benchmark_coverage") or {}).get("pass")
+        ),
         "future_available_from_zero": ((readiness.get("future_available_from") or {}).get("future_available_from_rows") in (0, "0", 0.0)),
         "benchmark_coverage_pass": bool((readiness.get("benchmark_coverage") or {}).get("pass")),
         "metric_mode_broker_ledger_next_close": mode == OFFICIAL_METRIC_MODE,
@@ -185,6 +206,7 @@ def classify_proxy_10y_robustness(latest_run: str | Path) -> dict[str, Any]:
             "is_cagr_min": IS_CAGR_MIN,
             "oos_is_cagr_ratio_max": OOS_IS_RATIO_MAX,
             "min_proxy_years": MIN_PROXY_YEARS,
+            "min_proxy_months": MIN_PROXY_MONTHS,
         },
         "source_files": {
             "ten_year_backtest_readiness": str(run_dir / "ten_year_backtest_readiness" / "summary.json"),
