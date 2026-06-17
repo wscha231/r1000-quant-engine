@@ -142,6 +142,8 @@ def seed_run(
             {
                 "status": "clean_7y_research_ready" if clean_7y_ready else "not_ready",
                 "ready_for_alpha_plane_ab_research": clean_7y_ready,
+                "review_only": True,
+                "canonical_production_sync": False,
                 "promotion_allowed": False,
                 "production_mutation_allowed": False,
                 "live_trading_enabled": False,
@@ -263,6 +265,43 @@ def seed_daily_user_current(root: Path) -> None:
             "production_mutation_allowed": False,
             "canonical_production_sync": False,
             "human_approval_required": True,
+        },
+    )
+
+
+def seed_proxy_10y_robustness(root: Path) -> None:
+    write_json(
+        root / "evidence_policy" / "proxy_10y_robustness.json",
+        {
+            "schema_version": "proxy-10y-robustness-v1",
+            "status": "proxy_10y_robustness_pass",
+            "proxy_10y_robustness_pass": True,
+            "evidence_label": "proxy_10y",
+            "official_russell_1000": False,
+            "promotion_allowed": False,
+            "production_mutation_allowed": False,
+            "live_trading_enabled": False,
+            "human_approval_required": True,
+            "blockers": [],
+            "checks": {
+                "ten_year_readiness_present": True,
+                "readiness_label_is_proxy_10y": True,
+                "official_russell_1000_false": True,
+                "proxy_10y_acceptance_pass": True,
+                "proxy_10y_universe_substrate_pass": True,
+                "proxy_10y_universe_label": True,
+                "proxy_10y_universe_not_official": True,
+                "future_available_from_zero": True,
+                "benchmark_coverage_pass": True,
+                "metric_mode_broker_ledger_next_close": True,
+                "portfolios_present": True,
+                "cash_trap_audit_available": True,
+                "cash_trap_false": True,
+                "portfolio_metric_gates_pass": True,
+            },
+            "portfolio_results": {
+                "concentrated": {"pass": True},
+            },
         },
     )
 
@@ -475,6 +514,74 @@ def test_verifier_blocks_clean_7y_candidate_without_readiness_artifact() -> None
         assert "clean_7y_research_readiness_missing" in row["issues"]
 
 
+def test_verifier_blocks_unsafe_clean_7y_readiness_metadata() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=7.50,
+            trading_days=1800,
+            target_pass=True,
+            strengthened_pass=True,
+            valid_for_production=False,
+            clean_7y_ready=True,
+        )
+        readiness_path = candidate / "clean_7y_research_readiness" / "summary.json"
+        readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+        readiness["review_only"] = False
+        readiness["production_mutation_allowed"] = True
+        readiness["canonical_production_sync"] = True
+        write_json(readiness_path, readiness)
+
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked"
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_clean_7y_readiness"
+        assert "clean_7y_readiness.review_only_not_true" in row["issues"]
+        assert "clean_7y_readiness.production_mutation_allowed_not_false" in row["issues"]
+        assert "clean_7y_readiness.canonical_production_sync_not_false" in row["issues"]
+
+
+def test_verifier_blocks_proxy10_tier3_when_clean_7y_readiness_is_unsafe() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=7.50,
+            trading_days=1800,
+            target_pass=True,
+            strengthened_pass=True,
+            valid_for_production=False,
+            clean_7y_ready=True,
+        )
+        seed_proxy_10y_robustness(candidate)
+        readiness_path = candidate / "clean_7y_research_readiness" / "summary.json"
+        readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+        readiness["live_trading_enabled"] = True
+        readiness["human_approval_required"] = False
+        write_json(readiness_path, readiness)
+
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked"
+        row = payload["candidates"][0]
+        assert row["evidence_tier"] == "3_robust_candidate"
+        assert row["decision"] == "blocked_clean_7y_readiness"
+        assert "clean_7y_readiness.live_trading_enabled_not_false" in row["issues"]
+        assert "clean_7y_readiness.human_approval_required_not_true" in row["issues"]
+
+
 def test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -623,6 +730,8 @@ if __name__ == "__main__":
     test_verifier_rejects_dirty_short_7y_as_do_not_use()
     test_verifier_blocks_dirty_baseline_before_candidate_review()
     test_verifier_blocks_clean_7y_candidate_without_readiness_artifact()
+    test_verifier_blocks_unsafe_clean_7y_readiness_metadata()
+    test_verifier_blocks_proxy10_tier3_when_clean_7y_readiness_is_unsafe()
     test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked()
     test_verifier_blocks_missing_acceptance_evidence()
     test_verifier_blocks_missing_oos_lock_evidence()
