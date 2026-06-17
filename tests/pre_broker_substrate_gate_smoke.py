@@ -22,6 +22,7 @@ def seed_run(root: Path, *, universe_ok: bool = True, data_ok: bool = True) -> N
     write_json(
         root / "universe_health" / "universe_source_audit.json",
         {
+            "schema_version": "universe-health-v1",
             "status": "pass" if universe_ok else "invalid_universe",
             "verdict_code": "PASS" if universe_ok else "INVALID_UNIVERSE",
             "promotion_allowed": universe_ok,
@@ -41,6 +42,7 @@ def seed_run(root: Path, *, universe_ok: bool = True, data_ok: bool = True) -> N
     write_json(
         root / "data_readiness" / "summary.json",
         {
+            "schema_version": "data-readiness-v1",
             "status": "ok" if data_ok else "blocked",
             "ready_for_policy_replay": data_ok,
             "blockers": [] if data_ok else ["future_available_from_rows_present"],
@@ -102,6 +104,38 @@ def test_pre_broker_gate_blocks_float_string_universe_count() -> None:
         assert "universe_health_count_parse_failed" not in result["warnings"], result
 
 
+def test_pre_broker_gate_requires_universe_artifact_schema_and_monthly_health() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_run(latest)
+        audit = latest / "universe_health" / "universe_source_audit.json"
+        payload = json.loads(audit.read_text(encoding="utf-8"))
+        payload.pop("schema_version")
+        payload["monthly_universe_health_pass"] = False
+        audit.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        result = classify_pre_broker_substrate(latest)
+        assert result["status"] == "blocked", result
+        assert result["broker_replay_allowed"] is False, result
+        assert "universe_health_schema_invalid" in result["blockers"], result
+        assert "universe_health_monthly_universe_health_not_pass" in result["blockers"], result
+
+
+def test_pre_broker_gate_requires_data_readiness_artifact_schema() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_run(latest)
+        readiness = latest / "data_readiness" / "summary.json"
+        payload = json.loads(readiness.read_text(encoding="utf-8"))
+        payload.pop("schema_version")
+        readiness.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        result = classify_pre_broker_substrate(latest)
+        assert result["status"] == "blocked", result
+        assert result["broker_replay_allowed"] is False, result
+        assert "data_readiness_schema_invalid" in result["blockers"], result
+
+
 def test_pre_broker_gate_blocks_dirty_data_readiness() -> None:
     with TemporaryDirectory() as tmp:
         latest = Path(tmp) / "latest"
@@ -139,6 +173,8 @@ if __name__ == "__main__":
     test_pre_broker_gate_passes_clean_substrate()
     test_pre_broker_gate_blocks_starved_universe()
     test_pre_broker_gate_blocks_float_string_universe_count()
+    test_pre_broker_gate_requires_universe_artifact_schema_and_monthly_health()
+    test_pre_broker_gate_requires_data_readiness_artifact_schema()
     test_pre_broker_gate_blocks_dirty_data_readiness()
     test_pre_broker_gate_strict_exits_nonzero()
     print("pre_broker_substrate_gate_smoke: PASS")
