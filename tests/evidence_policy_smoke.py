@@ -175,6 +175,10 @@ def proxy_10y_robustness_payload(
         "proxy_10y_robustness_pass": pass_flag,
         "evidence_label": label,
         "official_russell_1000": official_russell_1000,
+        "promotion_allowed": False,
+        "production_mutation_allowed": False,
+        "live_trading_enabled": False,
+        "human_approval_required": True,
         "blockers": [] if pass_flag else ["portfolio_metric_gates_pass"],
         "checks": {
             "ten_year_readiness_present": True,
@@ -462,6 +466,22 @@ def test_clean_7y_with_proxy_10y_robustness_is_tier3() -> None:
         assert payload["promotion_allowed"] is False
 
 
+def test_proxy_10y_unsafe_metadata_is_not_tier3() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, cash_trap_false=True)
+        proxy = proxy_10y_robustness_payload()
+        proxy["promotion_allowed"] = True
+        proxy["live_trading_enabled"] = True
+        write_json(root / "evidence_policy" / "proxy_10y_robustness.json", proxy)
+
+        payload = classify_evidence(root)
+        assert payload["tier"] == TIER1
+        assert payload["proxy_10y_robustness_pass"] is False
+        assert "proxy_10y_promotion_allowed_not_false" in payload["proxy_10y_reasons"]
+        assert "proxy_10y_live_trading_enabled_not_false" in payload["proxy_10y_reasons"]
+
+
 def test_ten_year_readiness_only_is_not_proxy_10y_robustness() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -527,6 +547,7 @@ if __name__ == "__main__":
     test_daily_summary_must_be_explicit_review_only_for_tier2()
     test_portfolio_level_cash_trap_blocks_operating_candidate()
     test_clean_7y_with_proxy_10y_robustness_is_tier3()
+    test_proxy_10y_unsafe_metadata_is_not_tier3()
     test_ten_year_readiness_only_is_not_proxy_10y_robustness()
     test_proxy_10y_pass_requires_proxy_label_not_official_confusion()
     test_8y_targets_and_cash_pass_is_tier4()

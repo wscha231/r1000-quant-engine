@@ -339,6 +339,10 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
     schema_ok = payload.get("schema_version") == "proxy-10y-robustness-v1"
     status_ok = payload.get("status") == "proxy_10y_robustness_pass"
     pass_flag = payload.get("proxy_10y_robustness_pass") is True
+    promotion_disabled = payload.get("promotion_allowed") is False
+    production_mutation_disabled = payload.get("production_mutation_allowed") is False
+    live_trading_disabled = payload.get("live_trading_enabled") is False
+    human_approval_required = payload.get("human_approval_required") is True
     blockers = payload.get("blockers") if isinstance(payload.get("blockers"), list) else []
     checks = payload.get("checks") if isinstance(payload.get("checks"), dict) else {}
     portfolios = payload.get("portfolio_results") if isinstance(payload.get("portfolio_results"), dict) else {}
@@ -350,6 +354,10 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
         and status_ok
         and label_is_proxy
         and not_official_r1000
+        and promotion_disabled
+        and production_mutation_disabled
+        and live_trading_disabled
+        and human_approval_required
         and not blockers
         and checks_pass
         and portfolios_pass
@@ -365,6 +373,14 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
         reasons.append("proxy_10y_evidence_label_not_proxy_10y")
     if not not_official_r1000:
         reasons.append("proxy_10y_official_russell_1000_not_false")
+    if not promotion_disabled:
+        reasons.append("proxy_10y_promotion_allowed_not_false")
+    if not production_mutation_disabled:
+        reasons.append("proxy_10y_production_mutation_allowed_not_false")
+    if not live_trading_disabled:
+        reasons.append("proxy_10y_live_trading_enabled_not_false")
+    if not human_approval_required:
+        reasons.append("proxy_10y_human_approval_required_not_true")
     if blockers:
         reasons.extend(f"proxy_10y:{item}" for item in blockers)
     if not checks:
