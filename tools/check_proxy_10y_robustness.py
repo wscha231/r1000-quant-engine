@@ -127,6 +127,11 @@ def classify_proxy_10y_robustness(latest_run: str | Path) -> dict[str, Any]:
         "proxy_10y_universe_no_blockers": not bool(universe_substrate.get("blockers") or []),
         "proxy_10y_universe_label": universe_substrate.get("pit_label") == "pit_proxy_universe",
         "proxy_10y_universe_not_official": universe_substrate.get("official_russell_1000") is False,
+        "proxy_10y_universe_review_only": universe_substrate.get("review_only") is True,
+        "proxy_10y_universe_promotion_disabled": universe_substrate.get("promotion_allowed") is False,
+        "proxy_10y_universe_production_mutation_disabled": universe_substrate.get("production_mutation_allowed") is False,
+        "proxy_10y_universe_live_trading_disabled": universe_substrate.get("live_trading_enabled") is False,
+        "proxy_10y_universe_human_approval_required": universe_substrate.get("human_approval_required") is True,
         "proxy_10y_universe_month_count_pass": _int_value(universe_substrate.get("month_count")) >= MIN_PROXY_MONTHS,
         "proxy_10y_universe_failed_month_count_zero": _int_value(universe_substrate.get("failed_month_count")) == 0,
         "proxy_10y_universe_candidate_floor_pass": _int_value(universe_substrate.get("candidate_row_count"))

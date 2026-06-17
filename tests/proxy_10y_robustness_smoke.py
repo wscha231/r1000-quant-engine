@@ -73,8 +73,11 @@ def seed_proxy_run(
             "pit_label": "pit_proxy_universe",
             "evidence_label": "proxy_10y",
             "official_russell_1000": False,
+            "review_only": True,
             "promotion_allowed": False,
             "production_mutation_allowed": False,
+            "live_trading_enabled": False,
+            "human_approval_required": True,
             "ready_for_proxy_10y_rebuild_review": True,
             "candidate_row_count": 500,
             "min_membership_count": 400,
@@ -125,6 +128,22 @@ def test_proxy_10y_robustness_requires_proxy_universe_substrate() -> None:
         payload = classify_proxy_10y_robustness(root)
         assert payload["proxy_10y_robustness_pass"] is False, payload
         assert "proxy_10y_universe_substrate_pass" in payload["blockers"], payload
+
+
+def test_proxy_10y_robustness_requires_universe_safety_metadata() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_proxy_run(root)
+        substrate = json.loads((root / "proxy_10y_universe_substrate" / "summary.json").read_text(encoding="utf-8"))
+        substrate["promotion_allowed"] = True
+        substrate["live_trading_enabled"] = True
+        substrate["human_approval_required"] = False
+        write_json(root / "proxy_10y_universe_substrate" / "summary.json", substrate)
+        payload = classify_proxy_10y_robustness(root)
+        assert payload["proxy_10y_robustness_pass"] is False, payload
+        assert "proxy_10y_universe_promotion_disabled" in payload["blockers"], payload
+        assert "proxy_10y_universe_live_trading_disabled" in payload["blockers"], payload
+        assert "proxy_10y_universe_human_approval_required" in payload["blockers"], payload
 
 
 def test_proxy_10y_robustness_rejects_minimal_universe_substrate() -> None:
@@ -185,6 +204,7 @@ if __name__ == "__main__":
     test_proxy_10y_robustness_passes_without_official_promotion()
     test_proxy_10y_robustness_blocks_official_label_confusion()
     test_proxy_10y_robustness_requires_proxy_universe_substrate()
+    test_proxy_10y_robustness_requires_universe_safety_metadata()
     test_proxy_10y_robustness_rejects_minimal_universe_substrate()
     test_proxy_10y_robustness_requires_readiness_schema()
     test_proxy_10y_robustness_blocks_weak_metrics_and_cash_trap()
