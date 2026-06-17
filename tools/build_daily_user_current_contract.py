@@ -148,6 +148,19 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
         or "DO_NOT_USE_REVIEW_REQUIRED"
     )
     blockers = list(status.get("blockers") or [])
+    summary_blockers = summary.get("selection_blockers")
+    if not isinstance(summary_blockers, list):
+        summary_blockers = []
+    if summary.get("selection_allowed") is False:
+        blockers.append("daily_summary_selection_allowed=false")
+        selection_allowed = False
+    if summary.get("promotion_allowed") is False:
+        promotion_allowed = False
+    if summary_blockers:
+        blockers.extend(f"daily_summary: {item}" for item in summary_blockers if item)
+        selection_allowed = False
+        promotion_allowed = False
+        recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED"
     pre_broker_status = pre_broker.get("status") or summary.get("pre_broker_substrate_gate_status")
     pre_broker_allowed = pre_broker.get("broker_replay_allowed", summary.get("pre_broker_broker_replay_allowed"))
     pre_broker_blockers = pre_broker.get("blockers")
@@ -164,6 +177,7 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
     if substrate_blockers:
         blockers.extend(f"substrate: {item}" for item in substrate_blockers)
         selection_allowed = False
+        promotion_allowed = False
         recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED"
     recovery = pre_broker.get("recovery") if isinstance(pre_broker.get("recovery"), dict) else {}
     if not recovery:
