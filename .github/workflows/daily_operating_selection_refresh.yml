@@ -327,8 +327,21 @@ jobs:
           import os
           from pathlib import Path
 
+          def load_json(path: str) -> dict:
+              item = Path(path)
+              if not item.exists():
+                  return {}
+              try:
+                  payload = json.loads(item.read_text(encoding="utf-8"))
+              except Exception:
+                  return {}
+              return payload if isinstance(payload, dict) else {}
+
           status_path = Path("outputs/data_freshness_contract/status.json")
           status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+          universe = load_json("outputs/universe_health/universe_source_audit.json") or load_json("outputs/universe_health/summary.json")
+          pre_broker = load_json("outputs/pre_broker_substrate_gate/summary.json")
+          recovery = pre_broker.get("recovery") if isinstance(pre_broker.get("recovery"), dict) else {}
           summary = {
               "schema_version": "daily-operating-selection-refresh-v1",
               "daily_operating_refresh": True,
@@ -346,6 +359,20 @@ jobs:
               "promotion_allowed": bool(status.get("promotion_allowed", False)),
               "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
               "data_freshness_contract": "outputs/data_freshness_contract/status.json",
+              "universe_health_status": universe.get("status"),
+              "universe_health_promotion_allowed": universe.get("promotion_allowed"),
+              "universe_health_r1000_base_count": universe.get("r1000_base_count"),
+              "universe_health_primary_source": universe.get("primary_universe_source"),
+              "pre_broker_substrate_gate_status": pre_broker.get("status"),
+              "pre_broker_broker_replay_allowed": pre_broker.get("broker_replay_allowed"),
+              "pre_broker_blockers": pre_broker.get("blockers") if isinstance(pre_broker.get("blockers"), list) else [],
+              "substrate_recovery": {
+                  "fallback_available": recovery.get("fallback_available"),
+                  "recommended_recovery_source": recovery.get("recommended_recovery_source"),
+                  "recovery_action": recovery.get("recovery_action"),
+              },
+              "universe_health_artifact": "outputs/universe_health/universe_source_audit.json",
+              "pre_broker_substrate_gate_artifact": "outputs/pre_broker_substrate_gate/summary.json",
               "canonical_output_note": "This workflow syncs review artifacts under research_runs only; it does not update canonical production outputs.",
           }
           out = Path("outputs/daily_operating_selection_refresh")
@@ -358,7 +385,8 @@ jobs:
               "- live_trading_enabled: `false`\n"
               "- production_mutation_allowed: `false`\n"
               "- human_approval_required: `true`\n"
-              "- source_of_truth_level: `GITHUB_ARTIFACT`\n",
+              "- source_of_truth_level: `GITHUB_ARTIFACT`\n"
+              "- substrate_status_artifacts: `outputs/universe_health/`, `outputs/pre_broker_substrate_gate/`\n",
               encoding="utf-8",
           )
           if os.environ.get("STRICT_SELECTION", "true").lower() == "true" and not summary["selection_allowed"]:
