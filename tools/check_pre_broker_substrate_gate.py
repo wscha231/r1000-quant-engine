@@ -98,6 +98,12 @@ def classify_pre_broker_substrate(latest_run: str | Path, *, universe_mode: str 
             blockers.append("data_readiness_blockers_present")
 
     passed = not blockers
+    recovery = {
+        "fallback_available": universe.get("fallback_available"),
+        "recommended_recovery_source": universe.get("recommended_recovery_source"),
+        "recommended_recovery_reason": universe.get("recommended_recovery_reason"),
+        "recovery_action": universe.get("recovery_action"),
+    }
     return {
         "schema_version": "pre-broker-substrate-gate-v1",
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -111,6 +117,7 @@ def classify_pre_broker_substrate(latest_run: str | Path, *, universe_mode: str 
         "promotion_allowed": False,
         "blockers": blockers,
         "warnings": warnings,
+        "recovery": recovery,
         "universe_health": {
             "path": str(universe_path),
             "exists": bool(universe),
@@ -122,6 +129,10 @@ def classify_pre_broker_substrate(latest_run: str | Path, *, universe_mode: str 
             "min_r1000_base": universe.get("min_r1000_base"),
             "primary_universe_source": universe.get("primary_universe_source"),
             "fallback_used": universe.get("fallback_used"),
+            "fallback_available": universe.get("fallback_available"),
+            "recommended_recovery_source": universe.get("recommended_recovery_source"),
+            "recommended_recovery_reason": universe.get("recommended_recovery_reason"),
+            "recovery_action": universe.get("recovery_action"),
             "monthly_universe_health_pass": universe.get("monthly_universe_health_pass"),
             "blockers": universe.get("blockers") if isinstance(universe.get("blockers"), list) else [],
         },
@@ -164,6 +175,10 @@ def render_report(payload: dict[str, Any]) -> str:
     universe = payload.get("universe_health") if isinstance(payload.get("universe_health"), dict) else {}
     for key in ("status", "promotion_allowed", "hard_fail_before_expensive_rebuild", "r1000_base_count", "min_r1000_base", "primary_universe_source"):
         lines.append(f"- {key}: `{universe.get(key)}`")
+    lines.extend(["", "## Recovery", ""])
+    recovery = payload.get("recovery") if isinstance(payload.get("recovery"), dict) else {}
+    for key in ("fallback_available", "recommended_recovery_source", "recovery_action", "recommended_recovery_reason"):
+        lines.append(f"- {key}: `{recovery.get(key)}`")
     lines.extend(["", "## Data Readiness", ""])
     readiness = payload.get("data_readiness") if isinstance(payload.get("data_readiness"), dict) else {}
     for key in ("status", "ready_for_policy_replay"):
