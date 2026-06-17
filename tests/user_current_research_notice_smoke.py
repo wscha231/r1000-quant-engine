@@ -343,6 +343,12 @@ def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> 
                     "status": "blocked",
                     "broker_replay_allowed": False,
                     "blockers": ["universe_health_promotion_not_allowed"],
+                    "recovery": {
+                        "fallback_available": True,
+                        "recommended_recovery_source": "committed_static_IWB_seed",
+                        "recommended_recovery_reason": "static seed is available above floor",
+                        "recovery_action": "repair_universe_from_fallback",
+                    },
                 }
             ),
             encoding="utf-8",
@@ -371,8 +377,12 @@ def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> 
         assert summary["evidence_tier"] == "0_do_not_use"
         assert summary["evidence_promotion_allowed"] is False
         assert "pre_broker_substrate_gate_blocked" in summary["evidence_tier0_blockers"]
+        assert summary["evidence_recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed"
+        assert summary["evidence_recovery"]["recovery_action"] == "repair_universe_from_fallback"
         assert "- valid_for_production: `False`" in action_summary
         assert "- production_promotion_allowed: `False`" in action_summary
+        assert "- evidence_recovery_source: `committed_static_IWB_seed`" in action_summary
+        assert "- evidence_recovery_action: `repair_universe_from_fallback`" in action_summary
         assert "evidence_tier0_blocker=pre_broker_substrate_gate_blocked" in action_summary
 
 

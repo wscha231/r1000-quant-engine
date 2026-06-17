@@ -305,6 +305,26 @@ def pre_broker_gate_pass(payload: dict[str, Any], reasons: list[str]) -> bool | 
     return True
 
 
+def pre_broker_gate_recovery(payload: dict[str, Any]) -> dict[str, Any]:
+    if not payload:
+        return {}
+    recovery = payload.get("recovery") if isinstance(payload.get("recovery"), dict) else {}
+    universe = payload.get("universe_health") if isinstance(payload.get("universe_health"), dict) else {}
+    out = {
+        "fallback_available": recovery.get("fallback_available", universe.get("fallback_available")),
+        "recommended_recovery_source": recovery.get(
+            "recommended_recovery_source",
+            universe.get("recommended_recovery_source"),
+        ),
+        "recommended_recovery_reason": recovery.get(
+            "recommended_recovery_reason",
+            universe.get("recommended_recovery_reason"),
+        ),
+        "recovery_action": recovery.get("recovery_action", universe.get("recovery_action")),
+    }
+    return {key: value for key, value in out.items() if value is not None}
+
+
 def classify_evidence(
     run_dir: str | Path,
     *,
@@ -346,6 +366,7 @@ def classify_evidence(
 
     pre_broker_reasons: list[str] = []
     pre_broker_ok = pre_broker_gate_pass(pre_broker_gate, pre_broker_reasons)
+    pre_broker_recovery = pre_broker_gate_recovery(pre_broker_gate)
     if pre_broker_ok is False:
         tier0.extend(pre_broker_reasons)
 
@@ -425,6 +446,7 @@ def classify_evidence(
         "proxy_10y_reasons": proxy_reasons,
         "pre_broker_substrate_gate_pass": pre_broker_ok,
         "pre_broker_substrate_gate_reasons": pre_broker_reasons,
+        "pre_broker_substrate_gate_recovery": pre_broker_recovery,
         "valid_for_production_semantics": "promotion_only; false does not invalidate clean Tier 1 research evidence",
         "source_files": {
             "official_metrics": str(official_path),
@@ -478,6 +500,11 @@ def render_report(payload: dict[str, Any]) -> str:
     blockers = payload.get("tier0_blockers") or []
     lines.extend(["", "## Tier 0 Blockers", ""])
     lines.extend([f"- {item}" for item in blockers] if blockers else ["- none"])
+    recovery = payload.get("pre_broker_substrate_gate_recovery") if isinstance(payload.get("pre_broker_substrate_gate_recovery"), dict) else {}
+    if recovery:
+        lines.extend(["", "## Pre-Broker Recovery", ""])
+        for key in ("fallback_available", "recommended_recovery_source", "recovery_action", "recommended_recovery_reason"):
+            lines.append(f"- {key}: `{recovery.get(key)}`")
     lines.extend(["", "## Portfolio Evidence", ""])
     lines.append("| Portfolio | Years | Trading Days | Valid For Production | Target Pass | Strengthened Pass | CAGR | MaxDD |")
     lines.append("| --- | ---: | ---: | :---: | :---: | :---: | ---: | ---: |")
