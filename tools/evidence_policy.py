@@ -283,20 +283,22 @@ def daily_output_state(user_current_dir: Path | None) -> tuple[bool | None, list
             reasons.append("current_holdings_missing")
         if summary.get("valid_for_production") is True and summary.get("production_promotion_allowed") is not True:
             reasons.append("user_current_valid_for_production_inconsistent")
-    for source_name, source in (("rebalance_decision", decision), ("daily_contract", contract)):
+    for source_name, source in (("user_current_summary", summary), ("rebalance_decision", decision), ("daily_contract", contract)):
         if not source:
             continue
-        if source.get("live_trading_enabled") is True:
-            reasons.append(f"{source_name}.live_trading_enabled=true")
-        if source.get("production_mutation_allowed") is True:
-            reasons.append(f"{source_name}.production_mutation_allowed=true")
-        if source.get("canonical_production_sync") is True:
-            reasons.append(f"{source_name}.canonical_production_sync=true")
-        if source.get("human_approval_required") is False:
-            reasons.append(f"{source_name}.human_approval_required=false")
+        if source.get("review_only") is not True:
+            reasons.append(f"{source_name}.review_only_not_true")
+        if source.get("live_trading_enabled") is not False:
+            reasons.append(f"{source_name}.live_trading_enabled_not_false")
+        if source.get("production_mutation_allowed") is not False:
+            reasons.append(f"{source_name}.production_mutation_allowed_not_false")
+        if source.get("canonical_production_sync") is not False:
+            reasons.append(f"{source_name}.canonical_production_sync_not_false")
+        if source.get("human_approval_required") is not True:
+            reasons.append(f"{source_name}.human_approval_required_not_true")
         if source_name == "daily_contract" and source.get("current_snapshot_used_for_order_preview") is False:
             reasons.append("daily_contract.current_snapshot_used_for_order_preview=false")
-    return (not reasons), reasons
+    return (not reasons), sorted(set(reasons))
 
 
 def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
