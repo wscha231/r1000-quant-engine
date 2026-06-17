@@ -84,10 +84,14 @@ def classify_pre_broker_substrate(latest_run: str | Path, *, universe_mode: str 
     if not universe:
         blockers.append("universe_health_missing")
     elif universe_mode != "adr":
+        if universe.get("schema_version") != "universe-health-v1":
+            blockers.append("universe_health_schema_invalid")
         if universe.get("promotion_allowed") is not True:
             blockers.append("universe_health_promotion_not_allowed")
         if universe.get("hard_fail_before_expensive_rebuild") is True:
             blockers.append("universe_health_hard_fail_before_expensive_rebuild")
+        if universe.get("monthly_universe_health_pass") is not True:
+            blockers.append("universe_health_monthly_universe_health_not_pass")
         r1000 = universe.get("r1000_base_count")
         floor = universe.get("min_r1000_base")
         r1000_int = safe_int(r1000)
@@ -102,6 +106,8 @@ def classify_pre_broker_substrate(latest_run: str | Path, *, universe_mode: str 
         blockers.append("data_readiness_missing")
     else:
         readiness_blockers = blockers_from_data_readiness(readiness)
+        if readiness.get("schema_version") != "data-readiness-v1":
+            blockers.append("data_readiness_schema_invalid")
         if readiness.get("ready_for_policy_replay") is not True:
             blockers.append("data_readiness_not_ready_for_policy_replay")
         if readiness_blockers:
