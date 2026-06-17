@@ -311,6 +311,11 @@ jobs:
             --latest-run outputs \
             --output-dir outputs/pre_broker_substrate_gate \
             2>&1 | tee outputs/full_rebuild_logs/daily_pre_broker_substrate_gate.log || true
+          python tools/prepare_universe_recovery_candidate.py \
+            --latest-run outputs \
+            --output-dir outputs/universe_recovery_candidate \
+            --min-r1000-base 400 \
+            2>&1 | tee outputs/full_rebuild_logs/daily_universe_recovery_candidate.log || true
           python tools/run_data_freshness_contract.py \
             --latest-run outputs \
             --price-cache cache_prices \
@@ -471,6 +476,7 @@ jobs:
             outputs/data_readiness/
             outputs/universe_health/
             outputs/pre_broker_substrate_gate/
+            outputs/universe_recovery_candidate/
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
             outputs/operating_snapshot/
@@ -495,6 +501,7 @@ jobs:
             outputs/full_rebuild_logs/data_freshness_contract.log
             outputs/full_rebuild_logs/daily_universe_health_audit.log
             outputs/full_rebuild_logs/daily_pre_broker_substrate_gate.log
+            outputs/full_rebuild_logs/daily_universe_recovery_candidate.log
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
 
@@ -516,7 +523,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_operating_selection_refresh outputs/data_readiness outputs/universe_health outputs/pre_broker_substrate_gate outputs/operating_snapshot outputs/evidence_policy outputs/clean_7y_research_readiness outputs/proxy_10y_robustness outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/sec_enriched_candidate_replay data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_operating_selection_refresh outputs/data_readiness outputs/universe_health outputs/pre_broker_substrate_gate outputs/universe_recovery_candidate outputs/operating_snapshot outputs/evidence_policy outputs/clean_7y_research_readiness outputs/proxy_10y_robustness outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/sec_enriched_candidate_replay data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi

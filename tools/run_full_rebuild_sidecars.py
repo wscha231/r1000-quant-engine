@@ -177,6 +177,16 @@ run_pre_broker_substrate_gate() {
     2>&1 | tee outputs/full_rebuild_logs/pre_broker_substrate_gate.log
 }
 
+run_universe_recovery_candidate() {
+  echo "[universe-recovery] preparing review-only fallback universe candidate"
+  mkdir -p outputs/full_rebuild_logs
+  python tools/prepare_universe_recovery_candidate.py \
+    --latest-run outputs \
+    --output-dir outputs/universe_recovery_candidate \
+    --min-r1000-base 400 \
+    2>&1 | tee outputs/full_rebuild_logs/universe_recovery_candidate.log || true
+}
+
 run_evidence_policy() {
   echo "[evidence-policy] classifying evidence tier and allowed uses"
   mkdir -p outputs/full_rebuild_logs
@@ -294,6 +304,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   run_universe_health_audit
   python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
   run_pre_broker_substrate_gate
+  run_universe_recovery_candidate
   run_data_freshness_contract
   run_sidecar_promotion_hook
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
@@ -442,6 +453,7 @@ run_alphaops_vnext_production
 run_universe_health_audit
 python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
 run_pre_broker_substrate_gate
+run_universe_recovery_candidate
 run_data_freshness_contract
 run_sidecar_promotion_hook
 python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
