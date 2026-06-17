@@ -363,6 +363,9 @@ def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> 
                     "evidence_label": "proxy_10y",
                     "official_russell_1000": False,
                     "promotion_allowed": False,
+                    "production_mutation_allowed": False,
+                    "live_trading_enabled": False,
+                    "human_approval_required": True,
                     "blockers": [],
                     "checks": {
                         "ten_year_readiness_present": True,
