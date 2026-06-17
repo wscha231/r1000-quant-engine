@@ -23,14 +23,26 @@ if str(REPO_ROOT) not in sys.path:
 USER_CURRENT_FILES = [
     "README_FIRST.md",
     "01_current_holdings.csv",
+    "02_target_weights.csv",
     "02_cash_summary.json",
+    "03_order_preview.csv",
     "03_period_returns.csv",
     "04_official_metrics.json",
     "05_action_summary.md",
     "06_benchmark_comparison.csv",
     "07_research_sidecar_context.json",
+    "08_rebalance_decision.json",
+    "09_daily_output_contract_summary.json",
+    "DAILY_REVIEW_ONLY.md",
     "summary.json",
 ]
+USER_CURRENT_REVIEW_ONLY_FILES = {
+    "02_target_weights.csv",
+    "03_order_preview.csv",
+    "08_rebalance_decision.json",
+    "09_daily_output_contract_summary.json",
+    "DAILY_REVIEW_ONLY.md",
+}
 OFFICIAL_FILES = [
     "patch_application_manifest.json",
     "alphaops_vnext/summary.json",
@@ -262,14 +274,19 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
         return entries
 
     for name in USER_CURRENT_FILES:
+        user_current_review_only = name in USER_CURRENT_REVIEW_ONLY_FILES
         entries.append(
             entry(
                 latest_run=latest_run,
                 rel_source=f"user_current/{name}",
                 rel_dest=f"user_current/{name}",
                 required=True,
-                semantic_type="current_holding" if name == "01_current_holdings.csv" else "official",
-                production_valid=True,
+                semantic_type=(
+                    "daily_review_only"
+                    if user_current_review_only
+                    else "current_holding" if name == "01_current_holdings.csv" else "official"
+                ),
+                production_valid=not user_current_review_only,
                 metric_mode=metric_mode if name in {"03_period_returns.csv", "04_official_metrics.json"} else "",
             )
         )

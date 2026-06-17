@@ -339,6 +339,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_operating_snapshot.py",
         "tools/run_user_portfolio_reports.py",
         "tools/run_position_cleanup_review.py",
+        "tools/build_daily_user_current_contract.py",
+        "run_daily_user_current_contract",
         "tools/run_portfolio_system_guard.py",
         "tools/run_adr_candidate_scanner.py",
         "tools/run_system_acceptance_audit.py",
@@ -418,6 +420,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/data_readiness_pre_broker.log",
         "outputs/full_rebuild_logs/universe_health_audit.log",
         "outputs/full_rebuild_logs/data_freshness_contract.log",
+        "outputs/full_rebuild_logs/user_current_contract.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_main.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log",
         "outputs/full_rebuild_logs/legacy_monthly_broker_replay_main.log",
@@ -559,6 +562,29 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     assert '--ref "${GITHUB_REF_NAME:-master}"' in self_correction_call
     assert '--repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}"' in self_correction_call
     assert "--output-dir outputs/review_dispatcher_self_correction" in self_correction_call
+
+
+def test_full_rebuild_builds_user_current_contract_before_evidence() -> None:
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    assert "tools/build_daily_user_current_contract.py" in sidecar_tool
+    assert "outputs/full_rebuild_logs/user_current_contract.log" in sidecar_tool
+    search_from = 0
+    seen = 0
+    while True:
+        try:
+            report_idx = sidecar_tool.index("tools/run_user_current_report.py", search_from)
+        except ValueError:
+            break
+        try:
+            contract_idx = sidecar_tool.index("run_daily_user_current_contract", report_idx)
+            evidence_idx = sidecar_tool.index("run_evidence_policy", report_idx)
+            clean7_idx = sidecar_tool.index("run_clean_7y_research_readiness", report_idx)
+        except ValueError as exc:
+            raise AssertionError("user_current report must be followed by contract, evidence, and clean7Y readiness") from exc
+        assert report_idx < contract_idx < evidence_idx < clean7_idx
+        seen += 1
+        search_from = report_idx + 1
+    assert seen >= 3, seen
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
@@ -977,6 +1003,8 @@ def main() -> int:
     test_pipeline_exports_monthly_books()
     test_workflow_runs_latest_diagnostics_sidecars()
     test_sidecar_promotion_hook_runs_before_primary_broker_replay()
+    test_operating_acceptance_audit_runs_after_attribution_inputs()
+    test_full_rebuild_builds_user_current_contract_before_evidence()
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()
