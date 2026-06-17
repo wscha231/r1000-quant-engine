@@ -120,6 +120,9 @@ def test_universe_health_blocks_starved_universe() -> None:
         assert payload["verdict_code"] == "INVALID_UNIVERSE"
         assert payload["promotion_allowed"] is False
         assert payload["hard_fail_before_expensive_rebuild"] is True
+        assert payload["fallback_available"] is True
+        assert payload["recommended_recovery_source"] == "committed_static_IWB_seed"
+        assert payload["recovery_action"] == "repair_universe_from_fallback"
         assert payload["monthly_universe_health_pass"] is False
         assert payload["r1000_base_count"] == 0
         assert any("below floor" in item for item in payload["blockers"])
@@ -127,8 +130,46 @@ def test_universe_health_blocks_starved_universe() -> None:
         decision = (root / "audit" / "universe_health" / "universe_fallback_decision.md").read_text(encoding="utf-8")
         assert "DO_NOT_PROMOTE" in decision
         assert "hard_fail_before_expensive_rebuild" in decision
+        assert "recommended_recovery_source" in decision
         summary = load_json(root / "audit" / "universe_health" / "summary.json")
         assert summary["production_mutation_allowed"] is False
+
+
+def test_universe_health_distinguishes_available_fallback_from_used_fallback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        reports = latest / "reports"
+        reports.mkdir(parents=True)
+        rows = [
+            {
+                "ticker": f"C{i:04d}",
+                "feature_date": "2026-06-15",
+                "universe_source": "current_constituents_proxy",
+            }
+            for i in range(450)
+        ]
+        write_csv(latest / "scored_latest.csv", rows)
+        write_csv(
+            reports / "candidate_replay_book.csv",
+            [
+                {
+                    "ticker": f"C{i:04d}",
+                    "rebalance_date": "2026-06-15",
+                    "universe_source": "current_constituents_proxy",
+                }
+                for i in range(450)
+            ],
+        )
+
+        payload = run_audit(root, latest)
+        assert payload["status"] == "pass"
+        assert payload["promotion_allowed"] is True
+        assert payload["primary_universe_source"] == "current_constituents_proxy"
+        assert payload["fallback_used"] is False
+        assert payload["fallback_available"] is True
+        assert payload["recommended_recovery_source"] == "none_required"
+        assert payload["recovery_action"] == "none_required"
 
 
 def test_universe_health_blocks_unclear_source_even_when_count_is_broad() -> None:
@@ -166,5 +207,6 @@ def test_universe_health_blocks_unclear_source_even_when_count_is_broad() -> Non
 if __name__ == "__main__":
     test_universe_health_allows_broad_r1000_base()
     test_universe_health_blocks_starved_universe()
+    test_universe_health_distinguishes_available_fallback_from_used_fallback()
     test_universe_health_blocks_unclear_source_even_when_count_is_broad()
     print("universe_health_audit_smoke: PASS")

@@ -198,6 +198,20 @@ def csv_source_summary(path: Path) -> dict[str, Any]:
     }
 
 
+def csv_ticker_summary(path: Path) -> dict[str, Any]:
+    stats = path_stats(path)
+    stats["row_count"] = 0
+    stats["ticker_count"] = 0
+    fields, rows = iter_csv_rows(path)
+    if not rows:
+        return stats
+    tickers = {safe_upper(row.get("ticker")) for row in rows if safe_upper(row.get("ticker"))}
+    stats["row_count"] = int(len(rows))
+    stats["ticker_count"] = int(len(tickers))
+    stats["fields"] = fields[:25]
+    return stats
+
+
 def source_counts_from_rows(rows: list[dict[str, str]], source_column: str) -> Counter[str]:
     counts: Counter[str] = Counter()
     for row in rows:
@@ -416,6 +430,8 @@ def fallback_source_audit(latest_run: Path) -> dict[str, Any]:
     )
     audited_paths = {name: path_stats(path) for name, path in paths.items()}
     previous_summary = safe_parquet_summary(paths["previous_healthy_candidate_universe"])
+    static_seed_path = paths["data_static_iwb_seed"] if paths["data_static_iwb_seed"].exists() else paths["data_raw_iwb_seed"]
+    static_seed_summary = csv_ticker_summary(static_seed_path)
     historical_summary = {
         "file_count": int(len(historical_candidates)),
         "paths": [str(path) for path in historical_candidates[:25]],
@@ -432,6 +448,7 @@ def fallback_source_audit(latest_run: Path) -> dict[str, Any]:
         "previous_healthy_universe_cache": previous_summary,
         "static_iwb_seed": {
             "available": bool(paths["data_static_iwb_seed"].exists() or paths["data_raw_iwb_seed"].exists()),
+            "summary": static_seed_summary,
             "paths": {
                 "data_static": audited_paths["data_static_iwb_seed"],
                 "data_raw": audited_paths["data_raw_iwb_seed"],
@@ -440,6 +457,31 @@ def fallback_source_audit(latest_run: Path) -> dict[str, Any]:
         "historical_universe_membership": historical_summary,
         "all_checked_paths": audited_paths,
     }
+
+
+def fallback_available_source(fallback: dict[str, Any], min_r1000_base: int) -> tuple[str, str]:
+    restored = fallback.get("restored_drive_iwb") if isinstance(fallback.get("restored_drive_iwb"), dict) else {}
+    if restored.get("available") is True:
+        return "restored_Drive_or_cache_IWB_holdings", "restored Drive/cache IWB holdings are available"
+
+    previous = fallback.get("previous_healthy_universe_cache") if isinstance(fallback.get("previous_healthy_universe_cache"), dict) else {}
+    try:
+        previous_count = int(previous.get("r1000_base_count") or 0)
+    except (TypeError, ValueError):
+        previous_count = 0
+    if previous_count >= min_r1000_base:
+        return "previous_healthy_current_constituents_proxy", f"previous healthy universe has {previous_count} R1000 names"
+
+    static = fallback.get("static_iwb_seed") if isinstance(fallback.get("static_iwb_seed"), dict) else {}
+    static_summary = static.get("summary") if isinstance(static.get("summary"), dict) else {}
+    try:
+        static_count = int(static_summary.get("ticker_count") or static_summary.get("row_count") or 0)
+    except (TypeError, ValueError):
+        static_count = 0
+    if static.get("available") is True and static_count >= min_r1000_base:
+        return "committed_static_IWB_seed", f"committed static IWB seed has {static_count} tickers"
+
+    return "hard_fail", "no broad fallback universe source is available"
 
 
 def infer_primary_source(scored_summary: dict[str, Any]) -> str:
@@ -497,11 +539,9 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     )
     status = "pass" if promotion_allowed else "invalid_universe"
     primary_source = infer_primary_source(scored)
-    fallback_used = bool(
-        primary_source == "static_iwb_seed"
-        or any(row.get("fallback_used") for row in rows_by_date)
-        or int((fallback.get("previous_healthy_universe_cache") or {}).get("r1000_base_count") or 0) >= int(args.min_r1000_base)
-    )
+    fallback_used = bool(primary_source == "static_iwb_seed" or any(row.get("fallback_used") for row in rows_by_date))
+    recovery_source, recovery_reason = fallback_available_source(fallback, int(args.min_r1000_base))
+    fallback_available = recovery_source != "hard_fail"
     blockers: list[str] = []
     if args.universe_mode != "adr" and r1000_base_count < int(args.min_r1000_base):
         blockers.append(
@@ -557,6 +597,10 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "primary_universe_source": primary_source,
         "source_unclear": source_unclear,
         "fallback_used": fallback_used,
+        "fallback_available": fallback_available,
+        "recommended_recovery_source": "none_required" if promotion_allowed else recovery_source,
+        "recommended_recovery_reason": "universe health already passes" if promotion_allowed else recovery_reason,
+        "recovery_action": "none_required" if promotion_allowed else ("repair_universe_from_fallback" if fallback_available else "hard_fail_missing_fallback"),
         "scored_latest": scored,
         "candidate_replay_book": candidate,
         "fallback_source_chain": fallback,
@@ -656,6 +700,9 @@ def write_report(path: Path, payload: dict[str, Any]) -> None:
         f"- primary_universe_source: `{payload.get('primary_universe_source')}`",
         f"- source_unclear: `{str(payload.get('source_unclear')).lower()}`",
         f"- fallback_used: `{str(payload.get('fallback_used')).lower()}`",
+        f"- fallback_available: `{str(payload.get('fallback_available')).lower()}`",
+        f"- recommended_recovery_source: `{payload.get('recommended_recovery_source')}`",
+        f"- recovery_action: `{payload.get('recovery_action')}`",
         f"- hard_fail_before_expensive_rebuild: `{str(payload.get('hard_fail_before_expensive_rebuild')).lower()}`",
         f"- monthly_universe_health_pass: `{str(payload.get('monthly_universe_health_pass')).lower()}`",
         f"- min_monthly_membership_count: `{payload.get('min_monthly_membership_count')}`",
