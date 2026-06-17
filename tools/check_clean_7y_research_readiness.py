@@ -183,6 +183,9 @@ def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str
         "status": READY if ready else NOT_READY,
         "evidence_tier": evidence.get("tier"),
         "evidence_label": evidence.get("evidence_label"),
+        "evidence_recovery": evidence.get("pre_broker_substrate_gate_recovery"),
+        "pre_broker_substrate_gate_pass": evidence.get("pre_broker_substrate_gate_pass"),
+        "pre_broker_substrate_gate_reasons": evidence.get("pre_broker_substrate_gate_reasons"),
         "metric_mode": mode,
         "broker_window_years": years,
         "allowed_uses": ALLOWED_RESEARCH_USES if ready else ["diagnostics"],
@@ -219,6 +222,12 @@ def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str
             "universe_count": universe_payload.get("r1000_base_count", universe_payload.get("scored_r1000_base")),
             "daily_snapshot_status": daily_payload.get("status"),
             "cash_trap_rows": cash_payload.get("cash_trap_rows"),
+            "recommended_recovery_source": (
+                evidence.get("pre_broker_substrate_gate_recovery") or {}
+            ).get("recommended_recovery_source"),
+            "recovery_action": (
+                evidence.get("pre_broker_substrate_gate_recovery") or {}
+            ).get("recovery_action"),
         },
     }
     return payload
@@ -249,6 +258,11 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.extend(f"- `{item}`" for item in blockers)
     else:
         lines.append("- none")
+    recovery = payload.get("evidence_recovery") if isinstance(payload.get("evidence_recovery"), dict) else {}
+    if recovery:
+        lines.extend(["", "## Recovery", ""])
+        for key in ("fallback_available", "recommended_recovery_source", "recovery_action", "recommended_recovery_reason"):
+            lines.append(f"- {key}: `{recovery.get(key)}`")
     lines.extend(["", "## Allowed Uses", ""])
     lines.extend(f"- `{item}`" for item in payload.get("allowed_uses", []))
     lines.extend(["", "## Blocked Uses", ""])
