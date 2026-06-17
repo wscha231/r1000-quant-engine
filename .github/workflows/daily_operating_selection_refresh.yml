@@ -353,6 +353,35 @@ jobs:
           universe = load_json("outputs/universe_health/universe_source_audit.json") or load_json("outputs/universe_health/summary.json")
           pre_broker = load_json("outputs/pre_broker_substrate_gate/summary.json")
           recovery = pre_broker.get("recovery") if isinstance(pre_broker.get("recovery"), dict) else {}
+          def safe_int(value):
+              if value in (None, ""):
+                  return None
+              try:
+                  return int(float(value))
+              except Exception:
+                  return None
+
+          data_freshness_selection_allowed = bool(status.get("selection_allowed", False))
+          universe_status = str(universe.get("status") or "").lower()
+          universe_count = safe_int(universe.get("r1000_base_count", universe.get("scored_r1000_base")))
+          universe_floor = safe_int(universe.get("min_r1000_base", 400)) or 400
+          universe_healthy = (
+              bool(universe)
+              and universe.get("promotion_allowed") is True
+              and universe_status not in {"invalid_universe", "blocked", "failed", "invalid", "do_not_use"}
+              and universe_count is not None
+              and universe_count >= universe_floor
+          )
+          pre_broker_allowed = pre_broker.get("broker_replay_allowed") is True
+          substrate_selection_allowed = data_freshness_selection_allowed and universe_healthy and pre_broker_allowed
+          selection_blockers = []
+          if not data_freshness_selection_allowed:
+              selection_blockers.append("data_freshness_selection_blocked")
+          if not universe_healthy:
+              selection_blockers.append("universe_health_selection_blocked")
+          if not pre_broker_allowed:
+              selection_blockers.append("pre_broker_substrate_gate_blocked")
+
           summary = {
               "schema_version": "daily-operating-selection-refresh-v1",
               "daily_operating_refresh": True,
@@ -366,7 +395,10 @@ jobs:
               "source_commit_sha": os.environ.get("GITHUB_SHA", ""),
               "source_branch": os.environ.get("GITHUB_REF_NAME", ""),
               "source_artifact_name": f"daily-operating-selection-refresh-{os.environ.get('GITHUB_RUN_ID', '')}",
-              "selection_allowed": bool(status.get("selection_allowed", False)),
+              "data_freshness_selection_allowed": data_freshness_selection_allowed,
+              "substrate_selection_allowed": substrate_selection_allowed,
+              "selection_allowed": substrate_selection_allowed,
+              "selection_blockers": selection_blockers,
               "promotion_allowed": bool(status.get("promotion_allowed", False)),
               "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
               "data_freshness_contract": "outputs/data_freshness_contract/status.json",
