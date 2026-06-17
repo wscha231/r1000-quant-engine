@@ -746,7 +746,9 @@ def render_action_summary(
     evidence: dict[str, Any] | None = None,
 ) -> str:
     evidence = evidence or {}
-    promotion_allowed = production_valid(metrics)
+    metric_promotion_allowed = production_valid(metrics)
+    evidence_promotion_allowed = evidence.get("promotion_allowed")
+    promotion_allowed = metric_promotion_allowed and (evidence_promotion_allowed is True if evidence else True)
     production_promotion_allowed = promotion_allowed and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
     recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_allowed else "REVIEW_REQUIRED"
     lines = [
@@ -912,9 +914,15 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "07_research_sidecar_context.json", research)
     write_json(output_dir / "08_broker_rule_backtest.json", broker_rule)
 
+    evidence = classify_evidence(latest_run, user_current_dir=output_dir, official_metrics_override=metrics)
     status, reasons = build_action_summary(latest_run, metrics, cash)
+    if evidence.get("tier") == "0_do_not_use":
+        status = "DO_NOT_TRADE" if status != "DO_NOT_USE" else status
+        tier0_reasons = evidence.get("tier0_blockers") if isinstance(evidence.get("tier0_blockers"), list) else []
+        reasons = [*reasons, *(f"evidence_tier0_blocker={item}" for item in tier0_reasons)]
     blockers = production_blockers(metrics)
-    promotion_valid = not blockers
+    metric_promotion_valid = not blockers
+    promotion_valid = metric_promotion_valid and evidence.get("promotion_allowed") is True
     production_promotion_allowed = promotion_valid and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
     recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_valid else "REVIEW_REQUIRED"
     (output_dir / "05_action_summary.md").write_text(
@@ -925,7 +933,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             cash,
             research,
             broker_rule,
-            classify_evidence(latest_run, user_current_dir=output_dir, official_metrics_override=metrics),
+            evidence,
         ),
         encoding="utf-8",
     )
@@ -942,6 +950,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "valid_for_production": promotion_valid,
         "production_promotion_allowed": production_promotion_allowed,
         "production_blockers": blockers,
+        "metric_promotion_allowed": metric_promotion_valid,
         "reason_count": len(reasons),
         "current_holding_rows": int(len(current)),
         "current_holdings_source_mode": current_source_mode,
@@ -974,7 +983,6 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "required_files": REQUIRED_USER_FILES,
         "missing_required_files": [name for name in REQUIRED_USER_FILES if not (output_dir / name).exists()],
     }
-    evidence = classify_evidence(latest_run, user_current_dir=output_dir, official_metrics_override=metrics)
     payload.update(
         {
             "evidence_tier": evidence.get("tier"),
