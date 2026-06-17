@@ -47,6 +47,7 @@ except Exception:  # pragma: no cover - smoke fallback
 PORTFOLIOS = ("main", "concentrated")
 OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 MIN_YEARS = 8.0
+CLEAN_7Y_RESEARCH_PLAN_ID = "clean_7y_research_readiness"
 CRISIS_ALLOWED_ACTION_TYPES = {"raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op"}
 CONCENTRATED_RECOVERY_EXPERIMENTS = [
     {
@@ -364,6 +365,41 @@ def evaluate_data_readiness(latest_run: Path) -> dict[str, Any]:
             "effective_latest_target_date": data.get("effective_latest_target_date"),
         },
         next_action="Resolve data readiness blockers before treating any backtest as official." if not ready else "",
+    )
+
+
+def evaluate_clean_7y_research_readiness(latest_run: Path) -> dict[str, Any]:
+    path = latest_run / "clean_7y_research_readiness" / "summary.json"
+    data = read_json(path)
+    if not data:
+        return requirement(
+            CLEAN_7Y_RESEARCH_PLAN_ID,
+            status="warn",
+            hard_blocker=False,
+            summary="clean 7Y research readiness artifact is missing; Alpha Plane A/B dispatch must stay dependency-blocked",
+            evidence={"summary_path": str(path), "exists": False},
+            next_action="Run tools/check_clean_7y_research_readiness.py before queueing Alpha Plane A/B research.",
+        )
+    ready = data.get("status") == "clean_7y_research_ready" and data.get("ready_for_alpha_plane_ab_research") is True
+    blockers = data.get("blockers") if isinstance(data.get("blockers"), list) else []
+    return requirement(
+        CLEAN_7Y_RESEARCH_PLAN_ID,
+        status="pass" if ready else "warn",
+        hard_blocker=False,
+        summary="clean 7Y research readiness is available for Alpha Plane A/B research"
+        if ready
+        else "clean 7Y research readiness is not ready; Alpha Plane A/B dispatch must stay dependency-blocked",
+        evidence={
+            "summary_path": str(path),
+            "exists": True,
+            "status": data.get("status"),
+            "ready_for_alpha_plane_ab_research": data.get("ready_for_alpha_plane_ab_research"),
+            "evidence_tier": data.get("evidence_tier"),
+            "evidence_label": data.get("evidence_label"),
+            "promotion_allowed": data.get("promotion_allowed"),
+            "blockers": blockers,
+        },
+        next_action="" if ready else "Resolve clean 7Y readiness blockers before dispatching T3/recovery A/B research.",
     )
 
 
@@ -1004,6 +1040,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         evaluate_eight_year(latest_run),
         evaluate_oos_lock(latest_run),
         evaluate_data_readiness(latest_run),
+        evaluate_clean_7y_research_readiness(latest_run),
         evaluate_broker_realism(latest_run),
         evaluate_cash_contract(latest_run),
         evaluate_attribution_package(latest_run),
@@ -1163,6 +1200,8 @@ def full_rebuild_ab_inputs(plan_id: str, env_payload: dict[str, str]) -> dict[st
 def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[str, Any]]:
     dispatches: list[dict[str, Any]] = []
     eight_year = requirement_by_id(payload, "eight_year_broker_ledger_window")
+    clean_7y = requirement_by_id(payload, CLEAN_7Y_RESEARCH_PLAN_ID)
+    clean_7y_depends_on = [] if clean_7y.get("status") == "pass" else [CLEAN_7Y_RESEARCH_PLAN_ID]
     if eight_year.get("status") != "pass":
         dispatches.append(
             {
@@ -1207,7 +1246,6 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
         )
     needs_concentrated_recovery, concentrated_evidence = concentrated_goal_needs_recovery(payload)
     if needs_concentrated_recovery:
-        depends_on = ["full_rebuild_8y_official_after_data_bootstrap"] if eight_year.get("status") != "pass" else []
         for experiment in CONCENTRATED_RECOVERY_EXPERIMENTS:
             plan_id = str(experiment["plan_id"])
             experiment_id = str(experiment.get("experiment_id") or plan_id)
@@ -1219,6 +1257,7 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
                     "workflow_id": "full_rebuild_manual.yml",
                     "ref": ref,
                     "inputs": inputs,
+                    "depends_on_plan_ids": clean_7y_depends_on,
                     "source_requirement_id": "goal_contract_main30_conc50_mdd",
                     "source_portfolio": "concentrated",
                 }
@@ -1231,11 +1270,16 @@ def build_dispatch_payloads(payload: dict[str, Any], *, ref: str) -> list[dict[s
                     "ref": ref,
                     "requires_user_approval": True,
                     "production_mutation_allowed": False,
-                    "depends_on_plan_ids": depends_on,
+                    "depends_on_plan_ids": clean_7y_depends_on,
                     "reason": experiment["reason"],
                     "source_requirement_id": "goal_contract_main30_conc50_mdd",
                     "source_portfolio": "concentrated",
                     "source_evidence": concentrated_evidence,
+                    "source_clean_7y_readiness": {
+                        "status": clean_7y.get("status"),
+                        "summary": clean_7y.get("summary"),
+                        "evidence": clean_7y.get("evidence") if isinstance(clean_7y.get("evidence"), dict) else {},
+                    },
                     "payload_hash": payload_hash,
                     "post_run_review": {
                         "tool": "tools/run_ab_result_verifier.py",
