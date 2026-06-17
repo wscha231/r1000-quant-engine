@@ -235,10 +235,15 @@ def cash_trap_state(run_dir: Path) -> tuple[bool | None, list[str]]:
     rows = safe_int(payload.get("cash_trap_rows"), 0) or 0
     if rows > 0:
         flags.append(f"cash_trap_rows={rows}")
-    portfolio_payload = payload.get("portfolios") if isinstance(payload.get("portfolios"), dict) else {}
-    for portfolio, item in portfolio_payload.items():
-        if isinstance(item, dict) and item.get("cash_trap_flag") is True:
-            flags.append(f"{portfolio}.cash_trap_flag=true")
+    # The current cash/reentry audit writes portfolio summaries under
+    # ``by_portfolio``; older fixtures used ``portfolios``. Treat either as
+    # authoritative so a portfolio-level trap cannot be hidden by a stale or
+    # missing top-level aggregate.
+    for payload_key in ("by_portfolio", "portfolios"):
+        portfolio_payload = payload.get(payload_key) if isinstance(payload.get(payload_key), dict) else {}
+        for portfolio, item in portfolio_payload.items():
+            if isinstance(item, dict) and item.get("cash_trap_flag") is True:
+                flags.append(f"{payload_key}.{portfolio}.cash_trap_flag=true")
     return (not flags), flags
 
 
