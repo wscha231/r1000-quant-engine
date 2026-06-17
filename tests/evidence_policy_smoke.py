@@ -271,11 +271,33 @@ def test_clean_7y_with_proxy_10y_robustness_is_tier3() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         seed_run(root, cash_trap_false=True)
-        write_json(root / "evidence_policy" / "proxy_10y_robustness.json", {"proxy_10y_robustness_pass": True, "evidence_label": "proxy_10y"})
+        write_json(
+            root / "evidence_policy" / "proxy_10y_robustness.json",
+            {"proxy_10y_robustness_pass": True, "evidence_label": "proxy_10y", "official_russell_1000": False},
+        )
         payload = classify_evidence(root)
         assert payload["tier"] == TIER3
         assert payload["ready_for_human_review_allowed"] is True
         assert payload["promotion_allowed"] is False
+
+
+def test_proxy_10y_pass_requires_proxy_label_not_official_confusion() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, cash_trap_false=True)
+        write_json(
+            root / "evidence_policy" / "proxy_10y_robustness.json",
+            {
+                "proxy_10y_robustness_pass": True,
+                "evidence_label": "official_pit_r1000",
+                "official_russell_1000": True,
+            },
+        )
+        payload = classify_evidence(root)
+        assert payload["tier"] == TIER1
+        assert payload["proxy_10y_robustness_pass"] is False
+        assert "proxy_10y_evidence_label_not_proxy_10y" in payload["proxy_10y_reasons"]
+        assert "proxy_10y_official_russell_1000_not_false" in payload["proxy_10y_reasons"]
 
 
 def test_8y_targets_and_cash_pass_is_tier4() -> None:
@@ -301,5 +323,6 @@ if __name__ == "__main__":
     test_clean_7y_daily_cash_false_is_tier2()
     test_portfolio_level_cash_trap_blocks_operating_candidate()
     test_clean_7y_with_proxy_10y_robustness_is_tier3()
+    test_proxy_10y_pass_requires_proxy_label_not_official_confusion()
     test_8y_targets_and_cash_pass_is_tier4()
     print("evidence_policy_smoke: PASS")

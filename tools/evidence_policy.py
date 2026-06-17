@@ -303,10 +303,27 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
     if not payload:
         reasons.append("proxy_10y_robustness_missing")
         return False
+    label_is_proxy = payload.get("evidence_label") == "proxy_10y"
+    not_official_r1000 = payload.get("official_russell_1000") is False
+    if payload.get("proxy_10y_robustness_pass") is True and label_is_proxy and not_official_r1000:
+        return True
     if payload.get("proxy_10y_robustness_pass") is True:
+        if not label_is_proxy:
+            reasons.append("proxy_10y_evidence_label_not_proxy_10y")
+        if not not_official_r1000:
+            reasons.append("proxy_10y_official_russell_1000_not_false")
+    if (
+        payload.get("official_10y_ready") is True
+        and payload.get("proxy_10y_price_ready") is True
+        and label_is_proxy
+        and not_official_r1000
+    ):
         return True
     if payload.get("official_10y_ready") is True and payload.get("proxy_10y_price_ready") is True:
-        return True
+        if not label_is_proxy:
+            reasons.append("proxy_10y_readiness_label_not_proxy_10y")
+        if not not_official_r1000:
+            reasons.append("proxy_10y_readiness_official_russell_1000_not_false")
     reasons.append("proxy_10y_robustness_not_passed")
     return False
 
