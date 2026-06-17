@@ -132,6 +132,7 @@ def seed_daily_user_current(root: Path) -> Path:
             "canonical_production_sync": False,
             "human_approval_required": True,
             "valid_for_production": False,
+            "promotion_allowed": False,
             "production_promotion_allowed": False,
             "recommendation_status": "REVIEW_ONLY",
         },
@@ -145,6 +146,8 @@ def seed_daily_user_current(root: Path) -> Path:
             "review_only": True,
             "live_trading_enabled": False,
             "production_mutation_allowed": False,
+            "promotion_allowed": False,
+            "production_promotion_allowed": False,
             "canonical_production_sync": False,
             "human_approval_required": True,
         },
@@ -156,6 +159,8 @@ def seed_daily_user_current(root: Path) -> Path:
             "current_snapshot_used_for_order_preview": True,
             "live_trading_enabled": False,
             "production_mutation_allowed": False,
+            "promotion_allowed": False,
+            "production_promotion_allowed": False,
             "canonical_production_sync": False,
             "human_approval_required": True,
         },
@@ -429,6 +434,22 @@ def test_daily_summary_must_be_explicit_review_only_for_tier2() -> None:
         assert "user_current_summary.production_mutation_allowed_not_false" in payload["tier0_blockers"]
 
 
+def test_daily_output_promotion_flags_must_stay_false_for_tier2() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, cash_trap_false=True)
+        user_current = seed_daily_user_current(root)
+        summary_path = user_current / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["promotion_allowed"] = True
+        write_json(summary_path, summary)
+
+        payload = classify_evidence(root, user_current_dir=user_current)
+        assert payload["tier"] == TIER0
+        assert payload["ready_for_human_review_allowed"] is False
+        assert "user_current_summary.promotion_allowed_not_false" in payload["tier0_blockers"]
+
+
 def test_portfolio_level_cash_trap_blocks_operating_candidate() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -545,6 +566,7 @@ if __name__ == "__main__":
     test_partial_daily_output_forces_tier0_but_absent_daily_output_does_not()
     test_clean_7y_daily_cash_false_is_tier2()
     test_daily_summary_must_be_explicit_review_only_for_tier2()
+    test_daily_output_promotion_flags_must_stay_false_for_tier2()
     test_portfolio_level_cash_trap_blocks_operating_candidate()
     test_clean_7y_with_proxy_10y_robustness_is_tier3()
     test_proxy_10y_unsafe_metadata_is_not_tier3()

@@ -141,7 +141,7 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
     summary = read_json(latest_run / "daily_operating_selection_refresh" / "summary.json")
     pre_broker = read_json(latest_run / "pre_broker_substrate_gate" / "summary.json")
     selection_allowed = bool(status.get("selection_allowed", summary.get("selection_allowed", False)))
-    promotion_allowed = bool(status.get("promotion_allowed", summary.get("promotion_allowed", False)))
+    data_freshness_promotion_allowed = bool(status.get("promotion_allowed", False))
     recommendation_status = str(
         status.get("recommendation_status")
         or summary.get("recommendation_status")
@@ -154,12 +154,9 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
     if summary.get("selection_allowed") is False:
         blockers.append("daily_summary_selection_allowed=false")
         selection_allowed = False
-    if summary.get("promotion_allowed") is False:
-        promotion_allowed = False
     if summary_blockers:
         blockers.extend(f"daily_summary: {item}" for item in summary_blockers if item)
         selection_allowed = False
-        promotion_allowed = False
         recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED"
     summary_has_pre_broker_status = any(
         key in summary
@@ -185,15 +182,18 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
     if substrate_blockers:
         blockers.extend(f"substrate: {item}" for item in substrate_blockers)
         selection_allowed = False
-        promotion_allowed = False
         recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED"
+    substrate_promotion_gate_pass = data_freshness_promotion_allowed and not substrate_blockers
     recovery = pre_broker.get("recovery") if isinstance(pre_broker.get("recovery"), dict) else {}
     if not recovery:
         recovery = summary.get("substrate_recovery") if isinstance(summary.get("substrate_recovery"), dict) else {}
     return {
         "status": "blocked" if not selection_allowed else (status.get("status") or "pass"),
         "selection_allowed": selection_allowed,
-        "promotion_allowed": promotion_allowed,
+        "data_freshness_promotion_allowed": data_freshness_promotion_allowed,
+        "substrate_promotion_gate_pass": substrate_promotion_gate_pass,
+        "promotion_allowed": False,
+        "production_promotion_allowed": False,
         "recommendation_status": recommendation_status,
         "blockers": blockers,
         "warnings": list(status.get("warnings") or []),
@@ -620,7 +620,10 @@ def build_decision(
         "data_freshness_status": state["status"],
         "recommendation_status": state["recommendation_status"],
         "selection_allowed": selection_allowed,
+        "data_freshness_promotion_allowed": bool(state["data_freshness_promotion_allowed"]),
+        "substrate_promotion_gate_pass": bool(state["substrate_promotion_gate_pass"]),
         "promotion_allowed": bool(state["promotion_allowed"]),
+        "production_promotion_allowed": False,
         "pre_broker_substrate_gate_status": state.get("substrate_status"),
         "pre_broker_broker_replay_allowed": state.get("pre_broker_broker_replay_allowed"),
         "substrate_blockers": state.get("substrate_blockers", []),
@@ -639,6 +642,7 @@ def build_decision(
         "canonical_production_sync": False,
         "live_trading_enabled": False,
         "production_mutation_allowed": False,
+        "production_promotion_allowed": False,
         "human_approval_required": True,
         "source_of_truth_level": "GITHUB_ARTIFACT",
         "source_run_id": source_run_id,
@@ -658,6 +662,7 @@ def append_review_only_notice(path: Path) -> None:
     notice = (
         "\n"
         "- production_mutation_allowed: `false`\n"
+        "- production_promotion_allowed: `false`\n"
         "- human_approval_required: `true`\n"
         "\n"
         "Daily target weights and order preview files are review-only. Rows marked "
@@ -711,6 +716,7 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "canonical_production_sync": False,
         "live_trading_enabled": False,
         "production_mutation_allowed": False,
+        "production_promotion_allowed": False,
         "human_approval_required": True,
         "source_of_truth_level": "GITHUB_ARTIFACT",
         "source_run_id": args.source_run_id,
@@ -724,7 +730,10 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         },
         "data_freshness_status": state["status"],
         "selection_allowed": state["selection_allowed"],
+        "data_freshness_promotion_allowed": state["data_freshness_promotion_allowed"],
+        "substrate_promotion_gate_pass": state["substrate_promotion_gate_pass"],
         "promotion_allowed": state["promotion_allowed"],
+        "production_promotion_allowed": False,
         "recommendation_status": state["recommendation_status"],
         "blockers": state["blockers"],
         "warnings": state["warnings"],
@@ -755,7 +764,10 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "decision": decision["decision"],
         "data_freshness_status": state["status"],
         "selection_allowed": state["selection_allowed"],
+        "data_freshness_promotion_allowed": state["data_freshness_promotion_allowed"],
+        "substrate_promotion_gate_pass": state["substrate_promotion_gate_pass"],
         "promotion_allowed": state["promotion_allowed"],
+        "production_promotion_allowed": False,
         "recommendation_status": state["recommendation_status"],
         "pre_broker_substrate_gate_status": state.get("substrate_status"),
         "pre_broker_broker_replay_allowed": state.get("pre_broker_broker_replay_allowed"),

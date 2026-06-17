@@ -143,11 +143,16 @@ def test_contract_writes_required_review_only_files() -> None:
         assert old_order["order_source"] == "current_snapshot_vs_target_review_only"
         assert decision["decision"] == "REVIEW_REQUIRED"
         assert decision["selection_allowed"] is False
+        assert decision["promotion_allowed"] is False
+        assert decision["production_promotion_allowed"] is False
         assert decision["live_trading_enabled"] is False
         assert decision["human_approval_required"] is True
         assert decision["snapshot_contract_pass"] is True
         assert daily["human_approval_required"] is True
+        assert daily["production_promotion_allowed"] is False
         assert daily["current_snapshot_used_for_order_preview"] is True
+        assert summary["production_promotion_allowed"] is False
+        assert "production_promotion_allowed: `false`" in notice
         assert daily["snapshot_contract_pass"] is True
         assert daily["snapshot_contract"]["order_delta_weight_max_abs_drift"] < 1e-9
         assert summary["human_approval_required"] is True
@@ -418,15 +423,19 @@ def test_contract_honors_daily_summary_substrate_blockers() -> None:
         summary = json.loads((user_current / "09_daily_output_contract_summary.json").read_text(encoding="utf-8"))
         assert payload["selection_allowed"] is False
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
         assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
         assert "daily_summary_selection_allowed=false" in payload["blockers"]
         assert "daily_summary: universe_health_selection_blocked" in payload["blockers"]
         assert decision["selection_allowed"] is False
         assert decision["promotion_allowed"] is False
+        assert decision["production_promotion_allowed"] is False
         assert daily["selection_allowed"] is False
         assert daily["promotion_allowed"] is False
+        assert daily["production_promotion_allowed"] is False
         assert summary["selection_allowed"] is False
         assert summary["promotion_allowed"] is False
+        assert summary["production_promotion_allowed"] is False
 
 
 def test_contract_blocks_missing_pre_broker_substrate_status() -> None:
@@ -509,13 +518,121 @@ def test_contract_blocks_missing_pre_broker_substrate_status() -> None:
         summary = json.loads((user_current / "09_daily_output_contract_summary.json").read_text(encoding="utf-8"))
         assert payload["selection_allowed"] is False
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
         assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
         assert "pre_broker_substrate_gate_missing" in payload["substrate_blockers"]
         assert "pre_broker_broker_replay_allowed_missing" in payload["substrate_blockers"]
         assert decision["selection_allowed"] is False
         assert decision["promotion_allowed"] is False
+        assert decision["production_promotion_allowed"] is False
         assert summary["selection_allowed"] is False
         assert summary["promotion_allowed"] is False
+        assert summary["production_promotion_allowed"] is False
+
+
+def test_contract_never_promotes_daily_preview_when_substrate_passes() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        user_current = latest / "user_current"
+        (latest / "user_portfolio_reports").mkdir(parents=True)
+        user_current.mkdir(parents=True)
+
+        write_json(
+            latest / "data_freshness_contract" / "status.json",
+            {
+                "schema_version": "data-freshness-contract-v1",
+                "status": "pass",
+                "selection_allowed": True,
+                "promotion_allowed": True,
+                "recommendation_status": "READY_FOR_OPERATING_SELECTION",
+                "blockers": [],
+                "warnings": [],
+                "production_mutation_allowed": False,
+            },
+        )
+        write_json(
+            latest / "daily_operating_selection_refresh" / "summary.json",
+            {
+                "schema_version": "daily-operating-selection-refresh-v1",
+                "daily_operating_refresh": True,
+                "review_only": True,
+                "canonical_production_sync": False,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+                "production_promotion_allowed": False,
+                "selection_allowed": True,
+                "promotion_allowed": False,
+                "source_of_truth_level": "GITHUB_ARTIFACT",
+            },
+        )
+        write_json(
+            latest / "pre_broker_substrate_gate" / "summary.json",
+            {
+                "schema_version": "pre-broker-substrate-gate-v1",
+                "status": "pass",
+                "broker_replay_allowed": True,
+                "promotion_allowed": False,
+                "production_promotion_allowed": False,
+                "blockers": [],
+            },
+        )
+        write_json(user_current / "summary.json", {"schema_version": "user-current-report-v1", "status": "completed"})
+        pd.DataFrame(
+            [
+                {
+                    "portfolio_kind": "main",
+                    "row_type": "equity",
+                    "ticker": "AAA",
+                    "current_weight": 0.02,
+                    "current_shares": 4,
+                    "current_price": 100.0,
+                }
+            ]
+        ).to_csv(user_current / "01_current_holdings.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "portfolio_kind": "main",
+                    "rank": 1,
+                    "ticker": "AAA",
+                    "recommended_weight": 0.12,
+                    "current_account_weight": 0.02,
+                    "score": 3.4,
+                }
+            ]
+        ).to_csv(latest / "user_portfolio_reports" / "main_recommendation_latest.csv", index=False)
+
+        payload = build_contract(
+            type(
+                "Args",
+                (),
+                {
+                    "latest_run": str(latest),
+                    "output_dir": str(user_current),
+                    "source_run_id": "128",
+                    "source_commit_sha": "pqr",
+                    "source_branch": "master",
+                    "source_artifact_name": "daily-operating-selection-refresh-128",
+                },
+            )()
+        )
+
+        decision = json.loads((user_current / "08_rebalance_decision.json").read_text(encoding="utf-8"))
+        daily = json.loads((latest / "daily_operating_selection_refresh" / "summary.json").read_text(encoding="utf-8"))
+        summary = json.loads((user_current / "09_daily_output_contract_summary.json").read_text(encoding="utf-8"))
+        assert payload["selection_allowed"] is True
+        assert payload["data_freshness_promotion_allowed"] is True
+        assert payload["substrate_promotion_gate_pass"] is True
+        assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
+        assert decision["decision"] == "REVIEW_REQUIRED"
+        assert decision["promotion_allowed"] is False
+        assert decision["production_promotion_allowed"] is False
+        assert daily["promotion_allowed"] is False
+        assert daily["production_promotion_allowed"] is False
+        assert summary["promotion_allowed"] is False
+        assert summary["production_promotion_allowed"] is False
 
 
 def main() -> int:
@@ -524,6 +641,7 @@ def main() -> int:
     test_contract_propagates_pre_broker_substrate_blockers()
     test_contract_honors_daily_summary_substrate_blockers()
     test_contract_blocks_missing_pre_broker_substrate_status()
+    test_contract_never_promotes_daily_preview_when_substrate_passes()
     print("daily_user_current_contract_smoke: PASS")
     return 0
 

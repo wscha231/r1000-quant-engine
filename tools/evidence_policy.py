@@ -321,6 +321,10 @@ def daily_output_state(user_current_dir: Path | None) -> tuple[bool | None, list
             reasons.append(f"{source_name}.live_trading_enabled_not_false")
         if source.get("production_mutation_allowed") is not False:
             reasons.append(f"{source_name}.production_mutation_allowed_not_false")
+        if source.get("promotion_allowed") is not False:
+            reasons.append(f"{source_name}.promotion_allowed_not_false")
+        if source.get("production_promotion_allowed") is not False:
+            reasons.append(f"{source_name}.production_promotion_allowed_not_false")
         if source.get("canonical_production_sync") is not False:
             reasons.append(f"{source_name}.canonical_production_sync_not_false")
         if source.get("human_approval_required") is not True:
