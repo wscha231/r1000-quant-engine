@@ -155,6 +155,8 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     evidence = classify_evidence(run_dir)
     clean_7y_path = run_dir / "clean_7y_research_readiness" / "summary.json"
     clean_7y = read_json(clean_7y_path)
+    clean_7y_recovery = clean_7y.get("evidence_recovery") if isinstance(clean_7y.get("evidence_recovery"), dict) else {}
+    evidence_recovery = evidence.get("pre_broker_substrate_gate_recovery") if isinstance(evidence.get("pre_broker_substrate_gate_recovery"), dict) else {}
     years = safe_float(row.get("years"), safe_float(broker.get("years")))
     trading_days = safe_int(
         row.get("broker_ledger_actual_trading_days"),
@@ -193,11 +195,17 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "research_ab_allowed": bool(evidence.get("research_ab_allowed")),
         "ready_for_human_review_allowed": bool(evidence.get("ready_for_human_review_allowed")),
         "evidence_promotion_allowed": bool(evidence.get("promotion_allowed")),
+        "proxy_10y_robustness_pass": evidence.get("proxy_10y_robustness_pass"),
+        "proxy_10y_reasons": list(evidence.get("proxy_10y_reasons") or []),
+        "evidence_recovery_source": evidence_recovery.get("recommended_recovery_source") or "",
+        "evidence_recovery_action": evidence_recovery.get("recovery_action") or "",
         "clean_7y_readiness_path": str(clean_7y_path),
         "clean_7y_readiness_exists": clean_7y_path.exists(),
         "clean_7y_readiness_status": clean_7y.get("status") or "",
         "clean_7y_ready_for_ab": clean_7y.get("ready_for_alpha_plane_ab_research"),
         "clean_7y_readiness_blockers": list(clean_7y.get("blockers") or []),
+        "clean_7y_recovery_source": clean_7y_recovery.get("recommended_recovery_source") or "",
+        "clean_7y_recovery_action": clean_7y_recovery.get("recovery_action") or "",
         "status": row.get("status") or broker.get("status") or "missing",
         "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production", False))),
         "target_pass": target_pass,
@@ -438,12 +446,15 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- requires_user_approval: `{str(payload.get('requires_user_approval')).lower()}`",
         f"- baseline: `{baseline.get('run_label')}` ({pct(baseline.get('cagr'))} / {pct(baseline.get('max_dd'))}, IS {pct(baseline.get('is_cagr'))})",
         "",
-        "| Candidate | Tier | Decision | CAGR | MDD | IS-CAGR | OOS/IS | CAGR vs Base | IS vs Base | MDD vs Base | Issues |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Candidate | Tier | Decision | CAGR | MDD | IS-CAGR | OOS/IS | CAGR vs Base | IS vs Base | MDD vs Base | Recovery | Issues |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for row in payload.get("candidates") or []:
+        recovery = row.get("clean_7y_recovery_action") or row.get("evidence_recovery_action") or ""
+        recovery_source = row.get("clean_7y_recovery_source") or row.get("evidence_recovery_source") or ""
+        recovery_text = "" if not (recovery or recovery_source) else f"{recovery} via {recovery_source}".strip()
         lines.append(
-            "| {run} | `{tier}` | `{decision}` | {cagr} | {mdd} | {is_cagr} | {oos_ratio} | {dcagr}pp | {dis}pp | {dmdd}pp | {issues} |".format(
+            "| {run} | `{tier}` | `{decision}` | {cagr} | {mdd} | {is_cagr} | {oos_ratio} | {dcagr}pp | {dis}pp | {dmdd}pp | {recovery} | {issues} |".format(
                 run=row.get("run_label"),
                 tier=row.get("evidence_tier") or "",
                 decision=row.get("decision"),
@@ -454,6 +465,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 dcagr=row.get("cagr_delta_vs_baseline_pp"),
                 dis=row.get("is_cagr_delta_vs_baseline_pp"),
                 dmdd=row.get("max_dd_delta_vs_baseline_pp"),
+                recovery=recovery_text,
                 issues=", ".join(row.get("issues") or []),
             )
         )
@@ -482,9 +494,13 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "decision",
         "evidence_tier",
         "evidence_label",
+        "proxy_10y_robustness_pass",
+        "proxy_10y_reasons",
         "clean_7y_readiness_status",
         "clean_7y_ready_for_ab",
         "clean_7y_readiness_blockers",
+        "clean_7y_recovery_source",
+        "clean_7y_recovery_action",
         "review_valid_for_promotion",
         "ready_for_human_review",
         "cagr",
@@ -509,6 +525,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             out = dict(row)
             out["issues"] = ";".join(str(item) for item in row.get("issues") or [])
             out["clean_7y_readiness_blockers"] = ";".join(str(item) for item in row.get("clean_7y_readiness_blockers") or [])
+            out["proxy_10y_reasons"] = ";".join(str(item) for item in row.get("proxy_10y_reasons") or [])
             writer.writerow(out)
 
 
