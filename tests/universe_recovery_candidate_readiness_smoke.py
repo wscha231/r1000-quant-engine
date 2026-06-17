@@ -38,6 +38,7 @@ def write_candidate(root: Path, tickers: list[str], *, status: str = "candidate_
                 "review_only",
                 "canonical_production_sync",
                 "production_mutation_allowed",
+                "promotion_allowed",
                 "production_promotion_allowed",
                 "live_trading_enabled",
                 "human_approval_required",
@@ -56,6 +57,7 @@ def write_candidate(root: Path, tickers: list[str], *, status: str = "candidate_
                     "review_only": "True",
                     "canonical_production_sync": "False",
                     "production_mutation_allowed": "False",
+                    "promotion_allowed": "False",
                     "production_promotion_allowed": "False",
                     "live_trading_enabled": "False",
                     "human_approval_required": "True",
@@ -154,9 +156,10 @@ def test_candidate_readiness_blocks_unsafe_candidate_metadata() -> None:
         candidate_csv = root / "universe_recovery_candidate" / "candidate_universe_recovery.csv"
         rows = list(csv.DictReader(candidate_csv.open("r", encoding="utf-8")))
         rows[0]["canonical_production_sync"] = "True"
-        rows[1]["production_promotion_allowed"] = "True"
-        rows[2]["live_trading_enabled"] = "True"
-        rows[3]["human_approval_required"] = "False"
+        rows[1]["promotion_allowed"] = "True"
+        rows[2]["production_promotion_allowed"] = "True"
+        rows[3]["live_trading_enabled"] = "True"
+        rows[4]["human_approval_required"] = "False"
         with candidate_csv.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
             writer.writeheader()
@@ -171,6 +174,7 @@ def test_candidate_readiness_blocks_unsafe_candidate_metadata() -> None:
         )
         assert payload["status"] == "not_ready"
         assert "candidate_rows_allow_canonical_production_sync:1" in payload["blockers"]
+        assert "candidate_rows_allow_promotion:1" in payload["blockers"]
         assert "candidate_rows_allow_production_promotion:1" in payload["blockers"]
         assert "candidate_rows_allow_live_trading:1" in payload["blockers"]
         assert "candidate_rows_missing_human_approval_required:1" in payload["blockers"]

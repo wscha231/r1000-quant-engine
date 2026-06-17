@@ -109,6 +109,7 @@ def candidate_safety_issues(rows: list[dict[str, Any]]) -> list[str]:
         "candidate_rows_not_review_only": 0,
         "candidate_rows_allow_canonical_production_sync": 0,
         "candidate_rows_allow_production_mutation": 0,
+        "candidate_rows_allow_promotion": 0,
         "candidate_rows_allow_production_promotion": 0,
         "candidate_rows_allow_live_trading": 0,
         "candidate_rows_missing_human_approval_required": 0,
@@ -120,6 +121,8 @@ def candidate_safety_issues(rows: list[dict[str, Any]]) -> list[str]:
             counts["candidate_rows_allow_canonical_production_sync"] += 1
         if not falsey(row.get("production_mutation_allowed")):
             counts["candidate_rows_allow_production_mutation"] += 1
+        if row.get("promotion_allowed") not in {None, ""} and not falsey(row.get("promotion_allowed")):
+            counts["candidate_rows_allow_promotion"] += 1
         if not falsey(row.get("production_promotion_allowed")):
             counts["candidate_rows_allow_production_promotion"] += 1
         if not falsey(row.get("live_trading_enabled")):

@@ -140,6 +140,7 @@ def classify_universe_recovery_candidate_readiness(
     review_only_bad = 0
     canonical_sync_bad = 0
     production_mutation_bad = 0
+    promotion_bad = 0
     production_promotion_bad = 0
     live_trading_bad = 0
     human_approval_bad = 0
@@ -158,6 +159,8 @@ def classify_universe_recovery_candidate_readiness(
             canonical_sync_bad += 1
         if not falsey(row.get("production_mutation_allowed")):
             production_mutation_bad += 1
+        if row.get("promotion_allowed") not in {None, ""} and not falsey(row.get("promotion_allowed")):
+            promotion_bad += 1
         if row.get("production_promotion_allowed") not in {None, ""} and not falsey(row.get("production_promotion_allowed")):
             production_promotion_bad += 1
         if row.get("live_trading_enabled") not in {None, ""} and not falsey(row.get("live_trading_enabled")):
@@ -178,6 +181,8 @@ def classify_universe_recovery_candidate_readiness(
             blockers.append(f"candidate_rows_allow_canonical_production_sync:{canonical_sync_bad}")
         if production_mutation_bad:
             blockers.append(f"candidate_rows_allow_production_mutation:{production_mutation_bad}")
+        if promotion_bad:
+            blockers.append(f"candidate_rows_allow_promotion:{promotion_bad}")
         if production_promotion_bad:
             blockers.append(f"candidate_rows_allow_production_promotion:{production_promotion_bad}")
         if live_trading_bad:

@@ -83,6 +83,7 @@ def test_recovery_candidate_materializes_static_seed_review_only() -> None:
         assert rows[0]["review_only"] == "True"
         assert rows[0]["canonical_production_sync"] == "False"
         assert rows[0]["production_mutation_allowed"] == "False"
+        assert rows[0]["promotion_allowed"] == "False"
         assert rows[0]["production_promotion_allowed"] == "False"
         assert rows[0]["live_trading_enabled"] == "False"
         assert rows[0]["human_approval_required"] == "True"
