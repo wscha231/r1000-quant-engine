@@ -30,6 +30,10 @@ def seed_run(root: Path, *, universe_ok: bool = True, data_ok: bool = True) -> N
             "min_r1000_base": 400,
             "primary_universe_source": "current_constituents_proxy" if universe_ok else "missing",
             "fallback_used": False,
+            "fallback_available": True,
+            "recommended_recovery_source": "none_required" if universe_ok else "committed_static_IWB_seed",
+            "recommended_recovery_reason": "universe health already passes" if universe_ok else "static seed is available above floor",
+            "recovery_action": "none_required" if universe_ok else "repair_universe_from_fallback",
             "monthly_universe_health_pass": universe_ok,
             "blockers": [] if universe_ok else ["scored R1000 base below floor: 259 < 400"],
         },
@@ -69,6 +73,14 @@ def test_pre_broker_gate_blocks_starved_universe() -> None:
         assert "universe_health_hard_fail_before_expensive_rebuild" in payload["blockers"], payload
         assert any(str(item).startswith("scored_r1000_base_below_floor") for item in payload["blockers"]), payload
         assert payload["evidence_tier_when_blocked"] == "0_do_not_use", payload
+        assert payload["universe_health"]["fallback_available"] is True, payload
+        assert payload["universe_health"]["recommended_recovery_source"] == "committed_static_IWB_seed", payload
+        assert payload["recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed", payload
+        assert payload["recovery"]["recovery_action"] == "repair_universe_from_fallback", payload
+        write_outputs(payload, Path(tmp) / "out")
+        report = (Path(tmp) / "out" / "report.md").read_text(encoding="utf-8")
+        assert "## Recovery" in report
+        assert "recommended_recovery_source: `committed_static_IWB_seed`" in report
 
 
 def test_pre_broker_gate_blocks_dirty_data_readiness() -> None:
