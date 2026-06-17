@@ -139,6 +139,7 @@ def current_weight_map(current_holdings: pd.DataFrame) -> dict[tuple[str, str], 
 def freshness_state(latest_run: Path) -> dict[str, Any]:
     status = read_json(latest_run / "data_freshness_contract" / "status.json")
     summary = read_json(latest_run / "daily_operating_selection_refresh" / "summary.json")
+    pre_broker = read_json(latest_run / "pre_broker_substrate_gate" / "summary.json")
     selection_allowed = bool(status.get("selection_allowed", summary.get("selection_allowed", False)))
     promotion_allowed = bool(status.get("promotion_allowed", summary.get("promotion_allowed", False)))
     recommendation_status = str(
@@ -147,8 +148,28 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
         or "DO_NOT_USE_REVIEW_REQUIRED"
     )
     blockers = list(status.get("blockers") or [])
+    pre_broker_status = pre_broker.get("status") or summary.get("pre_broker_substrate_gate_status")
+    pre_broker_allowed = pre_broker.get("broker_replay_allowed", summary.get("pre_broker_broker_replay_allowed"))
+    pre_broker_blockers = pre_broker.get("blockers")
+    if not isinstance(pre_broker_blockers, list):
+        pre_broker_blockers = summary.get("pre_broker_blockers")
+    if not isinstance(pre_broker_blockers, list):
+        pre_broker_blockers = []
+    substrate_blockers = [str(item) for item in pre_broker_blockers if item]
+    if str(pre_broker_status or "").lower() == "blocked":
+        substrate_blockers.append("pre_broker_substrate_gate_blocked")
+    if pre_broker_allowed is False:
+        substrate_blockers.append("pre_broker_broker_replay_allowed=false")
+    substrate_blockers = sorted(set(substrate_blockers))
+    if substrate_blockers:
+        blockers.extend(f"substrate: {item}" for item in substrate_blockers)
+        selection_allowed = False
+        recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED"
+    recovery = pre_broker.get("recovery") if isinstance(pre_broker.get("recovery"), dict) else {}
+    if not recovery:
+        recovery = summary.get("substrate_recovery") if isinstance(summary.get("substrate_recovery"), dict) else {}
     return {
-        "status": status.get("status") or ("pass" if selection_allowed else "blocked"),
+        "status": "blocked" if not selection_allowed else (status.get("status") or "pass"),
         "selection_allowed": selection_allowed,
         "promotion_allowed": promotion_allowed,
         "recommendation_status": recommendation_status,
@@ -156,6 +177,14 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
         "warnings": list(status.get("warnings") or []),
         "source_status": status,
         "daily_summary": summary,
+        "substrate_status": pre_broker_status,
+        "pre_broker_broker_replay_allowed": pre_broker_allowed,
+        "substrate_blockers": substrate_blockers,
+        "substrate_recovery": {
+            "fallback_available": recovery.get("fallback_available"),
+            "recommended_recovery_source": recovery.get("recommended_recovery_source"),
+            "recovery_action": recovery.get("recovery_action"),
+        },
     }
 
 
@@ -570,6 +599,10 @@ def build_decision(
         "recommendation_status": state["recommendation_status"],
         "selection_allowed": selection_allowed,
         "promotion_allowed": bool(state["promotion_allowed"]),
+        "pre_broker_substrate_gate_status": state.get("substrate_status"),
+        "pre_broker_broker_replay_allowed": state.get("pre_broker_broker_replay_allowed"),
+        "substrate_blockers": state.get("substrate_blockers", []),
+        "substrate_recovery": state.get("substrate_recovery", {}),
         "blockers": blockers,
         "warnings": list(state["warnings"]),
         "target_weight_rows": int(len(target_weights)),
@@ -667,6 +700,16 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
             "order_preview": str(order_path),
             "rebalance_decision": str(decision_path),
         },
+        "data_freshness_status": state["status"],
+        "selection_allowed": state["selection_allowed"],
+        "promotion_allowed": state["promotion_allowed"],
+        "recommendation_status": state["recommendation_status"],
+        "blockers": state["blockers"],
+        "warnings": state["warnings"],
+        "pre_broker_substrate_gate_status": state.get("substrate_status"),
+        "pre_broker_broker_replay_allowed": state.get("pre_broker_broker_replay_allowed"),
+        "substrate_blockers": state.get("substrate_blockers", []),
+        "substrate_recovery": state.get("substrate_recovery", {}),
         "current_snapshot_rows": int(len(current_holdings)),
         "current_snapshot_used_for_order_preview": not current_holdings.empty,
         "snapshot_contract_pass": bool(snapshot_contract.get("snapshot_contract_pass")),
@@ -688,9 +731,14 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "snapshot_contract_blockers": snapshot_contract.get("blockers", []),
         "snapshot_contract": snapshot_contract,
         "decision": decision["decision"],
+        "data_freshness_status": state["status"],
         "selection_allowed": state["selection_allowed"],
         "promotion_allowed": state["promotion_allowed"],
         "recommendation_status": state["recommendation_status"],
+        "pre_broker_substrate_gate_status": state.get("substrate_status"),
+        "pre_broker_broker_replay_allowed": state.get("pre_broker_broker_replay_allowed"),
+        "substrate_blockers": state.get("substrate_blockers", []),
+        "substrate_recovery": state.get("substrate_recovery", {}),
         "outputs": {
             "target_weights": str(target_path),
             "order_preview": str(order_path),
