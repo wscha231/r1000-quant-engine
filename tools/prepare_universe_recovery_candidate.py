@@ -163,7 +163,11 @@ def normalize_rows(rows: list[dict[str, Any]], *, recovery_source: str, source_p
                 "universe_source": recovery_source,
                 "recovery_source_path": str(source_path),
                 "review_only": True,
+                "canonical_production_sync": False,
                 "production_mutation_allowed": False,
+                "production_promotion_allowed": False,
+                "live_trading_enabled": False,
+                "human_approval_required": True,
             }
         )
     return sorted(out, key=lambda item: str(item["ticker"]))
@@ -179,7 +183,11 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "universe_source",
         "recovery_source_path",
         "review_only",
+        "canonical_production_sync",
         "production_mutation_allowed",
+        "production_promotion_allowed",
+        "live_trading_enabled",
+        "human_approval_required",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -225,9 +233,13 @@ def classify_recovery_candidate(latest_run: str | Path, *, min_r1000_base: int =
         "latest_run": str(run_dir),
         "status": status,
         "review_only": True,
+        "canonical_production_sync": False,
         "production_mutation_allowed": False,
+        "production_promotion_allowed": False,
         "promotion_allowed": False,
+        "promotion_allowed_scope": "universe_recovery_candidate_review_only",
         "live_trading_enabled": False,
+        "automatic_repair_allowed": False,
         "human_approval_required": True,
         "recovery_action": recovery_action,
         "recommended_recovery_source": recovery_source,
@@ -245,6 +257,7 @@ def classify_recovery_candidate(latest_run: str | Path, *, min_r1000_base: int =
         "notes": [
             "This is a review-only recovery candidate.",
             "It does not update scored_latest, candidate_replay_book, target books, broker replay, or production universe files.",
+            "It does not authorize production promotion, canonical production sync, workflow dispatch, or live trading.",
         ],
         "_rows": rows,
     }
@@ -256,7 +269,13 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         f"- status: `{payload.get('status')}`",
         f"- review_only: `{str(payload.get('review_only')).lower()}`",
+        f"- canonical_production_sync: `{str(payload.get('canonical_production_sync')).lower()}`",
         f"- production_mutation_allowed: `{str(payload.get('production_mutation_allowed')).lower()}`",
+        f"- production_promotion_allowed: `{str(payload.get('production_promotion_allowed')).lower()}`",
+        f"- promotion_allowed_scope: `{payload.get('promotion_allowed_scope')}`",
+        f"- automatic_repair_allowed: `{str(payload.get('automatic_repair_allowed')).lower()}`",
+        f"- live_trading_enabled: `{str(payload.get('live_trading_enabled')).lower()}`",
+        f"- human_approval_required: `{str(payload.get('human_approval_required')).lower()}`",
         f"- recommended_recovery_source: `{payload.get('recommended_recovery_source')}`",
         f"- recovery_action: `{payload.get('recovery_action')}`",
         f"- source_path: `{payload.get('source_path')}`",

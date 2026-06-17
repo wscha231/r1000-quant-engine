@@ -138,7 +138,11 @@ def classify_universe_recovery_candidate_readiness(
     seen: set[str] = set()
     duplicate_count = 0
     review_only_bad = 0
+    canonical_sync_bad = 0
     production_mutation_bad = 0
+    production_promotion_bad = 0
+    live_trading_bad = 0
+    human_approval_bad = 0
     for row in rows:
         ticker = clean_ticker(row.get("ticker"))
         if not ticker:
@@ -150,8 +154,16 @@ def classify_universe_recovery_candidate_readiness(
         tickers.append(ticker)
         if not truthy(row.get("review_only")):
             review_only_bad += 1
+        if row.get("canonical_production_sync") not in {None, ""} and not falsey(row.get("canonical_production_sync")):
+            canonical_sync_bad += 1
         if not falsey(row.get("production_mutation_allowed")):
             production_mutation_bad += 1
+        if row.get("production_promotion_allowed") not in {None, ""} and not falsey(row.get("production_promotion_allowed")):
+            production_promotion_bad += 1
+        if row.get("live_trading_enabled") not in {None, ""} and not falsey(row.get("live_trading_enabled")):
+            live_trading_bad += 1
+        if row.get("human_approval_required") not in {None, ""} and not truthy(row.get("human_approval_required")):
+            human_approval_bad += 1
 
     if status != "none_required":
         if not candidate_csv.exists():
@@ -162,8 +174,16 @@ def classify_universe_recovery_candidate_readiness(
             warnings.append(f"duplicate_ticker_rows_dropped:{duplicate_count}")
         if review_only_bad:
             blockers.append(f"candidate_rows_not_review_only:{review_only_bad}")
+        if canonical_sync_bad:
+            blockers.append(f"candidate_rows_allow_canonical_production_sync:{canonical_sync_bad}")
         if production_mutation_bad:
             blockers.append(f"candidate_rows_allow_production_mutation:{production_mutation_bad}")
+        if production_promotion_bad:
+            blockers.append(f"candidate_rows_allow_production_promotion:{production_promotion_bad}")
+        if live_trading_bad:
+            blockers.append(f"candidate_rows_allow_live_trading:{live_trading_bad}")
+        if human_approval_bad:
+            blockers.append(f"candidate_rows_missing_human_approval_required:{human_approval_bad}")
 
     price_symbols = price_cache_symbols(price_dir)
     available = sorted(ticker for ticker in tickers if ticker in price_symbols)
@@ -191,8 +211,11 @@ def classify_universe_recovery_candidate_readiness(
         "latest_run": str(run_dir),
         "status": status,
         "review_only": True,
+        "canonical_production_sync": False,
         "production_mutation_allowed": False,
+        "production_promotion_allowed": False,
         "promotion_allowed": False,
+        "promotion_allowed_scope": "universe_recovery_candidate_readiness_only",
         "live_trading_enabled": False,
         "automatic_repair_allowed": False,
         "human_approval_required": True,
@@ -250,8 +273,13 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- status: `{payload.get('status')}`",
         f"- ready_for_clean_7y_substrate_repair_review: `{payload.get('ready_for_clean_7y_substrate_repair_review')}`",
         f"- review_only: `{payload.get('review_only')}`",
+        f"- canonical_production_sync: `{payload.get('canonical_production_sync')}`",
         f"- production_mutation_allowed: `{payload.get('production_mutation_allowed')}`",
+        f"- production_promotion_allowed: `{payload.get('production_promotion_allowed')}`",
+        f"- promotion_allowed_scope: `{payload.get('promotion_allowed_scope')}`",
         f"- automatic_repair_allowed: `{payload.get('automatic_repair_allowed')}`",
+        f"- live_trading_enabled: `{payload.get('live_trading_enabled')}`",
+        f"- human_approval_required: `{payload.get('human_approval_required')}`",
         f"- candidate_row_count: `{payload.get('candidate_row_count')}`",
         f"- candidate_price_coverage_pct: `{payload.get('candidate_price_coverage_pct')}`",
         "",

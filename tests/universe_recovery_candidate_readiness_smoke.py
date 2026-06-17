@@ -36,7 +36,11 @@ def write_candidate(root: Path, tickers: list[str], *, status: str = "candidate_
                 "universe_source",
                 "recovery_source_path",
                 "review_only",
+                "canonical_production_sync",
                 "production_mutation_allowed",
+                "production_promotion_allowed",
+                "live_trading_enabled",
+                "human_approval_required",
             ],
         )
         writer.writeheader()
@@ -50,7 +54,11 @@ def write_candidate(root: Path, tickers: list[str], *, status: str = "candidate_
                     "universe_source": "committed_static_IWB_seed",
                     "recovery_source_path": "data_static/iwb_holdings_seed.csv",
                     "review_only": "True",
+                    "canonical_production_sync": "False",
                     "production_mutation_allowed": "False",
+                    "production_promotion_allowed": "False",
+                    "live_trading_enabled": "False",
+                    "human_approval_required": "True",
                 }
             )
     write_json(
@@ -85,8 +93,14 @@ def test_candidate_readiness_passes_when_broad_and_price_covered() -> None:
         )
         assert payload["status"] == "candidate_readiness_pass"
         assert payload["ready_for_clean_7y_substrate_repair_review"] is True
+        assert payload["review_only"] is True
+        assert payload["canonical_production_sync"] is False
         assert payload["production_mutation_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
+        assert payload["promotion_allowed_scope"] == "universe_recovery_candidate_readiness_only"
         assert payload["automatic_repair_allowed"] is False
+        assert payload["live_trading_enabled"] is False
+        assert payload["human_approval_required"] is True
         assert payload["candidate_price_coverage_pct"] == 1.0
         assert payload["benchmark_coverage"]["pass"] is True
 
@@ -132,8 +146,39 @@ def test_candidate_readiness_none_required_when_recovery_not_needed() -> None:
         assert payload["live_trading_enabled"] is False
 
 
+def test_candidate_readiness_blocks_unsafe_candidate_metadata() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        tickers = ["AAA", "BBB", "CCC", "DDD", "EEE"]
+        write_candidate(root, tickers)
+        candidate_csv = root / "universe_recovery_candidate" / "candidate_universe_recovery.csv"
+        rows = list(csv.DictReader(candidate_csv.open("r", encoding="utf-8")))
+        rows[0]["canonical_production_sync"] = "True"
+        rows[1]["production_promotion_allowed"] = "True"
+        rows[2]["live_trading_enabled"] = "True"
+        rows[3]["human_approval_required"] = "False"
+        with candidate_csv.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        write_price_files(root / "cache_prices", [*tickers, "SPY", "QQQ", "SMH", "SOXX"])
+
+        payload = classify_universe_recovery_candidate_readiness(
+            root,
+            price_cache=root / "cache_prices",
+            min_r1000_base=5,
+            min_price_coverage_pct=1.0,
+        )
+        assert payload["status"] == "not_ready"
+        assert "candidate_rows_allow_canonical_production_sync:1" in payload["blockers"]
+        assert "candidate_rows_allow_production_promotion:1" in payload["blockers"]
+        assert "candidate_rows_allow_live_trading:1" in payload["blockers"]
+        assert "candidate_rows_missing_human_approval_required:1" in payload["blockers"]
+
+
 if __name__ == "__main__":
     test_candidate_readiness_passes_when_broad_and_price_covered()
     test_candidate_readiness_blocks_low_price_coverage()
     test_candidate_readiness_none_required_when_recovery_not_needed()
+    test_candidate_readiness_blocks_unsafe_candidate_metadata()
     print("universe_recovery_candidate_readiness_smoke: PASS")
