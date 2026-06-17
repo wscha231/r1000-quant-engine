@@ -380,8 +380,30 @@ def evaluate_clean_7y_research_readiness(latest_run: Path) -> dict[str, Any]:
             evidence={"summary_path": str(path), "exists": False},
             next_action="Run tools/check_clean_7y_research_readiness.py before queueing Alpha Plane A/B research.",
         )
-    ready = data.get("status") == "clean_7y_research_ready" and data.get("ready_for_alpha_plane_ab_research") is True
     blockers = data.get("blockers") if isinstance(data.get("blockers"), list) else []
+    contract_blockers: list[str] = []
+    if data.get("schema_version") != "clean-7y-research-readiness-v1":
+        contract_blockers.append("clean_7y_schema_invalid")
+    if data.get("status") != "clean_7y_research_ready":
+        contract_blockers.append(f"clean_7y_status_not_ready:{data.get('status') or 'missing'}")
+    if data.get("ready_for_alpha_plane_ab_research") is not True:
+        contract_blockers.append("ready_for_alpha_plane_ab_research_not_true")
+    if data.get("ready_for_alpha_plane_audit") is not True:
+        contract_blockers.append("ready_for_alpha_plane_audit_not_true")
+    if data.get("pre_broker_substrate_gate_pass") is not True:
+        contract_blockers.append("pre_broker_substrate_gate_not_pass")
+    if data.get("promotion_allowed") is not False:
+        contract_blockers.append("promotion_allowed_not_false")
+    if data.get("production_mutation_allowed") is not False:
+        contract_blockers.append("production_mutation_allowed_not_false")
+    if data.get("live_trading_enabled") is not False:
+        contract_blockers.append("live_trading_enabled_not_false")
+    allowed_uses = data.get("allowed_uses") if isinstance(data.get("allowed_uses"), list) else []
+    if "alpha_plane_ab_research" not in allowed_uses:
+        contract_blockers.append("alpha_plane_ab_research_not_allowed")
+    contract_blockers.extend(f"clean_7y:{item}" for item in blockers)
+    contract_blockers = sorted(set(contract_blockers))
+    ready = not contract_blockers
     recovery = data.get("evidence_recovery") if isinstance(data.get("evidence_recovery"), dict) else {}
     return requirement(
         CLEAN_7Y_RESEARCH_PLAN_ID,
@@ -393,12 +415,18 @@ def evaluate_clean_7y_research_readiness(latest_run: Path) -> dict[str, Any]:
         evidence={
             "summary_path": str(path),
             "exists": True,
+            "schema_version": data.get("schema_version"),
             "status": data.get("status"),
+            "ready_for_alpha_plane_audit": data.get("ready_for_alpha_plane_audit"),
             "ready_for_alpha_plane_ab_research": data.get("ready_for_alpha_plane_ab_research"),
             "evidence_tier": data.get("evidence_tier"),
             "evidence_label": data.get("evidence_label"),
+            "allowed_uses": allowed_uses,
             "promotion_allowed": data.get("promotion_allowed"),
+            "production_mutation_allowed": data.get("production_mutation_allowed"),
+            "live_trading_enabled": data.get("live_trading_enabled"),
             "blockers": blockers,
+            "readiness_contract_blockers": contract_blockers,
             "evidence_recovery": recovery,
             "pre_broker_substrate_gate_pass": data.get("pre_broker_substrate_gate_pass"),
             "pre_broker_substrate_gate_reasons": data.get("pre_broker_substrate_gate_reasons"),

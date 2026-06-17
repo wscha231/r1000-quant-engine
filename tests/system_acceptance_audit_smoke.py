@@ -89,12 +89,19 @@ def seed_common_sidecars(root: Path) -> None:
     write_json(
         root / "clean_7y_research_readiness" / "summary.json",
         {
+            "schema_version": "clean-7y-research-readiness-v1",
             "status": "clean_7y_research_ready",
+            "ready_for_alpha_plane_audit": True,
             "ready_for_alpha_plane_ab_research": True,
             "evidence_tier": "1_research_7y",
             "evidence_label": "research_7y",
+            "allowed_uses": ["alpha_plane_audit", "alpha_plane_ab_research", "daily_operating_preview"],
             "promotion_allowed": False,
+            "production_mutation_allowed": False,
+            "live_trading_enabled": False,
             "blockers": [],
+            "pre_broker_substrate_gate_pass": True,
+            "pre_broker_substrate_gate_reasons": [],
         },
     )
     write_json(
@@ -477,6 +484,31 @@ def test_acceptance_audit_blocks_concentrated_ab_without_clean_7y_readiness() ->
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "blocked until completed_plan_id: clean_7y_research_readiness" in commands
         assert "# gh workflow run full_rebuild_manual.yml" in commands
+
+
+def test_acceptance_audit_blocks_minimal_clean_7y_ready_summary() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=False)
+        write_json(
+            latest / "clean_7y_research_readiness" / "summary.json",
+            {
+                "status": "clean_7y_research_ready",
+                "ready_for_alpha_plane_ab_research": True,
+            },
+        )
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        clean_7y = next(row for row in payload["requirements"] if row["requirement_id"] == "clean_7y_research_readiness")
+        assert clean_7y["status"] == "warn"
+        blockers = clean_7y["evidence"]["readiness_contract_blockers"]
+        assert "clean_7y_schema_invalid" in blockers
+        assert "pre_broker_substrate_gate_not_pass" in blockers
+        dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert len(dispatches) == 5
+        assert all(row["depends_on_plan_ids"] == ["clean_7y_research_readiness"] for row in dispatches)
+        assert all(row["source_clean_7y_readiness"]["status"] == "warn" for row in dispatches)
 
 
 def test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short() -> None:
@@ -912,6 +944,7 @@ def test_acceptance_audit_blocks_when_attribution_package_missing() -> None:
 if __name__ == "__main__":
     test_acceptance_audit_reports_not_ready_for_short_concentrated_fail()
     test_acceptance_audit_blocks_concentrated_ab_without_clean_7y_readiness()
+    test_acceptance_audit_blocks_minimal_clean_7y_ready_summary()
     test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short()
     test_acceptance_audit_passes_when_evidence_contract_is_complete()
     test_acceptance_audit_blocks_when_operational_order_bridge_missing()
