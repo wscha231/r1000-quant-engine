@@ -118,6 +118,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/ten_year_backtest_readiness_smoke.py", []),
     ("tests/proxy_10y_universe_substrate_smoke.py", []),
     ("tests/proxy_10y_robustness_smoke.py", []),
+    ("tests/gdrive_substrate_manifest_smoke.py", []),
     ("tests/is_attribution_smoke.py", []),
     ("tests/performance_ledger_smoke.py", []),
     ("tests/bull_floor_overlay_smoke.py", []),
