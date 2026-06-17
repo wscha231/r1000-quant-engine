@@ -82,20 +82,26 @@ def seed_run(
     write_json(
         root / "data_readiness" / "summary.json",
         {
+            "schema_version": "data-readiness-v1",
             "status": "ready" if data_ready else "blocked",
             "ready_for_policy_replay": data_ready,
             "ready_for_fullrun": data_ready,
+            "blockers": [] if data_ready else ["data_readiness_not_ready_for_policy_replay"],
             "free_data_coverage": {"known_gaps": []},
         },
     )
     write_json(
         root / "universe_health" / "universe_source_audit.json",
         {
+            "schema_version": "universe-health-v1",
             "status": "ready" if universe_count >= 400 else "INVALID_UNIVERSE",
             "promotion_allowed": universe_count >= 400,
+            "hard_fail_before_expensive_rebuild": universe_count < 400,
+            "monthly_universe_health_pass": universe_count >= 400,
             "r1000_base_count": universe_count,
             "min_r1000_base": 400,
             "primary_universe_source": "current_constituents_proxy",
+            "blockers": [] if universe_count >= 400 else ["scored_r1000_base_below_floor"],
         },
     )
     if cash_trap_false is not None:
@@ -202,6 +208,36 @@ def test_dirty_7y_is_tier0() -> None:
         assert payload["research_ab_allowed"] is False
         assert any("data_readiness" in item for item in payload["tier0_blockers"])
         assert any("universe_starved" in item for item in payload["tier0_blockers"])
+
+
+def test_data_readiness_missing_schema_forces_tier0() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False)
+        data_path = root / "data_readiness" / "summary.json"
+        payload = json.loads(data_path.read_text(encoding="utf-8"))
+        payload.pop("schema_version", None)
+        write_json(data_path, payload)
+
+        evidence = classify_evidence(root)
+        assert evidence["tier"] == TIER0
+        assert evidence["research_ab_allowed"] is False
+        assert "data_readiness_schema_invalid" in evidence["tier0_blockers"]
+
+
+def test_universe_health_missing_monthly_pass_forces_tier0() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False)
+        universe_path = root / "universe_health" / "universe_source_audit.json"
+        payload = json.loads(universe_path.read_text(encoding="utf-8"))
+        payload.pop("monthly_universe_health_pass", None)
+        write_json(universe_path, payload)
+
+        evidence = classify_evidence(root)
+        assert evidence["tier"] == TIER0
+        assert evidence["research_ab_allowed"] is False
+        assert "universe_health_monthly_universe_health_not_pass" in evidence["tier0_blockers"]
 
 
 def test_clean_7y_is_research_tier1_not_do_not_use() -> None:
@@ -478,6 +514,8 @@ def test_8y_targets_and_cash_pass_is_tier4() -> None:
 
 if __name__ == "__main__":
     test_dirty_7y_is_tier0()
+    test_data_readiness_missing_schema_forces_tier0()
+    test_universe_health_missing_monthly_pass_forces_tier0()
     test_clean_7y_is_research_tier1_not_do_not_use()
     test_missing_pre_broker_substrate_gate_forces_tier0()
     test_pre_broker_substrate_gate_block_forces_tier0()
