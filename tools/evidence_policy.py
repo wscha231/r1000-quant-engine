@@ -330,11 +330,22 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
 
 def pre_broker_gate_pass(payload: dict[str, Any], reasons: list[str]) -> bool | None:
     if not payload:
-        return None
+        reasons.append("pre_broker_substrate_gate_missing")
+        reasons.append("pre_broker_broker_replay_allowed_missing")
+        return False
     blockers = payload.get("blockers") if isinstance(payload.get("blockers"), list) else []
-    if payload.get("broker_replay_allowed") is False or status_failed(payload.get("status")) or blockers:
+    broker_replay_allowed = payload.get("broker_replay_allowed")
+    status = payload.get("status")
+    if broker_replay_allowed is not True:
+        reasons.append("pre_broker_broker_replay_allowed_not_true")
+    if status is None:
+        reasons.append("pre_broker_status_missing")
+    elif status_failed(status):
+        reasons.append("pre_broker_substrate_gate_blocked")
+    if blockers:
         reasons.append("pre_broker_substrate_gate_blocked")
         reasons.extend(f"pre_broker:{item}" for item in blockers)
+    if reasons:
         return False
     return True
 

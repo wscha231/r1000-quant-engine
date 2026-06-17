@@ -138,6 +138,14 @@ def seed_base(
             "cash_trap_rows": cash_trap_rows,
         },
     )
+    write_json(
+        root / "pre_broker_substrate_gate" / "summary.json",
+        {
+            "status": "pass",
+            "broker_replay_allowed": True,
+            "blockers": [],
+        },
+    )
 
 
 def test_clean_7y_research_ready_even_if_not_production_valid() -> None:

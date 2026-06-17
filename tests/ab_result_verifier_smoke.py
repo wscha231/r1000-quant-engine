@@ -118,6 +118,14 @@ def seed_run(
             "cash_trap_rows": 0 if cash_trap_false else 3,
         },
     )
+    write_json(
+        root / "pre_broker_substrate_gate" / "summary.json",
+        {
+            "status": "pass",
+            "broker_replay_allowed": True,
+            "blockers": [],
+        },
+    )
     if clean_7y_ready is not None:
         write_json(
             root / "clean_7y_research_readiness" / "summary.json",
