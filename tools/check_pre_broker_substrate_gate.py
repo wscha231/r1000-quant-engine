@@ -54,6 +54,15 @@ def blockers_from_data_readiness(payload: dict[str, Any]) -> list[str]:
     return [str(item) for item in blockers] if isinstance(blockers, list) else []
 
 
+def safe_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def classify_pre_broker_substrate(latest_run: str | Path, *, universe_mode: str = "global_alpha_universe") -> dict[str, Any]:
     run_dir = repo_path(latest_run)
     universe, universe_path = load_first(
@@ -81,12 +90,13 @@ def classify_pre_broker_substrate(latest_run: str | Path, *, universe_mode: str 
             blockers.append("universe_health_hard_fail_before_expensive_rebuild")
         r1000 = universe.get("r1000_base_count")
         floor = universe.get("min_r1000_base")
+        r1000_int = safe_int(r1000)
+        floor_int = safe_int(floor)
         if r1000 is not None and floor is not None:
-            try:
-                if int(r1000) < int(floor):
-                    blockers.append(f"scored_r1000_base_below_floor:{r1000}<{floor}")
-            except Exception:
-                warnings.append("universe_health_count_parse_failed")
+            if r1000_int is None or floor_int is None:
+                blockers.append("universe_health_count_parse_failed")
+            elif r1000_int < floor_int:
+                blockers.append(f"scored_r1000_base_below_floor:{r1000_int}<{floor_int}")
 
     if not readiness:
         blockers.append("data_readiness_missing")
