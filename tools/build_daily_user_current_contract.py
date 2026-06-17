@@ -161,6 +161,10 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
         selection_allowed = False
         promotion_allowed = False
         recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED"
+    summary_has_pre_broker_status = any(
+        key in summary
+        for key in ("pre_broker_substrate_gate_status", "pre_broker_broker_replay_allowed", "pre_broker_blockers")
+    )
     pre_broker_status = pre_broker.get("status") or summary.get("pre_broker_substrate_gate_status")
     pre_broker_allowed = pre_broker.get("broker_replay_allowed", summary.get("pre_broker_broker_replay_allowed"))
     pre_broker_blockers = pre_broker.get("blockers")
@@ -169,10 +173,14 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
     if not isinstance(pre_broker_blockers, list):
         pre_broker_blockers = []
     substrate_blockers = [str(item) for item in pre_broker_blockers if item]
+    if not pre_broker and not summary_has_pre_broker_status:
+        substrate_blockers.append("pre_broker_substrate_gate_missing")
     if str(pre_broker_status or "").lower() == "blocked":
         substrate_blockers.append("pre_broker_substrate_gate_blocked")
     if pre_broker_allowed is False:
         substrate_blockers.append("pre_broker_broker_replay_allowed=false")
+    elif pre_broker_allowed is None:
+        substrate_blockers.append("pre_broker_broker_replay_allowed_missing")
     substrate_blockers = sorted(set(substrate_blockers))
     if substrate_blockers:
         blockers.extend(f"substrate: {item}" for item in substrate_blockers)
