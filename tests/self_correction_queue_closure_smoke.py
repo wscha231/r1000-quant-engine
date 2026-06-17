@@ -123,6 +123,72 @@ def test_queue_closure_maps_verifier_decisions_to_statuses() -> None:
         assert (out / "closure_report.md").exists()
 
 
+def test_queue_closure_maps_all_verifier_human_review_decisions() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        queue_path = root / "router_queue.json"
+        verifier_path = root / "verifier_summary.json"
+        out = root / "out"
+        write_json(
+            queue_path,
+            {
+                "schema_version": "self-correction-router-v1.1",
+                "production_mutation_allowed": False,
+                "queued_experiments": [
+                    queue_item("tier2_candidate", "payload-tier2"),
+                    queue_item("tier3_candidate", "payload-tier3"),
+                ],
+                "duplicate_suppressed_count": 0,
+                "duplicate_suppressed": [],
+                "stale_payloads": [],
+            },
+        )
+        write_json(
+            verifier_path,
+            {
+                "schema_version": "ab-result-verifier-v1",
+                "status": "human_review_candidate_ready",
+                "production_activation_allowed": False,
+                "dispatch_context": {},
+                "candidates": [
+                    {
+                        "experiment_id": "tier2_candidate",
+                        "payload_hash": "payload-tier2",
+                        "candidate_run": "run-tier2",
+                        "decision": "ready_for_human_review",
+                        "review_valid_for_promotion": False,
+                        "issues": [],
+                    },
+                    {
+                        "experiment_id": "tier3_candidate",
+                        "payload_hash": "payload-tier3",
+                        "candidate_run": "run-tier3",
+                        "decision": "robust_candidate_review_only",
+                        "review_valid_for_promotion": False,
+                        "issues": [],
+                    },
+                ],
+            },
+        )
+        payload = run(
+            Namespace(
+                queue_path=str(queue_path),
+                verifier_summary=[str(verifier_path)],
+                verifier_dir=[],
+                output_dir=str(out),
+            )
+        )
+        by_id = {item["experiment_id"]: item for item in payload["queue_state"]}
+        assert by_id["tier2_candidate"]["status"] == "ready_for_human_review"
+        assert by_id["tier2_candidate"]["closure_decision"] == "ready_for_human_review"
+        assert by_id["tier3_candidate"]["status"] == "ready_for_human_review"
+        assert by_id["tier3_candidate"]["closure_decision"] == "robust_candidate_review_only"
+        assert payload["ready_for_human_review_count"] == 2
+        assert payload["production_mutation_allowed"] is False
+        assert payload["live_trading_allowed"] is False
+
+
 if __name__ == "__main__":
     test_queue_closure_maps_verifier_decisions_to_statuses()
+    test_queue_closure_maps_all_verifier_human_review_decisions()
     print("self_correction_queue_closure_smoke: PASS")
