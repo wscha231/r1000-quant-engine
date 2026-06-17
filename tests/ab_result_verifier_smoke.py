@@ -121,6 +121,7 @@ def seed_run(
     write_json(
         root / "pre_broker_substrate_gate" / "summary.json",
         {
+            "schema_version": "pre-broker-substrate-gate-v1",
             "status": "pass",
             "broker_replay_allowed": True,
             "blockers": [],
