@@ -153,6 +153,8 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     window_gate = row.get("broker_ledger_window_gate") if isinstance(row.get("broker_ledger_window_gate"), dict) else {}
     mode = str(row.get("official_metric_mode") or broker.get("metric_mode") or official.get("official_metric_mode") or "")
     evidence = classify_evidence(run_dir)
+    clean_7y_path = run_dir / "clean_7y_research_readiness" / "summary.json"
+    clean_7y = read_json(clean_7y_path)
     years = safe_float(row.get("years"), safe_float(broker.get("years")))
     trading_days = safe_int(
         row.get("broker_ledger_actual_trading_days"),
@@ -191,6 +193,11 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "research_ab_allowed": bool(evidence.get("research_ab_allowed")),
         "ready_for_human_review_allowed": bool(evidence.get("ready_for_human_review_allowed")),
         "evidence_promotion_allowed": bool(evidence.get("promotion_allowed")),
+        "clean_7y_readiness_path": str(clean_7y_path),
+        "clean_7y_readiness_exists": clean_7y_path.exists(),
+        "clean_7y_readiness_status": clean_7y.get("status") or "",
+        "clean_7y_ready_for_ab": clean_7y.get("ready_for_alpha_plane_ab_research"),
+        "clean_7y_readiness_blockers": list(clean_7y.get("blockers") or []),
         "status": row.get("status") or broker.get("status") or "missing",
         "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production", False))),
         "target_pass": target_pass,
@@ -312,6 +319,15 @@ def classify_candidate(
         regression_issues.append(f"max_dd_regression_too_large:{pp(max_dd - base_mdd)}pp")
     if regression_issues:
         return "reject_regression", regression_issues
+
+    if evidence_tier in {TIER1, TIER2}:
+        if candidate.get("clean_7y_readiness_status") != "clean_7y_research_ready" or candidate.get("clean_7y_ready_for_ab") is not True:
+            issues = list(candidate.get("clean_7y_readiness_blockers") or [])
+            if not candidate.get("clean_7y_readiness_exists"):
+                issues.append("clean_7y_research_readiness_missing")
+            if not issues:
+                issues.append(f"clean_7y_research_readiness_status:{candidate.get('clean_7y_readiness_status') or 'missing'}")
+            return "blocked_clean_7y_readiness", sorted(set(str(item) for item in issues))
 
     if evidence_tier == TIER1:
         return "measured_research_7y", []
@@ -466,6 +482,9 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "decision",
         "evidence_tier",
         "evidence_label",
+        "clean_7y_readiness_status",
+        "clean_7y_ready_for_ab",
+        "clean_7y_readiness_blockers",
         "review_valid_for_promotion",
         "ready_for_human_review",
         "cagr",
@@ -489,6 +508,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             out = dict(row)
             out["issues"] = ";".join(str(item) for item in row.get("issues") or [])
+            out["clean_7y_readiness_blockers"] = ";".join(str(item) for item in row.get("clean_7y_readiness_blockers") or [])
             writer.writerow(out)
 
 
