@@ -608,6 +608,7 @@ jobs:
             outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
             outputs/evidence_policy/
+            outputs/clean_7y_research_readiness/
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
             outputs/universe_health/
@@ -619,6 +620,7 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/full_rebuild_logs/evidence_policy.log
+            outputs/full_rebuild_logs/clean_7y_research_readiness.log
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/main/account_state_latest.json
             outputs/broker_replay/main/positions_latest.csv
@@ -698,6 +700,7 @@ jobs:
           path: |
             outputs/account_evaluation/
             outputs/evidence_policy/
+            outputs/clean_7y_research_readiness/
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
             outputs/universe_health/
@@ -720,6 +723,7 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/full_rebuild_logs/evidence_policy.log
+            outputs/full_rebuild_logs/clean_7y_research_readiness.log
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
@@ -857,6 +861,7 @@ jobs:
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
             outputs/evidence_policy/
+            outputs/clean_7y_research_readiness/
             outputs/oos_lock/
             outputs/metric_hygiene/
             outputs/cash_contract/
@@ -869,6 +874,7 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/full_rebuild_logs/evidence_policy.log
+            outputs/full_rebuild_logs/clean_7y_research_readiness.log
             outputs/main_cash_drag_replay/
             outputs/crisis_reentry_replay/
             outputs/broker_crisis_reentry_replay/
@@ -1315,6 +1321,7 @@ jobs:
             copy_dir_clean outputs/cash_reentry_quality "$DEST/cash_reentry_quality"
             cp outputs/alpha_plane_measurement_status.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/evidence_policy "$DEST/evidence_policy"
+            copy_dir_clean outputs/clean_7y_research_readiness "$DEST/clean_7y_research_readiness"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             copy_dir_clean outputs/system_acceptance_audit "$DEST/system_acceptance_audit"
@@ -1449,6 +1456,7 @@ jobs:
           copy_dir_clean outputs/cash_reentry_quality "$DEST/cash_reentry_quality"
           cp outputs/alpha_plane_measurement_status.json "$DEST/" 2>/dev/null || true
           copy_dir_clean outputs/evidence_policy "$DEST/evidence_policy"
+          copy_dir_clean outputs/clean_7y_research_readiness "$DEST/clean_7y_research_readiness"
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
           copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
           copy_dir_clean outputs/promotion_review "$DEST/promotion_review"

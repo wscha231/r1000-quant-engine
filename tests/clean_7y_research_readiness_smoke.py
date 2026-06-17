@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Smoke tests for clean 7Y research readiness."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+REPO = Path(__file__).resolve().parent.parent
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from tools.check_clean_7y_research_readiness import READY, classify_clean_7y_readiness, write_outputs  # noqa: E402
+
+
+def write_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def seed_base(
+    root: Path,
+    *,
+    years: float = 7.05,
+    data_ready: bool = True,
+    universe_count: int = 650,
+    daily_snapshot_pass: bool = True,
+    cash_trap_rows: int = 0,
+    metric_mode: str = "broker_ledger_next_close",
+) -> None:
+    portfolios = {}
+    for portfolio in ("main", "concentrated"):
+        row = {
+            "portfolio": portfolio,
+            "status": "completed",
+            "official_metric_mode": metric_mode,
+            "valid_for_production": False,
+            "target_pass": False,
+            "strengthened_pass": False,
+            "years": years,
+            "broker_ledger_actual_trading_days": int(years * 252),
+            "broker_ledger_window_gate": {
+                "status": "invalid_window",
+                "valid": False,
+                "years": years,
+                "actual_trading_days": int(years * 252),
+                "reasons": ["broker_ledger_years_below_8"],
+            },
+        }
+        portfolios[portfolio] = row
+        write_json(
+            root / "broker_replay" / portfolio / "metrics.json",
+            {
+                "status": "completed",
+                "metric_mode": metric_mode,
+                "valid_for_production": False,
+                "years": years,
+                "days": int(years * 252),
+            },
+        )
+    write_json(
+        root / "account_evaluation" / "official_metrics.json",
+        {
+            "official_metric_mode": metric_mode,
+            "production_target_pass": False,
+            "strengthened_pass": False,
+            "portfolios": portfolios,
+        },
+    )
+    write_json(
+        root / "data_readiness" / "summary.json",
+        {
+            "status": "ready" if data_ready else "blocked",
+            "ready_for_policy_replay": data_ready,
+            "ready_for_fullrun": data_ready,
+            "free_data_coverage": {"known_gaps": []},
+        },
+    )
+    write_json(
+        root / "universe_health" / "universe_source_audit.json",
+        {
+            "status": "ready" if universe_count >= 400 else "INVALID_UNIVERSE",
+            "promotion_allowed": universe_count >= 400,
+            "r1000_base_count": universe_count,
+            "min_r1000_base": 400,
+        },
+    )
+    write_json(
+        root / "user_current" / "09_daily_output_contract_summary.json",
+        {
+            "snapshot_contract_pass": daily_snapshot_pass,
+            "current_snapshot_used_for_order_preview": daily_snapshot_pass,
+            "review_only": True,
+            "canonical_production_sync": False,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+            "human_approval_required": True,
+        },
+    )
+    write_json(
+        root / "cash_reentry_quality" / "summary.json",
+        {
+            "status": "completed",
+            "cash_trap_flag": cash_trap_rows > 0,
+            "cash_trap_rows": cash_trap_rows,
+        },
+    )
+
+
+def test_clean_7y_research_ready_even_if_not_production_valid() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_base(root)
+        payload = classify_clean_7y_readiness(root)
+        assert payload["status"] == READY, payload
+        assert payload["promotion_allowed"] is False, payload
+        assert payload["ready_for_alpha_plane_ab_research"] is True, payload
+        assert "official_promotion" in payload["blocked_uses"], payload
+        assert payload["checks"]["broker_window_years_min_7"] is True, payload
+        assert payload["checks"]["data_readiness_policy_replay_ready"] is True, payload
+
+
+def test_dirty_7y_blocked_data_or_starved_universe_is_not_ready() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_base(root, data_ready=False, universe_count=259)
+        payload = classify_clean_7y_readiness(root)
+        assert payload["status"] == "not_ready", payload
+        assert payload["ready_for_alpha_plane_ab_research"] is False, payload
+        assert "data_readiness_policy_replay_ready" in payload["blockers"], payload
+        assert any("universe" in item for item in payload["blockers"]), payload
+        assert "alpha_plane_ab_research" in payload["blocked_uses"], payload
+
+
+def test_cash_trap_or_missing_snapshot_blocks_clean_7y_research() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_base(root, daily_snapshot_pass=False, cash_trap_rows=2)
+        payload = classify_clean_7y_readiness(root)
+        assert payload["status"] == "not_ready", payload
+        assert "daily_snapshot_contract_pass" in payload["blockers"], payload
+        assert "cash_trap_false" in payload["blockers"], payload
+
+
+def test_wrong_metric_mode_blocks_research_readiness() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_base(root, metric_mode="legacy_weight_level")
+        payload = classify_clean_7y_readiness(root)
+        assert payload["status"] == "not_ready", payload
+        assert "broker_ledger_next_close" in payload["blockers"], payload
+        assert "official_promotion" in payload["blocked_uses"], payload
+
+
+def test_outputs_are_written() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_base(root)
+        payload = classify_clean_7y_readiness(root)
+        out = root / "out"
+        write_outputs(payload, out)
+        summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+        assert summary["schema_version"] == "clean-7y-research-readiness-v1", summary
+        report = (out / "report.md").read_text(encoding="utf-8")
+        assert "Clean 7Y Research Readiness" in report
+        assert "official_promotion" in report
+
+
+if __name__ == "__main__":
+    test_clean_7y_research_ready_even_if_not_production_valid()
+    test_dirty_7y_blocked_data_or_starved_universe_is_not_ready()
+    test_cash_trap_or_missing_snapshot_blocks_clean_7y_research()
+    test_wrong_metric_mode_blocks_research_readiness()
+    test_outputs_are_written()
+    print("clean_7y_research_readiness_smoke: PASS")

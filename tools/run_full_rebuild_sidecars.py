@@ -172,6 +172,16 @@ run_evidence_policy() {
     2>&1 | tee outputs/full_rebuild_logs/evidence_policy.log || true
 }
 
+run_clean_7y_research_readiness() {
+  echo "[clean-7y] checking Alpha Plane research readiness"
+  mkdir -p outputs/full_rebuild_logs
+  python tools/check_clean_7y_research_readiness.py \
+    --latest-run outputs \
+    --user-current-dir outputs/user_current \
+    --output-dir outputs/clean_7y_research_readiness \
+    2>&1 | tee outputs/full_rebuild_logs/clean_7y_research_readiness.log || true
+}
+
 write_alpha_plane_measurement_status() {
   echo "[alpha-plane] writing measurement sidecar status"
   python - <<'PY'
@@ -346,6 +356,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
   run_evidence_policy
+  run_clean_7y_research_readiness
   python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
   python tools/run_crisis_paper_order_bridge.py --latest-run outputs --price-cache cache_prices --output-dir outputs/crisis_paper_order_bridge 2>&1 | tee outputs/full_rebuild_logs/crisis_paper_order_bridge.log || true
   run_decision_cadence_review
@@ -562,6 +573,7 @@ python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir out
 run_patch_manifest
 python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
 run_evidence_policy
+run_clean_7y_research_readiness
 run_patch_manifest
 
 """
