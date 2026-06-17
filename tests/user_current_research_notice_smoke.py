@@ -275,6 +275,107 @@ def test_user_current_blocks_nested_invalid_official_metrics() -> None:
         assert "This is NOT a live broker account" in readme
 
 
+def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        (latest / "operating_snapshot").mkdir(parents=True)
+        (latest / "account_evaluation").mkdir()
+        (latest / "broker_replay" / "main").mkdir(parents=True)
+        (latest / "broker_replay" / "concentrated").mkdir(parents=True)
+        pd.DataFrame(
+            [
+                {
+                    "as_of_date": "2026-06-15",
+                    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                    "account_source": "simulated_broker_replay",
+                    "approval_status": "blocked_by_safety_audit",
+                    "portfolio_kind": "main",
+                    "row_type": "stock",
+                    "ticker": "AAA",
+                    "current_weight": 0.2,
+                }
+            ]
+        ).to_csv(latest / "operating_snapshot" / "current_operating_holdings_latest.csv", index=False)
+        valid_portfolio = {
+            "status": "completed",
+            "valid_for_production": True,
+            "verdict_status": "ok",
+            "data_readiness_status": "ready",
+            "data_readiness_policy_replay_ready": True,
+            "target_pass": True,
+            "strengthened_pass": True,
+            "broker_ledger_window_gate": {"status": "ok", "valid": True, "years": 8.1},
+            "years": 8.1,
+            "broker_ledger_actual_trading_days": 2041,
+            "cagr": 0.36,
+            "max_dd": -0.22,
+        }
+        (latest / "account_evaluation" / "official_metrics.json").write_text(
+            json.dumps(
+                {
+                    "official_metric_mode": "broker_ledger_next_close",
+                    "valid_for_production": True,
+                    "production_target_pass": True,
+                    "strengthened_pass": True,
+                    "portfolios": {
+                        "main": valid_portfolio,
+                        "concentrated": {**valid_portfolio, "cagr": 0.51},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (latest / "data_readiness").mkdir()
+        (latest / "data_readiness" / "summary.json").write_text(
+            json.dumps({"status": "ready", "ready_for_policy_replay": True, "free_data_coverage": {"known_gaps": []}}),
+            encoding="utf-8",
+        )
+        (latest / "universe_health").mkdir()
+        (latest / "universe_health" / "universe_source_audit.json").write_text(
+            json.dumps({"status": "ready", "promotion_allowed": True, "r1000_base_count": 650, "min_r1000_base": 400}),
+            encoding="utf-8",
+        )
+        (latest / "pre_broker_substrate_gate").mkdir()
+        (latest / "pre_broker_substrate_gate" / "summary.json").write_text(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "broker_replay_allowed": False,
+                    "blockers": ["universe_health_promotion_not_allowed"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        for portfolio in ("main", "concentrated"):
+            pd.DataFrame(
+                [
+                    {"date": "2018-06-15", "equity_usd": 100000, "cash_weight": 0.05},
+                    {"date": "2026-06-15", "equity_usd": 200000, "cash_weight": 0.05},
+                ]
+            ).to_csv(latest / "broker_replay" / portfolio / "equity_curve.csv", index=False)
+            (latest / "broker_replay" / portfolio / "metrics.json").write_text(
+                json.dumps({"status": "completed", "metric_mode": "broker_ledger_next_close", "valid_for_production": True, "years": 8.1}),
+                encoding="utf-8",
+            )
+
+        payload = build_report(Namespace(latest_run=str(latest), price_cache=str(root / "cache_prices"), output_dir=str(root / "user_current"), strict=False))
+        summary = json.loads((root / "user_current" / "summary.json").read_text(encoding="utf-8"))
+        action_summary = (root / "user_current" / "05_action_summary.md").read_text(encoding="utf-8")
+
+        assert payload["metric_promotion_allowed"] is True
+        assert payload["action_status"] == "DO_NOT_TRADE"
+        assert payload["valid_for_production"] is False
+        assert payload["production_promotion_allowed"] is False
+        assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
+        assert summary["evidence_tier"] == "0_do_not_use"
+        assert summary["evidence_promotion_allowed"] is False
+        assert "pre_broker_substrate_gate_blocked" in summary["evidence_tier0_blockers"]
+        assert "- valid_for_production: `False`" in action_summary
+        assert "- production_promotion_allowed: `False`" in action_summary
+        assert "evidence_tier0_blocker=pre_broker_substrate_gate_blocked" in action_summary
+
+
 def test_user_current_preserves_restored_snapshot_when_fresh_current_is_empty() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -495,6 +596,7 @@ if __name__ == "__main__":
     test_user_current_explains_research_sidecars_do_not_alter_holdings()
     test_user_current_marks_alphaops_vnext_production_as_applied()
     test_user_current_blocks_nested_invalid_official_metrics()
+    test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid()
     test_user_current_preserves_restored_snapshot_when_fresh_current_is_empty()
     test_user_current_falls_back_to_committed_cloud_results_snapshot()
     test_user_current_prefers_newer_committed_snapshot_over_stale_restored_snapshot()
