@@ -562,6 +562,7 @@ def classify_evidence(
         "production_activation_allowed": False,
         "live_trading_allowed": False,
         "promotion_allowed": promotion_allowed,
+        "production_promotion_allowed": False,
         "research_ab_allowed": tier in {TIER1, TIER2, TIER3, TIER4},
         "daily_operating_preview_allowed": tier in {TIER2, TIER3, TIER4},
         "ready_for_human_review_allowed": tier in {TIER2, TIER3, TIER4},
@@ -617,6 +618,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- daily_operating_preview_allowed: `{str(payload.get('daily_operating_preview_allowed')).lower()}`",
         f"- ready_for_human_review_allowed: `{str(payload.get('ready_for_human_review_allowed')).lower()}`",
         f"- promotion_allowed: `{str(payload.get('promotion_allowed')).lower()}`",
+        f"- production_promotion_allowed: `{str(payload.get('production_promotion_allowed')).lower()}`",
         f"- requires_human_approval: `{str(payload.get('requires_human_approval')).lower()}`",
         "",
         "## Uses",
@@ -689,7 +691,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     payload = classify_evidence(args.latest_run, user_current_dir=args.user_current_dir or None)
     write_outputs(payload, repo_path(args.output_dir))
-    print(json.dumps({"tier": payload["tier"], "evidence_label": payload["evidence_label"], "promotion_allowed": payload["promotion_allowed"]}, indent=2))
+    print(
+        json.dumps(
+            {
+                "tier": payload["tier"],
+                "evidence_label": payload["evidence_label"],
+                "promotion_allowed": payload["promotion_allowed"],
+                "production_promotion_allowed": payload["production_promotion_allowed"],
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
