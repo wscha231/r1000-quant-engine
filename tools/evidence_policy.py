@@ -305,25 +305,49 @@ def proxy_10y_pass(payload: dict[str, Any], reasons: list[str]) -> bool:
         return False
     label_is_proxy = payload.get("evidence_label") == "proxy_10y"
     not_official_r1000 = payload.get("official_russell_1000") is False
-    if payload.get("proxy_10y_robustness_pass") is True and label_is_proxy and not_official_r1000:
-        return True
-    if payload.get("proxy_10y_robustness_pass") is True:
-        if not label_is_proxy:
-            reasons.append("proxy_10y_evidence_label_not_proxy_10y")
-        if not not_official_r1000:
-            reasons.append("proxy_10y_official_russell_1000_not_false")
+    schema_ok = payload.get("schema_version") == "proxy-10y-robustness-v1"
+    status_ok = payload.get("status") == "proxy_10y_robustness_pass"
+    pass_flag = payload.get("proxy_10y_robustness_pass") is True
+    blockers = payload.get("blockers") if isinstance(payload.get("blockers"), list) else []
+    checks = payload.get("checks") if isinstance(payload.get("checks"), dict) else {}
+    portfolios = payload.get("portfolio_results") if isinstance(payload.get("portfolio_results"), dict) else {}
+    checks_pass = bool(checks) and all(value is True for value in checks.values())
+    portfolios_pass = bool(portfolios) and all(isinstance(row, dict) and row.get("pass") is True for row in portfolios.values())
     if (
-        payload.get("official_10y_ready") is True
-        and payload.get("proxy_10y_price_ready") is True
+        pass_flag
+        and schema_ok
+        and status_ok
         and label_is_proxy
         and not_official_r1000
+        and not blockers
+        and checks_pass
+        and portfolios_pass
     ):
         return True
-    if payload.get("official_10y_ready") is True and payload.get("proxy_10y_price_ready") is True:
-        if not label_is_proxy:
-            reasons.append("proxy_10y_readiness_label_not_proxy_10y")
-        if not not_official_r1000:
-            reasons.append("proxy_10y_readiness_official_russell_1000_not_false")
+    if not schema_ok:
+        reasons.append("proxy_10y_schema_version_not_proxy_10y_robustness_v1")
+    if not status_ok:
+        reasons.append(f"proxy_10y_status_not_pass:{payload.get('status') or 'missing'}")
+    if not pass_flag:
+        reasons.append("proxy_10y_robustness_flag_not_true")
+    if not label_is_proxy:
+        reasons.append("proxy_10y_evidence_label_not_proxy_10y")
+    if not not_official_r1000:
+        reasons.append("proxy_10y_official_russell_1000_not_false")
+    if blockers:
+        reasons.extend(f"proxy_10y:{item}" for item in blockers)
+    if not checks:
+        reasons.append("proxy_10y_checks_missing")
+    elif not checks_pass:
+        reasons.extend(f"proxy_10y_check_failed:{key}" for key, value in checks.items() if value is not True)
+    if not portfolios:
+        reasons.append("proxy_10y_portfolio_results_missing")
+    elif not portfolios_pass:
+        reasons.extend(
+            f"proxy_10y_portfolio_failed:{name}"
+            for name, row in portfolios.items()
+            if not isinstance(row, dict) or row.get("pass") is not True
+        )
     reasons.append("proxy_10y_robustness_not_passed")
     return False
 

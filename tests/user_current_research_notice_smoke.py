@@ -357,11 +357,33 @@ def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> 
         (latest / "evidence_policy" / "proxy_10y_robustness.json").write_text(
             json.dumps(
                 {
+                    "schema_version": "proxy-10y-robustness-v1",
                     "status": "proxy_10y_robustness_pass",
                     "proxy_10y_robustness_pass": True,
                     "evidence_label": "proxy_10y",
                     "official_russell_1000": False,
                     "promotion_allowed": False,
+                    "blockers": [],
+                    "checks": {
+                        "ten_year_readiness_present": True,
+                        "readiness_label_is_proxy_10y": True,
+                        "official_russell_1000_false": True,
+                        "proxy_10y_acceptance_pass": True,
+                        "proxy_10y_universe_substrate_pass": True,
+                        "proxy_10y_universe_label": True,
+                        "proxy_10y_universe_not_official": True,
+                        "future_available_from_zero": True,
+                        "benchmark_coverage_pass": True,
+                        "metric_mode_broker_ledger_next_close": True,
+                        "portfolios_present": True,
+                        "cash_trap_audit_available": True,
+                        "cash_trap_false": True,
+                        "portfolio_metric_gates_pass": True,
+                    },
+                    "portfolio_results": {
+                        "main": {"pass": True},
+                        "concentrated": {"pass": True},
+                    },
                 }
             ),
             encoding="utf-8",

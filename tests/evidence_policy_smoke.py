@@ -139,6 +139,42 @@ def seed_daily_user_current(root: Path) -> Path:
     return out
 
 
+def proxy_10y_robustness_payload(
+    *,
+    label: str = "proxy_10y",
+    official_russell_1000: bool = False,
+    pass_flag: bool = True,
+) -> dict[str, object]:
+    return {
+        "schema_version": "proxy-10y-robustness-v1",
+        "status": "proxy_10y_robustness_pass" if pass_flag else "not_ready",
+        "proxy_10y_robustness_pass": pass_flag,
+        "evidence_label": label,
+        "official_russell_1000": official_russell_1000,
+        "blockers": [] if pass_flag else ["portfolio_metric_gates_pass"],
+        "checks": {
+            "ten_year_readiness_present": True,
+            "readiness_label_is_proxy_10y": label == "proxy_10y",
+            "official_russell_1000_false": official_russell_1000 is False,
+            "proxy_10y_acceptance_pass": True,
+            "proxy_10y_universe_substrate_pass": True,
+            "proxy_10y_universe_label": True,
+            "proxy_10y_universe_not_official": True,
+            "future_available_from_zero": True,
+            "benchmark_coverage_pass": True,
+            "metric_mode_broker_ledger_next_close": True,
+            "portfolios_present": True,
+            "cash_trap_audit_available": True,
+            "cash_trap_false": True,
+            "portfolio_metric_gates_pass": pass_flag,
+        },
+        "portfolio_results": {
+            "main": {"pass": pass_flag},
+            "concentrated": {"pass": pass_flag},
+        },
+    }
+
+
 def test_dirty_7y_is_tier0() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -294,12 +330,33 @@ def test_clean_7y_with_proxy_10y_robustness_is_tier3() -> None:
         seed_run(root, cash_trap_false=True)
         write_json(
             root / "evidence_policy" / "proxy_10y_robustness.json",
-            {"proxy_10y_robustness_pass": True, "evidence_label": "proxy_10y", "official_russell_1000": False},
+            proxy_10y_robustness_payload(),
         )
         payload = classify_evidence(root)
         assert payload["tier"] == TIER3
         assert payload["ready_for_human_review_allowed"] is True
         assert payload["promotion_allowed"] is False
+
+
+def test_ten_year_readiness_only_is_not_proxy_10y_robustness() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, cash_trap_false=True)
+        write_json(
+            root / "ten_year_backtest_readiness" / "summary.json",
+            {
+                "status": "proxy_10y_price_ready",
+                "proxy_10y_price_ready": True,
+                "official_10y_ready": True,
+                "evidence_label": "proxy_10y",
+                "official_russell_1000": False,
+            },
+        )
+        payload = classify_evidence(root)
+        assert payload["tier"] == TIER1
+        assert payload["proxy_10y_robustness_pass"] is False
+        assert "proxy_10y_schema_version_not_proxy_10y_robustness_v1" in payload["proxy_10y_reasons"]
+        assert "proxy_10y_robustness_flag_not_true" in payload["proxy_10y_reasons"]
 
 
 def test_proxy_10y_pass_requires_proxy_label_not_official_confusion() -> None:
@@ -308,11 +365,7 @@ def test_proxy_10y_pass_requires_proxy_label_not_official_confusion() -> None:
         seed_run(root, cash_trap_false=True)
         write_json(
             root / "evidence_policy" / "proxy_10y_robustness.json",
-            {
-                "proxy_10y_robustness_pass": True,
-                "evidence_label": "official_pit_r1000",
-                "official_russell_1000": True,
-            },
+            proxy_10y_robustness_payload(label="official_pit_r1000", official_russell_1000=True),
         )
         payload = classify_evidence(root)
         assert payload["tier"] == TIER1
@@ -345,6 +398,7 @@ if __name__ == "__main__":
     test_clean_7y_daily_cash_false_is_tier2()
     test_portfolio_level_cash_trap_blocks_operating_candidate()
     test_clean_7y_with_proxy_10y_robustness_is_tier3()
+    test_ten_year_readiness_only_is_not_proxy_10y_robustness()
     test_proxy_10y_pass_requires_proxy_label_not_official_confusion()
     test_8y_targets_and_cash_pass_is_tier4()
     print("evidence_policy_smoke: PASS")
