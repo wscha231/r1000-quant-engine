@@ -160,6 +160,25 @@ def seed_base(
             "blockers": [],
         },
     )
+    write_json(
+        root / "universe_recovery_candidate_readiness" / "summary.json",
+        {
+            "schema_version": "universe-recovery-candidate-readiness-v1",
+            "status": "none_required" if universe_count >= 400 else "not_ready",
+            "review_only": True,
+            "canonical_production_sync": False,
+            "production_mutation_allowed": False,
+            "production_promotion_allowed": False,
+            "promotion_allowed": False,
+            "live_trading_enabled": False,
+            "automatic_repair_allowed": False,
+            "human_approval_required": True,
+            "ready_for_clean_7y_substrate_repair_review": False,
+            "candidate_row_count": 0,
+            "candidate_price_coverage_pct": 0.0,
+            "blockers": [] if universe_count >= 400 else ["universe_recovery_candidate_status:not_ready"],
+        },
+    )
 
 
 def test_clean_7y_research_ready_even_if_not_production_valid() -> None:
@@ -224,6 +243,25 @@ def test_pre_broker_recovery_surfaces_when_clean_7y_blocked() -> None:
                 },
             },
         )
+        write_json(
+            root / "universe_recovery_candidate_readiness" / "summary.json",
+            {
+                "schema_version": "universe-recovery-candidate-readiness-v1",
+                "status": "candidate_readiness_pass",
+                "review_only": True,
+                "canonical_production_sync": False,
+                "production_mutation_allowed": False,
+                "production_promotion_allowed": False,
+                "promotion_allowed": False,
+                "live_trading_enabled": False,
+                "automatic_repair_allowed": False,
+                "human_approval_required": True,
+                "ready_for_clean_7y_substrate_repair_review": True,
+                "candidate_row_count": 650,
+                "candidate_price_coverage_pct": 0.982,
+                "blockers": [],
+            },
+        )
         payload = classify_clean_7y_readiness(root)
         assert payload["status"] == "not_ready", payload
         assert "pre_broker_substrate_gate_blocked" in payload["blockers"], payload
@@ -231,11 +269,16 @@ def test_pre_broker_recovery_surfaces_when_clean_7y_blocked() -> None:
         assert payload["evidence_recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed", payload
         assert payload["evidence_recovery"]["recovery_action"] == "repair_universe_from_fallback", payload
         assert payload["source_summaries"]["recommended_recovery_source"] == "committed_static_IWB_seed", payload
+        assert payload["source_summaries"]["universe_recovery_candidate_readiness_status"] == "candidate_readiness_pass", payload
+        assert payload["source_summaries"]["ready_for_clean_7y_substrate_repair_review"] is True, payload
+        assert payload["source_summaries"]["universe_recovery_candidate_row_count"] == 650, payload
         out = root / "out"
         write_outputs(payload, out)
         report = (out / "report.md").read_text(encoding="utf-8")
         assert "## Recovery" in report
         assert "recommended_recovery_source: `committed_static_IWB_seed`" in report
+        assert "## Universe Recovery Candidate Readiness" in report
+        assert "universe_recovery_candidate_readiness_status: `candidate_readiness_pass`" in report
 
 
 def test_cash_trap_or_missing_snapshot_blocks_clean_7y_research() -> None:

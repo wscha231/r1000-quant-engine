@@ -143,6 +143,11 @@ def _cash_trap_clear(run_dir: Path, evidence: dict[str, Any]) -> tuple[bool, boo
     return True, bool(cash_trap_false), payload, str(run_dir / "cash_reentry_quality" / "summary.json")
 
 
+def _universe_recovery_readiness(run_dir: Path) -> tuple[dict[str, Any], str]:
+    payload = read_json(run_dir / "universe_recovery_candidate_readiness" / "summary.json")
+    return payload, str(run_dir / "universe_recovery_candidate_readiness" / "summary.json")
+
+
 def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str | Path | None = None) -> dict[str, Any]:
     run_dir = repo_path(latest_run)
     evidence = classify_evidence(run_dir, user_current_dir=user_current_dir)
@@ -154,6 +159,7 @@ def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str
     universe_ok, universe_payload, universe_path = _universe_healthy(run_dir, evidence)
     daily_ok, daily_payload, daily_path = _daily_snapshot_pass(run_dir, user_current_dir=user_current_dir)
     cash_available, cash_false, cash_payload, cash_path = _cash_trap_clear(run_dir, evidence)
+    recovery_readiness_payload, recovery_readiness_path = _universe_recovery_readiness(run_dir)
 
     checks = {
         "broker_ledger_next_close": mode == OFFICIAL_METRIC_MODE,
@@ -220,6 +226,7 @@ def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str
             "universe_health": universe_path,
             "daily_snapshot_contract": daily_path,
             "cash_reentry_quality": cash_path,
+            "universe_recovery_candidate_readiness": recovery_readiness_path,
         },
         "source_summaries": {
             "data_readiness_status": data_payload.get("status"),
@@ -233,6 +240,14 @@ def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str
             "recovery_action": (
                 evidence.get("pre_broker_substrate_gate_recovery") or {}
             ).get("recovery_action"),
+            "universe_recovery_candidate_readiness_status": recovery_readiness_payload.get("status"),
+            "ready_for_clean_7y_substrate_repair_review": recovery_readiness_payload.get(
+                "ready_for_clean_7y_substrate_repair_review"
+            ),
+            "universe_recovery_candidate_row_count": recovery_readiness_payload.get("candidate_row_count"),
+            "universe_recovery_candidate_price_coverage_pct": recovery_readiness_payload.get(
+                "candidate_price_coverage_pct"
+            ),
         },
     }
     return payload
@@ -268,6 +283,16 @@ def render_report(payload: dict[str, Any]) -> str:
         lines.extend(["", "## Recovery", ""])
         for key in ("fallback_available", "recommended_recovery_source", "recovery_action", "recommended_recovery_reason"):
             lines.append(f"- {key}: `{recovery.get(key)}`")
+    recovery_readiness = payload.get("source_summaries") if isinstance(payload.get("source_summaries"), dict) else {}
+    if recovery_readiness.get("universe_recovery_candidate_readiness_status"):
+        lines.extend(["", "## Universe Recovery Candidate Readiness", ""])
+        for key in (
+            "universe_recovery_candidate_readiness_status",
+            "ready_for_clean_7y_substrate_repair_review",
+            "universe_recovery_candidate_row_count",
+            "universe_recovery_candidate_price_coverage_pct",
+        ):
+            lines.append(f"- {key}: `{recovery_readiness.get(key)}`")
     lines.extend(["", "## Allowed Uses", ""])
     lines.extend(f"- `{item}`" for item in payload.get("allowed_uses", []))
     lines.extend(["", "## Blocked Uses", ""])
