@@ -145,6 +145,7 @@ def seed_base(
     write_json(
         root / "pre_broker_substrate_gate" / "summary.json",
         {
+            "schema_version": "pre-broker-substrate-gate-v1",
             "status": "pass",
             "broker_replay_allowed": True,
             "blockers": [],
@@ -163,6 +164,19 @@ def test_clean_7y_research_ready_even_if_not_production_valid() -> None:
         assert "official_promotion" in payload["blocked_uses"], payload
         assert payload["checks"]["broker_window_years_min_7"] is True, payload
         assert payload["checks"]["data_readiness_policy_replay_ready"] is True, payload
+
+
+def test_clean_7y_readiness_honors_external_user_current_dir() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_base(root)
+        external = root / "external_user_current"
+        (root / "user_current").rename(external)
+
+        payload = classify_clean_7y_readiness(root, user_current_dir=external)
+        assert payload["status"] == READY, payload
+        assert payload["ready_for_alpha_plane_ab_research"] is True, payload
+        assert payload["source_files"]["daily_snapshot_contract"].startswith(str(external)), payload
 
 
 def test_dirty_7y_blocked_data_or_starved_universe_is_not_ready() -> None:
@@ -184,6 +198,7 @@ def test_pre_broker_recovery_surfaces_when_clean_7y_blocked() -> None:
         write_json(
             root / "pre_broker_substrate_gate" / "summary.json",
             {
+                "schema_version": "pre-broker-substrate-gate-v1",
                 "status": "blocked",
                 "broker_replay_allowed": False,
                 "blockers": ["universe_health_promotion_not_allowed"],
@@ -245,6 +260,7 @@ def test_outputs_are_written() -> None:
 
 if __name__ == "__main__":
     test_clean_7y_research_ready_even_if_not_production_valid()
+    test_clean_7y_readiness_honors_external_user_current_dir()
     test_dirty_7y_blocked_data_or_starved_universe_is_not_ready()
     test_pre_broker_recovery_surfaces_when_clean_7y_blocked()
     test_cash_trap_or_missing_snapshot_blocks_clean_7y_research()

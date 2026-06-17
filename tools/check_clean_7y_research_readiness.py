@@ -104,20 +104,23 @@ def _universe_healthy(run_dir: Path, evidence: dict[str, Any]) -> tuple[bool, di
     return healthy, payload, str(path or run_dir / "universe_health" / "universe_source_audit.json")
 
 
-def _daily_snapshot_pass(run_dir: Path) -> tuple[bool, dict[str, Any], str]:
+def _daily_snapshot_pass(run_dir: Path, user_current_dir: str | Path | None = None) -> tuple[bool, dict[str, Any], str]:
+    user_current_path = repo_path(user_current_dir) if user_current_dir is not None else run_dir / "user_current"
     payload, path = _load_first([
-        run_dir / "user_current" / "09_daily_output_contract_summary.json",
-        run_dir / "user_current" / "summary.json",
+        user_current_path / "09_daily_output_contract_summary.json",
+        user_current_path / "summary.json",
         run_dir / "daily_operating_selection_refresh" / "summary.json",
     ])
     if not payload:
-        return False, payload, str(run_dir / "user_current" / "09_daily_output_contract_summary.json")
+        return False, payload, str(user_current_path / "09_daily_output_contract_summary.json")
     explicit = payload.get("snapshot_contract_pass")
     if explicit is None:
         explicit = payload.get("current_snapshot_used_for_order_preview")
     review_only_safe = (
-        payload.get("live_trading_enabled") is False
+        payload.get("review_only") is True
+        and payload.get("live_trading_enabled") is False
         and payload.get("production_mutation_allowed") is False
+        and payload.get("canonical_production_sync") is False
         and payload.get("human_approval_required") is True
     )
     return _bool(explicit) and review_only_safe, payload, str(path)
@@ -149,7 +152,7 @@ def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str
     years = _portfolio_years(evidence, official)
     data_ready, data_payload, data_path = _data_readiness_ready(run_dir, evidence)
     universe_ok, universe_payload, universe_path = _universe_healthy(run_dir, evidence)
-    daily_ok, daily_payload, daily_path = _daily_snapshot_pass(run_dir)
+    daily_ok, daily_payload, daily_path = _daily_snapshot_pass(run_dir, user_current_dir=user_current_dir)
     cash_available, cash_false, cash_payload, cash_path = _cash_trap_clear(run_dir, evidence)
 
     checks = {
