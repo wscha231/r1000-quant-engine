@@ -15,6 +15,9 @@ if str(ROOT) not in sys.path:
 from tools.check_10y_backtest_readiness import run
 
 
+REQUIRED_SYMBOLS = ["AAA", "SPY", "QQQ", "SMH", "SOXX"]
+
+
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -74,13 +77,24 @@ def test_ten_year_readiness_distinguishes_proxy_from_official() -> None:
         write_json(root / "manifests" / "free_data" / "latest_manifest.json", {"generated_at_utc": "2026-05-10T00:00:00Z"})
         write_json(
             root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json",
-            {"start": "2016-01-01", "end": "2026-05-12", "book_ticker_count": 386, "ticker_count": 514},
+            {
+                "start": "2016-01-01",
+                "end": "2026-05-12",
+                "book_ticker_count": 386,
+                "ticker_count": 514,
+                "symbols": REQUIRED_SYMBOLS,
+            },
         )
         payload = run(args(root))
         assert payload["status"] == "proxy_10y_price_ready"
+        assert payload["evidence_label"] == "proxy_10y"
+        assert payload["official_russell_1000"] is False
         assert payload["window_slug"] == "ten_year"
         assert payload["proxy_price_ready"] is True
         assert payload["proxy_10y_price_ready"] is True
+        assert payload["benchmark_coverage"]["pass"] is True
+        assert payload["future_available_from"]["future_available_from_rows"] == 0
+        assert payload["proxy_10y_acceptance"]["evidence_label"] == "proxy_10y"
         assert payload["official_10y_ready"] is False
         assert any("monthly target books" in item for item in payload["blockers"])
         dispatches = payload["workflow_dispatch_payloads"]
@@ -133,10 +147,18 @@ def test_ten_year_readiness_can_pass_official_gate() -> None:
         write_json(root / "manifests" / "free_data" / "latest_manifest.json", {"generated_at_utc": "2026-05-10T00:00:00Z"})
         write_json(
             root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json",
-            {"start": "2016-01-01", "end": "2026-05-12", "book_ticker_count": 386, "ticker_count": 386},
+            {
+                "start": "2016-01-01",
+                "end": "2026-05-12",
+                "book_ticker_count": 386,
+                "ticker_count": 386,
+                "symbols": REQUIRED_SYMBOLS,
+            },
         )
         payload = run(args(root))
         assert payload["status"] == "official_10y_ready"
+        assert payload["evidence_label"] == "official_pit_r1000"
+        assert payload["official_russell_1000"] is True
         assert payload["official_window_ready"] is True
         assert payload["workflow_dispatch_payload_count"] == 0
         assert payload["broker_replay"]["window_ready"] is True
@@ -181,7 +203,13 @@ def test_eight_year_readiness_reports_official_window_separately() -> None:
         write_json(root / "manifests" / "free_data" / "latest_manifest.json", {"generated_at_utc": "2026-06-15T00:00:00Z"})
         write_json(
             root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json",
-            {"start": "2018-05-15", "end": "2026-06-12", "book_ticker_count": 400, "ticker_count": 500},
+            {
+                "start": "2018-05-15",
+                "end": "2026-06-12",
+                "book_ticker_count": 400,
+                "ticker_count": 500,
+                "symbols": REQUIRED_SYMBOLS,
+            },
         )
         payload = run(args(root, min_years=8.0, output_name="eight_year_backtest_readiness"))
         assert payload["status"] == "official_eight_year_ready"
@@ -230,7 +258,13 @@ def test_eight_year_readiness_emits_bootstrap_dependency_when_price_not_ready() 
         write_json(root / "manifests" / "free_data" / "latest_manifest.json", {"generated_at_utc": "2026-06-15T00:00:00Z"})
         write_json(
             root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json",
-            {"start": "2019-06-03", "end": "2026-06-12", "book_ticker_count": 400, "ticker_count": 50},
+            {
+                "start": "2019-06-03",
+                "end": "2026-06-12",
+                "book_ticker_count": 400,
+                "ticker_count": 50,
+                "symbols": REQUIRED_SYMBOLS,
+            },
         )
         payload = run(args(root, min_years=8.0, output_name="eight_year_backtest_readiness"))
         assert payload["status"] == "not_ready"
@@ -262,11 +296,62 @@ def test_eight_year_readiness_emits_bootstrap_dependency_when_price_not_ready() 
         assert "backtest_years=8" in commands
 
 
+def test_ten_year_readiness_blocks_future_available_from_rows() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        write_target_book(latest / "reports" / "main_monthly_weights.csv", "2016-01-01", "2026-05-01")
+        write_target_book(latest / "reports" / "concentrated_strategy_holdings.csv", "2016-01-01", "2026-05-01")
+        candidate = latest / "reports" / "candidate_replay_book.csv"
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_text(
+            "rebalance_date,ticker,available_from\n"
+            "2020-01-31,AAA,2020-02-05\n",
+            encoding="utf-8",
+        )
+        for portfolio in ["main", "concentrated"]:
+            write_json(
+                latest / "broker_replay" / portfolio / "metrics.json",
+                {"status": "completed", "start_date": "2016-01-01", "end_date": "2026-05-08", "cagr": 0.3},
+            )
+        write_json(
+            root / "data_pit" / "free" / "coverage_audit.json",
+            {
+                "readiness": "ready_for_proxy_replay",
+                "pit_label": "pit_proxy_universe",
+                "sources": {
+                    "prices": {
+                        "cache_data_file_count": 386,
+                        "required_target_book_ticker_count": 386,
+                    },
+                    "sec_companyfacts": {"status": "available"},
+                },
+                "known_gaps": [],
+            },
+        )
+        write_json(root / "manifests" / "free_data" / "latest_manifest.json", {"generated_at_utc": "2026-05-10T00:00:00Z"})
+        write_json(
+            root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json",
+            {
+                "start": "2016-01-01",
+                "end": "2026-05-12",
+                "book_ticker_count": 386,
+                "ticker_count": 386,
+                "symbols": REQUIRED_SYMBOLS,
+            },
+        )
+        payload = run(args(root))
+        assert payload["status"] == "not_ready"
+        assert payload["future_available_from"]["future_available_from_rows"] == 1
+        assert any("future available_from rows detected" in item for item in payload["blockers"])
+
+
 def main() -> int:
     test_ten_year_readiness_distinguishes_proxy_from_official()
     test_ten_year_readiness_can_pass_official_gate()
     test_eight_year_readiness_reports_official_window_separately()
     test_eight_year_readiness_emits_bootstrap_dependency_when_price_not_ready()
+    test_ten_year_readiness_blocks_future_available_from_rows()
     print("ten year backtest readiness smoke passed")
     return 0
 

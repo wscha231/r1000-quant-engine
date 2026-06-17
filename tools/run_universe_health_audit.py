@@ -37,6 +37,21 @@ FUNDAMENTAL_COLUMNS = (
     "quality_score",
     "fundamental_quality_score",
 )
+TRADEABLE_FALSE_VALUES = {"0", "false", "no", "n", "non_tradeable", "not_tradeable", "halted", "delisted"}
+TRADEABLE_COLUMNS = (
+    "tradable",
+    "tradeable",
+    "is_tradable",
+    "is_tradeable",
+    "alpaca_tradable",
+    "alpaca_tradeable",
+    "listed",
+    "is_listed",
+)
+TARGET_BOOKS = (
+    ("main", "reports/main_monthly_weights.csv"),
+    ("concentrated", "reports/concentrated_strategy_holdings.csv"),
+)
 
 
 def repo_path(value: str | Path) -> Path:
@@ -89,6 +104,11 @@ def parse_date_text(value: Any) -> str:
         return datetime.fromisoformat(text[:10]).date().isoformat()
     except ValueError:
         return ""
+
+
+def month_key(value: Any) -> str:
+    parsed = parse_date_text(value)
+    return parsed[:7] if parsed else ""
 
 
 def first_present(fields: list[str], candidates: tuple[str, ...]) -> str:
@@ -207,6 +227,30 @@ def coverage_ratio(tickers: set[str], covered: set[str]) -> float | None:
     return float(len(tickers & covered) / len(tickers))
 
 
+def is_tradeable_row(row: dict[str, str], ticker: str, price_set: set[str]) -> bool:
+    for column in TRADEABLE_COLUMNS:
+        if column in row and non_empty(row.get(column)):
+            return str(row.get(column)).strip().lower() not in TRADEABLE_FALSE_VALUES
+    return bool(ticker and (not price_set or ticker in price_set))
+
+
+def selected_counts_by_month(latest_run: Path) -> dict[str, int]:
+    selected: dict[str, set[str]] = defaultdict(set)
+    for _portfolio, rel_path in TARGET_BOOKS:
+        fields, rows = iter_csv_rows(latest_run / rel_path)
+        date_col = first_present(fields, DATE_COLUMNS)
+        if not date_col or "ticker" not in fields:
+            continue
+        for row in rows:
+            ticker = safe_upper(row.get("ticker"))
+            if not ticker or ticker in {"CASH", "__CASH__"}:
+                continue
+            key = month_key(row.get(date_col))
+            if key:
+                selected[key].add(ticker)
+    return {key: len(value) for key, value in selected.items()}
+
+
 def count_rows_by_date(scored_path: Path, candidate_path: Path, price_cache: Path) -> list[dict[str, Any]]:
     scored_fields, scored_rows = iter_csv_rows(scored_path)
     candidate_fields, candidate_rows = iter_csv_rows(candidate_path)
@@ -251,6 +295,78 @@ def count_rows_by_date(scored_path: Path, candidate_path: Path, price_cache: Pat
             }
         )
     return output
+
+
+def monthly_universe_rows(
+    scored_path: Path,
+    candidate_path: Path,
+    latest_run: Path,
+    price_cache: Path,
+    min_r1000_base: int,
+) -> list[dict[str, Any]]:
+    scored_fields, scored_rows = iter_csv_rows(scored_path)
+    candidate_fields, candidate_rows = iter_csv_rows(candidate_path)
+    scored_date_col = first_present(scored_fields, DATE_COLUMNS)
+    scored_source_col = first_present(scored_fields, SOURCE_COLUMNS)
+    candidate_date_col = first_present(candidate_fields, DATE_COLUMNS)
+    price_set = price_symbols(price_cache)
+    selected_counts = selected_counts_by_month(latest_run)
+
+    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
+    candidate_by_month: dict[str, set[str]] = defaultdict(set)
+    for row in candidate_rows:
+        key = month_key(row.get(candidate_date_col)) if candidate_date_col else ""
+        ticker = safe_upper(row.get("ticker"))
+        if key and ticker:
+            candidate_by_month[key].add(ticker)
+    for row in scored_rows:
+        key = month_key(row.get(scored_date_col)) if scored_date_col else ""
+        grouped[key or "undated"].append(row)
+
+    rows: list[dict[str, Any]] = []
+    for key in sorted(grouped):
+        records = grouped[key]
+        tickers = {safe_upper(row.get("ticker")) for row in records if safe_upper(row.get("ticker"))}
+        r1000_tickers = {
+            safe_upper(row.get("ticker"))
+            for row in records
+            if safe_upper(row.get("ticker")) and is_r1000_source(row.get(scored_source_col, "") if scored_source_col else "")
+        }
+        tradeable_tickers = {
+            safe_upper(row.get("ticker"))
+            for row in records
+            if is_tradeable_row(row, safe_upper(row.get("ticker")), price_set)
+        }
+        fundamental_rows = sum(1 for row in records if any(non_empty(row.get(column)) for column in FUNDAMENTAL_COLUMNS))
+        source_counts = source_counts_from_rows(records, scored_source_col) if scored_source_col else Counter()
+        source_text = ";".join(key for key, _count in source_counts.most_common(10))[:500]
+        fallback_used = any("static_seed" in item.lower() or "previous_healthy" in item.lower() for item in source_counts)
+        month = "" if key == "undated" else key
+        membership_count = len(r1000_tickers)
+        scored_count = len(tickers)
+        tradeable_count = len(tradeable_tickers)
+        rows.append(
+            {
+                "date": month,
+                "month": month,
+                "membership_count": int(membership_count),
+                "r1000_base_count": int(membership_count),
+                "scored_count": int(scored_count),
+                "candidate_count": int(len(candidate_by_month.get(month, set()))),
+                "tradeable_count": int(tradeable_count),
+                "selected_count": int(selected_counts.get(month, 0)),
+                "price_coverage_pct": coverage_ratio(tickers, price_set),
+                "fundamental_coverage_pct": float(fundamental_rows / len(records)) if records else None,
+                "universe_source": source_text,
+                "fallback_used": bool(fallback_used),
+                "survivorship_status": "proxy_or_unknown",
+                "delisted_coverage": "unknown",
+                "ticker_change_coverage": "unknown",
+                "tradeability_source": "explicit_column_or_price_cache",
+                "promotion_allowed": bool(membership_count >= min_r1000_base and scored_count >= min_r1000_base),
+            }
+        )
+    return rows
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
@@ -354,10 +470,31 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     candidate = csv_source_summary(candidate_path)
     fallback = fallback_source_audit(latest_run)
     rows_by_date = count_rows_by_date(scored_path, candidate_path, price_cache)
+    rows_by_month = monthly_universe_rows(
+        scored_path,
+        candidate_path,
+        latest_run,
+        price_cache,
+        int(args.min_r1000_base),
+    )
 
     r1000_base_count = int(scored.get("r1000_base_count") or 0)
     scored_count = int(scored.get("row_count") or 0)
-    promotion_allowed = bool(args.universe_mode == "adr" or r1000_base_count >= int(args.min_r1000_base))
+    source_unclear = not bool(scored.get("source_column")) or infer_primary_source(scored) in {"missing", ""}
+    monthly_failures = [
+        row
+        for row in rows_by_month
+        if not bool(row.get("promotion_allowed")) and str(row.get("month") or row.get("date") or "").strip()
+    ]
+    promotion_allowed = bool(
+        args.universe_mode == "adr"
+        or (
+            r1000_base_count >= int(args.min_r1000_base)
+            and scored_count >= int(args.min_r1000_base)
+            and not source_unclear
+            and not monthly_failures
+        )
+    )
     status = "pass" if promotion_allowed else "invalid_universe"
     primary_source = infer_primary_source(scored)
     fallback_used = bool(
@@ -370,6 +507,17 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         blockers.append(
             f"scored R1000 base below floor: {r1000_base_count} < {int(args.min_r1000_base)}"
         )
+    if args.universe_mode != "adr" and scored_count < int(args.min_r1000_base):
+        blockers.append(
+            f"scored universe row count below floor: {scored_count} < {int(args.min_r1000_base)}"
+        )
+    if args.universe_mode != "adr" and source_unclear:
+        blockers.append("universe source is missing or unclear")
+    if args.universe_mode != "adr" and monthly_failures:
+        sample = ", ".join(
+            str(row.get("month") or row.get("date")) for row in monthly_failures[:6]
+        )
+        blockers.append(f"monthly universe health below floor for {len(monthly_failures)} months: {sample}")
     if not scored_path.exists():
         blockers.append("scored_latest.csv missing")
     if not candidate_path.exists():
@@ -395,16 +543,29 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "output_dir": str(output_dir),
         "universe_mode": args.universe_mode,
         "status": status,
+        "verdict_code": "PASS" if promotion_allowed else "INVALID_UNIVERSE",
         "promotion_allowed": promotion_allowed,
+        "hard_fail_before_expensive_rebuild": bool(not promotion_allowed and args.universe_mode != "adr"),
         "min_r1000_base": int(args.min_r1000_base),
         "r1000_base_count": r1000_base_count,
         "scored_count": scored_count,
         "candidate_count": int(candidate.get("row_count") or 0),
+        "min_monthly_membership_count": min((int(row.get("membership_count") or 0) for row in rows_by_month), default=0),
+        "min_monthly_scored_count": min((int(row.get("scored_count") or 0) for row in rows_by_month), default=0),
+        "min_monthly_tradeable_count": min((int(row.get("tradeable_count") or 0) for row in rows_by_month), default=0),
+        "monthly_universe_health_pass": bool(not monthly_failures and bool(rows_by_month)),
         "primary_universe_source": primary_source,
+        "source_unclear": source_unclear,
         "fallback_used": fallback_used,
         "scored_latest": scored,
         "candidate_replay_book": candidate,
         "fallback_source_chain": fallback,
+        "monthly_universe_summary": {
+            "row_count": len(rows_by_month),
+            "failed_month_count": len(monthly_failures),
+            "first_month": next((row.get("month") or row.get("date") for row in rows_by_month), ""),
+            "last_month": next((row.get("month") or row.get("date") for row in reversed(rows_by_month)), ""),
+        },
         "blockers": blockers,
         "next_actions": next_actions,
         "rules": {
@@ -417,6 +578,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             ],
             "promotion_rule": "non-ADR runs require scored R1000 base >= min_r1000_base and valid 8-year broker-ledger evidence",
             "do_not_use_for": "strategy promotion or A/B baseline when status != pass",
+            "clean_7y_research_rule": "clean 7-year research still requires data_readiness pass and universe_health promotion_allowed=true",
+            "proxy_10y_rule": "proxy_10y robustness must stay proxy-labelled until official PIT Russell 1000 history exists",
         },
     }
     write_json(output_dir / "universe_source_audit.json", payload)
@@ -438,16 +601,37 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     )
     write_csv(
         output_dir / "universe_membership_by_month.csv",
-        rows_by_date,
+        rows_by_month,
         [
             "date",
+            "month",
+            "membership_count",
             "r1000_base_count",
             "scored_count",
             "candidate_count",
+            "tradeable_count",
+            "selected_count",
             "price_coverage_pct",
             "fundamental_coverage_pct",
             "universe_source",
             "fallback_used",
+            "survivorship_status",
+            "delisted_coverage",
+            "ticker_change_coverage",
+            "promotion_allowed",
+        ],
+    )
+    write_csv(
+        output_dir / "tradeable_universe_by_month.csv",
+        rows_by_month,
+        [
+            "month",
+            "tradeable_count",
+            "scored_count",
+            "candidate_count",
+            "selected_count",
+            "price_coverage_pct",
+            "tradeability_source",
             "promotion_allowed",
         ],
     )
@@ -470,7 +654,13 @@ def write_report(path: Path, payload: dict[str, Any]) -> None:
         f"- scored_count: `{payload.get('scored_count')}`",
         f"- candidate_count: `{payload.get('candidate_count')}`",
         f"- primary_universe_source: `{payload.get('primary_universe_source')}`",
+        f"- source_unclear: `{str(payload.get('source_unclear')).lower()}`",
         f"- fallback_used: `{str(payload.get('fallback_used')).lower()}`",
+        f"- hard_fail_before_expensive_rebuild: `{str(payload.get('hard_fail_before_expensive_rebuild')).lower()}`",
+        f"- monthly_universe_health_pass: `{str(payload.get('monthly_universe_health_pass')).lower()}`",
+        f"- min_monthly_membership_count: `{payload.get('min_monthly_membership_count')}`",
+        f"- min_monthly_scored_count: `{payload.get('min_monthly_scored_count')}`",
+        f"- min_monthly_tradeable_count: `{payload.get('min_monthly_tradeable_count')}`",
         "",
         "## Blockers",
         "",

@@ -25,6 +25,15 @@ DEFAULT_MANIFEST = "manifests/free_data/latest_manifest.json"
 DEFAULT_PRICE_CACHE = "cache_prices"
 DEFAULT_PRICE_MANIFEST = "data_raw/free/prices/replay_price_cache_manifest.json"
 DEFAULT_OUTPUT_DIR = "outputs/ten_year_backtest_readiness"
+REQUIRED_BENCHMARKS = ("SPY", "QQQ", "SMH", "SOXX")
+AVAILABLE_FROM_COLUMNS = (
+    "available_from",
+    "feature_available_from",
+    "latest_available_from",
+    "sec_available_from",
+    "accepted_at",
+)
+DECISION_DATE_COLUMNS = ("rebalance_date", "feature_date", "as_of_date", "date", "Date")
 
 
 def window_slug(min_years: float) -> str:
@@ -93,6 +102,41 @@ def count_price_files(path: Path) -> int:
     return sum(1 for item in path.glob("*.parquet") if item.is_file())
 
 
+def price_cache_symbols(path: Path) -> set[str]:
+    if not path.exists() or not path.is_dir():
+        return set()
+    symbols: set[str] = set()
+    for pattern in ("*.parquet", "*.csv"):
+        for item in path.glob(pattern):
+            if item.name.startswith("replay_price_cache_manifest"):
+                continue
+            symbol = item.stem.upper().replace("-", ".")
+            if symbol:
+                symbols.add(symbol)
+    return symbols
+
+
+def manifest_symbols(payload: dict[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for key in ("symbols", "tickers", "requested_symbols", "requested_tickers", "price_symbols"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            out.update(str(item).strip().upper().replace("-", ".") for item in value if str(item).strip())
+    return out
+
+
+def benchmark_coverage(price_cache: Path, price_manifest: dict[str, Any]) -> dict[str, Any]:
+    symbols = price_cache_symbols(price_cache) | manifest_symbols(price_manifest)
+    missing = [symbol for symbol in REQUIRED_BENCHMARKS if symbol not in symbols]
+    return {
+        "required": list(REQUIRED_BENCHMARKS),
+        "available": sorted(symbol for symbol in REQUIRED_BENCHMARKS if symbol in symbols),
+        "missing": missing,
+        "pass": not missing,
+        "source": "price_cache_or_manifest_symbols",
+    }
+
+
 def non_cash_tickers_from_csv(path: Path) -> set[str]:
     if not path.exists():
         return set()
@@ -106,6 +150,69 @@ def non_cash_tickers_from_csv(path: Path) -> set[str]:
             if ticker and ticker not in {"CASH", "__CASH__"}:
                 out.add(ticker)
     return out
+
+
+def future_available_from_summary(latest_run: Path) -> dict[str, Any]:
+    files = [
+        latest_run / "scored_latest.csv",
+        latest_run / "reports" / "candidate_replay_book.csv",
+        latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
+    ]
+    total_rows = 0
+    checked_rows = 0
+    future_rows = 0
+    files_checked = []
+    sample: list[dict[str, Any]] = []
+    for path in files:
+        if not path.exists():
+            continue
+        file_rows = 0
+        file_checked = 0
+        file_future = 0
+        with path.open("r", encoding="utf-8", errors="ignore", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fields = list(reader.fieldnames or [])
+            available_cols = [column for column in AVAILABLE_FROM_COLUMNS if column in fields]
+            decision_cols = [column for column in DECISION_DATE_COLUMNS if column in fields]
+            for row in reader:
+                file_rows += 1
+                if not available_cols or not decision_cols:
+                    continue
+                decision_date = next((parse_date(row.get(column)) for column in decision_cols if parse_date(row.get(column))), None)
+                available_date = next((parse_date(row.get(column)) for column in available_cols if parse_date(row.get(column))), None)
+                if not decision_date or not available_date:
+                    continue
+                file_checked += 1
+                if available_date > decision_date:
+                    file_future += 1
+                    if len(sample) < 10:
+                        sample.append(
+                            {
+                                "path": str(path),
+                                "ticker": row.get("ticker"),
+                                "decision_date": decision_date.isoformat(),
+                                "available_from": available_date.isoformat(),
+                            }
+                        )
+        total_rows += file_rows
+        checked_rows += file_checked
+        future_rows += file_future
+        files_checked.append(
+            {
+                "path": str(path),
+                "rows": file_rows,
+                "checked_rows": file_checked,
+                "future_available_from_rows": file_future,
+            }
+        )
+    return {
+        "total_rows": total_rows,
+        "checked_rows": checked_rows,
+        "future_available_from_rows": future_rows,
+        "pass": future_rows == 0,
+        "files_checked": files_checked,
+        "sample": sample,
+    }
 
 
 def csv_date_range(path: Path, columns: tuple[str, ...]) -> dict[str, Any]:
@@ -343,6 +450,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     requested_tickers = int(price_manifest.get("ticker_count") or coverage_prices.get("requested_ticker_count") or 0)
     manifest_price_files = int(coverage_prices.get("cache_data_file_count") or 0)
     effective_price_files = max(local_price_files, manifest_price_files)
+    benchmarks = benchmark_coverage(price_cache, price_manifest)
+    future_available_from = future_available_from_summary(latest_run)
 
     min_years = float(args.min_years)
     slug = window_slug(min_years)
@@ -352,6 +461,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         and years_ready(price_start, price_end, min_years)
         and required_tickers > 0
         and effective_price_files >= required_tickers
+        and benchmarks["pass"]
+        and future_available_from["pass"]
     )
     main_book_ready = years_ready(parse_date(main_book["min_date"]), parse_date(main_book["max_date"]), min_years)
     concentrated_book_ready = years_ready(parse_date(concentrated_book["min_date"]), parse_date(concentrated_book["max_date"]), min_years)
@@ -379,6 +490,10 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     warnings: list[str] = []
     if not price_window_ready:
         blockers.append(f"{label} price cache/manifest is not ready for proxy replay")
+    if not benchmarks["pass"]:
+        blockers.append(f"required benchmark price coverage missing: {','.join(benchmarks['missing'])}")
+    if not future_available_from["pass"]:
+        blockers.append(f"future available_from rows detected: {future_available_from['future_available_from_rows']}")
     if not main_book_ready or not concentrated_book_ready:
         blockers.append(f"monthly target books do not cover the requested {label} window")
     if not main_official_ready or not concentrated_official_ready:
@@ -411,6 +526,21 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         status = "official_10y_ready" if official_ready else ("proxy_10y_price_ready" if proxy_ready else "not_ready")
     else:
         status = f"official_{slug}_ready" if official_ready else (f"proxy_{slug}_price_ready" if proxy_ready else "not_ready")
+    evidence_label = "not_ready"
+    if official_ready:
+        evidence_label = "official_pit_r1000"
+    elif slug == "ten_year" and proxy_ready:
+        evidence_label = "proxy_10y"
+    elif proxy_ready:
+        evidence_label = f"proxy_{slug}"
+    proxy_10y_substrate_ready = bool(
+        slug == "ten_year"
+        and proxy_ready
+        and main_book_ready
+        and concentrated_book_ready
+        and main_official_ready
+        and concentrated_official_ready
+    )
     return {
         "schema_version": "backtest-window-readiness-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -420,6 +550,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "window_label": label,
         "window_slug": slug,
         "status": status,
+        "evidence_label": evidence_label,
+        "official_russell_1000": bool(official_ready and pit_safe),
         "proxy_price_ready": proxy_ready,
         "official_window_ready": official_ready,
         "proxy_10y_price_ready": proxy_ready if slug == "ten_year" else False,
@@ -438,6 +570,17 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "requested_tickers": requested_tickers,
             "window_ready": price_window_ready,
             "ten_year_ready": price_window_ready if slug == "ten_year" else False,
+        },
+        "benchmark_coverage": benchmarks,
+        "future_available_from": future_available_from,
+        "proxy_10y_acceptance": {
+            "target_book_start_on_or_before": "2016-08-26",
+            "broker_replay_years_min": 9.8,
+            "required_benchmarks": list(REQUIRED_BENCHMARKS),
+            "future_available_from_rows": future_available_from["future_available_from_rows"],
+            "evidence_label": evidence_label if slug == "ten_year" else "",
+            "official_russell_1000": bool(official_ready and pit_safe) if slug == "ten_year" else False,
+            "pass": proxy_10y_substrate_ready,
         },
         "target_books": {
             "main": main_book,
@@ -620,6 +763,8 @@ def render_report(payload: dict[str, Any]) -> str:
         f"# {title} Backtest Readiness",
         "",
         f"- Status: `{payload['status']}`",
+        f"- Evidence label: `{payload.get('evidence_label')}`",
+        f"- Official Russell 1000: `{str(payload.get('official_russell_1000')).lower()}`",
         f"- Min years: `{payload['min_years']}`",
         f"- PIT label: `{payload.get('pit_label')}`",
         f"- Coverage readiness: `{payload.get('coverage_readiness')}`",
@@ -629,6 +774,13 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Range: `{pc.get('start_date')}` to `{pc.get('end_date')}`",
         f"- Effective files: `{pc.get('effective_price_files')}` / required `{pc.get('required_target_book_tickers')}`",
         f"- Window ready: `{pc.get('window_ready')}`",
+        f"- Required benchmarks pass: `{payload.get('benchmark_coverage', {}).get('pass')}`",
+        f"- Missing benchmarks: `{', '.join(payload.get('benchmark_coverage', {}).get('missing') or []) or 'none'}`",
+        "",
+        "## PIT / Available-From Guard",
+        "",
+        f"- Future available_from rows: `{payload.get('future_available_from', {}).get('future_available_from_rows')}`",
+        f"- Pass: `{payload.get('future_available_from', {}).get('pass')}`",
         "",
         "## Target Books",
         "",
