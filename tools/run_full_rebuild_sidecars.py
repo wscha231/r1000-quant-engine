@@ -162,6 +162,21 @@ run_universe_health_audit() {
     2>&1 | tee outputs/full_rebuild_logs/universe_health_audit.log || true
 }
 
+run_pre_broker_substrate_gate() {
+  echo "[pre-broker-substrate] enforcing clean universe/data substrate before broker replay"
+  mkdir -p outputs/full_rebuild_logs
+  local strict_args=()
+  if [ "${STRICT_PRE_BROKER_SUBSTRATE_GATE:-true}" != "false" ]; then
+    strict_args+=(--strict)
+  fi
+  python tools/check_pre_broker_substrate_gate.py \
+    --latest-run outputs \
+    --output-dir outputs/pre_broker_substrate_gate \
+    --universe-mode "$UNIVERSE_MODE" \
+    "${strict_args[@]}" \
+    2>&1 | tee outputs/full_rebuild_logs/pre_broker_substrate_gate.log
+}
+
 run_evidence_policy() {
   echo "[evidence-policy] classifying evidence tier and allowed uses"
   mkdir -p outputs/full_rebuild_logs
@@ -278,6 +293,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   run_alphaops_vnext_production
   run_universe_health_audit
   python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
+  run_pre_broker_substrate_gate
   run_data_freshness_contract
   run_sidecar_promotion_hook
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
@@ -425,6 +441,7 @@ python tools/build_operating_target_books.py --latest-run outputs --price-cache 
 run_alphaops_vnext_production
 run_universe_health_audit
 python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
+run_pre_broker_substrate_gate
 run_data_freshness_contract
 run_sidecar_promotion_hook
 python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log

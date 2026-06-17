@@ -3451,6 +3451,9 @@ def test_full_rebuild_workflow_blocks_starved_universe() -> None:
     )
     assert "INVALID_UNIVERSE" in wf, "workflow must mark starved runs INVALID_UNIVERSE"
     assert "aggressive/cache/universe" in wf, "workflow must cache the offline IWB universe fallback"
+    sidecar = (ROOT / "tools/run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    assert "check_pre_broker_substrate_gate.py" in sidecar, "broker replay must be pre-gated by substrate health"
+    assert "STRICT_PRE_BROKER_SUBSTRATE_GATE" in sidecar, "strict pre-broker gate override must be explicit"
 
 
 @_test("syntax.user_current_and_sync_tools_parse")
@@ -3468,6 +3471,7 @@ def test_user_current_and_sync_tools_parse() -> None:
         "tools/run_position_cleanup_review.py",
         "tools/run_patch_application_manifest.py",
         "tools/run_alphaops_vnext_policy_replay.py",
+        "tools/check_pre_broker_substrate_gate.py",
         "tools/create_healthy_baseline_lock.py",
         "tools/run_market_leader_challenger.py",
         "tools/run_shakeout_disclosure_reversal_study.py",
@@ -3571,6 +3575,7 @@ def test_gdrive_manifest_marks_deprecated_research() -> None:
         "MINIMAL_ANALYSIS_FILES",
         "broker_replay/main/trades.csv",
         "broker_replay/concentrated/cash_ledger.csv",
+        "pre_broker_substrate_gate/summary.json",
         "reports/operating_main_target_book.csv",
     ]:
         assert token in src, f"gdrive manifest tool missing {token}"
