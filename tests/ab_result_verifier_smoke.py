@@ -142,6 +142,8 @@ def seed_run(
             {
                 "status": "clean_7y_research_ready" if clean_7y_ready else "not_ready",
                 "ready_for_alpha_plane_ab_research": clean_7y_ready,
+                "review_only": True,
+                "canonical_production_sync": False,
                 "promotion_allowed": False,
                 "production_mutation_allowed": False,
                 "live_trading_enabled": False,
@@ -475,6 +477,40 @@ def test_verifier_blocks_clean_7y_candidate_without_readiness_artifact() -> None
         assert "clean_7y_research_readiness_missing" in row["issues"]
 
 
+def test_verifier_blocks_unsafe_clean_7y_readiness_metadata() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(
+            candidate,
+            cagr=0.52,
+            max_dd=-0.26,
+            is_cagr=0.31,
+            years=7.50,
+            trading_days=1800,
+            target_pass=True,
+            strengthened_pass=True,
+            valid_for_production=False,
+            clean_7y_ready=True,
+        )
+        readiness_path = candidate / "clean_7y_research_readiness" / "summary.json"
+        readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+        readiness["review_only"] = False
+        readiness["production_mutation_allowed"] = True
+        readiness["canonical_production_sync"] = True
+        write_json(readiness_path, readiness)
+
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked"
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_clean_7y_readiness"
+        assert "clean_7y_readiness.review_only_not_true" in row["issues"]
+        assert "clean_7y_readiness.production_mutation_allowed_not_false" in row["issues"]
+        assert "clean_7y_readiness.canonical_production_sync_not_false" in row["issues"]
+
+
 def test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -623,6 +659,7 @@ if __name__ == "__main__":
     test_verifier_rejects_dirty_short_7y_as_do_not_use()
     test_verifier_blocks_dirty_baseline_before_candidate_review()
     test_verifier_blocks_clean_7y_candidate_without_readiness_artifact()
+    test_verifier_blocks_unsafe_clean_7y_readiness_metadata()
     test_verifier_surfaces_clean_7y_recovery_when_readiness_blocked()
     test_verifier_blocks_missing_acceptance_evidence()
     test_verifier_blocks_missing_oos_lock_evidence()

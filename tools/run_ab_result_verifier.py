@@ -61,6 +61,25 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def clean_7y_safety_issues(payload: dict[str, Any]) -> list[str]:
+    if not payload:
+        return []
+    issues: list[str] = []
+    if payload.get("review_only") is not True:
+        issues.append("clean_7y_readiness.review_only_not_true")
+    if payload.get("canonical_production_sync") is not False:
+        issues.append("clean_7y_readiness.canonical_production_sync_not_false")
+    if payload.get("promotion_allowed") is not False:
+        issues.append("clean_7y_readiness.promotion_allowed_not_false")
+    if payload.get("production_mutation_allowed") is not False:
+        issues.append("clean_7y_readiness.production_mutation_allowed_not_false")
+    if payload.get("live_trading_enabled") is not False:
+        issues.append("clean_7y_readiness.live_trading_enabled_not_false")
+    if payload.get("human_approval_required") is not True:
+        issues.append("clean_7y_readiness.human_approval_required_not_true")
+    return issues
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
@@ -156,6 +175,7 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     clean_7y_path = run_dir / "clean_7y_research_readiness" / "summary.json"
     clean_7y = read_json(clean_7y_path)
     clean_7y_recovery = clean_7y.get("evidence_recovery") if isinstance(clean_7y.get("evidence_recovery"), dict) else {}
+    clean_7y_safety = clean_7y_safety_issues(clean_7y)
     evidence_recovery = evidence.get("pre_broker_substrate_gate_recovery") if isinstance(evidence.get("pre_broker_substrate_gate_recovery"), dict) else {}
     years = safe_float(row.get("years"), safe_float(broker.get("years")))
     trading_days = safe_int(
@@ -204,6 +224,7 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "clean_7y_readiness_status": clean_7y.get("status") or "",
         "clean_7y_ready_for_ab": clean_7y.get("ready_for_alpha_plane_ab_research"),
         "clean_7y_readiness_blockers": list(clean_7y.get("blockers") or []),
+        "clean_7y_safety_issues": clean_7y_safety,
         "clean_7y_recovery_source": clean_7y_recovery.get("recommended_recovery_source") or "",
         "clean_7y_recovery_action": clean_7y_recovery.get("recovery_action") or "",
         "status": row.get("status") or broker.get("status") or "missing",
@@ -283,6 +304,7 @@ def baseline_evidence_issues(baseline: dict[str, Any]) -> list[str]:
             if not baseline.get("clean_7y_readiness_exists"):
                 issues.append("baseline_clean_7y_research_readiness_missing")
             issues.extend(f"baseline:{item}" for item in baseline.get("clean_7y_readiness_blockers") or [])
+        issues.extend(f"baseline:{item}" for item in baseline.get("clean_7y_safety_issues") or [])
     return sorted(set(str(item) for item in issues if item))
 
 
@@ -357,6 +379,9 @@ def classify_candidate(
             if not issues:
                 issues.append(f"clean_7y_research_readiness_status:{candidate.get('clean_7y_readiness_status') or 'missing'}")
             return "blocked_clean_7y_readiness", sorted(set(str(item) for item in issues))
+        clean_7y_safety = list(candidate.get("clean_7y_safety_issues") or [])
+        if clean_7y_safety:
+            return "blocked_clean_7y_readiness", sorted(set(str(item) for item in clean_7y_safety))
 
     if evidence_tier == TIER1:
         return "measured_research_7y", []
@@ -520,6 +545,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "clean_7y_readiness_status",
         "clean_7y_ready_for_ab",
         "clean_7y_readiness_blockers",
+        "clean_7y_safety_issues",
         "clean_7y_recovery_source",
         "clean_7y_recovery_action",
         "review_valid_for_promotion",
@@ -546,6 +572,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             out = dict(row)
             out["issues"] = ";".join(str(item) for item in row.get("issues") or [])
             out["clean_7y_readiness_blockers"] = ";".join(str(item) for item in row.get("clean_7y_readiness_blockers") or [])
+            out["clean_7y_safety_issues"] = ";".join(str(item) for item in row.get("clean_7y_safety_issues") or [])
             out["proxy_10y_reasons"] = ";".join(str(item) for item in row.get("proxy_10y_reasons") or [])
             writer.writerow(out)
 

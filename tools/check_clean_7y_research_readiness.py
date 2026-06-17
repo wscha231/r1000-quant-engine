@@ -193,6 +193,8 @@ def classify_clean_7y_readiness(latest_run: str | Path, *, user_current_dir: str
         "broker_window_years": years,
         "allowed_uses": ALLOWED_RESEARCH_USES if ready else ["diagnostics"],
         "blocked_uses": blocked_uses,
+        "review_only": True,
+        "canonical_production_sync": False,
         "promotion_allowed": False,
         "production_mutation_allowed": False,
         "live_trading_enabled": False,

@@ -168,6 +168,8 @@ def test_clean_7y_research_ready_even_if_not_production_valid() -> None:
         seed_base(root)
         payload = classify_clean_7y_readiness(root)
         assert payload["status"] == READY, payload
+        assert payload["review_only"] is True, payload
+        assert payload["canonical_production_sync"] is False, payload
         assert payload["promotion_allowed"] is False, payload
         assert payload["ready_for_alpha_plane_ab_research"] is True, payload
         assert "official_promotion" in payload["blocked_uses"], payload
