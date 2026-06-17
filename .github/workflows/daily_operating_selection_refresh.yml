@@ -382,7 +382,7 @@ jobs:
           if not pre_broker_allowed:
               selection_blockers.append("pre_broker_substrate_gate_blocked")
           data_freshness_promotion_allowed = bool(status.get("promotion_allowed", False))
-          substrate_promotion_allowed = data_freshness_promotion_allowed and universe_healthy and pre_broker_allowed
+          substrate_promotion_gate_pass = data_freshness_promotion_allowed and universe_healthy and pre_broker_allowed
           recommendation_status = (
               status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED")
               if substrate_selection_allowed
@@ -396,6 +396,7 @@ jobs:
               "canonical_production_sync": False,
               "live_trading_enabled": False,
               "production_mutation_allowed": False,
+              "production_promotion_allowed": False,
               "human_approval_required": True,
               "source_of_truth_level": "GITHUB_ARTIFACT",
               "source_run_id": os.environ.get("GITHUB_RUN_ID", ""),
@@ -407,8 +408,9 @@ jobs:
               "selection_allowed": substrate_selection_allowed,
               "selection_blockers": selection_blockers,
               "data_freshness_promotion_allowed": data_freshness_promotion_allowed,
-              "substrate_promotion_allowed": substrate_promotion_allowed,
-              "promotion_allowed": substrate_promotion_allowed,
+              "substrate_promotion_gate_pass": substrate_promotion_gate_pass,
+              "promotion_allowed": False,
+              "promotion_allowed_scope": "daily_operating_preview_never_production_promotion",
               "recommendation_status": recommendation_status,
               "data_freshness_contract": "outputs/data_freshness_contract/status.json",
               "universe_health_status": universe.get("status"),
@@ -436,6 +438,8 @@ jobs:
               "- canonical_production_sync: `false`\n"
               "- live_trading_enabled: `false`\n"
               "- production_mutation_allowed: `false`\n"
+              "- production_promotion_allowed: `false`\n"
+              "- promotion_allowed: `false`\n"
               "- human_approval_required: `true`\n"
               "- source_of_truth_level: `GITHUB_ARTIFACT`\n"
               "- substrate_status_artifacts: `outputs/universe_health/`, `outputs/pre_broker_substrate_gate/`\n",

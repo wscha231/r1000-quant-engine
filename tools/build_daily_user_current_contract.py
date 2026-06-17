@@ -194,6 +194,7 @@ def freshness_state(latest_run: Path) -> dict[str, Any]:
         "status": "blocked" if not selection_allowed else (status.get("status") or "pass"),
         "selection_allowed": selection_allowed,
         "promotion_allowed": promotion_allowed,
+        "production_promotion_allowed": False,
         "recommendation_status": recommendation_status,
         "blockers": blockers,
         "warnings": list(status.get("warnings") or []),
@@ -621,6 +622,7 @@ def build_decision(
         "recommendation_status": state["recommendation_status"],
         "selection_allowed": selection_allowed,
         "promotion_allowed": bool(state["promotion_allowed"]),
+        "production_promotion_allowed": False,
         "pre_broker_substrate_gate_status": state.get("substrate_status"),
         "pre_broker_broker_replay_allowed": state.get("pre_broker_broker_replay_allowed"),
         "substrate_blockers": state.get("substrate_blockers", []),
@@ -639,6 +641,7 @@ def build_decision(
         "canonical_production_sync": False,
         "live_trading_enabled": False,
         "production_mutation_allowed": False,
+        "production_promotion_allowed": False,
         "human_approval_required": True,
         "source_of_truth_level": "GITHUB_ARTIFACT",
         "source_run_id": source_run_id,
@@ -658,6 +661,7 @@ def append_review_only_notice(path: Path) -> None:
     notice = (
         "\n"
         "- production_mutation_allowed: `false`\n"
+        "- production_promotion_allowed: `false`\n"
         "- human_approval_required: `true`\n"
         "\n"
         "Daily target weights and order preview files are review-only. Rows marked "
@@ -711,6 +715,7 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "canonical_production_sync": False,
         "live_trading_enabled": False,
         "production_mutation_allowed": False,
+        "production_promotion_allowed": False,
         "human_approval_required": True,
         "source_of_truth_level": "GITHUB_ARTIFACT",
         "source_run_id": args.source_run_id,
@@ -725,6 +730,7 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "data_freshness_status": state["status"],
         "selection_allowed": state["selection_allowed"],
         "promotion_allowed": state["promotion_allowed"],
+        "production_promotion_allowed": False,
         "recommendation_status": state["recommendation_status"],
         "blockers": state["blockers"],
         "warnings": state["warnings"],
@@ -756,6 +762,7 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "data_freshness_status": state["status"],
         "selection_allowed": state["selection_allowed"],
         "promotion_allowed": state["promotion_allowed"],
+        "production_promotion_allowed": False,
         "recommendation_status": state["recommendation_status"],
         "pre_broker_substrate_gate_status": state.get("substrate_status"),
         "pre_broker_broker_replay_allowed": state.get("pre_broker_broker_replay_allowed"),

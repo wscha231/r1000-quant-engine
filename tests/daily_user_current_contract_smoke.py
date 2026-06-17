@@ -143,11 +143,16 @@ def test_contract_writes_required_review_only_files() -> None:
         assert old_order["order_source"] == "current_snapshot_vs_target_review_only"
         assert decision["decision"] == "REVIEW_REQUIRED"
         assert decision["selection_allowed"] is False
+        assert decision["promotion_allowed"] is False
+        assert decision["production_promotion_allowed"] is False
         assert decision["live_trading_enabled"] is False
         assert decision["human_approval_required"] is True
         assert decision["snapshot_contract_pass"] is True
         assert daily["human_approval_required"] is True
+        assert daily["production_promotion_allowed"] is False
         assert daily["current_snapshot_used_for_order_preview"] is True
+        assert summary["production_promotion_allowed"] is False
+        assert "production_promotion_allowed: `false`" in notice
         assert daily["snapshot_contract_pass"] is True
         assert daily["snapshot_contract"]["order_delta_weight_max_abs_drift"] < 1e-9
         assert summary["human_approval_required"] is True
@@ -418,15 +423,19 @@ def test_contract_honors_daily_summary_substrate_blockers() -> None:
         summary = json.loads((user_current / "09_daily_output_contract_summary.json").read_text(encoding="utf-8"))
         assert payload["selection_allowed"] is False
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
         assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
         assert "daily_summary_selection_allowed=false" in payload["blockers"]
         assert "daily_summary: universe_health_selection_blocked" in payload["blockers"]
         assert decision["selection_allowed"] is False
         assert decision["promotion_allowed"] is False
+        assert decision["production_promotion_allowed"] is False
         assert daily["selection_allowed"] is False
         assert daily["promotion_allowed"] is False
+        assert daily["production_promotion_allowed"] is False
         assert summary["selection_allowed"] is False
         assert summary["promotion_allowed"] is False
+        assert summary["production_promotion_allowed"] is False
 
 
 def test_contract_blocks_missing_pre_broker_substrate_status() -> None:
@@ -509,13 +518,16 @@ def test_contract_blocks_missing_pre_broker_substrate_status() -> None:
         summary = json.loads((user_current / "09_daily_output_contract_summary.json").read_text(encoding="utf-8"))
         assert payload["selection_allowed"] is False
         assert payload["promotion_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
         assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
         assert "pre_broker_substrate_gate_missing" in payload["substrate_blockers"]
         assert "pre_broker_broker_replay_allowed_missing" in payload["substrate_blockers"]
         assert decision["selection_allowed"] is False
         assert decision["promotion_allowed"] is False
+        assert decision["production_promotion_allowed"] is False
         assert summary["selection_allowed"] is False
         assert summary["promotion_allowed"] is False
+        assert summary["production_promotion_allowed"] is False
 
 
 def main() -> int:
