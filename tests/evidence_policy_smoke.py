@@ -153,6 +153,12 @@ def test_pre_broker_substrate_gate_block_forces_tier0() -> None:
                 "broker_replay_allowed": False,
                 "evidence_tier_when_blocked": "0_do_not_use",
                 "blockers": ["universe_health_promotion_not_allowed", "data_readiness_not_ready_for_policy_replay"],
+                "recovery": {
+                    "fallback_available": True,
+                    "recommended_recovery_source": "committed_static_IWB_seed",
+                    "recommended_recovery_reason": "static seed is available above floor",
+                    "recovery_action": "repair_universe_from_fallback",
+                },
             },
         )
         payload = classify_evidence(root)
@@ -161,8 +167,15 @@ def test_pre_broker_substrate_gate_block_forces_tier0() -> None:
         assert payload["pre_broker_substrate_gate_pass"] is False
         assert "pre_broker_substrate_gate_blocked" in payload["tier0_blockers"]
         assert "pre_broker:universe_health_promotion_not_allowed" in payload["tier0_blockers"]
+        assert payload["pre_broker_substrate_gate_recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed"
+        assert payload["pre_broker_substrate_gate_recovery"]["recovery_action"] == "repair_universe_from_fallback"
         assert Path(payload["source_files"]["pre_broker_substrate_gate"]).name == "summary.json"
         assert Path(payload["source_files"]["pre_broker_substrate_gate"]).parent.name == "pre_broker_substrate_gate"
+        out = root / "out"
+        write_outputs(payload, out)
+        report = (out / "report.md").read_text(encoding="utf-8")
+        assert "## Pre-Broker Recovery" in report
+        assert "recommended_recovery_source: `committed_static_IWB_seed`" in report
 
 
 def test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1() -> None:

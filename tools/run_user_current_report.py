@@ -751,6 +751,7 @@ def render_action_summary(
     promotion_allowed = metric_promotion_allowed and (evidence_promotion_allowed is True if evidence else True)
     production_promotion_allowed = promotion_allowed and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
     recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_allowed else "REVIEW_REQUIRED"
+    recovery = evidence.get("pre_broker_substrate_gate_recovery") if isinstance(evidence.get("pre_broker_substrate_gate_recovery"), dict) else {}
     lines = [
         "# User Current Action Summary",
         "",
@@ -762,6 +763,8 @@ def render_action_summary(
         f"- evidence_allowed_uses: `{', '.join(evidence.get('allowed_uses') or metrics.get('allowed_uses') or [])}`",
         f"- research_ab_allowed: `{str(evidence.get('research_ab_allowed', metrics.get('research_ab_allowed', False))).lower()}`",
         f"- ready_for_human_review_allowed: `{str(evidence.get('ready_for_human_review_allowed', metrics.get('ready_for_human_review_allowed', False))).lower()}`",
+        f"- evidence_recovery_source: `{recovery.get('recommended_recovery_source') or ''}`",
+        f"- evidence_recovery_action: `{recovery.get('recovery_action') or ''}`",
         f"- valid_for_production: `{promotion_allowed}`",
         f"- production_promotion_allowed: `{production_promotion_allowed}`",
         f"- production_applied: `{str(research.get('production_applied')).lower()}`",
@@ -991,6 +994,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "blocked_uses": evidence.get("blocked_uses"),
             "evidence_reasons": evidence.get("reasons"),
             "evidence_tier0_blockers": evidence.get("tier0_blockers"),
+            "evidence_recovery": evidence.get("pre_broker_substrate_gate_recovery"),
             "research_ab_allowed": evidence.get("research_ab_allowed"),
             "ready_for_human_review_allowed": evidence.get("ready_for_human_review_allowed"),
             "evidence_promotion_allowed": evidence.get("promotion_allowed"),
