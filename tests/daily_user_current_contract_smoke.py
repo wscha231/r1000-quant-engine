@@ -56,6 +56,26 @@ def test_contract_writes_required_review_only_files() -> None:
             },
         )
         write_json(user_current / "summary.json", {"schema_version": "user-current-report-v1", "status": "completed"})
+        pd.DataFrame(
+            [
+                {
+                    "portfolio_kind": "main",
+                    "row_type": "equity",
+                    "ticker": "AAA",
+                    "current_weight": 0.02,
+                    "current_shares": 4,
+                    "current_price": 100.0,
+                },
+                {
+                    "portfolio_kind": "main",
+                    "row_type": "equity",
+                    "ticker": "OLD",
+                    "current_weight": 0.03,
+                    "current_shares": 3,
+                    "current_price": 100.0,
+                },
+            ]
+        ).to_csv(user_current / "01_current_holdings.csv", index=False)
         (user_current / "DAILY_REVIEW_ONLY.md").write_text(
             "# Daily Review-Only Current Output\n\n- review_only: `true`\n",
             encoding="utf-8",
@@ -111,16 +131,24 @@ def test_contract_writes_required_review_only_files() -> None:
         notice = (user_current / "DAILY_REVIEW_ONLY.md").read_text(encoding="utf-8")
 
         assert target.iloc[0]["ticker"] == "AAA"
+        assert abs(float(target.iloc[0]["current_weight"]) - 0.02) < 1e-9
+        assert abs(float(target.iloc[0]["delta_weight"]) - 0.10) < 1e-9
         assert bool(target.iloc[0]["review_required"]) is True
         assert bool(target.iloc[0]["production_mutation_allowed"]) is False
         assert bool(orders.iloc[0]["human_approval_required"]) is True
         assert orders.iloc[0]["action"] == "REVIEW_REQUIRED"
+        old_order = orders.loc[orders["ticker"].eq("OLD")].iloc[0]
+        assert abs(float(old_order["current_weight"]) - 0.03) < 1e-9
+        assert abs(float(old_order["target_weight"])) < 1e-9
+        assert old_order["order_source"] == "current_snapshot_vs_target_review_only"
         assert decision["decision"] == "REVIEW_REQUIRED"
         assert decision["selection_allowed"] is False
         assert decision["live_trading_enabled"] is False
         assert decision["human_approval_required"] is True
         assert daily["human_approval_required"] is True
+        assert daily["current_snapshot_used_for_order_preview"] is True
         assert summary["human_approval_required"] is True
+        assert summary["current_snapshot_used_for_order_preview"] is True
         assert "human_approval_required" in notice
 
 

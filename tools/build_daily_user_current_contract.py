@@ -82,6 +82,59 @@ def first_value(row: dict[str, Any], names: list[str], default: Any = "") -> Any
     return default
 
 
+def load_current_holdings(output_dir: Path) -> pd.DataFrame:
+    frame = read_csv(output_dir / "01_current_holdings.csv")
+    columns = ["portfolio", "ticker", "current_weight", "current_shares", "current_price", "row_type"]
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+    out = frame.copy()
+    if "portfolio" not in out.columns:
+        if "portfolio_kind" in out.columns:
+            out["portfolio"] = out["portfolio_kind"]
+        else:
+            out["portfolio"] = ""
+    if "ticker" not in out.columns:
+        out["ticker"] = ""
+    if "current_weight" not in out.columns:
+        out["current_weight"] = 0.0
+    if "current_shares" not in out.columns:
+        out["current_shares"] = 0.0
+    if "current_price" not in out.columns:
+        out["current_price"] = 0.0
+    if "row_type" not in out.columns:
+        out["row_type"] = ""
+    out["portfolio"] = out["portfolio"].astype(str).str.lower().str.strip()
+    out["ticker"] = out["ticker"].map(clean_ticker)
+    out["current_weight"] = pd.to_numeric(out["current_weight"], errors="coerce").fillna(0.0)
+    out["current_shares"] = pd.to_numeric(out["current_shares"], errors="coerce").fillna(0.0)
+    out["current_price"] = pd.to_numeric(out["current_price"], errors="coerce").fillna(0.0)
+    out["row_type"] = out["row_type"].astype(str)
+    out = out[(out["portfolio"] != "") & (out["ticker"] != "")].copy()
+    if out.empty:
+        return pd.DataFrame(columns=columns)
+    return (
+        out.groupby(["portfolio", "ticker"], as_index=False)
+        .agg(
+            {
+                "current_weight": "sum",
+                "current_shares": "sum",
+                "current_price": "last",
+                "row_type": "last",
+            }
+        )
+        .reindex(columns=columns)
+    )
+
+
+def current_weight_map(current_holdings: pd.DataFrame) -> dict[tuple[str, str], float]:
+    if current_holdings.empty:
+        return {}
+    return {
+        (str(row.portfolio).lower(), clean_ticker(row.ticker)): clean_float(row.current_weight)
+        for row in current_holdings.itertuples(index=False)
+    }
+
+
 def freshness_state(latest_run: Path) -> dict[str, Any]:
     status = read_json(latest_run / "data_freshness_contract" / "status.json")
     summary = read_json(latest_run / "daily_operating_selection_refresh" / "summary.json")
@@ -191,7 +244,12 @@ def target_rows_from_operating_books(latest_run: Path, review_required: bool, re
     return pd.DataFrame(rows)
 
 
-def load_target_weights(latest_run: Path, review_required: bool, review_reason: str) -> pd.DataFrame:
+def load_target_weights(
+    latest_run: Path,
+    review_required: bool,
+    review_reason: str,
+    current_holdings: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     frame = target_rows_from_portfolio_reports(latest_run, review_required, review_reason)
     if frame.empty:
         frame = target_rows_from_operating_books(latest_run, review_required, review_reason)
@@ -219,12 +277,97 @@ def load_target_weights(latest_run: Path, review_required: bool, review_reason: 
     ]
     if frame.empty:
         return pd.DataFrame(columns=columns)
-    return frame.reindex(columns=columns).sort_values(["portfolio", "rank", "ticker"]).reset_index(drop=True)
+    out = frame.reindex(columns=columns).copy()
+    current_map = current_weight_map(current_holdings if current_holdings is not None else pd.DataFrame())
+    if current_map:
+        out["current_weight"] = [
+            current_map.get((str(row.get("portfolio") or "").lower(), clean_ticker(row.get("ticker"))), 0.0)
+            for row in out.to_dict("records")
+        ]
+        out["delta_weight"] = pd.to_numeric(out["target_weight"], errors="coerce").fillna(0.0) - pd.to_numeric(
+            out["current_weight"], errors="coerce"
+        ).fillna(0.0)
+    return out.sort_values(["portfolio", "rank", "ticker"]).reset_index(drop=True)
 
 
-def load_order_preview(latest_run: Path, target_weights: pd.DataFrame, review_required: bool, review_reason: str) -> pd.DataFrame:
+def order_preview_from_current_snapshot(
+    target_weights: pd.DataFrame,
+    current_holdings: pd.DataFrame,
+    review_required: bool,
+    review_reason: str,
+) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
+    target_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    if not target_weights.empty:
+        for row in target_weights.to_dict("records"):
+            portfolio = str(row.get("portfolio") or "").lower()
+            ticker = clean_ticker(row.get("ticker"))
+            if portfolio and ticker:
+                target_by_key[(portfolio, ticker)] = row
+    current_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    if not current_holdings.empty:
+        for row in current_holdings.to_dict("records"):
+            portfolio = str(row.get("portfolio") or "").lower()
+            ticker = clean_ticker(row.get("ticker"))
+            if portfolio and ticker:
+                current_by_key[(portfolio, ticker)] = row
+
+    priority = 0
+    for key in sorted(set(target_by_key) | set(current_by_key)):
+        portfolio, ticker = key
+        target_row = target_by_key.get(key, {})
+        current_row = current_by_key.get(key, {})
+        target_weight = clean_float(target_row.get("target_weight"), 0.0)
+        current_weight = clean_float(current_row.get("current_weight"), clean_float(target_row.get("current_weight"), 0.0))
+        delta_weight = target_weight - current_weight
+        priority += 1
+        if abs(delta_weight) < 1e-8 and ticker != "CASH":
+            action = "HOLD"
+        elif ticker == "CASH":
+            action = "REVIEW_REQUIRED"
+        elif target_weight <= 1e-8 and current_weight > 1e-8:
+            action = "REVIEW_EXIT"
+        elif delta_weight > 0:
+            action = "REVIEW_ADD"
+        else:
+            action = "REVIEW_TRIM"
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "ticker": ticker,
+                "action": "REVIEW_REQUIRED" if review_required else action,
+                "current_weight": current_weight,
+                "target_weight": target_weight,
+                "delta_weight": delta_weight,
+                "estimated_shares": 0.0,
+                "estimated_value": 0.0,
+                "priority": int(clean_float(target_row.get("rank"), priority)),
+                "review_required": True,
+                "reason": review_reason,
+                "order_source": "current_snapshot_vs_target_review_only",
+                "production_mutation_allowed": False,
+                "live_trading_enabled": False,
+                "human_approval_required": True,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def load_order_preview(
+    latest_run: Path,
+    target_weights: pd.DataFrame,
+    review_required: bool,
+    review_reason: str,
+    current_holdings: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    if current_holdings is not None and not current_holdings.empty:
+        snapshot_orders = order_preview_from_current_snapshot(target_weights, current_holdings, review_required, review_reason)
+        if not snapshot_orders.empty:
+            rows = snapshot_orders.to_dict("records")
     for portfolio in PORTFOLIOS:
+        if rows:
+            break
         preview = read_csv(latest_run / "account_ledger_preview" / portfolio / "orders_preview.csv")
         if not preview.empty and "ticker" in preview.columns:
             for source_row in preview.to_dict("records"):
@@ -387,8 +530,9 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
     else:
         review_reason = "daily output is review-only; human approval required"
 
-    target_weights = load_target_weights(latest_run, review_required, review_reason)
-    order_preview = load_order_preview(latest_run, target_weights, review_required, review_reason)
+    current_holdings = load_current_holdings(output_dir)
+    target_weights = load_target_weights(latest_run, review_required, review_reason, current_holdings)
+    order_preview = load_order_preview(latest_run, target_weights, review_required, review_reason, current_holdings)
     decision = build_decision(
         state=state,
         target_weights=target_weights,
@@ -423,6 +567,8 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
             "order_preview": str(order_path),
             "rebalance_decision": str(decision_path),
         },
+        "current_snapshot_rows": int(len(current_holdings)),
+        "current_snapshot_used_for_order_preview": not current_holdings.empty,
     }
     update_json_file(latest_run / "daily_operating_selection_refresh" / "summary.json", metadata_updates)
     update_json_file(output_dir / "summary.json", metadata_updates)
@@ -433,6 +579,8 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "status": "completed",
         "target_weight_rows": int(len(target_weights)),
         "order_preview_rows": int(len(order_preview)),
+        "current_snapshot_rows": int(len(current_holdings)),
+        "current_snapshot_used_for_order_preview": not current_holdings.empty,
         "decision": decision["decision"],
         "selection_allowed": state["selection_allowed"],
         "promotion_allowed": state["promotion_allowed"],
