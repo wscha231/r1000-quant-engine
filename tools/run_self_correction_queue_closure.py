@@ -28,6 +28,11 @@ QUEUE_STATUSES = [
     "stale",
     "closed",
 ]
+HUMAN_REVIEW_DECISIONS = {
+    "promote_candidate_review_only",
+    "ready_for_human_review",
+    "robust_candidate_review_only",
+}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -101,7 +106,7 @@ def verifier_candidates(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def decision_rank(decision: str) -> int:
-    if decision == "promote_candidate_review_only":
+    if decision in HUMAN_REVIEW_DECISIONS:
         return 0
     if decision.startswith("blocked"):
         return 1
@@ -140,7 +145,7 @@ def match_candidate(item: dict[str, Any], candidates: list[dict[str, Any]]) -> t
 
 
 def status_from_decision(decision: str) -> str:
-    if decision == "promote_candidate_review_only":
+    if decision in HUMAN_REVIEW_DECISIONS:
         return "ready_for_human_review"
     if decision.startswith("reject") or decision.startswith("invalid"):
         return "rejected"
