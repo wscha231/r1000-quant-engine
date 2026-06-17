@@ -80,6 +80,16 @@ def clean_7y_safety_issues(payload: dict[str, Any]) -> list[str]:
     return issues
 
 
+def clean_7y_readiness_required(row: dict[str, Any]) -> bool:
+    evidence_tier = str(row.get("evidence_tier") or "")
+    if evidence_tier in {TIER1, TIER2}:
+        return True
+    if row.get("proxy_10y_robustness_pass") is True:
+        return True
+    years = safe_float(row.get("years"), 0.0) or 0.0
+    return evidence_tier == TIER3 and years < MIN_BROKER_LEDGER_YEARS
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
@@ -298,7 +308,7 @@ def baseline_evidence_issues(baseline: dict[str, Any]) -> list[str]:
         issues.extend(f"baseline:{item}" for item in baseline.get("evidence_tier0_blockers") or [])
     elif evidence_tier not in {TIER1, TIER2, TIER3, TIER4}:
         issues.append(f"baseline_evidence_tier:{evidence_tier or 'missing'}")
-    if evidence_tier in {TIER1, TIER2}:
+    if clean_7y_readiness_required(baseline):
         if baseline.get("clean_7y_readiness_status") != "clean_7y_research_ready" or baseline.get("clean_7y_ready_for_ab") is not True:
             issues.append("baseline_clean_7y_research_readiness_not_ready")
             if not baseline.get("clean_7y_readiness_exists"):
@@ -371,7 +381,7 @@ def classify_candidate(
     if regression_issues:
         return "reject_regression", regression_issues
 
-    if evidence_tier in {TIER1, TIER2}:
+    if clean_7y_readiness_required(candidate):
         if candidate.get("clean_7y_readiness_status") != "clean_7y_research_ready" or candidate.get("clean_7y_ready_for_ab") is not True:
             issues = list(candidate.get("clean_7y_readiness_blockers") or [])
             if not candidate.get("clean_7y_readiness_exists"):
