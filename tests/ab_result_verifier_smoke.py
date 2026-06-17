@@ -124,6 +124,9 @@ def seed_run(
             "schema_version": "pre-broker-substrate-gate-v1",
             "status": "pass",
             "broker_replay_allowed": True,
+            "production_mutation_allowed": False,
+            "live_trading_allowed": False,
+            "promotion_allowed": False,
             "blockers": [],
         },
     )

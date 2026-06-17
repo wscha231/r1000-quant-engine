@@ -148,6 +148,9 @@ def seed_base(
             "schema_version": "pre-broker-substrate-gate-v1",
             "status": "pass",
             "broker_replay_allowed": True,
+            "production_mutation_allowed": False,
+            "live_trading_allowed": False,
+            "promotion_allowed": False,
             "blockers": [],
         },
     )
@@ -201,6 +204,9 @@ def test_pre_broker_recovery_surfaces_when_clean_7y_blocked() -> None:
                 "schema_version": "pre-broker-substrate-gate-v1",
                 "status": "blocked",
                 "broker_replay_allowed": False,
+                "production_mutation_allowed": False,
+                "live_trading_allowed": False,
+                "promotion_allowed": False,
                 "blockers": ["universe_health_promotion_not_allowed"],
                 "recovery": {
                     "fallback_available": True,

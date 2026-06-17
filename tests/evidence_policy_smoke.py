@@ -107,6 +107,9 @@ def seed_run(
                 "schema_version": "pre-broker-substrate-gate-v1",
                 "status": "pass",
                 "broker_replay_allowed": True,
+                "production_mutation_allowed": False,
+                "live_trading_allowed": False,
+                "promotion_allowed": False,
                 "blockers": [],
             },
         )
@@ -234,6 +237,9 @@ def test_pre_broker_substrate_gate_block_forces_tier0() -> None:
                 "status": "blocked",
                 "broker_replay_allowed": False,
                 "evidence_tier_when_blocked": "0_do_not_use",
+                "production_mutation_allowed": False,
+                "live_trading_allowed": False,
+                "promotion_allowed": False,
                 "blockers": ["universe_health_promotion_not_allowed", "data_readiness_not_ready_for_policy_replay"],
                 "recovery": {
                     "fallback_available": True,
@@ -270,6 +276,9 @@ def test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1() -> None:
                 "schema_version": "pre-broker-substrate-gate-v1",
                 "status": "pass",
                 "broker_replay_allowed": True,
+                "production_mutation_allowed": False,
+                "live_trading_allowed": False,
+                "promotion_allowed": False,
                 "blockers": [],
             },
         )
@@ -296,6 +305,31 @@ def test_pre_broker_substrate_gate_missing_schema_forces_tier0() -> None:
         assert payload["research_ab_allowed"] is False
         assert payload["pre_broker_substrate_gate_pass"] is False
         assert "pre_broker_schema_invalid" in payload["tier0_blockers"]
+
+
+def test_pre_broker_substrate_gate_unsafe_metadata_forces_tier0() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False)
+        write_json(
+            root / "pre_broker_substrate_gate" / "summary.json",
+            {
+                "schema_version": "pre-broker-substrate-gate-v1",
+                "status": "pass",
+                "broker_replay_allowed": True,
+                "production_mutation_allowed": True,
+                "live_trading_allowed": True,
+                "promotion_allowed": True,
+                "blockers": [],
+            },
+        )
+        payload = classify_evidence(root)
+        assert payload["tier"] == TIER0
+        assert payload["research_ab_allowed"] is False
+        assert payload["pre_broker_substrate_gate_pass"] is False
+        assert "pre_broker_production_mutation_allowed_not_false" in payload["tier0_blockers"]
+        assert "pre_broker_live_trading_allowed_not_false" in payload["tier0_blockers"]
+        assert "pre_broker_promotion_allowed_not_false" in payload["tier0_blockers"]
 
 
 def test_partial_daily_output_forces_tier0_but_absent_daily_output_does_not() -> None:
@@ -449,6 +483,7 @@ if __name__ == "__main__":
     test_pre_broker_substrate_gate_block_forces_tier0()
     test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1()
     test_pre_broker_substrate_gate_missing_schema_forces_tier0()
+    test_pre_broker_substrate_gate_unsafe_metadata_forces_tier0()
     test_partial_daily_output_forces_tier0_but_absent_daily_output_does_not()
     test_clean_7y_daily_cash_false_is_tier2()
     test_daily_summary_must_be_explicit_review_only_for_tier2()

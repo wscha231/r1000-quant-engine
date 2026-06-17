@@ -364,6 +364,12 @@ def pre_broker_gate_pass(payload: dict[str, Any], reasons: list[str]) -> bool | 
     status = payload.get("status")
     if payload.get("schema_version") != "pre-broker-substrate-gate-v1":
         reasons.append("pre_broker_schema_invalid")
+    if payload.get("production_mutation_allowed") is not False:
+        reasons.append("pre_broker_production_mutation_allowed_not_false")
+    if payload.get("live_trading_allowed") is not False:
+        reasons.append("pre_broker_live_trading_allowed_not_false")
+    if payload.get("promotion_allowed") is not False:
+        reasons.append("pre_broker_promotion_allowed_not_false")
     if broker_replay_allowed is not True:
         reasons.append("pre_broker_broker_replay_allowed_not_true")
     if status is None:
