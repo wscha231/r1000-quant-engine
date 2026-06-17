@@ -24,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 
 
 PORTFOLIOS = ("main", "concentrated")
+SNAPSHOT_TOLERANCE = 1e-8
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -353,6 +354,95 @@ def order_preview_from_current_snapshot(
     return pd.DataFrame(rows)
 
 
+def key_weight_map(frame: pd.DataFrame, weight_col: str) -> dict[tuple[str, str], float]:
+    if frame.empty or weight_col not in frame.columns:
+        return {}
+    out: dict[tuple[str, str], float] = {}
+    for row in frame.to_dict("records"):
+        portfolio = str(row.get("portfolio") or "").lower().strip()
+        ticker = clean_ticker(row.get("ticker"))
+        if not portfolio or not ticker:
+            continue
+        out[(portfolio, ticker)] = out.get((portfolio, ticker), 0.0) + clean_float(row.get(weight_col), 0.0)
+    return out
+
+
+def max_abs_drift(left: dict[tuple[str, str], float], right: dict[tuple[str, str], float]) -> float:
+    keys = set(left) | set(right)
+    if not keys:
+        return 0.0
+    return max(abs(float(left.get(key, 0.0)) - float(right.get(key, 0.0))) for key in keys)
+
+
+def max_abs_drift_for_keys(
+    left: dict[tuple[str, str], float],
+    right: dict[tuple[str, str], float],
+    keys: set[tuple[str, str]],
+) -> float:
+    if not keys:
+        return 0.0
+    return max(abs(float(left.get(key, 0.0)) - float(right.get(key, 0.0))) for key in keys)
+
+
+def validate_snapshot_contract(
+    current_holdings: pd.DataFrame,
+    target_weights: pd.DataFrame,
+    order_preview: pd.DataFrame,
+) -> dict[str, Any]:
+    current = key_weight_map(current_holdings, "current_weight")
+    target_current = key_weight_map(target_weights, "current_weight")
+    target = key_weight_map(target_weights, "target_weight")
+    order_current = key_weight_map(order_preview, "current_weight")
+    order_target = key_weight_map(order_preview, "target_weight")
+    order_delta = key_weight_map(order_preview, "delta_weight")
+    expected_order_keys = set(current) | set(target)
+    order_keys = set(order_current) | set(order_target) | set(order_delta)
+    expected_delta = {key: float(target.get(key, 0.0)) - float(current.get(key, 0.0)) for key in expected_order_keys}
+
+    current_target_drift = max_abs_drift_for_keys(current, target_current, set(target))
+    order_current_drift = max_abs_drift(current, order_current)
+    order_target_drift = max_abs_drift(target, order_target)
+    order_delta_drift = max_abs_drift(expected_delta, order_delta)
+    missing_order_keys = sorted(f"{portfolio}:{ticker}" for portfolio, ticker in expected_order_keys - order_keys)
+    extra_order_keys = sorted(f"{portfolio}:{ticker}" for portfolio, ticker in order_keys - expected_order_keys)
+
+    blockers: list[str] = []
+    if current_holdings.empty:
+        blockers.append("current holdings snapshot missing or empty")
+    if target_weights.empty:
+        blockers.append("target weights missing or empty")
+    if order_preview.empty:
+        blockers.append("order preview missing or empty")
+    if current_target_drift > SNAPSHOT_TOLERANCE:
+        blockers.append(f"target current_weight does not match current holdings snapshot: max_abs_drift={current_target_drift:.12g}")
+    if order_current_drift > SNAPSHOT_TOLERANCE:
+        blockers.append(f"order current_weight does not match current holdings snapshot: max_abs_drift={order_current_drift:.12g}")
+    if order_target_drift > SNAPSHOT_TOLERANCE:
+        blockers.append(f"order target_weight does not match target weights: max_abs_drift={order_target_drift:.12g}")
+    if order_delta_drift > SNAPSHOT_TOLERANCE:
+        blockers.append(f"order delta_weight is not target-current: max_abs_drift={order_delta_drift:.12g}")
+    if missing_order_keys:
+        blockers.append(f"order preview missing {len(missing_order_keys)} current/target rows")
+    if extra_order_keys:
+        blockers.append(f"order preview has {len(extra_order_keys)} rows outside current/target snapshot")
+
+    return {
+        "schema_version": "daily-snapshot-contract-v1",
+        "snapshot_contract_pass": not blockers,
+        "blockers": blockers,
+        "current_target_weight_max_abs_drift": current_target_drift,
+        "order_current_weight_max_abs_drift": order_current_drift,
+        "order_target_weight_max_abs_drift": order_target_drift,
+        "order_delta_weight_max_abs_drift": order_delta_drift,
+        "expected_order_key_count": len(expected_order_keys),
+        "order_key_count": len(order_keys),
+        "missing_order_keys": missing_order_keys[:25],
+        "extra_order_keys": extra_order_keys[:25],
+        "tolerance": SNAPSHOT_TOLERANCE,
+        "current_snapshot_used_for_order_preview": bool(not current_holdings.empty and not order_preview.empty),
+    }
+
+
 def load_order_preview(
     latest_run: Path,
     target_weights: pd.DataFrame,
@@ -452,12 +542,18 @@ def build_decision(
     source_commit_sha: str,
     source_branch: str,
     source_artifact_name: str,
+    snapshot_contract: dict[str, Any],
 ) -> dict[str, Any]:
     selection_allowed = bool(state["selection_allowed"])
     blockers = list(state["blockers"])
+    contract_blockers = [f"snapshot_contract: {item}" for item in snapshot_contract.get("blockers", [])]
+    blockers.extend(contract_blockers)
     if not selection_allowed:
         decision = "REVIEW_REQUIRED"
         reason = "; ".join(blockers) if blockers else state["recommendation_status"]
+    elif not snapshot_contract.get("snapshot_contract_pass"):
+        decision = "REVIEW_REQUIRED"
+        reason = "; ".join(contract_blockers) or "daily snapshot contract failed"
     elif order_preview.empty:
         decision = "NO_ACTION"
         reason = "selection allowed but no order preview rows were generated"
@@ -478,6 +574,8 @@ def build_decision(
         "warnings": list(state["warnings"]),
         "target_weight_rows": int(len(target_weights)),
         "order_preview_rows": int(len(order_preview)),
+        "snapshot_contract_pass": bool(snapshot_contract.get("snapshot_contract_pass")),
+        "snapshot_contract_blockers": snapshot_contract.get("blockers", []),
         "cash_trap_flag": None,
         "max_turnover_allowed": 0.2,
         "estimated_turnover": estimated_turnover,
@@ -533,6 +631,7 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
     current_holdings = load_current_holdings(output_dir)
     target_weights = load_target_weights(latest_run, review_required, review_reason, current_holdings)
     order_preview = load_order_preview(latest_run, target_weights, review_required, review_reason, current_holdings)
+    snapshot_contract = validate_snapshot_contract(current_holdings, target_weights, order_preview)
     decision = build_decision(
         state=state,
         target_weights=target_weights,
@@ -541,6 +640,7 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         source_commit_sha=args.source_commit_sha,
         source_branch=args.source_branch,
         source_artifact_name=args.source_artifact_name,
+        snapshot_contract=snapshot_contract,
     )
 
     target_path = output_dir / "02_target_weights.csv"
@@ -569,6 +669,9 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         },
         "current_snapshot_rows": int(len(current_holdings)),
         "current_snapshot_used_for_order_preview": not current_holdings.empty,
+        "snapshot_contract_pass": bool(snapshot_contract.get("snapshot_contract_pass")),
+        "snapshot_contract_blockers": snapshot_contract.get("blockers", []),
+        "snapshot_contract": snapshot_contract,
     }
     update_json_file(latest_run / "daily_operating_selection_refresh" / "summary.json", metadata_updates)
     update_json_file(output_dir / "summary.json", metadata_updates)
@@ -581,6 +684,9 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "order_preview_rows": int(len(order_preview)),
         "current_snapshot_rows": int(len(current_holdings)),
         "current_snapshot_used_for_order_preview": not current_holdings.empty,
+        "snapshot_contract_pass": bool(snapshot_contract.get("snapshot_contract_pass")),
+        "snapshot_contract_blockers": snapshot_contract.get("blockers", []),
+        "snapshot_contract": snapshot_contract,
         "decision": decision["decision"],
         "selection_allowed": state["selection_allowed"],
         "promotion_allowed": state["promotion_allowed"],

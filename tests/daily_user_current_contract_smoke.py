@@ -145,15 +145,95 @@ def test_contract_writes_required_review_only_files() -> None:
         assert decision["selection_allowed"] is False
         assert decision["live_trading_enabled"] is False
         assert decision["human_approval_required"] is True
+        assert decision["snapshot_contract_pass"] is True
         assert daily["human_approval_required"] is True
         assert daily["current_snapshot_used_for_order_preview"] is True
+        assert daily["snapshot_contract_pass"] is True
+        assert daily["snapshot_contract"]["order_delta_weight_max_abs_drift"] < 1e-9
         assert summary["human_approval_required"] is True
         assert summary["current_snapshot_used_for_order_preview"] is True
+        assert summary["snapshot_contract_pass"] is True
         assert "human_approval_required" in notice
+
+
+def test_contract_blocks_missing_current_snapshot() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        user_current = latest / "user_current"
+        (latest / "user_portfolio_reports").mkdir(parents=True)
+        user_current.mkdir(parents=True)
+
+        write_json(
+            latest / "data_freshness_contract" / "status.json",
+            {
+                "schema_version": "data-freshness-contract-v1",
+                "status": "pass",
+                "selection_allowed": True,
+                "promotion_allowed": False,
+                "recommendation_status": "REVIEW_REQUIRED",
+                "blockers": [],
+                "warnings": [],
+                "production_mutation_allowed": False,
+            },
+        )
+        write_json(
+            latest / "daily_operating_selection_refresh" / "summary.json",
+            {
+                "schema_version": "daily-operating-selection-refresh-v1",
+                "daily_operating_refresh": True,
+                "review_only": True,
+                "canonical_production_sync": False,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+                "selection_allowed": True,
+                "promotion_allowed": False,
+                "source_of_truth_level": "GITHUB_ARTIFACT",
+            },
+        )
+        write_json(user_current / "summary.json", {"schema_version": "user-current-report-v1", "status": "completed"})
+        pd.DataFrame(
+            [
+                {
+                    "portfolio_kind": "main",
+                    "rank": 1,
+                    "ticker": "AAA",
+                    "recommended_weight": 0.12,
+                    "current_account_weight": 0.0,
+                    "score": 3.4,
+                }
+            ]
+        ).to_csv(latest / "user_portfolio_reports" / "main_recommendation_latest.csv", index=False)
+
+        payload = build_contract(
+            type(
+                "Args",
+                (),
+                {
+                    "latest_run": str(latest),
+                    "output_dir": str(user_current),
+                    "source_run_id": "124",
+                    "source_commit_sha": "def",
+                    "source_branch": "master",
+                    "source_artifact_name": "daily-operating-selection-refresh-124",
+                },
+            )()
+        )
+
+        decision = json.loads((user_current / "08_rebalance_decision.json").read_text(encoding="utf-8"))
+        daily = json.loads((latest / "daily_operating_selection_refresh" / "summary.json").read_text(encoding="utf-8"))
+        assert payload["snapshot_contract_pass"] is False
+        assert any("current holdings snapshot missing" in item for item in payload["snapshot_contract_blockers"])
+        assert decision["decision"] == "REVIEW_REQUIRED"
+        assert decision["snapshot_contract_pass"] is False
+        assert any("snapshot_contract:" in item for item in decision["blockers"])
+        assert daily["snapshot_contract_pass"] is False
+        assert daily["current_snapshot_used_for_order_preview"] is False
 
 
 def main() -> int:
     test_contract_writes_required_review_only_files()
+    test_contract_blocks_missing_current_snapshot()
     print("daily_user_current_contract_smoke: PASS")
     return 0
 
