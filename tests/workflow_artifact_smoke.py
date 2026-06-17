@@ -859,12 +859,16 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "data_pit/macro/latest.json",
         "data_raw/free/macro/daily_snapshot/latest.json",
         "outputs/full_rebuild_logs/daily_macro_snapshot.log",
+        "tools/run_universe_health_audit.py",
         "tools/audit_data_readiness.py",
+        "tools/check_pre_broker_substrate_gate.py",
         "tools/run_data_freshness_contract.py",
         "--require-current-operating-books",
         "--source-context daily_operating_refresh",
         "outputs/data_freshness_contract/",
         "outputs/daily_operating_selection_refresh/",
+        "outputs/universe_health/",
+        "outputs/pre_broker_substrate_gate/",
         "review_only",
         "canonical_production_sync",
         "live_trading_enabled",
@@ -890,6 +894,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/full_rebuild_logs/proxy_10y_robustness.log",
         "STRICT_SELECTION",
         "outputs/full_rebuild_logs/data_freshness_contract.log",
+        "outputs/full_rebuild_logs/daily_universe_health_audit.log",
+        "outputs/full_rebuild_logs/daily_pre_broker_substrate_gate.log",
         "daily-operating-selection-refresh-${{ github.run_id }}",
         "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh",
         "actions/cache/save@v4",
@@ -903,6 +909,11 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/run_broker_ledger_replay.py",
     ]:
         assert forbidden not in text, forbidden
+    universe_idx = text.index("outputs/full_rebuild_logs/daily_universe_health_audit.log")
+    readiness_idx = text.index("outputs/full_rebuild_logs/daily_operating_data_readiness.log")
+    pre_broker_idx = text.index("outputs/full_rebuild_logs/daily_pre_broker_substrate_gate.log")
+    freshness_idx = text.index("outputs/full_rebuild_logs/data_freshness_contract.log")
+    assert universe_idx < readiness_idx < pre_broker_idx < freshness_idx
     proxy_idx = text.index("outputs/full_rebuild_logs/proxy_10y_robustness.log")
     evidence_idx = text.index("outputs/full_rebuild_logs/evidence_policy.log")
     clean7_idx = text.index("outputs/full_rebuild_logs/clean_7y_research_readiness.log")
