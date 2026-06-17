@@ -45,6 +45,24 @@ def flat_alpha_row(run_id: str) -> dict:
     }
 
 
+def clean_7y_ready_summary() -> dict:
+    return {
+        "schema_version": "clean-7y-research-readiness-v1",
+        "status": "clean_7y_research_ready",
+        "ready_for_alpha_plane_audit": True,
+        "ready_for_alpha_plane_ab_research": True,
+        "evidence_tier": "1_research_7y",
+        "evidence_label": "research_7y",
+        "allowed_uses": ["alpha_plane_audit", "alpha_plane_ab_research", "daily_operating_preview"],
+        "promotion_allowed": False,
+        "production_mutation_allowed": False,
+        "live_trading_enabled": False,
+        "blockers": [],
+        "pre_broker_substrate_gate_pass": True,
+        "pre_broker_substrate_gate_reasons": [],
+    }
+
+
 def test_self_correction_router_queues_repeated_concentrated_bull_leak() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -191,7 +209,7 @@ def test_self_correction_router_allows_payload_after_clean_7y_readiness() -> Non
         )
         (latest / "clean_7y_research_readiness").mkdir(parents=True)
         (latest / "clean_7y_research_readiness" / "summary.json").write_text(
-            json.dumps({"status": "clean_7y_research_ready", "ready_for_alpha_plane_ab_research": True}),
+            json.dumps(clean_7y_ready_summary()),
             encoding="utf-8",
         )
         out = root / "router"
@@ -203,6 +221,37 @@ def test_self_correction_router_allows_payload_after_clean_7y_readiness() -> Non
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "blocked until completed_plan_id" not in commands
         assert "\ngh workflow run" in commands
+
+
+def test_self_correction_router_blocks_minimal_clean_7y_summary() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ledger_dir = root / "ledger"
+        latest = root / "latest"
+        ledger_dir.mkdir()
+        (ledger_dir / "ledger.jsonl").write_text(
+            json.dumps(row("a")) + "\n" + json.dumps(row("b")) + "\n",
+            encoding="utf-8",
+        )
+        (ledger_dir / "latest_verdict.json").write_text(
+            json.dumps({"dominant_open_leak": "concentrated:structural_underinvestment_bull"}),
+            encoding="utf-8",
+        )
+        (latest / "clean_7y_research_readiness").mkdir(parents=True)
+        (latest / "clean_7y_research_readiness" / "summary.json").write_text(
+            json.dumps({"status": "clean_7y_research_ready", "ready_for_alpha_plane_ab_research": True}),
+            encoding="utf-8",
+        )
+        out = root / "router"
+        queue = run(Namespace(ledger_dir=str(ledger_dir), latest_run=str(latest), output_dir=str(out), min_repeat=2, ref="master", repo="wscha231/r1000-quant-engine"))
+        assert queue["requires_completed_plan_ids"] == ["clean_7y_research_readiness"]
+        readiness = queue["source_clean_7y_readiness"]
+        assert "clean_7y_schema_invalid" in readiness["readiness_contract_blockers"]
+        assert "pre_broker_substrate_gate_not_pass" in readiness["readiness_contract_blockers"]
+        payloads = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert all(payload["depends_on_plan_ids"] == ["clean_7y_research_readiness"] for payload in payloads)
+        commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "blocked until completed_plan_id: clean_7y_research_readiness" in commands
 
 
 def test_self_correction_router_suppresses_duplicate_active_payloads() -> None:
@@ -353,6 +402,7 @@ if __name__ == "__main__":
     test_self_correction_router_routes_flat_alpha_to_era_challenger()
     test_self_correction_router_surfaces_clean_7y_recovery_when_blocked()
     test_self_correction_router_allows_payload_after_clean_7y_readiness()
+    test_self_correction_router_blocks_minimal_clean_7y_summary()
     test_self_correction_router_suppresses_duplicate_active_payloads()
     test_self_correction_router_marks_previous_payloads_stale_when_ledger_changes()
     test_self_correction_router_queues_oos_robustness_review_without_dispatch()

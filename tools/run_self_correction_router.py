@@ -160,12 +160,37 @@ def stable_payload_hash(payload: dict[str, Any]) -> str:
     return sha256_text(canonical)
 
 
+def clean_7y_readiness_blockers(summary: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    if summary.get("schema_version") != "clean-7y-research-readiness-v1":
+        blockers.append("clean_7y_schema_invalid")
+    if summary.get("status") != "clean_7y_research_ready":
+        blockers.append(f"clean_7y_status_not_ready:{summary.get('status') or 'missing'}")
+    if summary.get("ready_for_alpha_plane_ab_research") is not True:
+        blockers.append("ready_for_alpha_plane_ab_research_not_true")
+    if summary.get("ready_for_alpha_plane_audit") is not True:
+        blockers.append("ready_for_alpha_plane_audit_not_true")
+    if summary.get("pre_broker_substrate_gate_pass") is not True:
+        blockers.append("pre_broker_substrate_gate_not_pass")
+    if summary.get("promotion_allowed") is not False:
+        blockers.append("promotion_allowed_not_false")
+    if summary.get("production_mutation_allowed") is not False:
+        blockers.append("production_mutation_allowed_not_false")
+    if summary.get("live_trading_enabled") is not False:
+        blockers.append("live_trading_enabled_not_false")
+    allowed_uses = summary.get("allowed_uses") if isinstance(summary.get("allowed_uses"), list) else []
+    if "alpha_plane_ab_research" not in allowed_uses:
+        blockers.append("alpha_plane_ab_research_not_allowed")
+    for item in summary.get("blockers") if isinstance(summary.get("blockers"), list) else []:
+        blockers.append(f"clean_7y:{item}")
+    return sorted(set(blockers))
+
+
 def has_clean_7y_research_readiness(latest_run: Path) -> bool:
     summary = load_clean_7y_research_readiness(latest_run)
     if not summary:
         return False
-    status = str(summary.get("status") or "")
-    return bool(status == "clean_7y_research_ready" and summary.get("ready_for_alpha_plane_ab_research") is True)
+    return bool(summary.get("ready_for_alpha_plane_ab_research") is True and not summary.get("readiness_contract_blockers"))
 
 
 def load_clean_7y_research_readiness(latest_run: Path | None) -> dict[str, Any]:
@@ -180,16 +205,25 @@ def load_clean_7y_research_readiness(latest_run: Path | None) -> dict[str, Any]:
             "status": "missing",
             "ready_for_alpha_plane_ab_research": False,
             "blockers": ["clean_7y_research_readiness_missing"],
+            "readiness_contract_blockers": ["clean_7y_research_readiness_missing"],
             "evidence_recovery": {},
         }
+    contract_blockers = clean_7y_readiness_blockers(summary)
     return {
         "summary_path": str(path),
         "exists": True,
+        "schema_version": summary.get("schema_version"),
         "status": summary.get("status"),
+        "ready_for_alpha_plane_audit": summary.get("ready_for_alpha_plane_audit"),
         "ready_for_alpha_plane_ab_research": summary.get("ready_for_alpha_plane_ab_research"),
         "evidence_tier": summary.get("evidence_tier"),
         "evidence_label": summary.get("evidence_label"),
+        "allowed_uses": summary.get("allowed_uses") if isinstance(summary.get("allowed_uses"), list) else [],
+        "promotion_allowed": summary.get("promotion_allowed"),
+        "production_mutation_allowed": summary.get("production_mutation_allowed"),
+        "live_trading_enabled": summary.get("live_trading_enabled"),
         "blockers": summary.get("blockers") if isinstance(summary.get("blockers"), list) else [],
+        "readiness_contract_blockers": contract_blockers,
         "evidence_recovery": summary.get("evidence_recovery") if isinstance(summary.get("evidence_recovery"), dict) else {},
         "pre_broker_substrate_gate_pass": summary.get("pre_broker_substrate_gate_pass"),
         "pre_broker_substrate_gate_reasons": summary.get("pre_broker_substrate_gate_reasons")
