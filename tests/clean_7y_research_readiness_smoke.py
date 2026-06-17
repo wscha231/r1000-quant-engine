@@ -133,6 +133,38 @@ def test_dirty_7y_blocked_data_or_starved_universe_is_not_ready() -> None:
         assert "alpha_plane_ab_research" in payload["blocked_uses"], payload
 
 
+def test_pre_broker_recovery_surfaces_when_clean_7y_blocked() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_base(root)
+        write_json(
+            root / "pre_broker_substrate_gate" / "summary.json",
+            {
+                "status": "blocked",
+                "broker_replay_allowed": False,
+                "blockers": ["universe_health_promotion_not_allowed"],
+                "recovery": {
+                    "fallback_available": True,
+                    "recommended_recovery_source": "committed_static_IWB_seed",
+                    "recommended_recovery_reason": "static seed is available above floor",
+                    "recovery_action": "repair_universe_from_fallback",
+                },
+            },
+        )
+        payload = classify_clean_7y_readiness(root)
+        assert payload["status"] == "not_ready", payload
+        assert "pre_broker_substrate_gate_blocked" in payload["blockers"], payload
+        assert payload["pre_broker_substrate_gate_pass"] is False, payload
+        assert payload["evidence_recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed", payload
+        assert payload["evidence_recovery"]["recovery_action"] == "repair_universe_from_fallback", payload
+        assert payload["source_summaries"]["recommended_recovery_source"] == "committed_static_IWB_seed", payload
+        out = root / "out"
+        write_outputs(payload, out)
+        report = (out / "report.md").read_text(encoding="utf-8")
+        assert "## Recovery" in report
+        assert "recommended_recovery_source: `committed_static_IWB_seed`" in report
+
+
 def test_cash_trap_or_missing_snapshot_blocks_clean_7y_research() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -170,6 +202,7 @@ def test_outputs_are_written() -> None:
 if __name__ == "__main__":
     test_clean_7y_research_ready_even_if_not_production_valid()
     test_dirty_7y_blocked_data_or_starved_universe_is_not_ready()
+    test_pre_broker_recovery_surfaces_when_clean_7y_blocked()
     test_cash_trap_or_missing_snapshot_blocks_clean_7y_research()
     test_wrong_metric_mode_blocks_research_readiness()
     test_outputs_are_written()
