@@ -75,6 +75,25 @@ after fetch.
 
 After #64 and #66 land on `master`, run the evidence loop in this order.
 
+## Current Execution Priority
+
+The project should not wait for perfect official 10-year data before all Alpha
+Plane work. The next phase is:
+
+1. Stabilize the daily operating snapshot contract: current holdings, target
+   weights, order preview, and rebalance decision must all be built from the
+   same current snapshot and stay review-only.
+2. Repair universe/data substrate until data readiness and universe health pass.
+3. Produce a clean 7-year broker-ledger baseline. This is valid for Alpha Plane
+   audit, A-B research, and daily operating preview, but not official promotion.
+4. Build the `proxy_10y` universe/data substrate in parallel for robustness.
+   It must remain labelled proxy and must not be called official Russell 1000
+   evidence.
+5. Run Alpha Plane audits on clean Tier 1+ evidence.
+6. Run A-B only after audits identify the dominant leak.
+7. Validate successful clean 7-year candidates against `proxy_10y` before
+   raising them to stronger human review.
+
 ## Evidence Tier Policy
 
 All agents must use `tools/evidence_policy.py` and

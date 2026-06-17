@@ -89,6 +89,20 @@ Current acceptance targets:
     user-approved alternative evidence contract plus IS/OOS, CAGR/MDD, cash
     trap, and human approval gates.
 
+Current execution priority:
+
+1. Finish the daily operating snapshot contract so current holdings, target
+   weights, order preview, and rebalance decision come from the same current
+   snapshot and remain review-only.
+2. Repair universe/data substrate until data readiness and universe health pass.
+3. Produce a clean 7-year broker-ledger baseline for Alpha Plane audit, A-B
+   research, and daily operating preview. This is not official promotion.
+4. Build `proxy_10y` universe/data substrate in parallel as a robustness layer.
+   It must stay labelled `proxy_10y` and must not be called official Russell
+   1000 evidence.
+5. Run Alpha Plane audits on clean Tier 1+ evidence, then run A-B only after
+   the audits identify the dominant leak.
+
 Current target margins:
 
 - Main CAGR passes by `0.2189pp`; MDD passes by `1.7597pp`.

@@ -169,6 +169,47 @@ mission:
     tier3_robust_candidate: "clean 8-year official or clean 7-year plus proxy_10y robustness pass; proxy_10y remains proxy-labelled"
     tier4_official_promotion: "8-year official or user-approved alternative evidence contract plus IS/OOS, CAGR/MDD, cash trap, and human approval"
 
+execution_priority:
+  current_phase: clean_7y_research_plus_proxy_10y_parallel
+  summary: >
+    Do not treat 7-year broker-ledger as useless. Clean 7Y is valid for
+    research, Alpha Plane A/B, and daily operating preview. Dirty runs with
+    data_readiness=false, starved universe, invalid current/order preview, or
+    missing official broker metrics remain Tier 0 DO_NOT_USE. proxy_10y is a
+    parallel robustness layer, not an official Russell 1000 promotion contract.
+  sequence:
+    - priority: P0
+      name: daily_operating_snapshot_contract
+      requirement: "current holdings, target weights, order preview, and rebalance decision use the same current snapshot and remain review-only"
+    - priority: P1
+      name: universe_data_substrate_repair
+      requirement: "universe_health pass, data_readiness.ready_for_policy_replay=true, future_available_from_rows=0, SPY/QQQ coverage pass"
+    - priority: P2
+      name: clean_7y_broker_ledger_baseline
+      requirement: "broker_ledger_next_close, healthy universe, data readiness pass, coherent current/target/order preview, cash trap audit available"
+    - priority: P3
+      name: proxy_10y_substrate_parallel
+      requirement: "target book start <= 2016-08-26, broker replay years >= 9.8, SPY/QQQ/SMH/SOXX coverage pass, label=proxy_10y"
+    - priority: P4
+      name: alpha_plane_audit
+      requirement: "run stock_selection_quality, entry_exit_timing, and cash_reentry_quality on clean Tier 1+ evidence"
+    - priority: P5
+      name: leak_based_ab
+      requirement: "run T3, replacement cap, bull-floor, reentry, theme, cap, and era review-only only after audit identifies dominant leak"
+  clean_7y_acceptance:
+    - broker_ledger_next_close
+    - data_readiness.ready_for_policy_replay=true
+    - universe_health.promotion_allowed=true
+    - current_holdings_target_weights_order_preview_coherent=true
+    - cash_trap_audit_available=true
+  proxy_10y_acceptance:
+    - target_book_start_on_or_before=2016-08-26
+    - broker_replay_years_min=9.8
+    - required_benchmarks=SPY,QQQ,SMH,SOXX
+    - future_available_from_rows=0
+    - evidence_label=proxy_10y
+    - official_russell_1000=false
+
 strategic_goals:
   - id: SG-2026Q3-01
     title: Close the IS-CAGR honesty gap without accepting OOS lottery results
