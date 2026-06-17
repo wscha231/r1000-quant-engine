@@ -64,8 +64,15 @@ def test_recovery_candidate_materializes_static_seed_review_only() -> None:
         payload = classify_recovery_candidate(latest, min_r1000_base=5)
         assert payload["status"] == "candidate_ready", payload
         assert payload["candidate_ready_for_review"] is True
+        assert payload["review_only"] is True
+        assert payload["canonical_production_sync"] is False
         assert payload["production_mutation_allowed"] is False
+        assert payload["production_promotion_allowed"] is False
         assert payload["promotion_allowed"] is False
+        assert payload["promotion_allowed_scope"] == "universe_recovery_candidate_review_only"
+        assert payload["automatic_repair_allowed"] is False
+        assert payload["live_trading_enabled"] is False
+        assert payload["human_approval_required"] is True
         assert payload["candidate_row_count"] == 5
         assert payload["source_path"] == str(seed)
         out = root / "candidate"
@@ -73,9 +80,16 @@ def test_recovery_candidate_materializes_static_seed_review_only() -> None:
         rows = list(csv.DictReader((out / "candidate_universe_recovery.csv").open("r", encoding="utf-8")))
         assert len(rows) == 5
         assert rows[0]["universe_source"] == "committed_static_IWB_seed"
+        assert rows[0]["review_only"] == "True"
+        assert rows[0]["canonical_production_sync"] == "False"
         assert rows[0]["production_mutation_allowed"] == "False"
+        assert rows[0]["production_promotion_allowed"] == "False"
+        assert rows[0]["live_trading_enabled"] == "False"
+        assert rows[0]["human_approval_required"] == "True"
         summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert summary["candidate_ready_for_review"] is True
+        assert summary["production_promotion_allowed"] is False
+        assert summary["automatic_repair_allowed"] is False
         assert "review-only" in (out / "report.md").read_text(encoding="utf-8").lower()
 
 
