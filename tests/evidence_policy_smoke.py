@@ -244,6 +244,29 @@ def test_clean_7y_daily_cash_false_is_tier2() -> None:
         assert payload["promotion_allowed"] is False
 
 
+def test_portfolio_level_cash_trap_blocks_operating_candidate() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, cash_trap_false=True)
+        write_json(
+            root / "cash_reentry_quality" / "summary.json",
+            {
+                "status": "completed",
+                "cash_trap_flag": False,
+                "cash_trap_rows": 0,
+                "by_portfolio": {
+                    "main": {"cash_trap_flag": False},
+                    "concentrated": {"cash_trap_flag": True},
+                },
+            },
+        )
+        user_current = seed_daily_user_current(root)
+        payload = classify_evidence(root, user_current_dir=user_current)
+        assert payload["tier"] == TIER1
+        assert payload["ready_for_human_review_allowed"] is False
+        assert "by_portfolio.concentrated.cash_trap_flag=true" in payload["reasons"]
+
+
 def test_clean_7y_with_proxy_10y_robustness_is_tier3() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -276,6 +299,7 @@ if __name__ == "__main__":
     test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1()
     test_partial_daily_output_forces_tier0_but_absent_daily_output_does_not()
     test_clean_7y_daily_cash_false_is_tier2()
+    test_portfolio_level_cash_trap_blocks_operating_candidate()
     test_clean_7y_with_proxy_10y_robustness_is_tier3()
     test_8y_targets_and_cash_pass_is_tier4()
     print("evidence_policy_smoke: PASS")
