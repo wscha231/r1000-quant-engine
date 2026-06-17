@@ -95,19 +95,25 @@ def seed_run(
     write_json(
         root / "data_readiness" / "summary.json",
         {
+            "schema_version": "data-readiness-v1",
             "status": "ready" if data_ready else "blocked",
             "ready_for_policy_replay": data_ready,
             "ready_for_fullrun": data_ready,
+            "blockers": [] if data_ready else ["data_readiness_not_ready_for_policy_replay"],
             "free_data_coverage": {"known_gaps": []},
         },
     )
     write_json(
         root / "universe_health" / "universe_source_audit.json",
         {
+            "schema_version": "universe-health-v1",
             "status": "ready" if universe_count >= 400 else "INVALID_UNIVERSE",
             "promotion_allowed": universe_count >= 400,
+            "hard_fail_before_expensive_rebuild": universe_count < 400,
+            "monthly_universe_health_pass": universe_count >= 400,
             "r1000_base_count": universe_count,
             "min_r1000_base": 400,
+            "blockers": [] if universe_count >= 400 else ["scored_r1000_base_below_floor"],
         },
     )
     write_json(

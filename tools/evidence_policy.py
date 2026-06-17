@@ -194,35 +194,64 @@ def data_readiness_pass(readiness: dict[str, Any], reasons: list[str]) -> bool:
     if not readiness:
         reasons.append("data_readiness_missing")
         return False
+    passed = True
+    if readiness.get("schema_version") != "data-readiness-v1":
+        reasons.append("data_readiness_schema_invalid")
+        passed = False
     if readiness.get("ready_for_policy_replay") is not True:
         reasons.append("data_readiness_not_ready_for_policy_replay")
-        return False
+        passed = False
     if status_failed(readiness.get("status")):
         reasons.append(f"data_readiness_status={readiness.get('status')}")
-        return False
+        passed = False
+    blockers = readiness.get("blockers")
+    if not isinstance(blockers, list):
+        blockers = readiness.get("policy_replay_blockers")
+    if isinstance(blockers, list) and blockers:
+        reasons.append("data_readiness_blockers_present")
+        reasons.extend(f"data_readiness:{item}" for item in blockers)
+        passed = False
     known_gaps = ((readiness.get("free_data_coverage") or {}).get("known_gaps") or [])
     if known_gaps:
         reasons.append("free_data_coverage_known_gaps")
-        return False
-    return True
+        passed = False
+    return passed
 
 
 def universe_pass(universe: dict[str, Any], reasons: list[str]) -> bool:
     if not universe:
         reasons.append("universe_health_missing")
         return False
+    passed = True
+    if universe.get("schema_version") != "universe-health-v1":
+        reasons.append("universe_health_schema_invalid")
+        passed = False
     count = safe_int(universe.get("r1000_base_count"), safe_int(universe.get("scored_r1000_base")))
     floor = safe_int(universe.get("min_r1000_base"), MIN_R1000_BASE) or MIN_R1000_BASE
-    if count is not None and count < floor:
+    if count is None:
+        reasons.append("universe_r1000_base_count_missing")
+        passed = False
+    elif count < floor:
         reasons.append(f"universe_starved:{count}<{floor}")
-        return False
-    if universe.get("promotion_allowed") is False:
-        reasons.append("universe_health_promotion_allowed=false")
-        return False
+        passed = False
+    if universe.get("promotion_allowed") is not True:
+        reasons.append("universe_health_promotion_allowed_not_true")
+        passed = False
+    if universe.get("hard_fail_before_expensive_rebuild") is True:
+        reasons.append("universe_health_hard_fail_before_expensive_rebuild")
+        passed = False
+    if universe.get("monthly_universe_health_pass") is not True:
+        reasons.append("universe_health_monthly_universe_health_not_pass")
+        passed = False
+    blockers = universe.get("blockers")
+    if isinstance(blockers, list) and blockers:
+        reasons.append("universe_health_blockers_present")
+        reasons.extend(f"universe_health:{item}" for item in blockers)
+        passed = False
     if status_failed(universe.get("status")):
         reasons.append(f"universe_health_status={universe.get('status')}")
-        return False
-    return True
+        passed = False
+    return passed
 
 
 def cash_trap_state(run_dir: Path) -> tuple[bool | None, list[str]]:
