@@ -34,6 +34,7 @@ def seed_run(
     target_pass: bool = False,
     strengthened_pass: bool = False,
     cash_trap_false: bool | None = None,
+    include_pre_broker_gate: bool = True,
 ) -> None:
     portfolios = {}
     for portfolio in ("main", "concentrated"):
@@ -99,6 +100,15 @@ def seed_run(
     )
     if cash_trap_false is not None:
         write_json(root / "cash_reentry_quality" / "summary.json", {"status": "completed", "cash_trap_flag": not cash_trap_false, "cash_trap_rows": 0 if cash_trap_false else 3})
+    if include_pre_broker_gate:
+        write_json(
+            root / "pre_broker_substrate_gate" / "summary.json",
+            {
+                "status": "pass",
+                "broker_replay_allowed": True,
+                "blockers": [],
+            },
+        )
 
 
 def seed_daily_user_current(root: Path) -> Path:
@@ -149,6 +159,17 @@ def test_clean_7y_is_research_tier1_not_do_not_use() -> None:
         assert payload["evidence_label"] == "research_7y"
         assert payload["research_ab_allowed"] is True
         assert payload["promotion_allowed"] is False
+
+
+def test_missing_pre_broker_substrate_gate_forces_tier0() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False, include_pre_broker_gate=False)
+        payload = classify_evidence(root)
+        assert payload["tier"] == TIER0
+        assert payload["research_ab_allowed"] is False
+        assert "pre_broker_substrate_gate_missing" in payload["tier0_blockers"]
+        assert "pre_broker_broker_replay_allowed_missing" in payload["tier0_blockers"]
 
 
 def test_pre_broker_substrate_gate_block_forces_tier0() -> None:
@@ -317,6 +338,7 @@ def test_8y_targets_and_cash_pass_is_tier4() -> None:
 if __name__ == "__main__":
     test_dirty_7y_is_tier0()
     test_clean_7y_is_research_tier1_not_do_not_use()
+    test_missing_pre_broker_substrate_gate_forces_tier0()
     test_pre_broker_substrate_gate_block_forces_tier0()
     test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1()
     test_partial_daily_output_forces_tier0_but_absent_daily_output_does_not()
