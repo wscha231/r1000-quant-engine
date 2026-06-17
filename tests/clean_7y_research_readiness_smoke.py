@@ -90,6 +90,10 @@ def seed_base(
         root / "user_current" / "summary.json",
         {
             "review_only": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+            "canonical_production_sync": False,
+            "human_approval_required": True,
             "valid_for_production": False,
             "production_promotion_allowed": False,
             "recommendation_status": "REVIEW_ONLY",
