@@ -103,6 +103,15 @@ def seed_run(
 
 def seed_daily_user_current(root: Path) -> Path:
     out = root / "user_current"
+    write_json(
+        out / "summary.json",
+        {
+            "review_only": True,
+            "valid_for_production": False,
+            "production_promotion_allowed": False,
+            "recommendation_status": "REVIEW_ONLY",
+        },
+    )
     write_csv(out / "01_current_holdings.csv", "portfolio,ticker,current_weight\nmain,AAA,0.10\n")
     write_csv(out / "02_target_weights.csv", "portfolio,ticker,target_weight\nmain,AAA,0.10\n")
     write_csv(out / "03_order_preview.csv", "portfolio,ticker,action\nmain,AAA,HOLD\n")
@@ -196,6 +205,34 @@ def test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1() -> None:
         assert payload["pre_broker_substrate_gate_pass"] is True
 
 
+def test_partial_daily_output_forces_tier0_but_absent_daily_output_does_not() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False)
+        partial = root / "user_current"
+        partial.mkdir(parents=True, exist_ok=True)
+        write_json(partial / "09_daily_output_contract_summary.json", {"current_snapshot_used_for_order_preview": True})
+
+        payload = classify_evidence(root, user_current_dir=partial)
+        assert payload["tier"] == TIER0
+        assert payload["research_ab_allowed"] is False
+        for expected in (
+            "user_current_summary_missing",
+            "current_holdings_missing",
+            "target_weights_missing",
+            "order_preview_missing",
+            "rebalance_decision_missing",
+        ):
+            assert expected in payload["tier0_blockers"], payload
+
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        seed_run(root, years=7.05, valid_for_production=False)
+        clean_without_daily = classify_evidence(root)
+        assert clean_without_daily["tier"] == TIER1
+        assert clean_without_daily["research_ab_allowed"] is True
+
+
 def test_clean_7y_daily_cash_false_is_tier2() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -237,6 +274,7 @@ if __name__ == "__main__":
     test_clean_7y_is_research_tier1_not_do_not_use()
     test_pre_broker_substrate_gate_block_forces_tier0()
     test_pre_broker_substrate_gate_pass_preserves_clean_7y_tier1()
+    test_partial_daily_output_forces_tier0_but_absent_daily_output_does_not()
     test_clean_7y_daily_cash_false_is_tier2()
     test_clean_7y_with_proxy_10y_robustness_is_tier3()
     test_8y_targets_and_cash_pass_is_tier4()
