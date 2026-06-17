@@ -83,6 +83,25 @@ def test_pre_broker_gate_blocks_starved_universe() -> None:
         assert "recommended_recovery_source: `committed_static_IWB_seed`" in report
 
 
+def test_pre_broker_gate_blocks_float_string_universe_count() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_run(latest)
+        audit = latest / "universe_health" / "universe_source_audit.json"
+        payload = json.loads(audit.read_text(encoding="utf-8"))
+        payload["promotion_allowed"] = True
+        payload["hard_fail_before_expensive_rebuild"] = False
+        payload["r1000_base_count"] = "259.0"
+        payload["min_r1000_base"] = "400.0"
+        audit.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        result = classify_pre_broker_substrate(latest)
+        assert result["status"] == "blocked", result
+        assert result["broker_replay_allowed"] is False, result
+        assert "scored_r1000_base_below_floor:259<400" in result["blockers"], result
+        assert "universe_health_count_parse_failed" not in result["warnings"], result
+
+
 def test_pre_broker_gate_blocks_dirty_data_readiness() -> None:
     with TemporaryDirectory() as tmp:
         latest = Path(tmp) / "latest"
@@ -119,6 +138,7 @@ def test_pre_broker_gate_strict_exits_nonzero() -> None:
 if __name__ == "__main__":
     test_pre_broker_gate_passes_clean_substrate()
     test_pre_broker_gate_blocks_starved_universe()
+    test_pre_broker_gate_blocks_float_string_universe_count()
     test_pre_broker_gate_blocks_dirty_data_readiness()
     test_pre_broker_gate_strict_exits_nonzero()
     print("pre_broker_substrate_gate_smoke: PASS")
