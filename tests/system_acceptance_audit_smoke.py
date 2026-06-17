@@ -87,6 +87,17 @@ def seed_common_sidecars(root: Path) -> None:
         {"status": "official_eight_year_ready", "official_window_ready": True, "blockers": []},
     )
     write_json(
+        root / "clean_7y_research_readiness" / "summary.json",
+        {
+            "status": "clean_7y_research_ready",
+            "ready_for_alpha_plane_ab_research": True,
+            "evidence_tier": "1_research_7y",
+            "evidence_label": "research_7y",
+            "promotion_allowed": False,
+            "blockers": [],
+        },
+    )
+    write_json(
         root / "oos_lock" / "summary.json",
         {
             "status": "pass",
@@ -399,7 +410,8 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
             assert row["workflow_id"] == "full_rebuild_manual.yml"
             assert row["source_portfolio"] == "concentrated"
             assert row["source_requirement_id"] == "goal_contract_main30_conc50_mdd"
-            assert row["depends_on_plan_ids"] == ["full_rebuild_8y_official_after_data_bootstrap"]
+            assert row["depends_on_plan_ids"] == []
+            assert row["source_clean_7y_readiness"]["status"] == "pass"
             assert row["inputs"]["backtest_years"] == "8"
             assert row["inputs"]["skip_collector"] == "true"
             assert row["inputs"]["portfolio_policy"] == "alphaops_vnext_production"
@@ -417,9 +429,8 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
         assert "gh workflow run free_data_lake_bootstrap.yml" in commands
         assert "blocked until completed_plan_id: bootstrap_free_data_for_8y_window" in commands
-        assert "blocked until completed_plan_id: full_rebuild_8y_official_after_data_bootstrap" in commands
-        assert "# gh workflow run full_rebuild_manual.yml" in commands
-        assert "\ngh workflow run full_rebuild_manual.yml" not in commands
+        assert "blocked until completed_plan_id: full_rebuild_8y_official_after_data_bootstrap" not in commands
+        assert "\ngh workflow run full_rebuild_manual.yml" in commands
         assert "cache_key_suffix=ab_conc_continuation_winner_relaxation" in commands
         report = (out / "report.md").read_text(encoding="utf-8")
         assert "| Plan | Workflow | Dependencies | Reason |" in report
@@ -427,6 +438,33 @@ def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> Non
         assert payload["production_activation_allowed"] is False
         saved = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert saved["live_trading_allowed"] is False
+
+
+def test_acceptance_audit_blocks_concentrated_ab_without_clean_7y_readiness() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=False)
+        write_json(
+            latest / "clean_7y_research_readiness" / "summary.json",
+            {
+                "status": "not_ready",
+                "ready_for_alpha_plane_ab_research": False,
+                "promotion_allowed": False,
+                "blockers": ["daily_snapshot_contract_not_ready"],
+            },
+        )
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        clean_7y = next(row for row in payload["requirements"] if row["requirement_id"] == "clean_7y_research_readiness")
+        assert clean_7y["status"] == "warn"
+        dispatches = json.loads((out / "workflow_dispatch_payloads.json").read_text(encoding="utf-8"))
+        assert len(dispatches) == 5
+        assert all(row["depends_on_plan_ids"] == ["clean_7y_research_readiness"] for row in dispatches)
+        assert all(row["source_clean_7y_readiness"]["status"] == "warn" for row in dispatches)
+        commands = (out / "workflow_dispatch_commands.sh").read_text(encoding="utf-8")
+        assert "blocked until completed_plan_id: clean_7y_research_readiness" in commands
+        assert "# gh workflow run full_rebuild_manual.yml" in commands
 
 
 def test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short() -> None:
@@ -861,6 +899,7 @@ def test_acceptance_audit_blocks_when_attribution_package_missing() -> None:
 
 if __name__ == "__main__":
     test_acceptance_audit_reports_not_ready_for_short_concentrated_fail()
+    test_acceptance_audit_blocks_concentrated_ab_without_clean_7y_readiness()
     test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short()
     test_acceptance_audit_passes_when_evidence_contract_is_complete()
     test_acceptance_audit_blocks_when_operational_order_bridge_missing()

@@ -119,7 +119,7 @@ OOS_ROBUSTNESS_ACTIONS = {
     },
 }
 
-EIGHT_YEAR_OFFICIAL_PLAN_ID = "full_rebuild_8y_official_after_data_bootstrap"
+CLEAN_7Y_RESEARCH_PLAN_ID = "clean_7y_research_readiness"
 ACTIVE_QUEUE_STATUSES = {"queued", "dispatched"}
 QUEUE_STATUSES = [
     "queued",
@@ -160,12 +160,12 @@ def stable_payload_hash(payload: dict[str, Any]) -> str:
     return sha256_text(canonical)
 
 
-def has_official_eight_year_window(latest_run: Path) -> bool:
-    summary = read_json(latest_run / "eight_year_backtest_readiness" / "summary.json")
+def has_clean_7y_research_readiness(latest_run: Path) -> bool:
+    summary = read_json(latest_run / "clean_7y_research_readiness" / "summary.json")
     if not summary:
         return False
     status = str(summary.get("status") or "")
-    return bool(summary.get("official_window_ready") is True or status == "official_eight_year_ready")
+    return bool(status == "clean_7y_research_ready" and summary.get("ready_for_alpha_plane_ab_research") is True)
 
 
 def read_ledger(path: Path) -> list[dict[str, Any]]:
@@ -277,7 +277,7 @@ def build_queue(
     previous_queue: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    dependency_ids = [] if latest_run is not None and has_official_eight_year_window(latest_run) else [EIGHT_YEAR_OFFICIAL_PLAN_ID]
+    dependency_ids = [] if latest_run is not None and has_clean_7y_research_readiness(latest_run) else [CLEAN_7Y_RESEARCH_PLAN_ID]
     latest_focus = latest_verdict.get("dominant_open_leak") or (dominant_for_row(ledger_rows[-1]) if ledger_rows else None)
     recent_focuses = [dominant_for_row(row) for row in ledger_rows[-min_repeat:]]
     repeated = bool(latest_focus and len(recent_focuses) >= min_repeat and all(item == latest_focus for item in recent_focuses))
