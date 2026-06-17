@@ -353,6 +353,18 @@ def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> 
             ),
             encoding="utf-8",
         )
+        (latest / "evidence_policy").mkdir()
+        (latest / "evidence_policy" / "proxy_10y_robustness.json").write_text(
+            json.dumps(
+                {
+                    "status": "proxy_10y_robustness_pass",
+                    "proxy_10y_robustness_pass": True,
+                    "evidence_label": "proxy_10y",
+                    "promotion_allowed": False,
+                }
+            ),
+            encoding="utf-8",
+        )
         for portfolio in ("main", "concentrated"):
             pd.DataFrame(
                 [
@@ -379,8 +391,10 @@ def test_user_current_blocks_pre_broker_tier0_even_when_metrics_look_valid() -> 
         assert "pre_broker_substrate_gate_blocked" in summary["evidence_tier0_blockers"]
         assert summary["evidence_recovery"]["recommended_recovery_source"] == "committed_static_IWB_seed"
         assert summary["evidence_recovery"]["recovery_action"] == "repair_universe_from_fallback"
+        assert summary["proxy_10y_robustness_pass"] is True
         assert "- valid_for_production: `False`" in action_summary
         assert "- production_promotion_allowed: `False`" in action_summary
+        assert "- proxy_10y_robustness_pass: `true`" in action_summary
         assert "- evidence_recovery_source: `committed_static_IWB_seed`" in action_summary
         assert "- evidence_recovery_action: `repair_universe_from_fallback`" in action_summary
         assert "evidence_tier0_blocker=pre_broker_substrate_gate_blocked" in action_summary
