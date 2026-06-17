@@ -615,6 +615,7 @@ jobs:
             outputs/universe_health/
             outputs/pre_broker_substrate_gate/
             outputs/universe_recovery_candidate/
+            outputs/universe_recovery_candidate_readiness/
             outputs/era_aware_scoring_challenger/
             outputs/metric_hygiene/
             outputs/cash_contract/
@@ -627,6 +628,7 @@ jobs:
             outputs/full_rebuild_logs/proxy_10y_robustness.log
             outputs/full_rebuild_logs/pre_broker_substrate_gate.log
             outputs/full_rebuild_logs/universe_recovery_candidate.log
+            outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/main/account_state_latest.json
             outputs/broker_replay/main/positions_latest.csv
@@ -713,6 +715,7 @@ jobs:
             outputs/universe_health/
             outputs/pre_broker_substrate_gate/
             outputs/universe_recovery_candidate/
+            outputs/universe_recovery_candidate_readiness/
             outputs/data_freshness_contract/
             outputs/broker_replay/
             outputs/legacy_monthly_broker_replay/
@@ -736,6 +739,7 @@ jobs:
             outputs/full_rebuild_logs/proxy_10y_robustness.log
             outputs/full_rebuild_logs/pre_broker_substrate_gate.log
             outputs/full_rebuild_logs/universe_recovery_candidate.log
+            outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
@@ -817,6 +821,7 @@ jobs:
             outputs/universe_health/
             outputs/pre_broker_substrate_gate/
             outputs/universe_recovery_candidate/
+            outputs/universe_recovery_candidate_readiness/
             outputs/adr_candidates/
             outputs/crisis_paper_order_bridge/
             data/catalog.json
@@ -894,6 +899,7 @@ jobs:
             outputs/full_rebuild_logs/proxy_10y_robustness.log
             outputs/full_rebuild_logs/pre_broker_substrate_gate.log
             outputs/full_rebuild_logs/universe_recovery_candidate.log
+            outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log
             outputs/main_cash_drag_replay/
             outputs/crisis_reentry_replay/
             outputs/broker_crisis_reentry_replay/
@@ -1361,6 +1367,7 @@ jobs:
             copy_dir_clean outputs/universe_health "$DEST/universe_health"
             copy_dir_clean outputs/pre_broker_substrate_gate "$DEST/pre_broker_substrate_gate"
             copy_dir_clean outputs/universe_recovery_candidate "$DEST/universe_recovery_candidate"
+            copy_dir_clean outputs/universe_recovery_candidate_readiness "$DEST/universe_recovery_candidate_readiness"
             copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
             copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
@@ -1425,6 +1432,7 @@ jobs:
           copy_dir_clean outputs/universe_health "$DEST/universe_health"
           copy_dir_clean outputs/pre_broker_substrate_gate "$DEST/pre_broker_substrate_gate"
           copy_dir_clean outputs/universe_recovery_candidate "$DEST/universe_recovery_candidate"
+          copy_dir_clean outputs/universe_recovery_candidate_readiness "$DEST/universe_recovery_candidate_readiness"
           copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
           copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"

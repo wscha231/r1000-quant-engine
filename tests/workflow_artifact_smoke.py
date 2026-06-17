@@ -100,6 +100,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/proxy_10y_robustness/",
         "outputs/pre_broker_substrate_gate/",
         "outputs/universe_recovery_candidate/",
+        "outputs/universe_recovery_candidate_readiness/",
         "outputs/oos_lock/",
         "outputs/eight_year_backtest_readiness/",
         "outputs/era_aware_scoring_challenger/",
@@ -118,6 +119,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/full_rebuild_logs/proxy_10y_robustness.log",
         "outputs/full_rebuild_logs/pre_broker_substrate_gate.log",
         "outputs/full_rebuild_logs/universe_recovery_candidate.log",
+        "outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log",
         "copy_dir_clean outputs/stock_selection_quality",
         "copy_dir_clean outputs/entry_exit_timing_audit",
         "copy_dir_clean outputs/cash_reentry_quality",
@@ -127,6 +129,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "copy_dir_clean outputs/proxy_10y_robustness",
         "copy_dir_clean outputs/pre_broker_substrate_gate",
         "copy_dir_clean outputs/universe_recovery_candidate",
+        "copy_dir_clean outputs/universe_recovery_candidate_readiness",
         'cp outputs/alpha_plane_measurement_status.json "$DEST/"',
         "outputs/main_cash_drag_replay/",
         "outputs/crisis_reentry_replay/",
@@ -290,10 +293,14 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "run_pre_broker_substrate_gate",
         "tools/prepare_universe_recovery_candidate.py",
         "run_universe_recovery_candidate",
+        "tools/check_universe_recovery_candidate_readiness.py",
+        "run_universe_recovery_candidate_readiness",
         "outputs/pre_broker_substrate_gate/",
         "outputs/universe_recovery_candidate/",
+        "outputs/universe_recovery_candidate_readiness/",
         "outputs/full_rebuild_logs/pre_broker_substrate_gate.log",
         "outputs/full_rebuild_logs/universe_recovery_candidate.log",
+        "outputs/full_rebuild_logs/universe_recovery_candidate_readiness.log",
         "STRICT_PRE_BROKER_SUBSTRATE_GATE",
         "--min-r1000-base 400",
         "run_data_freshness_contract",
@@ -870,6 +877,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/audit_data_readiness.py",
         "tools/check_pre_broker_substrate_gate.py",
         "tools/prepare_universe_recovery_candidate.py",
+        "tools/check_universe_recovery_candidate_readiness.py",
         "tools/run_data_freshness_contract.py",
         "--require-current-operating-books",
         "--source-context daily_operating_refresh",
@@ -878,6 +886,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/universe_health/",
         "outputs/pre_broker_substrate_gate/",
         "outputs/universe_recovery_candidate/",
+        "outputs/universe_recovery_candidate_readiness/",
         "universe_health_status",
         "universe_health_promotion_allowed",
         "universe_health_r1000_base_count",
@@ -917,6 +926,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/full_rebuild_logs/daily_universe_health_audit.log",
         "outputs/full_rebuild_logs/daily_pre_broker_substrate_gate.log",
         "outputs/full_rebuild_logs/daily_universe_recovery_candidate.log",
+        "outputs/full_rebuild_logs/daily_universe_recovery_candidate_readiness.log",
         "daily-operating-selection-refresh-${{ github.run_id }}",
         "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh",
         "actions/cache/save@v4",
@@ -934,8 +944,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     readiness_idx = text.index("outputs/full_rebuild_logs/daily_operating_data_readiness.log")
     pre_broker_idx = text.index("outputs/full_rebuild_logs/daily_pre_broker_substrate_gate.log")
     recovery_idx = text.index("outputs/full_rebuild_logs/daily_universe_recovery_candidate.log")
+    recovery_readiness_idx = text.index("outputs/full_rebuild_logs/daily_universe_recovery_candidate_readiness.log")
     freshness_idx = text.index("outputs/full_rebuild_logs/data_freshness_contract.log")
-    assert universe_idx < readiness_idx < pre_broker_idx < recovery_idx < freshness_idx
+    assert universe_idx < readiness_idx < pre_broker_idx < recovery_idx < recovery_readiness_idx < freshness_idx
     proxy_idx = text.index("outputs/full_rebuild_logs/proxy_10y_robustness.log")
     evidence_idx = text.index("outputs/full_rebuild_logs/evidence_policy.log")
     clean7_idx = text.index("outputs/full_rebuild_logs/clean_7y_research_readiness.log")
