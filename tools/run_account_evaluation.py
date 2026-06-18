@@ -28,7 +28,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from r1000_config import PORTFOLIO_GOAL_TARGETS, PORTFOLIO_GOAL_GATES
+    from r1000_config import (
+        OFFICIAL_BACKTEST_WINDOW_YEARS,
+        PROXY_8Y_10Y_EVIDENCE_BLOCKED,
+        PROXY_WINDOW_BLOCKER_REASON,
+        PORTFOLIO_GOAL_GATES,
+        PORTFOLIO_GOAL_TARGETS,
+    )
 except Exception:  # pragma: no cover - fallback for isolated smoke contexts
     PORTFOLIO_GOAL_TARGETS = {
         "main": {"cagr": 0.30, "max_dd": -0.25},
@@ -38,13 +44,17 @@ except Exception:  # pragma: no cover - fallback for isolated smoke contexts
         "main": {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
         "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.28},
     }
+    OFFICIAL_BACKTEST_WINDOW_YEARS = 7.0
+    PROXY_8Y_10Y_EVIDENCE_BLOCKED = True
+    PROXY_WINDOW_BLOCKER_REASON = "pit_universe_label_missing"
 
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/account_evaluation"
 PORTFOLIOS = ("main", "concentrated")
-MIN_BROKER_LEDGER_YEARS = 8.0
-MIN_BROKER_LEDGER_TRADING_DAYS = 252 * 8
+MIN_BROKER_LEDGER_YEARS = float(OFFICIAL_BACKTEST_WINDOW_YEARS)
+MIN_BROKER_LEDGER_TRADING_DAYS = int(252 * MIN_BROKER_LEDGER_YEARS)
+OFFICIAL_WINDOW_TOLERANCE_YEARS = 0.05
 CANONICAL_MISSION_TARGETS = {
     "main": {"cagr": 0.35, "max_dd": -0.25},
     "concentrated": {"cagr": 0.50, "max_dd": -0.25},
@@ -135,6 +145,38 @@ def estimate_trading_days(start_date: Any, end_date: Any, years: float | None) -
         calendar_days = int(round((end - start).days * 252.0 / 365.25))
     candidates = [x for x in (explicit_days, calendar_days) if x is not None]
     return max(candidates) if candidates else None
+
+
+def truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "clean", "pit_clean"}
+
+
+def pit_universe_label_clean(*payloads: dict[str, Any] | None) -> bool:
+    keys = (
+        "pit_universe_label_clean",
+        "pit_universe_clean",
+        "historical_universe_pit_clean",
+        "official_pit_r1000",
+    )
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        for key in keys:
+            if truthy(payload.get(key)):
+                return True
+        universe = payload.get("universe") if isinstance(payload.get("universe"), dict) else {}
+        for key in keys:
+            if truthy(universe.get(key)):
+                return True
+        universe_health = payload.get("universe_health") if isinstance(payload.get("universe_health"), dict) else {}
+        for key in keys:
+            if truthy(universe_health.get(key)):
+                return True
+    return False
 
 
 def equity_curve_window(path: Path) -> dict[str, Any]:
@@ -243,7 +285,12 @@ def evaluate_window_gate(
     data_readiness: dict[str, Any] | None = None,
     require_data_readiness: bool = False,
 ) -> dict[str, Any]:
-    """Require an 8-year broker-ledger evidence window for official verdicts."""
+    """Require a clean 7-year broker-ledger research baseline.
+
+    Longer 8Y/10Y windows are not accepted as official evidence unless the
+    historical universe label is explicitly PIT-clean. This prevents proxy
+    extension windows from being mistaken for production-promotion evidence.
+    """
     start_date = broker_metrics.get("start_date")
     end_date = broker_metrics.get("end_date")
     years = metric(broker_metrics, "years")
@@ -256,28 +303,41 @@ def evaluate_window_gate(
     if not start_date or not end_date:
         reasons.append("missing_start_or_end_date")
     if years is None or years < MIN_BROKER_LEDGER_YEARS:
-        reasons.append("broker_ledger_years_below_8")
+        reasons.append("broker_ledger_years_below_7")
     if equity_window and not equity_window.get("exists"):
         reasons.append("broker_ledger_equity_curve_missing")
     if trading_days is None or trading_days < MIN_BROKER_LEDGER_TRADING_DAYS:
-        reasons.append("broker_ledger_trading_days_below_8y")
+        reasons.append("broker_ledger_trading_days_below_7y")
     readiness = data_readiness or {}
     readiness_status = readiness.get("status") if isinstance(readiness, dict) else None
     policy_ready = readiness.get("ready_for_policy_replay") if isinstance(readiness, dict) else None
     known_gaps = ((readiness.get("free_data_coverage") or {}).get("known_gaps") or []) if isinstance(readiness, dict) else []
+    pit_clean = pit_universe_label_clean(broker_metrics, readiness, equity_window)
+    upper_bound = MIN_BROKER_LEDGER_YEARS + OFFICIAL_WINDOW_TOLERANCE_YEARS
     if require_data_readiness and not readiness:
         reasons.append("data_readiness_summary_missing")
     elif readiness and not bool(policy_ready):
         reasons.append("data_readiness_not_ready_for_policy_replay")
     if known_gaps:
         reasons.append("free_data_coverage_known_gaps")
+    if years is not None and years > upper_bound and PROXY_8Y_10Y_EVIDENCE_BLOCKED and not pit_clean:
+        reasons.append("proxy_8y_10y_evidence_blocked_until_pit_universe_clean")
+        reasons.append(PROXY_WINDOW_BLOCKER_REASON)
     status = "ok" if not reasons else "invalid_window"
+    evidence_window_label = "pit_clean_long_window" if pit_clean and years is not None and years > upper_bound else "research_7y"
     return {
         "status": status,
         "valid": status == "ok",
         "reasons": reasons,
         "min_years": MIN_BROKER_LEDGER_YEARS,
         "min_trading_days": MIN_BROKER_LEDGER_TRADING_DAYS,
+        "official_backtest_window_years": MIN_BROKER_LEDGER_YEARS,
+        "official_window_tolerance_years": OFFICIAL_WINDOW_TOLERANCE_YEARS,
+        "proxy_8y_10y_evidence_blocked": bool(PROXY_8Y_10Y_EVIDENCE_BLOCKED),
+        "proxy_window_blocker_reason": PROXY_WINDOW_BLOCKER_REASON,
+        "pit_universe_label_clean": bool(pit_clean),
+        "evidence_window_label": evidence_window_label,
+        "production_promotion_allowed": False,
         "start_date": start_date,
         "end_date": end_date,
         "years": years,
@@ -332,6 +392,9 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "verdict_status": "ok" if valid_for_production else window_gate["status"] if replay_valid else broker_metrics.get("status") or "missing",
         "valid_for_production": valid_for_production,
         "broker_ledger_window_gate": window_gate,
+        "evidence_window_label": window_gate.get("evidence_window_label"),
+        "pit_universe_label_clean": window_gate.get("pit_universe_label_clean"),
+        "production_promotion_allowed": False,
         "target_type": target_contract["target_type"],
         "target_contract_status": target_contract["status"],
         "target_contract": target_contract,
@@ -404,6 +467,9 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "target_contract_status",
         "status",
         "valid_for_production",
+        "evidence_window_label",
+        "pit_universe_label_clean",
+        "production_promotion_allowed",
         "verdict_status",
         "target_pass",
         "cagr",
@@ -453,7 +519,7 @@ def render_report(payload: dict[str, Any]) -> str:
         "# Account Evaluation",
         "",
         "Official performance evidence uses broker-ledger replay with next-close fills, integer shares, cash, and transaction costs.",
-        "Legacy weight-level backtest metrics are retained only as research comparison fields and cannot produce a production SHIP verdict.",
+        "Legacy weight-level backtest metrics are retained only as research comparison fields and cannot produce a production-promotion verdict.",
         "",
         "## Official Targets",
         "",
@@ -555,7 +621,8 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.append(f"- Active target type: `{payload.get('target_type')}`")
     lines.append(f"- Target contract status: `{payload.get('target_contract_status')}`")
     lines.append("- Canonical mission targets remain Main `35% / -25%` and Concentrated `50% / -25%` until explicit user approval changes them.")
-    lines.append(f"- Minimum official broker-ledger window: `{MIN_BROKER_LEDGER_YEARS:.1f} years / {MIN_BROKER_LEDGER_TRADING_DAYS} trading days`")
+    lines.append(f"- Clean broker-ledger research window: `{MIN_BROKER_LEDGER_YEARS:.1f} years / {MIN_BROKER_LEDGER_TRADING_DAYS} trading days`")
+    lines.append("- Proxy 8Y/10Y evidence is blocked until a PIT-clean historical universe label is present.")
     lines.append(f"- Production target pass (Tier-1: full CAGR/MDD): `{str(payload.get('production_target_pass')).lower()}`")
     lines.append(f"- Strengthened pass (Tier-1 AND Tier-2 IS/Sharpe/ratio/cash/recent-MDD): `{str(payload.get('strengthened_pass')).lower()}`")
     lines.append(f"- Research target pass: `{str(payload.get('research_target_pass')).lower()}`")
@@ -587,6 +654,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "latest_run": str(latest_run),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "production_target_pass": production_target_pass,
+        "production_promotion_allowed": False,
         "strengthened_pass": strengthened_pass_all,
         "research_target_pass": research_target_pass,
         "portfolios": portfolios,
@@ -599,6 +667,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "target_contract_status": payload["target_contract_status"],
         "target_contract": payload["target_contract"],
         "production_target_pass": production_target_pass,
+        "production_promotion_allowed": False,
         "strengthened_pass": strengthened_pass_all,
         "portfolios": {row["portfolio"]: row for row in portfolios},
     }

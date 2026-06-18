@@ -519,6 +519,16 @@ PORTFOLIO_GOAL_TARGETS = {
     "concentrated": {"cagr": 0.50, "max_dd": -0.28},
 }
 
+# Evidence-window contract (2026-06-19 planning lock):
+# clean 7Y broker-ledger is the research/A-B baseline. Proxy 8Y/10Y windows
+# are blocked as official evidence until PIT-clean historical universe labels
+# exist. This is not a production-promotion approval.
+OFFICIAL_BACKTEST_WINDOW_YEARS = 7.0
+OFFICIAL_BACKTEST_START_DATE = "2019-06-03"
+OFFICIAL_BACKTEST_END_DATE_POLICY = "latest_close"
+PROXY_8Y_10Y_EVIDENCE_BLOCKED = True
+PROXY_WINDOW_BLOCKER_REASON = "pit_universe_label_missing"
+
 # Strengthened evaluation gates beyond headline CAGR / MDD. Run
 # 27498401423 (T3 + vNext + Conc hyst) exposed why full-period CAGR alone is
 # misleading: it ran at Main 34.33% / Conc 44.57% headline yet IS-only
@@ -2674,6 +2684,11 @@ __all__ = [
     "ROBUST_Z_CLIP",
     "MANDATE_REGISTRY",
     "PORTFOLIO_GOAL_TARGETS",
+    "OFFICIAL_BACKTEST_WINDOW_YEARS",
+    "OFFICIAL_BACKTEST_START_DATE",
+    "OFFICIAL_BACKTEST_END_DATE_POLICY",
+    "PROXY_8Y_10Y_EVIDENCE_BLOCKED",
+    "PROXY_WINDOW_BLOCKER_REASON",
     "mandate_capacity_for_regime",
     "mandate_cadence",
     "mandate_target_n",

@@ -38,12 +38,17 @@ on:
           - r1000+adr_phase14_off
         default: global_alpha_universe
       backtest_years:
-        description: 'official out-of-sample backtest window years (8 = current SHIP standard; 10 remains research/partial until full coverage)'
+        description: 'broker-ledger window years (7 = clean research/A-B baseline; 8/10 require PIT-clean universe label)'
         type: choice
         options:
+          - '7'
           - '8'
           - '10'
-        default: '8'
+        default: '7'
+      pit_universe_label_clean:
+        description: 'Allow >7Y window only when historical universe membership/delisting/ticker-change labels are PIT-clean'
+        type: boolean
+        default: false
       skip_collector:
         description: 'skip data collection (use cached prices/SEC/macro). Saves ~1-2h.'
         type: boolean
@@ -431,6 +436,25 @@ jobs:
           PY
           cat "$MANIFEST"
 
+      - name: Validate backtest window contract
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          years = float(os.environ.get("BACKTEST_YEARS", "7") or "7")
+          pit_clean = os.environ.get("PIT_UNIVERSE_LABEL_CLEAN", "false").strip().lower() in {"1", "true", "yes"}
+          if years > 7.05 and not pit_clean:
+              print(
+                  "::error::proxy 8Y/10Y evidence is blocked until PIT universe is clean "
+                  "(pit_universe_label_clean=true). Use backtest_years=7 for the clean research/A-B baseline."
+              )
+              sys.exit(2)
+          print(f"backtest_window_contract_ok years={years:g} pit_universe_label_clean={pit_clean}")
+          PY
+        env:
+          BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
+          PIT_UNIVERSE_LABEL_CLEAN: ${{ inputs.pit_universe_label_clean || false }}
+
       - name: Run FULL rebuild
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
@@ -440,7 +464,7 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           # Per Phase 14 wiring + Phase 1 backtest validation
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
-          BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
           LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
           PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
           PHASE_PHASE11_MULTIBAGGER_ENABLED: ${{ inputs.phase11_multibagger_enabled && '1' || '0' }}
@@ -557,7 +581,7 @@ jobs:
           PORTFOLIO_POLICY: ${{ github.event.inputs.portfolio_policy || 'alphaops_vnext_production' }}
           APPROVED_TARGET_POLICY_PATH: ${{ github.event.inputs.approved_target_policy_path || 'outputs/promotion_review/approved_target_policy.json' }}
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
-          BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
 
       - name: Data health (catalog + coverage gate, warn-only)
         if: always()
@@ -689,7 +713,7 @@ jobs:
           retention-days: 30
 
       - name: Upload artifact (official broker-ledger evidence)
-        if: always() && (inputs.artifact_profile != 'minimal' || inputs.backtest_years == '8')
+        if: always() && (inputs.artifact_profile != 'minimal' || (inputs.backtest_years || '7') == '7')
         uses: actions/upload-artifact@v4
         with:
           name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
