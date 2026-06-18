@@ -112,6 +112,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/leader_hysteresis_smoke.py", []),
     ("tests/strengthened_gates_smoke.py", []),
     ("tests/account_evaluation_window_gate_smoke.py", []),
+    ("tests/evidence_policy_smoke.py", []),
     ("tests/ten_year_backtest_readiness_smoke.py", []),
     ("tests/is_attribution_smoke.py", []),
     ("tests/performance_ledger_smoke.py", []),

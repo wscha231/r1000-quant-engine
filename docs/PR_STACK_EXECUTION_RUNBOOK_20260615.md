@@ -9,9 +9,10 @@ Stabilize AlphaOps vNext governance and evidence-controlled recovery workflow
 before any further production promotion.
 
 The objective is not to promise a Concentrated CAGR recovery result. The
-objective is to make sure every agent can safely run and review evidence so
-that only broker-ledger, 8-year, IS/OOS-valid candidates can become
-`ready_for_human_review`.
+objective is to make sure every agent can safely run and review evidence with
+the right label: dirty runs are `DO_NOT_USE`, clean 7-year broker-ledger runs
+may drive Alpha Plane audit/A-B research, and only robust or official evidence
+can become promotion review material.
 
 Scope:
 
@@ -22,8 +23,9 @@ Scope:
 3. Treat PR64 Main `30% / -25%` and Concentrated `50% / -28%` as interim
    operating gates only. Canonical mission remains Main `35% / -25%` and
    Concentrated `50% / -25%` until explicit user approval.
-4. Enforce 8-year broker-ledger evidence before official promotion. Seven-year
-   headline wins are `invalid_window` for promotion.
+4. Enforce evidence tiers. Clean 7-year broker-ledger evidence is usable for
+   research/A-B and daily preview; Tier 3/4 evidence is required before
+   promotion review.
 5. Close the self-correction queue lifecycle: `queued -> dispatched -> measured
    -> rejected / ready_for_human_review / closed`, with duplicate suppression,
    stale payload detection, payload hash, and A/B result verifier linkage.
@@ -72,6 +74,45 @@ after fetch.
 ## Post-Merge Sequence
 
 After #64 and #66 land on `master`, run the evidence loop in this order.
+
+## Current Execution Priority
+
+The project should not wait for perfect official 10-year data before all Alpha
+Plane work. The next phase is:
+
+1. Stabilize the daily operating snapshot contract: current holdings, target
+   weights, order preview, and rebalance decision must all be built from the
+   same current snapshot and stay review-only.
+2. Repair universe/data substrate until data readiness and universe health pass.
+3. Produce a clean 7-year broker-ledger baseline. This is valid for Alpha Plane
+   audit, A-B research, and daily operating preview, but not official promotion.
+4. Build the `proxy_10y` universe/data substrate in parallel for robustness.
+   It must remain labelled proxy and must not be called official Russell 1000
+   evidence.
+5. Run Alpha Plane audits on clean Tier 1+ evidence.
+6. Run A-B only after audits identify the dominant leak.
+7. Validate successful clean 7-year candidates against `proxy_10y` before
+   raising them to stronger human review.
+
+## Evidence Tier Policy
+
+All agents must use `tools/evidence_policy.py` and
+`outputs/evidence_policy/evidence_status.json` when deciding what a run may be
+used for.
+
+| Tier | Label | Allowed use | Blocked use |
+| --- | --- | --- | --- |
+| Tier 0 | `do_not_use` | diagnostics only | audit/A-B, daily preview, human review, promotion |
+| Tier 1 | `research_7y` | Alpha Plane audit and A-B research | official promotion |
+| Tier 2 | `operating_candidate` | daily operating preview and `ready_for_human_review` | official promotion |
+| Tier 3 | `robust_candidate` | stronger human review after 8Y or proxy_10y robustness | automatic promotion |
+| Tier 4 | `official_promotion` | promotion review with human approval | automatic/live trading |
+
+Tier 0 applies regardless of length when data readiness is false, the universe
+is starved, official broker metrics are missing, current/order preview is
+invalid, or only legacy/proxy metrics are present. `valid_for_production=false`
+continues to block Tier 4 promotion, but it does not by itself invalidate clean
+Tier 1 research evidence.
 
 ## Latest Local Readiness Probe
 
@@ -205,8 +246,9 @@ artifacts, or if OOS/IS lottery gates fail.
 
 ## Concentrated Recovery A/B
 
-Only start these after the official 8-year rebuild is available or the
-dispatcher marks the dependency satisfied.
+Only start these from Tier 1 or better evidence. Do not run them from Tier 0
+evidence. Promotion review still requires Tier 3/4 evidence or explicit user
+approval of an alternative evidence contract.
 
 Priority order:
 
@@ -247,8 +289,10 @@ python tools\run_ab_result_verifier.py `
   --output-dir outputs/ab_result_verifier/<experiment_id>
 ```
 
-The only positive verifier decision is `promote_candidate_review_only`. It is
-still not a production change; it means human review may start.
+Positive verifier decisions are tiered: `measured_research_7y` is research-only,
+`ready_for_human_review` / `robust_candidate_review_only` allow human review,
+and `promote_candidate_review_only` is the only promotion-review decision. None
+of these decisions mutates production.
 
 ## Queue Closure
 

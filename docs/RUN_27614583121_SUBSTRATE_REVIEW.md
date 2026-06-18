@@ -2,7 +2,9 @@
 
 ## Verdict
 
-Run `27614583121` completed at the GitHub Actions workflow level, but it is not promotable and must not be used as an A/B baseline.
+Run `27614583121` completed at the GitHub Actions workflow level, but it is
+Tier 0 `DO_NOT_USE` because the data and universe substrate were dirty. It is
+not promotable and must not be used as a clean A/B baseline.
 
 - official verdict: `invalid_window`
 - production validity: `false`
@@ -13,11 +15,15 @@ Run `27614583121` completed at the GitHub Actions workflow level, but it is not 
 - audited R1000 base count: `234`, below the `400` floor
 - official broker-ledger evidence artifact: skipped because the run used `artifact_profile=minimal`
 
-The next step is not T3, replacement cap, bull-floor, reentry, theme, cap, or era A/B. The next step is universe/data substrate repair.
+The next step for this run is not T3, replacement cap, bull-floor, reentry,
+theme, cap, or era A/B. The next step is universe/data substrate repair.
 
 ## Broker Metrics
 
-These metrics are useful diagnostics only. They are not promotion evidence under the invalid window/universe state.
+These metrics are useful diagnostics only. They are not promotion evidence and
+not a clean research baseline under the invalid window/universe state. This
+does not mean every 7-year broker-ledger run is useless: a clean 7-year run with
+data readiness pass and healthy universe is Tier 1 research evidence.
 
 | Portfolio | CAGR | MaxDD | IS-CAGR | OOS/IS | Status |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -34,7 +40,9 @@ These metrics are useful diagnostics only. They are not promotion evidence under
 
 ## Immediate Rules
 
-- Stop all T3/recovery A/B until universe health and 8-year readiness pass.
+- Stop all T3/recovery A/B from this run because it is Tier 0.
+- Clean Tier 1 7-year broker-ledger evidence may support Alpha Plane audit/A-B;
+  this run does not qualify because data readiness and universe health failed.
 - Do not use run `27614583121` for promotion or as an official A/B baseline.
 - Do not use legacy/proxy metrics.
 - Do not mutate production targets.
@@ -73,8 +81,9 @@ Each diagnostic row must carry:
 2. Require `scored R1000 base >= 400` before any promotion candidate.
 3. Build 8-year target books with start date no later than `2018-06-15`.
 4. Rerun official 8-year broker-ledger rebuild.
-5. Re-run Alpha Plane audits on a valid universe/window.
-6. Only then consider A/B in order:
+5. Re-run Alpha Plane audits on clean Tier 1+ evidence.
+6. Only then consider research A/B in order; promotion review still requires
+   Tier 3/4 evidence or explicit user-approved alternative evidence:
    - T3 hysteresis
    - hard replacement cap
    - bull-floor

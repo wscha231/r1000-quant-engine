@@ -71,6 +71,37 @@ Current acceptance targets:
 - Main: CAGR at or above `35%`, MDD no worse than `-25%`
 - Concentrated: CAGR at or above `50%`, MDD no worse than `-25%`
 - Official evidence: broker trade / broker ledger next-close only
+- Evidence tiering: `tools/evidence_policy.py` writes
+  `outputs/evidence_policy/evidence_status.json`.
+  - Tier 0 `do_not_use`: data readiness false, starved universe, missing
+    official broker metric, invalid current/order preview, or legacy/proxy-only
+    metrics. No Alpha Plane A/B may start from Tier 0.
+  - Tier 1 `research_7y`: clean 7-year `broker_ledger_next_close`, data
+    readiness pass, and healthy universe. Usable for audit and A/B research,
+    not promotion.
+  - Tier 2 `operating_candidate`: Tier 1 plus stable daily refresh, valid
+    current/target/order preview, and `cash_trap=false`. Usable for
+    `ready_for_human_review`, not official promotion.
+  - Tier 3 `robust_candidate`: clean 8-year official evidence, or clean 7-year
+    plus labelled `proxy_10y` robustness. `proxy_10y` remains proxy evidence,
+    not official Russell 1000 evidence.
+  - Tier 4 `official_promotion`: 8-year official evidence or a
+    user-approved alternative evidence contract plus IS/OOS, CAGR/MDD, cash
+    trap, and human approval gates.
+
+Current execution priority:
+
+1. Finish the daily operating snapshot contract so current holdings, target
+   weights, order preview, and rebalance decision come from the same current
+   snapshot and remain review-only.
+2. Repair universe/data substrate until data readiness and universe health pass.
+3. Produce a clean 7-year broker-ledger baseline for Alpha Plane audit, A-B
+   research, and daily operating preview. This is not official promotion.
+4. Build `proxy_10y` universe/data substrate in parallel as a robustness layer.
+   It must stay labelled `proxy_10y` and must not be called official Russell
+   1000 evidence.
+5. Run Alpha Plane audits on clean Tier 1+ evidence, then run A-B only after
+   the audits identify the dominant leak.
 
 Current target margins:
 

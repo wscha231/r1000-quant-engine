@@ -266,7 +266,10 @@ def test_user_current_blocks_nested_invalid_official_metrics() -> None:
         assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
         assert any("invalid_window" in item for item in payload["production_blockers"])
         assert summary["production_promotion_allowed"] is False
+        assert summary["evidence_tier"] == "0_do_not_use"
+        assert summary["research_ab_allowed"] is False
         assert "- valid_for_production: `False`" in action_summary
+        assert "- evidence_tier: `0_do_not_use`" in action_summary
         assert "- production_promotion_allowed: `False`" in action_summary
         assert "- recommendation_status: `DO_NOT_USE_REVIEW_REQUIRED`" in action_summary
         assert "This is NOT a live broker account" in readme
