@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -139,6 +140,25 @@ def log(msg: str) -> None:
     function so a future switch to `logging.getLogger` is one-file.
     """
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+
+def compute_cagr_safe(start_equity: Any, end_equity: Any, years: Any) -> float | None:
+    """Return CAGR for positive equity inputs, or None when inputs are invalid."""
+    try:
+        start = float(start_equity)
+        end = float(end_equity)
+        span = float(years)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(start) and math.isfinite(end) and math.isfinite(span)):
+        return None
+    if start <= 0.0 or end <= 0.0 or span <= 0.0:
+        return None
+    try:
+        cagr = (end / start) ** (1.0 / span) - 1.0
+    except (OverflowError, ZeroDivisionError, ValueError):
+        return None
+    return cagr if math.isfinite(cagr) else None
 
 # ---------------------------------------------------------------------
 # Config helpers (Stage 2b) — transform EngineConfig instances
