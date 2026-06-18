@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke test for mandatory 8-year broker-ledger window gate."""
+"""Smoke test for clean 7-year broker-ledger window gate."""
 from __future__ import annotations
 
 import sys
@@ -8,52 +8,98 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from r1000_config import OFFICIAL_BACKTEST_WINDOW_YEARS, PROXY_8Y_10Y_EVIDENCE_BLOCKED  # noqa: E402
 from tools.run_account_evaluation import evaluate_window_gate  # noqa: E402
 
 
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
+
+
+def test_config_locks_clean_7y_window() -> None:
+    assert OFFICIAL_BACKTEST_WINDOW_YEARS == 7.0
+    assert PROXY_8Y_10Y_EVIDENCE_BLOCKED is True
+
+
 def test_window_gate_rejects_short_run() -> None:
-    gate = evaluate_window_gate({"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03})
+    gate = evaluate_window_gate({"start_date": "2020-06-03", "end_date": "2026-06-12", "years": 6.03})
     assert gate["valid"] is False
     assert gate["status"] == "invalid_window"
-    assert "broker_ledger_years_below_8" in gate["reasons"]
+    assert "broker_ledger_years_below_7" in gate["reasons"]
 
 
-def test_window_gate_accepts_8_year_run() -> None:
+def test_window_gate_accepts_clean_7_year_run() -> None:
+    gate = evaluate_window_gate(
+        {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
+        equity_window={"exists": True, "trading_day_count": 1770, "start_date": "2019-06-03", "end_date": "2026-06-12"},
+        data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is True
+    assert gate["status"] == "ok"
+    assert gate["trading_days_estimate"] >= 252 * 7
+    assert gate["evidence_window_label"] == "research_7y"
+    assert gate["production_promotion_allowed"] is False
+
+
+def test_window_gate_rejects_dirty_8_year_proxy_window() -> None:
     gate = evaluate_window_gate(
         {"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03},
+        equity_window={"exists": True, "trading_day_count": 2025, "start_date": "2018-06-01", "end_date": "2026-06-12"},
+        data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is False
+    assert "proxy_8y_10y_evidence_blocked_until_pit_universe_clean" in gate["reasons"]
+
+
+def test_window_gate_accepts_pit_clean_8_year_window() -> None:
+    gate = evaluate_window_gate(
+        {"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03, "pit_universe_label_clean": True},
         equity_window={"exists": True, "trading_day_count": 2025, "start_date": "2018-06-01", "end_date": "2026-06-12"},
         data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
         require_data_readiness=True,
     )
     assert gate["valid"] is True
     assert gate["status"] == "ok"
-    assert gate["trading_days_estimate"] >= 252 * 8
+    assert gate["evidence_window_label"] == "pit_clean_long_window"
 
 
 def test_window_gate_rejects_short_actual_equity_curve_even_if_metrics_years_pass() -> None:
     gate = evaluate_window_gate(
-        {"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03},
+        {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
         equity_window={"exists": True, "trading_day_count": 1200, "start_date": "2018-06-01", "end_date": "2026-06-12"},
         data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
         require_data_readiness=True,
     )
     assert gate["valid"] is False
-    assert "broker_ledger_trading_days_below_8y" in gate["reasons"]
+    assert "broker_ledger_trading_days_below_7y" in gate["reasons"]
 
 
 def test_window_gate_rejects_missing_data_readiness_when_required() -> None:
     gate = evaluate_window_gate(
-        {"start_date": "2018-06-01", "end_date": "2026-06-12", "years": 8.03},
-        equity_window={"exists": True, "trading_day_count": 2025, "start_date": "2018-06-01", "end_date": "2026-06-12"},
+        {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
+        equity_window={"exists": True, "trading_day_count": 1770, "start_date": "2019-06-03", "end_date": "2026-06-12"},
         require_data_readiness=True,
     )
     assert gate["valid"] is False
     assert "data_readiness_summary_missing" in gate["reasons"]
 
 
+def test_workflow_rejects_long_window_without_pit_label() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "default: '7'" in text
+    assert "pit_universe_label_clean" in text
+    assert "proxy 8Y/10Y evidence is blocked until PIT universe is clean" in text
+    assert "years > 7.05 and not pit_clean" in text
+
+
 if __name__ == "__main__":
+    test_config_locks_clean_7y_window()
     test_window_gate_rejects_short_run()
-    test_window_gate_accepts_8_year_run()
+    test_window_gate_accepts_clean_7_year_run()
+    test_window_gate_rejects_dirty_8_year_proxy_window()
+    test_window_gate_accepts_pit_clean_8_year_window()
     test_window_gate_rejects_short_actual_equity_curve_even_if_metrics_years_pass()
     test_window_gate_rejects_missing_data_readiness_when_required()
+    test_workflow_rejects_long_window_without_pit_label()
     print("account_evaluation_window_gate_smoke: PASS")

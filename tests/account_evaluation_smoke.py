@@ -20,7 +20,7 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def write_equity_curve(path: Path, start: str = "2018-05-01", end: str = "2026-05-08") -> None:
+def write_equity_curve(path: Path, start: str = "2019-06-03", end: str = "2026-06-12") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     cur = date.fromisoformat(start)
     last = date.fromisoformat(end)
@@ -41,9 +41,9 @@ def seed_portfolio(root: Path, portfolio: str, *, cagr: float, max_dd: float, sh
             "status": "completed",
             "metric_mode": "broker_ledger_next_close",
             "valid_for_production": True,
-            "start_date": "2018-05-01",
-            "end_date": "2026-05-08",
-            "years": 8.02,
+            "start_date": "2019-06-03",
+            "end_date": "2026-06-12",
+            "years": 7.03,
             "starting_capital_usd": 100000,
             "ending_capital_usd": 400000,
             "cagr": cagr,
@@ -60,7 +60,7 @@ def seed_portfolio(root: Path, portfolio: str, *, cagr: float, max_dd: float, sh
         root / "broker_replay" / portfolio / "account_state_latest.json",
         {
             "portfolio_kind": portfolio,
-            "as_of_date": "2026-05-08",
+            "as_of_date": "2026-06-12",
             "equity_usd": 400000,
             "cash_usd": 8000,
             "cash_weight": 0.02,
@@ -124,7 +124,9 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
         assert main["canonical_cagr_target"] == 0.35
         assert main["canonical_max_dd_target"] == -0.25
         assert main["target_pass"] is True
-        assert main["broker_ledger_actual_trading_days"] >= 252 * 8
+        assert main["broker_ledger_actual_trading_days"] >= 252 * 7
+        assert main["evidence_window_label"] == "research_7y"
+        assert main["production_promotion_allowed"] is False
         assert main["legacy_cagr"] == 0.99
         assert concentrated["target_pass"] is False
         assert concentrated["canonical_max_dd_target"] == -0.25
