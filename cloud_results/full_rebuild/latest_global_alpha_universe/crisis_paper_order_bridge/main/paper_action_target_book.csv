@@ -1,0 +1,15 @@
+ticker,target_weight,Name,sector,portfolio_sleeve_label,bridge_reason
+CASH,0.1923253545256502,Cash,Cash,,no_op
+SNDK,0.12,SANDISK CORP,Information Technology,future_winner,no_op
+WDC,0.1101040441087198,WESTERN DIGITAL CORP,Information Technology,future_winner,no_op
+STM,0.1056930257439846,STMicroelectronics,Semiconductors,future_winner,no_op
+CIEN,0.0928122939585701,CIENA CORP,Information Technology,future_winner,no_op
+MRVL,0.0850553340548542,MARVELL TECHNOLOGY INC,Information Technology,future_winner,no_op
+LITE,0.0625921472448072,LUMENTUM HOLDINGS INC,Information Technology,future_winner,no_op
+ON,0.0563899553650616,ON SEMICONDUCTOR CORP,Information Technology,future_winner,no_op
+PWR,0.0530271592520471,QUANTA SERVICES INC,Industrials,future_winner,no_op
+FIX,0.0399811781173604,COMFORT SYSTEMS USA INC,Industrials,future_winner,no_op
+MU,0.0317598012649269,MICRON TECHNOLOGY INC,Information Technology,future_winner,no_op
+COHR,0.0253026372932251,COHERENT CORP,Information Technology,future_winner,no_op
+TER,0.0136798010342207,TERADYNE INC,Information Technology,unassigned,no_op
+KEYS,0.0112772680365715,KEYSIGHT TECHNOLOGIES INC,Information Technology,future_winner,no_op

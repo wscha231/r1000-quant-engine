@@ -1,0 +1,44 @@
+{
+  "by_portfolio": {
+    "concentrated": {
+      "cash_contract_drift_rows": 0,
+      "cash_trap_flag": true,
+      "crisis_avg_cash": 0.9437500000000001,
+      "defense_avg_cash": 0.7308759782952177,
+      "green_avg_cash": 0.22851346050796456,
+      "latest_broker_cash": NaN,
+      "latest_cash": 0.07850000000000024,
+      "unknown_cash_reason_share": 0.0,
+      "watch_avg_cash": 0.5026975866588724
+    },
+    "main": {
+      "cash_contract_drift_rows": 0,
+      "cash_trap_flag": true,
+      "crisis_avg_cash": 0.8110000000000006,
+      "defense_avg_cash": 0.4632310208972326,
+      "green_avg_cash": 0.1643965069424834,
+      "latest_broker_cash": NaN,
+      "latest_cash": 0.1923253545256508,
+      "unknown_cash_reason_share": 0.0,
+      "watch_avg_cash": 0.19065095785959352
+    }
+  },
+  "candidate_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "cash_contract_drift_rows": 0,
+  "cash_trap_rows": 148,
+  "generated_at": "2026-06-19T12:32:34.003120+00:00",
+  "metric_mode": "broker_ledger_next_close",
+  "missing_crisis_state_rows": 0,
+  "official_metric_source": "outputs/account_evaluation/official_metrics.json",
+  "portfolio_policy": "alphaops_vnext_production",
+  "production_mutation_allowed": false,
+  "rows": 148,
+  "schema_version": "cash_reentry_quality_audit_v1",
+  "source_artifact_name": "minimal_operating_minimal_27814870719",
+  "source_branch": "master",
+  "source_commit_sha": "d992ae134314caf599f4e017e860fb262db1ca60",
+  "source_of_truth_level": "GITHUB_ARTIFACT",
+  "source_run_id": "27814870719",
+  "status": "completed",
+  "target_book_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_*_target_book.csv"
+}

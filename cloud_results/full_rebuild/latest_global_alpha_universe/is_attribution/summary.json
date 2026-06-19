@@ -1,0 +1,43 @@
+{
+  "main": {
+    "portfolio": "main",
+    "start_date": "2020-05-01",
+    "end_date": "2026-06-17",
+    "full_cagr": 0.39603208264080547,
+    "is_cagr": 0.2535727804710297,
+    "oos_cagr": 0.7643332488282515,
+    "oos_is_ratio": 3.0142558969004773,
+    "leak_year_tags": {
+      "2020": "healthy",
+      "2021": "flat_alpha_invested",
+      "2022": "over_defense_bear_ok",
+      "2023": "mixed",
+      "2024": "healthy",
+      "2025": "healthy",
+      "2026": "healthy"
+    },
+    "structural_underinvestment_bull_years": []
+  },
+  "concentrated": {
+    "portfolio": "concentrated",
+    "start_date": "2020-05-01",
+    "end_date": "2026-06-17",
+    "full_cagr": 0.5063883581639008,
+    "is_cagr": 0.22348263520800127,
+    "oos_cagr": 1.3519414396574212,
+    "oos_is_ratio": 6.049424996260372,
+    "leak_year_tags": {
+      "2020": "healthy",
+      "2021": "structural_underinvestment_bull",
+      "2022": "over_defense_bear_ok",
+      "2023": "structural_underinvestment_bull",
+      "2024": "healthy",
+      "2025": "healthy",
+      "2026": "healthy"
+    },
+    "structural_underinvestment_bull_years": [
+      2021,
+      2023
+    ]
+  }
+}

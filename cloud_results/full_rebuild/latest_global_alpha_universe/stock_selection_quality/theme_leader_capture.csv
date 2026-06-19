@@ -1,0 +1,1452 @@
+rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
+2020-04-30,concentrated,Biotechnology,3,2,0.6666666666666666
+2020-04-30,concentrated,Internet Content & Information,5,1,0.2
+2020-04-30,concentrated,Communication Equipment,2,0,0.0
+2020-04-30,concentrated,Diagnostics & Research,6,0,0.0
+2020-04-30,concentrated,Medical Devices,2,0,0.0
+2020-04-30,concentrated,Pharmaceuticals,2,0,0.0
+2020-04-30,concentrated,Semiconductors,1,0,0.0
+2020-04-30,concentrated,Software - Application,5,0,0.0
+2020-04-30,concentrated,Software - Infrastructure,1,0,0.0
+2020-04-30,main,Biotechnology,3,2,0.6666666666666666
+2020-04-30,main,Pharmaceuticals,2,1,0.5
+2020-04-30,main,Internet Content & Information,5,2,0.4
+2020-04-30,main,Software - Application,5,1,0.2
+2020-04-30,main,Communication Equipment,2,0,0.0
+2020-04-30,main,Diagnostics & Research,6,0,0.0
+2020-04-30,main,Medical Devices,2,0,0.0
+2020-04-30,main,Semiconductors,1,0,0.0
+2020-04-30,main,Software - Infrastructure,1,0,0.0
+2020-05-29,concentrated,Software - Infrastructure,3,1,0.3333333333333333
+2020-05-29,concentrated,Biotechnology,1,0,0.0
+2020-05-29,concentrated,Communication Equipment,2,0,0.0
+2020-05-29,concentrated,Diagnostics & Research,6,0,0.0
+2020-05-29,concentrated,Food & Staples Retailing,1,0,0.0
+2020-05-29,concentrated,Internet Content & Information,5,0,0.0
+2020-05-29,concentrated,Medical Devices,2,0,0.0
+2020-05-29,concentrated,Pharmaceuticals,1,0,0.0
+2020-05-29,concentrated,Software - Application,4,0,0.0
+2020-05-29,main,Food & Staples Retailing,1,1,1.0
+2020-05-29,main,Software - Infrastructure,3,3,1.0
+2020-05-29,main,Software - Application,4,1,0.25
+2020-05-29,main,Internet Content & Information,5,1,0.2
+2020-05-29,main,Diagnostics & Research,6,1,0.16666666666666666
+2020-05-29,main,Biotechnology,1,0,0.0
+2020-05-29,main,Communication Equipment,2,0,0.0
+2020-05-29,main,Medical Devices,2,0,0.0
+2020-05-29,main,Pharmaceuticals,1,0,0.0
+2020-06-30,concentrated,Internet Content & Information,8,2,0.25
+2020-06-30,concentrated,Software - Application,7,1,0.14285714285714285
+2020-06-30,concentrated,Auto Manufacturers & Parts,3,0,0.0
+2020-06-30,concentrated,Medical Devices,1,0,0.0
+2020-06-30,concentrated,Semiconductors,2,0,0.0
+2020-06-30,concentrated,Software - Infrastructure,2,0,0.0
+2020-06-30,concentrated,Specialty Retail,1,0,0.0
+2020-06-30,concentrated,Transportation & Logistics,1,0,0.0
+2020-06-30,main,Software - Infrastructure,2,2,1.0
+2020-06-30,main,Internet Content & Information,8,5,0.625
+2020-06-30,main,Software - Application,7,1,0.14285714285714285
+2020-06-30,main,Auto Manufacturers & Parts,3,0,0.0
+2020-06-30,main,Medical Devices,1,0,0.0
+2020-06-30,main,Semiconductors,2,0,0.0
+2020-06-30,main,Specialty Retail,1,0,0.0
+2020-06-30,main,Transportation & Logistics,1,0,0.0
+2020-07-31,concentrated,Auto Manufacturers & Parts,2,0,0.0
+2020-07-31,concentrated,Diagnostics & Research,4,0,0.0
+2020-07-31,concentrated,Internet Content & Information,5,0,0.0
+2020-07-31,concentrated,Medical Devices,1,0,0.0
+2020-07-31,concentrated,Semiconductors,2,0,0.0
+2020-07-31,concentrated,Software - Application,3,0,0.0
+2020-07-31,concentrated,Software - Infrastructure,2,0,0.0
+2020-07-31,concentrated,Specialty Retail,1,0,0.0
+2020-07-31,concentrated,Tech Hardware & Storage,4,0,0.0
+2020-07-31,concentrated,Transportation & Logistics,1,0,0.0
+2020-07-31,main,Software - Infrastructure,2,2,1.0
+2020-07-31,main,Internet Content & Information,5,2,0.4
+2020-07-31,main,Tech Hardware & Storage,4,1,0.25
+2020-07-31,main,Auto Manufacturers & Parts,2,0,0.0
+2020-07-31,main,Diagnostics & Research,4,0,0.0
+2020-07-31,main,Medical Devices,1,0,0.0
+2020-07-31,main,Semiconductors,2,0,0.0
+2020-07-31,main,Software - Application,3,0,0.0
+2020-07-31,main,Specialty Retail,1,0,0.0
+2020-07-31,main,Transportation & Logistics,1,0,0.0
+2020-08-31,concentrated,Food & Staples Retailing,1,0,0.0
+2020-08-31,concentrated,Food Beverage & Tobacco,1,0,0.0
+2020-08-31,concentrated,Internet Content & Information,3,0,0.0
+2020-08-31,concentrated,Medical Devices,1,0,0.0
+2020-08-31,concentrated,Metals & Mining,1,0,0.0
+2020-08-31,concentrated,Other,2,0,0.0
+2020-08-31,concentrated,Semiconductors,1,0,0.0
+2020-08-31,concentrated,Software - Application,4,0,0.0
+2020-08-31,concentrated,Specialty Retail,5,0,0.0
+2020-08-31,concentrated,Tech Hardware & Storage,3,0,0.0
+2020-08-31,concentrated,Transportation & Logistics,3,0,0.0
+2020-08-31,main,Internet Content & Information,3,1,0.3333333333333333
+2020-08-31,main,Software - Application,4,1,0.25
+2020-08-31,main,Food & Staples Retailing,1,0,0.0
+2020-08-31,main,Food Beverage & Tobacco,1,0,0.0
+2020-08-31,main,Medical Devices,1,0,0.0
+2020-08-31,main,Metals & Mining,1,0,0.0
+2020-08-31,main,Other,2,0,0.0
+2020-08-31,main,Semiconductors,1,0,0.0
+2020-08-31,main,Specialty Retail,5,0,0.0
+2020-08-31,main,Tech Hardware & Storage,3,0,0.0
+2020-08-31,main,Transportation & Logistics,3,0,0.0
+2020-09-30,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2020-09-30,concentrated,Capital Goods - Machinery,1,0,0.0
+2020-09-30,concentrated,Chemicals,1,0,0.0
+2020-09-30,concentrated,Construction & Engineering,5,0,0.0
+2020-09-30,concentrated,Food & Staples Retailing,1,0,0.0
+2020-09-30,concentrated,Food Beverage & Tobacco,1,0,0.0
+2020-09-30,concentrated,Internet Content & Information,2,0,0.0
+2020-09-30,concentrated,Medical Devices,1,0,0.0
+2020-09-30,concentrated,Other,1,0,0.0
+2020-09-30,concentrated,Semiconductors,2,0,0.0
+2020-09-30,concentrated,Software - Application,1,0,0.0
+2020-09-30,concentrated,Specialty Retail,4,0,0.0
+2020-09-30,concentrated,Tech Hardware & Storage,2,0,0.0
+2020-09-30,concentrated,Transportation & Logistics,2,0,0.0
+2020-09-30,main,Software - Application,1,1,1.0
+2020-09-30,main,Internet Content & Information,2,1,0.5
+2020-09-30,main,Auto Manufacturers & Parts,1,0,0.0
+2020-09-30,main,Capital Goods - Machinery,1,0,0.0
+2020-09-30,main,Chemicals,1,0,0.0
+2020-09-30,main,Construction & Engineering,5,0,0.0
+2020-09-30,main,Food & Staples Retailing,1,0,0.0
+2020-09-30,main,Food Beverage & Tobacco,1,0,0.0
+2020-09-30,main,Medical Devices,1,0,0.0
+2020-09-30,main,Other,1,0,0.0
+2020-09-30,main,Semiconductors,2,0,0.0
+2020-09-30,main,Specialty Retail,4,0,0.0
+2020-09-30,main,Tech Hardware & Storage,2,0,0.0
+2020-09-30,main,Transportation & Logistics,2,0,0.0
+2020-10-30,concentrated,Medical Devices,1,1,1.0
+2020-10-30,concentrated,Construction & Engineering,3,1,0.3333333333333333
+2020-10-30,concentrated,Auto Manufacturers & Parts,2,0,0.0
+2020-10-30,concentrated,Banks - Regional,1,0,0.0
+2020-10-30,concentrated,Capital Goods - Machinery,3,0,0.0
+2020-10-30,concentrated,Household & Personal Products,3,0,0.0
+2020-10-30,concentrated,Internet Content & Information,2,0,0.0
+2020-10-30,concentrated,Semiconductors,1,0,0.0
+2020-10-30,concentrated,Software - Application,4,0,0.0
+2020-10-30,concentrated,Specialty Retail,2,0,0.0
+2020-10-30,concentrated,Tech Hardware & Storage,2,0,0.0
+2020-10-30,concentrated,Transportation & Logistics,1,0,0.0
+2020-10-30,main,Medical Devices,1,1,1.0
+2020-10-30,main,Construction & Engineering,3,1,0.3333333333333333
+2020-10-30,main,Software - Application,4,1,0.25
+2020-10-30,main,Auto Manufacturers & Parts,2,0,0.0
+2020-10-30,main,Banks - Regional,1,0,0.0
+2020-10-30,main,Capital Goods - Machinery,3,0,0.0
+2020-10-30,main,Household & Personal Products,3,0,0.0
+2020-10-30,main,Internet Content & Information,2,0,0.0
+2020-10-30,main,Semiconductors,1,0,0.0
+2020-10-30,main,Specialty Retail,2,0,0.0
+2020-10-30,main,Tech Hardware & Storage,2,0,0.0
+2020-10-30,main,Transportation & Logistics,1,0,0.0
+2020-11-30,concentrated,Internet Content & Information,2,1,0.5
+2020-11-30,concentrated,Other,3,1,0.3333333333333333
+2020-11-30,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2020-11-30,concentrated,Banks - Regional,1,0,0.0
+2020-11-30,concentrated,Capital Goods - Machinery,3,0,0.0
+2020-11-30,concentrated,Food Beverage & Tobacco,1,0,0.0
+2020-11-30,concentrated,Hotels Restaurants & Leisure,1,0,0.0
+2020-11-30,concentrated,Medical Devices,1,0,0.0
+2020-11-30,concentrated,Semiconductors,5,0,0.0
+2020-11-30,concentrated,Software - Application,2,0,0.0
+2020-11-30,concentrated,Specialty Retail,1,0,0.0
+2020-11-30,concentrated,Tech Hardware & Storage,4,0,0.0
+2020-11-30,main,Medical Devices,1,1,1.0
+2020-11-30,main,Other,3,1,0.3333333333333333
+2020-11-30,main,Auto Manufacturers & Parts,1,0,0.0
+2020-11-30,main,Banks - Regional,1,0,0.0
+2020-11-30,main,Capital Goods - Machinery,3,0,0.0
+2020-11-30,main,Food Beverage & Tobacco,1,0,0.0
+2020-11-30,main,Hotels Restaurants & Leisure,1,0,0.0
+2020-11-30,main,Internet Content & Information,2,0,0.0
+2020-11-30,main,Semiconductors,5,0,0.0
+2020-11-30,main,Software - Application,2,0,0.0
+2020-11-30,main,Specialty Retail,1,0,0.0
+2020-11-30,main,Tech Hardware & Storage,4,0,0.0
+2020-12-31,concentrated,Semiconductors,3,1,0.3333333333333333
+2020-12-31,concentrated,Apparel & Luxury,1,0,0.0
+2020-12-31,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2020-12-31,concentrated,Banks - Diversified,1,0,0.0
+2020-12-31,concentrated,Banks - Regional,5,0,0.0
+2020-12-31,concentrated,Capital Goods - Machinery,1,0,0.0
+2020-12-31,concentrated,Capital Markets,1,0,0.0
+2020-12-31,concentrated,Construction & Engineering,1,0,0.0
+2020-12-31,concentrated,Food Beverage & Tobacco,1,0,0.0
+2020-12-31,concentrated,Hotels Restaurants & Leisure,3,0,0.0
+2020-12-31,concentrated,Internet Content & Information,1,0,0.0
+2020-12-31,concentrated,Other,3,0,0.0
+2020-12-31,concentrated,Tech Hardware & Storage,3,0,0.0
+2020-12-31,main,Other,3,1,0.3333333333333333
+2020-12-31,main,Semiconductors,3,1,0.3333333333333333
+2020-12-31,main,Banks - Regional,5,1,0.2
+2020-12-31,main,Apparel & Luxury,1,0,0.0
+2020-12-31,main,Auto Manufacturers & Parts,1,0,0.0
+2020-12-31,main,Banks - Diversified,1,0,0.0
+2020-12-31,main,Capital Goods - Machinery,1,0,0.0
+2020-12-31,main,Capital Markets,1,0,0.0
+2020-12-31,main,Construction & Engineering,1,0,0.0
+2020-12-31,main,Food Beverage & Tobacco,1,0,0.0
+2020-12-31,main,Hotels Restaurants & Leisure,3,0,0.0
+2020-12-31,main,Internet Content & Information,1,0,0.0
+2020-12-31,main,Tech Hardware & Storage,3,0,0.0
+2021-01-29,concentrated,Apparel & Luxury,2,0,0.0
+2021-01-29,concentrated,Banks - Diversified,1,0,0.0
+2021-01-29,concentrated,Banks - Regional,3,0,0.0
+2021-01-29,concentrated,Capital Goods - Machinery,1,0,0.0
+2021-01-29,concentrated,Chemicals,1,0,0.0
+2021-01-29,concentrated,Communication Equipment,2,0,0.0
+2021-01-29,concentrated,Construction & Engineering,1,0,0.0
+2021-01-29,concentrated,Internet Content & Information,1,0,0.0
+2021-01-29,concentrated,Other,5,0,0.0
+2021-01-29,concentrated,Semiconductors,6,0,0.0
+2021-01-29,concentrated,Software - Application,1,0,0.0
+2021-01-29,concentrated,Tech Hardware & Storage,1,0,0.0
+2021-01-29,main,Chemicals,1,1,1.0
+2021-01-29,main,Communication Equipment,2,2,1.0
+2021-01-29,main,Banks - Regional,3,1,0.3333333333333333
+2021-01-29,main,Semiconductors,6,2,0.3333333333333333
+2021-01-29,main,Apparel & Luxury,2,0,0.0
+2021-01-29,main,Banks - Diversified,1,0,0.0
+2021-01-29,main,Capital Goods - Machinery,1,0,0.0
+2021-01-29,main,Construction & Engineering,1,0,0.0
+2021-01-29,main,Internet Content & Information,1,0,0.0
+2021-01-29,main,Other,5,0,0.0
+2021-01-29,main,Software - Application,1,0,0.0
+2021-01-29,main,Tech Hardware & Storage,1,0,0.0
+2021-02-26,concentrated,Banks - Regional,3,1,0.3333333333333333
+2021-02-26,concentrated,Semiconductors,6,2,0.3333333333333333
+2021-02-26,concentrated,Other,5,1,0.2
+2021-02-26,concentrated,Apparel & Luxury,1,0,0.0
+2021-02-26,concentrated,Banks - Diversified,2,0,0.0
+2021-02-26,concentrated,Capital Markets,1,0,0.0
+2021-02-26,concentrated,Chemicals,1,0,0.0
+2021-02-26,concentrated,Communication Equipment,1,0,0.0
+2021-02-26,concentrated,Construction & Engineering,2,0,0.0
+2021-02-26,concentrated,Internet Content & Information,1,0,0.0
+2021-02-26,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2021-02-26,concentrated,Tech Hardware & Storage,1,0,0.0
+2021-02-26,main,Tech Hardware & Storage,1,1,1.0
+2021-02-26,main,Semiconductors,6,4,0.6666666666666666
+2021-02-26,main,Banks - Regional,3,1,0.3333333333333333
+2021-02-26,main,Other,5,1,0.2
+2021-02-26,main,Apparel & Luxury,1,0,0.0
+2021-02-26,main,Banks - Diversified,2,0,0.0
+2021-02-26,main,Capital Markets,1,0,0.0
+2021-02-26,main,Chemicals,1,0,0.0
+2021-02-26,main,Communication Equipment,1,0,0.0
+2021-02-26,main,Construction & Engineering,2,0,0.0
+2021-02-26,main,Internet Content & Information,1,0,0.0
+2021-02-26,main,Oil Gas & Consumable Fuels,1,0,0.0
+2021-03-31,concentrated,Semiconductors,5,1,0.2
+2021-03-31,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2021-03-31,concentrated,Banks - Diversified,1,0,0.0
+2021-03-31,concentrated,Banks - Regional,3,0,0.0
+2021-03-31,concentrated,Capital Goods - Machinery,1,0,0.0
+2021-03-31,concentrated,Capital Markets,4,0,0.0
+2021-03-31,concentrated,Communication Equipment,1,0,0.0
+2021-03-31,concentrated,Construction & Engineering,1,0,0.0
+2021-03-31,concentrated,Insurance,2,0,0.0
+2021-03-31,concentrated,Oil Gas & Consumable Fuels,2,0,0.0
+2021-03-31,concentrated,Other,1,0,0.0
+2021-03-31,concentrated,Specialty Retail,1,0,0.0
+2021-03-31,concentrated,Tech Hardware & Storage,2,0,0.0
+2021-03-31,main,Construction & Engineering,1,1,1.0
+2021-03-31,main,Tech Hardware & Storage,2,1,0.5
+2021-03-31,main,Semiconductors,5,2,0.4
+2021-03-31,main,Banks - Regional,3,1,0.3333333333333333
+2021-03-31,main,Auto Manufacturers & Parts,1,0,0.0
+2021-03-31,main,Banks - Diversified,1,0,0.0
+2021-03-31,main,Capital Goods - Machinery,1,0,0.0
+2021-03-31,main,Capital Markets,4,0,0.0
+2021-03-31,main,Communication Equipment,1,0,0.0
+2021-03-31,main,Insurance,2,0,0.0
+2021-03-31,main,Oil Gas & Consumable Fuels,2,0,0.0
+2021-03-31,main,Other,1,0,0.0
+2021-03-31,main,Specialty Retail,1,0,0.0
+2021-04-30,concentrated,Consumer Finance,2,1,0.5
+2021-04-30,concentrated,Auto Manufacturers & Parts,3,0,0.0
+2021-04-30,concentrated,Banks - Diversified,2,0,0.0
+2021-04-30,concentrated,Banks - Regional,2,0,0.0
+2021-04-30,concentrated,Capital Markets,6,0,0.0
+2021-04-30,concentrated,Construction & Engineering,1,0,0.0
+2021-04-30,concentrated,Insurance,7,0,0.0
+2021-04-30,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2021-04-30,concentrated,Other,1,0,0.0
+2021-04-30,concentrated,Specialty Retail,1,0,0.0
+2021-04-30,main,Banks - Diversified,2,1,0.5
+2021-04-30,main,Banks - Regional,2,1,0.5
+2021-04-30,main,Consumer Finance,2,1,0.5
+2021-04-30,main,Insurance,7,1,0.14285714285714285
+2021-04-30,main,Auto Manufacturers & Parts,3,0,0.0
+2021-04-30,main,Capital Markets,6,0,0.0
+2021-04-30,main,Construction & Engineering,1,0,0.0
+2021-04-30,main,Oil Gas & Consumable Fuels,1,0,0.0
+2021-04-30,main,Other,1,0,0.0
+2021-04-30,main,Specialty Retail,1,0,0.0
+2021-05-28,concentrated,Banks - Diversified,1,0,0.0
+2021-05-28,concentrated,Capital Goods - Machinery,1,0,0.0
+2021-05-28,concentrated,Capital Markets,7,0,0.0
+2021-05-28,concentrated,Construction & Engineering,1,0,0.0
+2021-05-28,concentrated,Consumer Finance,1,0,0.0
+2021-05-28,concentrated,Diagnostics & Research,3,0,0.0
+2021-05-28,concentrated,Food Beverage & Tobacco,1,0,0.0
+2021-05-28,concentrated,Insurance,3,0,0.0
+2021-05-28,concentrated,Metals & Mining,3,0,0.0
+2021-05-28,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2021-05-28,concentrated,Specialty Retail,3,0,0.0
+2021-05-28,main,Banks - Diversified,1,1,1.0
+2021-05-28,main,Metals & Mining,3,1,0.3333333333333333
+2021-05-28,main,Capital Markets,7,1,0.14285714285714285
+2021-05-28,main,Capital Goods - Machinery,1,0,0.0
+2021-05-28,main,Construction & Engineering,1,0,0.0
+2021-05-28,main,Consumer Finance,1,0,0.0
+2021-05-28,main,Diagnostics & Research,3,0,0.0
+2021-05-28,main,Food Beverage & Tobacco,1,0,0.0
+2021-05-28,main,Insurance,3,0,0.0
+2021-05-28,main,Oil Gas & Consumable Fuels,1,0,0.0
+2021-05-28,main,Specialty Retail,3,0,0.0
+2021-06-30,concentrated,Semiconductors,1,1,1.0
+2021-06-30,concentrated,Aerospace & Defense,2,0,0.0
+2021-06-30,concentrated,Apparel & Luxury,1,0,0.0
+2021-06-30,concentrated,Capital Goods - Machinery,3,0,0.0
+2021-06-30,concentrated,Capital Markets,7,0,0.0
+2021-06-30,concentrated,Consumer Finance,2,0,0.0
+2021-06-30,concentrated,Diagnostics & Research,2,0,0.0
+2021-06-30,concentrated,Equity REITs,1,0,0.0
+2021-06-30,concentrated,Oil Gas & Consumable Fuels,3,0,0.0
+2021-06-30,concentrated,Specialty Retail,3,0,0.0
+2021-06-30,main,Semiconductors,1,1,1.0
+2021-06-30,main,Capital Goods - Machinery,3,1,0.3333333333333333
+2021-06-30,main,Aerospace & Defense,2,0,0.0
+2021-06-30,main,Apparel & Luxury,1,0,0.0
+2021-06-30,main,Capital Markets,7,0,0.0
+2021-06-30,main,Consumer Finance,2,0,0.0
+2021-06-30,main,Diagnostics & Research,2,0,0.0
+2021-06-30,main,Equity REITs,1,0,0.0
+2021-06-30,main,Oil Gas & Consumable Fuels,3,0,0.0
+2021-06-30,main,Specialty Retail,3,0,0.0
+2021-07-30,concentrated,Medical Devices,1,1,1.0
+2021-07-30,concentrated,Capital Markets,8,1,0.125
+2021-07-30,concentrated,Apparel & Luxury,1,0,0.0
+2021-07-30,concentrated,Auto Manufacturers & Parts,2,0,0.0
+2021-07-30,concentrated,Capital Goods - Machinery,2,0,0.0
+2021-07-30,concentrated,Commercial Services,1,0,0.0
+2021-07-30,concentrated,Consumer Finance,2,0,0.0
+2021-07-30,concentrated,Diagnostics & Research,2,0,0.0
+2021-07-30,concentrated,Equity REITs,4,0,0.0
+2021-07-30,concentrated,Software - Application,1,0,0.0
+2021-07-30,concentrated,Specialty Retail,1,0,0.0
+2021-07-30,main,Medical Devices,1,1,1.0
+2021-07-30,main,Auto Manufacturers & Parts,2,1,0.5
+2021-07-30,main,Diagnostics & Research,2,1,0.5
+2021-07-30,main,Capital Markets,8,2,0.25
+2021-07-30,main,Apparel & Luxury,1,0,0.0
+2021-07-30,main,Capital Goods - Machinery,2,0,0.0
+2021-07-30,main,Commercial Services,1,0,0.0
+2021-07-30,main,Consumer Finance,2,0,0.0
+2021-07-30,main,Equity REITs,4,0,0.0
+2021-07-30,main,Software - Application,1,0,0.0
+2021-07-30,main,Specialty Retail,1,0,0.0
+2021-08-31,concentrated,Specialty Retail,3,1,0.3333333333333333
+2021-08-31,concentrated,Software - Application,7,1,0.14285714285714285
+2021-08-31,concentrated,Capital Markets,2,0,0.0
+2021-08-31,concentrated,Diagnostics & Research,6,0,0.0
+2021-08-31,concentrated,Equity REITs,1,0,0.0
+2021-08-31,concentrated,Medical Devices,6,0,0.0
+2021-08-31,main,Software - Application,7,3,0.42857142857142855
+2021-08-31,main,Medical Devices,6,2,0.3333333333333333
+2021-08-31,main,Specialty Retail,3,1,0.3333333333333333
+2021-08-31,main,Capital Markets,2,0,0.0
+2021-08-31,main,Diagnostics & Research,6,0,0.0
+2021-08-31,main,Equity REITs,1,0,0.0
+2021-09-30,concentrated,Software - Application,9,2,0.2222222222222222
+2021-09-30,concentrated,Medical Devices,10,1,0.1
+2021-09-30,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2021-09-30,concentrated,Capital Markets,1,0,0.0
+2021-09-30,concentrated,Consumer Finance,1,0,0.0
+2021-09-30,concentrated,Diagnostics & Research,2,0,0.0
+2021-09-30,concentrated,Equity REITs,1,0,0.0
+2021-09-30,concentrated,Specialty Retail,1,0,0.0
+2021-09-30,main,Consumer Finance,1,1,1.0
+2021-09-30,main,Software - Application,9,3,0.3333333333333333
+2021-09-30,main,Medical Devices,10,2,0.2
+2021-09-30,main,Auto Manufacturers & Parts,1,0,0.0
+2021-09-30,main,Capital Markets,1,0,0.0
+2021-09-30,main,Diagnostics & Research,2,0,0.0
+2021-09-30,main,Equity REITs,1,0,0.0
+2021-09-30,main,Specialty Retail,1,0,0.0
+2021-10-29,concentrated,Software - Application,14,2,0.14285714285714285
+2021-10-29,concentrated,Banks - Diversified,1,0,0.0
+2021-10-29,concentrated,Capital Goods - Machinery,1,0,0.0
+2021-10-29,concentrated,Capital Markets,1,0,0.0
+2021-10-29,concentrated,Construction & Engineering,1,0,0.0
+2021-10-29,concentrated,Diagnostics & Research,3,0,0.0
+2021-10-29,concentrated,Software - Infrastructure,2,0,0.0
+2021-10-29,concentrated,Specialty Retail,1,0,0.0
+2021-10-29,concentrated,Transportation & Logistics,3,0,0.0
+2021-10-29,main,Software - Infrastructure,2,1,0.5
+2021-10-29,main,Software - Application,14,5,0.35714285714285715
+2021-10-29,main,Transportation & Logistics,3,1,0.3333333333333333
+2021-10-29,main,Banks - Diversified,1,0,0.0
+2021-10-29,main,Capital Goods - Machinery,1,0,0.0
+2021-10-29,main,Capital Markets,1,0,0.0
+2021-10-29,main,Construction & Engineering,1,0,0.0
+2021-10-29,main,Diagnostics & Research,3,0,0.0
+2021-10-29,main,Specialty Retail,1,0,0.0
+2021-11-30,concentrated,Auto Manufacturers & Parts,1,1,1.0
+2021-11-30,concentrated,Software - Application,3,1,0.3333333333333333
+2021-11-30,concentrated,Semiconductors,7,2,0.2857142857142857
+2021-11-30,concentrated,Capital Markets,2,0,0.0
+2021-11-30,concentrated,Commercial Services,3,0,0.0
+2021-11-30,concentrated,Construction & Engineering,3,0,0.0
+2021-11-30,concentrated,Food & Staples Retailing,1,0,0.0
+2021-11-30,concentrated,Specialty Retail,2,0,0.0
+2021-11-30,concentrated,Tech Hardware & Storage,2,0,0.0
+2021-11-30,concentrated,Transportation & Logistics,1,0,0.0
+2021-11-30,main,Auto Manufacturers & Parts,1,1,1.0
+2021-11-30,main,Tech Hardware & Storage,2,2,1.0
+2021-11-30,main,Transportation & Logistics,1,1,1.0
+2021-11-30,main,Software - Application,3,2,0.6666666666666666
+2021-11-30,main,Commercial Services,3,1,0.3333333333333333
+2021-11-30,main,Construction & Engineering,3,1,0.3333333333333333
+2021-11-30,main,Semiconductors,7,2,0.2857142857142857
+2021-11-30,main,Capital Markets,2,0,0.0
+2021-11-30,main,Food & Staples Retailing,1,0,0.0
+2021-11-30,main,Specialty Retail,2,0,0.0
+2021-12-31,concentrated,Tech Hardware & Storage,1,1,1.0
+2021-12-31,concentrated,Semiconductors,5,2,0.4
+2021-12-31,concentrated,Construction & Engineering,5,1,0.2
+2021-12-31,concentrated,Capital Markets,4,0,0.0
+2021-12-31,concentrated,Commercial Services,2,0,0.0
+2021-12-31,concentrated,Equity REITs,2,0,0.0
+2021-12-31,concentrated,Food & Staples Retailing,1,0,0.0
+2021-12-31,concentrated,Transportation & Logistics,1,0,0.0
+2021-12-31,concentrated,Utilities,4,0,0.0
+2021-12-31,main,Tech Hardware & Storage,1,1,1.0
+2021-12-31,main,Semiconductors,5,3,0.6
+2021-12-31,main,Equity REITs,2,1,0.5
+2021-12-31,main,Construction & Engineering,5,1,0.2
+2021-12-31,main,Capital Markets,4,0,0.0
+2021-12-31,main,Commercial Services,2,0,0.0
+2021-12-31,main,Food & Staples Retailing,1,0,0.0
+2021-12-31,main,Transportation & Logistics,1,0,0.0
+2021-12-31,main,Utilities,4,0,0.0
+2022-01-31,concentrated,Semiconductors,4,1,0.25
+2022-01-31,concentrated,Capital Markets,1,0,0.0
+2022-01-31,concentrated,Equity REITs,1,0,0.0
+2022-01-31,concentrated,Food & Staples Retailing,2,0,0.0
+2022-01-31,concentrated,Food Beverage & Tobacco,1,0,0.0
+2022-01-31,concentrated,Insurance,3,0,0.0
+2022-01-31,concentrated,Oil Gas & Consumable Fuels,2,0,0.0
+2022-01-31,concentrated,Pharmaceuticals,2,0,0.0
+2022-01-31,concentrated,Transportation & Logistics,2,0,0.0
+2022-01-31,concentrated,Utilities,7,0,0.0
+2022-01-31,main,Semiconductors,4,2,0.5
+2022-01-31,main,Insurance,3,1,0.3333333333333333
+2022-01-31,main,Capital Markets,1,0,0.0
+2022-01-31,main,Equity REITs,1,0,0.0
+2022-01-31,main,Food & Staples Retailing,2,0,0.0
+2022-01-31,main,Food Beverage & Tobacco,1,0,0.0
+2022-01-31,main,Oil Gas & Consumable Fuels,2,0,0.0
+2022-01-31,main,Pharmaceuticals,2,0,0.0
+2022-01-31,main,Transportation & Logistics,2,0,0.0
+2022-01-31,main,Utilities,7,0,0.0
+2022-02-28,concentrated,Aerospace & Defense,1,0,0.0
+2022-02-28,concentrated,Food & Staples Retailing,2,0,0.0
+2022-02-28,concentrated,Food Beverage & Tobacco,3,0,0.0
+2022-02-28,concentrated,Hotels Restaurants & Leisure,5,0,0.0
+2022-02-28,concentrated,Insurance,4,0,0.0
+2022-02-28,concentrated,Metals & Mining,4,0,0.0
+2022-02-28,concentrated,Oil Gas & Consumable Fuels,2,0,0.0
+2022-02-28,concentrated,Pharmaceuticals,1,0,0.0
+2022-02-28,concentrated,Semiconductors,1,0,0.0
+2022-02-28,concentrated,Transportation & Logistics,1,0,0.0
+2022-02-28,concentrated,Utilities,1,0,0.0
+2022-02-28,main,Aerospace & Defense,1,0,0.0
+2022-02-28,main,Food & Staples Retailing,2,0,0.0
+2022-02-28,main,Food Beverage & Tobacco,3,0,0.0
+2022-02-28,main,Hotels Restaurants & Leisure,5,0,0.0
+2022-02-28,main,Insurance,4,0,0.0
+2022-02-28,main,Metals & Mining,4,0,0.0
+2022-02-28,main,Oil Gas & Consumable Fuels,2,0,0.0
+2022-02-28,main,Pharmaceuticals,1,0,0.0
+2022-02-28,main,Semiconductors,1,0,0.0
+2022-02-28,main,Transportation & Logistics,1,0,0.0
+2022-02-28,main,Utilities,1,0,0.0
+2022-03-31,main,Oil Gas & Consumable Fuels,4,3,0.75
+2022-03-31,main,Food Beverage & Tobacco,4,1,0.25
+2022-03-31,main,Utilities,9,1,0.1111111111111111
+2022-03-31,main,Chemicals,1,0,0.0
+2022-03-31,main,Insurance,3,0,0.0
+2022-03-31,main,Metals & Mining,3,0,0.0
+2022-03-31,main,Transportation & Logistics,1,0,0.0
+2022-04-29,concentrated,Metals & Mining,5,2,0.4
+2022-04-29,concentrated,Aerospace & Defense,2,0,0.0
+2022-04-29,concentrated,Biotechnology,2,0,0.0
+2022-04-29,concentrated,Chemicals,1,0,0.0
+2022-04-29,concentrated,Diagnostics & Research,1,0,0.0
+2022-04-29,concentrated,Food & Staples Retailing,4,0,0.0
+2022-04-29,concentrated,Food Beverage & Tobacco,2,0,0.0
+2022-04-29,concentrated,Insurance,1,0,0.0
+2022-04-29,concentrated,Oil Gas & Consumable Fuels,3,0,0.0
+2022-04-29,concentrated,Pharmaceuticals,2,0,0.0
+2022-04-29,concentrated,Utilities,2,0,0.0
+2022-04-29,main,Metals & Mining,5,3,0.6
+2022-04-29,main,Utilities,2,1,0.5
+2022-04-29,main,Oil Gas & Consumable Fuels,3,1,0.3333333333333333
+2022-04-29,main,Food & Staples Retailing,4,1,0.25
+2022-04-29,main,Aerospace & Defense,2,0,0.0
+2022-04-29,main,Biotechnology,2,0,0.0
+2022-04-29,main,Chemicals,1,0,0.0
+2022-04-29,main,Diagnostics & Research,1,0,0.0
+2022-04-29,main,Food Beverage & Tobacco,2,0,0.0
+2022-04-29,main,Insurance,1,0,0.0
+2022-04-29,main,Pharmaceuticals,2,0,0.0
+2022-05-31,concentrated,Consumer Finance,1,1,1.0
+2022-05-31,concentrated,Metals & Mining,2,1,0.5
+2022-05-31,concentrated,Oil Gas & Consumable Fuels,3,1,0.3333333333333333
+2022-05-31,concentrated,Aerospace & Defense,1,0,0.0
+2022-05-31,concentrated,Biotechnology,2,0,0.0
+2022-05-31,concentrated,Chemicals,2,0,0.0
+2022-05-31,concentrated,Equity REITs,1,0,0.0
+2022-05-31,concentrated,Food & Staples Retailing,1,0,0.0
+2022-05-31,concentrated,Food Beverage & Tobacco,3,0,0.0
+2022-05-31,concentrated,Insurance,1,0,0.0
+2022-05-31,concentrated,Pharmaceuticals,1,0,0.0
+2022-05-31,concentrated,Utilities,7,0,0.0
+2022-05-31,main,Consumer Finance,1,1,1.0
+2022-05-31,main,Equity REITs,1,1,1.0
+2022-05-31,main,Oil Gas & Consumable Fuels,3,2,0.6666666666666666
+2022-05-31,main,Metals & Mining,2,1,0.5
+2022-05-31,main,Aerospace & Defense,1,0,0.0
+2022-05-31,main,Biotechnology,2,0,0.0
+2022-05-31,main,Chemicals,2,0,0.0
+2022-05-31,main,Food & Staples Retailing,1,0,0.0
+2022-05-31,main,Food Beverage & Tobacco,3,0,0.0
+2022-05-31,main,Insurance,1,0,0.0
+2022-05-31,main,Pharmaceuticals,1,0,0.0
+2022-05-31,main,Utilities,7,0,0.0
+2022-06-30,concentrated,Aerospace & Defense,2,0,0.0
+2022-06-30,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2022-06-30,concentrated,Biotechnology,5,0,0.0
+2022-06-30,concentrated,Diagnostics & Research,1,0,0.0
+2022-06-30,concentrated,Equity REITs,1,0,0.0
+2022-06-30,concentrated,Food & Staples Retailing,1,0,0.0
+2022-06-30,concentrated,Food Beverage & Tobacco,8,0,0.0
+2022-06-30,concentrated,Insurance,1,0,0.0
+2022-06-30,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2022-06-30,concentrated,Pharmaceuticals,1,0,0.0
+2022-06-30,concentrated,Utilities,3,0,0.0
+2022-06-30,main,Equity REITs,1,1,1.0
+2022-06-30,main,Aerospace & Defense,2,0,0.0
+2022-06-30,main,Auto Manufacturers & Parts,1,0,0.0
+2022-06-30,main,Biotechnology,5,0,0.0
+2022-06-30,main,Diagnostics & Research,1,0,0.0
+2022-06-30,main,Food & Staples Retailing,1,0,0.0
+2022-06-30,main,Food Beverage & Tobacco,8,0,0.0
+2022-06-30,main,Insurance,1,0,0.0
+2022-06-30,main,Oil Gas & Consumable Fuels,1,0,0.0
+2022-06-30,main,Pharmaceuticals,1,0,0.0
+2022-06-30,main,Utilities,3,0,0.0
+2022-07-29,concentrated,Auto Manufacturers & Parts,4,0,0.0
+2022-07-29,concentrated,Biotechnology,2,0,0.0
+2022-07-29,concentrated,Chemicals,1,0,0.0
+2022-07-29,concentrated,Commercial Services,3,0,0.0
+2022-07-29,concentrated,Construction & Engineering,1,0,0.0
+2022-07-29,concentrated,Diagnostics & Research,4,0,0.0
+2022-07-29,concentrated,Food & Staples Retailing,1,0,0.0
+2022-07-29,concentrated,Food Beverage & Tobacco,4,0,0.0
+2022-07-29,concentrated,Pharmaceuticals,1,0,0.0
+2022-07-29,concentrated,Tech Hardware & Storage,3,0,0.0
+2022-07-29,concentrated,Utilities,1,0,0.0
+2022-07-29,main,Auto Manufacturers & Parts,4,0,0.0
+2022-07-29,main,Biotechnology,2,0,0.0
+2022-07-29,main,Chemicals,1,0,0.0
+2022-07-29,main,Commercial Services,3,0,0.0
+2022-07-29,main,Construction & Engineering,1,0,0.0
+2022-07-29,main,Diagnostics & Research,4,0,0.0
+2022-07-29,main,Food & Staples Retailing,1,0,0.0
+2022-07-29,main,Food Beverage & Tobacco,4,0,0.0
+2022-07-29,main,Pharmaceuticals,1,0,0.0
+2022-07-29,main,Tech Hardware & Storage,3,0,0.0
+2022-07-29,main,Utilities,1,0,0.0
+2022-08-31,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2022-08-31,concentrated,Biotechnology,3,0,0.0
+2022-08-31,concentrated,Chemicals,1,0,0.0
+2022-08-31,concentrated,Commercial Services,1,0,0.0
+2022-08-31,concentrated,Construction & Engineering,1,0,0.0
+2022-08-31,concentrated,Diagnostics & Research,2,0,0.0
+2022-08-31,concentrated,Food & Staples Retailing,3,0,0.0
+2022-08-31,concentrated,Food Beverage & Tobacco,5,0,0.0
+2022-08-31,concentrated,Specialty Retail,2,0,0.0
+2022-08-31,concentrated,Tech Hardware & Storage,4,0,0.0
+2022-08-31,concentrated,Utilities,2,0,0.0
+2022-08-31,main,Auto Manufacturers & Parts,1,0,0.0
+2022-08-31,main,Biotechnology,3,0,0.0
+2022-08-31,main,Chemicals,1,0,0.0
+2022-08-31,main,Commercial Services,1,0,0.0
+2022-08-31,main,Construction & Engineering,1,0,0.0
+2022-08-31,main,Diagnostics & Research,2,0,0.0
+2022-08-31,main,Food & Staples Retailing,3,0,0.0
+2022-08-31,main,Food Beverage & Tobacco,5,0,0.0
+2022-08-31,main,Specialty Retail,2,0,0.0
+2022-08-31,main,Tech Hardware & Storage,4,0,0.0
+2022-08-31,main,Utilities,2,0,0.0
+2022-09-30,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2022-09-30,concentrated,Biotechnology,2,0,0.0
+2022-09-30,concentrated,Capital Goods - Machinery,2,0,0.0
+2022-09-30,concentrated,Chemicals,1,0,0.0
+2022-09-30,concentrated,Commercial Services,5,0,0.0
+2022-09-30,concentrated,Construction & Engineering,1,0,0.0
+2022-09-30,concentrated,Diagnostics & Research,2,0,0.0
+2022-09-30,concentrated,Food Beverage & Tobacco,1,0,0.0
+2022-09-30,concentrated,Hotels Restaurants & Leisure,1,0,0.0
+2022-09-30,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2022-09-30,concentrated,Pharmaceuticals,2,0,0.0
+2022-09-30,concentrated,Specialty Retail,4,0,0.0
+2022-09-30,concentrated,Tech Hardware & Storage,3,0,0.0
+2022-09-30,main,Auto Manufacturers & Parts,1,0,0.0
+2022-09-30,main,Biotechnology,2,0,0.0
+2022-09-30,main,Capital Goods - Machinery,2,0,0.0
+2022-09-30,main,Chemicals,1,0,0.0
+2022-09-30,main,Commercial Services,5,0,0.0
+2022-09-30,main,Construction & Engineering,1,0,0.0
+2022-09-30,main,Diagnostics & Research,2,0,0.0
+2022-09-30,main,Food Beverage & Tobacco,1,0,0.0
+2022-09-30,main,Hotels Restaurants & Leisure,1,0,0.0
+2022-09-30,main,Oil Gas & Consumable Fuels,1,0,0.0
+2022-09-30,main,Pharmaceuticals,2,0,0.0
+2022-09-30,main,Specialty Retail,4,0,0.0
+2022-09-30,main,Tech Hardware & Storage,3,0,0.0
+2022-10-31,concentrated,Capital Goods - Machinery,1,1,1.0
+2022-10-31,concentrated,Tech Hardware & Storage,3,1,0.3333333333333333
+2022-10-31,concentrated,Aerospace & Defense,1,0,0.0
+2022-10-31,concentrated,Biotechnology,1,0,0.0
+2022-10-31,concentrated,Capital Markets,1,0,0.0
+2022-10-31,concentrated,Commercial Services,1,0,0.0
+2022-10-31,concentrated,Diagnostics & Research,1,0,0.0
+2022-10-31,concentrated,Hotels Restaurants & Leisure,5,0,0.0
+2022-10-31,concentrated,Insurance,6,0,0.0
+2022-10-31,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2022-10-31,concentrated,Pharmaceuticals,3,0,0.0
+2022-10-31,concentrated,Specialty Retail,1,0,0.0
+2022-10-31,main,Capital Goods - Machinery,1,1,1.0
+2022-10-31,main,Tech Hardware & Storage,3,1,0.3333333333333333
+2022-10-31,main,Hotels Restaurants & Leisure,5,1,0.2
+2022-10-31,main,Aerospace & Defense,1,0,0.0
+2022-10-31,main,Biotechnology,1,0,0.0
+2022-10-31,main,Capital Markets,1,0,0.0
+2022-10-31,main,Commercial Services,1,0,0.0
+2022-10-31,main,Diagnostics & Research,1,0,0.0
+2022-10-31,main,Insurance,6,0,0.0
+2022-10-31,main,Oil Gas & Consumable Fuels,1,0,0.0
+2022-10-31,main,Pharmaceuticals,3,0,0.0
+2022-10-31,main,Specialty Retail,1,0,0.0
+2022-11-30,concentrated,Aerospace & Defense,2,0,0.0
+2022-11-30,concentrated,Apparel & Luxury,3,0,0.0
+2022-11-30,concentrated,Banks - Diversified,1,0,0.0
+2022-11-30,concentrated,Biotechnology,1,0,0.0
+2022-11-30,concentrated,Capital Goods - Machinery,1,0,0.0
+2022-11-30,concentrated,Diagnostics & Research,3,0,0.0
+2022-11-30,concentrated,Hotels Restaurants & Leisure,5,0,0.0
+2022-11-30,concentrated,Household & Personal Products,1,0,0.0
+2022-11-30,concentrated,Pharmaceuticals,2,0,0.0
+2022-11-30,concentrated,Specialty Retail,4,0,0.0
+2022-11-30,concentrated,Tech Hardware & Storage,2,0,0.0
+2022-11-30,concentrated,Transportation & Logistics,1,0,0.0
+2022-11-30,main,Aerospace & Defense,2,0,0.0
+2022-11-30,main,Apparel & Luxury,3,0,0.0
+2022-11-30,main,Banks - Diversified,1,0,0.0
+2022-11-30,main,Biotechnology,1,0,0.0
+2022-11-30,main,Capital Goods - Machinery,1,0,0.0
+2022-11-30,main,Diagnostics & Research,3,0,0.0
+2022-11-30,main,Hotels Restaurants & Leisure,5,0,0.0
+2022-11-30,main,Household & Personal Products,1,0,0.0
+2022-11-30,main,Pharmaceuticals,2,0,0.0
+2022-11-30,main,Specialty Retail,4,0,0.0
+2022-11-30,main,Tech Hardware & Storage,2,0,0.0
+2022-11-30,main,Transportation & Logistics,1,0,0.0
+2022-12-30,concentrated,Tech Hardware & Storage,1,1,1.0
+2022-12-30,concentrated,Aerospace & Defense,2,0,0.0
+2022-12-30,concentrated,Apparel & Luxury,6,0,0.0
+2022-12-30,concentrated,Capital Goods - Machinery,5,0,0.0
+2022-12-30,concentrated,Diagnostics & Research,4,0,0.0
+2022-12-30,concentrated,Hotels Restaurants & Leisure,1,0,0.0
+2022-12-30,concentrated,Household & Personal Products,1,0,0.0
+2022-12-30,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2022-12-30,concentrated,Pharmaceuticals,1,0,0.0
+2022-12-30,concentrated,Specialty Retail,4,0,0.0
+2022-12-30,main,Tech Hardware & Storage,1,1,1.0
+2022-12-30,main,Capital Goods - Machinery,5,1,0.2
+2022-12-30,main,Aerospace & Defense,2,0,0.0
+2022-12-30,main,Apparel & Luxury,6,0,0.0
+2022-12-30,main,Diagnostics & Research,4,0,0.0
+2022-12-30,main,Hotels Restaurants & Leisure,1,0,0.0
+2022-12-30,main,Household & Personal Products,1,0,0.0
+2022-12-30,main,Oil Gas & Consumable Fuels,1,0,0.0
+2022-12-30,main,Pharmaceuticals,1,0,0.0
+2022-12-30,main,Specialty Retail,4,0,0.0
+2023-01-31,concentrated,Apparel & Luxury,3,0,0.0
+2023-01-31,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2023-01-31,concentrated,Capital Goods - Machinery,2,0,0.0
+2023-01-31,concentrated,Capital Markets,3,0,0.0
+2023-01-31,concentrated,Hotels Restaurants & Leisure,3,0,0.0
+2023-01-31,concentrated,Household & Personal Products,1,0,0.0
+2023-01-31,concentrated,Insurance,1,0,0.0
+2023-01-31,concentrated,Metals & Mining,3,0,0.0
+2023-01-31,concentrated,Semiconductors,4,0,0.0
+2023-01-31,concentrated,Specialty Retail,4,0,0.0
+2023-01-31,main,Capital Goods - Machinery,2,1,0.5
+2023-01-31,main,Semiconductors,4,1,0.25
+2023-01-31,main,Specialty Retail,4,1,0.25
+2023-01-31,main,Apparel & Luxury,3,0,0.0
+2023-01-31,main,Auto Manufacturers & Parts,1,0,0.0
+2023-01-31,main,Capital Markets,3,0,0.0
+2023-01-31,main,Hotels Restaurants & Leisure,3,0,0.0
+2023-01-31,main,Household & Personal Products,1,0,0.0
+2023-01-31,main,Insurance,1,0,0.0
+2023-01-31,main,Metals & Mining,3,0,0.0
+2023-02-28,concentrated,Semiconductors,10,1,0.1
+2023-02-28,concentrated,Aerospace & Defense,1,0,0.0
+2023-02-28,concentrated,Apparel & Luxury,2,0,0.0
+2023-02-28,concentrated,Auto Manufacturers & Parts,2,0,0.0
+2023-02-28,concentrated,Banks - Diversified,1,0,0.0
+2023-02-28,concentrated,Capital Goods - Machinery,1,0,0.0
+2023-02-28,concentrated,Capital Markets,1,0,0.0
+2023-02-28,concentrated,Construction & Engineering,2,0,0.0
+2023-02-28,concentrated,Hotels Restaurants & Leisure,2,0,0.0
+2023-02-28,concentrated,Metals & Mining,2,0,0.0
+2023-02-28,concentrated,Other,1,0,0.0
+2023-02-28,main,Semiconductors,10,2,0.2
+2023-02-28,main,Aerospace & Defense,1,0,0.0
+2023-02-28,main,Apparel & Luxury,2,0,0.0
+2023-02-28,main,Auto Manufacturers & Parts,2,0,0.0
+2023-02-28,main,Banks - Diversified,1,0,0.0
+2023-02-28,main,Capital Goods - Machinery,1,0,0.0
+2023-02-28,main,Capital Markets,1,0,0.0
+2023-02-28,main,Construction & Engineering,2,0,0.0
+2023-02-28,main,Hotels Restaurants & Leisure,2,0,0.0
+2023-02-28,main,Metals & Mining,2,0,0.0
+2023-02-28,main,Other,1,0,0.0
+2023-03-31,concentrated,Semiconductors,10,1,0.1
+2023-03-31,concentrated,Apparel & Luxury,1,0,0.0
+2023-03-31,concentrated,Capital Goods - Machinery,1,0,0.0
+2023-03-31,concentrated,Communication Equipment,1,0,0.0
+2023-03-31,concentrated,Construction & Engineering,1,0,0.0
+2023-03-31,concentrated,Hotels Restaurants & Leisure,1,0,0.0
+2023-03-31,concentrated,Metals & Mining,3,0,0.0
+2023-03-31,concentrated,Other,3,0,0.0
+2023-03-31,concentrated,Software - Application,3,0,0.0
+2023-03-31,concentrated,Tech Hardware & Storage,1,0,0.0
+2023-03-31,main,Semiconductors,10,3,0.3
+2023-03-31,main,Apparel & Luxury,1,0,0.0
+2023-03-31,main,Capital Goods - Machinery,1,0,0.0
+2023-03-31,main,Communication Equipment,1,0,0.0
+2023-03-31,main,Construction & Engineering,1,0,0.0
+2023-03-31,main,Hotels Restaurants & Leisure,1,0,0.0
+2023-03-31,main,Metals & Mining,3,0,0.0
+2023-03-31,main,Other,3,0,0.0
+2023-03-31,main,Software - Application,3,0,0.0
+2023-03-31,main,Tech Hardware & Storage,1,0,0.0
+2023-04-28,concentrated,Construction & Engineering,2,1,0.5
+2023-04-28,concentrated,Apparel & Luxury,3,0,0.0
+2023-04-28,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2023-04-28,concentrated,Capital Goods - Machinery,1,0,0.0
+2023-04-28,concentrated,Hotels Restaurants & Leisure,2,0,0.0
+2023-04-28,concentrated,Household & Personal Products,1,0,0.0
+2023-04-28,concentrated,Internet Content & Information,2,0,0.0
+2023-04-28,concentrated,Medical Devices,3,0,0.0
+2023-04-28,concentrated,Other,3,0,0.0
+2023-04-28,concentrated,Semiconductors,4,0,0.0
+2023-04-28,concentrated,Software - Application,3,0,0.0
+2023-04-28,main,Semiconductors,4,3,0.75
+2023-04-28,main,Construction & Engineering,2,1,0.5
+2023-04-28,main,Apparel & Luxury,3,0,0.0
+2023-04-28,main,Auto Manufacturers & Parts,1,0,0.0
+2023-04-28,main,Capital Goods - Machinery,1,0,0.0
+2023-04-28,main,Hotels Restaurants & Leisure,2,0,0.0
+2023-04-28,main,Household & Personal Products,1,0,0.0
+2023-04-28,main,Internet Content & Information,2,0,0.0
+2023-04-28,main,Medical Devices,3,0,0.0
+2023-04-28,main,Other,3,0,0.0
+2023-04-28,main,Software - Application,3,0,0.0
+2023-05-31,concentrated,Construction & Engineering,1,0,0.0
+2023-05-31,concentrated,Household & Personal Products,1,0,0.0
+2023-05-31,concentrated,Internet Content & Information,5,0,0.0
+2023-05-31,concentrated,Other,3,0,0.0
+2023-05-31,concentrated,Semiconductors,10,0,0.0
+2023-05-31,concentrated,Software - Application,5,0,0.0
+2023-05-31,concentrated,Software - Infrastructure,4,0,0.0
+2023-05-31,concentrated,Tech Hardware & Storage,1,0,0.0
+2023-05-31,main,Construction & Engineering,1,1,1.0
+2023-05-31,main,Semiconductors,10,4,0.4
+2023-05-31,main,Household & Personal Products,1,0,0.0
+2023-05-31,main,Internet Content & Information,5,0,0.0
+2023-05-31,main,Other,3,0,0.0
+2023-05-31,main,Software - Application,5,0,0.0
+2023-05-31,main,Software - Infrastructure,4,0,0.0
+2023-05-31,main,Tech Hardware & Storage,1,0,0.0
+2023-06-30,concentrated,Transportation & Logistics,1,1,1.0
+2023-06-30,concentrated,Construction & Engineering,4,1,0.25
+2023-06-30,concentrated,Auto Manufacturers & Parts,4,0,0.0
+2023-06-30,concentrated,Capital Goods - Machinery,2,0,0.0
+2023-06-30,concentrated,Internet Content & Information,4,0,0.0
+2023-06-30,concentrated,Other,4,0,0.0
+2023-06-30,concentrated,Semiconductors,4,0,0.0
+2023-06-30,concentrated,Software - Application,2,0,0.0
+2023-06-30,concentrated,Software - Infrastructure,1,0,0.0
+2023-06-30,concentrated,Tech Hardware & Storage,1,0,0.0
+2023-06-30,main,Construction & Engineering,4,4,1.0
+2023-06-30,main,Software - Infrastructure,1,1,1.0
+2023-06-30,main,Transportation & Logistics,1,1,1.0
+2023-06-30,main,Semiconductors,4,3,0.75
+2023-06-30,main,Capital Goods - Machinery,2,1,0.5
+2023-06-30,main,Auto Manufacturers & Parts,4,0,0.0
+2023-06-30,main,Internet Content & Information,4,0,0.0
+2023-06-30,main,Other,4,0,0.0
+2023-06-30,main,Software - Application,2,0,0.0
+2023-06-30,main,Tech Hardware & Storage,1,0,0.0
+2023-07-31,concentrated,Semiconductors,11,2,0.18181818181818182
+2023-07-31,concentrated,Capital Goods - Machinery,1,0,0.0
+2023-07-31,concentrated,Construction & Engineering,2,0,0.0
+2023-07-31,concentrated,Internet Content & Information,3,0,0.0
+2023-07-31,concentrated,Other,3,0,0.0
+2023-07-31,concentrated,Software - Application,2,0,0.0
+2023-07-31,concentrated,Tech Hardware & Storage,1,0,0.0
+2023-07-31,concentrated,Transportation & Logistics,3,0,0.0
+2023-07-31,main,Semiconductors,11,7,0.6363636363636364
+2023-07-31,main,Construction & Engineering,2,1,0.5
+2023-07-31,main,Software - Application,2,1,0.5
+2023-07-31,main,Capital Goods - Machinery,1,0,0.0
+2023-07-31,main,Internet Content & Information,3,0,0.0
+2023-07-31,main,Other,3,0,0.0
+2023-07-31,main,Tech Hardware & Storage,1,0,0.0
+2023-07-31,main,Transportation & Logistics,3,0,0.0
+2023-08-31,concentrated,Construction & Engineering,3,1,0.3333333333333333
+2023-08-31,concentrated,Capital Goods - Machinery,2,0,0.0
+2023-08-31,concentrated,Internet Content & Information,3,0,0.0
+2023-08-31,concentrated,Oil Gas & Consumable Fuels,7,0,0.0
+2023-08-31,concentrated,Other,2,0,0.0
+2023-08-31,concentrated,Semiconductors,2,0,0.0
+2023-08-31,concentrated,Software - Application,2,0,0.0
+2023-08-31,concentrated,Software - Infrastructure,3,0,0.0
+2023-08-31,concentrated,Transportation & Logistics,1,0,0.0
+2023-08-31,main,Construction & Engineering,3,2,0.6666666666666666
+2023-08-31,main,Capital Goods - Machinery,2,1,0.5
+2023-08-31,main,Semiconductors,2,1,0.5
+2023-08-31,main,Software - Application,2,1,0.5
+2023-08-31,main,Internet Content & Information,3,0,0.0
+2023-08-31,main,Oil Gas & Consumable Fuels,7,0,0.0
+2023-08-31,main,Other,2,0,0.0
+2023-08-31,main,Software - Infrastructure,3,0,0.0
+2023-08-31,main,Transportation & Logistics,1,0,0.0
+2023-09-29,concentrated,Capital Goods - Machinery,1,0,0.0
+2023-09-29,concentrated,Capital Markets,1,0,0.0
+2023-09-29,concentrated,Construction & Engineering,3,0,0.0
+2023-09-29,concentrated,Insurance,2,0,0.0
+2023-09-29,concentrated,Internet Content & Information,3,0,0.0
+2023-09-29,concentrated,Oil Gas & Consumable Fuels,11,0,0.0
+2023-09-29,concentrated,Software - Application,1,0,0.0
+2023-09-29,concentrated,Software - Infrastructure,3,0,0.0
+2023-09-29,main,Capital Goods - Machinery,1,1,1.0
+2023-09-29,main,Capital Markets,1,0,0.0
+2023-09-29,main,Construction & Engineering,3,0,0.0
+2023-09-29,main,Insurance,2,0,0.0
+2023-09-29,main,Internet Content & Information,3,0,0.0
+2023-09-29,main,Oil Gas & Consumable Fuels,11,0,0.0
+2023-09-29,main,Software - Application,1,0,0.0
+2023-09-29,main,Software - Infrastructure,3,0,0.0
+2023-10-31,concentrated,Aerospace & Defense,3,1,0.3333333333333333
+2023-10-31,concentrated,Oil Gas & Consumable Fuels,13,1,0.07692307692307693
+2023-10-31,concentrated,Commercial Services,1,0,0.0
+2023-10-31,concentrated,Insurance,5,0,0.0
+2023-10-31,concentrated,Internet Content & Information,1,0,0.0
+2023-10-31,concentrated,Software - Infrastructure,2,0,0.0
+2023-10-31,main,Aerospace & Defense,3,1,0.3333333333333333
+2023-10-31,main,Oil Gas & Consumable Fuels,13,1,0.07692307692307693
+2023-10-31,main,Commercial Services,1,0,0.0
+2023-10-31,main,Insurance,5,0,0.0
+2023-10-31,main,Internet Content & Information,1,0,0.0
+2023-10-31,main,Software - Infrastructure,2,0,0.0
+2023-11-30,concentrated,Aerospace & Defense,2,0,0.0
+2023-11-30,concentrated,Apparel & Luxury,1,0,0.0
+2023-11-30,concentrated,Banks - Diversified,1,0,0.0
+2023-11-30,concentrated,Banks - Regional,1,0,0.0
+2023-11-30,concentrated,Capital Markets,3,0,0.0
+2023-11-30,concentrated,Commercial Services,1,0,0.0
+2023-11-30,concentrated,Construction & Engineering,2,0,0.0
+2023-11-30,concentrated,Insurance,9,0,0.0
+2023-11-30,concentrated,Metals & Mining,1,0,0.0
+2023-11-30,concentrated,Oil Gas & Consumable Fuels,4,0,0.0
+2023-11-30,main,Aerospace & Defense,2,0,0.0
+2023-11-30,main,Apparel & Luxury,1,0,0.0
+2023-11-30,main,Banks - Diversified,1,0,0.0
+2023-11-30,main,Banks - Regional,1,0,0.0
+2023-11-30,main,Capital Markets,3,0,0.0
+2023-11-30,main,Commercial Services,1,0,0.0
+2023-11-30,main,Construction & Engineering,2,0,0.0
+2023-11-30,main,Insurance,9,0,0.0
+2023-11-30,main,Metals & Mining,1,0,0.0
+2023-11-30,main,Oil Gas & Consumable Fuels,4,0,0.0
+2023-12-29,concentrated,Capital Markets,4,1,0.25
+2023-12-29,concentrated,Aerospace & Defense,1,0,0.0
+2023-12-29,concentrated,Banks - Diversified,2,0,0.0
+2023-12-29,concentrated,Banks - Regional,6,0,0.0
+2023-12-29,concentrated,Construction & Engineering,1,0,0.0
+2023-12-29,concentrated,Consumer Finance,3,0,0.0
+2023-12-29,concentrated,Equity REITs,1,0,0.0
+2023-12-29,concentrated,Metals & Mining,1,0,0.0
+2023-12-29,concentrated,Pharmaceuticals,2,0,0.0
+2023-12-29,concentrated,Specialty Retail,4,0,0.0
+2023-12-29,main,Banks - Regional,6,4,0.6666666666666666
+2023-12-29,main,Consumer Finance,3,2,0.6666666666666666
+2023-12-29,main,Capital Markets,4,2,0.5
+2023-12-29,main,Aerospace & Defense,1,0,0.0
+2023-12-29,main,Banks - Diversified,2,0,0.0
+2023-12-29,main,Construction & Engineering,1,0,0.0
+2023-12-29,main,Equity REITs,1,0,0.0
+2023-12-29,main,Metals & Mining,1,0,0.0
+2023-12-29,main,Pharmaceuticals,2,0,0.0
+2023-12-29,main,Specialty Retail,4,0,0.0
+2024-01-31,concentrated,Apparel & Luxury,1,0,0.0
+2024-01-31,concentrated,Banks - Diversified,2,0,0.0
+2024-01-31,concentrated,Capital Markets,4,0,0.0
+2024-01-31,concentrated,Commercial Services,2,0,0.0
+2024-01-31,concentrated,Construction & Engineering,1,0,0.0
+2024-01-31,concentrated,Consumer Finance,5,0,0.0
+2024-01-31,concentrated,Insurance,8,0,0.0
+2024-01-31,concentrated,Internet Content & Information,1,0,0.0
+2024-01-31,concentrated,Pharmaceuticals,1,0,0.0
+2024-01-31,main,Construction & Engineering,1,1,1.0
+2024-01-31,main,Banks - Diversified,2,1,0.5
+2024-01-31,main,Capital Markets,4,2,0.5
+2024-01-31,main,Consumer Finance,5,2,0.4
+2024-01-31,main,Apparel & Luxury,1,0,0.0
+2024-01-31,main,Commercial Services,2,0,0.0
+2024-01-31,main,Insurance,8,0,0.0
+2024-01-31,main,Internet Content & Information,1,0,0.0
+2024-01-31,main,Pharmaceuticals,1,0,0.0
+2024-02-29,concentrated,Aerospace & Defense,2,0,0.0
+2024-02-29,concentrated,Apparel & Luxury,3,0,0.0
+2024-02-29,concentrated,Banks - Diversified,2,0,0.0
+2024-02-29,concentrated,Commercial Services,3,0,0.0
+2024-02-29,concentrated,Construction & Engineering,3,0,0.0
+2024-02-29,concentrated,Consumer Finance,3,0,0.0
+2024-02-29,concentrated,Insurance,3,0,0.0
+2024-02-29,concentrated,Software - Infrastructure,1,0,0.0
+2024-02-29,concentrated,Specialty Retail,3,0,0.0
+2024-02-29,concentrated,Tech Hardware & Storage,2,0,0.0
+2024-02-29,main,Aerospace & Defense,2,1,0.5
+2024-02-29,main,Consumer Finance,3,1,0.3333333333333333
+2024-02-29,main,Apparel & Luxury,3,0,0.0
+2024-02-29,main,Banks - Diversified,2,0,0.0
+2024-02-29,main,Commercial Services,3,0,0.0
+2024-02-29,main,Construction & Engineering,3,0,0.0
+2024-02-29,main,Insurance,3,0,0.0
+2024-02-29,main,Software - Infrastructure,1,0,0.0
+2024-02-29,main,Specialty Retail,3,0,0.0
+2024-02-29,main,Tech Hardware & Storage,2,0,0.0
+2024-03-28,concentrated,Semiconductors,2,1,0.5
+2024-03-28,concentrated,Aerospace & Defense,1,0,0.0
+2024-03-28,concentrated,Banks - Diversified,2,0,0.0
+2024-03-28,concentrated,Biotechnology,1,0,0.0
+2024-03-28,concentrated,Capital Goods - Machinery,4,0,0.0
+2024-03-28,concentrated,Capital Markets,1,0,0.0
+2024-03-28,concentrated,Commercial Services,1,0,0.0
+2024-03-28,concentrated,Construction & Engineering,3,0,0.0
+2024-03-28,concentrated,Consumer Finance,1,0,0.0
+2024-03-28,concentrated,Food & Staples Retailing,1,0,0.0
+2024-03-28,concentrated,Insurance,1,0,0.0
+2024-03-28,concentrated,Specialty Retail,3,0,0.0
+2024-03-28,concentrated,Tech Hardware & Storage,4,0,0.0
+2024-03-28,main,Semiconductors,2,1,0.5
+2024-03-28,main,Construction & Engineering,3,1,0.3333333333333333
+2024-03-28,main,Tech Hardware & Storage,4,1,0.25
+2024-03-28,main,Aerospace & Defense,1,0,0.0
+2024-03-28,main,Banks - Diversified,2,0,0.0
+2024-03-28,main,Biotechnology,1,0,0.0
+2024-03-28,main,Capital Goods - Machinery,4,0,0.0
+2024-03-28,main,Capital Markets,1,0,0.0
+2024-03-28,main,Commercial Services,1,0,0.0
+2024-03-28,main,Consumer Finance,1,0,0.0
+2024-03-28,main,Food & Staples Retailing,1,0,0.0
+2024-03-28,main,Insurance,1,0,0.0
+2024-03-28,main,Specialty Retail,3,0,0.0
+2024-04-30,concentrated,Aerospace & Defense,2,0,0.0
+2024-04-30,concentrated,Banks - Diversified,2,0,0.0
+2024-04-30,concentrated,Biotechnology,1,0,0.0
+2024-04-30,concentrated,Capital Markets,1,0,0.0
+2024-04-30,concentrated,Construction & Engineering,5,0,0.0
+2024-04-30,concentrated,Consumer Finance,1,0,0.0
+2024-04-30,concentrated,Food & Staples Retailing,1,0,0.0
+2024-04-30,concentrated,Internet Content & Information,1,0,0.0
+2024-04-30,concentrated,Metals & Mining,3,0,0.0
+2024-04-30,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2024-04-30,concentrated,Semiconductors,3,0,0.0
+2024-04-30,concentrated,Specialty Retail,2,0,0.0
+2024-04-30,concentrated,Tech Hardware & Storage,2,0,0.0
+2024-04-30,main,Aerospace & Defense,2,1,0.5
+2024-04-30,main,Semiconductors,3,1,0.3333333333333333
+2024-04-30,main,Construction & Engineering,5,1,0.2
+2024-04-30,main,Banks - Diversified,2,0,0.0
+2024-04-30,main,Biotechnology,1,0,0.0
+2024-04-30,main,Capital Markets,1,0,0.0
+2024-04-30,main,Consumer Finance,1,0,0.0
+2024-04-30,main,Food & Staples Retailing,1,0,0.0
+2024-04-30,main,Internet Content & Information,1,0,0.0
+2024-04-30,main,Metals & Mining,3,0,0.0
+2024-04-30,main,Oil Gas & Consumable Fuels,1,0,0.0
+2024-04-30,main,Specialty Retail,2,0,0.0
+2024-04-30,main,Tech Hardware & Storage,2,0,0.0
+2024-05-31,concentrated,Tech Hardware & Storage,3,1,0.3333333333333333
+2024-05-31,concentrated,Aerospace & Defense,2,0,0.0
+2024-05-31,concentrated,Apparel & Luxury,1,0,0.0
+2024-05-31,concentrated,Banks - Diversified,1,0,0.0
+2024-05-31,concentrated,Biotechnology,1,0,0.0
+2024-05-31,concentrated,Construction & Engineering,2,0,0.0
+2024-05-31,concentrated,Food & Staples Retailing,1,0,0.0
+2024-05-31,concentrated,Internet Content & Information,3,0,0.0
+2024-05-31,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2024-05-31,concentrated,Semiconductors,5,0,0.0
+2024-05-31,concentrated,Specialty Retail,1,0,0.0
+2024-05-31,concentrated,Utilities,5,0,0.0
+2024-05-31,main,Specialty Retail,1,1,1.0
+2024-05-31,main,Aerospace & Defense,2,1,0.5
+2024-05-31,main,Tech Hardware & Storage,3,1,0.3333333333333333
+2024-05-31,main,Semiconductors,5,1,0.2
+2024-05-31,main,Apparel & Luxury,1,0,0.0
+2024-05-31,main,Banks - Diversified,1,0,0.0
+2024-05-31,main,Biotechnology,1,0,0.0
+2024-05-31,main,Construction & Engineering,2,0,0.0
+2024-05-31,main,Food & Staples Retailing,1,0,0.0
+2024-05-31,main,Internet Content & Information,3,0,0.0
+2024-05-31,main,Oil Gas & Consumable Fuels,1,0,0.0
+2024-05-31,main,Utilities,5,0,0.0
+2024-06-28,concentrated,Biotechnology,5,1,0.2
+2024-06-28,concentrated,Aerospace & Defense,1,0,0.0
+2024-06-28,concentrated,Construction & Engineering,1,0,0.0
+2024-06-28,concentrated,Food & Staples Retailing,1,0,0.0
+2024-06-28,concentrated,Internet Content & Information,3,0,0.0
+2024-06-28,concentrated,Other,1,0,0.0
+2024-06-28,concentrated,Semiconductors,4,0,0.0
+2024-06-28,concentrated,Tech Hardware & Storage,3,0,0.0
+2024-06-28,concentrated,Utilities,6,0,0.0
+2024-06-28,main,Biotechnology,5,3,0.6
+2024-06-28,main,Tech Hardware & Storage,3,1,0.3333333333333333
+2024-06-28,main,Semiconductors,4,1,0.25
+2024-06-28,main,Aerospace & Defense,1,0,0.0
+2024-06-28,main,Construction & Engineering,1,0,0.0
+2024-06-28,main,Food & Staples Retailing,1,0,0.0
+2024-06-28,main,Internet Content & Information,3,0,0.0
+2024-06-28,main,Other,1,0,0.0
+2024-06-28,main,Utilities,6,0,0.0
+2024-07-31,concentrated,Biotechnology,5,1,0.2
+2024-07-31,concentrated,Aerospace & Defense,1,0,0.0
+2024-07-31,concentrated,Banks - Regional,2,0,0.0
+2024-07-31,concentrated,Construction & Engineering,2,0,0.0
+2024-07-31,concentrated,Equity REITs,1,0,0.0
+2024-07-31,concentrated,Metals & Mining,1,0,0.0
+2024-07-31,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2024-07-31,concentrated,Other,1,0,0.0
+2024-07-31,concentrated,Tech Hardware & Storage,3,0,0.0
+2024-07-31,concentrated,Utilities,8,0,0.0
+2024-07-31,main,Oil Gas & Consumable Fuels,1,1,1.0
+2024-07-31,main,Biotechnology,5,4,0.8
+2024-07-31,main,Aerospace & Defense,1,0,0.0
+2024-07-31,main,Banks - Regional,2,0,0.0
+2024-07-31,main,Construction & Engineering,2,0,0.0
+2024-07-31,main,Equity REITs,1,0,0.0
+2024-07-31,main,Metals & Mining,1,0,0.0
+2024-07-31,main,Other,1,0,0.0
+2024-07-31,main,Tech Hardware & Storage,3,0,0.0
+2024-07-31,main,Utilities,8,0,0.0
+2024-08-30,concentrated,Biotechnology,5,3,0.6
+2024-08-30,concentrated,Aerospace & Defense,1,0,0.0
+2024-08-30,concentrated,Banks - Regional,1,0,0.0
+2024-08-30,concentrated,Capital Markets,1,0,0.0
+2024-08-30,concentrated,Equity REITs,6,0,0.0
+2024-08-30,concentrated,Insurance,1,0,0.0
+2024-08-30,concentrated,Metals & Mining,1,0,0.0
+2024-08-30,concentrated,Other,2,0,0.0
+2024-08-30,concentrated,Pharmaceuticals,2,0,0.0
+2024-08-30,concentrated,Utilities,5,0,0.0
+2024-08-30,main,Metals & Mining,1,1,1.0
+2024-08-30,main,Biotechnology,5,3,0.6
+2024-08-30,main,Other,2,1,0.5
+2024-08-30,main,Equity REITs,6,1,0.16666666666666666
+2024-08-30,main,Aerospace & Defense,1,0,0.0
+2024-08-30,main,Banks - Regional,1,0,0.0
+2024-08-30,main,Capital Markets,1,0,0.0
+2024-08-30,main,Insurance,1,0,0.0
+2024-08-30,main,Pharmaceuticals,2,0,0.0
+2024-08-30,main,Utilities,5,0,0.0
+2024-09-30,concentrated,Biotechnology,2,1,0.5
+2024-09-30,concentrated,Aerospace & Defense,2,0,0.0
+2024-09-30,concentrated,Capital Markets,2,0,0.0
+2024-09-30,concentrated,Communication Equipment,3,0,0.0
+2024-09-30,concentrated,Equity REITs,5,0,0.0
+2024-09-30,concentrated,Internet Content & Information,2,0,0.0
+2024-09-30,concentrated,Pharmaceuticals,1,0,0.0
+2024-09-30,concentrated,Utilities,8,0,0.0
+2024-09-30,main,Capital Markets,2,1,0.5
+2024-09-30,main,Aerospace & Defense,2,0,0.0
+2024-09-30,main,Biotechnology,2,0,0.0
+2024-09-30,main,Communication Equipment,3,0,0.0
+2024-09-30,main,Equity REITs,5,0,0.0
+2024-09-30,main,Internet Content & Information,2,0,0.0
+2024-09-30,main,Pharmaceuticals,1,0,0.0
+2024-09-30,main,Utilities,8,0,0.0
+2024-10-31,concentrated,Biotechnology,2,1,0.5
+2024-10-31,concentrated,Aerospace & Defense,1,0,0.0
+2024-10-31,concentrated,Banks - Diversified,1,0,0.0
+2024-10-31,concentrated,Capital Markets,7,0,0.0
+2024-10-31,concentrated,Communication Equipment,2,0,0.0
+2024-10-31,concentrated,Insurance,3,0,0.0
+2024-10-31,concentrated,Other,1,0,0.0
+2024-10-31,concentrated,Pharmaceuticals,1,0,0.0
+2024-10-31,concentrated,Software - Infrastructure,3,0,0.0
+2024-10-31,concentrated,Utilities,4,0,0.0
+2024-10-31,main,Biotechnology,2,1,0.5
+2024-10-31,main,Utilities,4,1,0.25
+2024-10-31,main,Capital Markets,7,1,0.14285714285714285
+2024-10-31,main,Aerospace & Defense,1,0,0.0
+2024-10-31,main,Banks - Diversified,1,0,0.0
+2024-10-31,main,Communication Equipment,2,0,0.0
+2024-10-31,main,Insurance,3,0,0.0
+2024-10-31,main,Other,1,0,0.0
+2024-10-31,main,Pharmaceuticals,1,0,0.0
+2024-10-31,main,Software - Infrastructure,3,0,0.0
+2024-11-29,concentrated,Transportation & Logistics,1,1,1.0
+2024-11-29,concentrated,Banks - Regional,2,0,0.0
+2024-11-29,concentrated,Capital Markets,7,0,0.0
+2024-11-29,concentrated,Communication Equipment,3,0,0.0
+2024-11-29,concentrated,Other,5,0,0.0
+2024-11-29,concentrated,Software - Application,5,0,0.0
+2024-11-29,concentrated,Software - Infrastructure,2,0,0.0
+2024-11-29,main,Transportation & Logistics,1,1,1.0
+2024-11-29,main,Communication Equipment,3,2,0.6666666666666666
+2024-11-29,main,Software - Application,5,1,0.2
+2024-11-29,main,Capital Markets,7,1,0.14285714285714285
+2024-11-29,main,Banks - Regional,2,0,0.0
+2024-11-29,main,Other,5,0,0.0
+2024-11-29,main,Software - Infrastructure,2,0,0.0
+2024-12-31,concentrated,Apparel & Luxury,1,0,0.0
+2024-12-31,concentrated,Banks - Diversified,1,0,0.0
+2024-12-31,concentrated,Banks - Regional,4,0,0.0
+2024-12-31,concentrated,Capital Markets,5,0,0.0
+2024-12-31,concentrated,Communication Equipment,2,0,0.0
+2024-12-31,concentrated,Food & Staples Retailing,1,0,0.0
+2024-12-31,concentrated,Insurance,2,0,0.0
+2024-12-31,concentrated,Other,5,0,0.0
+2024-12-31,concentrated,Software - Application,2,0,0.0
+2024-12-31,concentrated,Software - Infrastructure,2,0,0.0
+2024-12-31,main,Apparel & Luxury,1,1,1.0
+2024-12-31,main,Banks - Diversified,1,0,0.0
+2024-12-31,main,Banks - Regional,4,0,0.0
+2024-12-31,main,Capital Markets,5,0,0.0
+2024-12-31,main,Communication Equipment,2,0,0.0
+2024-12-31,main,Food & Staples Retailing,1,0,0.0
+2024-12-31,main,Insurance,2,0,0.0
+2024-12-31,main,Other,5,0,0.0
+2024-12-31,main,Software - Application,2,0,0.0
+2024-12-31,main,Software - Infrastructure,2,0,0.0
+2025-01-31,concentrated,Software - Application,2,1,0.5
+2025-01-31,concentrated,Apparel & Luxury,2,0,0.0
+2025-01-31,concentrated,Banks - Diversified,1,0,0.0
+2025-01-31,concentrated,Banks - Regional,1,0,0.0
+2025-01-31,concentrated,Capital Markets,6,0,0.0
+2025-01-31,concentrated,Communication Equipment,2,0,0.0
+2025-01-31,concentrated,Consumer Finance,1,0,0.0
+2025-01-31,concentrated,Internet Content & Information,3,0,0.0
+2025-01-31,concentrated,Other,1,0,0.0
+2025-01-31,concentrated,Software - Infrastructure,6,0,0.0
+2025-01-31,main,Apparel & Luxury,2,2,1.0
+2025-01-31,main,Software - Application,2,1,0.5
+2025-01-31,main,Banks - Diversified,1,0,0.0
+2025-01-31,main,Banks - Regional,1,0,0.0
+2025-01-31,main,Capital Markets,6,0,0.0
+2025-01-31,main,Communication Equipment,2,0,0.0
+2025-01-31,main,Consumer Finance,1,0,0.0
+2025-01-31,main,Internet Content & Information,3,0,0.0
+2025-01-31,main,Other,1,0,0.0
+2025-01-31,main,Software - Infrastructure,6,0,0.0
+2025-02-28,concentrated,Banks - Diversified,2,1,0.5
+2025-02-28,concentrated,Capital Markets,5,0,0.0
+2025-02-28,concentrated,Communication Equipment,2,0,0.0
+2025-02-28,concentrated,Consumer Finance,1,0,0.0
+2025-02-28,concentrated,Food & Staples Retailing,1,0,0.0
+2025-02-28,concentrated,Hotels Restaurants & Leisure,1,0,0.0
+2025-02-28,concentrated,Household & Personal Products,1,0,0.0
+2025-02-28,concentrated,Insurance,3,0,0.0
+2025-02-28,concentrated,Internet Content & Information,3,0,0.0
+2025-02-28,concentrated,Other,5,0,0.0
+2025-02-28,concentrated,Utilities,1,0,0.0
+2025-02-28,main,Banks - Diversified,2,1,0.5
+2025-02-28,main,Capital Markets,5,0,0.0
+2025-02-28,main,Communication Equipment,2,0,0.0
+2025-02-28,main,Consumer Finance,1,0,0.0
+2025-02-28,main,Food & Staples Retailing,1,0,0.0
+2025-02-28,main,Hotels Restaurants & Leisure,1,0,0.0
+2025-02-28,main,Household & Personal Products,1,0,0.0
+2025-02-28,main,Insurance,3,0,0.0
+2025-02-28,main,Internet Content & Information,3,0,0.0
+2025-02-28,main,Other,5,0,0.0
+2025-02-28,main,Utilities,1,0,0.0
+2025-03-31,concentrated,Household & Personal Products,3,1,0.3333333333333333
+2025-03-31,concentrated,Capital Markets,1,0,0.0
+2025-03-31,concentrated,Food & Staples Retailing,1,0,0.0
+2025-03-31,concentrated,Insurance,8,0,0.0
+2025-03-31,concentrated,Metals & Mining,3,0,0.0
+2025-03-31,concentrated,Oil Gas & Consumable Fuels,6,0,0.0
+2025-03-31,concentrated,Pharmaceuticals,1,0,0.0
+2025-03-31,concentrated,Utilities,2,0,0.0
+2025-03-31,main,Household & Personal Products,3,1,0.3333333333333333
+2025-03-31,main,Capital Markets,1,0,0.0
+2025-03-31,main,Food & Staples Retailing,1,0,0.0
+2025-03-31,main,Insurance,8,0,0.0
+2025-03-31,main,Metals & Mining,3,0,0.0
+2025-03-31,main,Oil Gas & Consumable Fuels,6,0,0.0
+2025-03-31,main,Pharmaceuticals,1,0,0.0
+2025-03-31,main,Utilities,2,0,0.0
+2025-04-30,concentrated,Software - Application,2,1,0.5
+2025-04-30,concentrated,Household & Personal Products,3,1,0.3333333333333333
+2025-04-30,concentrated,Aerospace & Defense,1,0,0.0
+2025-04-30,concentrated,Diagnostics & Research,1,0,0.0
+2025-04-30,concentrated,Food & Staples Retailing,3,0,0.0
+2025-04-30,concentrated,Insurance,2,0,0.0
+2025-04-30,concentrated,Metals & Mining,5,0,0.0
+2025-04-30,concentrated,Software - Infrastructure,2,0,0.0
+2025-04-30,concentrated,Utilities,6,0,0.0
+2025-04-30,main,Aerospace & Defense,1,1,1.0
+2025-04-30,main,Software - Application,2,1,0.5
+2025-04-30,main,Software - Infrastructure,2,1,0.5
+2025-04-30,main,Household & Personal Products,3,1,0.3333333333333333
+2025-04-30,main,Diagnostics & Research,1,0,0.0
+2025-04-30,main,Food & Staples Retailing,3,0,0.0
+2025-04-30,main,Insurance,2,0,0.0
+2025-04-30,main,Metals & Mining,5,0,0.0
+2025-04-30,main,Utilities,6,0,0.0
+2025-05-30,concentrated,Other,2,1,0.5
+2025-05-30,concentrated,Software - Infrastructure,2,1,0.5
+2025-05-30,concentrated,Utilities,5,1,0.2
+2025-05-30,concentrated,Aerospace & Defense,3,0,0.0
+2025-05-30,concentrated,Food & Staples Retailing,2,0,0.0
+2025-05-30,concentrated,Insurance,2,0,0.0
+2025-05-30,concentrated,Internet Content & Information,4,0,0.0
+2025-05-30,concentrated,Metals & Mining,3,0,0.0
+2025-05-30,concentrated,Tech Hardware & Storage,2,0,0.0
+2025-05-30,main,Aerospace & Defense,3,2,0.6666666666666666
+2025-05-30,main,Other,2,1,0.5
+2025-05-30,main,Software - Infrastructure,2,1,0.5
+2025-05-30,main,Tech Hardware & Storage,2,1,0.5
+2025-05-30,main,Utilities,5,1,0.2
+2025-05-30,main,Food & Staples Retailing,2,0,0.0
+2025-05-30,main,Insurance,2,0,0.0
+2025-05-30,main,Internet Content & Information,4,0,0.0
+2025-05-30,main,Metals & Mining,3,0,0.0
+2025-06-30,concentrated,Other,2,1,0.5
+2025-06-30,concentrated,Utilities,2,1,0.5
+2025-06-30,concentrated,Aerospace & Defense,2,0,0.0
+2025-06-30,concentrated,Banks - Diversified,1,0,0.0
+2025-06-30,concentrated,Food & Staples Retailing,1,0,0.0
+2025-06-30,concentrated,Internet Content & Information,3,0,0.0
+2025-06-30,concentrated,Semiconductors,8,0,0.0
+2025-06-30,concentrated,Software - Infrastructure,1,0,0.0
+2025-06-30,concentrated,Tech Hardware & Storage,5,0,0.0
+2025-06-30,main,Software - Infrastructure,1,1,1.0
+2025-06-30,main,Aerospace & Defense,2,1,0.5
+2025-06-30,main,Other,2,1,0.5
+2025-06-30,main,Utilities,2,1,0.5
+2025-06-30,main,Tech Hardware & Storage,5,1,0.2
+2025-06-30,main,Semiconductors,8,1,0.125
+2025-06-30,main,Banks - Diversified,1,0,0.0
+2025-06-30,main,Food & Staples Retailing,1,0,0.0
+2025-06-30,main,Internet Content & Information,3,0,0.0
+2025-07-31,concentrated,Tech Hardware & Storage,4,1,0.25
+2025-07-31,concentrated,Aerospace & Defense,2,0,0.0
+2025-07-31,concentrated,Capital Goods - Machinery,3,0,0.0
+2025-07-31,concentrated,Capital Markets,1,0,0.0
+2025-07-31,concentrated,Food & Staples Retailing,1,0,0.0
+2025-07-31,concentrated,Internet Content & Information,2,0,0.0
+2025-07-31,concentrated,Oil Gas & Consumable Fuels,1,0,0.0
+2025-07-31,concentrated,Other,3,0,0.0
+2025-07-31,concentrated,Semiconductors,7,0,0.0
+2025-07-31,concentrated,Utilities,1,0,0.0
+2025-07-31,main,Capital Goods - Machinery,3,1,0.3333333333333333
+2025-07-31,main,Semiconductors,7,2,0.2857142857142857
+2025-07-31,main,Tech Hardware & Storage,4,1,0.25
+2025-07-31,main,Aerospace & Defense,2,0,0.0
+2025-07-31,main,Capital Markets,1,0,0.0
+2025-07-31,main,Food & Staples Retailing,1,0,0.0
+2025-07-31,main,Internet Content & Information,2,0,0.0
+2025-07-31,main,Oil Gas & Consumable Fuels,1,0,0.0
+2025-07-31,main,Other,3,0,0.0
+2025-07-31,main,Utilities,1,0,0.0
+2025-08-29,concentrated,Tech Hardware & Storage,4,2,0.5
+2025-08-29,concentrated,Aerospace & Defense,1,0,0.0
+2025-08-29,concentrated,Banks - Diversified,1,0,0.0
+2025-08-29,concentrated,Capital Goods - Machinery,1,0,0.0
+2025-08-29,concentrated,Construction & Engineering,1,0,0.0
+2025-08-29,concentrated,Internet Content & Information,3,0,0.0
+2025-08-29,concentrated,Metals & Mining,1,0,0.0
+2025-08-29,concentrated,Other,5,0,0.0
+2025-08-29,concentrated,Semiconductors,7,0,0.0
+2025-08-29,concentrated,Specialty Retail,1,0,0.0
+2025-08-29,main,Metals & Mining,1,1,1.0
+2025-08-29,main,Tech Hardware & Storage,4,3,0.75
+2025-08-29,main,Semiconductors,7,1,0.14285714285714285
+2025-08-29,main,Aerospace & Defense,1,0,0.0
+2025-08-29,main,Banks - Diversified,1,0,0.0
+2025-08-29,main,Capital Goods - Machinery,1,0,0.0
+2025-08-29,main,Construction & Engineering,1,0,0.0
+2025-08-29,main,Internet Content & Information,3,0,0.0
+2025-08-29,main,Other,5,0,0.0
+2025-08-29,main,Specialty Retail,1,0,0.0
+2025-09-30,concentrated,Communication Equipment,2,1,0.5
+2025-09-30,concentrated,Tech Hardware & Storage,3,1,0.3333333333333333
+2025-09-30,concentrated,Auto Manufacturers & Parts,1,0,0.0
+2025-09-30,concentrated,Biotechnology,1,0,0.0
+2025-09-30,concentrated,Internet Content & Information,2,0,0.0
+2025-09-30,concentrated,Metals & Mining,1,0,0.0
+2025-09-30,concentrated,Other,2,0,0.0
+2025-09-30,concentrated,Semiconductors,8,0,0.0
+2025-09-30,concentrated,Specialty Retail,2,0,0.0
+2025-09-30,concentrated,Utilities,3,0,0.0
+2025-09-30,main,Metals & Mining,1,1,1.0
+2025-09-30,main,Tech Hardware & Storage,3,3,1.0
+2025-09-30,main,Communication Equipment,2,1,0.5
+2025-09-30,main,Semiconductors,8,3,0.375
+2025-09-30,main,Auto Manufacturers & Parts,1,0,0.0
+2025-09-30,main,Biotechnology,1,0,0.0
+2025-09-30,main,Internet Content & Information,2,0,0.0
+2025-09-30,main,Other,2,0,0.0
+2025-09-30,main,Specialty Retail,2,0,0.0
+2025-09-30,main,Utilities,3,0,0.0
+2025-10-31,concentrated,Tech Hardware & Storage,4,1,0.25
+2025-10-31,concentrated,Semiconductors,8,1,0.125
+2025-10-31,concentrated,Banks - Diversified,1,0,0.0
+2025-10-31,concentrated,Biotechnology,2,0,0.0
+2025-10-31,concentrated,Capital Goods - Machinery,1,0,0.0
+2025-10-31,concentrated,Diagnostics & Research,2,0,0.0
+2025-10-31,concentrated,Internet Content & Information,4,0,0.0
+2025-10-31,concentrated,Metals & Mining,2,0,0.0
+2025-10-31,concentrated,Other,1,0,0.0
+2025-10-31,concentrated,Utilities,1,0,0.0
+2025-10-31,main,Biotechnology,2,1,0.5
+2025-10-31,main,Internet Content & Information,4,2,0.5
+2025-10-31,main,Semiconductors,8,4,0.5
+2025-10-31,main,Tech Hardware & Storage,4,2,0.5
+2025-10-31,main,Banks - Diversified,1,0,0.0
+2025-10-31,main,Capital Goods - Machinery,1,0,0.0
+2025-10-31,main,Diagnostics & Research,2,0,0.0
+2025-10-31,main,Metals & Mining,2,0,0.0
+2025-10-31,main,Other,1,0,0.0
+2025-10-31,main,Utilities,1,0,0.0
+2025-11-28,concentrated,Communication Equipment,2,2,1.0
+2025-11-28,concentrated,Tech Hardware & Storage,2,1,0.5
+2025-11-28,concentrated,Semiconductors,9,2,0.2222222222222222
+2025-11-28,concentrated,Biotechnology,4,0,0.0
+2025-11-28,concentrated,Capital Goods - Machinery,1,0,0.0
+2025-11-28,concentrated,Diagnostics & Research,5,0,0.0
+2025-11-28,concentrated,Metals & Mining,1,0,0.0
+2025-11-28,concentrated,Pharmaceuticals,1,0,0.0
+2025-11-28,concentrated,Utilities,2,0,0.0
+2025-11-28,main,Communication Equipment,2,2,1.0
+2025-11-28,main,Tech Hardware & Storage,2,2,1.0
+2025-11-28,main,Biotechnology,4,2,0.5
+2025-11-28,main,Semiconductors,9,4,0.4444444444444444
+2025-11-28,main,Capital Goods - Machinery,1,0,0.0
+2025-11-28,main,Diagnostics & Research,5,0,0.0
+2025-11-28,main,Metals & Mining,1,0,0.0
+2025-11-28,main,Pharmaceuticals,1,0,0.0
+2025-11-28,main,Utilities,2,0,0.0
+2025-12-31,concentrated,Semiconductors,4,1,0.25
+2025-12-31,concentrated,Banks - Regional,1,0,0.0
+2025-12-31,concentrated,Biotechnology,3,0,0.0
+2025-12-31,concentrated,Consumer Finance,2,0,0.0
+2025-12-31,concentrated,Diagnostics & Research,1,0,0.0
+2025-12-31,concentrated,Internet Content & Information,2,0,0.0
+2025-12-31,concentrated,Metals & Mining,1,0,0.0
+2025-12-31,concentrated,Other,5,0,0.0
+2025-12-31,concentrated,Pharmaceuticals,1,0,0.0
+2025-12-31,concentrated,Tech Hardware & Storage,1,0,0.0
+2025-12-31,concentrated,Transportation & Logistics,5,0,0.0
+2025-12-31,main,Biotechnology,3,2,0.6666666666666666
+2025-12-31,main,Internet Content & Information,2,1,0.5
+2025-12-31,main,Semiconductors,4,2,0.5
+2025-12-31,main,Other,5,1,0.2
+2025-12-31,main,Banks - Regional,1,0,0.0
+2025-12-31,main,Consumer Finance,2,0,0.0
+2025-12-31,main,Diagnostics & Research,1,0,0.0
+2025-12-31,main,Metals & Mining,1,0,0.0
+2025-12-31,main,Pharmaceuticals,1,0,0.0
+2025-12-31,main,Tech Hardware & Storage,1,0,0.0
+2025-12-31,main,Transportation & Logistics,5,0,0.0
+2026-01-30,concentrated,Banks - Regional,3,0,0.0
+2026-01-30,concentrated,Communication Equipment,2,0,0.0
+2026-01-30,concentrated,Metals & Mining,3,0,0.0
+2026-01-30,concentrated,Oil Gas & Consumable Fuels,8,0,0.0
+2026-01-30,concentrated,Other,1,0,0.0
+2026-01-30,concentrated,Pharmaceuticals,1,0,0.0
+2026-01-30,concentrated,Semiconductors,3,0,0.0
+2026-01-30,concentrated,Transportation & Logistics,4,0,0.0
+2026-01-30,main,Semiconductors,3,2,0.6666666666666666
+2026-01-30,main,Banks - Regional,3,0,0.0
+2026-01-30,main,Communication Equipment,2,0,0.0
+2026-01-30,main,Metals & Mining,3,0,0.0
+2026-01-30,main,Oil Gas & Consumable Fuels,8,0,0.0
+2026-01-30,main,Other,1,0,0.0
+2026-01-30,main,Pharmaceuticals,1,0,0.0
+2026-01-30,main,Transportation & Logistics,4,0,0.0
+2026-02-27,concentrated,Tech Hardware & Storage,1,1,1.0
+2026-02-27,concentrated,Aerospace & Defense,1,0,0.0
+2026-02-27,concentrated,Apparel & Luxury,2,0,0.0
+2026-02-27,concentrated,Biotechnology,1,0,0.0
+2026-02-27,concentrated,Capital Goods - Machinery,1,0,0.0
+2026-02-27,concentrated,Communication Equipment,1,0,0.0
+2026-02-27,concentrated,Metals & Mining,1,0,0.0
+2026-02-27,concentrated,Oil Gas & Consumable Fuels,9,0,0.0
+2026-02-27,concentrated,Pharmaceuticals,2,0,0.0
+2026-02-27,concentrated,Semiconductors,3,0,0.0
+2026-02-27,concentrated,Transportation & Logistics,3,0,0.0
+2026-02-27,main,Aerospace & Defense,1,1,1.0
+2026-02-27,main,Tech Hardware & Storage,1,1,1.0
+2026-02-27,main,Semiconductors,3,1,0.3333333333333333
+2026-02-27,main,Oil Gas & Consumable Fuels,9,1,0.1111111111111111
+2026-02-27,main,Apparel & Luxury,2,0,0.0
+2026-02-27,main,Biotechnology,1,0,0.0
+2026-02-27,main,Capital Goods - Machinery,1,0,0.0
+2026-02-27,main,Communication Equipment,1,0,0.0
+2026-02-27,main,Metals & Mining,1,0,0.0
+2026-02-27,main,Pharmaceuticals,2,0,0.0
+2026-02-27,main,Transportation & Logistics,3,0,0.0
+2026-03-31,concentrated,Communication Equipment,3,0,0.0
+2026-03-31,concentrated,Oil Gas & Consumable Fuels,16,0,0.0
+2026-03-31,concentrated,Pharmaceuticals,2,0,0.0
+2026-03-31,concentrated,Utilities,6,0,0.0
+2026-03-31,main,Oil Gas & Consumable Fuels,16,1,0.0625
+2026-03-31,main,Communication Equipment,3,0,0.0
+2026-03-31,main,Pharmaceuticals,2,0,0.0
+2026-03-31,main,Utilities,6,0,0.0
+2026-04-30,concentrated,Semiconductors,4,1,0.25
+2026-04-30,concentrated,Capital Goods - Machinery,1,0,0.0
+2026-04-30,concentrated,Communication Equipment,3,0,0.0
+2026-04-30,concentrated,Equity REITs,1,0,0.0
+2026-04-30,concentrated,Oil Gas & Consumable Fuels,13,0,0.0
+2026-04-30,concentrated,Pharmaceuticals,1,0,0.0
+2026-04-30,concentrated,Transportation & Logistics,2,0,0.0
+2026-04-30,concentrated,Utilities,1,0,0.0
+2026-04-30,main,Semiconductors,4,3,0.75
+2026-04-30,main,Capital Goods - Machinery,1,0,0.0
+2026-04-30,main,Communication Equipment,3,0,0.0
+2026-04-30,main,Equity REITs,1,0,0.0
+2026-04-30,main,Oil Gas & Consumable Fuels,13,0,0.0
+2026-04-30,main,Pharmaceuticals,1,0,0.0
+2026-04-30,main,Transportation & Logistics,2,0,0.0
+2026-04-30,main,Utilities,1,0,0.0

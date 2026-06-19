@@ -1,0 +1,342 @@
+{
+  "blockers": [
+    "8-year price cache/manifest is not ready for proxy replay",
+    "monthly target books do not cover the requested 8-year window",
+    "broker-ledger official replay does not yet cover the requested 8-year window"
+  ],
+  "broker_replay": {
+    "concentrated": {
+      "cagr": 0.5061913086803371,
+      "end_date": "2026-06-17",
+      "exists": true,
+      "max_dd": -0.2382821042534532,
+      "metric_mode": "broker_ledger_next_close",
+      "sharpe": 1.5175320432622932,
+      "start_date": "2020-05-01",
+      "status": "completed",
+      "valid_for_production": true,
+      "years": 6.1273
+    },
+    "main": {
+      "cagr": 0.3955897341299561,
+      "end_date": "2026-06-17",
+      "exists": true,
+      "max_dd": -0.2446401397858049,
+      "metric_mode": "broker_ledger_next_close",
+      "sharpe": 1.3888433327909948,
+      "start_date": "2020-05-01",
+      "status": "completed",
+      "valid_for_production": true,
+      "years": 6.1273
+    },
+    "ten_year_ready": false,
+    "window_ready": false
+  },
+  "coverage_readiness": null,
+  "data_extension_plan": {
+    "concentrated_target_book_ticker_count": 240,
+    "effective_required_price_tickers": 373,
+    "hard_blocker_count": 6,
+    "hard_blockers": [
+      "price_cache_window",
+      "main_target_book_window",
+      "concentrated_target_book_window",
+      "main_broker_replay_window",
+      "concentrated_broker_replay_window",
+      "pit_universe_label"
+    ],
+    "main_target_book_ticker_count": 321,
+    "next_dispatch_hint": "bootstrap_price_cache_then_full_rebuild",
+    "sample_target_book_tickers": [
+      "AAPL",
+      "ABT",
+      "ACI",
+      "ACLS",
+      "ACN",
+      "ADBE",
+      "ADC",
+      "ADI",
+      "AEE",
+      "AEP",
+      "AFG",
+      "AGCO",
+      "AIT",
+      "AIZ",
+      "AJG",
+      "AKAM",
+      "ALB",
+      "ALGM",
+      "ALGN",
+      "ALNY",
+      "ALSN",
+      "AM",
+      "AMAT",
+      "AMD",
+      "AMP",
+      "AMZN",
+      "AN",
+      "ANET",
+      "APG",
+      "APH",
+      "APO",
+      "APP",
+      "ATI",
+      "ATO",
+      "AVGO",
+      "AXON",
+      "AXP",
+      "AZO",
+      "BABA",
+      "BAC",
+      "BAH",
+      "BEN",
+      "BIIB",
+      "BILL",
+      "BIO",
+      "BJ",
+      "BKNG",
+      "BKR",
+      "BLD",
+      "BLDR"
+    ],
+    "schema_version": "data-extension-plan-v1",
+    "selected_target_book_ticker_count": 373,
+    "target_end_date": "2026-06-17",
+    "target_start_date": "2018-06-17",
+    "tasks": [
+      {
+        "action": "Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.",
+        "current": {
+          "end_date": null,
+          "start_date": null
+        },
+        "hard_blocker": true,
+        "required": {
+          "end_date_on_or_after": "2026-06-17",
+          "start_date_on_or_before": "2018-06-17"
+        },
+        "scope": "prices",
+        "status": "needs_extension",
+        "task_id": "price_cache_window"
+      },
+      {
+        "action": "none",
+        "current": {
+          "effective_price_files": 1122,
+          "requested_tickers": 0
+        },
+        "hard_blocker": false,
+        "required": {
+          "required_target_book_tickers": 373
+        },
+        "scope": "prices",
+        "status": "ready",
+        "task_id": "price_cache_ticker_count"
+      },
+      {
+        "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so main target books extend across the full 8-year window.",
+        "current": {
+          "end_date": "2026-03-31",
+          "rows": 1976,
+          "start_date": "2020-04-30"
+        },
+        "hard_blocker": true,
+        "required": {
+          "end_date_on_or_after": "2026-06-17",
+          "start_date_on_or_before": "2018-06-17"
+        },
+        "scope": "target_books",
+        "status": "needs_extension",
+        "task_id": "main_target_book_window"
+      },
+      {
+        "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so concentrated target books extend across the full 8-year window.",
+        "current": {
+          "end_date": "2026-03-31",
+          "rows": 20328,
+          "start_date": "2020-04-30"
+        },
+        "hard_blocker": true,
+        "required": {
+          "end_date_on_or_after": "2026-06-17",
+          "start_date_on_or_before": "2018-06-17"
+        },
+        "scope": "target_books",
+        "status": "needs_extension",
+        "task_id": "concentrated_target_book_window"
+      },
+      {
+        "action": "Rerun broker-ledger replay/account evaluation after target books cover the full 8-year window.",
+        "current": {
+          "end_date": "2026-06-17",
+          "start_date": "2020-05-01",
+          "years": 6.1273
+        },
+        "hard_blocker": true,
+        "required": {
+          "end_date_on_or_after": "2026-06-17",
+          "start_date_on_or_before": "2018-06-17"
+        },
+        "scope": "broker_replay",
+        "status": "needs_extension",
+        "task_id": "main_broker_replay_window"
+      },
+      {
+        "action": "Rerun broker-ledger replay/account evaluation after target books cover the full 8-year window.",
+        "current": {
+          "end_date": "2026-06-17",
+          "start_date": "2020-05-01",
+          "years": 6.1273
+        },
+        "hard_blocker": true,
+        "required": {
+          "end_date_on_or_after": "2026-06-17",
+          "start_date_on_or_before": "2018-06-17"
+        },
+        "scope": "broker_replay",
+        "status": "needs_extension",
+        "task_id": "concentrated_broker_replay_window"
+      },
+      {
+        "action": "none",
+        "current": {
+          "available": true
+        },
+        "hard_blocker": false,
+        "required": {
+          "available": true
+        },
+        "scope": "macro_sec_fundamentals",
+        "status": "ready",
+        "task_id": "sec_companyfacts_archive"
+      },
+      {
+        "action": "Keep the run labeled proxy until historical membership, delistings, ADR eligibility, and ticker changes are PIT-safe.",
+        "current": {
+          "pit_safe": false
+        },
+        "hard_blocker": true,
+        "required": {
+          "pit_safe": true
+        },
+        "scope": "universe",
+        "status": "needs_extension",
+        "task_id": "pit_universe_label"
+      }
+    ],
+    "window_label": "8-year"
+  },
+  "free_data": {
+    "coverage_exists": false,
+    "manifest_exists": false,
+    "manifest_generated_at_utc": null,
+    "sec_companyfacts_available": true
+  },
+  "generated_at_utc": "2026-06-19T12:32:37.240405+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "min_years": 8.0,
+  "next_actions": [
+    "Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.",
+    "After 8-year target books exist, rerun broker-ledger replay and account evaluation."
+  ],
+  "official_10y_ready": false,
+  "official_window_ready": false,
+  "pit_label": null,
+  "price_cache": {
+    "cache_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+    "effective_price_files": 1122,
+    "end_date": null,
+    "local_price_files": 1122,
+    "manifest_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/prices/replay_price_cache_manifest.json",
+    "manifest_price_files": 0,
+    "requested_tickers": 0,
+    "required_target_book_tickers": 0,
+    "start_date": null,
+    "ten_year_ready": false,
+    "window_ready": false
+  },
+  "proxy_10y_price_ready": false,
+  "proxy_price_ready": false,
+  "requested_years": 8.0,
+  "schema_version": "backtest-window-readiness-v2",
+  "status": "not_ready",
+  "target_books": {
+    "concentrated": {
+      "exists": true,
+      "max_date": "2026-03-31",
+      "min_date": "2020-04-30",
+      "rows": 20328,
+      "unique_months": 72
+    },
+    "main": {
+      "exists": true,
+      "max_date": "2026-03-31",
+      "min_date": "2020-04-30",
+      "rows": 1976,
+      "unique_months": 72
+    },
+    "ten_year_ready": false,
+    "window_ready": false
+  },
+  "warnings": [
+    "universe is labeled proxy, not PIT-safe official Russell 1000 history"
+  ],
+  "window_label": "8-year",
+  "window_slug": "eight_year",
+  "workflow_dispatch_payload_count": 2,
+  "workflow_dispatch_payloads": [
+    {
+      "inputs": {
+        "latest_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "max_price_tickers": "0",
+        "price_mode": "target_books",
+        "run_proxy_replay": "true",
+        "sec_companyfacts": "true",
+        "sync_to_gdrive": "true"
+      },
+      "plan_id": "bootstrap_free_data_for_eight_year_window",
+      "production_mutation_allowed": false,
+      "reason": "8-year price cache is not ready; restore/extend target-book price history first.",
+      "ref": "master",
+      "requires_user_approval": true,
+      "source_blockers": [
+        "8-year price cache/manifest is not ready for proxy replay",
+        "monthly target books do not cover the requested 8-year window",
+        "broker-ledger official replay does not yet cover the requested 8-year window"
+      ],
+      "source_latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+      "source_status": "not_ready",
+      "workflow_id": "free_data_lake_bootstrap.yml"
+    },
+    {
+      "depends_on_plan_ids": [
+        "bootstrap_free_data_for_eight_year_window"
+      ],
+      "inputs": {
+        "artifact_profile": "minimal",
+        "backtest_years": "8",
+        "cache_key_suffix": "official-eight_year-window",
+        "experiment_env_json": "",
+        "fast_mode": "true",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "sidecar_profile": "operating_minimal",
+        "skip_collector": "false",
+        "universe_mode": "global_alpha_universe"
+      },
+      "plan_id": "full_rebuild_eight_year_official_window",
+      "production_mutation_allowed": false,
+      "reason": "Run the official 8-year broker-ledger rebuild after data readiness is available.",
+      "ref": "master",
+      "requires_user_approval": true,
+      "source_blockers": [
+        "8-year price cache/manifest is not ready for proxy replay",
+        "monthly target books do not cover the requested 8-year window",
+        "broker-ledger official replay does not yet cover the requested 8-year window"
+      ],
+      "source_latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+      "source_status": "not_ready",
+      "workflow_id": "full_rebuild_manual.yml"
+    }
+  ]
+}

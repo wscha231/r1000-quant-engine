@@ -1,0 +1,9 @@
+portfolio,crisis_end_date,cash_normalized_date,reentry_cash_normalization_days
+concentrated,2020-10-30,2020-12-31,62
+concentrated,2023-11-30,2023-11-30,0
+concentrated,2025-05-30,2025-05-30,0
+concentrated,2026-04-30,2026-04-30,0
+main,2020-10-30,2020-12-31,62
+main,2023-06-30,2023-08-31,62
+main,2023-11-30,2023-12-29,29
+main,2025-05-30,2025-05-30,0

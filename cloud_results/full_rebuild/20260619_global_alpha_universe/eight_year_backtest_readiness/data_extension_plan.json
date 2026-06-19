@@ -1,0 +1,193 @@
+{
+  "concentrated_target_book_ticker_count": 240,
+  "effective_required_price_tickers": 373,
+  "hard_blocker_count": 6,
+  "hard_blockers": [
+    "price_cache_window",
+    "main_target_book_window",
+    "concentrated_target_book_window",
+    "main_broker_replay_window",
+    "concentrated_broker_replay_window",
+    "pit_universe_label"
+  ],
+  "main_target_book_ticker_count": 321,
+  "next_dispatch_hint": "bootstrap_price_cache_then_full_rebuild",
+  "sample_target_book_tickers": [
+    "AAPL",
+    "ABT",
+    "ACI",
+    "ACLS",
+    "ACN",
+    "ADBE",
+    "ADC",
+    "ADI",
+    "AEE",
+    "AEP",
+    "AFG",
+    "AGCO",
+    "AIT",
+    "AIZ",
+    "AJG",
+    "AKAM",
+    "ALB",
+    "ALGM",
+    "ALGN",
+    "ALNY",
+    "ALSN",
+    "AM",
+    "AMAT",
+    "AMD",
+    "AMP",
+    "AMZN",
+    "AN",
+    "ANET",
+    "APG",
+    "APH",
+    "APO",
+    "APP",
+    "ATI",
+    "ATO",
+    "AVGO",
+    "AXON",
+    "AXP",
+    "AZO",
+    "BABA",
+    "BAC",
+    "BAH",
+    "BEN",
+    "BIIB",
+    "BILL",
+    "BIO",
+    "BJ",
+    "BKNG",
+    "BKR",
+    "BLD",
+    "BLDR"
+  ],
+  "schema_version": "data-extension-plan-v1",
+  "selected_target_book_ticker_count": 373,
+  "target_end_date": "2026-06-17",
+  "target_start_date": "2018-06-17",
+  "tasks": [
+    {
+      "action": "Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.",
+      "current": {
+        "end_date": null,
+        "start_date": null
+      },
+      "hard_blocker": true,
+      "required": {
+        "end_date_on_or_after": "2026-06-17",
+        "start_date_on_or_before": "2018-06-17"
+      },
+      "scope": "prices",
+      "status": "needs_extension",
+      "task_id": "price_cache_window"
+    },
+    {
+      "action": "none",
+      "current": {
+        "effective_price_files": 1122,
+        "requested_tickers": 0
+      },
+      "hard_blocker": false,
+      "required": {
+        "required_target_book_tickers": 373
+      },
+      "scope": "prices",
+      "status": "ready",
+      "task_id": "price_cache_ticker_count"
+    },
+    {
+      "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so main target books extend across the full 8-year window.",
+      "current": {
+        "end_date": "2026-03-31",
+        "rows": 1976,
+        "start_date": "2020-04-30"
+      },
+      "hard_blocker": true,
+      "required": {
+        "end_date_on_or_after": "2026-06-17",
+        "start_date_on_or_before": "2018-06-17"
+      },
+      "scope": "target_books",
+      "status": "needs_extension",
+      "task_id": "main_target_book_window"
+    },
+    {
+      "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so concentrated target books extend across the full 8-year window.",
+      "current": {
+        "end_date": "2026-03-31",
+        "rows": 20328,
+        "start_date": "2020-04-30"
+      },
+      "hard_blocker": true,
+      "required": {
+        "end_date_on_or_after": "2026-06-17",
+        "start_date_on_or_before": "2018-06-17"
+      },
+      "scope": "target_books",
+      "status": "needs_extension",
+      "task_id": "concentrated_target_book_window"
+    },
+    {
+      "action": "Rerun broker-ledger replay/account evaluation after target books cover the full 8-year window.",
+      "current": {
+        "end_date": "2026-06-17",
+        "start_date": "2020-05-01",
+        "years": 6.1273
+      },
+      "hard_blocker": true,
+      "required": {
+        "end_date_on_or_after": "2026-06-17",
+        "start_date_on_or_before": "2018-06-17"
+      },
+      "scope": "broker_replay",
+      "status": "needs_extension",
+      "task_id": "main_broker_replay_window"
+    },
+    {
+      "action": "Rerun broker-ledger replay/account evaluation after target books cover the full 8-year window.",
+      "current": {
+        "end_date": "2026-06-17",
+        "start_date": "2020-05-01",
+        "years": 6.1273
+      },
+      "hard_blocker": true,
+      "required": {
+        "end_date_on_or_after": "2026-06-17",
+        "start_date_on_or_before": "2018-06-17"
+      },
+      "scope": "broker_replay",
+      "status": "needs_extension",
+      "task_id": "concentrated_broker_replay_window"
+    },
+    {
+      "action": "none",
+      "current": {
+        "available": true
+      },
+      "hard_blocker": false,
+      "required": {
+        "available": true
+      },
+      "scope": "macro_sec_fundamentals",
+      "status": "ready",
+      "task_id": "sec_companyfacts_archive"
+    },
+    {
+      "action": "Keep the run labeled proxy until historical membership, delistings, ADR eligibility, and ticker changes are PIT-safe.",
+      "current": {
+        "pit_safe": false
+      },
+      "hard_blocker": true,
+      "required": {
+        "pit_safe": true
+      },
+      "scope": "universe",
+      "status": "needs_extension",
+      "task_id": "pit_universe_label"
+    }
+  ],
+  "window_label": "8-year"
+}
