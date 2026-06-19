@@ -207,6 +207,29 @@ jobs:
             echo "[daily-operating] missing monthly books; price refresh skipped" | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
           fi
 
+      - name: Build daily market snapshot
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs data_raw/free/market_snapshot data_pit/free/market_snapshot
+          BOOKS=()
+          [ -s outputs/portfolio_latest.csv ] && BOOKS+=(--book outputs/portfolio_latest.csv)
+          [ -s outputs/concentrated_portfolio_latest.csv ] && BOOKS+=(--book outputs/concentrated_portfolio_latest.csv)
+          [ -s outputs/reports/operating_main_target_book.csv ] && BOOKS+=(--book outputs/reports/operating_main_target_book.csv)
+          [ -s outputs/reports/operating_concentrated_target_book.csv ] && BOOKS+=(--book outputs/reports/operating_concentrated_target_book.csv)
+          timeout 10m python tools/build_daily_market_snapshot.py \
+            --price-cache cache_prices \
+            "${BOOKS[@]}" \
+            --scored outputs/scored_latest.csv \
+            --max-scored 250 \
+            --required-tickers SPY QQQ SMH SOXX \
+            --output-dir outputs/daily_market_snapshot \
+            --data-lake-dir data_pit/free/market_snapshot \
+            --info-cache data_raw/free/market_snapshot/yf_market_info_cache.csv \
+            --refresh-info-days 14 \
+            2>&1 | tee outputs/full_rebuild_logs/daily_market_snapshot.log || \
+            echo "[daily-operating] daily market snapshot failed or timed out; freshness contract will warn" | tee -a outputs/full_rebuild_logs/daily_market_snapshot.log
+
       - name: Refresh SEC-enriched candidate replay
         if: steps.market.outputs.ready == 'yes'
         run: |
@@ -407,6 +430,7 @@ jobs:
           name: daily-operating-selection-refresh-${{ github.run_id }}
           path: |
             outputs/data_freshness_contract/
+            outputs/daily_market_snapshot/
             outputs/daily_operating_selection_refresh/
             outputs/data_readiness/
             outputs/reports/operating_*_target_book.csv
@@ -421,6 +445,8 @@ jobs:
             data_pit/macro/latest.json
             data_raw/free/macro/daily_snapshot/latest.json
             outputs/full_rebuild_logs/daily_*.log
+            data_pit/free/market_snapshot/
+            data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             cache_prices/replay_price_cache_manifest.json
@@ -444,7 +470,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/sec_enriched_candidate_replay data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
