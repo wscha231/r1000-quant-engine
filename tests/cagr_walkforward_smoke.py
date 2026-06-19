@@ -95,7 +95,7 @@ def write_known_curve(root: Path, portfolio: str) -> list[Path]:
 
 
 def assert_known_answer(summary: dict) -> None:
-    assert summary["schema_version"] == "cagr-walkforward-v2"
+    assert summary["schema_version"] == "cagr-walkforward-v3"
     assert summary["metric_mode"] == "broker_ledger_next_close"
     assert len(summary["windows"]) == 7
     assert summary["completed_full_year_count"] == 6
@@ -109,7 +109,19 @@ def assert_known_answer(summary: dict) -> None:
     for window in summary["windows"]:
         assert window["status"] == "completed", window
         assert math.isclose(window["cagr"], 0.10, rel_tol=0.0, abs_tol=1e-9), window
+        assert math.isclose(window["max_drawdown"], 0.0, rel_tol=0.0, abs_tol=1e-9), window
     assert math.isclose(summary["walk_forward_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+    assert math.isclose(summary["partial_year_day_weighted_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+    assert math.isclose(summary["partial_year_day_weighted_cagr_geomean"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+    assert math.isclose(summary["full_max_drawdown"], 0.0, rel_tol=0.0, abs_tol=1e-9)
+    assert math.isclose(summary["worst_full_year_max_drawdown"], 0.0, rel_tol=0.0, abs_tol=1e-9)
+    assert len(summary["partial_year_max_drawdowns_for_reference_only"]) == 1
+    assert math.isclose(
+        summary["partial_year_max_drawdowns_for_reference_only"][0]["max_drawdown"],
+        0.0,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    )
     assert summary["single_oos_cagr_source"] == "metrics"
     expected_inflation = summary["single_oos_cagr"] / summary["walk_forward_cagr_avg"]
     assert math.isclose(summary["inflation_indicator"], expected_inflation, rel_tol=0.0, abs_tol=1e-9)
@@ -190,9 +202,11 @@ def test_fallback_unavailable_yields_unavailable_verdict() -> None:
 
         assert summary["single_oos_cagr"] is None
         assert summary["single_oos_cagr_source"] == "unavailable"
-        assert math.isclose(summary["walk_forward_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
-        assert summary["inflation_indicator"] is None
-        assert summary["verdict"] == "single_oos_unavailable"
+    assert math.isclose(summary["walk_forward_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+    assert math.isclose(summary["partial_year_day_weighted_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+    assert summary["inflation_indicator"] is None
+    assert summary["partial_year_day_weighted_inflation_indicator"] is None
+    assert summary["verdict"] == "single_oos_unavailable"
 
 
 def test_partial_windows_excluded_from_average() -> None:
@@ -237,6 +251,9 @@ def test_partial_windows_excluded_from_average() -> None:
         assert summary["completed_full_year_count"] == 6
         assert summary["completed_partial_year_count"] == 1
         assert math.isclose(summary["walk_forward_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+        assert summary["partial_year_day_weighted_cagr_avg"] > summary["walk_forward_cagr_avg"]
+        assert summary["partial_year_day_weighted_cagr_avg"] < 1.00
+        assert summary["partial_year_day_weighted_verdict"] == "single_oos_consistent_with_rolling_avg"
         assert summary["partial_year_cagrs_for_reference_only"][0]["year"] == 2026
         assert summary["partial_year_cagrs_for_reference_only"][0]["cagr"] > 0.90
         assert summary["verdict"] == "single_oos_consistent_with_rolling_avg"
