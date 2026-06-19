@@ -117,6 +117,7 @@ def args(tmp: Path, latest: Path, price: Path, **overrides):
         "max_institutional_13f_holdings_stale_days": 100,
         "max_etf_holdings_stale_days": 40,
         "max_free_data_manifest_stale_days": 3,
+        "max_daily_market_snapshot_stale_days": 3,
     }
     values.update(overrides)
     return type("Args", (), values)()

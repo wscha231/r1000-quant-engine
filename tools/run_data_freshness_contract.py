@@ -43,6 +43,17 @@ DATA_SOURCES: list[dict[str, Any]] = [
         "latest_key": "end",
     },
     {
+        "name": "daily_market_snapshot",
+        "layer": "market_snapshot",
+        "provider": "price_cache_plus_yfinance_shares",
+        "path": "data_pit/free/market_snapshot/latest_manifest.json",
+        "alternate_path": "outputs/daily_market_snapshot/summary.json",
+        "cadence_days": 3,
+        "owner_workflow": "daily_operating_selection_refresh.yml",
+        "hard_required_for_selection": False,
+        "latest_key": "generated_at_utc",
+    },
+    {
         "name": "macro",
         "layer": "macro",
         "provider": "FRED_yfinance_market_snapshot",
@@ -656,6 +667,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-institutional-13f-holdings-stale-days", type=int, default=100)
     parser.add_argument("--max-etf-holdings-stale-days", type=int, default=40)
     parser.add_argument("--max-free-data-manifest-stale-days", type=int, default=3)
+    parser.add_argument("--max-daily-market-snapshot-stale-days", type=int, default=3)
     return parser.parse_args()
 
 
