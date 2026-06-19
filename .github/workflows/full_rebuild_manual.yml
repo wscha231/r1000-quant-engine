@@ -1212,12 +1212,17 @@ jobs:
 
       - name: Commit verdict + portfolio CSVs (always — diagnostics on fail)
         if: always()    # ← changed from success() to capture fail-state logs
+        env:
+          INPUT_UNIVERSE_MODE: ${{ inputs.universe_mode }}
+          INPUT_ARTIFACT_PROFILE: ${{ inputs.artifact_profile }}
+          INPUT_AUTO_LEARNING_PROMOTE_LIVE: ${{ inputs.auto_learning_promote_live }}
+          STEP_JOB_STATUS: ${{ job.status }}
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
           RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
           if [ -z "$RESULT_BRANCH" ] || [ "$RESULT_BRANCH" = "HEAD" ]; then
-            RESULT_BRANCH="${{ github.ref_name }}"
+            RESULT_BRANCH="${GITHUB_REF_NAME:-master}"
           fi
           echo "[push] result branch: $RESULT_BRANCH"
           fetch_result_branch() {
@@ -1245,20 +1250,20 @@ jobs:
           # whitelist-only names) must NOT overwrite the shipped baseline.
           # Require the scored set to carry the R1000 base for non-adr modes.
           UNIVERSE_HEALTHY="yes"
-          if [ "${{ inputs.universe_mode }}" != "adr" ]; then
+          if [ "$INPUT_UNIVERSE_MODE" != "adr" ]; then
             UNIVERSE_HEALTHY="$(python -c 'import csv,json; from pathlib import Path; audit=Path("outputs/universe_health/universe_source_audit.json"); p=Path("outputs/scored_latest.csv"); rows=list(csv.DictReader(p.open())) if p.exists() else []; healthy=(json.loads(audit.read_text(encoding="utf-8")).get("promotion_allowed") is True) if audit.exists() else (bool(rows) and "universe_source" in rows[0] and sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))) >= 400); print("yes" if healthy else "no")' 2>/dev/null || echo no)"
-            echo "[push] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
+            echo "[push] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for $INPUT_UNIVERSE_MODE)"
           fi
           RUN_ARTIFACT_VALID="no"
           if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ] && [ "$UNIVERSE_HEALTHY" = "yes" ]; then
             RUN_ARTIFACT_VALID="yes"
-            DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
+            DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_$INPUT_UNIVERSE_MODE"
           else
-            DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_${{ inputs.universe_mode }}"
+            DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_$INPUT_UNIVERSE_MODE"
             if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
-              echo "[push] WARN: INVALID_UNIVERSE (R1000 base collapsed); writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+              echo "[push] WARN: INVALID_UNIVERSE (R1000 base collapsed); writing diagnostics to $DEST and preserving latest_$INPUT_UNIVERSE_MODE."
             else
-              echo "[push] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+              echo "[push] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; writing diagnostics to $DEST and preserving latest_$INPUT_UNIVERSE_MODE."
             fi
           fi
           mkdir -p "$DEST"
@@ -1299,15 +1304,15 @@ jobs:
             fi
           }
           # Capture run log tail (last 300 lines) for diagnostics regardless of outcome
-          if ls outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log 1>/dev/null 2>&1; then
-            LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log | head -1)
+          if ls outputs/full_rebuild_logs/*_${INPUT_UNIVERSE_MODE}.log 1>/dev/null 2>&1; then
+            LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${INPUT_UNIVERSE_MODE}.log | head -1)
             tail -300 "$LATEST_LOG" > "$DEST/run_log_tail.txt"
             echo "Captured tail of: $LATEST_LOG ($(wc -l < $LATEST_LOG) total lines)" >> "$DEST/run_log_tail.txt"
           fi
           # Job status indicator
-          echo "job_status: ${{ job.status }}" > "$DEST/job_status.txt"
-          if [ "${{ inputs.artifact_profile }}" != "research_full" ]; then
-            echo "[push] artifact_profile=${{ inputs.artifact_profile }}; writing minimal cloud_results bundle."
+          echo "job_status: $STEP_JOB_STATUS" > "$DEST/job_status.txt"
+          if [ "$INPUT_ARTIFACT_PROFILE" != "research_full" ]; then
+            echo "[push] artifact_profile=$INPUT_ARTIFACT_PROFILE; writing minimal cloud_results bundle."
             copy_dir_clean outputs/user_current "$DEST/user_current"
             cp outputs/patch_application_manifest.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/operator_review "$DEST/operator_review"
@@ -1508,17 +1513,17 @@ jobs:
           # core metrics. Failed/cancelled partial runs must not overwrite the
           # last valid analysis baseline.
           if [ "$RUN_ARTIFACT_VALID" = "yes" ]; then
-            rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
-            cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
+            rm -rf "cloud_results/full_rebuild/latest_$INPUT_UNIVERSE_MODE"
+            cp -r "$DEST" "cloud_results/full_rebuild/latest_$INPUT_UNIVERSE_MODE"
           else
-            echo "[push] latest_${{ inputs.universe_mode }} preserved because RUN_ARTIFACT_VALID=$RUN_ARTIFACT_VALID"
+            echo "[push] latest_$INPUT_UNIVERSE_MODE preserved because RUN_ARTIFACT_VALID=$RUN_ARTIFACT_VALID"
           fi
           git add -f cloud_results/ 2>/dev/null || true
-          if [ "${{ inputs.auto_learning_promote_live }}" = "true" ] && [ -f research/auto_feature_gates.yaml ]; then
+          if [ "$INPUT_AUTO_LEARNING_PROMOTE_LIVE" = "true" ] && [ -f research/auto_feature_gates.yaml ]; then
             git add research/auto_feature_gates.yaml 2>/dev/null || true
           fi
           git diff --cached --quiet || \
-            git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
+            git commit -m "chore(bot): full rebuild [$INPUT_UNIVERSE_MODE] $(date +%Y-%m-%d) [skip ci]"
 
           # Push with rebase-on-conflict (race condition guard). Use the
           # dispatch branch, not master, so branch test runs do not replay
