@@ -39,12 +39,14 @@ Codex, PR #142 (`codex/cagr-walkforward-20260619`)에 Claude 리뷰 3건이 있�
 | F3 | 도구 명칭 정직성: "rolling calendar-year CAGR, NOT walk-forward retrain" 명시 | `tools/run_cagr_walkforward.py` docstring + `report.md` 본문 | module docstring + 277 | 용어 혼동 제거 |
 | F4 | schema_version v1 → v2 (필드 추가·의미 변경) | `tools/run_cagr_walkforward.py` `SCHEMA_VERSION` 상수 | 상수 정의부 | 향후 호환성 |
 | F5 | 스모크 갱신 (window 7개, partial 제외, fallback 분리, single_OOS_unavailable verdict) | `tests/cagr_walkforward_smoke.py` | 전체 | 회귀 방지 |
+| F6 | sidecar wire (full rebuild 시 자동 실행되게 1줄 추가) | `tools/run_full_rebuild_sidecars.py` | performance_ledger 호출 다음 줄 | **머지 후 sidecar로 실행되게** (현재 wire 0) |
 
 **금지**:
 - 새 파일 추가 0 (smoke 동일 경로 갱신만).
 - selection/scoring/target/cash 코드 0 수정.
 - `r1000_helpers.py` 0 수정 (`compute_cagr_safe`는 그대로 OK).
 - `tools/run_pr_validation.py` 0 수정 (이미 등록됨).
+- F6 wire 외에 `run_full_rebuild_sidecars.py`의 다른 줄 0 수정 (cost_stress 등 다른 도구 활성화 금지).
 
 ---
 
@@ -174,14 +176,16 @@ WINDOW_YEARS = (2023, 2024, 2025, 2026)
 
 After:
 ```python
-# 7-year credibility audit: full calendar years 2020-2025 are completed,
-# 2026 is partial (audit run time). 2019 is excluded because the broker_replay
-# equity curve starts mid-2019 (≈2019-06-03) and a half-year would behave like
-# the 2026 partial — included for visibility but never the average's basis.
+# 7-year credibility audit: full calendar years 2020–2025 are completed,
+# 2026 is partial (audit run time). The pre-2020 ≈7 months of the broker_replay
+# equity curve (≈2019-06 → 2019-12) are intentionally NOT segmented as a
+# window: a half-year window adds annualization noise without information
+# beyond what 2020 already captures. 2022 (bear) is included so defensive
+# regime credibility is visible.
 FULL_WINDOW_YEARS = (2020, 2021, 2022, 2023, 2024, 2025)
-PARTIAL_WINDOW_YEARS = (2019, 2026)
-WINDOW_YEARS = (*PARTIAL_WINDOW_YEARS[:1], *FULL_WINDOW_YEARS, *PARTIAL_WINDOW_YEARS[1:])
-# 결과: (2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026)  ← 표시 순서 유지
+PARTIAL_WINDOW_YEARS = (2026,)
+WINDOW_YEARS = (*FULL_WINDOW_YEARS, *PARTIAL_WINDOW_YEARS)
+# 결과: (2020, 2021, 2022, 2023, 2024, 2025, 2026)
 ```
 
 #### 3.2.2 `yearly_window`의 partial 판정 수정
@@ -284,10 +288,12 @@ Inputs:
 
 What this measures:
   Rolling calendar-year CAGR over the same already-trained broker_replay
-  equity curve. The 7-year curve is segmented into 8 calendar windows
-  (2019 partial, 2020-2025 full, 2026 partial). Average and geometric
-  mean are computed over FULL years only; partial years are reported
-  for reference but never enter the average.
+  equity curve. The curve is segmented into 7 calendar windows
+  (2020–2025 full, 2026 partial). Average and geometric mean are
+  computed over FULL years only; the 2026 partial is reported for
+  reference but never enters the average. The pre-2020 ≈7 months of
+  the curve are not segmented (would add annualization noise without
+  new information beyond 2020).
 
 What this is NOT:
   This is NOT walk-forward retrain CAGR. The model is not re-trained per
@@ -315,7 +321,7 @@ Before:
 After:
 ```python
 "Rolling calendar-year CAGR stability over the same trained broker-ledger equity curve.",
-"Windows: 2019 (partial), 2020–2025 (full), 2026 (partial). Average uses full years only; partials are shown for reference.",
+"Windows: 2020–2025 (full), 2026 (partial). Average uses full years only; the 2026 partial is shown for reference.",
 "This is NOT walk-forward retrain CAGR — no model is re-trained per window.",
 ```
 
@@ -350,9 +356,9 @@ SCHEMA_VERSION = "cagr-walkforward-v2"
 
 `tests/cagr_walkforward_smoke.py` 갱신. 기존 6개 테스트를 다음과 같이 수정·확장.
 
-### 6.1 합성 곡선 길이 7년으로 확장
+### 6.1 합성 곡선 길이 확장
 
-기존 smoke 는 `2023-01-01 ~ 2026-06-30`. 갱신: `2019-06-03 ~ 2026-06-30` (실제 broker_replay 와 동일 시작).
+기존 smoke 는 `2023-01-01 ~ 2026-06-30`. 갱신: `2020-01-01 ~ 2026-06-30` (window 정의와 일치 — pre-2020 데이터는 segmented window에 안 들어가므로 합성 데이터도 거기서 시작).
 
 도우미 함수 추가 (모듈 상단):
 ```python
@@ -368,15 +374,15 @@ def _build_compound_curve(start: date, end: date, annual_rate: float, init_eq: f
 ### 6.2 test_known_answer_and_no_mutation 갱신
 
 before/after (요지):
-- 7년 +10%/yr curve 생성 (2019-06-03 ~ 2026-06-30).
+- +10%/yr curve 생성 (2020-01-01 ~ 2026-06-30).
 - `metrics.json`에 `windows.oos.cagr=0.10` 명시.
 - 기대값:
-  - `window_count == 8` (2019, 2020, …, 2026)
+  - `window_count == 7` (2020, 2021, …, 2026)
   - `completed_full_year_count == 6` (2020–2025)
-  - `completed_partial_year_count == 2` (2019, 2026)
+  - `completed_partial_year_count == 1` (2026)
   - `walk_forward_cagr_avg ≈ 0.10` (±1e-6)
   - 각 full year `windows[year]["cagr"]` ≈ 0.10
-  - 2019/2026 windows 의 `cagr`도 ≈ 0.10 이지만 average에 들어가지 않음 → 별도 assertion: 평균 계산 시 partial 제외 확인
+  - 2026 partial 의 `cagr`도 ≈ 0.10 이지만 average에 들어가지 않음 → 별도 assertion: 평균 계산 시 partial 제외 확인
     ```python
     expected_avg = sum(0.10 for _ in range(6)) / 6
     assert math.isclose(summary["walk_forward_cagr_avg"], 0.10, rel_tol=0, abs_tol=1e-6)
@@ -395,7 +401,7 @@ def test_fallback_unavailable_yields_unavailable_verdict() -> None:
     """metrics.json 에 OOS CAGR 키가 전혀 없으면 verdict=single_oos_unavailable
     이고 inflation_indicator=None. 절대 rolling fallback으로 ratio 계산하지 말 것."""
     with _tempdir() as root:
-        curve = _build_compound_curve(date(2019, 6, 3), date(2026, 6, 30), 0.10)
+        curve = _build_compound_curve(date(2020, 1, 1), date(2026, 6, 30), 0.10)
         _write_curve(root / "broker_replay" / "main", curve)
         # metrics 에 cagr 만 있고 oos/windows.oos 키 0
         _write_json(root / "broker_replay" / "main" / "metrics.json", {
@@ -416,11 +422,11 @@ def test_fallback_unavailable_yields_unavailable_verdict() -> None:
 
 ```python
 def test_partial_windows_excluded_from_average() -> None:
-    """2019/2026 partial CAGR이 극단적으로 다르더라도 walk_forward_cagr_avg 는
+    """2026 partial CAGR이 극단적으로 다르더라도 walk_forward_cagr_avg 는
     2020-2025 full year 만의 평균이어야 한다."""
     with _tempdir() as root:
-        # 2019-06 ~ 2025-12: +10%/yr  (full year cagr ≈ 0.10)
-        seg1 = _build_compound_curve(date(2019, 6, 3), date(2025, 12, 31), 0.10)
+        # 2020-01 ~ 2025-12: +10%/yr  (full year cagr ≈ 0.10)
+        seg1 = _build_compound_curve(date(2020, 1, 1), date(2025, 12, 31), 0.10)
         # 2026-01 ~ 2026-06: +100%/yr equivalent (partial은 평균에 들어가면 안 됨)
         seg2 = _build_compound_curve(date(2026, 1, 2), date(2026, 6, 30), 1.0,
                                      init_eq=float(seg1["equity"].iloc[-1]))
@@ -434,9 +440,11 @@ def test_partial_windows_excluded_from_average() -> None:
         s = run_walkforward(root)["summaries"]["main"]
         # walk_forward_cagr_avg 은 2020-2025 평균 ≈ 0.10
         assert math.isclose(s["walk_forward_cagr_avg"], 0.10, rel_tol=0, abs_tol=5e-3)
-        # 2026 partial은 windows에는 들어가지만 평균에는 안 들어감
+        # 2026 partial은 windows에는 정확히 1개 있고 평균에는 안 들어감
         partial_rows = [w for w in s["windows"] if w["partial"]]
-        assert any(abs(w["cagr"]) > 0.5 for w in partial_rows if w["cagr"] is not None)
+        assert len(partial_rows) == 1
+        assert partial_rows[0]["year"] == 2026
+        assert partial_rows[0]["cagr"] is not None and abs(partial_rows[0]["cagr"]) > 0.5
         # 평균이 partial에 흔들리지 않았음 → inflation 도 partial 영향 없음
         assert s["verdict"] == "single_oos_consistent_with_rolling_avg"
 ```
@@ -456,16 +464,58 @@ def test_partial_windows_excluded_from_average() -> None:
 
 ---
 
+## 6.7 F6 — sidecar wire (full rebuild 자동 실행)
+
+### 6.7.1 문제
+
+검증: `tools/run_full_rebuild_sidecars.py`에서 `cagr_walkforward` 호출 0건. 머지해도 다음 full rebuild에서 sidecar로 안 돌아감 — 도구는 있지만 호출자가 없음.
+
+### 6.7.2 수정
+
+`tools/run_full_rebuild_sidecars.py`에서 `run_performance_ledger.py` 호출 다음 줄에 1줄 추가.
+
+찾기: 다음 패턴이 있는 줄을 grep으로 찾는다 (정확한 줄 번호는 사용자 환경에 따라 다를 수 있음).
+```bash
+[LOCAL] grep -n "run_performance_ledger.py" tools/run_full_rebuild_sidecars.py
+```
+
+찾은 줄 **바로 다음**에 다음 한 줄을 삽입:
+```bash
+  python tools/run_cagr_walkforward.py --latest-run outputs --output-dir outputs/cagr_walkforward 2>&1 | tee outputs/full_rebuild_logs/cagr_walkforward.log || true
+```
+
+규칙:
+- `|| true` 로 non-fatal (실패해도 다음 sidecar 진행).
+- `tee` 로 로그 보존.
+- 들여쓰기는 주변 sidecar 호출과 동일 (2 space).
+- **다른 줄 일절 수정 금지** (cost_stress 등 활성화 시도 금지).
+
+### 6.7.3 검증
+
+```bash
+[LOCAL] grep -c "run_cagr_walkforward.py" tools/run_full_rebuild_sidecars.py    # 기대: 1
+[LOCAL] python3 -c "import ast; ast.parse(open('tools/run_full_rebuild_sidecars.py').read())"  # syntax OK
+```
+
+shell script가 아니라 Python wrapper면 syntax check 무의미. 그래도 diff는 1줄 추가만 있어야 함.
+
+```bash
+[LOCAL] git diff tools/run_full_rebuild_sidecars.py
+# 기대: + 1줄, - 0줄
+```
+
+---
+
 ## 7. Commit + Push 절차
 
 ```bash
-[LOCAL] git status -s          # 변경된 3 파일만 확인 (run_cagr_walkforward.py, smoke, 본 문서 없음)
+[LOCAL] git status -s          # 변경된 3 파일만 확인 (run_cagr_walkforward.py, smoke, run_full_rebuild_sidecars.py)
 [LOCAL] git diff --stat
-[LOCAL] git add tools/run_cagr_walkforward.py tests/cagr_walkforward_smoke.py
+[LOCAL] git add tools/run_cagr_walkforward.py tests/cagr_walkforward_smoke.py tools/run_full_rebuild_sidecars.py
 [LOCAL] git commit -m "$(cat <<'EOF'
-fix(B1): isolate fallback verdict + extend windows 2020-2025 + name honestly
+fix(B1): isolate fallback verdict + simplify windows 2020-2026 + wire sidecar
 
-Addresses 3 Claude review findings on PR #142:
+Addresses Claude review findings on PR #142:
 
 F1 (fallback verdict contamination — silent misleading risk):
   extract_single_oos_cagr no longer accepts a fallback. When metrics.json
@@ -477,11 +527,13 @@ F1 (fallback verdict contamination — silent misleading risk):
   for downstream consumers to disambiguate.
 
 F2 (window range + partial-year average distortion):
-  WINDOW_YEARS extended to (2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026).
-  2019 and 2026 are flagged partial. walk_forward_cagr_avg and _geomean
-  now use FULL_WINDOW_YEARS (2020-2025) only; partials are displayed in
-  windows[] but never enter the average. 2022 bear is now included in the
-  credibility audit, restoring defensive-regime visibility.
+  WINDOW_YEARS extended to (2020, 2021, 2022, 2023, 2024, 2025, 2026).
+  Only 2026 is flagged partial; pre-2020 ≈7 months of the equity curve are
+  intentionally not segmented (would add annualization noise). walk_forward_
+  cagr_avg and _geomean use FULL_WINDOW_YEARS (2020-2025) only; the 2026
+  partial is displayed in windows[] but never enters the average. 2022 bear
+  is now included in the credibility audit, restoring defensive-regime
+  visibility (the previous 2023-2026 window was all bull/AI-rally).
   Schema fields changed: completed_window_count removed; replaced with
   completed_full_year_count + completed_partial_year_count +
   partial_year_cagrs_for_reference_only.
@@ -498,9 +550,9 @@ F4 (schema bump v1 -> v2):
   consumers (W5 public report).
 
 F5 (smoke regression coverage):
-  - 7y synthetic curve (2019-06-03 -> 2026-06-30), 8 windows, 6 full
+  - synthetic curve (2020-01-01 -> 2026-06-30), 7 windows, 6 full
   - known-answer test asserts walk_forward_cagr_avg == 0.10 with 6 full
-    years at +10%/yr (partials present but excluded from mean)
+    years at +10%/yr (2026 partial present but excluded from mean)
   - new test_fallback_unavailable_yields_unavailable_verdict: missing
     metrics OOS key -> verdict "single_oos_unavailable", inflation None,
     no contamination of walk_forward_cagr_avg by fallback
@@ -508,9 +560,15 @@ F5 (smoke regression coverage):
     annualized +100% does not move the mean of 2020-2025 at +10%
   - existing tests adjusted to new schema (completed_full_year_count etc.)
 
+F6 (sidecar wire — make B1 actually run on rebuilds):
+  Add 1 line to tools/run_full_rebuild_sidecars.py after the existing
+  run_performance_ledger.py call so the next full rebuild generates the
+  cagr_walkforward summary automatically. Non-fatal (|| true) so a B1
+  failure does not break the rebuild. No other sidecar line changed.
+
 Measurement-only: 0 changes to selection, scoring, target books, cash policy,
 sizing, promotion state, or live trading. r1000_helpers.compute_cagr_safe
-unchanged.
+unchanged. tools/run_pr_validation.py unchanged (already registered).
 
 https://claude.ai/code/session_01EFuqqTBYNezRzskPLMHdKU
 EOF
@@ -529,11 +587,14 @@ PR #142 description 끝에 다음 단락 추가 (사람이 한 줄 추가):
 ---
 Update 2026-06-19 (post-Claude review):
 - F1 fallback verdict isolated (single_oos_unavailable)
-- F2 windows extended 2020-2025 full + 2019/2026 partial, partials excluded
-  from walk_forward_cagr_avg
+- F2 windows simplified to 2020-2026 (2020-2025 full + 2026 partial),
+  2026 partial excluded from walk_forward_cagr_avg; 2022 bear now in scope
 - F3 docstring + report.md clarified as rolling, not walk-forward retrain
 - F4 schema bumped v1 -> v2
-- F5 smoke replaced with 7y synthetic + 2 new tests for fallback and partial
+- F5 smoke replaced with 2020-01 to 2026-06 synthetic + 2 new tests
+  (fallback unavailable, partial excluded from average)
+- F6 sidecar wired into tools/run_full_rebuild_sidecars.py (1 line, non-fatal)
+  so the next full rebuild generates outputs/cagr_walkforward/ automatically
 Detail: see commit message of the last commit and
 docs/CODEX_B1_FIXUP_INSTRUCTIONS_20260619.md (if committed).
 ```
@@ -548,9 +609,13 @@ docs/CODEX_B1_FIXUP_INSTRUCTIONS_20260619.md (if committed).
 PR #142 fix-up complete:
   Branch:  codex/cagr-walkforward-20260619
   Commits added: 1
-  Files changed: 2  (tools/run_cagr_walkforward.py, tests/cagr_walkforward_smoke.py)
+  Files changed: 3  (tools/run_cagr_walkforward.py, tests/cagr_walkforward_smoke.py,
+                     tools/run_full_rebuild_sidecars.py [+1 line wiring])
   Files NOT touched (confirmed): r1000_helpers.py, tools/run_pr_validation.py,
     any selection/scoring/target/cash/sizing/live-trading code, any new file.
+  Sidecar wire check:
+    grep -c "run_cagr_walkforward.py" tools/run_full_rebuild_sidecars.py  →  1
+    git diff tools/run_full_rebuild_sidecars.py                            →  +1 line, -0
   Smoke results:
     cagr_walkforward smoke:  <N>/<N> passed (was 6, expected ≥ 8)
     run_pr_validation full:  <N>/<N> passed, < 30s
@@ -561,7 +626,7 @@ PR #142 fix-up complete:
   CI status: <green/pending/red>
 
 Awaiting:
-  - Claude / ChatGPT Pro re-review of F1-F5 fix
+  - Claude / ChatGPT Pro re-review of F1-F6 fix
   - User merge decision on PR #142
   - Next: B2 alpha/beta attribution per docs/CODEX_WALKFORWARD_PUBLIC_REPORT_PLAN.md §5.2
 ```
@@ -576,7 +641,7 @@ Awaiting:
 - 새 PR 생성.
 - `r1000_helpers.py` 수정.
 - `r1000_pipeline.py`, `r1000_features.py`, `r1000_signals.py`, `r1000_candidate_lanes.py`, `tools/run_broker_ledger_replay.py`, `tools/run_alphaops_vnext_policy_replay.py` 중 하나 이상 수정.
-- `tools/run_full_rebuild_sidecars.py` 수정 (이미 B1이 wire 됐다면 그대로).
+- `tools/run_full_rebuild_sidecars.py`의 F6 wire **외** 다른 줄 수정 (cost_stress 등 다른 도구 활성화 시도 즉시 reject).
 - 새 파일 추가 (smoke 갱신만 허용).
 - production target / cash policy / live trading 영향.
 - workflow_dispatch 실행.
