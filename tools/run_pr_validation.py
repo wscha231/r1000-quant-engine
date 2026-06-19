@@ -103,6 +103,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/broker_gate_contract_smoke.py", []),
     ("tests/cash_contract_smoke.py", []),
     ("tests/fast_full_drift_audit_smoke.py", []),
+    ("tests/cagr_walkforward_smoke.py", []),
     ("tests/broker_gap_attribution_smoke.py", []),
     ("tests/oos_lock_smoke.py", []),
     ("tests/oos_lock_audit_smoke.py", []),
