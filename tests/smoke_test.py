@@ -1854,9 +1854,11 @@ def test_full_rebuild_commits_portfolios() -> None:
         "portfolio_latest.csv",
         "concentrated_portfolio_latest.csv",
         "scored_unified.csv",
-        "latest_${{ inputs.universe_mode }}",
     ):
         assert needed in wf, f"full_rebuild_manual.yml missing: {needed}"
+    assert (
+        "latest_${{ inputs.universe_mode }}" in wf or "latest_$INPUT_UNIVERSE_MODE" in wf
+    ), "full_rebuild_manual.yml missing latest_<universe_mode> pointer handling"
 
 
 @_test("regression.full_rebuild_preserves_auto_learning_artifacts")
