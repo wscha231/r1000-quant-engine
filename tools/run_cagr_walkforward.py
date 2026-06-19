@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Measure whether headline/OOS CAGR is inflated versus rolling yearly CAGR.
+"""Measure rolling calendar-year CAGR credibility for broker-ledger replays.
 
-This is a measurement-only audit. It reads broker-ledger replay outputs and
-writes summaries under outputs/cagr_walkforward; it does not mutate target
-books, strategy settings, cash policy, or production gates.
+This is a measurement-only audit. It reads the existing broker-ledger replay
+equity curve and re-segments that same trained run into calendar-year windows.
+It is NOT walk-forward retrain CAGR; no model is re-trained per window.
+
+The sidecar writes summaries under outputs/cagr_walkforward; it does not mutate
+target books, strategy settings, cash policy, promotion state, or live trading.
 """
 from __future__ import annotations
 
@@ -24,9 +27,12 @@ from r1000_helpers import compute_cagr_safe
 
 DEFAULT_OUTPUT_DIR = "outputs/cagr_walkforward"
 PORTFOLIOS = ("main", "concentrated")
-SCHEMA_VERSION = "cagr-walkforward-v1"
-WINDOW_YEARS = (2023, 2024, 2025, 2026)
+SCHEMA_VERSION = "cagr-walkforward-v2"
+WINDOW_YEARS = (2020, 2021, 2022, 2023, 2024, 2025, 2026)
+FULL_WINDOW_YEARS = (2020, 2021, 2022, 2023, 2024, 2025)
+PARTIAL_WINDOW_YEARS = (2026,)
 VERDICT_INSUFFICIENT = "insufficient_data"
+VERDICT_SINGLE_OOS_UNAVAILABLE = "single_oos_unavailable"
 VERDICT_CONSISTENT = "single_oos_consistent_with_rolling_avg"
 VERDICT_MODERATE = "single_oos_moderately_above_rolling_avg"
 VERDICT_INFLATED = "single_oos_inflated_vs_rolling_avg"
@@ -125,7 +131,8 @@ def metric_mode(metrics: dict[str, Any]) -> str:
     return str(metrics.get("metric_mode") or metrics.get("official_metric_mode") or "broker_ledger_next_close")
 
 
-def extract_single_oos_cagr(metrics: dict[str, Any], fallback: float | None) -> float | None:
+def extract_single_oos_cagr(metrics: dict[str, Any]) -> float | None:
+    """Return a metrics-reported single-window OOS CAGR, or None if absent."""
     direct_candidates = (
         metrics.get("single_oos_cagr"),
         metrics.get("oos_cagr"),
@@ -139,7 +146,7 @@ def extract_single_oos_cagr(metrics: dict[str, Any], fallback: float | None) -> 
         parsed = safe_float(value)
         if parsed is not None:
             return parsed
-    return fallback
+    return None
 
 
 def equity_endpoint(frame: pd.DataFrame, year: int, *, start: bool) -> tuple[pd.Timestamp | None, float | None]:
@@ -165,7 +172,8 @@ def yearly_window(frame: pd.DataFrame, year: int) -> dict[str, Any]:
         "end_equity": end_equity,
         "cagr": None,
         "status": VERDICT_INSUFFICIENT,
-        "partial": bool(year == 2026),
+        "partial": bool(year in PARTIAL_WINDOW_YEARS),
+        "included_in_average": bool(year in FULL_WINDOW_YEARS),
     }
     if start_date is None or end_date is None or start_equity is None or end_equity is None:
         return base
@@ -198,8 +206,10 @@ def geometric_mean(values: list[float]) -> float | None:
 
 
 def classify_verdict(single_oos_cagr: float | None, walk_forward_avg: float | None) -> tuple[str, float | None]:
-    if single_oos_cagr is None or walk_forward_avg is None or walk_forward_avg <= 0.0:
+    if walk_forward_avg is None or walk_forward_avg <= 0.0:
         return VERDICT_INSUFFICIENT, None
+    if single_oos_cagr is None:
+        return VERDICT_SINGLE_OOS_UNAVAILABLE, None
     ratio = single_oos_cagr / walk_forward_avg
     if not math.isfinite(ratio):
         return VERDICT_INSUFFICIENT, None
@@ -228,12 +238,22 @@ def portfolio_summary(run_root: Path, portfolio: str) -> dict[str, Any]:
     curve = read_equity_curve(curve_path)
 
     windows = [yearly_window(curve, year) for year in WINDOW_YEARS]
-    valid_cagrs = [safe_float(row.get("cagr")) for row in windows]
-    valid_cagrs = [value for value in valid_cagrs if value is not None]
+    full_year_cagrs = [
+        safe_float(row.get("cagr"))
+        for row in windows
+        if int(row.get("year")) in FULL_WINDOW_YEARS and safe_float(row.get("cagr")) is not None
+    ]
+    full_year_cagrs = [value for value in full_year_cagrs if value is not None]
+    partial_year_cagrs = [
+        {"year": int(row.get("year")), "cagr": safe_float(row.get("cagr"))}
+        for row in windows
+        if int(row.get("year")) in PARTIAL_WINDOW_YEARS and safe_float(row.get("cagr")) is not None
+    ]
 
-    walk_avg = arithmetic_mean(valid_cagrs)
-    walk_geo = geometric_mean(valid_cagrs)
-    single_oos = extract_single_oos_cagr(metrics, fallback=valid_cagrs[-1] if valid_cagrs else None)
+    walk_avg = arithmetic_mean(full_year_cagrs)
+    walk_geo = geometric_mean(full_year_cagrs)
+    single_oos = extract_single_oos_cagr(metrics)
+    single_oos_source = "metrics" if single_oos is not None else "unavailable"
     verdict, inflation = classify_verdict(single_oos, walk_avg)
     full_cagr = safe_float(metrics.get("cagr"), default=full_cagr_from_curve(curve))
 
@@ -246,11 +266,14 @@ def portfolio_summary(run_root: Path, portfolio: str) -> dict[str, Any]:
         "equity_curve_path": str(curve_path),
         "full_cagr": full_cagr,
         "single_oos_cagr": single_oos,
+        "single_oos_cagr_source": single_oos_source,
         "walk_forward_cagr_avg": walk_avg,
         "walk_forward_cagr_geomean": walk_geo,
         "inflation_indicator": inflation,
         "window_count": len(windows),
-        "completed_window_count": len(valid_cagrs),
+        "completed_full_year_count": len(full_year_cagrs),
+        "completed_partial_year_count": len(partial_year_cagrs),
+        "partial_year_cagrs_for_reference_only": partial_year_cagrs,
         "windows": windows,
         "verdict": verdict,
     }
@@ -274,9 +297,9 @@ def write_report(path: Path, summaries: dict[str, dict[str, Any]]) -> None:
     lines = [
         "# CAGR Walk-Forward Credibility",
         "",
-        "Measurement-only audit of broker-ledger CAGR stability across 2023, 2024, 2025, and 2026 partial windows.",
+        "Rolling calendar-year CAGR stability over the same trained broker-ledger equity curve.",
         "",
-        "| Portfolio | Full CAGR | Single OOS CAGR | Walk-forward avg | Inflation | Verdict |",
+        "| Portfolio | Full CAGR | Single OOS CAGR | Rolling full-year avg | Inflation | Verdict |",
         "| --- | ---: | ---: | ---: | ---: | --- |",
     ]
     lines.extend(report_line(summaries[portfolio]) for portfolio in PORTFOLIOS)
@@ -284,6 +307,8 @@ def write_report(path: Path, summaries: dict[str, dict[str, Any]]) -> None:
         [
             "",
             "Inputs are broker_replay/<portfolio>/equity_curve.csv and metrics.json.",
+            "Rolling windows are 2020-2025 full years plus 2026 partial for reference only.",
+            "This is NOT walk-forward retrain CAGR; no model is re-trained per window.",
             "This report does not alter selection, scoring, target books, cash policy, or promotion state.",
             "",
         ]
