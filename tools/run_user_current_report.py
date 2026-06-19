@@ -198,6 +198,27 @@ def snapshot_date_rank(value: str) -> pd.Timestamp:
 
 
 def load_current_holdings_source(latest_run: Path, output_dir: Path) -> tuple[pd.DataFrame, str, str]:
+    committed_cloud_paths = [
+        latest_run.parent
+        / "cloud_results"
+        / "full_rebuild"
+        / "latest_global_alpha_universe"
+        / "user_current"
+        / "01_current_holdings.csv"
+    ]
+    try:
+        latest_inside_repo = latest_run.resolve().is_relative_to(REPO_ROOT.resolve())
+    except Exception:
+        latest_inside_repo = False
+    if latest_inside_repo:
+        committed_cloud_paths.append(
+            REPO_ROOT
+            / "cloud_results"
+            / "full_rebuild"
+            / "latest_global_alpha_universe"
+            / "user_current"
+            / "01_current_holdings.csv"
+        )
     candidates: list[tuple[str, str, int, list[Path]]] = [
         (
             "operating_snapshot",
@@ -209,20 +230,7 @@ def load_current_holdings_source(latest_run: Path, output_dir: Path) -> tuple[pd
             "committed_cloud_results_snapshot",
             "committed cloud_results latest user_current/01_current_holdings.csv",
             30,
-            [
-                latest_run.parent
-                / "cloud_results"
-                / "full_rebuild"
-                / "latest_global_alpha_universe"
-                / "user_current"
-                / "01_current_holdings.csv",
-                REPO_ROOT
-                / "cloud_results"
-                / "full_rebuild"
-                / "latest_global_alpha_universe"
-                / "user_current"
-                / "01_current_holdings.csv",
-            ],
+            committed_cloud_paths,
         ),
         (
             "restored_user_current_snapshot",
