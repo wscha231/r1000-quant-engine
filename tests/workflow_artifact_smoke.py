@@ -106,8 +106,10 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/cash_reentry_quality/",
         "outputs/data_freshness_contract/",
         "outputs/alpha_plane_measurement_status.json",
+        "outputs/alpha_beta_attribution/",
         "outputs/cagr_walkforward/",
         "outputs/daily_market_snapshot/",
+        "outputs/full_rebuild_logs/alpha_beta_attribution.log",
         "outputs/full_rebuild_logs/cagr_walkforward.log",
         "outputs/full_rebuild_logs/daily_market_snapshot.log",
         "copy_dir_clean outputs/stock_selection_quality",
@@ -269,6 +271,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_stock_selection_quality_audit.py",
         "tools/run_entry_exit_timing_audit.py",
         "tools/run_cash_reentry_quality_audit.py",
+        "tools/run_alpha_beta_attribution.py",
         "tools/run_data_freshness_contract.py",
         "tools/run_universe_health_audit.py",
         "run_universe_health_audit",
@@ -419,6 +422,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/review_dispatcher_self_correction.log",
         "outputs/full_rebuild_logs/account_evaluation.log",
         "outputs/full_rebuild_logs/oos_lock.log",
+        "outputs/full_rebuild_logs/alpha_beta_attribution.log",
         "outputs/full_rebuild_logs/metric_hygiene_report.log",
         "outputs/full_rebuild_logs/selection_audit.log",
         "outputs/full_rebuild_logs/dataset_coverage_audit.log",
@@ -497,6 +501,7 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     mdd_idx = sidecar_tool.index("tools/run_mdd_cash_overlay_research.py", operating_idx)
     trade_idx = sidecar_tool.index("tools/run_trade_attribution_analysis.py", operating_idx)
     is_idx = sidecar_tool.index("tools/run_is_attribution.py", operating_idx)
+    alpha_beta_idx = sidecar_tool.index("tools/run_alpha_beta_attribution.py", operating_idx)
     era_idx = sidecar_tool.index("tools/run_era_leadership_sidecar.py", operating_idx)
     oos_idx = sidecar_tool.index("tools/run_oos_lock_audit.py", operating_idx)
     adr_idx = sidecar_tool.index("tools/run_adr_candidate_scanner.py", operating_idx)
@@ -507,6 +512,7 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
     assert mdd_idx < acceptance_idx
     assert trade_idx < acceptance_idx
     assert is_idx < acceptance_idx
+    assert is_idx < alpha_beta_idx < acceptance_idx
     assert era_idx < acceptance_idx
     assert oos_idx < acceptance_idx
     assert adr_idx < acceptance_idx
