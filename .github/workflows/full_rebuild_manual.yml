@@ -641,6 +641,8 @@ jobs:
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
+            outputs/cagr_walkforward/
+            outputs/daily_market_snapshot/
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/main/account_state_latest.json
             outputs/broker_replay/main/positions_latest.csv
@@ -676,6 +678,8 @@ jobs:
             outputs/data_readiness/
             outputs/data_freshness_contract/
             outputs/adr_candidates/
+            data_pit/free/market_snapshot/
+            data_raw/free/market_snapshot/yf_market_info_cache.csv
             data/catalog.json
             outputs/coverage_gate.json
             outputs/operating_snapshot/current_operating_holdings_latest.csv
@@ -700,6 +704,8 @@ jobs:
             outputs/full_rebuild_logs/stock_selection_quality_audit.log
             outputs/full_rebuild_logs/entry_exit_timing_audit.log
             outputs/full_rebuild_logs/cash_reentry_quality_audit.log
+            outputs/full_rebuild_logs/cagr_walkforward.log
+            outputs/full_rebuild_logs/daily_market_snapshot.log
             outputs/full_rebuild_logs/adr_candidate_scanner.log
             outputs/full_rebuild_logs/oos_lock.log
             outputs/full_rebuild_logs/replay_price_cache_refresh.log
@@ -740,6 +746,10 @@ jobs:
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
+            outputs/cagr_walkforward/
+            outputs/daily_market_snapshot/
+            data_pit/free/market_snapshot/
+            data_raw/free/market_snapshot/yf_market_info_cache.csv
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
             outputs/alphaops_vnext/crisis_state_audit.csv
@@ -780,6 +790,8 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/full_rebuild_logs/universe_health_audit.log
+            outputs/full_rebuild_logs/cagr_walkforward.log
+            outputs/full_rebuild_logs/daily_market_snapshot.log
           if-no-files-found: warn
           retention-days: 365
 
@@ -1166,10 +1178,14 @@ jobs:
           TG_FILES=(
             "outputs/user_current/README_FIRST.md"
             "outputs/user_current/01_current_holdings.csv"
+            "outputs/user_current/02_target_weights.csv"
+            "outputs/user_current/03_order_preview.csv"
             "outputs/user_current/03_period_returns.csv"
             "outputs/user_current/04_official_metrics.json"
             "outputs/user_current/05_action_summary.md"
             "outputs/user_current/06_benchmark_comparison.csv"
+            "outputs/user_current/07_name_rationales.csv"
+            "outputs/user_current/08_rebalance_decision.json"
             "outputs/daily_crisis_monitor/crisis_action_status.md"
             "outputs/decision_cadence/decision_cadence_report.md"
             "outputs/decision_cadence/decision_cadence_summary.json"

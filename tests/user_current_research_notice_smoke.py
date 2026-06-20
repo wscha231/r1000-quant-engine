@@ -89,7 +89,16 @@ def test_user_current_explains_research_sidecars_do_not_alter_holdings() -> None
         context = json.loads((out / "07_research_sidecar_context.json").read_text(encoding="utf-8"))
         broker_rule = json.loads((out / "08_broker_rule_backtest.json").read_text(encoding="utf-8"))
         holdings = pd.read_csv(out / "01_current_holdings.csv")
+        rationales = pd.read_csv(out / "07_name_rationales.csv")
+        decision = json.loads((out / "08_rebalance_decision.json").read_text(encoding="utf-8"))
         summary = (out / "05_action_summary.md").read_text(encoding="utf-8")
+        for name in [
+            "02_target_weights.csv",
+            "03_order_preview.csv",
+            "07_name_rationales.csv",
+            "08_rebalance_decision.json",
+        ]:
+            assert (out / name).exists(), name
         assert payload["production_applied"] is False
         assert payload["sidecar_only"] is True
         assert payload["production_policy"] == "production_baseline"
@@ -99,6 +108,12 @@ def test_user_current_explains_research_sidecars_do_not_alter_holdings() -> None
         assert context["current_holdings_source"] == "production_operating_target_book"
         assert broker_rule["daily_risk_overlay_validated"] is True
         assert holdings["backtest_metric_mode"].iloc[0] == "broker_ledger_next_close"
+        assert rationales["ticker"].iloc[0] == "AAA"
+        assert "membership_pit_status" in rationales.columns
+        assert decision["review_only"] is True
+        assert decision["live_trading_enabled"] is False
+        assert decision["production_mutation_allowed"] is False
+        assert decision["human_approval_required"] is True
         assert "official_broker_cagr" in holdings.columns
         assert "sidecar_applied_to_production" in summary
         assert "Broker Rule Backtest" in summary
@@ -257,6 +272,8 @@ def test_user_current_blocks_nested_invalid_official_metrics() -> None:
         payload = build_report(Namespace(latest_run=str(latest), price_cache=str(root / "cache_prices"), output_dir=str(root / "user_current"), strict=False))
         out = root / "user_current"
         summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+        rationales = pd.read_csv(out / "07_name_rationales.csv")
+        decision = json.loads((out / "08_rebalance_decision.json").read_text(encoding="utf-8"))
         action_summary = (out / "05_action_summary.md").read_text(encoding="utf-8")
         readme = (out / "README_FIRST.md").read_text(encoding="utf-8")
 
@@ -266,6 +283,10 @@ def test_user_current_blocks_nested_invalid_official_metrics() -> None:
         assert payload["recommendation_status"] == "DO_NOT_USE_REVIEW_REQUIRED"
         assert any("invalid_window" in item for item in payload["production_blockers"])
         assert summary["production_promotion_allowed"] is False
+        assert summary["name_rationale_rows"] == 1
+        assert summary["current_snapshot_used_for_order_preview"] is True
+        assert "selected_vs_retained" in rationales.columns
+        assert decision["review_only"] is True
         assert "- valid_for_production: `False`" in action_summary
         assert "- production_promotion_allowed: `False`" in action_summary
         assert "- recommendation_status: `DO_NOT_USE_REVIEW_REQUIRED`" in action_summary

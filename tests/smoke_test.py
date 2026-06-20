@@ -3540,10 +3540,14 @@ def test_user_current_contains_no_research_metrics() -> None:
     tool = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
     for required in [
         "01_current_holdings.csv",
+        "02_target_weights.csv",
+        "03_order_preview.csv",
         "03_period_returns.csv",
         "04_official_metrics.json",
         "06_benchmark_comparison.csv",
+        "07_name_rationales.csv",
         "07_research_sidecar_context.json",
+        "08_rebalance_decision.json",
         "current simulated broker-ledger holdings only",
     ]:
         assert required in tool, f"user_current report missing {required}"
