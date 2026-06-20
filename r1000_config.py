@@ -28,6 +28,7 @@ COLUMN_OWNERSHIP registry for the full invariant.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1701,6 +1702,69 @@ def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
 # API keys/user-agents. References DEFAULT_FEATURES + SLEEVE_FACTOR_
 # REGIME_MULTIPLIERS already defined earlier in this file.
 
+# ---------------------------------------------------------------------
+# Family A (fast-crash defense) A/B env-override whitelist.
+# ---------------------------------------------------------------------
+# Measurement infrastructure ONLY — defaults are unchanged. Each field
+# below can be overridden at runtime via an env var named
+# `R1000_<FIELD_NAME_UPPERCASE>` (e.g. R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD).
+# This is the injection point for the 7Y CAGR/MDD A/B plan's Family A
+# (fast-crash defense) levers — see docs/CODEX_AB_EXECUTION_7Y_CAGR_MDD_*.md.
+# The `R1000_` prefix matches the full_rebuild_manual.yml experiment_env_json
+# allowlist regex `^(PHASE_|R1000_|ALPHAOPS_)[A-Z0-9_]+$`, so an A/B run can
+# pass e.g. {"R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD": "0.08"} without any
+# code change. When the env var is absent the dataclass default is kept.
+FAST_CRASH_ENV_OVERRIDE_FIELDS = frozenset({
+    # multi-level portfolio-drawdown breaker (Phase 6a / Phase X0 S2-2)
+    "drawdown_breaker_multilevel_enabled",
+    "drawdown_breaker_level_1_threshold",
+    "drawdown_breaker_level_1_cash_floor",
+    "drawdown_breaker_level_1_scale",
+    "drawdown_breaker_level_2_threshold",
+    "drawdown_breaker_level_2_cash_floor",
+    "drawdown_breaker_level_2_scale",
+    "drawdown_breaker_level_3_threshold",
+    "drawdown_breaker_level_3_cash_floor",
+    "drawdown_breaker_level_3_scale",
+    "drawdown_breaker_recovery_buffer",
+    # single-level circuit breaker (Phase 6a legacy)
+    "drawdown_circuit_breaker_threshold",
+    "drawdown_circuit_breaker_cash_target",
+    "drawdown_circuit_breaker_recovery",
+    # VIX-level hard guard (Phase 6b)
+    "vix_level_guard_enabled",
+    "vix_level_tier1_threshold",
+    "vix_level_tier1_cash_floor",
+    "vix_level_tier2_threshold",
+    "vix_level_tier2_cash_floor",
+    "vix_level_tier3_threshold",
+    "vix_level_tier3_cash_floor",
+    "vix_level_tier4_threshold",
+    "vix_level_tier4_cash_floor",
+})
+
+
+def _coerce_env_value(current, raw: str):
+    """Parse an env-override string to the type of the current field value.
+
+    Fail-safe: any parse error raises ValueError so the caller can keep the
+    default. bool is checked before int because bool is an int subclass.
+    """
+    text = raw.strip()
+    if isinstance(current, bool):
+        low = text.lower()
+        if low in {"1", "true", "yes", "on"}:
+            return True
+        if low in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError(f"not a bool: {raw!r}")
+    if isinstance(current, int):
+        return int(text)
+    if isinstance(current, float):
+        return float(text)
+    raise ValueError(f"unsupported override type: {type(current).__name__}")
+
+
 @dataclass
 class EngineConfig:
     base_dir: str = "/content/drive/MyDrive/r1000_top30_institutional"
@@ -2670,8 +2734,40 @@ class EngineConfig:
     # --------------- fast mode ---------------
     fast_mode: bool = False  # set True to cut Phase 4+5 runtime by ~60%
 
+    def __post_init__(self) -> None:
+        self._apply_fast_crash_env_overrides()
+
+    def _apply_fast_crash_env_overrides(self) -> None:
+        """Apply Family A (fast-crash defense) A/B env overrides.
+
+        For each whitelisted field, look up `R1000_<FIELD_NAME_UPPER>` in the
+        process env. When present and parseable, override the field; otherwise
+        keep the dataclass default. This is measurement infra for the 7Y A/B
+        plan — it never changes behavior unless an A/B run explicitly injects
+        an override (via experiment_env_json). Malformed values are ignored
+        (default kept) and reported on stderr so a typo cannot crash a run.
+        """
+        for name in FAST_CRASH_ENV_OVERRIDE_FIELDS:
+            env_key = "R1000_" + name.upper()
+            raw = os.environ.get(env_key)
+            if raw is None or raw.strip() == "":
+                continue
+            current = getattr(self, name)
+            try:
+                value = _coerce_env_value(current, raw)
+            except (ValueError, TypeError) as exc:
+                print(
+                    f"[fast-crash-env] ignored {env_key}={raw!r}: {exc}",
+                    file=__import__("sys").stderr,
+                )
+                continue
+            if value != current:
+                setattr(self, name, value)
+                print(f"[fast-crash-env] applied {env_key}: {current} -> {value}")
+
 
 __all__ = [
+    "FAST_CRASH_ENV_OVERRIDE_FIELDS",
     "PHASE2_INDUSTRY_COLUMNS",
     "PHASE5_LEADER_LAGGARD_COLUMNS",
     "PHASE1_ALPHA_COLUMNS",
