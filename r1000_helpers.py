@@ -263,8 +263,13 @@ def configure_last_n_years_backtest(
     end_ts = pd.Timestamp(end_date or cfg_obj.end_date).normalize()
     if pd.isna(end_ts):
         raise ValueError("end_date could not be parsed")
-    start_ts = (end_ts - pd.DateOffset(years=years)).normalize()
-    cfg_obj.start_date = str(start_ts.date())
+    evaluation_start_ts = (end_ts - pd.DateOffset(years=years)).normalize()
+    existing_start_ts = pd.Timestamp(getattr(cfg_obj, "start_date", "") or evaluation_start_ts).normalize()
+    if pd.isna(existing_start_ts):
+        existing_start_ts = evaluation_start_ts
+    prehistory_start_ts = min(existing_start_ts, evaluation_start_ts)
+    cfg_obj.start_date = str(prehistory_start_ts.date())
+    cfg_obj.evaluation_start_date = str(evaluation_start_ts.date())
     cfg_obj.end_date = str(end_ts.date())
     if train_lookback_years is not None:
         cfg_obj.train_lookback_years = int(train_lookback_years)
