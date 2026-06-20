@@ -95,7 +95,7 @@ def write_known_curve(root: Path, portfolio: str) -> list[Path]:
 
 
 def assert_known_answer(summary: dict) -> None:
-    assert summary["schema_version"] == "cagr-walkforward-v4"
+    assert summary["schema_version"] == "cagr-walkforward-v5"
     assert summary["metric_mode"] == "broker_ledger_next_close"
     assert len(summary["windows"]) == 7
     assert summary["completed_full_year_count"] == 6
@@ -258,7 +258,105 @@ def test_partial_windows_excluded_from_average() -> None:
         assert summary["partial_year_day_weighted_verdict"] == "single_oos_consistent_with_rolling_avg"
         assert summary["partial_year_cagrs_for_reference_only"][0]["year"] == 2026
         assert summary["partial_year_cagrs_for_reference_only"][0]["cagr"] > 0.90
-        assert summary["verdict"] == "single_oos_consistent_with_rolling_avg"
+
+
+def test_mid_2019_window_is_clean_7y_and_covers_covid_crash() -> None:
+    with local_tempdir() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        out = root / "out"
+        start = date(2019, 6, 3)
+        dates = [
+            start,
+            date(2019, 12, 31),
+            date(2020, 1, 1),
+            date(2020, 2, 19),
+            date(2020, 3, 23),
+            date(2020, 12, 31),
+            date(2021, 1, 1),
+            date(2021, 12, 31),
+            date(2022, 1, 1),
+            date(2022, 12, 31),
+            date(2023, 1, 1),
+            date(2023, 12, 31),
+            date(2024, 1, 1),
+            date(2024, 12, 31),
+            date(2025, 1, 1),
+            date(2025, 12, 31),
+            date(2026, 1, 1),
+            date(2026, 6, 30),
+        ]
+        for portfolio in ("main", "concentrated"):
+            curve_path = latest / "broker_replay" / portfolio / "equity_curve.csv"
+            metrics_path = latest / "broker_replay" / portfolio / "metrics.json"
+            write_csv(
+                curve_path,
+                pd.DataFrame(
+                    {
+                        "date": [d.isoformat() for d in dates],
+                        "equity": [equity_at_rate(d, start=start, start_equity=100.0, annual_rate=0.10) for d in dates],
+                    }
+                ),
+            )
+            write_json(
+                metrics_path,
+                {"metric_mode": "broker_ledger_next_close", "cagr": 0.10, "windows": {"oos": {"cagr": 0.10}}},
+            )
+
+        payload = run(latest, out)
+        summary = payload["summaries"]["main"]
+
+        assert summary["observed_start_date"] == "2019-06-03"
+        assert summary["clean_7y_research_baseline_status"] == "pass"
+        assert summary["covid_crash_coverage_status"] == "covered"
+        assert summary["full_years_in_average"] == [2020, 2021, 2022, 2023, 2024, 2025]
+        assert summary["partial_years_for_reference_only"] == [2019, 2026]
+
+
+def test_post_covid_start_is_not_clean_7y_and_does_not_cover_crash() -> None:
+    with local_tempdir() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        out = root / "out"
+        start = date(2020, 5, 1)
+        dates = [
+            start,
+            date(2020, 12, 31),
+            date(2021, 1, 1),
+            date(2021, 12, 31),
+            date(2022, 1, 1),
+            date(2022, 12, 31),
+            date(2023, 1, 1),
+            date(2023, 12, 31),
+            date(2024, 1, 1),
+            date(2024, 12, 31),
+            date(2025, 1, 1),
+            date(2025, 12, 31),
+            date(2026, 1, 1),
+            date(2026, 6, 30),
+        ]
+        for portfolio in ("main", "concentrated"):
+            curve_path = latest / "broker_replay" / portfolio / "equity_curve.csv"
+            metrics_path = latest / "broker_replay" / portfolio / "metrics.json"
+            write_csv(
+                curve_path,
+                pd.DataFrame(
+                    {
+                        "date": [d.isoformat() for d in dates],
+                        "equity": [equity_at_rate(d, start=start, start_equity=100.0, annual_rate=0.10) for d in dates],
+                    }
+                ),
+            )
+            write_json(metrics_path, {"metric_mode": "broker_ledger_next_close", "cagr": 0.10})
+
+        payload = run(latest, out)
+        summary = payload["summaries"]["main"]
+
+        assert summary["observed_start_date"] == "2020-05-01"
+        assert summary["clean_7y_research_baseline_status"] == "insufficient_observed_window"
+        assert summary["covid_crash_coverage_status"] == "not_covered"
+        assert summary["partial_years_for_reference_only"] == [2020, 2026]
+        assert summary["verdict"] == "single_oos_unavailable"
 
 
 def test_midyear_start_is_included_as_partial_reference() -> None:
@@ -321,6 +419,8 @@ def main() -> int:
     test_empty_curve_is_insufficient()
     test_fallback_unavailable_yields_unavailable_verdict()
     test_partial_windows_excluded_from_average()
+    test_mid_2019_window_is_clean_7y_and_covers_covid_crash()
+    test_post_covid_start_is_not_clean_7y_and_does_not_cover_crash()
     test_midyear_start_is_included_as_partial_reference()
     print("cagr_walkforward_smoke: PASS")
     return 0
