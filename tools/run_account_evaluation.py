@@ -55,6 +55,7 @@ PORTFOLIOS = ("main", "concentrated")
 MIN_BROKER_LEDGER_YEARS = float(OFFICIAL_BACKTEST_WINDOW_YEARS)
 MIN_BROKER_LEDGER_TRADING_DAYS = int(252 * MIN_BROKER_LEDGER_YEARS)
 OFFICIAL_WINDOW_TOLERANCE_YEARS = 0.05
+MAX_BROKER_START_EVALUATION_DRIFT_DAYS = 35
 CANONICAL_MISSION_TARGETS = {
     "main": {"cagr": 0.35, "max_dd": -0.25},
     "concentrated": {"cagr": 0.50, "max_dd": -0.25},
@@ -293,12 +294,23 @@ def evaluate_window_gate(
     """
     start_date = broker_metrics.get("start_date")
     end_date = broker_metrics.get("end_date")
+    evaluation_start_date = (
+        broker_metrics.get("evaluation_start_date")
+        or broker_metrics.get("requested_evaluation_start_date")
+        or broker_metrics.get("oos_evaluation_start_date")
+    )
     years = metric(broker_metrics, "years")
     estimated_trading_days = estimate_trading_days(start_date, end_date, years)
     equity_window = equity_window or {}
     actual_trading_days = safe_int(equity_window.get("trading_day_count"), default=-1)
     actual_trading_days = actual_trading_days if actual_trading_days >= 0 else None
     trading_days = actual_trading_days if actual_trading_days is not None else estimated_trading_days
+    broker_start_date = equity_window.get("start_date") or start_date
+    broker_start_evaluation_drift_days = None
+    eval_start_dt = parse_date(evaluation_start_date)
+    broker_start_dt = parse_date(broker_start_date)
+    if eval_start_dt is not None and broker_start_dt is not None:
+        broker_start_evaluation_drift_days = (broker_start_dt - eval_start_dt).days
     reasons: list[str] = []
     if not start_date or not end_date:
         reasons.append("missing_start_or_end_date")
@@ -308,6 +320,11 @@ def evaluate_window_gate(
         reasons.append("broker_ledger_equity_curve_missing")
     if trading_days is None or trading_days < MIN_BROKER_LEDGER_TRADING_DAYS:
         reasons.append("broker_ledger_trading_days_below_7y")
+    if (
+        broker_start_evaluation_drift_days is not None
+        and broker_start_evaluation_drift_days > MAX_BROKER_START_EVALUATION_DRIFT_DAYS
+    ):
+        reasons.append("broker_start_later_than_evaluation_start")
     readiness = data_readiness or {}
     readiness_status = readiness.get("status") if isinstance(readiness, dict) else None
     policy_ready = readiness.get("ready_for_policy_replay") if isinstance(readiness, dict) else None
@@ -339,7 +356,11 @@ def evaluate_window_gate(
         "evidence_window_label": evidence_window_label,
         "production_promotion_allowed": False,
         "start_date": start_date,
+        "evaluation_start_date": evaluation_start_date,
         "end_date": end_date,
+        "broker_start_date": broker_start_date,
+        "broker_start_evaluation_drift_days": broker_start_evaluation_drift_days,
+        "max_broker_start_evaluation_drift_days": MAX_BROKER_START_EVALUATION_DRIFT_DAYS,
         "years": years,
         "trading_days_estimate": trading_days,
         "estimated_trading_days": estimated_trading_days,
@@ -356,6 +377,10 @@ def evaluate_window_gate(
 
 def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     broker_metrics = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
+    run_manifest = read_json(latest_run / "run_manifest.json")
+    if run_manifest.get("evaluation_start_date") and not broker_metrics.get("evaluation_start_date"):
+        broker_metrics = dict(broker_metrics)
+        broker_metrics["evaluation_start_date"] = run_manifest.get("evaluation_start_date")
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
     preview = read_json(latest_run / "account_ledger_preview" / portfolio / "preview_metrics.json")
     journal = read_json(latest_run / "broker_trade_journal" / portfolio / "summary.json")
@@ -393,6 +418,8 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "valid_for_production": valid_for_production,
         "broker_ledger_window_gate": window_gate,
         "evidence_window_label": window_gate.get("evidence_window_label"),
+        "evaluation_start_date": window_gate.get("evaluation_start_date"),
+        "broker_start_evaluation_drift_days": window_gate.get("broker_start_evaluation_drift_days"),
         "pit_universe_label_clean": window_gate.get("pit_universe_label_clean"),
         "production_promotion_allowed": False,
         "target_type": target_contract["target_type"],

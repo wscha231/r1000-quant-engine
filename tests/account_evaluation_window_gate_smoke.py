@@ -29,16 +29,43 @@ def test_window_gate_rejects_short_run() -> None:
 
 def test_window_gate_accepts_clean_7_year_run() -> None:
     gate = evaluate_window_gate(
-        {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
-        equity_window={"exists": True, "trading_day_count": 1770, "start_date": "2019-06-03", "end_date": "2026-06-12"},
+        {"start_date": "2019-06-03", "evaluation_start_date": "2019-06-17", "end_date": "2026-06-12", "years": 7.03},
+        equity_window={"exists": True, "trading_day_count": 1770, "start_date": "2019-06-28", "end_date": "2026-06-12"},
         data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
         require_data_readiness=True,
     )
     assert gate["valid"] is True
     assert gate["status"] == "ok"
     assert gate["trading_days_estimate"] >= 252 * 7
+    assert gate["evaluation_start_date"] == "2019-06-17"
+    assert gate["broker_start_evaluation_drift_days"] == 11
     assert gate["evidence_window_label"] == "research_7y"
     assert gate["production_promotion_allowed"] is False
+
+
+def test_window_gate_rejects_broker_start_later_than_evaluation_start() -> None:
+    gate = evaluate_window_gate(
+        {"start_date": "2019-06-17", "evaluation_start_date": "2019-06-17", "end_date": "2026-06-12", "years": 7.03},
+        equity_window={"exists": True, "trading_day_count": 1770, "start_date": "2020-05-01", "end_date": "2026-06-12"},
+        data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is False
+    assert gate["status"] == "invalid_window"
+    assert gate["broker_start_evaluation_drift_days"] > gate["max_broker_start_evaluation_drift_days"]
+    assert "broker_start_later_than_evaluation_start" in gate["reasons"]
+
+
+def test_window_gate_allows_small_month_end_alignment_drift() -> None:
+    gate = evaluate_window_gate(
+        {"start_date": "2019-06-17", "evaluation_start_date": "2019-06-17", "end_date": "2026-06-12", "years": 7.03},
+        equity_window={"exists": True, "trading_day_count": 1770, "start_date": "2019-07-19", "end_date": "2026-06-12"},
+        data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is True
+    assert gate["broker_start_evaluation_drift_days"] == 32
+    assert "broker_start_later_than_evaluation_start" not in gate["reasons"]
 
 
 def test_window_gate_rejects_dirty_8_year_proxy_window() -> None:
@@ -97,6 +124,8 @@ if __name__ == "__main__":
     test_config_locks_clean_7y_window()
     test_window_gate_rejects_short_run()
     test_window_gate_accepts_clean_7_year_run()
+    test_window_gate_rejects_broker_start_later_than_evaluation_start()
+    test_window_gate_allows_small_month_end_alignment_drift()
     test_window_gate_rejects_dirty_8_year_proxy_window()
     test_window_gate_accepts_pit_clean_8_year_window()
     test_window_gate_rejects_short_actual_equity_curve_even_if_metrics_years_pass()
