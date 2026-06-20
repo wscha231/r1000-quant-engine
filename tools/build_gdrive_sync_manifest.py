@@ -23,12 +23,17 @@ if str(REPO_ROOT) not in sys.path:
 USER_CURRENT_FILES = [
     "README_FIRST.md",
     "01_current_holdings.csv",
+    "02_target_weights.csv",
     "02_cash_summary.json",
+    "03_order_preview.csv",
     "03_period_returns.csv",
     "04_official_metrics.json",
     "05_action_summary.md",
     "06_benchmark_comparison.csv",
+    "07_name_rationales.csv",
     "07_research_sidecar_context.json",
+    "08_rebalance_decision.json",
+    "09_daily_output_contract_summary.json",
     "summary.json",
 ]
 OFFICIAL_FILES = [
@@ -150,6 +155,9 @@ RESEARCH_FILES = [
     "pit_top_manager_follow_study/cohort_history.csv",
     "pit_top_manager_follow_study/event_forward_returns.csv",
     "pit_top_manager_follow_study/bucket_performance.csv",
+    "alpha_beta_attribution/summary.json",
+    "alpha_beta_attribution/report.md",
+    "alpha_beta_attribution/portfolio_factor_summary.csv",
     "market_leader_challenger/main_target_book.csv",
     "market_leader_challenger/concentrated_target_book.csv",
     "market_leader_challenger/selected_leaders_latest.csv",

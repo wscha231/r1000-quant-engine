@@ -129,6 +129,27 @@ run_decision_cadence_review() {
   python tools/run_decision_cadence_review.py --latest-run outputs --price-cache cache_prices --output-dir outputs/decision_cadence 2>&1 | tee outputs/full_rebuild_logs/decision_cadence_review.log || true
 }
 
+build_daily_market_snapshot() {
+  echo "[daily-market-snapshot] building latest close/open/market-cap snapshot for freshness contract"
+  mkdir -p outputs/full_rebuild_logs data_raw/free/market_snapshot data_pit/free/market_snapshot
+  BOOK_ARGS=()
+  [ -s outputs/portfolio_latest.csv ] && BOOK_ARGS+=(--book outputs/portfolio_latest.csv)
+  [ -s outputs/concentrated_portfolio_latest.csv ] && BOOK_ARGS+=(--book outputs/concentrated_portfolio_latest.csv)
+  [ -s outputs/reports/operating_main_target_book.csv ] && BOOK_ARGS+=(--book outputs/reports/operating_main_target_book.csv)
+  [ -s outputs/reports/operating_concentrated_target_book.csv ] && BOOK_ARGS+=(--book outputs/reports/operating_concentrated_target_book.csv)
+  timeout 10m python tools/build_daily_market_snapshot.py \
+    --price-cache cache_prices \
+    "${BOOK_ARGS[@]}" \
+    --scored outputs/scored_latest.csv \
+    --max-scored 250 \
+    --required-tickers SPY QQQ SMH SOXX \
+    --output-dir outputs/daily_market_snapshot \
+    --data-lake-dir data_pit/free/market_snapshot \
+    --info-cache data_raw/free/market_snapshot/yf_market_info_cache.csv \
+    --refresh-info-days 14 \
+    2>&1 | tee outputs/full_rebuild_logs/daily_market_snapshot.log || true
+}
+
 run_metric_hygiene_report() {
   echo "[metric-hygiene] separating official broker-ledger metrics from deprecated legacy/proxy metrics"
   python tools/run_metric_hygiene_report.py --latest-run outputs --output-dir outputs/metric_hygiene 2>&1 | tee outputs/full_rebuild_logs/metric_hygiene_report.log || true
@@ -234,6 +255,7 @@ fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
   refresh_replay_price_cache
   python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+  build_daily_market_snapshot
   # Crisis defense substrate (run 27445937281 diagnosis, 2026-06-13): without
   # these, vnext daily_crisis_state has long_crisis_score=0.0 and
   # cash_gate_reason='missing_long_crisis_features' through COVID/2022, so the
@@ -308,6 +330,10 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # structural_underinvestment_bull (~14pp of the IS gap). Cheap (rolls the
   # broker_replay equity curve + target book), failures stay non-fatal.
   python tools/run_is_attribution.py --latest-run outputs --output-dir outputs/is_attribution 2>&1 | tee outputs/full_rebuild_logs/is_attribution.log || true
+  # Alpha/beta attribution: separates broker-ledger returns into broad market,
+  # growth/tech, semiconductor factor beta, cash drag, and name contribution.
+  # Review-only measurement sidecar; no scoring, target, cash, or order mutation.
+  python tools/run_alpha_beta_attribution.py --latest-run outputs --price-cache cache_prices --output-dir outputs/alpha_beta_attribution 2>&1 | tee outputs/full_rebuild_logs/alpha_beta_attribution.log || true
   # Era leadership diagnostic: factor IC and top-name contribution by era.
   # Review-only sidecar; no production scoring or target-book mutation.
   python tools/run_era_leadership_sidecar.py --latest-run outputs --output-dir outputs/era_leadership 2>&1 | tee outputs/full_rebuild_logs/era_leadership.log || true
@@ -387,6 +413,7 @@ python tools/run_concentrated_position_risk_replay.py --latest-run outputs --out
 python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
 python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+build_daily_market_snapshot
 run_alphaops_vnext_production
 run_universe_health_audit
 python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true

@@ -9,10 +9,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_config import (  # noqa: E402
+    EngineConfig,
     OFFICIAL_BACKTEST_WINDOW_YEARS,
     PROXY_8Y_10Y_EVIDENCE_BLOCKED,
     PROXY_WINDOW_BLOCKER_REASON,
 )
+from r1000_helpers import configure_last_n_years_backtest  # noqa: E402
 from tools.run_account_evaluation import evaluate_window_gate  # noqa: E402
 
 
@@ -32,6 +34,33 @@ def test_config_locks_clean_7y_and_blocks_proxy_windows() -> None:
     assert OFFICIAL_BACKTEST_WINDOW_YEARS == 7.0
     assert PROXY_8Y_10Y_EVIDENCE_BLOCKED is True
     assert PROXY_WINDOW_BLOCKER_REASON == "pit_universe_label_missing"
+
+
+def test_clean_7y_uses_prehistory_but_evaluates_from_2019_mid() -> None:
+    cfg = configure_last_n_years_backtest(EngineConfig(), years=7, end_date="2026-06-17")
+    assert cfg.start_date == "2016-01-01"
+    assert cfg.evaluation_start_date == "2019-06-17"
+    assert cfg.end_date == "2026-06-17"
+
+
+def test_monthly_test_dates_filters_to_evaluation_start() -> None:
+    from r1000_pipeline import monthly_test_dates
+
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "rebalance_date": [
+                "2018-12-31",
+                "2019-06-03",
+                "2019-06-28",
+                "2020-02-28",
+                "2020-03-31",
+            ]
+        }
+    )
+    out = monthly_test_dates(frame, "2019-06-17")
+    assert [x.strftime("%Y-%m-%d") for x in out] == ["2019-06-28", "2020-02-28", "2020-03-31"]
 
 
 def test_clean_7y_window_passes_as_research_baseline() -> None:
@@ -80,6 +109,8 @@ def test_workflow_rejects_long_window_without_pit_label() -> None:
 
 if __name__ == "__main__":
     test_config_locks_clean_7y_and_blocks_proxy_windows()
+    test_clean_7y_uses_prehistory_but_evaluates_from_2019_mid()
+    test_monthly_test_dates_filters_to_evaluation_start()
     test_clean_7y_window_passes_as_research_baseline()
     test_dirty_8y_and_10y_proxy_windows_fail_without_pit_label()
     test_pit_clean_long_window_passes()

@@ -9300,8 +9300,12 @@ def choose_catboost_task_type() -> str:
         return "CPU"
 
 
-def monthly_test_dates(df: pd.DataFrame) -> list[pd.Timestamp]:
+def monthly_test_dates(df: pd.DataFrame, evaluation_start_date: Any = None) -> list[pd.Timestamp]:
     d = pd.to_datetime(df["rebalance_date"], errors="coerce").dropna()
+    if evaluation_start_date:
+        eval_start = pd.to_datetime(evaluation_start_date, errors="coerce")
+        if pd.notna(eval_start):
+            d = d[d >= pd.Timestamp(eval_start).normalize()]
     if d.empty:
         return []
     months = pd.Series(sorted(d.unique()))
@@ -9826,7 +9830,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             )
             effective_min_train_samples = dynamic_min
 
-    dates = monthly_test_dates(d)
+    dates = monthly_test_dates(d, getattr(cfg, "evaluation_start_date", ""))
     if not dates:
         raise RuntimeError(
             "No test months available for walk-forward training. "
@@ -9834,6 +9838,12 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             f"feature_notna={int(d['feature_date'].notna().sum())}, "
             f"labels_notna={int((d['r_1m'].notna() | d['r_3m'].notna() | d['r_6m'].notna()).sum())}"
         )
+    evaluation_start_label = str(getattr(cfg, "evaluation_start_date", "") or cfg.start_date)
+    log(
+        "Phase 4: walk-forward evaluation dates "
+        f"{dates[0].date()} -> {dates[-1].date()} "
+        f"(feature_start={cfg.start_date}, evaluation_start={evaluation_start_label}, months={len(dates)})"
+    )
 
     task_type = choose_catboost_task_type() if catboost_available else "CPU"
     if catboost_available:
@@ -18366,7 +18376,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "# OOS Performance Report",
         "",
         f"- Run timestamp: {datetime.now().isoformat(timespec='seconds')}",
-        f"- Period: {cfg.start_date} ~ {cfg.end_date}",
+        f"- Feature/prehistory period: {cfg.start_date} ~ {cfg.end_date}",
+        f"- Evaluation start date: {str(getattr(cfg, 'evaluation_start_date', '') or cfg.start_date)}",
         f"- Months: {bt.metrics.get('months')}",
         f"- CAGR: {bt.metrics.get('cagr'):.4f}",
         f"- Benchmark source: {bt.metrics.get('benchmark_source')}",
@@ -18800,6 +18811,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "config_fingerprint": run_identity["config_fingerprint"],
         "base_dir": cfg.base_dir,
         "start_date": str(cfg.start_date),
+        "evaluation_start_date": str(getattr(cfg, "evaluation_start_date", "")),
         "end_date": str(cfg.end_date),
         "universe_mode": str(getattr(cfg, "universe_mode", "")),
         "default_backtest_years": int(getattr(cfg, "default_backtest_years", 0)),
