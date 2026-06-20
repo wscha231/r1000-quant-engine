@@ -129,6 +129,7 @@ def main() -> int:
         assert _input_hashes(protected_inputs) == before_inputs, "cash/reentry audit mutated input artifacts"
 
         cash_drag = pd.read_csv(out_dir / "cash_drag_report.csv")
+        attribution = pd.read_csv(out_dir / "cash_attribution_report.csv")
         by_regime = pd.read_csv(out_dir / "cash_by_regime.csv")
         by_crisis = pd.read_csv(out_dir / "cash_by_crisis_state.csv")
         reentry = pd.read_csv(out_dir / "reentry_lag_report.csv")
@@ -139,6 +140,13 @@ def main() -> int:
         assert bool(cash_drag["cash_contract_drift_flag"].astype(bool).any()), cash_drag
         assert bool(cash_drag["cash_trap_flag"].astype(bool).any()), cash_drag
         assert "cash_reason" in cash_drag.columns
+        assert "cash_attribution_category" in cash_drag.columns
+        assert not attribution.empty
+        assert "cash_attribution_category" in attribution.columns
+        assert {
+            "crisis_defense_cash",
+            "green_idle_cash",
+        }.issubset(set(attribution["cash_attribution_category"])), attribution
         assert "GREEN" in set(by_regime["crisis_bucket"])
         assert not by_crisis.empty
         assert "reentry_cash_normalization_days" in reentry.columns
@@ -146,6 +154,7 @@ def main() -> int:
 
         payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
         assert payload["by_portfolio"]["main"]["green_avg_cash"] > 0.10
+        assert "green_idle_cash" in payload["cash_attribution_categories"], payload
 
         missing_latest = root / "missing_crisis_latest"
         _build_inputs(missing_latest, include_crisis=False)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
+from tools.build_daily_user_current_contract import (  # noqa: E402
+    append_review_only_notice as append_daily_review_only_notice,
+    build_decision as build_daily_rebalance_decision,
+    freshness_state as daily_freshness_state,
+    load_order_preview as load_daily_order_preview,
+    load_target_weights as load_daily_target_weights,
+)
 
 
 HORIZONS: list[tuple[str, pd.DateOffset | None, bool]] = [
@@ -39,12 +47,16 @@ BENCHMARKS = ("SPY", "QQQ")
 REQUIRED_USER_FILES = [
     "README_FIRST.md",
     "01_current_holdings.csv",
+    "02_target_weights.csv",
     "02_cash_summary.json",
+    "03_order_preview.csv",
     "03_period_returns.csv",
     "04_official_metrics.json",
     "05_action_summary.md",
     "06_benchmark_comparison.csv",
+    "07_name_rationales.csv",
     "07_research_sidecar_context.json",
+    "08_rebalance_decision.json",
     "08_broker_rule_backtest.json",
 ]
 
@@ -715,6 +727,281 @@ def build_cash_summary(latest_run: Path, current: pd.DataFrame) -> dict[str, Any
     return out
 
 
+def first_nonempty(row: dict[str, Any], names: list[str], default: Any = "") -> Any:
+    for name in names:
+        value = row.get(name)
+        if value is None:
+            continue
+        if isinstance(value, float) and math.isnan(value):
+            continue
+        text = str(value).strip()
+        if text and text.lower() != "nan":
+            return value
+    return default
+
+
+def boolish(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "y", "blocked", "pass"}
+
+
+def representative_selected_rows(latest_run: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    selected = read_csv(latest_run / "alphaops_vnext" / "selected_latest.csv")
+    if selected.empty or "ticker" not in selected.columns:
+        return {}
+    frame = selected.copy()
+    if "portfolio_kind" not in frame.columns:
+        frame["portfolio_kind"] = frame.get("portfolio", "")
+    frame["portfolio_key"] = frame["portfolio_kind"].astype(str).str.lower().str.strip()
+    frame["ticker_key"] = frame["ticker"].map(clean_ticker)
+    weight_source = frame.get("target_weight", frame.get("weight", pd.Series(dtype=float)))
+    frame["_sort_weight"] = pd.to_numeric(weight_source, errors="coerce").fillna(0.0)
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for _, row in frame.sort_values("_sort_weight", ascending=False).iterrows():
+        portfolio = str(row.get("portfolio_key") or "").lower()
+        ticker = clean_ticker(row.get("ticker_key"))
+        if not portfolio or not ticker or (portfolio, ticker) in out:
+            continue
+        out[(portfolio, ticker)] = row.to_dict()
+    return out
+
+
+def rationale_flag(score: Any, *, positive_label: str, missing_label: str = "missing_or_neutral") -> str:
+    value = safe_float(score, np.nan)
+    if not math.isfinite(value):
+        return missing_label
+    if value > 0.0:
+        return positive_label
+    if value < 0.0:
+        return "negative"
+    return missing_label
+
+
+def pit_status_from_selected(selected: dict[str, Any]) -> str:
+    if not selected:
+        return "missing_selected_latest_row"
+    if boolish(selected.get("pit_evidence_blocked")):
+        reason = str(selected.get("pit_evidence_block_reason") or "blocked").strip()
+        return f"blocked:{reason}"
+    available_from = first_nonempty(
+        selected,
+        [
+            "latest_available_from",
+            "feature_available_from_max",
+            "latest_13f_available_from",
+            "latest_etf_available_from",
+            "latest_top_manager_available_from",
+        ],
+        "",
+    )
+    return "pit_available_from_present" if available_from else "unknown_pit_available_from"
+
+
+def membership_status_from_selected(selected: dict[str, Any]) -> str:
+    if not selected:
+        return "unknown_membership_pit"
+    explicit = first_nonempty(selected, ["membership_pit_status"], "")
+    if explicit:
+        return str(explicit)
+    if boolish(selected.get("official_r1000_membership_proven")):
+        return "official_r1000_membership_proven"
+    universe = first_nonempty(selected, ["universe_label", "source_universe"], "")
+    if universe:
+        return f"unlabeled_or_proxy_source:{universe}"
+    return "unknown_membership_pit"
+
+
+def target_weight_map(target_weights: pd.DataFrame) -> dict[tuple[str, str], float]:
+    if target_weights.empty:
+        return {}
+    out: dict[tuple[str, str], float] = {}
+    for row in target_weights.to_dict("records"):
+        portfolio = str(row.get("portfolio") or row.get("portfolio_kind") or "").lower().strip()
+        ticker = clean_ticker(row.get("ticker"))
+        if portfolio and ticker:
+            out[(portfolio, ticker)] = safe_float(row.get("target_weight"), 0.0)
+    return out
+
+
+def build_name_rationales(
+    latest_run: Path,
+    current: pd.DataFrame,
+    output_dir: Path,
+    target_weights: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    selected_by_key = representative_selected_rows(latest_run)
+    target_by_key = target_weight_map(target_weights if target_weights is not None else pd.DataFrame())
+    rows: list[dict[str, Any]] = []
+    if current.empty:
+        columns = [
+            "portfolio",
+            "ticker",
+            "current_weight",
+            "target_weight",
+            "selected_vs_retained",
+            "lane",
+            "theme",
+            "sector",
+            "subindustry",
+            "leader_state",
+            "selection_reason",
+            "hold_reason",
+            "risk_reason",
+            "rs_spy_1m",
+            "rs_spy_3m",
+            "rs_spy_6m",
+            "rs_qqq_1m",
+            "rs_qqq_3m",
+            "rs_qqq_6m",
+            "rs_smh_soxx_if_applicable",
+            "valuation_flag",
+            "quality_flag",
+            "evidence_flag",
+            "top7_score",
+            "form4_score",
+            "etf_score",
+            "gate_status",
+            "is_new_buy_signal",
+            "is_replay_retention",
+            "data_pit_status",
+            "membership_pit_status",
+        ]
+        return pd.DataFrame(columns=columns)
+
+    for current_row in current.to_dict("records"):
+        portfolio = str(current_row.get("portfolio_kind") or current_row.get("portfolio") or "").lower().strip()
+        ticker = clean_ticker(current_row.get("ticker"))
+        selected = selected_by_key.get((portfolio, ticker), {})
+        target_weight = target_by_key.get(
+            (portfolio, ticker),
+            safe_float(first_nonempty(selected, ["target_weight", "weight"], current_row.get("current_weight")), 0.0),
+        )
+        row_type = str(current_row.get("row_type") or "").lower()
+        selection_reason = str(selected.get("selection_reason") or current_row.get("entry_reasons") or "").strip()
+        gate_status = str(selected.get("portfolio_candidate_gate_label") or selected.get("gate_status") or "").strip()
+        hold_reason = str(selected.get("holding_state_reason") or current_row.get("daily_review_reason") or "").strip()
+        replay_retention = (
+            ticker == "CASH"
+            or "hold_forward_to_latest_close" in selection_reason
+            or gate_status.lower() == "rejected"
+            or safe_float(current_row.get("holding_days"), 0.0) > 0
+        )
+        if ticker == "CASH" or row_type == "cash":
+            selected_vs_retained = "cash_position"
+        elif not selected:
+            selected_vs_retained = "current_holding_without_selected_latest_row"
+        elif replay_retention:
+            selected_vs_retained = "replay_retained_holding"
+        else:
+            selected_vs_retained = "current_policy_selected"
+        evidence_score = safe_float(
+            first_nonempty(
+                selected,
+                ["evidence_support_score", "sec_combined_evidence_score", "evidence_fusion_score", "smart_money_shadow_score"],
+                np.nan,
+            ),
+            np.nan,
+        )
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "ticker": ticker,
+                "current_weight": safe_float(current_row.get("current_weight"), 0.0),
+                "target_weight": target_weight,
+                "selected_vs_retained": selected_vs_retained,
+                "lane": first_nonempty(selected, ["primary_lane", "lane", "portfolio_sleeve_label"], "CASH" if ticker == "CASH" else ""),
+                "theme": first_nonempty(selected, ["theme_phase_primary", "theme", "etf_themes"], ""),
+                "sector": first_nonempty(selected, ["sector"], current_row.get("sector", "")),
+                "subindustry": first_nonempty(selected, ["subindustry", "industry_group"], current_row.get("industry", "")),
+                "leader_state": first_nonempty(selected, ["leader_tier", "holding_state"], current_row.get("risk_state", "")),
+                "selection_reason": selection_reason or ("cash_position" if ticker == "CASH" else ""),
+                "hold_reason": hold_reason,
+                "risk_reason": str(current_row.get("risk_state") or selected.get("crisis_defense_cut_reason") or "").strip(),
+                "rs_spy_1m": safe_float(selected.get("rs_spy_1m"), np.nan),
+                "rs_spy_3m": safe_float(selected.get("rs_spy_3m"), np.nan),
+                "rs_spy_6m": safe_float(selected.get("rs_spy_6m"), np.nan),
+                "rs_qqq_1m": safe_float(selected.get("rs_qqq_1m"), np.nan),
+                "rs_qqq_3m": safe_float(selected.get("rs_qqq_3m"), np.nan),
+                "rs_qqq_6m": safe_float(selected.get("rs_qqq_6m"), np.nan),
+                "rs_smh_soxx_if_applicable": max(
+                    safe_float(selected.get("rs_smh_6m"), -999.0),
+                    safe_float(selected.get("rs_soxx_6m"), -999.0),
+                )
+                if selected
+                else np.nan,
+                "valuation_flag": rationale_flag(selected.get("valuation_support_score"), positive_label="valuation_support"),
+                "quality_flag": rationale_flag(
+                    first_nonempty(selected, ["quality_compounder_lane_score", "sector_adjusted_quality_score"], np.nan),
+                    positive_label="quality_support",
+                ),
+                "evidence_flag": "positive_evidence" if math.isfinite(evidence_score) and evidence_score > 0 else "missing_or_neutral",
+                "top7_score": safe_float(first_nonempty(selected, ["top7_manager_discovery_score", "top7_score"], np.nan), np.nan),
+                "form4_score": safe_float(first_nonempty(selected, ["sec_form4_score", "form4_score"], np.nan), np.nan),
+                "etf_score": safe_float(first_nonempty(selected, ["etf_holdings_score", "etf_score"], np.nan), np.nan),
+                "gate_status": gate_status,
+                "is_new_buy_signal": bool(selected_vs_retained == "current_policy_selected"),
+                "is_replay_retention": bool(replay_retention),
+                "data_pit_status": pit_status_from_selected(selected),
+                "membership_pit_status": membership_status_from_selected(selected),
+            }
+        )
+    out = pd.DataFrame(rows)
+    out.to_csv(output_dir / "07_name_rationales.csv", index=False)
+    return out
+
+
+def build_operating_contract_files(latest_run: Path, output_dir: Path, current: pd.DataFrame) -> dict[str, Any]:
+    state = daily_freshness_state(latest_run)
+    if not state["selection_allowed"]:
+        review_reason = "; ".join(state["blockers"]) or state["recommendation_status"]
+    else:
+        review_reason = "review-only operating output; human approval required"
+    target_weights = load_daily_target_weights(latest_run, True, review_reason, current)
+    order_preview = load_daily_order_preview(latest_run, target_weights, True, review_reason, current)
+    decision = build_daily_rebalance_decision(
+        state=state,
+        target_weights=target_weights,
+        order_preview=order_preview,
+        source_run_id=str(os.environ.get("GITHUB_RUN_ID") or "local"),
+        source_commit_sha=str(os.environ.get("GITHUB_SHA") or ""),
+        source_branch=str(os.environ.get("GITHUB_REF_NAME") or ""),
+        source_artifact_name=f"{os.environ.get('ARTIFACT_PROFILE', '')}_{os.environ.get('SIDECAR_PROFILE', '')}_{os.environ.get('GITHUB_RUN_ID', 'local')}",
+    )
+    target_path = output_dir / "02_target_weights.csv"
+    order_path = output_dir / "03_order_preview.csv"
+    decision_path = output_dir / "08_rebalance_decision.json"
+    target_weights.to_csv(target_path, index=False)
+    order_preview.to_csv(order_path, index=False)
+    write_json(decision_path, decision)
+    append_daily_review_only_notice(output_dir / "DAILY_REVIEW_ONLY.md")
+    summary = {
+        "schema_version": "user-current-operating-contract-v1",
+        "status": "completed",
+        "target_weight_rows": int(len(target_weights)),
+        "order_preview_rows": int(len(order_preview)),
+        "current_snapshot_rows": int(len(current)),
+        "current_snapshot_used_for_order_preview": not current.empty,
+        "decision": decision.get("decision"),
+        "selection_allowed": bool(state["selection_allowed"]),
+        "promotion_allowed": bool(state["promotion_allowed"]),
+        "recommendation_status": state["recommendation_status"],
+        "review_only": True,
+        "canonical_production_sync": False,
+        "live_trading_enabled": False,
+        "production_mutation_allowed": False,
+        "human_approval_required": True,
+        "outputs": {
+            "target_weights": str(target_path),
+            "order_preview": str(order_path),
+            "rebalance_decision": str(decision_path),
+        },
+    }
+    write_json(output_dir / "09_daily_output_contract_summary.json", summary)
+    return summary
+
+
 def build_action_summary(latest_run: Path, metrics: dict[str, Any], cash: dict[str, Any]) -> tuple[str, list[str]]:
     reasons: list[str] = []
     mode = official_metric_mode(metrics)
@@ -862,9 +1149,13 @@ def write_readme(path: Path) -> None:
 This folder is the default user-facing operating view.
 
 - `01_current_holdings.csv` is the current simulated broker-ledger book.
+- `02_target_weights.csv` is the review-only target-weight bridge for operator inspection.
+- `03_order_preview.csv` is the review-only current-vs-target delta preview; it is not an order ticket.
 - `03_period_returns.csv` uses broker replay equity curves and includes drawdown.
 - `04_official_metrics.json` is the official broker-ledger metric payload.
+- `07_name_rationales.csv` explains whether each visible holding is a new policy selection or replay retention.
 - `07_research_sidecar_context.json` explains whether AlphaOps vNext or research sidecars altered current holdings.
+- `08_rebalance_decision.json` is the review-only rebalance decision contract.
 - `08_broker_rule_backtest.json` summarizes official broker-rule backtests and the separate daily monitoring overlay.
 - This is NOT a live broker account. It is a simulated broker-ledger holdings snapshot from AlphaOps target-book replay.
 - Do not trade while `action_status=DO_NOT_TRADE` or `recommendation_status=DO_NOT_USE_REVIEW_REQUIRED`.
@@ -893,6 +1184,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     cash = build_cash_summary(latest_run, current)
     write_json(output_dir / "02_cash_summary.json", cash)
+    operating_contract = build_operating_contract_files(latest_run, output_dir, current)
+    contract_target_weights = read_csv(output_dir / "02_target_weights.csv")
+    name_rationales = build_name_rationales(latest_run, current, output_dir, contract_target_weights)
 
     period = pd.concat([portfolio_period_returns(latest_run), benchmark_period_returns(price_cache)], ignore_index=True)
     period.to_csv(output_dir / "03_period_returns.csv", index=False)
@@ -942,6 +1236,16 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         in {"restored_user_current_snapshot", "committed_cloud_results_snapshot", "user_portfolio_reports"},
         "current_holdings_missing": current.empty,
         "period_return_rows": int(len(period)),
+        "name_rationale_rows": int(len(name_rationales)),
+        "target_weight_rows": int(operating_contract.get("target_weight_rows", 0)),
+        "order_preview_rows": int(operating_contract.get("order_preview_rows", 0)),
+        "current_snapshot_used_for_order_preview": bool(operating_contract.get("current_snapshot_used_for_order_preview")),
+        "daily_contract_decision": operating_contract.get("decision"),
+        "review_only": True,
+        "canonical_production_sync": False,
+        "live_trading_enabled": False,
+        "production_mutation_allowed": False,
+        "human_approval_required": True,
         "production_applied": bool(research.get("production_applied")),
         "sidecar_only": bool(research.get("sidecar_only")),
         "production_policy": research.get("production_policy"),

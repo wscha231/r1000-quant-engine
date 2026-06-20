@@ -130,8 +130,11 @@ def current_weight_map(current_holdings: pd.DataFrame) -> dict[tuple[str, str], 
     if current_holdings.empty:
         return {}
     return {
-        (str(row.portfolio).lower(), clean_ticker(row.ticker)): clean_float(row.current_weight)
-        for row in current_holdings.itertuples(index=False)
+        (str(row.get("portfolio") or row.get("portfolio_kind") or "").lower(), clean_ticker(row.get("ticker"))): clean_float(
+            row.get("current_weight")
+        )
+        for row in current_holdings.to_dict("records")
+        if (row.get("portfolio") or row.get("portfolio_kind")) and clean_ticker(row.get("ticker"))
     }
 
 
@@ -201,11 +204,24 @@ def target_rows_from_portfolio_reports(latest_run: Path, review_required: bool, 
 
 def target_rows_from_operating_books(latest_run: Path, review_required: bool, review_reason: str) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    for portfolio, name in {
-        "main": "operating_main_target_book.csv",
-        "concentrated": "operating_concentrated_target_book.csv",
-    }.items():
-        frame = read_csv(latest_run / "reports" / name)
+    sources = {
+        "main": [
+            latest_run / "reports" / "operating_main_target_book.csv",
+            latest_run / "alphaops_vnext" / "official_main_target_book.csv",
+        ],
+        "concentrated": [
+            latest_run / "reports" / "operating_concentrated_target_book.csv",
+            latest_run / "alphaops_vnext" / "official_concentrated_target_book.csv",
+        ],
+    }
+    for portfolio, paths in sources.items():
+        frame = pd.DataFrame()
+        source_path = ""
+        for path in paths:
+            frame = read_csv(path)
+            if not frame.empty:
+                source_path = str(path)
+                break
         if frame.empty or "ticker" not in frame.columns:
             continue
         date_col = "rebalance_date" if "rebalance_date" in frame.columns else ""
@@ -239,6 +255,7 @@ def target_rows_from_operating_books(latest_run: Path, review_required: bool, re
                     "production_mutation_allowed": False,
                     "live_trading_enabled": False,
                     "human_approval_required": True,
+                    "target_book_source": source_path,
                 }
             )
     return pd.DataFrame(rows)
@@ -274,6 +291,7 @@ def load_target_weights(
         "production_mutation_allowed",
         "live_trading_enabled",
         "human_approval_required",
+        "target_book_source",
     ]
     if frame.empty:
         return pd.DataFrame(columns=columns)
