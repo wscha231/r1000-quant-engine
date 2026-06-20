@@ -27,10 +27,8 @@ from r1000_helpers import compute_cagr_safe
 
 DEFAULT_OUTPUT_DIR = "outputs/cagr_walkforward"
 PORTFOLIOS = ("main", "concentrated")
-SCHEMA_VERSION = "cagr-walkforward-v3"
-WINDOW_YEARS = (2020, 2021, 2022, 2023, 2024, 2025, 2026)
-FULL_WINDOW_YEARS = (2020, 2021, 2022, 2023, 2024, 2025)
-PARTIAL_WINDOW_YEARS = (2026,)
+SCHEMA_VERSION = "cagr-walkforward-v4"
+FULL_YEAR_MIN_YEARS = 0.95
 VERDICT_INSUFFICIENT = "insufficient_data"
 VERDICT_SINGLE_OOS_UNAVAILABLE = "single_oos_unavailable"
 VERDICT_CONSISTENT = "single_oos_consistent_with_rolling_avg"
@@ -171,6 +169,15 @@ def max_drawdown(frame: pd.DataFrame) -> float | None:
     return out if math.isfinite(out) else None
 
 
+def observed_years(frame: pd.DataFrame) -> list[int]:
+    if frame.empty or "date" not in frame.columns:
+        return []
+    dates = pd.to_datetime(frame["date"], errors="coerce").dropna()
+    if dates.empty:
+        return []
+    return list(range(int(dates.min().year), int(dates.max().year) + 1))
+
+
 def yearly_window(frame: pd.DataFrame, year: int) -> dict[str, Any]:
     start_date, start_equity = equity_endpoint(frame, year, start=True)
     end_date, end_equity = equity_endpoint(frame, year, start=False)
@@ -187,8 +194,8 @@ def yearly_window(frame: pd.DataFrame, year: int) -> dict[str, Any]:
         "cagr": None,
         "max_drawdown": max_drawdown(window),
         "status": VERDICT_INSUFFICIENT,
-        "partial": bool(year in PARTIAL_WINDOW_YEARS),
-        "included_in_average": bool(year in FULL_WINDOW_YEARS),
+        "partial": True,
+        "included_in_average": False,
     }
     if start_date is None or end_date is None or start_equity is None or end_equity is None:
         return base
@@ -202,6 +209,8 @@ def yearly_window(frame: pd.DataFrame, year: int) -> dict[str, Any]:
             "actual_return": (end_equity / start_equity - 1.0) if start_equity else None,
             "cagr": cagr,
             "status": "completed" if cagr is not None else VERDICT_INSUFFICIENT,
+            "partial": bool(years < FULL_YEAR_MIN_YEARS),
+            "included_in_average": bool(years >= FULL_YEAR_MIN_YEARS),
         }
     )
     return base
@@ -300,34 +309,33 @@ def portfolio_summary(run_root: Path, portfolio: str) -> dict[str, Any]:
     metrics = read_json(metrics_path)
     curve = read_equity_curve(curve_path)
 
-    windows = [yearly_window(curve, year) for year in WINDOW_YEARS]
+    windows = [yearly_window(curve, year) for year in observed_years(curve)]
     full_year_cagrs = [
         safe_float(row.get("cagr"))
         for row in windows
-        if int(row.get("year")) in FULL_WINDOW_YEARS and safe_float(row.get("cagr")) is not None
+        if row.get("included_in_average") and safe_float(row.get("cagr")) is not None
     ]
     full_year_cagrs = [value for value in full_year_cagrs if value is not None]
     full_year_mdds = [
         safe_float(row.get("max_drawdown"))
         for row in windows
-        if int(row.get("year")) in FULL_WINDOW_YEARS and safe_float(row.get("max_drawdown")) is not None
+        if row.get("included_in_average") and safe_float(row.get("max_drawdown")) is not None
     ]
     full_year_mdds = [value for value in full_year_mdds if value is not None]
     partial_year_cagrs = [
         {"year": int(row.get("year")), "cagr": safe_float(row.get("cagr"))}
         for row in windows
-        if int(row.get("year")) in PARTIAL_WINDOW_YEARS and safe_float(row.get("cagr")) is not None
+        if row.get("partial") and safe_float(row.get("cagr")) is not None
     ]
     partial_year_mdds = [
         {"year": int(row.get("year")), "max_drawdown": safe_float(row.get("max_drawdown"))}
         for row in windows
-        if int(row.get("year")) in PARTIAL_WINDOW_YEARS and safe_float(row.get("max_drawdown")) is not None
+        if row.get("partial") and safe_float(row.get("max_drawdown")) is not None
     ]
     weighted_rows = [
         row
         for row in windows
-        if int(row.get("year")) in {*FULL_WINDOW_YEARS, *PARTIAL_WINDOW_YEARS}
-        and safe_float(row.get("cagr")) is not None
+        if safe_float(row.get("cagr")) is not None
         and safe_float(row.get("years")) is not None
     ]
 
@@ -368,6 +376,8 @@ def portfolio_summary(run_root: Path, portfolio: str) -> dict[str, Any]:
         "completed_full_year_count": len(full_year_cagrs),
         "completed_partial_year_count": len(partial_year_cagrs),
         "partial_year_cagrs_for_reference_only": partial_year_cagrs,
+        "full_years_in_average": [int(row.get("year")) for row in windows if row.get("included_in_average")],
+        "partial_years_for_reference_only": [int(row.get("year")) for row in windows if row.get("partial") and safe_float(row.get("cagr")) is not None],
         "windows": windows,
         "verdict": verdict,
     }
@@ -405,8 +415,8 @@ def write_report(path: Path, summaries: dict[str, dict[str, Any]]) -> None:
         [
             "",
             "Inputs are broker_replay/<portfolio>/equity_curve.csv and metrics.json.",
-            "Rolling windows are 2020-2025 full years plus 2026 partial.",
-            "The rolling full-year average excludes partial years; the day-weighted reference includes partial years by observed years/days.",
+            "Rolling windows are derived from the observed broker-ledger equity-curve date range.",
+            "The rolling full-year average excludes partial start/end years; the day-weighted reference includes every observed full/partial window by observed years/days.",
             "MDD is path-based, so partial-year MDD is reported per window and full-run MDD remains the broker-ledger path MDD; MDD is not day-weight averaged.",
             "This is NOT walk-forward retrain CAGR; no model is re-trained per window.",
             "This report does not alter selection, scoring, target books, cash policy, or promotion state.",

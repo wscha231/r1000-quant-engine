@@ -95,7 +95,7 @@ def write_known_curve(root: Path, portfolio: str) -> list[Path]:
 
 
 def assert_known_answer(summary: dict) -> None:
-    assert summary["schema_version"] == "cagr-walkforward-v3"
+    assert summary["schema_version"] == "cagr-walkforward-v4"
     assert summary["metric_mode"] == "broker_ledger_next_close"
     assert len(summary["windows"]) == 7
     assert summary["completed_full_year_count"] == 6
@@ -106,6 +106,8 @@ def assert_known_answer(summary: dict) -> None:
     assert summary["windows"][-1]["included_in_average"] is False
     assert len(summary["partial_year_cagrs_for_reference_only"]) == 1
     assert summary["partial_year_cagrs_for_reference_only"][0]["year"] == 2026
+    assert summary["full_years_in_average"] == [2020, 2021, 2022, 2023, 2024, 2025]
+    assert summary["partial_years_for_reference_only"] == [2026]
     for window in summary["windows"]:
         assert window["status"] == "completed", window
         assert math.isclose(window["cagr"], 0.10, rel_tol=0.0, abs_tol=1e-9), window
@@ -259,11 +261,67 @@ def test_partial_windows_excluded_from_average() -> None:
         assert summary["verdict"] == "single_oos_consistent_with_rolling_avg"
 
 
+def test_midyear_start_is_included_as_partial_reference() -> None:
+    with local_tempdir() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        out = root / "out"
+        start = date(2019, 6, 3)
+        dates = [
+            start,
+            date(2019, 12, 31),
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            date(2021, 1, 1),
+            date(2021, 12, 31),
+            date(2022, 1, 1),
+            date(2022, 12, 31),
+            date(2023, 1, 1),
+            date(2023, 12, 31),
+            date(2024, 1, 1),
+            date(2024, 12, 31),
+            date(2025, 1, 1),
+            date(2025, 12, 31),
+            date(2026, 1, 1),
+            date(2026, 6, 30),
+        ]
+        for portfolio in ("main", "concentrated"):
+            curve_path = latest / "broker_replay" / portfolio / "equity_curve.csv"
+            metrics_path = latest / "broker_replay" / portfolio / "metrics.json"
+            write_csv(
+                curve_path,
+                pd.DataFrame(
+                    {
+                        "date": [d.isoformat() for d in dates],
+                        "equity": [equity_at_rate(d, start=start, start_equity=100.0, annual_rate=0.10) for d in dates],
+                    }
+                ),
+            )
+            write_json(metrics_path, {"metric_mode": "broker_ledger_next_close", "cagr": 0.10})
+
+        payload = run(latest, out)
+        summary = payload["summaries"]["main"]
+
+        assert len(summary["windows"]) == 8
+        assert summary["completed_full_year_count"] == 6
+        assert summary["completed_partial_year_count"] == 2
+        assert summary["full_years_in_average"] == [2020, 2021, 2022, 2023, 2024, 2025]
+        assert summary["partial_years_for_reference_only"] == [2019, 2026]
+        assert summary["windows"][0]["year"] == 2019
+        assert summary["windows"][0]["partial"] is True
+        assert summary["windows"][0]["included_in_average"] is False
+        assert math.isclose(summary["windows"][0]["cagr"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+        assert math.isclose(summary["walk_forward_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+        assert math.isclose(summary["partial_year_day_weighted_cagr_avg"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+        assert math.isclose(summary["partial_year_day_weighted_cagr_geomean"], 0.10, rel_tol=0.0, abs_tol=1e-9)
+
+
 def main() -> int:
     test_known_answer_and_no_mutation()
     test_empty_curve_is_insufficient()
     test_fallback_unavailable_yields_unavailable_verdict()
     test_partial_windows_excluded_from_average()
+    test_midyear_start_is_included_as_partial_reference()
     print("cagr_walkforward_smoke: PASS")
     return 0
 
