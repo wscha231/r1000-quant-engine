@@ -1,0 +1,22 @@
+{
+  "canonical_production_sync": false,
+  "current_snapshot_rows": 20,
+  "current_snapshot_used_for_order_preview": true,
+  "decision": "REVIEW_REQUIRED",
+  "human_approval_required": true,
+  "live_trading_enabled": false,
+  "order_preview_rows": 16,
+  "outputs": {
+    "order_preview": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current/03_order_preview.csv",
+    "rebalance_decision": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current/08_rebalance_decision.json",
+    "target_weights": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current/02_target_weights.csv"
+  },
+  "production_mutation_allowed": false,
+  "promotion_allowed": false,
+  "recommendation_status": "READY_FOR_OPERATING_SELECTION",
+  "review_only": true,
+  "schema_version": "user-current-operating-contract-v1",
+  "selection_allowed": true,
+  "status": "completed",
+  "target_weight_rows": 16
+}

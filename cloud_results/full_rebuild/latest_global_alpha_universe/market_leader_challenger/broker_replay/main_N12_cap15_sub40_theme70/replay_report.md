@@ -1,0 +1,15 @@
+# Broker Ledger Replay
+
+- Portfolio: `main`
+- Metric mode: `broker_ledger_next_close`
+- Fill mode: `next_close`
+- Price mode: `adjusted_close`
+- Integer shares: `True`
+- CAGR: 45.64%
+- Sharpe: 1.313
+- MaxDD: -38.63%
+- Ending capital: $1,371,733.19
+- Trade count: 1196
+- Total fees: $38,734.32
+
+This replay uses account cash and shares. It is stricter than target-weight metrics.

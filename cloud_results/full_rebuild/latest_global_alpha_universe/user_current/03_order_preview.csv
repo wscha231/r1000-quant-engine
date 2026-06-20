@@ -1,0 +1,17 @@
+portfolio,ticker,action,current_weight,target_weight,delta_weight,estimated_shares,estimated_value,priority,review_required,reason,order_source,production_mutation_allowed,live_trading_enabled,human_approval_required
+concentrated,MU,REVIEW_REQUIRED,0.0,0.4006316992738129,0.4006316992738129,0.0,0.0,1,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+concentrated,WDC,REVIEW_REQUIRED,0.2105604620573278,0.3944878342444349,0.18392737218710709,0.0,0.0,2,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+concentrated,SNDK,REVIEW_REQUIRED,0.3836829992626897,0.2048804664817521,-0.17880253278093758,0.0,0.0,3,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+concentrated,CASH,REVIEW_REQUIRED,0.0576092718850395,0.0,-0.0576092718850395,0.0,0.0,4,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,GOOG,REVIEW_REQUIRED,0.0,0.2552079017736747,0.2552079017736747,0.0,0.0,1,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,CAT,REVIEW_REQUIRED,0.0,0.2537861882196313,0.2537861882196313,0.0,0.0,2,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,VRT,REVIEW_REQUIRED,0.0,0.0706611662744858,0.0706611662744858,0.0,0.0,3,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,AMAT,REVIEW_REQUIRED,0.0,0.0706428889055141,0.0706428889055141,0.0,0.0,4,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,LRCX,REVIEW_REQUIRED,0.0,0.0619065639315626,0.0619065639315626,0.0,0.0,5,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,KLAC,REVIEW_REQUIRED,0.0,0.0599999999999999,0.0599999999999999,0.0,0.0,6,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,TKR,REVIEW_REQUIRED,0.0,0.0599999999999999,0.0599999999999999,0.0,0.0,7,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,ENTG,REVIEW_REQUIRED,0.0,0.0521183210207513,0.0521183210207513,0.0,0.0,8,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,UMC,REVIEW_REQUIRED,0.0,0.0468254335182551,0.0468254335182551,0.0,0.0,9,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,NXPI,REVIEW_REQUIRED,0.0,0.0353862823322741,0.0353862823322741,0.0,0.0,10,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,ROST,REVIEW_REQUIRED,0.0,0.0334652540238506,0.0334652540238506,0.0,0.0,11,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True
+main,CASH,REVIEW_REQUIRED,0.1493914351102364,0.0,-0.1493914351102364,0.0,0.0,12,True,review-only operating output; human approval required,current_snapshot_vs_target_review_only,False,False,True

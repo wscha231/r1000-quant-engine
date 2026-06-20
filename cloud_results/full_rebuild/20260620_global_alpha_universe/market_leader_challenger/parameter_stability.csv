@@ -1,0 +1,3 @@
+portfolio_kind,status,variant_count,best_variant_id,best_cagr,median_cagr,top3_median_cagr,best_mdd,median_mdd,top3_median_mdd,best_is_extreme_parameter,best_vs_median_cagr_delta,parameter_stability_warning
+concentrated,completed,16,concentrated_N3_cap45_sub70,0.5094256009379978,0.39003426545253017,0.5029301519749247,-0.5990721360876383,-0.5084845202695365,-0.5990721360876383,True,0.11939133548546765,True
+main,completed,40,main_N12_cap15_sub50_theme70,0.45708051392141225,0.4146443210777754,0.4564022583466374,-0.38588353979990786,-0.3699539132983808,-0.38588353979990786,True,0.042436192843636866,False
