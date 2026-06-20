@@ -330,6 +330,10 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # structural_underinvestment_bull (~14pp of the IS gap). Cheap (rolls the
   # broker_replay equity curve + target book), failures stay non-fatal.
   python tools/run_is_attribution.py --latest-run outputs --output-dir outputs/is_attribution 2>&1 | tee outputs/full_rebuild_logs/is_attribution.log || true
+  # Alpha/beta attribution: separates broker-ledger returns into broad market,
+  # growth/tech, semiconductor factor beta, cash drag, and name contribution.
+  # Review-only measurement sidecar; no scoring, target, cash, or order mutation.
+  python tools/run_alpha_beta_attribution.py --latest-run outputs --price-cache cache_prices --output-dir outputs/alpha_beta_attribution 2>&1 | tee outputs/full_rebuild_logs/alpha_beta_attribution.log || true
   # Era leadership diagnostic: factor IC and top-name contribution by era.
   # Review-only sidecar; no production scoring or target-book mutation.
   python tools/run_era_leadership_sidecar.py --latest-run outputs --output-dir outputs/era_leadership 2>&1 | tee outputs/full_rebuild_logs/era_leadership.log || true
