@@ -1712,6 +1712,11 @@ class EngineConfig:
     alpha_vantage_free_statement_repair_tickers: int = 6
     alpha_vantage_free_statement_refresh_days: int = 14
     start_date: str = "2016-01-01"
+    # Optional OOS/broker evaluation start. When set, start_date remains the
+    # prehistory/training feature window while walk-forward test months begin
+    # at evaluation_start_date. This keeps a clean 7Y research baseline from
+    # silently losing 2019/COVID stress months to model warm-up.
+    evaluation_start_date: str = ""
     end_date: str = datetime.utcnow().strftime("%Y-%m-%d")
 
     universe_size: int = 1000
