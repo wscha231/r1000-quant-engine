@@ -382,6 +382,16 @@ def _mdd_improvement(latest_run: Path, portfolio: str) -> float | None:
     return float(cur_dd - base_dd)
 
 
+def _cash_drag_vs_baseline(latest_run: Path, portfolio: str) -> float | None:
+    cur = _read_metrics(latest_run / "broker_replay" / portfolio / "metrics.json")
+    base = _read_metrics(latest_run / "legacy_monthly_broker_replay" / portfolio / "metrics.json")
+    cur_cagr = safe_float(cur.get("cagr", cur.get("annualized_return", cur.get("annual_return"))), math.nan)
+    base_cagr = safe_float(base.get("cagr", base.get("annualized_return", base.get("annual_return"))), math.nan)
+    if not math.isfinite(cur_cagr) or not math.isfinite(base_cagr):
+        return None
+    return float(base_cagr - cur_cagr)
+
+
 def _reentry_normalization(rows: pd.DataFrame) -> pd.DataFrame:
     columns = ["portfolio", "crisis_end_date", "cash_normalized_date", "reentry_cash_normalization_days"]
     if rows.empty:
@@ -479,6 +489,7 @@ def _apply_cash_trap_flags(rows: pd.DataFrame, latest_run: Path, normalization: 
         latest_cash = safe_float(latest.iloc[0].get("cash_weight"), 0.0) if not latest.empty else 0.0
         latest_bucket = str(latest.iloc[0].get("crisis_bucket", "GREEN")).upper() if not latest.empty else "GREEN"
         mdd_improve = _mdd_improvement(latest_run, str(portfolio))
+        cash_drag = _cash_drag_vs_baseline(latest_run, str(portfolio))
         norm_days = norm_by_port.get(str(portfolio), 0.0)
         port_flag = (
             green_avg > 0.10
@@ -490,6 +501,7 @@ def _apply_cash_trap_flags(rows: pd.DataFrame, latest_run: Path, normalization: 
         out.loc[group_idx, "latest_cash"] = latest_cash
         out.loc[group_idx, "latest_crisis_state"] = latest_bucket
         out.loc[group_idx, "mdd_improvement"] = mdd_improve if mdd_improve is not None else ""
+        out.loc[group_idx, "cash_drag_vs_baseline"] = cash_drag if cash_drag is not None else ""
         out.loc[group_idx, "reentry_cash_normalization_days"] = norm_days
         out.loc[group_idx, "cash_trap_flag"] = bool(port_flag)
     return out
@@ -520,6 +532,7 @@ def _summary(rows: pd.DataFrame, normalization: pd.DataFrame, rebound: pd.DataFr
             "latest_cash": safe_float(group.sort_values("rebalance_date").tail(1).iloc[0].get("cash_weight"), 0.0),
             "latest_broker_cash": safe_float(group.sort_values("rebalance_date").tail(1).iloc[0].get("broker_cash_weight"), math.nan),
             "cash_contract_drift_rows": int(pd.Series(group.get("cash_contract_drift_flag", [])).astype(bool).sum()),
+            "cash_drag_vs_baseline": safe_float(group.sort_values("rebalance_date").tail(1).iloc[0].get("cash_drag_vs_baseline"), math.nan),
             "cash_trap_flag": bool(pd.Series(group["cash_trap_flag"]).astype(bool).any()),
             "unknown_cash_reason_share": float((group["cash_reason"].eq("unknown")).mean()) if "cash_reason" in group.columns else 0.0,
         }
@@ -608,6 +621,7 @@ def _render_report(payload: dict[str, Any]) -> str:
             f"DEFENSE {safe_float(block.get('defense_avg_cash'), 0.0):.1%}, "
             f"CRISIS {safe_float(block.get('crisis_avg_cash'), 0.0):.1%}, "
             f"latest {safe_float(block.get('latest_cash'), 0.0):.1%}, "
+            f"cash_drag_vs_baseline {safe_float(block.get('cash_drag_vs_baseline'), 0.0):.1%}, "
             f"cash_trap={block.get('cash_trap_flag')}"
         )
     lines.extend(

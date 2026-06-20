@@ -72,8 +72,8 @@ def _build_inputs(latest: Path, include_crisis: bool = True) -> None:
             ],
         )
     for portfolio in ("main", "concentrated"):
-        _write_json(latest / "broker_replay" / portfolio / "metrics.json", {"max_dd": -0.24})
-        _write_json(latest / "legacy_monthly_broker_replay" / portfolio / "metrics.json", {"max_dd": -0.25})
+        _write_json(latest / "broker_replay" / portfolio / "metrics.json", {"cagr": 0.28, "max_dd": -0.24})
+        _write_json(latest / "legacy_monthly_broker_replay" / portfolio / "metrics.json", {"cagr": 0.31, "max_dd": -0.25})
         _write_csv(
             latest / "broker_replay" / portfolio / "cash_ledger.csv",
             [
@@ -139,6 +139,8 @@ def main() -> int:
             assert col in cash_drag.columns, col
         assert bool(cash_drag["cash_contract_drift_flag"].astype(bool).any()), cash_drag
         assert bool(cash_drag["cash_trap_flag"].astype(bool).any()), cash_drag
+        assert "cash_drag_vs_baseline" in cash_drag.columns
+        assert abs(float(cash_drag["cash_drag_vs_baseline"].dropna().iloc[0]) - 0.03) < 1e-9, cash_drag
         assert "cash_reason" in cash_drag.columns
         assert "cash_attribution_category" in cash_drag.columns
         assert not attribution.empty
@@ -154,6 +156,7 @@ def main() -> int:
 
         payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
         assert payload["by_portfolio"]["main"]["green_avg_cash"] > 0.10
+        assert abs(float(payload["by_portfolio"]["main"]["cash_drag_vs_baseline"]) - 0.03) < 1e-9, payload
         assert "green_idle_cash" in payload["cash_attribution_categories"], payload
 
         missing_latest = root / "missing_crisis_latest"
