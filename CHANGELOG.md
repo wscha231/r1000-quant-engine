@@ -3,6 +3,18 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-21
+
+### 11:19 KST - Family B cash-drag env override whitelist
+
+- scope: unblock the 7Y Family B bull/green cash-drag A/B path from `docs/CODEX_HANDOFF_MASTER_20260620.md` without changing default policy behavior.
+- change: extended the existing `FAST_CRASH_ENV_OVERRIDE_FIELDS` measurement whitelist to include the existing `EngineConfig` fields `concentrated_regime_cash_vix_threshold` and `growth_reentry_strength`, so challenger runs can inject `R1000_CONCENTRATED_REGIME_CASH_VIX_THRESHOLD` and `R1000_GROWTH_REENTRY_STRENGTH` through `full_rebuild_manual.yml` `experiment_env_json`.
+- validation: `tests/fast_crash_env_override_smoke.py` now locks default-value preservation and verifies both Family B overrides apply only when the matching env vars are explicitly set.
+- symbols_added: none
+- symbols_changed: `FAST_CRASH_ENV_OVERRIDE_FIELDS`, `EngineConfig._apply_fast_crash_env_overrides`
+- config_fields_added: none
+- breaking_changes: none. This is measurement infrastructure only; no default selection, scoring, cash, target-book, production gate, workflow dispatch, or live-trading behavior changes.
+
 ## 2026-06-17
 
 ### 00:30 KST - universe substrate hard gate and run-27614583121 goal update

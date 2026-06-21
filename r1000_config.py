@@ -1703,17 +1703,19 @@ def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
 # REGIME_MULTIPLIERS already defined earlier in this file.
 
 # ---------------------------------------------------------------------
-# Family A (fast-crash defense) A/B env-override whitelist.
+# 7Y CAGR/MDD A/B env-override whitelist.
 # ---------------------------------------------------------------------
 # Measurement infrastructure ONLY — defaults are unchanged. Each field
 # below can be overridden at runtime via an env var named
 # `R1000_<FIELD_NAME_UPPERCASE>` (e.g. R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD).
 # This is the injection point for the 7Y CAGR/MDD A/B plan's Family A
-# (fast-crash defense) levers — see docs/CODEX_AB_EXECUTION_7Y_CAGR_MDD_*.md.
+# (fast-crash defense) and Family B (green/bull cash drag) levers — see
+# docs/CODEX_AB_EXECUTION_7Y_CAGR_MDD_*.md.
 # The `R1000_` prefix matches the full_rebuild_manual.yml experiment_env_json
 # allowlist regex `^(PHASE_|R1000_|ALPHAOPS_)[A-Z0-9_]+$`, so an A/B run can
 # pass e.g. {"R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD": "0.08"} without any
-# code change. When the env var is absent the dataclass default is kept.
+# code change. When the env var is absent the dataclass default is kept. The
+# constant/function names retain "fast_crash" for backward compatibility.
 FAST_CRASH_ENV_OVERRIDE_FIELDS = frozenset({
     # multi-level portfolio-drawdown breaker (Phase 6a / Phase X0 S2-2)
     "drawdown_breaker_multilevel_enabled",
@@ -1741,6 +1743,10 @@ FAST_CRASH_ENV_OVERRIDE_FIELDS = frozenset({
     "vix_level_tier3_cash_floor",
     "vix_level_tier4_threshold",
     "vix_level_tier4_cash_floor",
+    # Family B: green/bull cash-drag and reentry A/B levers. Defaults are kept
+    # unless a run explicitly injects R1000_<FIELD_NAME_UPPERCASE>.
+    "concentrated_regime_cash_vix_threshold",
+    "growth_reentry_strength",
 })
 
 
@@ -2738,7 +2744,7 @@ class EngineConfig:
         self._apply_fast_crash_env_overrides()
 
     def _apply_fast_crash_env_overrides(self) -> None:
-        """Apply Family A (fast-crash defense) A/B env overrides.
+        """Apply 7Y A/B env overrides for cash/risk measurement runs.
 
         For each whitelisted field, look up `R1000_<FIELD_NAME_UPPER>` in the
         process env. When present and parseable, override the field; otherwise

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Smoke for the Family A (fast-crash defense) A/B env-override hook in
+"""Smoke for the 7Y A/B env-override hook in
 EngineConfig (`_apply_fast_crash_env_overrides`).
 
-The 7Y A/B plan (docs/CODEX_AB_EXECUTION_7Y_CAGR_MDD_*.md) tunes the
-fast-crash MDD levers — multi-level drawdown breaker + VIX-level guard —
-via the full_rebuild_manual.yml experiment_env_json mechanism, which only
-allows env keys matching `^(PHASE_|R1000_|ALPHAOPS_)[A-Z0-9_]+$`. This hook
-lets each whitelisted EngineConfig field be overridden by
-`R1000_<FIELD_NAME_UPPER>` so an A/B run can pass e.g.
-{"R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD": "0.08"} with no code change.
+The 7Y A/B plan (docs/CODEX_AB_EXECUTION_7Y_CAGR_MDD_*.md) tunes fast-crash
+MDD levers and Family B green/bull cash-drag levers via the
+full_rebuild_manual.yml experiment_env_json mechanism, which only allows env
+keys matching `^(PHASE_|R1000_|ALPHAOPS_)[A-Z0-9_]+$`. This hook lets each
+whitelisted EngineConfig field be overridden by `R1000_<FIELD_NAME_UPPER>` so
+an A/B run can pass e.g. {"R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD": "0.08"}
+with no code change.
 
 Contract verified here:
   - defaults are unchanged when no env is set (measurement infra, not policy)
@@ -46,6 +46,8 @@ def test_defaults_unchanged_when_no_env() -> None:
     assert cfg.vix_level_tier1_cash_floor == 0.10
     assert cfg.drawdown_breaker_multilevel_enabled is True
     assert cfg.vix_level_guard_enabled is True
+    assert cfg.concentrated_regime_cash_vix_threshold == 25.0
+    assert cfg.growth_reentry_strength == 0.38
 
 
 def test_float_override_applied() -> None:
@@ -58,6 +60,20 @@ def test_float_override_applied() -> None:
         assert cfg.vix_level_tier1_cash_floor == 0.20
         # untouched field keeps its default
         assert cfg.drawdown_breaker_level_2_threshold == 0.20
+    finally:
+        _clear_env()
+
+
+def test_family_b_float_overrides_applied() -> None:
+    _clear_env()
+    os.environ["R1000_CONCENTRATED_REGIME_CASH_VIX_THRESHOLD"] = "30"
+    os.environ["R1000_GROWTH_REENTRY_STRENGTH"] = "0.55"
+    try:
+        cfg = C.EngineConfig()
+        assert cfg.concentrated_regime_cash_vix_threshold == 30.0
+        assert cfg.growth_reentry_strength == 0.55
+        # untouched Family A field keeps its default
+        assert cfg.vix_level_tier1_cash_floor == 0.10
     finally:
         _clear_env()
 
@@ -102,6 +118,9 @@ def test_whitelist_is_complete_and_exported() -> None:
     # the two headline MDD levers from the A/B plan must be present
     assert "drawdown_breaker_level_1_threshold" in fields
     assert "vix_level_tier1_cash_floor" in fields
+    # the Family B cash-drag A/B levers must also be present
+    assert "concentrated_regime_cash_vix_threshold" in fields
+    assert "growth_reentry_strength" in fields
     # every whitelisted name must be a real EngineConfig field
     cfg = C.EngineConfig()
     for name in fields:
