@@ -5,6 +5,16 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-21
 
+### 22:36 KST - Daily-stop position-risk replay promoted into operating_minimal (Family A option-a)
+
+- scope: make the daily position stop measurable in the fast A/B arms. The production-grade daily-stop next-close ledger (`run_broker_position_risk_replay.py`) already existed and ran in every full rebuild, but only under `SIDECAR_PROFILE = official`. The fast challenger arms we dispatch use `operating_minimal`, so they never produced a `broker_position_risk_replay` MaxDD and the daily-stop drawdown reduction could not be compared against the plain `broker_replay` (monthly next-close) MaxDD.
+- change: `tools/run_full_rebuild_sidecars.py` now runs the main and concentrated default-parameter `run_broker_position_risk_replay.py` calls inside the combined `operating_minimal`/`official` branch (before the inner official-only block), guarded on the operating target books existing. Stop levels are env-overridable via `R1000_DAILY_STOP_HARD_STOP` (default `-0.12`), `R1000_DAILY_STOP_TRAILING_STOP` (default `-0.20`), and `R1000_DAILY_STOP_TRAILING_ACTIVATION` (default `0.25`), so challenger runs can sweep stop tightness through `full_rebuild_manual.yml` `experiment_env_json`. These keys flow through the existing `EXPERIMENT_ENV_JSON` to `$GITHUB_ENV` plumbing and match the allowed `^(PHASE_|R1000_|ALPHAOPS_)` pattern. The parabolic stress variant stays official-only.
+- validation: added `tests/smoke_test.py::regression.operating_minimal_runs_daily_stop_position_risk_replay`, asserting both default-param replays run in the combined branch before the official gate, the three `R1000_DAILY_STOP_*` overrides are wired, and the parabolic variant stays official-only. Full smoke suite 126/126.
+- symbols_added: none
+- symbols_changed: `run_full_rebuild_sidecars.py` SHELL_SCRIPT operating_minimal branch
+- config_fields_added: none (env-only overrides `R1000_DAILY_STOP_HARD_STOP`, `R1000_DAILY_STOP_TRAILING_STOP`, `R1000_DAILY_STOP_TRAILING_ACTIVATION`; default values reproduce prior official-profile behavior)
+- breaking_changes: none. This is measurement infrastructure only. Default selection, scoring, cash policy, production target books, the broker-ledger acceptance metric, and live-trading behavior are unchanged; the daily-stop ledger remains a sidecar candidate, not the acceptance metric, until promotion is decided from the comparison.
+
 ### 11:19 KST - Family B cash-drag env override whitelist
 
 - scope: unblock the 7Y Family B bull/green cash-drag A/B path from `docs/CODEX_HANDOFF_MASTER_20260620.md` without changing default policy behavior.

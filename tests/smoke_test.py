@@ -2180,6 +2180,67 @@ def test_operating_minimal_builds_long_crisis_substrate() -> None:
         assert long_idx < inner_official_idx, "build_long_crisis_inputs leaked into official-only branch"
 
 
+@_test("regression.operating_minimal_runs_daily_stop_position_risk_replay")
+def test_operating_minimal_runs_daily_stop_position_risk_replay() -> None:
+    """Daily-stop next-close ledger must run in `operating_minimal`, not only
+    `official` (Family A option-a, daily position stop).
+
+    `run_broker_position_risk_replay.py` walks daily closes between monthly
+    rebalances and fires hard/trailing/relative stops, then fills risk exits at
+    the next close. Its MaxDD is the production-grade, directly-comparable
+    counterpart to the plain `broker_replay` (monthly next-close) MaxDD. It used
+    to be gated behind `SIDECAR_PROFILE = official`, so the fast A/B arms we run
+    (operating_minimal) never produced it and the daily-stop drawdown reduction
+    could not be measured. It must now run in the combined operating_minimal/
+    official branch BEFORE the inner official-only block, with stop levels driven
+    by env overrides (R1000_DAILY_STOP_*) so challenger runs can sweep tightness.
+    The parabolic variant stays official-only.
+    """
+    src = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    branch_marker = 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then'
+    branch_idx = src.index(branch_marker)
+    inner_official_marker = 'if [ "$SIDECAR_PROFILE" = "official" ]; then'
+    inner_official_idx = src.find(inner_official_marker, branch_idx + len(branch_marker))
+    assert inner_official_idx != -1, "inner official-only block missing"
+
+    # The main+concentrated default-param position-risk replays must appear
+    # inside the combined branch but BEFORE the inner official-only gate.
+    main_call = src.find(
+        "run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv",
+        branch_idx,
+    )
+    assert main_call != -1, "main broker_position_risk_replay call missing"
+    assert main_call < inner_official_idx, (
+        "main broker_position_risk_replay must run in operating_minimal, not "
+        "only official"
+    )
+    conc_call = src.find(
+        "run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv",
+        branch_idx,
+    )
+    assert conc_call != -1, "concentrated broker_position_risk_replay call missing"
+    assert conc_call < inner_official_idx, (
+        "concentrated broker_position_risk_replay must run in operating_minimal"
+    )
+
+    # Stop levels must be env-overridable so experiment_env_json can sweep them.
+    for env_key in (
+        "R1000_DAILY_STOP_HARD_STOP",
+        "R1000_DAILY_STOP_TRAILING_STOP",
+        "R1000_DAILY_STOP_TRAILING_ACTIVATION",
+    ):
+        assert env_key in src, f"daily-stop env override {env_key} missing"
+
+    # The parabolic stress variant must stay official-only (it intentionally
+    # disables the real stops; promoting it to minimal would pollute the
+    # comparison).
+    parabolic_call = src.find("main_broker_parabolic_risk_replay")
+    assert parabolic_call != -1, "parabolic variant missing"
+    assert parabolic_call > inner_official_idx, (
+        "parabolic variant must stay inside the official-only block"
+    )
+
+
 @_test("logic.latest_month_mktcap_starvation_guard")
 def test_latest_month_mktcap_starvation_guard() -> None:
     """Universe-collapse guard for the latest snapshot (run 27337807588).
