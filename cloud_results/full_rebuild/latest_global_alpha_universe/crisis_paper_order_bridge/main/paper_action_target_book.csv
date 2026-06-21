@@ -1,15 +1,15 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label,bridge_reason
-CASH,0.1919829013082957,Cash,Cash,,no_op
+CASH,0.1919852043557129,Cash,Cash,,no_op
 SNDK,0.12,SANDISK CORP,Information Technology,future_winner,no_op
-WDC,0.110277712681726,WESTERN DIGITAL CORP,Information Technology,future_winner,no_op
-STM,0.1055945698045618,STMicroelectronics,Semiconductors,early_scout,no_op
-CIEN,0.0925910374940505,CIENA CORP,Information Technology,future_winner,no_op
-MRVL,0.0852738284618378,MARVELL TECHNOLOGY INC,Information Technology,future_winner,no_op
-LITE,0.0634636229244537,LUMENTUM HOLDINGS INC,Information Technology,future_winner,no_op
-ON,0.0565396080764896,ON SEMICONDUCTOR CORP,Information Technology,future_winner,no_op
-PWR,0.0526891145903299,QUANTA SERVICES INC,Industrials,future_winner,no_op
-FIX,0.0395958649552322,COMFORT SYSTEMS USA INC,Industrials,future_winner,no_op
-MU,0.0316741819265406,MICRON TECHNOLOGY INC,Information Technology,future_winner,no_op
-COHR,0.0253950217725554,COHERENT CORP,Information Technology,future_winner,no_op
-TER,0.0136698290349589,TERADYNE INC,Information Technology,unassigned,no_op
-KEYS,0.0112527069689671,KEYSIGHT TECHNOLOGIES INC,Information Technology,future_winner,no_op
+WDC,0.1103767503060305,WESTERN DIGITAL CORP,Information Technology,future_winner,no_op
+STM,0.1062470352186422,STMicroelectronics,Semiconductors,early_scout,no_op
+CIEN,0.0926416949801767,CIENA CORP,Information Technology,future_winner,no_op
+MRVL,0.0852620036506741,MARVELL TECHNOLOGY INC,Information Technology,future_winner,no_op
+LITE,0.063121621444509,LUMENTUM HOLDINGS INC,Information Technology,future_winner,no_op
+ON,0.056486650620838,ON SEMICONDUCTOR CORP,Information Technology,future_winner,no_op
+PWR,0.0527095682414274,QUANTA SERVICES INC,Industrials,future_winner,no_op
+FIX,0.0397066788566912,COMFORT SYSTEMS USA INC,Industrials,future_winner,no_op
+MU,0.0314983467889042,MICRON TECHNOLOGY INC,Information Technology,future_winner,no_op
+COHR,0.0252241121663043,COHERENT CORP,Information Technology,future_winner,no_op
+TER,0.013489705178385,TERADYNE INC,Information Technology,unassigned,no_op
+KEYS,0.0112506281917038,KEYSIGHT TECHNOLOGIES INC,Information Technology,future_winner,no_op

@@ -5,9 +5,9 @@
 - Account source: `simulated_broker_replay`
 - Target source: `account_ledger_preview/*/target_weights.csv`
 - As-of date: `2026-06-18`
-- Total equity: $2,070,841.44
-- Current cash: 9.15%
-- Target cash: 12.12%
+- Total equity: $2,090,179.12
+- Current cash: 9.17%
+- Target cash: 12.11%
 - Cash policy review: `RESERVE_CASH`
 - Preview orders represented: 17
 

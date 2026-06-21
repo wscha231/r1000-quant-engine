@@ -1,23 +1,23 @@
 # Concentrated IS Attribution
 
 - Run period: 2019-07-01 -> 2026-06-18
-- Full period CAGR: `44.44%`
-- IS-only CAGR (2019-06 -> 2024-06): `18.80%`
-- OOS-only CAGR (2024-07+): `138.39%`
-- OOS / IS ratio: `7.36x`
+- Full period CAGR: `44.65%`
+- IS-only CAGR (2019-06 -> 2024-06): `19.09%`
+- OOS-only CAGR (2024-07+): `138.15%`
+- OOS / IS ratio: `7.24x`
 
 ## Yearly breakdown
 
 | Year | Return | CAGR | Max DD | Avg Cash | Stock Wt | Names | Regime (top) | Leak Tag |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| 2019 | +3.35% | +6.76% | -13.69% | 30.4% | 72.8% | 5.0 | neutral=86%; bull=14% | `mixed` |
-| 2020 | +87.73% | +87.81% | -22.38% | 38.0% | 62.3% | 5.0 | neutral=50%; bull=25%; bear=17% | `healthy` |
-| 2021 | +2.20% | +2.22% | -19.70% | 36.6% | 57.3% | 5.0 | bull=58%; neutral=42% | `structural_underinvestment_bull` |
-| 2022 | -10.72% | -10.81% | -11.38% | 79.8% | 20.1% | 5.0 | bear=80%; neutral=20% | `over_defense_bear_ok` |
-| 2023 | +11.81% | +11.96% | -9.80% | 52.1% | 54.1% | 4.7 | bull=46%; neutral=36%; bear=18% | `structural_underinvestment_bull` |
-| 2024 | +49.88% | +49.92% | -18.62% | 29.0% | 68.9% | 5.0 | neutral=83%; strong_bull=8%; bull=8% | `healthy` |
-| 2025 | +96.30% | +96.75% | -22.98% | 32.4% | 69.5% | 5.0 | neutral=50%; bull=33%; bear=17% | `healthy` |
-| 2026 | +116.24% | +434.80% | -15.00% | 32.2% | 65.0% | 5.0 | neutral=80%; bear=20% | `healthy` |
+| 2019 | +3.47% | +7.01% | -13.63% | 29.9% | 73.3% | 5.0 | neutral=86%; bull=14% | `mixed` |
+| 2020 | +88.04% | +88.12% | -22.38% | 37.9% | 62.3% | 5.0 | neutral=50%; bull=25%; bear=17% | `healthy` |
+| 2021 | +2.48% | +2.51% | -19.67% | 36.5% | 57.4% | 5.0 | bull=58%; neutral=42% | `structural_underinvestment_bull` |
+| 2022 | -10.77% | -10.86% | -11.42% | 81.3% | 18.6% | 4.6 | bear=80%; neutral=20% | `over_defense_bear_ok` |
+| 2023 | +11.96% | +12.11% | -9.79% | 52.0% | 54.4% | 4.7 | bull=46%; neutral=36%; bear=18% | `structural_underinvestment_bull` |
+| 2024 | +50.85% | +50.89% | -18.65% | 28.7% | 68.9% | 5.0 | neutral=83%; strong_bull=8%; bull=8% | `healthy` |
+| 2025 | +95.66% | +96.11% | -23.26% | 32.4% | 69.7% | 5.0 | neutral=50%; bull=33%; bear=17% | `healthy` |
+| 2026 | +116.12% | +434.13% | -15.02% | 32.2% | 64.9% | 5.0 | neutral=80%; bear=20% | `healthy` |
 
 ## Leak counts
 

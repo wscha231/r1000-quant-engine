@@ -4,8 +4,8 @@
 - production_activation_allowed: `false`
 - status: `completed`
 - candidate_book: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv`
-- candidate_rows: `45993`
-- scored_rows: `45993`
+- candidate_rows: `46276`
+- scored_rows: `46276`
 - rebalance_dates: `83`
 
 ## Outputs
@@ -19,8 +19,8 @@
 
 | Portfolio | CAGR | MaxDD | Tier-1 | Tier-2 | Review Status |
 | --- | ---: | ---: | :---: | :---: | --- |
-| concentrated | 14.35% | -51.70% | FAIL | FAIL | not_eligible |
-| main | 16.35% | -37.66% | FAIL | FAIL | not_eligible |
+| concentrated | 13.96% | -52.29% | FAIL | FAIL | not_eligible |
+| main | 15.78% | -36.56% | FAIL | FAIL | not_eligible |
 
 ## Promotion Policy Candidate
 

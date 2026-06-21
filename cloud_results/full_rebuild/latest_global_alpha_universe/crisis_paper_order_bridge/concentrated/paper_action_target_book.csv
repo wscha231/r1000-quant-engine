@@ -1,7 +1,7 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label,bridge_reason
 BE,0.285,Bloom Energy,Industrials,future_winner,no_op
 SNDK,0.285,SANDISK CORP,Information Technology,future_winner,no_op
-WDC,0.1658516959293973,WESTERN DIGITAL CORP,Information Technology,future_winner,no_op
-CIEN,0.120907600762973,CIENA CORP,Information Technology,future_winner,no_op
-CASH,0.0785,Cash,Cash,,no_op
-LITE,0.0647407033076296,LUMENTUM HOLDINGS INC,Information Technology,future_winner,no_op
+WDC,0.1661419491385671,WESTERN DIGITAL CORP,Information Technology,future_winner,no_op
+CIEN,0.1211138971457406,CIENA CORP,Information Technology,future_winner,no_op
+CASH,0.0784999999999999,Cash,Cash,,no_op
+LITE,0.0642441537156922,LUMENTUM HOLDINGS INC,Information Technology,future_winner,no_op

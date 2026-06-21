@@ -7,5 +7,5 @@
 
 | Portfolio | Status | IS CAGR | OOS CAGR | OOS/IS | Degradation | Max Allowed | OOS Days | Failures |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| concentrated | fail | 18.80% | 138.39% | 7.36x | -119.59pp | 6.00pp | 494 | oos_is_cagr_ratio_above_lock |
-| main | fail | 19.88% | 80.35% | 4.04x | -60.48pp | 5.00pp | 494 | oos_is_cagr_ratio_above_lock |
+| concentrated | fail | 19.09% | 138.15% | 7.24x | -119.06pp | 6.00pp | 494 | oos_is_cagr_ratio_above_lock |
+| main | fail | 20.37% | 79.23% | 3.89x | -58.87pp | 5.00pp | 494 | oos_is_cagr_ratio_above_lock |

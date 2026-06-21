@@ -52,7 +52,7 @@
     "volatility_stress_score"
   ],
   "first_date": "2019-06-14",
-  "generated_at_utc": "2026-06-21T02:27:01.996049+00:00",
+  "generated_at_utc": "2026-06-21T22:29:32.441065+00:00",
   "last_date": "2026-06-18",
   "liquidity_regime_by_day": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/liquidity_regime_by_day.parquet",
   "output": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro/long_crisis_daily_features.parquet",

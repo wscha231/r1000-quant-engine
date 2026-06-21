@@ -4,31 +4,31 @@ Artifact-only research replay. Daily crisis state is observed at close and appli
 
 | Metric | Base broker replay | Cash overlay | Delta |
 | --- | ---: | ---: | ---: |
-| CAGR | 34.27% | 20.76% | -13.51% |
-| MaxDD | -27.18% | -23.97% | 3.21% |
-| Sharpe | 1.255 | 0.956 | -0.300 |
-| Avg Cash | 26.59% | 42.91% | 16.32% |
+| CAGR | 34.42% | 24.74% | -9.69% |
+| MaxDD | -27.19% | -23.97% | 3.22% |
+| Sharpe | 1.261 | 1.066 | -0.194 |
+| Avg Cash | 26.69% | 39.36% | 12.67% |
 
 ## Base MDD Trade Window
 
 - Window: `2020-02-19` to `2020-03-18`
 - Raw executions inside window: `17`
-- Gross traded: `$51,800`
-- Net cash delta from executions: `$39,102`
+- Gross traded: `$51,770`
+- Net cash delta from executions: `$39,067`
 
 ## Cash Overlay
 
 - Crisis state source: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/daily_crisis_state.csv`
-- Cash actions: `301`
-- Estimated cash-action cost: `$14,542`
+- Cash actions: `230`
+- Estimated cash-action cost: `$11,433`
 - Confirm days: `2`
 - Release step: `10.00%`
 
 ## Variant Sweep
 
 - Best variant: `crisis_only_fast_reentry`
-- Best CAGR / MaxDD: `31.45%` / `-26.36%`
+- Best CAGR / MaxDD: `31.56%` / `-26.36%`
 - Best target pass: `False`
-- Best cash actions: `160`
+- Best cash actions: `159`
 
 Research-only. Promotion requires an account-ledger implementation with real orders and next-close fills.

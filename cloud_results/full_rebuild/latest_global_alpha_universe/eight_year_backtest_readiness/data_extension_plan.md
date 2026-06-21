@@ -3,7 +3,7 @@
 - window: `8-year`
 - target start: `2018-06-18`
 - target end: `2026-06-18`
-- selected target-book tickers: `401`
+- selected target-book tickers: `353`
 - hard blockers: `6`
 
 | Task | Scope | Status | Hard Blocker | Action |
@@ -19,4 +19,4 @@
 
 ## Sample Target-Book Tickers
 
-AAPL, ABT, ACI, ACLS, ACN, ADBE, ADI, AEE, AEP, AFG, AGCO, AIT, AIZ, AJG, AKAM, ALGM, ALGN, ALNY, ALSN, AM, AMAT, AMD, AMGN, AMP, AMT, AMZN, AN, ANET, APH, APO, APPF, ATI, ATO, AVGO, AXON, AXP, AZO, BABA, BAC, BAH, BE, BEN, BIIB, BILL, BIO, BJ, BKNG, BLD, BLDR, BR
+AAPL, ABT, ACI, ACLS, ACN, ADBE, ADI, AEE, AEP, AGCO, AIT, AIZ, AJG, AKAM, ALGM, ALGN, ALNY, ALSN, AM, AMAT, AMD, AMGN, AMP, AMT, AMZN, AN, ANET, APH, APO, APPF, ATI, ATO, AVGO, AXON, AXP, AZO, BABA, BAC, BAH, BEN, BIIB, BIO, BJ, BKNG, BLD, BLDR, BR, BRBR, BRO, BYD

@@ -93,15 +93,16 @@
     "ref": "claude/pr146-review-analysis-6dkvd8",
     "requires_user_approval": true,
     "source_evidence": {
-      "cagr": 0.44396245296442904,
+      "cagr": 0.44604493718599425,
       "cagr_target": 0.5,
-      "max_dd": -0.24695685042019266,
+      "max_dd": -0.24622274008482314,
       "max_dd_target": -0.28,
       "strengthened_pass": false,
       "target_pass": false,
       "tier2_failing": [
         "is_cagr_min",
-        "oos_is_cagr_ratio_max"
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
       ]
     },
     "source_portfolio": "concentrated",
@@ -163,15 +164,16 @@
     "ref": "claude/pr146-review-analysis-6dkvd8",
     "requires_user_approval": true,
     "source_evidence": {
-      "cagr": 0.44396245296442904,
+      "cagr": 0.44604493718599425,
       "cagr_target": 0.5,
-      "max_dd": -0.24695685042019266,
+      "max_dd": -0.24622274008482314,
       "max_dd_target": -0.28,
       "strengthened_pass": false,
       "target_pass": false,
       "tier2_failing": [
         "is_cagr_min",
-        "oos_is_cagr_ratio_max"
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
       ]
     },
     "source_portfolio": "concentrated",
@@ -233,15 +235,16 @@
     "ref": "claude/pr146-review-analysis-6dkvd8",
     "requires_user_approval": true,
     "source_evidence": {
-      "cagr": 0.44396245296442904,
+      "cagr": 0.44604493718599425,
       "cagr_target": 0.5,
-      "max_dd": -0.24695685042019266,
+      "max_dd": -0.24622274008482314,
       "max_dd_target": -0.28,
       "strengthened_pass": false,
       "target_pass": false,
       "tier2_failing": [
         "is_cagr_min",
-        "oos_is_cagr_ratio_max"
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
       ]
     },
     "source_portfolio": "concentrated",
@@ -303,15 +306,16 @@
     "ref": "claude/pr146-review-analysis-6dkvd8",
     "requires_user_approval": true,
     "source_evidence": {
-      "cagr": 0.44396245296442904,
+      "cagr": 0.44604493718599425,
       "cagr_target": 0.5,
-      "max_dd": -0.24695685042019266,
+      "max_dd": -0.24622274008482314,
       "max_dd_target": -0.28,
       "strengthened_pass": false,
       "target_pass": false,
       "tier2_failing": [
         "is_cagr_min",
-        "oos_is_cagr_ratio_max"
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
       ]
     },
     "source_portfolio": "concentrated",
@@ -373,15 +377,16 @@
     "ref": "claude/pr146-review-analysis-6dkvd8",
     "requires_user_approval": true,
     "source_evidence": {
-      "cagr": 0.44396245296442904,
+      "cagr": 0.44604493718599425,
       "cagr_target": 0.5,
-      "max_dd": -0.24695685042019266,
+      "max_dd": -0.24622274008482314,
       "max_dd_target": -0.28,
       "strengthened_pass": false,
       "target_pass": false,
       "tier2_failing": [
         "is_cagr_min",
-        "oos_is_cagr_ratio_max"
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
       ]
     },
     "source_portfolio": "concentrated",

@@ -2,7 +2,7 @@
   "adr_universe_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/adr_universe.yaml",
   "candidate_count": 1122,
   "existing_adr_count": 106,
-  "generated_at_utc": "2026-06-21T02:51:09+00:00",
+  "generated_at_utc": "2026-06-21T22:55:12+00:00",
   "manual_review_required": true,
   "production_mutation_allowed": false,
   "proposed_add_count": 0,

@@ -1,45 +1,27 @@
 {
   "per_portfolio": {
     "main": {
-<<<<<<< Updated upstream
-      "is_cagr": 0.19877793770190655,
-      "prev_is_cagr": 0.2535727804710297,
+      "is_cagr": 0.20365878430511763,
+      "prev_is_cagr": 0.19932800725209643,
       "best_is_cagr": 0.2535727804710297,
       "best_is_run": "27814870719",
-      "delta_vs_prev_pp": -5.4795,
-      "delta_vs_best_pp": -5.4795,
-=======
-      "is_cagr": 0.19932800725209643,
-      "prev_is_cagr": 0.2535727804710297,
-      "best_is_cagr": 0.2535727804710297,
-      "best_is_run": "27814870719",
-      "delta_vs_prev_pp": -5.4245,
-      "delta_vs_best_pp": -5.4245,
->>>>>>> Stashed changes
-      "state": "REGRESSING",
+      "delta_vs_prev_pp": 0.4331,
+      "delta_vs_best_pp": -4.9914,
+      "state": "FLAT",
       "new_best": false
     },
     "concentrated": {
-<<<<<<< Updated upstream
-      "is_cagr": 0.1880144252527749,
-      "prev_is_cagr": 0.22348263520800127,
+      "is_cagr": 0.19094079782556816,
+      "prev_is_cagr": 0.18783085710799807,
       "best_is_cagr": 0.2240682162164802,
       "best_is_run": "27516185696",
-      "delta_vs_prev_pp": -3.5468,
-      "delta_vs_best_pp": -3.6054,
-=======
-      "is_cagr": 0.18783085710799807,
-      "prev_is_cagr": 0.22348263520800127,
-      "best_is_cagr": 0.2240682162164802,
-      "best_is_run": "27516185696",
-      "delta_vs_prev_pp": -3.5652,
-      "delta_vs_best_pp": -3.6237,
->>>>>>> Stashed changes
-      "state": "REGRESSING",
+      "delta_vs_prev_pp": 0.311,
+      "delta_vs_best_pp": -3.3127,
+      "state": "FLAT",
       "new_best": false
     }
   },
-  "overall": "REGRESSING",
+  "overall": "FLAT",
   "dominant_open_leak": "concentrated:structural_underinvestment_bull",
   "open_leak_counts": {
     "main:flat_alpha_invested": 1,

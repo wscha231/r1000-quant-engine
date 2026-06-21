@@ -4,7 +4,7 @@
   "dispatch_results": [],
   "dispatched_count": 0,
   "execute_requested": false,
-  "generated_at_utc": "2026-06-21T02:51:10+00:00",
+  "generated_at_utc": "2026-06-21T22:55:13+00:00",
   "payloads_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/self_correction_router/workflow_dispatch_payloads.json",
   "plan_rows": [
     {
@@ -33,14 +33,14 @@
           "skip_collector": "true",
           "universe_mode": "global_alpha_universe"
         },
-        "ledger_sha_at_queue": "ec0e58d95e3828c129f6325f032f7a8cc9125c31d83697b760c129d35a1762cd",
+        "ledger_sha_at_queue": "e047b04deaea283f56a21a24f0fb7c8bab71f69694762e79568b831bf5a975dd",
         "payload_hash": "686964db0b5d74fac47130fb9f3a8f6d26ff59507b1fae769e628e5e2d438623",
         "plan_id": "conc_continuation_winner_relaxation",
         "production_mutation_allowed": false,
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_leak": "concentrated:structural_underinvestment_bull",
-        "source_run_id": "27887129839",
+        "source_run_id": "27913891655",
         "status": "queued",
         "workflow_id": "full_rebuild_manual.yml"
       },
@@ -80,14 +80,14 @@
           "skip_collector": "true",
           "universe_mode": "global_alpha_universe"
         },
-        "ledger_sha_at_queue": "ec0e58d95e3828c129f6325f032f7a8cc9125c31d83697b760c129d35a1762cd",
+        "ledger_sha_at_queue": "e047b04deaea283f56a21a24f0fb7c8bab71f69694762e79568b831bf5a975dd",
         "payload_hash": "841c1da873bf20bd015c8e641ff898b12e1d4a5914e7867bbae127b8531e499f",
         "plan_id": "conc_bull_floor_stock_min",
         "production_mutation_allowed": false,
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_leak": "concentrated:structural_underinvestment_bull",
-        "source_run_id": "27887129839",
+        "source_run_id": "27913891655",
         "status": "queued",
         "workflow_id": "full_rebuild_manual.yml"
       },
@@ -127,14 +127,14 @@
           "skip_collector": "true",
           "universe_mode": "global_alpha_universe"
         },
-        "ledger_sha_at_queue": "ec0e58d95e3828c129f6325f032f7a8cc9125c31d83697b760c129d35a1762cd",
+        "ledger_sha_at_queue": "e047b04deaea283f56a21a24f0fb7c8bab71f69694762e79568b831bf5a975dd",
         "payload_hash": "dca1c1b46c0035a28720e38164cf22ded215366d7b1c3507b98e7eb403ca9332",
         "plan_id": "conc_reentry_quality",
         "production_mutation_allowed": false,
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_leak": "concentrated:structural_underinvestment_bull",
-        "source_run_id": "27887129839",
+        "source_run_id": "27913891655",
         "status": "queued",
         "workflow_id": "full_rebuild_manual.yml"
       },
@@ -174,14 +174,14 @@
           "skip_collector": "true",
           "universe_mode": "global_alpha_universe"
         },
-        "ledger_sha_at_queue": "ec0e58d95e3828c129f6325f032f7a8cc9125c31d83697b760c129d35a1762cd",
+        "ledger_sha_at_queue": "e047b04deaea283f56a21a24f0fb7c8bab71f69694762e79568b831bf5a975dd",
         "payload_hash": "64b209eec018c280c64697ee87d9d0c9f9541608277b179917e635d722e2131e",
         "plan_id": "conc_theme_leadership_boost",
         "production_mutation_allowed": false,
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_leak": "concentrated:structural_underinvestment_bull",
-        "source_run_id": "27887129839",
+        "source_run_id": "27913891655",
         "status": "queued",
         "workflow_id": "full_rebuild_manual.yml"
       },
@@ -221,14 +221,14 @@
           "skip_collector": "true",
           "universe_mode": "global_alpha_universe"
         },
-        "ledger_sha_at_queue": "ec0e58d95e3828c129f6325f032f7a8cc9125c31d83697b760c129d35a1762cd",
+        "ledger_sha_at_queue": "e047b04deaea283f56a21a24f0fb7c8bab71f69694762e79568b831bf5a975dd",
         "payload_hash": "41f1a5bda63d4500b926a550e5486704c6fad2718b2b2aa80ad134fa285de22e",
         "plan_id": "conc_concentration_cap_relaxation",
         "production_mutation_allowed": false,
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_leak": "concentrated:structural_underinvestment_bull",
-        "source_run_id": "27887129839",
+        "source_run_id": "27913891655",
         "status": "queued",
         "workflow_id": "full_rebuild_manual.yml"
       },

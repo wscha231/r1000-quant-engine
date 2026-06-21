@@ -77,21 +77,21 @@
         "target_book_submonthly_decisions_validated": false
       },
       "official_broker_ledger": {
-        "avg_cash_weight": 0.41919482727179375,
-        "cagr": 0.44396245296442904,
+        "avg_cash_weight": 0.42434848801957326,
+        "cagr": 0.44604493718599425,
         "cost_bps_per_side": 25.0,
         "end_date": "2026-06-18",
-        "ending_capital_usd": 1292175.761892816,
+        "ending_capital_usd": 1305211.715904467,
         "fill_mode": "next_close",
         "integer_shares": true,
-        "max_dd": -0.24695685042019266,
+        "max_dd": -0.24622274008482314,
         "metric_mode": "broker_ledger_next_close",
-        "sharpe": 1.4007627133229137,
+        "sharpe": 1.3953057738990242,
         "source": "broker_replay/concentrated/metrics.json",
         "start_date": "2019-07-01",
         "status": "completed",
-        "total_fees_usd": 36218.13364313006,
-        "trade_count": 589,
+        "total_fees_usd": 36583.67366863013,
+        "trade_count": 591,
         "valid_for_production": false
       }
     },
@@ -160,21 +160,21 @@
         "target_book_submonthly_decisions_validated": false
       },
       "official_broker_ledger": {
-        "avg_cash_weight": 0.26590634299755517,
-        "cagr": 0.3426847066877978,
+        "avg_cash_weight": 0.2669411517544995,
+        "cagr": 0.34423943947854885,
         "cost_bps_per_side": 25.0,
         "end_date": "2026-06-18",
-        "ending_capital_usd": 778665.6732505872,
+        "ending_capital_usd": 784967.4030860222,
         "fill_mode": "next_close",
         "integer_shares": true,
-        "max_dd": -0.2718257190865939,
+        "max_dd": -0.2718646315133716,
         "metric_mode": "broker_ledger_next_close",
-        "sharpe": 1.2552862022207674,
+        "sharpe": 1.2607281105861643,
         "source": "broker_replay/main/metrics.json",
         "start_date": "2019-07-01",
         "status": "completed",
-        "total_fees_usd": 36375.870301811694,
-        "trade_count": 1656,
+        "total_fees_usd": 36835.291406794786,
+        "trade_count": 1659,
         "valid_for_production": false
       }
     }
