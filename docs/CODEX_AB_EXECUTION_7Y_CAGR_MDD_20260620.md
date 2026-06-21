@@ -23,6 +23,24 @@ run #213 잠정값 (master+R1에서 재확인 예정):
 
 ---
 
+## 0b. Acceptance contract — 최소 floor + 최대화 (user 지시 2026-06-20)
+
+**아래 수치는 "최소 달성치"다. 넘기는 게 통과가 아니라, 넘긴 뒤 가능한 한 더 높이는 게 목표.**
+
+| | 최소 floor (hard) | stretch (가능하면) |
+|---|---|---|
+| **Main CAGR** | **≥ 35%** | 높을수록 |
+| **Main MaxDD** | **≥ −25%** (그 이상으로 얕게) | −25% 보다 얕게 |
+| **Conc CAGR** | **≥ 50%** | 높을수록 |
+| **Conc MaxDD** | **≥ −25%** | −25% 보다 얕게 |
+
+- 이 floor들은 **절대 기준**이지 baseline 대비 델타가 아니다. 어떤 challenger도 floor를 깨면 reject — *baseline보다 나아졌어도* floor 미달이면 실패.
+- **현재 run #214 상태**: Main 34.73%(CAGR floor **−0.27pp 미달**) AND −26.05%(MDD floor **−1.05pp 미달**) → Main은 **두 floor 모두 미달**. Conc 45.47%(CAGR floor **−4.53pp 미달**) / −24.59%(MDD floor **통과**).
+- 따라서 Family A는 "MDD만 고치고 CAGR 희생"이 허용되지 않는다 — **Main은 CAGR ≥35% AND MDD ≥−25% 를 동시에** 만족해야 한다. MDD를 줄이며 CAGR을 유지/상승시키는 레버라야 의미 있음.
+- floor를 다 넘긴 뒤에는 CAGR을 최대화하되 MDD floor와 overfit 가드(OOS/IS)를 깨지 않는 선에서 push.
+
+---
+
 ## 1. A/B 주입 메커니즘 (검증됨)
 
 `full_rebuild_manual.yml` 입력 **`experiment_env_json`** = JSON object. 제약(워크플로 line 191~210에서 강제):
@@ -46,16 +64,19 @@ COVID 급락(2-3주)에서 발동이 느리거나 약함:
 ### A/B 변형 (한 번에 하나)
 | ID | 변경 knob (env key 후보) | 가설 |
 |---|---|---|
-| **A1** | `R1000_DD_BREAKER_L1_THRESHOLD` 0.12→0.08, `L1_CASH_FLOOR` 0.15→0.25 | DD breaker를 더 빨리/세게 → COVID DD 축소 |
-| **A2** | `R1000_VIX_TIER1_CASH_FLOOR` 0.10→0.20, `VIX_TIER2_CASH_FLOOR` 0.25→0.40 | VIX 스파이크에 현금 floor↑ → 급락 방어 |
+| **A1** | `R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD` 0.12→0.08, `R1000_DRAWDOWN_BREAKER_LEVEL_1_CASH_FLOOR` 0.15→0.25 | DD breaker를 더 빨리/세게 → COVID DD 축소 |
+| **A2** | `R1000_VIX_LEVEL_TIER1_CASH_FLOOR` 0.10→0.20, `R1000_VIX_LEVEL_TIER2_CASH_FLOOR` 0.25→0.40 | VIX 스파이크에 현금 floor↑ → 급락 방어 |
 | **A3** | 신규 **dd-velocity** 트리거 (5/10일 낙폭 속도) | 절대 DD가 아닌 *속도*로 선제 차단 (신규 피처 = FULL) |
+
+env key 규칙: `R1000_` + EngineConfig 필드명 대문자 (예: `drawdown_breaker_level_1_threshold` → `R1000_DRAWDOWN_BREAKER_LEVEL_1_THRESHOLD`). 화이트리스트는 `FAST_CRASH_ENV_OVERRIDE_FIELDS` (commit `70538b9`). 약어 키(`R1000_DD_BREAKER_L1...`)는 hook이 못 읽고 조용히 무시되니 금지.
 
 A1/A2 = cash-overlay 파라미터 → broker replay 단계 → **QUICK/Tier-2 가능**(feature_store 불변). A3 = 신규 시그널 → **FULL rebuild** + `PHASE_FASTCRASH_*` 토글 + keep_cols/hard_sanitize 동기화.
 
-### Family A gate (MDD-repair 전용 — user 승인 필요)
-- 1차: **Main MDD ≥ −25%** (현재 −26.06% → ΔMDD ≥ +1.1pp)
-- 2차: **ΔCAGR ≥ −1.0pp AND ΔSharpe ≥ −0.05**
-- 회귀가드: **2022 약세장 방어 불변**(2022 연도 DD 악화 ≤ +1pp) — crisis cash가 약해지면 안 됨. early_scout ≥ 4.
+### Family A gate (절대 floor — §0b acceptance contract 기준, user 승인 필요)
+- **1차 (Main 동시 만족)**: **Main CAGR ≥ 35% AND Main MaxDD ≥ −25%** — 둘 중 하나라도 미달이면 reject (baseline보다 나아져도). 현재 둘 다 미달이라 fast-crash 레버는 *MDD를 줄이면서 CAGR을 35% 위로 유지/상승*시켜야 함.
+- **2차**: **ΔSharpe ≥ −0.05** (CAGR floor 충족 후 Sharpe 큰 손실 금지).
+- **회귀가드**: 2022 약세장 방어 불변(2022 연도 DD 악화 ≤ +1pp) — crisis cash가 약해지면 안 됨. avg_cash 과증가 없음. early_scout ≥ 4.
+- floor 충족 시 → CAGR 최대화 push (MDD floor·OOS/IS 가드 유지선에서).
 
 ---
 
@@ -73,14 +94,16 @@ A1/A2 = cash-overlay 파라미터 → broker replay 단계 → **QUICK/Tier-2 �
 |---|---|---|
 | **B1** | `R1000_CONC_REGIME_CASH_VIX_THRESHOLD` 25→30 | Conc 현금 트리거 완화 → 불장 노출↑ → IS CAGR↑ |
 | **B2** | `R1000_GROWTH_REENTRY_STRENGTH` 0.38→0.55 | 급락 후 재진입 가속 → 현금 잔류 시간↓ |
-| **B3** | `R1000_VIX_TIER1_CASH_FLOOR` 0.10→0.05 (불장 한정) | green regime에서만 VIX floor 완화 |
+| **B3** | `R1000_VIX_LEVEL_TIER1_CASH_FLOOR` 0.10→0.05 (불장 한정) | green regime에서만 VIX floor 완화 |
 
-대부분 cash-overlay → QUICK/Tier-2 가능.
+**env-hook 전제**: B1/B2 필드(`concentrated_regime_cash_vix_threshold`, `growth_reentry_strength`)는 아직 `FAST_CRASH_ENV_OVERRIDE_FIELDS` 화이트리스트에 **없다** → Family B 착수 전 step-0으로 이 필드들을 env-override 화이트리스트에 추가해야 함(기본값 불변, 측정 인프라). B3는 Family A 키 재사용이라 이미 가능. 대부분 cash-overlay → QUICK/Tier-2 가능.
 
-### Family B gate (표준 강화 gate)
-- **ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ −0.05 AND ΔMaxDD ≥ −1.0pp**(이미 −26%라 더 악화 금지)
-- 추가: **IS CAGR 단조 ↑ AND OOS/IS 비율 ↓** (robustness)
-- 회귀가드: **2020·2022 MDD 불변**(crisis cash 보존 증거). early_scout ≥ 4.
+### Family B gate (절대 floor — §0b acceptance contract 기준)
+- **Conc 동시 만족**: **Conc CAGR ≥ 50% AND Conc MaxDD ≥ −25%** — floor 절대 기준. 현재 45.47%/−24.59%라 CAGR을 **+4.53pp 이상** 끌어올려야 통과.
+- **ΔSharpe ≥ −0.05 AND ΔMaxDD ≥ −1.0pp**(현재 −24.59%, 더 악화 금지).
+- **overfit 가드(핵심)**: IS CAGR 단조 ↑ AND **OOS/IS 비율 ↓** (현재 Conc 7.66x). bull-drag 현금을 줄여 IS 노출을 높이는 게 목적.
+- 회귀가드: 2020·2022 MDD 불변(crisis cash 보존). early_scout ≥ 4.
+- floor 충족 시 → Conc CAGR 최대화 push (MDD floor·OOS/IS 가드 유지선).
 
 ---
 
