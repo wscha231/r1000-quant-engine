@@ -1,0 +1,145 @@
+{
+  "blockers": [],
+  "candidate_count": 45990,
+  "candidate_replay_book": {
+    "date_column": "rebalance_date",
+    "exists": true,
+    "fundamental_coverage_pct": 0.769341161121983,
+    "max_date": "2026-04-30",
+    "min_date": "2019-06-28",
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+    "r1000_base_count": 895,
+    "row_count": 45990,
+    "source_column": "source_universe",
+    "source_counts": {
+      "adr_whitelist": 1293,
+      "current_constituents_proxy_static_seed": 43280,
+      "current_constituents_proxy_static_seed+strategic_global_hardware": 1170,
+      "cycle_play_whitelist": 247
+    },
+    "ticker_count": 968
+  },
+  "fallback_source_chain": {
+    "all_checked_paths": {
+      "data_raw_iwb_seed": {
+        "exists": false,
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/iwb_holdings_seed.csv"
+      },
+      "data_static_iwb_seed": {
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-06-20T23:32:34.403793+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
+        "size_bytes": 62177
+      },
+      "latest_run_candidate_universe": {
+        "exists": false,
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/feature_store/candidate_universe_latest.parquet"
+      },
+      "previous_healthy_candidate_universe": {
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-06-20T23:38:05.410563+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
+        "size_bytes": 37385
+      },
+      "restored_drive_iwb_csv": {
+        "exists": false,
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/aggressive/cache/universe/iwb_holdings.csv"
+      },
+      "restored_drive_iwb_parquet": {
+        "exists": false,
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/aggressive/cache/universe/iwb_holdings.parquet"
+      }
+    },
+    "historical_universe_membership": {
+      "file_count": 0,
+      "paths": []
+    },
+    "live_iwb_fetch_status": "inferred_from_run_outputs",
+    "previous_healthy_universe_cache": {
+      "exists": true,
+      "kind": "file",
+      "modified_utc": "2026-06-20T23:38:05.410563+00:00",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
+      "r1000_base_count": 992,
+      "row_count": 1118,
+      "size_bytes": 37385,
+      "ticker_count": 1118
+    },
+    "restored_drive_iwb": {
+      "available": false,
+      "paths": {
+        "csv": {
+          "exists": false,
+          "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/aggressive/cache/universe/iwb_holdings.csv"
+        },
+        "parquet": {
+          "exists": false,
+          "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/aggressive/cache/universe/iwb_holdings.parquet"
+        }
+      }
+    },
+    "static_iwb_seed": {
+      "available": true,
+      "paths": {
+        "data_raw": {
+          "exists": false,
+          "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/iwb_holdings_seed.csv"
+        },
+        "data_static": {
+          "exists": true,
+          "kind": "file",
+          "modified_utc": "2026-06-20T23:32:34.403793+00:00",
+          "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
+          "size_bytes": 62177
+        }
+      }
+    }
+  },
+  "fallback_used": true,
+  "generated_at_utc": "2026-06-21T03:11:23.588422+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "min_r1000_base": 400,
+  "next_actions": [],
+  "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/universe_health",
+  "price_cache": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+  "primary_universe_source": "static_iwb_seed",
+  "production_mutation_allowed": false,
+  "promotion_allowed": true,
+  "r1000_base_count": 700,
+  "rules": {
+    "do_not_use_for": "strategy promotion or A/B baseline when status != pass",
+    "fallback_order": [
+      "live_iShares_IWB_holdings_fetch",
+      "restored_Drive_or_cache_IWB_holdings",
+      "previous_healthy_current_constituents_proxy",
+      "committed_static_IWB_seed",
+      "hard_fail"
+    ],
+    "promotion_rule": "non-ADR runs require scored R1000 base >= min_r1000_base and valid 8-year broker-ledger evidence"
+  },
+  "schema_version": "universe-health-v1",
+  "scored_count": 737,
+  "scored_latest": {
+    "date_column": "rebalance_date",
+    "exists": true,
+    "fundamental_coverage_pct": 1.0,
+    "max_date": "2026-06-18",
+    "min_date": "2026-06-18",
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
+    "r1000_base_count": 700,
+    "row_count": 737,
+    "source_column": "universe_source",
+    "source_counts": {
+      "adr_whitelist": 28,
+      "current_constituents_proxy_static_seed": 681,
+      "current_constituents_proxy_static_seed+strategic_global_hardware": 19,
+      "cycle_play_whitelist": 5,
+      "strategic_global_hardware": 4
+    },
+    "ticker_count": 737
+  },
+  "status": "pass",
+  "universe_mode": "global_alpha_universe"
+}

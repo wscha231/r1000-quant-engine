@@ -1,0 +1,12 @@
+{
+  "as_of_date": "2026-06-18",
+  "client_order_ids": [
+    "r1k-M-20260618-B-FIX-6b8b45cf48ce",
+    "r1k-M-20260618-B-KEYS-bf5a6af8d819"
+  ],
+  "order_batch_id": "78f885898d55b7495f69999d5032ba14c5bc5fb5a39b8f66ebca79dc079601ff",
+  "order_count": 2,
+  "portfolio_kind": "main",
+  "ready_order_count": 2,
+  "schema_version": "account-ledger-preview-order-batch-v1"
+}

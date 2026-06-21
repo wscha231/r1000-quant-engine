@@ -1,0 +1,177 @@
+{
+  "schema_version": "data-watermarks-v1",
+  "watermarks": [
+    {
+      "age_days": 3.0,
+      "cadence_days": 3,
+      "canonical_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices/replay_price_cache_manifest.json",
+      "freshness_basis": "manifest:end",
+      "hard_required_for_selection": true,
+      "latest_asof": "2026-06-18",
+      "layer": "prices",
+      "owner_workflow": "free_data_daily_update.yml",
+      "provider": "yfinance_cache_reconciled_later",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices/replay_price_cache_manifest.json",
+      "source_name": "prices",
+      "stats": {
+        "bytes": 1037,
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-06-21T02:44:42.118392+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices/replay_price_cache_manifest.json",
+        "sha256": "267197caa01a69ff517fb620509222e30b8c18c3182f09eb5fd4b3e6268b4464"
+      },
+      "status": "ok"
+    },
+    {
+      "age_days": 0.0,
+      "cadence_days": 3,
+      "canonical_path": "data_pit/free/market_snapshot/latest_manifest.json",
+      "freshness_basis": "manifest:generated_at_utc",
+      "hard_required_for_selection": false,
+      "latest_asof": "2026-06-21T02:47:17.280555+00:00",
+      "layer": "market_snapshot",
+      "owner_workflow": "daily_operating_selection_refresh.yml",
+      "provider": "price_cache_plus_yfinance_shares",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/free/market_snapshot/latest_manifest.json",
+      "source_name": "daily_market_snapshot",
+      "stats": {
+        "bytes": 707,
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-06-21T02:47:17.306379+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/free/market_snapshot/latest_manifest.json",
+        "sha256": "840fba60cd3e7c2bb579afd562ab0b1e3aaf376d5a6dda98da455036fb7f71b7"
+      },
+      "status": "ok"
+    },
+    {
+      "age_days": 0.0,
+      "cadence_days": 3,
+      "canonical_path": "data_pit/macro",
+      "freshness_basis": "directory_mtime_proxy",
+      "hard_required_for_selection": true,
+      "latest_asof": "2026-06-21T02:47:18.527216+00:00",
+      "layer": "macro",
+      "owner_workflow": "daily_crisis_monitor.yml/free_data_daily_update.yml",
+      "provider": "FRED_yfinance_market_snapshot",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro",
+      "source_name": "macro",
+      "stats": {
+        "bytes": 515063,
+        "exists": true,
+        "file_count": 1,
+        "kind": "dir",
+        "modified_utc": "2026-06-21T02:47:18.527216+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro"
+      },
+      "status": "ok"
+    },
+    {
+      "age_days": 1.0,
+      "cadence_days": 7,
+      "canonical_path": "data_raw/free/sec/companyfacts.zip",
+      "freshness_basis": "file_mtime",
+      "hard_required_for_selection": false,
+      "latest_asof": "2026-06-20T23:35:17.314543+00:00",
+      "layer": "fundamentals",
+      "owner_workflow": "data_readiness_preflight.yml/free_data_daily_update.yml",
+      "provider": "SEC_companyfacts_bulk",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/sec/companyfacts.zip",
+      "source_name": "sec_companyfacts",
+      "stats": {
+        "bytes": 1387110195,
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-06-20T23:35:17.314543+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/sec/companyfacts.zip",
+        "sha256": ""
+      },
+      "status": "ok"
+    },
+    {
+      "age_days": 1.0,
+      "cadence_days": 5,
+      "canonical_path": "data_pit/sec/form4_transactions.parquet",
+      "freshness_basis": "file_mtime",
+      "hard_required_for_selection": false,
+      "latest_asof": "2026-06-20T01:49:30.395000+00:00",
+      "layer": "form4",
+      "owner_workflow": "sec_form4_daily_refresh.yml",
+      "provider": "SEC_EDGAR_Archives",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/sec/form4_transactions.parquet",
+      "source_name": "form4_transactions",
+      "stats": {
+        "bytes": 11623954,
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-06-20T01:49:30.395000+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/sec/form4_transactions.parquet",
+        "sha256": "391af5d7641f371a1b309a20d57e33100e0e38fee826e33c5f884896955c8116"
+      },
+      "status": "ok"
+    },
+    {
+      "age_days": 27.0,
+      "cadence_days": 100,
+      "canonical_path": "data_pit/sec/institutional_13f_holdings.parquet",
+      "freshness_basis": "file_mtime",
+      "hard_required_for_selection": false,
+      "latest_asof": "2026-05-25T07:27:21.847000+00:00",
+      "layer": "13f",
+      "owner_workflow": "sec_13f_quarterly_refresh.yml",
+      "provider": "SEC_EDGAR_13F",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/sec/institutional_13f_holdings.parquet",
+      "source_name": "institutional_13f_holdings",
+      "stats": {
+        "bytes": 39132363,
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-05-25T07:27:21.847000+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/sec/institutional_13f_holdings.parquet",
+        "sha256": "a60bf5af29c022cad01cbaaa467699f7c71804eaade844b7da2f0fb89b816c03"
+      },
+      "status": "ok"
+    },
+    {
+      "age_days": 12.0,
+      "cadence_days": 40,
+      "canonical_path": "data_pit/etf_holdings/etf_holdings.parquet",
+      "freshness_basis": "file_mtime",
+      "hard_required_for_selection": false,
+      "latest_asof": "2026-06-09T16:59:50.667000+00:00",
+      "layer": "etf",
+      "owner_workflow": "etf_holdings_monthly_refresh.yml",
+      "provider": "ETF_provider_plus_SEC_NPORT",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/etf_holdings/etf_holdings.parquet",
+      "source_name": "etf_holdings",
+      "stats": {
+        "bytes": 10658,
+        "exists": true,
+        "kind": "file",
+        "modified_utc": "2026-06-09T16:59:50.667000+00:00",
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/etf_holdings/etf_holdings.parquet",
+        "sha256": "f20c197af7d232d9305f88b28271e61fe308507d9290cd2803410e7469be246d"
+      },
+      "status": "ok"
+    },
+    {
+      "age_days": null,
+      "cadence_days": 3,
+      "canonical_path": "manifests/free_data/latest_manifest.json",
+      "freshness_basis": "missing",
+      "hard_required_for_selection": false,
+      "latest_asof": "",
+      "layer": "manifest",
+      "owner_workflow": "free_data_daily_update.yml",
+      "provider": "internal_manifest",
+      "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/manifests/free_data/latest_manifest.json",
+      "source_name": "free_data_manifest",
+      "stats": {
+        "exists": false,
+        "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/manifests/free_data/latest_manifest.json"
+      },
+      "status": "missing"
+    }
+  ]
+}

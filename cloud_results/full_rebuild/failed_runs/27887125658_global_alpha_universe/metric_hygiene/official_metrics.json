@@ -1,0 +1,68 @@
+{
+  "official_metric_mode": "broker_ledger_next_close",
+  "portfolios": {
+    "concentrated": {
+      "account_evaluation_source": "account_evaluation/official_metrics.json",
+      "account_evaluation_target_pass": false,
+      "avg_cash_weight": 0.4188099846572891,
+      "cagr": 0.44368847118705124,
+      "cagr_gap_pp": 5.6312,
+      "cagr_target": 0.5,
+      "cash_trap_guard": {
+        "avg_cash_weight": 0.4188099846572891,
+        "cagr_gap_pp": 5.6312,
+        "cash_trap": false,
+        "latest_cash_weight": 0.057254439987821176,
+        "mdd_gap_pp": 0.0,
+        "reasons": [
+          "cash_drag_with_cagr_gap"
+        ],
+        "severity": "ok"
+      },
+      "latest_cash_weight": 0.057254439987821176,
+      "max_dd": -0.24704549355649696,
+      "max_dd_gap_pp": 0.0,
+      "max_dd_target": -0.28,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/concentrated/metrics.json",
+      "official_source_exists": true,
+      "portfolio": "concentrated",
+      "production_valid": true,
+      "sharpe": 1.3992901065669034,
+      "status": "completed",
+      "target_pass": false
+    },
+    "main": {
+      "account_evaluation_source": "account_evaluation/official_metrics.json",
+      "account_evaluation_target_pass": false,
+      "avg_cash_weight": 0.2659788178294482,
+      "cagr": 0.34277659909324787,
+      "cagr_gap_pp": 0.0,
+      "cagr_target": 0.3,
+      "cash_trap_guard": {
+        "avg_cash_weight": 0.2659788178294482,
+        "cagr_gap_pp": 0.0,
+        "cash_trap": false,
+        "latest_cash_weight": 0.20287048797764867,
+        "mdd_gap_pp": 2.1787,
+        "reasons": [],
+        "severity": "ok"
+      },
+      "latest_cash_weight": 0.20287048797764867,
+      "max_dd": -0.271786846224337,
+      "max_dd_gap_pp": 2.1787,
+      "max_dd_target": -0.25,
+      "official_metric_mode": "broker_ledger_next_close",
+      "official_source": "broker_replay/main/metrics.json",
+      "official_source_exists": true,
+      "portfolio": "main",
+      "production_valid": true,
+      "sharpe": 1.2557087262809452,
+      "status": "completed",
+      "target_pass": false
+    }
+  },
+  "production_target_pass": false,
+  "production_valid_all": true,
+  "schema_version": "metric-hygiene-v1"
+}

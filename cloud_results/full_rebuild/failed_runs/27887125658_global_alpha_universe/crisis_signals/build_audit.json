@@ -1,0 +1,112 @@
+{
+  "rows": 1763,
+  "first_date": "2019-06-14",
+  "last_date": "2026-06-18",
+  "sources": {
+    "spy_rows": 1763,
+    "qqq_rows": 1763,
+    "vix_rows": 9210,
+    "vix_source": "fred",
+    "hy_oas_rows": 787,
+    "dgs10_rows": 16100
+  },
+  "columns": [
+    "crisis_score",
+    "hy_oas",
+    "hy_oas_5d_change",
+    "hy_oas_zscore_60d",
+    "qqq_20d_dd",
+    "qqq_5d_dd",
+    "qqq_below_ma200",
+    "qqq_close",
+    "qqq_ma20",
+    "qqq_ma200",
+    "qqq_ma50",
+    "spy_20d_dd",
+    "spy_5d_dd",
+    "spy_below_ma200",
+    "spy_below_ma50",
+    "spy_close",
+    "spy_ma20",
+    "spy_ma200",
+    "spy_ma50",
+    "ten_year_20d_change_bps",
+    "ten_year_5d_change_bps",
+    "ten_year_yield",
+    "vix_level",
+    "vix_spike_3d",
+    "vix_zscore_60d"
+  ],
+  "crisis_score_stats": {
+    "max": 0.9160339546499312,
+    "p99": 0.6578454105662135,
+    "p95": 0.5129660230883779,
+    "p90": 0.4281570189318174,
+    "mean": 0.14013486921576004
+  },
+  "component_coverage": {
+    "market_trend": {
+      "nominal_weight": 0.25,
+      "live": true,
+      "max": 1.0,
+      "mean": 0.15789765464533523,
+      "effective_weight": 0.29411764705882354
+    },
+    "credit_stress": {
+      "nominal_weight": 0.2,
+      "live": true,
+      "max": 1.0,
+      "mean": 0.05866223667096134,
+      "effective_weight": 0.23529411764705885
+    },
+    "vol_spike": {
+      "nominal_weight": 0.15,
+      "live": true,
+      "max": 1.0,
+      "mean": 0.14749257828763374,
+      "effective_weight": 0.17647058823529413
+    },
+    "breadth": {
+      "nominal_weight": 0.15,
+      "live": true,
+      "max": 1.0,
+      "mean": 0.17838910947249007,
+      "effective_weight": 0.17647058823529413
+    },
+    "liquidity": {
+      "nominal_weight": 0.1,
+      "live": false,
+      "max": 0.0,
+      "mean": 0.0,
+      "effective_weight": 0.0
+    },
+    "rate_shock": {
+      "nominal_weight": 0.1,
+      "live": true,
+      "max": 1.0,
+      "mean": 0.19025524673851388,
+      "effective_weight": 0.11764705882352942
+    },
+    "portfolio_damage": {
+      "nominal_weight": 0.05,
+      "live": false,
+      "max": 0.0,
+      "mean": 0.0,
+      "effective_weight": 0.0
+    }
+  },
+  "live_components": [
+    "breadth",
+    "credit_stress",
+    "market_trend",
+    "rate_shock",
+    "vol_spike"
+  ],
+  "dead_components": [
+    "liquidity",
+    "portfolio_damage"
+  ],
+  "pre_renorm_ceiling": 0.85,
+  "renormalization_active": true,
+  "status": "ok"
+}

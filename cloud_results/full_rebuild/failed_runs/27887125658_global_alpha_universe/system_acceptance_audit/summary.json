@@ -1,0 +1,1124 @@
+{
+  "generated_at_utc": "2026-06-21T03:14:01+00:00",
+  "hard_blocker_count": 7,
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "live_trading_allowed": false,
+  "manual_review_task_count": 2,
+  "manual_review_tasks": [
+    {
+      "description": "OOS CAGR is too high relative to locked IS CAGR; inspect whether the result is a narrow era/name lottery before any SHIP retry.",
+      "dispatch_mode": "manual_review_no_workflow_dispatch",
+      "failure": "oos_is_cagr_ratio_above_lock",
+      "metrics": {
+        "cagr_is": 0.18783085710799807,
+        "cagr_oos": 1.3832296407761056,
+        "max_allowed_degradation_pp": 6.0,
+        "max_oos_is_cagr_ratio": 3.0,
+        "oos_degradation_pp": -119.53987836681075,
+        "oos_is_cagr_ratio": 7.364230042249037,
+        "oos_trading_days": 494
+      },
+      "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",
+      "portfolio": "concentrated",
+      "production_mutation_allowed": false,
+      "requires_user_approval": true,
+      "review_artifacts": [
+        "oos_lock/report.md",
+        "is_attribution/summary.json",
+        "era_leadership/summary.json",
+        "era_aware_scoring_challenger/summary.json",
+        "trade_attribution/concentrated/findings.json"
+      ],
+      "source": "oos_lock",
+      "task_id": "concentrated_oos_lottery_era_name_review"
+    },
+    {
+      "description": "OOS CAGR is too high relative to locked IS CAGR; inspect whether the result is a narrow era/name lottery before any SHIP retry.",
+      "dispatch_mode": "manual_review_no_workflow_dispatch",
+      "failure": "oos_is_cagr_ratio_above_lock",
+      "metrics": {
+        "cagr_is": 0.19932800725209643,
+        "cagr_oos": 0.8018545500336534,
+        "max_allowed_degradation_pp": 5.0,
+        "max_oos_is_cagr_ratio": 3.0,
+        "oos_degradation_pp": -60.252654278155696,
+        "oos_is_cagr_ratio": 4.02278917593112,
+        "oos_trading_days": 494
+      },
+      "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",
+      "portfolio": "main",
+      "production_mutation_allowed": false,
+      "requires_user_approval": true,
+      "review_artifacts": [
+        "oos_lock/report.md",
+        "is_attribution/summary.json",
+        "era_leadership/summary.json",
+        "era_aware_scoring_challenger/summary.json",
+        "trade_attribution/main/findings.json"
+      ],
+      "source": "oos_lock",
+      "task_id": "main_oos_lottery_era_name_review"
+    }
+  ],
+  "next_actions": [
+    "Use IS attribution and challenger queues; do not promote until Tier-2 gates pass.",
+    "Extend price/universe/cache and target books back to at least mid-2018, then rerun full rebuild.",
+    "Treat the candidate as non-promotable; inspect outputs/oos_lock/report.md before another SHIP retry.",
+    "Resolve data readiness blockers before treating any backtest as official.",
+    "Run IS attribution, era leadership, trade attribution, and MDD cash overlay sidecars before treating any promoted result as official.",
+    "Run account order previews, live trading safety audit, and risk controls before treating results as operationally ready.",
+    "Resolve portfolio system guard hard errors."
+  ],
+  "production_activation_allowed": false,
+  "requirements": [
+    {
+      "evidence": {
+        "official_metric_mode": "broker_ledger_next_close",
+        "portfolios": {
+          "concentrated": {
+            "cagr": 0.44368847118705124,
+            "cagr_target": 0.5,
+            "cost_bps_per_side": 25.0,
+            "end_date": "2026-06-18",
+            "fill_mode": "next_close",
+            "integer_shares": true,
+            "max_dd": -0.24704549355649696,
+            "max_dd_target": -0.28,
+            "max_fill_lag_days": 7,
+            "metric_mode": "broker_ledger_next_close",
+            "start_date": "2019-07-01",
+            "status": "completed",
+            "strengthened_pass": false,
+            "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+            "target_pass": false,
+            "tier2_failing": [
+              "is_cagr_min",
+              "oos_is_cagr_ratio_max",
+              "sharpe_min"
+            ],
+            "valid_for_production": false,
+            "years": 6.965092402464066
+          },
+          "main": {
+            "cagr": 0.34277659909324787,
+            "cagr_target": 0.3,
+            "cost_bps_per_side": 25.0,
+            "end_date": "2026-06-18",
+            "fill_mode": "next_close",
+            "integer_shares": true,
+            "max_dd": -0.271786846224337,
+            "max_dd_target": -0.25,
+            "max_fill_lag_days": 7,
+            "metric_mode": "broker_ledger_next_close",
+            "start_date": "2019-07-01",
+            "status": "completed",
+            "strengthened_pass": false,
+            "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+            "target_pass": false,
+            "tier2_failing": [
+              "is_cagr_min",
+              "oos_is_cagr_ratio_max"
+            ],
+            "valid_for_production": false,
+            "years": 6.965092402464066
+          }
+        }
+      },
+      "hard_blocker": false,
+      "next_action": "",
+      "requirement_id": "official_broker_ledger_metrics",
+      "status": "pass",
+      "summary": "official broker-ledger next-close metrics exist for both portfolios"
+    },
+    {
+      "evidence": {
+        "failing": [
+          "main:tier1_target",
+          "main:tier2_strengthened",
+          "concentrated:tier1_target",
+          "concentrated:tier2_strengthened"
+        ],
+        "portfolios": {
+          "concentrated": {
+            "cagr": 0.44368847118705124,
+            "cagr_target": 0.5,
+            "cost_bps_per_side": 25.0,
+            "end_date": "2026-06-18",
+            "fill_mode": "next_close",
+            "integer_shares": true,
+            "max_dd": -0.24704549355649696,
+            "max_dd_target": -0.28,
+            "max_fill_lag_days": 7,
+            "metric_mode": "broker_ledger_next_close",
+            "start_date": "2019-07-01",
+            "status": "completed",
+            "strengthened_pass": false,
+            "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+            "target_pass": false,
+            "tier2_failing": [
+              "is_cagr_min",
+              "oos_is_cagr_ratio_max",
+              "sharpe_min"
+            ],
+            "valid_for_production": false,
+            "years": 6.965092402464066
+          },
+          "main": {
+            "cagr": 0.34277659909324787,
+            "cagr_target": 0.3,
+            "cost_bps_per_side": 25.0,
+            "end_date": "2026-06-18",
+            "fill_mode": "next_close",
+            "integer_shares": true,
+            "max_dd": -0.271786846224337,
+            "max_dd_target": -0.25,
+            "max_fill_lag_days": 7,
+            "metric_mode": "broker_ledger_next_close",
+            "start_date": "2019-07-01",
+            "status": "completed",
+            "strengthened_pass": false,
+            "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+            "target_pass": false,
+            "tier2_failing": [
+              "is_cagr_min",
+              "oos_is_cagr_ratio_max"
+            ],
+            "valid_for_production": false,
+            "years": 6.965092402464066
+          }
+        },
+        "production_target_pass": false,
+        "strengthened_pass": false
+      },
+      "hard_blocker": true,
+      "next_action": "Use IS attribution and challenger queues; do not promote until Tier-2 gates pass.",
+      "requirement_id": "goal_contract_main30_conc50_mdd",
+      "status": "fail",
+      "summary": "goal contract is not yet met"
+    },
+    {
+      "evidence": {
+        "blockers": [
+          "8-year price cache/manifest is not ready for proxy replay",
+          "monthly target books do not cover the requested 8-year window",
+          "broker-ledger official replay does not yet cover the requested 8-year window"
+        ],
+        "broker_years": {
+          "concentrated": 6.965092402464066,
+          "main": 6.965092402464066
+        },
+        "official_window_ready": false,
+        "readiness_status": "not_ready"
+      },
+      "hard_blocker": true,
+      "next_action": "Extend price/universe/cache and target books back to at least mid-2018, then rerun full rebuild.",
+      "requirement_id": "eight_year_broker_ledger_window",
+      "status": "fail",
+      "summary": "official 8-year broker-ledger window is not proven"
+    },
+    {
+      "evidence": {
+        "failures": {
+          "concentrated": [
+            "oos_is_cagr_ratio_above_lock"
+          ],
+          "main": [
+            "oos_is_cagr_ratio_above_lock"
+          ]
+        },
+        "lock_pass": false,
+        "oos_start": "2024-07-01",
+        "portfolios": {
+          "concentrated": {
+            "cagr_is": 0.18783085710799807,
+            "cagr_oos": 1.3832296407761056,
+            "max_allowed_degradation_pp": 6.0,
+            "max_oos_is_cagr_ratio": 3.0,
+            "oos_degradation_pp": -119.53987836681075,
+            "oos_is_cagr_ratio": 7.364230042249037,
+            "oos_trading_days": 494,
+            "status": "fail"
+          },
+          "main": {
+            "cagr_is": 0.19932800725209643,
+            "cagr_oos": 0.8018545500336534,
+            "max_allowed_degradation_pp": 5.0,
+            "max_oos_is_cagr_ratio": 3.0,
+            "oos_degradation_pp": -60.252654278155696,
+            "oos_is_cagr_ratio": 4.02278917593112,
+            "oos_trading_days": 494,
+            "status": "fail"
+          }
+        },
+        "status": "fail"
+      },
+      "hard_blocker": true,
+      "next_action": "Treat the candidate as non-promotable; inspect outputs/oos_lock/report.md before another SHIP retry.",
+      "requirement_id": "oos_holdout_lock",
+      "status": "fail",
+      "summary": "locked IS/OOS holdout audit failed"
+    },
+    {
+      "evidence": {
+        "blockers": [
+          "main operating target book max date 2026-06-17 is older than latest target date 2026-06-18"
+        ],
+        "effective_latest_target_date": "2026-06-18",
+        "ready_for_policy_replay": false,
+        "status": "blocked",
+        "warnings": [
+          "dated target snapshot archive is missing for this run"
+        ]
+      },
+      "hard_blocker": true,
+      "next_action": "Resolve data readiness blockers before treating any backtest as official.",
+      "requirement_id": "data_readiness_price_macro_sec_etf",
+      "status": "fail",
+      "summary": "data readiness has hard blockers"
+    },
+    {
+      "evidence": {
+        "failures": [],
+        "portfolios": {
+          "concentrated": {
+            "cagr": 0.44368847118705124,
+            "cagr_target": 0.5,
+            "cost_bps_per_side": 25.0,
+            "end_date": "2026-06-18",
+            "fill_mode": "next_close",
+            "integer_shares": true,
+            "max_dd": -0.24704549355649696,
+            "max_dd_target": -0.28,
+            "max_fill_lag_days": 7,
+            "metric_mode": "broker_ledger_next_close",
+            "start_date": "2019-07-01",
+            "status": "completed",
+            "strengthened_pass": false,
+            "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+            "target_pass": false,
+            "tier2_failing": [
+              "is_cagr_min",
+              "oos_is_cagr_ratio_max",
+              "sharpe_min"
+            ],
+            "valid_for_production": false,
+            "years": 6.965092402464066
+          },
+          "main": {
+            "cagr": 0.34277659909324787,
+            "cagr_target": 0.3,
+            "cost_bps_per_side": 25.0,
+            "end_date": "2026-06-18",
+            "fill_mode": "next_close",
+            "integer_shares": true,
+            "max_dd": -0.271786846224337,
+            "max_dd_target": -0.25,
+            "max_fill_lag_days": 7,
+            "metric_mode": "broker_ledger_next_close",
+            "start_date": "2019-07-01",
+            "status": "completed",
+            "strengthened_pass": false,
+            "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+            "target_pass": false,
+            "tier2_failing": [
+              "is_cagr_min",
+              "oos_is_cagr_ratio_max"
+            ],
+            "valid_for_production": false,
+            "years": 6.965092402464066
+          }
+        }
+      },
+      "hard_blocker": false,
+      "next_action": "",
+      "requirement_id": "broker_realism_next_close_integer_cash_costs",
+      "status": "pass",
+      "summary": "broker replay uses next-close, integer shares, costs, and 7-day fill lag"
+    },
+    {
+      "evidence": {
+        "cash_contract_pass": true,
+        "failures": [],
+        "max_drift_limit_pp": 5.0,
+        "mean_drift_limit_pp": 2.0,
+        "portfolios": {
+          "concentrated": {
+            "broker_status": "completed",
+            "cash_contract_pass": true,
+            "cash_drift_pass": true,
+            "invalid_total_weight_date_count": 0,
+            "missing_explicit_cash_date_count": 0,
+            "month_mean_cash_drift_pass": true,
+            "month_mean_cash_drift_pp": 0.1005,
+            "negative_cash_date_count": 0,
+            "rebalance_day_cash_drift_pass": true,
+            "rebalance_day_mean_cash_drift_pp": 0.1064,
+            "status": "passed",
+            "target_cash_contract_pass": true
+          },
+          "main": {
+            "broker_status": "completed",
+            "cash_contract_pass": true,
+            "cash_drift_pass": true,
+            "invalid_total_weight_date_count": 0,
+            "missing_explicit_cash_date_count": 0,
+            "month_mean_cash_drift_pass": true,
+            "month_mean_cash_drift_pp": 0.2335,
+            "negative_cash_date_count": 0,
+            "rebalance_day_cash_drift_pass": true,
+            "rebalance_day_mean_cash_drift_pp": 0.24,
+            "status": "passed",
+            "target_cash_contract_pass": true
+          }
+        }
+      },
+      "hard_blocker": false,
+      "next_action": "",
+      "requirement_id": "target_book_broker_cash_contract",
+      "status": "pass",
+      "summary": "target books have explicit CASH rows and broker cash drift is within limits"
+    },
+    {
+      "evidence": {
+        "era_leader_missing_columns": [
+          "contribution",
+          "era",
+          "ticker"
+        ],
+        "era_leader_rows": 0,
+        "era_leadership_status": "missing_required_columns",
+        "failures": [
+          "era_leadership_summary_not_completed",
+          "era_leaders_per_name_contribution_missing"
+        ],
+        "is_attribution_exists": true,
+        "mdd_cash_overlay_summary_exists": true,
+        "portfolios": {
+          "concentrated": {
+            "is_cagr": 0.18783085710799807,
+            "is_status": "completed",
+            "leak_year_tag_count": 8,
+            "mdd_peak_date": "2021-09-03",
+            "mdd_research_status": "completed",
+            "mdd_trough_date": "2023-08-17",
+            "mdd_trough_holding_rows": 5,
+            "oos_is_ratio": 7.364230042249037,
+            "trade_attribution_status": "completed",
+            "trade_mdd_contributor_count": 15,
+            "trade_mdd_peak_date": "2021-09-03",
+            "trade_mdd_position_rows": 30,
+            "trade_mdd_trough_date": "2023-08-17",
+            "yearly_rows": 8
+          },
+          "main": {
+            "is_cagr": 0.19932800725209643,
+            "is_status": "completed",
+            "leak_year_tag_count": 8,
+            "mdd_peak_date": "2020-02-19",
+            "mdd_research_status": "completed",
+            "mdd_trough_date": "2020-03-18",
+            "mdd_trough_holding_rows": 14,
+            "oos_is_ratio": 4.02278917593112,
+            "trade_attribution_status": "completed",
+            "trade_mdd_contributor_count": 15,
+            "trade_mdd_peak_date": "2020-02-19",
+            "trade_mdd_position_rows": 17,
+            "trade_mdd_trough_date": "2020-03-18",
+            "yearly_rows": 8
+          }
+        }
+      },
+      "hard_blocker": true,
+      "next_action": "Run IS attribution, era leadership, trade attribution, and MDD cash overlay sidecars before treating any promoted result as official.",
+      "requirement_id": "attribution_package_year_mdd_name",
+      "status": "fail",
+      "summary": "attribution evidence package is incomplete"
+    },
+    {
+      "evidence": {
+        "failures": [
+          "live_trading_safety:not_pass"
+        ],
+        "live_order_submission_allowed": false,
+        "previews": {
+          "concentrated": {
+            "account_source_kind": "simulated_broker_replay",
+            "account_state": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/account_state_latest.json",
+            "blocked_order_count": 0,
+            "cost_bps_per_side": 25.0,
+            "integer_shares": true,
+            "order_batch_manifest_exists": true,
+            "order_count": 5,
+            "orders_preview_exists": true,
+            "positions_current_exists": true,
+            "preview_semantics": "order_preview_not_operating_snapshot",
+            "projected_positions_exists": true,
+            "ready_order_count": 5,
+            "status": "completed",
+            "target": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv"
+          },
+          "main": {
+            "account_source_kind": "simulated_broker_replay",
+            "account_state": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main/account_state_latest.json",
+            "blocked_order_count": 0,
+            "cost_bps_per_side": 25.0,
+            "integer_shares": true,
+            "order_batch_manifest_exists": true,
+            "order_count": 2,
+            "orders_preview_exists": true,
+            "positions_current_exists": true,
+            "preview_semantics": "order_preview_not_operating_snapshot",
+            "projected_positions_exists": true,
+            "ready_order_count": 2,
+            "status": "completed",
+            "target": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv"
+          }
+        },
+        "risk_controls_account_mode": "simulated",
+        "risk_controls_error_count": 0,
+        "risk_controls_manifest_order_count": 7,
+        "risk_controls_status": "pass",
+        "safety_error_count": 2,
+        "safety_status": "blocked"
+      },
+      "hard_blocker": true,
+      "next_action": "Run account order previews, live trading safety audit, and risk controls before treating results as operationally ready.",
+      "requirement_id": "operational_order_preview_safety_bridge",
+      "status": "fail",
+      "summary": "operating target book order bridge is missing or unsafe"
+    },
+    {
+      "evidence": {
+        "challenger_rebalance_dates": 83,
+        "challenger_status": "completed",
+        "era_feature_count": null,
+        "era_rows": null,
+        "goal_verdicts": {
+          "all_strengthened_pass": false,
+          "portfolios": {
+            "concentrated": {
+              "cagr": 0.14779187579972053,
+              "cagr_target": 0.5,
+              "days": 1752,
+              "end_date": "2026-06-18",
+              "max_dd": -0.5271988867782371,
+              "max_dd_target": -0.28,
+              "metric_mode": "broker_ledger_next_close",
+              "production_activation_allowed": false,
+              "promotion_review_status": "not_eligible",
+              "start_date": "2019-07-01",
+              "status": "evaluated",
+              "strengthened_pass": false,
+              "target_pass": false,
+              "tier2_gates": {
+                "checks": {
+                  "avg_cash_weight_max": {
+                    "pass": true,
+                    "threshold": 0.55,
+                    "value": 0.07967629838966286
+                  },
+                  "is_cagr_min": {
+                    "pass": false,
+                    "threshold": 0.3,
+                    "value": 0.09311867726719769
+                  },
+                  "max_dd_recent_3y_min": {
+                    "pass": false,
+                    "threshold": -0.25,
+                    "value": -0.2784008694891288
+                  },
+                  "oos_is_cagr_ratio_max": {
+                    "pass": false,
+                    "threshold": 3.0,
+                    "value": 3.236292665510482
+                  },
+                  "sharpe_min": {
+                    "pass": false,
+                    "threshold": 1.4,
+                    "value": 0.6071514569017428
+                  }
+                },
+                "failing": [
+                  "is_cagr_min",
+                  "oos_is_cagr_ratio_max",
+                  "sharpe_min",
+                  "max_dd_recent_3y_min"
+                ],
+                "is_cagr": 0.09311867726719769,
+                "is_mdd": -0.5271988867782371,
+                "oos_cagr": 0.3013592922618695,
+                "passing": false,
+                "recent_mdd": -0.2784008694891288
+              },
+              "years": 6.965092402464066
+            },
+            "main": {
+              "cagr": 0.16137951760774216,
+              "cagr_target": 0.3,
+              "days": 1752,
+              "end_date": "2026-06-18",
+              "max_dd": -0.37417271172912026,
+              "max_dd_target": -0.25,
+              "metric_mode": "broker_ledger_next_close",
+              "production_activation_allowed": false,
+              "promotion_review_status": "not_eligible",
+              "start_date": "2019-07-01",
+              "status": "evaluated",
+              "strengthened_pass": false,
+              "target_pass": false,
+              "tier2_gates": {
+                "checks": {
+                  "avg_cash_weight_max": {
+                    "pass": true,
+                    "threshold": 0.55,
+                    "value": 0.05958001785341604
+                  },
+                  "is_cagr_min": {
+                    "pass": false,
+                    "threshold": 0.25,
+                    "value": 0.12257592193236877
+                  },
+                  "max_dd_recent_3y_min": {
+                    "pass": true,
+                    "threshold": -0.25,
+                    "value": -0.20756340323781308
+                  },
+                  "oos_is_cagr_ratio_max": {
+                    "pass": true,
+                    "threshold": 3.0,
+                    "value": 2.1959434938162556
+                  },
+                  "sharpe_min": {
+                    "pass": false,
+                    "threshold": 1.2,
+                    "value": 0.7045264491384012
+                  }
+                },
+                "failing": [
+                  "is_cagr_min",
+                  "sharpe_min"
+                ],
+                "is_cagr": 0.12257592193236877,
+                "is_mdd": -0.37417271172912026,
+                "oos_cagr": 0.2691697982659145,
+                "passing": false,
+                "recent_mdd": -0.20756340323781308
+              },
+              "years": 6.965092402464066
+            }
+          },
+          "production_activation_allowed": false,
+          "promotion_requires_separate_ab": true,
+          "schema_version": "era-aware-goal-verdict-v1"
+        }
+      },
+      "hard_blocker": false,
+      "next_action": "",
+      "requirement_id": "era_leadership_and_challenger",
+      "status": "pass",
+      "summary": "era diagnostics and review-only challenger are present"
+    },
+    {
+      "evidence": {
+        "auto_trade_allowed": false,
+        "bridge_action_types": [
+          "no_op"
+        ],
+        "bridge_approval_required": true,
+        "bridge_auto_trade_allowed": false,
+        "bridge_paper_only": true,
+        "bridge_status": "completed",
+        "bridge_unknown_actions": [],
+        "monitor_action_types": [
+          "no_op"
+        ],
+        "monitor_declared_unknown_action_types": [],
+        "monitor_raw_state": "DEFENSE_REVIEW",
+        "monitor_state": "GREEN",
+        "monitor_unknown_actions": [],
+        "paper_actions_only": true,
+        "unsafe_portfolio_previews": []
+      },
+      "hard_blocker": false,
+      "next_action": "",
+      "requirement_id": "daily_crisis_paper_action_wire",
+      "status": "pass",
+      "summary": "crisis monitor and paper-order bridge are wired with approval gates"
+    },
+    {
+      "evidence": {
+        "dispatch_payload_count": 5,
+        "dispatch_payload_count_mismatch": false,
+        "dispatch_payload_file_count": 5,
+        "dispatcher_dispatched": false,
+        "dispatcher_dispatched_count": 0,
+        "dispatcher_execute_requested": false,
+        "dispatcher_execution_requested": false,
+        "dispatcher_plan_id_mismatch": false,
+        "dispatcher_plan_ids": [
+          "conc_continuation_winner_relaxation",
+          "conc_bull_floor_stock_min",
+          "conc_reentry_quality",
+          "conc_theme_leadership_boost",
+          "conc_concentration_cap_relaxation"
+        ],
+        "dispatcher_schema_invalid": false,
+        "dispatcher_schema_version": "review-dispatcher-v1",
+        "dispatcher_selected_count": 5,
+        "dispatcher_selected_count_mismatch": false,
+        "dispatcher_status": "dry_run_blocked",
+        "dispatcher_status_invalid": false,
+        "dispatcher_summary_exists": true,
+        "dispatcher_summary_missing": false,
+        "latest_focus": "concentrated:structural_underinvestment_bull",
+        "oos_lock_status_seen": "fail",
+        "oos_robustness_task_count": 2,
+        "production_mutation_allowed": false,
+        "queued_count": 5,
+        "queued_review_task_count": 2,
+        "repeat_confirmed": true,
+        "unknown_dispatch_payloads": [],
+        "unsafe_dispatch_payloads": [],
+        "unsafe_queued_experiments": [],
+        "unsafe_review_tasks": []
+      },
+      "hard_blocker": false,
+      "next_action": "",
+      "requirement_id": "self_correction_router_queue",
+      "status": "pass",
+      "summary": "self-correction queue and dispatcher dry-run are review-only"
+    },
+    {
+      "evidence": {
+        "manual_review_required": true,
+        "placeholder_proposed_count": 0,
+        "proposed_add_count": 0,
+        "proposed_tickers": [],
+        "run_manifest_exists": true,
+        "run_manifest_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/adr_candidates/adr_universe_update_manifest.json",
+        "scanner_exists": true,
+        "scanner_target_mutation_allowed": false,
+        "updater_blocks_placeholders": true,
+        "updater_exists": true,
+        "updater_requires_approval_token": true,
+        "workflow_exists": true
+      },
+      "hard_blocker": false,
+      "next_action": "",
+      "requirement_id": "adr_universe_review_automation",
+      "status": "pass",
+      "summary": "monthly ADR candidate review and guarded apply automation are present"
+    },
+    {
+      "evidence": {
+        "check_count": 40,
+        "hard_error_count": 1
+      },
+      "hard_blocker": true,
+      "next_action": "Resolve portfolio system guard hard errors.",
+      "requirement_id": "portfolio_system_guard",
+      "status": "fail",
+      "summary": "portfolio system guard found hard errors"
+    }
+  ],
+  "schema_version": "system-acceptance-audit-v1",
+  "status": "not_ready",
+  "warning_count": 0,
+  "workflow_dispatch_payload_count": 7,
+  "workflow_dispatch_payloads": [
+    {
+      "inputs": {
+        "latest_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "max_price_tickers": "0",
+        "price_mode": "target_books",
+        "run_proxy_replay": "true",
+        "sec_companyfacts": "true",
+        "sync_to_gdrive": "true"
+      },
+      "plan_id": "bootstrap_free_data_for_8y_window",
+      "production_mutation_allowed": false,
+      "reason": "8-year broker-ledger window is not ready; extend/restore price and free-data cache first.",
+      "ref": "claude/pr146-review-analysis-6dkvd8",
+      "requires_user_approval": true,
+      "workflow_id": "free_data_lake_bootstrap.yml"
+    },
+    {
+      "depends_on_plan_ids": [
+        "bootstrap_free_data_for_8y_window"
+      ],
+      "inputs": {
+        "artifact_profile": "minimal",
+        "backtest_years": "8",
+        "cache_key_suffix": "official-8y-window",
+        "experiment_env_json": "",
+        "fast_mode": "true",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "sidecar_profile": "operating_minimal",
+        "skip_collector": "false",
+        "universe_mode": "global_alpha_universe"
+      },
+      "plan_id": "full_rebuild_8y_official_after_data_bootstrap",
+      "production_mutation_allowed": false,
+      "reason": "After free-data bootstrap, run the official 8-year broker-ledger rebuild with the production policy.",
+      "ref": "claude/pr146-review-analysis-6dkvd8",
+      "requires_user_approval": true,
+      "workflow_id": "full_rebuild_manual.yml"
+    },
+    {
+      "depends_on_plan_ids": [
+        "full_rebuild_8y_official_after_data_bootstrap"
+      ],
+      "experiment_id": "conc_continuation_winner_relaxation",
+      "inputs": {
+        "artifact_profile": "minimal",
+        "backtest_years": "8",
+        "cache_key_suffix": "ab_conc_continuation_winner_relaxation",
+        "experiment_env_json": "{\"PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED\": \"1\"}",
+        "fast_mode": "true",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "sidecar_profile": "operating_minimal",
+        "skip_collector": "true",
+        "universe_mode": "global_alpha_universe"
+      },
+      "payload_hash": "8bd260ed773815c3",
+      "plan_id": "ab_conc_continuation_winner_relaxation",
+      "post_run_review": {
+        "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+        "dispatch_run_id": "ab_conc_continuation_winner_relaxation",
+        "experiment_id": "conc_continuation_winner_relaxation",
+        "payload_hash": "8bd260ed773815c3",
+        "portfolio": "concentrated",
+        "production_mutation_allowed": false,
+        "queue_closure_output_dir": "outputs/self_correction_queue",
+        "tool": "tools/run_ab_result_verifier.py",
+        "verifier_args": [
+          "--baseline-run",
+          "cloud_results/full_rebuild/latest_global_alpha_universe",
+          "--candidate-run",
+          "cloud_results/full_rebuild/<candidate_run_dir>",
+          "--portfolio",
+          "concentrated",
+          "--experiment-id",
+          "conc_continuation_winner_relaxation",
+          "--payload-hash",
+          "8bd260ed773815c3",
+          "--workflow-run-id",
+          "<candidate_workflow_run_id>",
+          "--dispatch-run-id",
+          "ab_conc_continuation_winner_relaxation",
+          "--output-dir",
+          "outputs/ab_result_verifier/conc_continuation_winner_relaxation"
+        ],
+        "verifier_output_dir": "outputs/ab_result_verifier/conc_continuation_winner_relaxation",
+        "workflow_run_id": "<candidate_workflow_run_id>"
+      },
+      "production_mutation_allowed": false,
+      "reason": "Concentrated CAGR or Tier-2 gate is short; relax continuation-winner filters only as a review A/B.",
+      "ref": "claude/pr146-review-analysis-6dkvd8",
+      "requires_user_approval": true,
+      "source_evidence": {
+        "cagr": 0.44368847118705124,
+        "cagr_target": 0.5,
+        "max_dd": -0.24704549355649696,
+        "max_dd_target": -0.28,
+        "strengthened_pass": false,
+        "target_pass": false,
+        "tier2_failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max",
+          "sharpe_min"
+        ]
+      },
+      "source_portfolio": "concentrated",
+      "source_requirement_id": "goal_contract_main30_conc50_mdd",
+      "workflow_id": "full_rebuild_manual.yml"
+    },
+    {
+      "depends_on_plan_ids": [
+        "full_rebuild_8y_official_after_data_bootstrap"
+      ],
+      "experiment_id": "conc_bull_floor_stock_min",
+      "inputs": {
+        "artifact_profile": "minimal",
+        "backtest_years": "8",
+        "cache_key_suffix": "ab_conc_bull_floor_stock_min",
+        "experiment_env_json": "{\"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED\": \"1\"}",
+        "fast_mode": "true",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "sidecar_profile": "operating_minimal",
+        "skip_collector": "true",
+        "universe_mode": "global_alpha_universe"
+      },
+      "payload_hash": "ad2288e22a78e261",
+      "plan_id": "ab_conc_bull_floor_stock_min",
+      "post_run_review": {
+        "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+        "dispatch_run_id": "ab_conc_bull_floor_stock_min",
+        "experiment_id": "conc_bull_floor_stock_min",
+        "payload_hash": "ad2288e22a78e261",
+        "portfolio": "concentrated",
+        "production_mutation_allowed": false,
+        "queue_closure_output_dir": "outputs/self_correction_queue",
+        "tool": "tools/run_ab_result_verifier.py",
+        "verifier_args": [
+          "--baseline-run",
+          "cloud_results/full_rebuild/latest_global_alpha_universe",
+          "--candidate-run",
+          "cloud_results/full_rebuild/<candidate_run_dir>",
+          "--portfolio",
+          "concentrated",
+          "--experiment-id",
+          "conc_bull_floor_stock_min",
+          "--payload-hash",
+          "ad2288e22a78e261",
+          "--workflow-run-id",
+          "<candidate_workflow_run_id>",
+          "--dispatch-run-id",
+          "ab_conc_bull_floor_stock_min",
+          "--output-dir",
+          "outputs/ab_result_verifier/conc_bull_floor_stock_min"
+        ],
+        "verifier_output_dir": "outputs/ab_result_verifier/conc_bull_floor_stock_min",
+        "workflow_run_id": "<candidate_workflow_run_id>"
+      },
+      "production_mutation_allowed": false,
+      "reason": "Concentrated CAGR or Tier-2 gate is short; measure bull/strong_bull stock-floor exposure as an isolated A/B.",
+      "ref": "claude/pr146-review-analysis-6dkvd8",
+      "requires_user_approval": true,
+      "source_evidence": {
+        "cagr": 0.44368847118705124,
+        "cagr_target": 0.5,
+        "max_dd": -0.24704549355649696,
+        "max_dd_target": -0.28,
+        "strengthened_pass": false,
+        "target_pass": false,
+        "tier2_failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max",
+          "sharpe_min"
+        ]
+      },
+      "source_portfolio": "concentrated",
+      "source_requirement_id": "goal_contract_main30_conc50_mdd",
+      "workflow_id": "full_rebuild_manual.yml"
+    },
+    {
+      "depends_on_plan_ids": [
+        "full_rebuild_8y_official_after_data_bootstrap"
+      ],
+      "experiment_id": "conc_reentry_quality",
+      "inputs": {
+        "artifact_profile": "minimal",
+        "backtest_years": "8",
+        "cache_key_suffix": "ab_conc_reentry_quality",
+        "experiment_env_json": "{\"PHASE_CONCENTRATED_REENTRY_QUALITY_ENABLED\": \"1\"}",
+        "fast_mode": "true",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "sidecar_profile": "operating_minimal",
+        "skip_collector": "true",
+        "universe_mode": "global_alpha_universe"
+      },
+      "payload_hash": "bb6095cdb03c8add",
+      "plan_id": "ab_conc_reentry_quality",
+      "post_run_review": {
+        "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+        "dispatch_run_id": "ab_conc_reentry_quality",
+        "experiment_id": "conc_reentry_quality",
+        "payload_hash": "bb6095cdb03c8add",
+        "portfolio": "concentrated",
+        "production_mutation_allowed": false,
+        "queue_closure_output_dir": "outputs/self_correction_queue",
+        "tool": "tools/run_ab_result_verifier.py",
+        "verifier_args": [
+          "--baseline-run",
+          "cloud_results/full_rebuild/latest_global_alpha_universe",
+          "--candidate-run",
+          "cloud_results/full_rebuild/<candidate_run_dir>",
+          "--portfolio",
+          "concentrated",
+          "--experiment-id",
+          "conc_reentry_quality",
+          "--payload-hash",
+          "bb6095cdb03c8add",
+          "--workflow-run-id",
+          "<candidate_workflow_run_id>",
+          "--dispatch-run-id",
+          "ab_conc_reentry_quality",
+          "--output-dir",
+          "outputs/ab_result_verifier/conc_reentry_quality"
+        ],
+        "verifier_output_dir": "outputs/ab_result_verifier/conc_reentry_quality",
+        "workflow_run_id": "<candidate_workflow_run_id>"
+      },
+      "production_mutation_allowed": false,
+      "reason": "Concentrated CAGR or Tier-2 gate is short; measure reentry quality after cash/defense states as an isolated A/B.",
+      "ref": "claude/pr146-review-analysis-6dkvd8",
+      "requires_user_approval": true,
+      "source_evidence": {
+        "cagr": 0.44368847118705124,
+        "cagr_target": 0.5,
+        "max_dd": -0.24704549355649696,
+        "max_dd_target": -0.28,
+        "strengthened_pass": false,
+        "target_pass": false,
+        "tier2_failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max",
+          "sharpe_min"
+        ]
+      },
+      "source_portfolio": "concentrated",
+      "source_requirement_id": "goal_contract_main30_conc50_mdd",
+      "workflow_id": "full_rebuild_manual.yml"
+    },
+    {
+      "depends_on_plan_ids": [
+        "full_rebuild_8y_official_after_data_bootstrap"
+      ],
+      "experiment_id": "conc_theme_leadership_boost",
+      "inputs": {
+        "artifact_profile": "minimal",
+        "backtest_years": "8",
+        "cache_key_suffix": "ab_conc_theme_leadership_boost",
+        "experiment_env_json": "{\"PHASE_THEME_LEADERSHIP_BOOST_ENABLED\": \"1\"}",
+        "fast_mode": "true",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "sidecar_profile": "operating_minimal",
+        "skip_collector": "true",
+        "universe_mode": "global_alpha_universe"
+      },
+      "payload_hash": "deb6a378a7cb047d",
+      "plan_id": "ab_conc_theme_leadership_boost",
+      "post_run_review": {
+        "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+        "dispatch_run_id": "ab_conc_theme_leadership_boost",
+        "experiment_id": "conc_theme_leadership_boost",
+        "payload_hash": "deb6a378a7cb047d",
+        "portfolio": "concentrated",
+        "production_mutation_allowed": false,
+        "queue_closure_output_dir": "outputs/self_correction_queue",
+        "tool": "tools/run_ab_result_verifier.py",
+        "verifier_args": [
+          "--baseline-run",
+          "cloud_results/full_rebuild/latest_global_alpha_universe",
+          "--candidate-run",
+          "cloud_results/full_rebuild/<candidate_run_dir>",
+          "--portfolio",
+          "concentrated",
+          "--experiment-id",
+          "conc_theme_leadership_boost",
+          "--payload-hash",
+          "deb6a378a7cb047d",
+          "--workflow-run-id",
+          "<candidate_workflow_run_id>",
+          "--dispatch-run-id",
+          "ab_conc_theme_leadership_boost",
+          "--output-dir",
+          "outputs/ab_result_verifier/conc_theme_leadership_boost"
+        ],
+        "verifier_output_dir": "outputs/ab_result_verifier/conc_theme_leadership_boost",
+        "workflow_run_id": "<candidate_workflow_run_id>"
+      },
+      "production_mutation_allowed": false,
+      "reason": "Concentrated CAGR or Tier-2 gate is short; test theme-leadership confirmation boost as an isolated A/B.",
+      "ref": "claude/pr146-review-analysis-6dkvd8",
+      "requires_user_approval": true,
+      "source_evidence": {
+        "cagr": 0.44368847118705124,
+        "cagr_target": 0.5,
+        "max_dd": -0.24704549355649696,
+        "max_dd_target": -0.28,
+        "strengthened_pass": false,
+        "target_pass": false,
+        "tier2_failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max",
+          "sharpe_min"
+        ]
+      },
+      "source_portfolio": "concentrated",
+      "source_requirement_id": "goal_contract_main30_conc50_mdd",
+      "workflow_id": "full_rebuild_manual.yml"
+    },
+    {
+      "depends_on_plan_ids": [
+        "full_rebuild_8y_official_after_data_bootstrap"
+      ],
+      "experiment_id": "conc_concentration_cap_relaxation",
+      "inputs": {
+        "artifact_profile": "minimal",
+        "backtest_years": "8",
+        "cache_key_suffix": "ab_conc_concentration_cap_relaxation",
+        "experiment_env_json": "{\"PHASE_CONCENTRATED_CAP_RELAX_ENABLED\": \"1\"}",
+        "fast_mode": "true",
+        "gdrive_sync_mode": "minimal",
+        "portfolio_policy": "alphaops_vnext_production",
+        "sidecar_profile": "operating_minimal",
+        "skip_collector": "true",
+        "universe_mode": "global_alpha_universe"
+      },
+      "payload_hash": "e65f589fa242e02f",
+      "plan_id": "ab_conc_concentration_cap_relaxation",
+      "post_run_review": {
+        "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+        "dispatch_run_id": "ab_conc_concentration_cap_relaxation",
+        "experiment_id": "conc_concentration_cap_relaxation",
+        "payload_hash": "e65f589fa242e02f",
+        "portfolio": "concentrated",
+        "production_mutation_allowed": false,
+        "queue_closure_output_dir": "outputs/self_correction_queue",
+        "tool": "tools/run_ab_result_verifier.py",
+        "verifier_args": [
+          "--baseline-run",
+          "cloud_results/full_rebuild/latest_global_alpha_universe",
+          "--candidate-run",
+          "cloud_results/full_rebuild/<candidate_run_dir>",
+          "--portfolio",
+          "concentrated",
+          "--experiment-id",
+          "conc_concentration_cap_relaxation",
+          "--payload-hash",
+          "e65f589fa242e02f",
+          "--workflow-run-id",
+          "<candidate_workflow_run_id>",
+          "--dispatch-run-id",
+          "ab_conc_concentration_cap_relaxation",
+          "--output-dir",
+          "outputs/ab_result_verifier/conc_concentration_cap_relaxation"
+        ],
+        "verifier_output_dir": "outputs/ab_result_verifier/conc_concentration_cap_relaxation",
+        "workflow_run_id": "<candidate_workflow_run_id>"
+      },
+      "production_mutation_allowed": false,
+      "reason": "Concentrated CAGR or Tier-2 gate is short; test confirmed-winner cap relaxation while preserving broker-ledger gates.",
+      "ref": "claude/pr146-review-analysis-6dkvd8",
+      "requires_user_approval": true,
+      "source_evidence": {
+        "cagr": 0.44368847118705124,
+        "cagr_target": 0.5,
+        "max_dd": -0.24704549355649696,
+        "max_dd_target": -0.28,
+        "strengthened_pass": false,
+        "target_pass": false,
+        "tier2_failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max",
+          "sharpe_min"
+        ]
+      },
+      "source_portfolio": "concentrated",
+      "source_requirement_id": "goal_contract_main30_conc50_mdd",
+      "workflow_id": "full_rebuild_manual.yml"
+    }
+  ]
+}

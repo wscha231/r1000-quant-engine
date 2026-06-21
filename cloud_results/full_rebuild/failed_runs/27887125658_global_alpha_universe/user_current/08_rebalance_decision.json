@@ -1,0 +1,37 @@
+{
+  "blockers": [
+    "data_readiness.ready_for_policy_replay is false",
+    "main operating target book max date 2026-06-17 is older than latest target date 2026-06-18"
+  ],
+  "canonical_production_sync": false,
+  "cash_trap_flag": null,
+  "daily_operating_refresh": true,
+  "data_freshness_status": "blocked",
+  "decision": "REVIEW_REQUIRED",
+  "estimated_turnover": 2.0382419859583174,
+  "generated_at_utc": "2026-06-21T03:14:02.900290+00:00",
+  "human_approval_required": true,
+  "live_trading_enabled": false,
+  "max_turnover_allowed": 0.2,
+  "order_preview_rows": 22,
+  "production_mutation_allowed": false,
+  "promotion_allowed": false,
+  "reason": "data_readiness.ready_for_policy_replay is false; main operating target book max date 2026-06-17 is older than latest target date 2026-06-18",
+  "recommendation_status": "DO_NOT_USE_REVIEW_REQUIRED",
+  "review_only": true,
+  "schema_version": "daily-rebalance-decision-v1",
+  "selection_allowed": false,
+  "source_artifact_name": "minimal_operating_minimal_27887125658",
+  "source_branch": "claude/pr146-review-analysis-6dkvd8",
+  "source_commit_sha": "8e092b4716e79fa97b3b06e4a871a2ae9888aa21",
+  "source_of_truth_level": "GITHUB_ARTIFACT",
+  "source_run_id": "27887125658",
+  "target_weight_rows": 22,
+  "warnings": [
+    "dated target snapshot archive is missing for this run",
+    "etf coverage 0.0 < floor 0.3",
+    "free_data_manifest is missing (latest_asof=)",
+    "macro freshness uses directory_mtime_proxy; add a macro latest_manifest.json/asof watermark",
+    "sec_v1_evidence coverage 0.12122200478364861 < floor 0.2"
+  ]
+}

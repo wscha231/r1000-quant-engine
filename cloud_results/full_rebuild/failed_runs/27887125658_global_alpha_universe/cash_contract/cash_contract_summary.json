@@ -1,0 +1,96 @@
+{
+  "cash_contract_pass": true,
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "max_drift_limit_pp": 5.0,
+  "mean_drift_limit_pp": 2.0,
+  "portfolios": {
+    "concentrated": {
+      "broker": {
+        "avg_broker_cash_weight": 0.4188099846572891,
+        "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated",
+        "status": "completed"
+      },
+      "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated",
+      "cash_contract_pass": true,
+      "drift": {
+        "cash_drift_pass": true,
+        "max_drift_limit_pp": 5.0,
+        "max_monthly_cash_drift_pp": 0.3226,
+        "mean_cash_drift_pp": 0.1064,
+        "mean_drift_limit_pp": 2.0,
+        "month_max_cash_drift_pp": 0.3226,
+        "month_max_drift_limit_pp": 10.0,
+        "month_mean_cash_drift_pass": true,
+        "month_mean_cash_drift_pp": 0.1005,
+        "month_mean_drift_limit_pp": 5.0,
+        "month_mean_status": "completed",
+        "overlap_month_count": 83,
+        "rebalance_day_cash_drift_pass": true,
+        "rebalance_day_max_cash_drift_pp": 0.3226,
+        "rebalance_day_max_drift_limit_pp": 5.0,
+        "rebalance_day_mean_cash_drift_pp": 0.1064,
+        "rebalance_day_mean_drift_limit_pp": 2.0,
+        "rebalance_overlap_count": 45,
+        "status": "completed"
+      },
+      "status": "passed",
+      "target": {
+        "avg_target_cash_weight": 0.43042691838474517,
+        "date_count": 84,
+        "explicit_cash_date_count": 84,
+        "invalid_total_weight_date_count": 0,
+        "max_total_weight_abs_error": 3.3306690738754696e-16,
+        "missing_explicit_cash_date_count": 0,
+        "negative_cash_date_count": 0,
+        "status": "completed",
+        "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+        "target_cash_contract_pass": true
+      },
+      "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv"
+    },
+    "main": {
+      "broker": {
+        "avg_broker_cash_weight": 0.2659788178294482,
+        "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main",
+        "status": "completed"
+      },
+      "broker_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main",
+      "cash_contract_pass": true,
+      "drift": {
+        "cash_drift_pass": true,
+        "max_drift_limit_pp": 5.0,
+        "max_monthly_cash_drift_pp": 1.0941,
+        "mean_cash_drift_pp": 0.24,
+        "mean_drift_limit_pp": 2.0,
+        "month_max_cash_drift_pp": 1.0941,
+        "month_max_drift_limit_pp": 10.0,
+        "month_mean_cash_drift_pass": true,
+        "month_mean_cash_drift_pp": 0.2335,
+        "month_mean_drift_limit_pp": 5.0,
+        "month_mean_status": "completed",
+        "overlap_month_count": 84,
+        "rebalance_day_cash_drift_pass": true,
+        "rebalance_day_max_cash_drift_pp": 1.0941,
+        "rebalance_day_max_drift_limit_pp": 5.0,
+        "rebalance_day_mean_cash_drift_pp": 0.24,
+        "rebalance_day_mean_drift_limit_pp": 2.0,
+        "rebalance_overlap_count": 46,
+        "status": "completed"
+      },
+      "status": "passed",
+      "target": {
+        "avg_target_cash_weight": 0.26744118100839515,
+        "date_count": 84,
+        "explicit_cash_date_count": 84,
+        "invalid_total_weight_date_count": 0,
+        "max_total_weight_abs_error": 1.2212453270876722e-15,
+        "missing_explicit_cash_date_count": 0,
+        "negative_cash_date_count": 0,
+        "status": "completed",
+        "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+        "target_cash_contract_pass": true
+      },
+      "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv"
+    }
+  }
+}

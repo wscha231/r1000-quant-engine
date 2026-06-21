@@ -1,0 +1,15 @@
+ticker,target_weight,Name,sector,portfolio_sleeve_label
+CASH,0.1919291704765794,Cash,Cash,
+SNDK,0.12,SANDISK CORP,Information Technology,future_winner
+WDC,0.1101625994631662,WESTERN DIGITAL CORP,Information Technology,future_winner
+STM,0.1054857037733562,STMicroelectronics,Semiconductors,early_scout
+CIEN,0.0926673484376771,CIENA CORP,Information Technology,future_winner
+MRVL,0.0851957691151814,MARVELL TECHNOLOGY INC,Information Technology,future_winner
+LITE,0.0634454659578951,LUMENTUM HOLDINGS INC,Information Technology,future_winner
+ON,0.0564119034408005,ON SEMICONDUCTOR CORP,Information Technology,future_winner
+PWR,0.0527207485074118,QUANTA SERVICES INC,Industrials,future_winner
+FIX,0.0396220611661259,COMFORT SYSTEMS USA INC,Industrials,future_winner
+MU,0.0320349841684777,MICRON TECHNOLOGY INC,Information Technology,future_winner
+COHR,0.0254754447010883,COHERENT CORP,Information Technology,future_winner
+TER,0.0135901159004233,TERADYNE INC,Information Technology,unassigned
+KEYS,0.0112586848918166,KEYSIGHT TECHNOLOGIES INC,Information Technology,future_winner

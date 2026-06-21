@@ -1,0 +1,14 @@
+{
+  "generated_at_utc": "2026-06-21T03:13:50+00:00",
+  "manual_review_required": true,
+  "production_mutation_allowed": false,
+  "proposed_add_count": 0,
+  "proposed_additions": [],
+  "review_steps": [
+    "Confirm each ticker is a NYSE/NASDAQ ADR, ADS, or foreign ordinary share, not OTC.",
+    "Fill name, country, sector, sub_sector, listed_since, and themes before editing adr_universe.yaml.",
+    "Run ADR scanner and ADR data checks again after applying a reviewed YAML change."
+  ],
+  "schema_version": "adr-universe-update-manifest-v1",
+  "target_file": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/adr_universe.yaml"
+}

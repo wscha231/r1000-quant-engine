@@ -1,22 +1,40 @@
 {
   "per_portfolio": {
     "main": {
+<<<<<<< Updated upstream
       "is_cagr": 0.19877793770190655,
       "prev_is_cagr": 0.2535727804710297,
       "best_is_cagr": 0.2535727804710297,
       "best_is_run": "27814870719",
       "delta_vs_prev_pp": -5.4795,
       "delta_vs_best_pp": -5.4795,
+=======
+      "is_cagr": 0.19932800725209643,
+      "prev_is_cagr": 0.2535727804710297,
+      "best_is_cagr": 0.2535727804710297,
+      "best_is_run": "27814870719",
+      "delta_vs_prev_pp": -5.4245,
+      "delta_vs_best_pp": -5.4245,
+>>>>>>> Stashed changes
       "state": "REGRESSING",
       "new_best": false
     },
     "concentrated": {
+<<<<<<< Updated upstream
       "is_cagr": 0.1880144252527749,
       "prev_is_cagr": 0.22348263520800127,
       "best_is_cagr": 0.2240682162164802,
       "best_is_run": "27516185696",
       "delta_vs_prev_pp": -3.5468,
       "delta_vs_best_pp": -3.6054,
+=======
+      "is_cagr": 0.18783085710799807,
+      "prev_is_cagr": 0.22348263520800127,
+      "best_is_cagr": 0.2240682162164802,
+      "best_is_run": "27516185696",
+      "delta_vs_prev_pp": -3.5652,
+      "delta_vs_best_pp": -3.6237,
+>>>>>>> Stashed changes
       "state": "REGRESSING",
       "new_best": false
     }

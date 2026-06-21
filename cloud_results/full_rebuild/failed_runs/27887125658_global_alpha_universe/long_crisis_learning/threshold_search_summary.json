@@ -1,0 +1,53 @@
+{
+  "best_thresholds": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/best_thresholds.json",
+  "features": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro/long_crisis_daily_features.parquet",
+  "generated_at_utc": "2026-06-21T02:47:20.709815+00:00",
+  "production_activation_allowed": false,
+  "reason": "",
+  "research_only": true,
+  "schema_version": "long-crisis-threshold-search-v1",
+  "score_total_changed": false,
+  "selected": {
+    "cash_hard_gate": {
+      "credit_gate": 0.55,
+      "liquidity_gate": 0.5,
+      "trend_gate": 0.35
+    },
+    "crisis_gate": 0.35,
+    "governor_thresholds": {
+      "high": 0.55,
+      "low": 0.2,
+      "mid": 0.35
+    },
+    "liquidity_gate": 0.5,
+    "trend_gate": 0.35,
+    "validation": {
+      "crisis_gate": 0.35,
+      "false_positive_rate": 0.0,
+      "fn": 6,
+      "fp": 0,
+      "liquidity_gate": 0.5,
+      "precision": 0.0,
+      "recall": 0.0,
+      "rows": 366,
+      "score": 0.0,
+      "signal_rate": 0.0,
+      "split": "validation",
+      "status": "ok",
+      "tn": 360,
+      "tp": 0,
+      "trend_gate": 0.35,
+      "whipsaw_rate": 0.0
+    }
+  },
+  "selected_reason": "safe_validation_candidate",
+  "split_counts": {
+    "holdout": 366,
+    "test": 275,
+    "train": 823,
+    "validation": 366
+  },
+  "split_mode": "dynamic_chronological_fallback",
+  "status": "completed",
+  "threshold_grid": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/threshold_grid.csv"
+}

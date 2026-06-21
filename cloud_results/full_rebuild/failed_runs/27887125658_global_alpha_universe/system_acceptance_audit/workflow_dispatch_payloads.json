@@ -1,0 +1,396 @@
+[
+  {
+    "inputs": {
+      "latest_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+      "max_price_tickers": "0",
+      "price_mode": "target_books",
+      "run_proxy_replay": "true",
+      "sec_companyfacts": "true",
+      "sync_to_gdrive": "true"
+    },
+    "plan_id": "bootstrap_free_data_for_8y_window",
+    "production_mutation_allowed": false,
+    "reason": "8-year broker-ledger window is not ready; extend/restore price and free-data cache first.",
+    "ref": "claude/pr146-review-analysis-6dkvd8",
+    "requires_user_approval": true,
+    "workflow_id": "free_data_lake_bootstrap.yml"
+  },
+  {
+    "depends_on_plan_ids": [
+      "bootstrap_free_data_for_8y_window"
+    ],
+    "inputs": {
+      "artifact_profile": "minimal",
+      "backtest_years": "8",
+      "cache_key_suffix": "official-8y-window",
+      "experiment_env_json": "",
+      "fast_mode": "true",
+      "gdrive_sync_mode": "minimal",
+      "portfolio_policy": "alphaops_vnext_production",
+      "sidecar_profile": "operating_minimal",
+      "skip_collector": "false",
+      "universe_mode": "global_alpha_universe"
+    },
+    "plan_id": "full_rebuild_8y_official_after_data_bootstrap",
+    "production_mutation_allowed": false,
+    "reason": "After free-data bootstrap, run the official 8-year broker-ledger rebuild with the production policy.",
+    "ref": "claude/pr146-review-analysis-6dkvd8",
+    "requires_user_approval": true,
+    "workflow_id": "full_rebuild_manual.yml"
+  },
+  {
+    "depends_on_plan_ids": [
+      "full_rebuild_8y_official_after_data_bootstrap"
+    ],
+    "experiment_id": "conc_continuation_winner_relaxation",
+    "inputs": {
+      "artifact_profile": "minimal",
+      "backtest_years": "8",
+      "cache_key_suffix": "ab_conc_continuation_winner_relaxation",
+      "experiment_env_json": "{\"PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED\": \"1\"}",
+      "fast_mode": "true",
+      "gdrive_sync_mode": "minimal",
+      "portfolio_policy": "alphaops_vnext_production",
+      "sidecar_profile": "operating_minimal",
+      "skip_collector": "true",
+      "universe_mode": "global_alpha_universe"
+    },
+    "payload_hash": "8bd260ed773815c3",
+    "plan_id": "ab_conc_continuation_winner_relaxation",
+    "post_run_review": {
+      "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+      "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+      "dispatch_run_id": "ab_conc_continuation_winner_relaxation",
+      "experiment_id": "conc_continuation_winner_relaxation",
+      "payload_hash": "8bd260ed773815c3",
+      "portfolio": "concentrated",
+      "production_mutation_allowed": false,
+      "queue_closure_output_dir": "outputs/self_correction_queue",
+      "tool": "tools/run_ab_result_verifier.py",
+      "verifier_args": [
+        "--baseline-run",
+        "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "--candidate-run",
+        "cloud_results/full_rebuild/<candidate_run_dir>",
+        "--portfolio",
+        "concentrated",
+        "--experiment-id",
+        "conc_continuation_winner_relaxation",
+        "--payload-hash",
+        "8bd260ed773815c3",
+        "--workflow-run-id",
+        "<candidate_workflow_run_id>",
+        "--dispatch-run-id",
+        "ab_conc_continuation_winner_relaxation",
+        "--output-dir",
+        "outputs/ab_result_verifier/conc_continuation_winner_relaxation"
+      ],
+      "verifier_output_dir": "outputs/ab_result_verifier/conc_continuation_winner_relaxation",
+      "workflow_run_id": "<candidate_workflow_run_id>"
+    },
+    "production_mutation_allowed": false,
+    "reason": "Concentrated CAGR or Tier-2 gate is short; relax continuation-winner filters only as a review A/B.",
+    "ref": "claude/pr146-review-analysis-6dkvd8",
+    "requires_user_approval": true,
+    "source_evidence": {
+      "cagr": 0.44368847118705124,
+      "cagr_target": 0.5,
+      "max_dd": -0.24704549355649696,
+      "max_dd_target": -0.28,
+      "strengthened_pass": false,
+      "target_pass": false,
+      "tier2_failing": [
+        "is_cagr_min",
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
+      ]
+    },
+    "source_portfolio": "concentrated",
+    "source_requirement_id": "goal_contract_main30_conc50_mdd",
+    "workflow_id": "full_rebuild_manual.yml"
+  },
+  {
+    "depends_on_plan_ids": [
+      "full_rebuild_8y_official_after_data_bootstrap"
+    ],
+    "experiment_id": "conc_bull_floor_stock_min",
+    "inputs": {
+      "artifact_profile": "minimal",
+      "backtest_years": "8",
+      "cache_key_suffix": "ab_conc_bull_floor_stock_min",
+      "experiment_env_json": "{\"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED\": \"1\"}",
+      "fast_mode": "true",
+      "gdrive_sync_mode": "minimal",
+      "portfolio_policy": "alphaops_vnext_production",
+      "sidecar_profile": "operating_minimal",
+      "skip_collector": "true",
+      "universe_mode": "global_alpha_universe"
+    },
+    "payload_hash": "ad2288e22a78e261",
+    "plan_id": "ab_conc_bull_floor_stock_min",
+    "post_run_review": {
+      "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+      "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+      "dispatch_run_id": "ab_conc_bull_floor_stock_min",
+      "experiment_id": "conc_bull_floor_stock_min",
+      "payload_hash": "ad2288e22a78e261",
+      "portfolio": "concentrated",
+      "production_mutation_allowed": false,
+      "queue_closure_output_dir": "outputs/self_correction_queue",
+      "tool": "tools/run_ab_result_verifier.py",
+      "verifier_args": [
+        "--baseline-run",
+        "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "--candidate-run",
+        "cloud_results/full_rebuild/<candidate_run_dir>",
+        "--portfolio",
+        "concentrated",
+        "--experiment-id",
+        "conc_bull_floor_stock_min",
+        "--payload-hash",
+        "ad2288e22a78e261",
+        "--workflow-run-id",
+        "<candidate_workflow_run_id>",
+        "--dispatch-run-id",
+        "ab_conc_bull_floor_stock_min",
+        "--output-dir",
+        "outputs/ab_result_verifier/conc_bull_floor_stock_min"
+      ],
+      "verifier_output_dir": "outputs/ab_result_verifier/conc_bull_floor_stock_min",
+      "workflow_run_id": "<candidate_workflow_run_id>"
+    },
+    "production_mutation_allowed": false,
+    "reason": "Concentrated CAGR or Tier-2 gate is short; measure bull/strong_bull stock-floor exposure as an isolated A/B.",
+    "ref": "claude/pr146-review-analysis-6dkvd8",
+    "requires_user_approval": true,
+    "source_evidence": {
+      "cagr": 0.44368847118705124,
+      "cagr_target": 0.5,
+      "max_dd": -0.24704549355649696,
+      "max_dd_target": -0.28,
+      "strengthened_pass": false,
+      "target_pass": false,
+      "tier2_failing": [
+        "is_cagr_min",
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
+      ]
+    },
+    "source_portfolio": "concentrated",
+    "source_requirement_id": "goal_contract_main30_conc50_mdd",
+    "workflow_id": "full_rebuild_manual.yml"
+  },
+  {
+    "depends_on_plan_ids": [
+      "full_rebuild_8y_official_after_data_bootstrap"
+    ],
+    "experiment_id": "conc_reentry_quality",
+    "inputs": {
+      "artifact_profile": "minimal",
+      "backtest_years": "8",
+      "cache_key_suffix": "ab_conc_reentry_quality",
+      "experiment_env_json": "{\"PHASE_CONCENTRATED_REENTRY_QUALITY_ENABLED\": \"1\"}",
+      "fast_mode": "true",
+      "gdrive_sync_mode": "minimal",
+      "portfolio_policy": "alphaops_vnext_production",
+      "sidecar_profile": "operating_minimal",
+      "skip_collector": "true",
+      "universe_mode": "global_alpha_universe"
+    },
+    "payload_hash": "bb6095cdb03c8add",
+    "plan_id": "ab_conc_reentry_quality",
+    "post_run_review": {
+      "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+      "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+      "dispatch_run_id": "ab_conc_reentry_quality",
+      "experiment_id": "conc_reentry_quality",
+      "payload_hash": "bb6095cdb03c8add",
+      "portfolio": "concentrated",
+      "production_mutation_allowed": false,
+      "queue_closure_output_dir": "outputs/self_correction_queue",
+      "tool": "tools/run_ab_result_verifier.py",
+      "verifier_args": [
+        "--baseline-run",
+        "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "--candidate-run",
+        "cloud_results/full_rebuild/<candidate_run_dir>",
+        "--portfolio",
+        "concentrated",
+        "--experiment-id",
+        "conc_reentry_quality",
+        "--payload-hash",
+        "bb6095cdb03c8add",
+        "--workflow-run-id",
+        "<candidate_workflow_run_id>",
+        "--dispatch-run-id",
+        "ab_conc_reentry_quality",
+        "--output-dir",
+        "outputs/ab_result_verifier/conc_reentry_quality"
+      ],
+      "verifier_output_dir": "outputs/ab_result_verifier/conc_reentry_quality",
+      "workflow_run_id": "<candidate_workflow_run_id>"
+    },
+    "production_mutation_allowed": false,
+    "reason": "Concentrated CAGR or Tier-2 gate is short; measure reentry quality after cash/defense states as an isolated A/B.",
+    "ref": "claude/pr146-review-analysis-6dkvd8",
+    "requires_user_approval": true,
+    "source_evidence": {
+      "cagr": 0.44368847118705124,
+      "cagr_target": 0.5,
+      "max_dd": -0.24704549355649696,
+      "max_dd_target": -0.28,
+      "strengthened_pass": false,
+      "target_pass": false,
+      "tier2_failing": [
+        "is_cagr_min",
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
+      ]
+    },
+    "source_portfolio": "concentrated",
+    "source_requirement_id": "goal_contract_main30_conc50_mdd",
+    "workflow_id": "full_rebuild_manual.yml"
+  },
+  {
+    "depends_on_plan_ids": [
+      "full_rebuild_8y_official_after_data_bootstrap"
+    ],
+    "experiment_id": "conc_theme_leadership_boost",
+    "inputs": {
+      "artifact_profile": "minimal",
+      "backtest_years": "8",
+      "cache_key_suffix": "ab_conc_theme_leadership_boost",
+      "experiment_env_json": "{\"PHASE_THEME_LEADERSHIP_BOOST_ENABLED\": \"1\"}",
+      "fast_mode": "true",
+      "gdrive_sync_mode": "minimal",
+      "portfolio_policy": "alphaops_vnext_production",
+      "sidecar_profile": "operating_minimal",
+      "skip_collector": "true",
+      "universe_mode": "global_alpha_universe"
+    },
+    "payload_hash": "deb6a378a7cb047d",
+    "plan_id": "ab_conc_theme_leadership_boost",
+    "post_run_review": {
+      "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+      "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+      "dispatch_run_id": "ab_conc_theme_leadership_boost",
+      "experiment_id": "conc_theme_leadership_boost",
+      "payload_hash": "deb6a378a7cb047d",
+      "portfolio": "concentrated",
+      "production_mutation_allowed": false,
+      "queue_closure_output_dir": "outputs/self_correction_queue",
+      "tool": "tools/run_ab_result_verifier.py",
+      "verifier_args": [
+        "--baseline-run",
+        "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "--candidate-run",
+        "cloud_results/full_rebuild/<candidate_run_dir>",
+        "--portfolio",
+        "concentrated",
+        "--experiment-id",
+        "conc_theme_leadership_boost",
+        "--payload-hash",
+        "deb6a378a7cb047d",
+        "--workflow-run-id",
+        "<candidate_workflow_run_id>",
+        "--dispatch-run-id",
+        "ab_conc_theme_leadership_boost",
+        "--output-dir",
+        "outputs/ab_result_verifier/conc_theme_leadership_boost"
+      ],
+      "verifier_output_dir": "outputs/ab_result_verifier/conc_theme_leadership_boost",
+      "workflow_run_id": "<candidate_workflow_run_id>"
+    },
+    "production_mutation_allowed": false,
+    "reason": "Concentrated CAGR or Tier-2 gate is short; test theme-leadership confirmation boost as an isolated A/B.",
+    "ref": "claude/pr146-review-analysis-6dkvd8",
+    "requires_user_approval": true,
+    "source_evidence": {
+      "cagr": 0.44368847118705124,
+      "cagr_target": 0.5,
+      "max_dd": -0.24704549355649696,
+      "max_dd_target": -0.28,
+      "strengthened_pass": false,
+      "target_pass": false,
+      "tier2_failing": [
+        "is_cagr_min",
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
+      ]
+    },
+    "source_portfolio": "concentrated",
+    "source_requirement_id": "goal_contract_main30_conc50_mdd",
+    "workflow_id": "full_rebuild_manual.yml"
+  },
+  {
+    "depends_on_plan_ids": [
+      "full_rebuild_8y_official_after_data_bootstrap"
+    ],
+    "experiment_id": "conc_concentration_cap_relaxation",
+    "inputs": {
+      "artifact_profile": "minimal",
+      "backtest_years": "8",
+      "cache_key_suffix": "ab_conc_concentration_cap_relaxation",
+      "experiment_env_json": "{\"PHASE_CONCENTRATED_CAP_RELAX_ENABLED\": \"1\"}",
+      "fast_mode": "true",
+      "gdrive_sync_mode": "minimal",
+      "portfolio_policy": "alphaops_vnext_production",
+      "sidecar_profile": "operating_minimal",
+      "skip_collector": "true",
+      "universe_mode": "global_alpha_universe"
+    },
+    "payload_hash": "e65f589fa242e02f",
+    "plan_id": "ab_conc_concentration_cap_relaxation",
+    "post_run_review": {
+      "baseline_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+      "candidate_run": "cloud_results/full_rebuild/<candidate_run_dir>",
+      "dispatch_run_id": "ab_conc_concentration_cap_relaxation",
+      "experiment_id": "conc_concentration_cap_relaxation",
+      "payload_hash": "e65f589fa242e02f",
+      "portfolio": "concentrated",
+      "production_mutation_allowed": false,
+      "queue_closure_output_dir": "outputs/self_correction_queue",
+      "tool": "tools/run_ab_result_verifier.py",
+      "verifier_args": [
+        "--baseline-run",
+        "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "--candidate-run",
+        "cloud_results/full_rebuild/<candidate_run_dir>",
+        "--portfolio",
+        "concentrated",
+        "--experiment-id",
+        "conc_concentration_cap_relaxation",
+        "--payload-hash",
+        "e65f589fa242e02f",
+        "--workflow-run-id",
+        "<candidate_workflow_run_id>",
+        "--dispatch-run-id",
+        "ab_conc_concentration_cap_relaxation",
+        "--output-dir",
+        "outputs/ab_result_verifier/conc_concentration_cap_relaxation"
+      ],
+      "verifier_output_dir": "outputs/ab_result_verifier/conc_concentration_cap_relaxation",
+      "workflow_run_id": "<candidate_workflow_run_id>"
+    },
+    "production_mutation_allowed": false,
+    "reason": "Concentrated CAGR or Tier-2 gate is short; test confirmed-winner cap relaxation while preserving broker-ledger gates.",
+    "ref": "claude/pr146-review-analysis-6dkvd8",
+    "requires_user_approval": true,
+    "source_evidence": {
+      "cagr": 0.44368847118705124,
+      "cagr_target": 0.5,
+      "max_dd": -0.24704549355649696,
+      "max_dd_target": -0.28,
+      "strengthened_pass": false,
+      "target_pass": false,
+      "tier2_failing": [
+        "is_cagr_min",
+        "oos_is_cagr_ratio_max",
+        "sharpe_min"
+      ]
+    },
+    "source_portfolio": "concentrated",
+    "source_requirement_id": "goal_contract_main30_conc50_mdd",
+    "workflow_id": "full_rebuild_manual.yml"
+  }
+]
