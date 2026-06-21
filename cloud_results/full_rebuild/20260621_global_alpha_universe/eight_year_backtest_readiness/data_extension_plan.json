@@ -1,6 +1,6 @@
 {
-  "concentrated_target_book_ticker_count": 262,
-  "effective_required_price_tickers": 353,
+  "concentrated_target_book_ticker_count": 260,
+  "effective_required_price_tickers": 405,
   "hard_blocker_count": 6,
   "hard_blockers": [
     "price_cache_window",
@@ -10,7 +10,7 @@
     "concentrated_broker_replay_window",
     "pit_universe_label"
   ],
-  "main_target_book_ticker_count": 250,
+  "main_target_book_ticker_count": 353,
   "next_dispatch_hint": "bootstrap_price_cache_then_full_rebuild",
   "sample_target_book_tickers": [
     "AAPL",
@@ -21,6 +21,7 @@
     "ADBE",
     "ADI",
     "AEE",
+    "AEM",
     "AEP",
     "AGCO",
     "AIT",
@@ -52,20 +53,19 @@
     "BABA",
     "BAC",
     "BAH",
+    "BE",
     "BEN",
     "BIIB",
+    "BILL",
     "BIO",
     "BJ",
     "BKNG",
     "BLD",
     "BLDR",
-    "BR",
-    "BRBR",
-    "BRO",
-    "BYD"
+    "BR"
   ],
   "schema_version": "data-extension-plan-v1",
-  "selected_target_book_ticker_count": 353,
+  "selected_target_book_ticker_count": 405,
   "target_end_date": "2026-06-18",
   "target_start_date": "2018-06-18",
   "tasks": [
@@ -92,7 +92,7 @@
       },
       "hard_blocker": false,
       "required": {
-        "required_target_book_tickers": 353
+        "required_target_book_tickers": 405
       },
       "scope": "prices",
       "status": "ready",
@@ -102,7 +102,7 @@
       "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so main target books extend across the full 8-year window.",
       "current": {
         "end_date": "2026-03-31",
-        "rows": 1471,
+        "rows": 2104,
         "start_date": "2019-06-28"
       },
       "hard_blocker": true,
@@ -118,7 +118,7 @@
       "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so concentrated target books extend across the full 8-year window.",
       "current": {
         "end_date": "2026-03-31",
-        "rows": 23193,
+        "rows": 23169,
         "start_date": "2019-06-28"
       },
       "hard_blocker": true,

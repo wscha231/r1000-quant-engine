@@ -17,9 +17,9 @@
         "bytes": 1037,
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-21T22:26:05.224025+00:00",
+        "modified_utc": "2026-06-21T22:31:32.868778+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices/replay_price_cache_manifest.json",
-        "sha256": "101ff2d96e70da41a01ed531d76cfcbf20a3c568608616d13a1c9b79d6eb8180"
+        "sha256": "bec10714c0c3d542ded17f6db3ba3ca40901487ba1992f92b55df3771820c121"
       },
       "status": "ok"
     },
@@ -29,7 +29,7 @@
       "canonical_path": "data_pit/free/market_snapshot/latest_manifest.json",
       "freshness_basis": "manifest:generated_at_utc",
       "hard_required_for_selection": false,
-      "latest_asof": "2026-06-21T22:29:31.222207+00:00",
+      "latest_asof": "2026-06-21T22:34:30.249503+00:00",
       "layer": "market_snapshot",
       "owner_workflow": "daily_operating_selection_refresh.yml",
       "provider": "price_cache_plus_yfinance_shares",
@@ -39,9 +39,9 @@
         "bytes": 707,
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-21T22:29:31.246857+00:00",
+        "modified_utc": "2026-06-21T22:34:30.276109+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/free/market_snapshot/latest_manifest.json",
-        "sha256": "56971c73bc61a572e3aba5b06c8efef85eb876629f261c78d5a5fc4029582c95"
+        "sha256": "161d76108735b77b70b4d6f959d78eb9da3e7ce0218308d3f20e5d48b70c143c"
       },
       "status": "ok"
     },
@@ -51,18 +51,18 @@
       "canonical_path": "data_pit/macro",
       "freshness_basis": "directory_mtime_proxy",
       "hard_required_for_selection": true,
-      "latest_asof": "2026-06-21T22:29:32.436098+00:00",
+      "latest_asof": "2026-06-21T22:34:31.497549+00:00",
       "layer": "macro",
       "owner_workflow": "daily_crisis_monitor.yml/free_data_daily_update.yml",
       "provider": "FRED_yfinance_market_snapshot",
       "resolved_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro",
       "source_name": "macro",
       "stats": {
-        "bytes": 515125,
+        "bytes": 515080,
         "exists": true,
         "file_count": 1,
         "kind": "dir",
-        "modified_utc": "2026-06-21T22:29:32.436098+00:00",
+        "modified_utc": "2026-06-21T22:34:31.497549+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro"
       },
       "status": "ok"
@@ -73,7 +73,7 @@
       "canonical_path": "data_raw/free/sec/companyfacts.zip",
       "freshness_basis": "file_mtime",
       "hard_required_for_selection": false,
-      "latest_asof": "2026-06-21T18:49:20.301701+00:00",
+      "latest_asof": "2026-06-21T18:49:58.179497+00:00",
       "layer": "fundamentals",
       "owner_workflow": "data_readiness_preflight.yml/free_data_daily_update.yml",
       "provider": "SEC_companyfacts_bulk",
@@ -83,7 +83,7 @@
         "bytes": 1387110195,
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-21T18:49:20.301701+00:00",
+        "modified_utc": "2026-06-21T18:49:58.179497+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/sec/companyfacts.zip",
         "sha256": ""
       },

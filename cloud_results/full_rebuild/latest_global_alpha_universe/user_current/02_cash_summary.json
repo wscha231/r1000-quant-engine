@@ -2,32 +2,32 @@
   "by_portfolio": {
     "concentrated": {
       "blocked_order_count": 0,
-      "cash_value_usd": 74878.22939323651,
-      "cash_weight": 0.0573686463895617,
+      "cash_value_usd": 74710.12719536567,
+      "cash_weight": 0.0570904258813254,
       "order_count": 5,
-      "projected_cash_usd": 100630.69802597273,
-      "projected_cash_weight": 0.07714963808901634,
+      "projected_cash_usd": 101553.12884453562,
+      "projected_cash_weight": 0.07765393354817517,
       "ready_order_count": 5,
-      "target_cash_weight": 0.0784999999999999
+      "target_cash_weight": 0.0785
     },
     "main": {
       "blocked_order_count": 0,
-      "cash_value_usd": 116803.76883156667,
-      "cash_weight": 0.1488007888892763,
+      "cash_value_usd": 118735.85134443268,
+      "cash_weight": 0.149248468638531,
       "order_count": 12,
-      "projected_cash_usd": 150753.89331042182,
-      "projected_cash_weight": 0.1921584737261556,
+      "projected_cash_usd": 152588.93128515224,
+      "projected_cash_weight": 0.19191070127161264,
       "ready_order_count": 12,
-      "target_cash_weight": 0.1919852043557129
+      "target_cash_weight": 0.1920601608248339
     }
   },
   "cash_policy_flag": "below_combined_cash_target",
   "cash_policy_review_action": "RESERVE_CASH",
-  "combined_cash_gap_weight": 0.02941338768967977,
-  "combined_current_cash_weight": 0.0917060152803466,
-  "combined_preview_target_cash_weight": 0.1211943614671462,
-  "combined_projected_cash_weight_after_ready_orders": 0.1203438337882383,
-  "combined_target_cash_weight": 0.12111940297002637,
+  "combined_cash_gap_weight": 0.0295013635427835,
+  "combined_current_cash_weight": 0.09193386863652069,
+  "combined_preview_target_cash_weight": 0.12151128397527253,
+  "combined_projected_cash_weight_after_ready_orders": 0.1208549042513821,
+  "combined_target_cash_weight": 0.12143523217930419,
   "macro_cash_raise_confirmation_count": 0.0,
   "macro_cash_raise_gate": "none",
   "macro_recommended_cash_floor": 0.03,

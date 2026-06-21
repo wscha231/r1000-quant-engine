@@ -25,9 +25,9 @@
 | source | status | latest_asof | age_days | cadence_days | owner |
 | --- | --- | --- | ---: | ---: | --- |
 | prices | ok | 2026-06-18 | 3.0 | 3 | free_data_daily_update.yml |
-| daily_market_snapshot | ok | 2026-06-21T22:29:31.222207+00:00 | 0.0 | 3 | daily_operating_selection_refresh.yml |
-| macro | ok | 2026-06-21T22:29:32.436098+00:00 | 0.0 | 3 | daily_crisis_monitor.yml/free_data_daily_update.yml |
-| sec_companyfacts | ok | 2026-06-21T18:49:20.301701+00:00 | 0.0 | 7 | data_readiness_preflight.yml/free_data_daily_update.yml |
+| daily_market_snapshot | ok | 2026-06-21T22:34:30.249503+00:00 | 0.0 | 3 | daily_operating_selection_refresh.yml |
+| macro | ok | 2026-06-21T22:34:31.497549+00:00 | 0.0 | 3 | daily_crisis_monitor.yml/free_data_daily_update.yml |
+| sec_companyfacts | ok | 2026-06-21T18:49:58.179497+00:00 | 0.0 | 7 | data_readiness_preflight.yml/free_data_daily_update.yml |
 | form4_transactions | ok | 2026-06-20T01:49:30.395000+00:00 | 1.0 | 5 | sec_form4_daily_refresh.yml |
 | institutional_13f_holdings | ok | 2026-05-25T07:27:21.847000+00:00 | 27.0 | 100 | sec_13f_quarterly_refresh.yml |
 | etf_holdings | ok | 2026-06-09T16:59:50.667000+00:00 | 12.0 | 40 | etf_holdings_monthly_refresh.yml |

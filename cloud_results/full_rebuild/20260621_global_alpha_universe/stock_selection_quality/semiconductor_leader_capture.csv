@@ -9,26 +9,26 @@ rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
 2019-08-30,concentrated,Semiconductors,2,0,0.0
 2019-08-30,concentrated,Specialty Retail,1,0,0.0
 2019-08-30,main,Semiconductors,2,1,0.5
-2019-08-30,main,Food & Staples Retailing,4,0,0.0
+2019-08-30,main,Food & Staples Retailing,4,1,0.25
 2019-08-30,main,Specialty Retail,1,0,0.0
+2019-09-30,concentrated,Specialty Retail,2,1,0.5
 2019-09-30,concentrated,Food & Staples Retailing,3,0,0.0
 2019-09-30,concentrated,Semiconductors,1,0,0.0
-2019-09-30,concentrated,Specialty Retail,1,0,0.0
 2019-09-30,main,Semiconductors,1,1,1.0
-2019-09-30,main,Food & Staples Retailing,3,0,0.0
-2019-09-30,main,Specialty Retail,1,0,0.0
+2019-09-30,main,Specialty Retail,2,1,0.5
+2019-09-30,main,Food & Staples Retailing,3,1,0.3333333333333333
 2019-10-31,concentrated,Food & Staples Retailing,4,0,0.0
 2019-10-31,concentrated,Semiconductors,3,0,0.0
 2019-10-31,main,Semiconductors,3,1,0.3333333333333333
-2019-10-31,main,Food & Staples Retailing,4,0,0.0
+2019-10-31,main,Food & Staples Retailing,4,1,0.25
+2019-11-29,concentrated,Specialty Retail,1,1,1.0
 2019-11-29,concentrated,Semiconductors,6,2,0.3333333333333333
+2019-11-29,main,Specialty Retail,1,1,1.0
 2019-11-29,main,Semiconductors,6,4,0.6666666666666666
 2019-12-31,concentrated,Semiconductors,8,3,0.375
 2019-12-31,main,Semiconductors,8,5,0.625
 2020-01-31,concentrated,Semiconductors,5,1,0.2
-2020-01-31,concentrated,Food & Staples Retailing,1,0,0.0
 2020-01-31,main,Semiconductors,5,2,0.4
-2020-01-31,main,Food & Staples Retailing,1,0,0.0
 2020-02-28,concentrated,Semiconductors,3,0,0.0
 2020-02-28,main,Semiconductors,3,0,0.0
 2020-03-31,concentrated,Semiconductors,2,0,0.0
@@ -37,14 +37,14 @@ rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
 2020-04-30,main,Semiconductors,2,0,0.0
 2020-05-29,concentrated,Food & Staples Retailing,1,0,0.0
 2020-05-29,main,Food & Staples Retailing,1,0,0.0
-2020-06-30,concentrated,Semiconductors,3,0,0.0
-2020-06-30,concentrated,Specialty Retail,1,0,0.0
-2020-06-30,main,Semiconductors,3,0,0.0
-2020-06-30,main,Specialty Retail,1,0,0.0
+2020-06-30,concentrated,Semiconductors,2,0,0.0
+2020-06-30,concentrated,Specialty Retail,2,0,0.0
+2020-06-30,main,Semiconductors,2,0,0.0
+2020-06-30,main,Specialty Retail,2,0,0.0
 2020-07-31,concentrated,Semiconductors,2,0,0.0
-2020-07-31,concentrated,Specialty Retail,2,0,0.0
+2020-07-31,concentrated,Specialty Retail,1,0,0.0
 2020-07-31,main,Semiconductors,2,0,0.0
-2020-07-31,main,Specialty Retail,2,0,0.0
+2020-07-31,main,Specialty Retail,1,0,0.0
 2020-08-31,concentrated,Food & Staples Retailing,1,0,0.0
 2020-08-31,concentrated,Semiconductors,1,0,0.0
 2020-08-31,concentrated,Specialty Retail,5,0,0.0
@@ -61,18 +61,18 @@ rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
 2020-10-30,concentrated,Specialty Retail,2,0,0.0
 2020-10-30,main,Semiconductors,1,0,0.0
 2020-10-30,main,Specialty Retail,2,0,0.0
-2020-11-30,concentrated,Semiconductors,5,0,0.0
+2020-11-30,concentrated,Semiconductors,4,0,0.0
 2020-11-30,concentrated,Specialty Retail,1,0,0.0
-2020-11-30,main,Semiconductors,5,0,0.0
+2020-11-30,main,Semiconductors,4,0,0.0
 2020-11-30,main,Specialty Retail,1,0,0.0
 2020-12-31,concentrated,Semiconductors,3,1,0.3333333333333333
 2020-12-31,main,Semiconductors,3,1,0.3333333333333333
-2021-01-29,concentrated,Semiconductors,5,0,0.0
+2021-01-29,concentrated,Semiconductors,6,0,0.0
 2021-01-29,concentrated,Specialty Retail,1,0,0.0
-2021-01-29,main,Semiconductors,5,2,0.4
+2021-01-29,main,Semiconductors,6,2,0.3333333333333333
 2021-01-29,main,Specialty Retail,1,0,0.0
-2021-02-26,concentrated,Semiconductors,6,2,0.3333333333333333
-2021-02-26,main,Semiconductors,6,4,0.6666666666666666
+2021-02-26,concentrated,Semiconductors,5,2,0.4
+2021-02-26,main,Semiconductors,5,4,0.8
 2021-03-31,concentrated,Semiconductors,6,2,0.3333333333333333
 2021-03-31,concentrated,Specialty Retail,1,0,0.0
 2021-03-31,main,Semiconductors,6,3,0.5
@@ -109,7 +109,7 @@ rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
 2022-02-28,concentrated,Semiconductors,1,0,0.0
 2022-02-28,main,Food & Staples Retailing,2,0,0.0
 2022-02-28,main,Semiconductors,1,0,0.0
-2022-03-31,main,Food & Staples Retailing,1,1,1.0
+2022-03-31,main,Food & Staples Retailing,2,1,0.5
 2022-04-29,concentrated,Food & Staples Retailing,4,0,0.0
 2022-04-29,main,Food & Staples Retailing,4,1,0.25
 2022-05-31,concentrated,Food & Staples Retailing,1,0,0.0
@@ -126,18 +126,16 @@ rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
 2022-09-30,main,Specialty Retail,3,0,0.0
 2022-10-31,concentrated,Specialty Retail,1,0,0.0
 2022-10-31,main,Specialty Retail,1,0,0.0
-2022-11-30,concentrated,Specialty Retail,4,0,0.0
-2022-11-30,main,Specialty Retail,4,0,0.0
-2022-12-30,concentrated,Specialty Retail,5,0,0.0
-2022-12-30,main,Specialty Retail,5,0,0.0
+2022-11-30,concentrated,Specialty Retail,3,0,0.0
+2022-11-30,main,Specialty Retail,3,0,0.0
+2022-12-30,concentrated,Specialty Retail,4,0,0.0
+2022-12-30,main,Specialty Retail,4,0,0.0
 2023-01-31,concentrated,Semiconductors,2,0,0.0
-2023-01-31,concentrated,Specialty Retail,2,0,0.0
+2023-01-31,concentrated,Specialty Retail,3,0,0.0
 2023-01-31,main,Semiconductors,2,1,0.5
-2023-01-31,main,Specialty Retail,2,0,0.0
-2023-02-28,concentrated,Semiconductors,7,1,0.14285714285714285
-2023-02-28,concentrated,Specialty Retail,1,0,0.0
-2023-02-28,main,Semiconductors,7,2,0.2857142857142857
-2023-02-28,main,Specialty Retail,1,0,0.0
+2023-01-31,main,Specialty Retail,3,1,0.3333333333333333
+2023-02-28,concentrated,Semiconductors,8,1,0.125
+2023-02-28,main,Semiconductors,8,2,0.25
 2023-03-31,concentrated,Semiconductors,10,1,0.1
 2023-03-31,main,Semiconductors,10,3,0.3
 2023-04-28,concentrated,Semiconductors,4,0,0.0
@@ -146,8 +144,8 @@ rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
 2023-05-31,main,Semiconductors,10,4,0.4
 2023-06-30,concentrated,Semiconductors,5,0,0.0
 2023-06-30,main,Semiconductors,4,3,0.75
-2023-07-31,concentrated,Semiconductors,11,2,0.18181818181818182
-2023-07-31,main,Semiconductors,10,7,0.7
+2023-07-31,concentrated,Semiconductors,12,2,0.16666666666666666
+2023-07-31,main,Semiconductors,11,7,0.6363636363636364
 2023-08-31,concentrated,Semiconductors,2,0,0.0
 2023-08-31,main,Semiconductors,2,1,0.5
 2023-12-29,concentrated,Specialty Retail,3,0,0.0
@@ -202,8 +200,8 @@ rebalance_date,portfolio,theme,leader_count,selected_count,capture_rate
 2025-09-30,concentrated,Specialty Retail,2,0,0.0
 2025-09-30,main,Semiconductors,8,3,0.375
 2025-09-30,main,Specialty Retail,2,0,0.0
-2025-10-31,concentrated,Semiconductors,13,2,0.15384615384615385
-2025-10-31,main,Semiconductors,10,5,0.5
+2025-10-31,concentrated,Semiconductors,12,2,0.16666666666666666
+2025-10-31,main,Semiconductors,9,5,0.5555555555555556
 2025-11-28,concentrated,Semiconductors,11,2,0.18181818181818182
 2025-11-28,main,Semiconductors,9,4,0.4444444444444444
 2025-12-31,concentrated,Semiconductors,4,1,0.25

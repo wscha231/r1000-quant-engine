@@ -1,6 +1,6 @@
 {
   "date_col": "rebalance_date",
-  "generated_at_utc": "2026-06-21T22:54:40+00:00",
+  "generated_at_utc": "2026-06-21T23:00:32+00:00",
   "return_col": null,
   "status": "missing_required_columns",
   "ticker_col": "ticker"

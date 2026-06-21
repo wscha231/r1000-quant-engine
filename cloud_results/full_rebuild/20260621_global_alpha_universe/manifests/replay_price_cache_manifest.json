@@ -1,14 +1,14 @@
 {
-  "actual_cached_ticker_count": 504,
-  "book_ticker_count": 353,
+  "actual_cached_ticker_count": 545,
+  "book_ticker_count": 405,
   "books": [
     "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
     "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv"
   ],
-  "download_target_count": 504,
+  "download_target_count": 545,
   "end": "2026-06-18",
-  "existing_cache_count": 504,
-  "existing_cache_count_after": 504,
+  "existing_cache_count": 545,
+  "existing_cache_count_after": 545,
   "failed": [],
   "failed_count": 0,
   "manifest_end_source": "actual_cached_bars",
@@ -24,9 +24,9 @@
   ],
   "scored": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
   "scored_ticker_count": 250,
-  "stale_before": 504,
+  "stale_before": 545,
   "start": "2019-06-14",
   "status": "completed",
-  "ticker_count": 504,
-  "written": 504
+  "ticker_count": 545,
+  "written": 545
 }

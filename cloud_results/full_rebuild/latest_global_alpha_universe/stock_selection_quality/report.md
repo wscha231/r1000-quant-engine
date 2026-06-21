@@ -8,15 +8,15 @@ Measurement-only diagnostic. No strategy, target-book, sizing, cash-policy, univ
 - metric mode: `broker_ledger_next_close`
 - production mutation allowed: `False`
 - candidate rows: 46276
-- selected rows: 1604
+- selected rows: 1613
 - available ex-ante leader rows: 4225
-- missed ex-ante leader rows: 3768
+- missed ex-ante leader rows: 3764
 
 ## Rejection Reasons
 
-- `candidate_gate`: 1635
-- `cap_or_replacement`: 637
-- `cash`: 1482
+- `candidate_gate`: 1622
+- `cap_or_replacement`: 639
+- `cash`: 1489
 - `unknown_requires_investigation`: 14
 
 ## Interpretation Rules

@@ -12,23 +12,23 @@
 
 - cache files: `1122`
 - manifest end: `2026-06-18`
-- manifest tickers: `504`
+- manifest tickers: `545`
 
 ## Latest Outputs
 
 | File | Rows | Max date | Weight sum |
 | --- | ---: | --- | ---: |
 | scored_latest | 741 | 2026-06-22 |  |
-| portfolio_latest | 12 |  | 0.9999999999999994 |
-| concentrated_portfolio_latest | 3 | 2026-06-22 | 0.9999999999999999 |
+| portfolio_latest | 18 |  | 0.999999999999999 |
+| concentrated_portfolio_latest | 4 | 2026-06-22 | 1.0 |
 
 ## Target Books
 
 | Book | Rows | Min date | Max date | Weight sum |
 | --- | ---: | --- | --- | ---: |
-| main_history | 1471 | 2019-06-28 | 2026-03-31 | 81.99999999999993 |
-| concentrated_history | 23193 | 2019-06-28 | 2026-03-31 | 4939.5 |
-| operating_main | 1266 | 2019-06-28 | 2026-06-18 | 83.99999999999994 |
+| main_history | 2104 | 2019-06-28 | 2026-03-31 | 81.99999999999991 |
+| concentrated_history | 23169 | 2019-06-28 | 2026-03-31 | 4939.5 |
+| operating_main | 1268 | 2019-06-28 | 2026-06-18 | 83.99999999999996 |
 | operating_concentrated | 491 | 2019-06-28 | 2026-06-18 | 83.99999999999999 |
 
 ## Feature Source Coverage
@@ -38,7 +38,7 @@
 
 | Portfolio | Rows | Non-cash rows | Date range | Available-from columns |
 | --- | ---: | ---: | --- | ---: |
-| main | 1266 | 1182 | 2019-06-28 to 2026-06-18 | 4 |
+| main | 1268 | 1184 | 2019-06-28 to 2026-06-18 | 4 |
 | concentrated | 491 | 407 | 2019-06-28 to 2026-06-18 | 4 |
 
 ## Universe Health

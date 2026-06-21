@@ -6,22 +6,22 @@ Measurement-only diagnostic. No strategy, target-book, cash-policy, workflow, or
 
 - status: `completed`
 - observations: 1732
-- SPY beta: `0.314`
-- QQQ growth beta: `0.842`
-- SMH/SOXX semiconductor beta: `0.320`
-- residual alpha annualized: `23.83%`
-- cash drag proxy: `7.77%`
-- R^2: `0.242`
-- top 5 winner contribution: `763.26%`
+- SPY beta: `0.315`
+- QQQ growth beta: `0.840`
+- SMH/SOXX semiconductor beta: `0.321`
+- residual alpha annualized: `23.88%`
+- cash drag proxy: `7.78%`
+- R^2: `0.241`
+- top 5 winner contribution: `766.94%`
 
 ## main
 
 - status: `completed`
 - observations: 1751
-- SPY beta: `0.507`
-- QQQ growth beta: `0.692`
-- SMH/SOXX semiconductor beta: `0.423`
-- residual alpha annualized: `11.97%`
+- SPY beta: `0.508`
+- QQQ growth beta: `0.693`
+- SMH/SOXX semiconductor beta: `0.422`
+- residual alpha annualized: `12.15%`
 - cash drag proxy: `4.48%`
-- R^2: `0.482`
-- top 5 winner contribution: `411.05%`
+- R^2: `0.483`
+- top 5 winner contribution: `418.66%`

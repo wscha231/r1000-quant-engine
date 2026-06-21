@@ -19,8 +19,8 @@
 
 | Portfolio | CAGR | MaxDD | Tier-1 | Tier-2 | Review Status |
 | --- | ---: | ---: | :---: | :---: | --- |
-| concentrated | 13.96% | -52.29% | FAIL | FAIL | not_eligible |
-| main | 15.78% | -36.56% | FAIL | FAIL | not_eligible |
+| concentrated | 14.35% | -50.47% | FAIL | FAIL | not_eligible |
+| main | 16.26% | -36.94% | FAIL | FAIL | not_eligible |
 
 ## Promotion Policy Candidate
 

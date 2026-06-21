@@ -8,7 +8,7 @@
     },
     "main": {
       "median_holding_days": 58.0,
-      "pct_held_180d_plus": 0.02491103202846975,
+      "pct_held_180d_plus": 0.026690391459074734,
       "pct_held_365d_plus": 0.0,
       "trade_count": 1124
     }
@@ -16,19 +16,19 @@
   "candidate_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
   "entry_rows": 1516,
   "exit_rows": 1516,
-  "generated_at": "2026-06-21T22:53:58.566329+00:00",
+  "generated_at": "2026-06-21T22:59:46.515484+00:00",
   "metric_mode": "broker_ledger_next_close",
   "official_metric_source": "outputs/account_evaluation/official_metrics.json",
   "portfolio_policy": "alphaops_vnext_production",
-  "premature_sell_candidates": 524,
+  "premature_sell_candidates": 525,
   "premature_sell_rows": 1516,
   "production_mutation_allowed": false,
   "schema_version": "entry_exit_timing_audit_v1",
-  "source_artifact_name": "minimal_operating_minimal_27913891655",
+  "source_artifact_name": "minimal_operating_minimal_27913892598",
   "source_branch": "claude/pr146-review-analysis-6dkvd8",
   "source_commit_sha": "71439249a6f8253bd9d9954dde05c61e8b217b58",
   "source_of_truth_level": "GITHUB_ARTIFACT",
-  "source_run_id": "27913891655",
+  "source_run_id": "27913892598",
   "status": "completed",
   "target_book_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_*_target_book.csv"
 }

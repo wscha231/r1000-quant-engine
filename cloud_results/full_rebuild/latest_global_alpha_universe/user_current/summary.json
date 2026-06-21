@@ -17,7 +17,7 @@
   "decision_cadence_available": true,
   "decision_cadence_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/decision_cadence/decision_cadence_summary.json",
   "full_nonmonthly_entry_replacement_validated": false,
-  "generated_at_utc": "2026-06-21T22:55:25.675869+00:00",
+  "generated_at_utc": "2026-06-21T23:01:19.272588+00:00",
   "human_approval_required": true,
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "live_trading_enabled": false,
@@ -25,7 +25,7 @@
   "missing_required_files": [],
   "name_rationale_rows": 20,
   "official_metric_mode": "broker_ledger_next_close",
-  "order_preview_rows": 17,
+  "order_preview_rows": 24,
   "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current",
   "period_return_rows": 28,
   "production_applied": true,
@@ -80,6 +80,6 @@
   "source_target_case_id": "",
   "source_target_run_id": "",
   "status": "completed",
-  "target_weight_rows": 17,
+  "target_weight_rows": 24,
   "valid_for_production": false
 }

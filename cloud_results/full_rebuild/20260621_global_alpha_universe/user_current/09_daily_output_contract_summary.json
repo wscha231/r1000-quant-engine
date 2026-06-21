@@ -5,7 +5,7 @@
   "decision": "REVIEW_REQUIRED",
   "human_approval_required": true,
   "live_trading_enabled": false,
-  "order_preview_rows": 17,
+  "order_preview_rows": 24,
   "outputs": {
     "order_preview": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current/03_order_preview.csv",
     "rebalance_decision": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current/08_rebalance_decision.json",
@@ -18,5 +18,5 @@
   "schema_version": "user-current-operating-contract-v1",
   "selection_allowed": true,
   "status": "completed",
-  "target_weight_rows": 17
+  "target_weight_rows": 24
 }

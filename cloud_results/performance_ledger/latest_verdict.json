@@ -1,6 +1,7 @@
 {
   "per_portfolio": {
     "main": {
+<<<<<<< Updated upstream
       "is_cagr": 0.20365878430511763,
       "prev_is_cagr": 0.19932800725209643,
       "best_is_cagr": 0.2535727804710297,
@@ -17,11 +18,33 @@
       "best_is_run": "27516185696",
       "delta_vs_prev_pp": 0.311,
       "delta_vs_best_pp": -3.3127,
+=======
+      "is_cagr": 0.20909400190514993,
+      "prev_is_cagr": 0.19932800725209643,
+      "best_is_cagr": 0.2535727804710297,
+      "best_is_run": "27814870719",
+      "delta_vs_prev_pp": 0.9766,
+      "delta_vs_best_pp": -4.4479,
+      "state": "IMPROVING",
+      "new_best": false
+    },
+    "concentrated": {
+      "is_cagr": 0.19114036847393323,
+      "prev_is_cagr": 0.18783085710799807,
+      "best_is_cagr": 0.2240682162164802,
+      "best_is_run": "27516185696",
+      "delta_vs_prev_pp": 0.331,
+      "delta_vs_best_pp": -3.2928,
+>>>>>>> Stashed changes
       "state": "FLAT",
       "new_best": false
     }
   },
+<<<<<<< Updated upstream
   "overall": "FLAT",
+=======
+  "overall": "IMPROVING",
+>>>>>>> Stashed changes
   "dominant_open_leak": "concentrated:structural_underinvestment_bull",
   "open_leak_counts": {
     "main:flat_alpha_invested": 1,

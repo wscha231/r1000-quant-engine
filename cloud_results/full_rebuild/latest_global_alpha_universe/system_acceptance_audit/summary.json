@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-06-21T22:55:24+00:00",
+  "generated_at_utc": "2026-06-21T23:01:17+00:00",
   "hard_blocker_count": 5,
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "live_trading_allowed": false,
@@ -10,12 +10,12 @@
       "dispatch_mode": "manual_review_no_workflow_dispatch",
       "failure": "oos_is_cagr_ratio_above_lock",
       "metrics": {
-        "cagr_is": 0.19094079782556816,
-        "cagr_oos": 1.3814980659042244,
+        "cagr_is": 0.19114036847393323,
+        "cagr_oos": 1.383549719639435,
         "max_allowed_degradation_pp": 6.0,
         "max_oos_is_cagr_ratio": 3.0,
-        "oos_degradation_pp": -119.05572680786563,
-        "oos_is_cagr_ratio": 7.235216787803917,
+        "oos_degradation_pp": -119.24093511655019,
+        "oos_is_cagr_ratio": 7.238396214707081,
         "oos_trading_days": 494
       },
       "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",
@@ -37,12 +37,12 @@
       "dispatch_mode": "manual_review_no_workflow_dispatch",
       "failure": "oos_is_cagr_ratio_above_lock",
       "metrics": {
-        "cagr_is": 0.20365878430511763,
-        "cagr_oos": 0.7923496453801413,
+        "cagr_is": 0.20909400190514993,
+        "cagr_oos": 0.7840412004379529,
         "max_allowed_degradation_pp": 5.0,
         "max_oos_is_cagr_ratio": 3.0,
-        "oos_degradation_pp": -58.86908610750237,
-        "oos_is_cagr_ratio": 3.890574364781921,
+        "oos_degradation_pp": -57.494719853280294,
+        "oos_is_cagr_ratio": 3.749706798350021,
         "oos_trading_days": 494
       },
       "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",
@@ -74,13 +74,13 @@
         "official_metric_mode": "broker_ledger_next_close",
         "portfolios": {
           "concentrated": {
-            "cagr": 0.44604493718599425,
+            "cagr": 0.44658773212723735,
             "cagr_target": 0.5,
             "cost_bps_per_side": 25.0,
             "end_date": "2026-06-18",
             "fill_mode": "next_close",
             "integer_shares": true,
-            "max_dd": -0.24622274008482314,
+            "max_dd": -0.2585896333829607,
             "max_dd_target": -0.28,
             "max_fill_lag_days": 7,
             "metric_mode": "broker_ledger_next_close",
@@ -98,13 +98,13 @@
             "years": 6.965092402464066
           },
           "main": {
-            "cagr": 0.34423943947854885,
+            "cagr": 0.3468284481361432,
             "cagr_target": 0.3,
             "cost_bps_per_side": 25.0,
             "end_date": "2026-06-18",
             "fill_mode": "next_close",
             "integer_shares": true,
-            "max_dd": -0.2718646315133716,
+            "max_dd": -0.2604829700344844,
             "max_dd_target": -0.25,
             "max_fill_lag_days": 7,
             "metric_mode": "broker_ledger_next_close",
@@ -138,13 +138,13 @@
         ],
         "portfolios": {
           "concentrated": {
-            "cagr": 0.44604493718599425,
+            "cagr": 0.44658773212723735,
             "cagr_target": 0.5,
             "cost_bps_per_side": 25.0,
             "end_date": "2026-06-18",
             "fill_mode": "next_close",
             "integer_shares": true,
-            "max_dd": -0.24622274008482314,
+            "max_dd": -0.2585896333829607,
             "max_dd_target": -0.28,
             "max_fill_lag_days": 7,
             "metric_mode": "broker_ledger_next_close",
@@ -162,13 +162,13 @@
             "years": 6.965092402464066
           },
           "main": {
-            "cagr": 0.34423943947854885,
+            "cagr": 0.3468284481361432,
             "cagr_target": 0.3,
             "cost_bps_per_side": 25.0,
             "end_date": "2026-06-18",
             "fill_mode": "next_close",
             "integer_shares": true,
-            "max_dd": -0.2718646315133716,
+            "max_dd": -0.2604829700344844,
             "max_dd_target": -0.25,
             "max_fill_lag_days": 7,
             "metric_mode": "broker_ledger_next_close",
@@ -228,22 +228,22 @@
         "oos_start": "2024-07-01",
         "portfolios": {
           "concentrated": {
-            "cagr_is": 0.19094079782556816,
-            "cagr_oos": 1.3814980659042244,
+            "cagr_is": 0.19114036847393323,
+            "cagr_oos": 1.383549719639435,
             "max_allowed_degradation_pp": 6.0,
             "max_oos_is_cagr_ratio": 3.0,
-            "oos_degradation_pp": -119.05572680786563,
-            "oos_is_cagr_ratio": 7.235216787803917,
+            "oos_degradation_pp": -119.24093511655019,
+            "oos_is_cagr_ratio": 7.238396214707081,
             "oos_trading_days": 494,
             "status": "fail"
           },
           "main": {
-            "cagr_is": 0.20365878430511763,
-            "cagr_oos": 0.7923496453801413,
+            "cagr_is": 0.20909400190514993,
+            "cagr_oos": 0.7840412004379529,
             "max_allowed_degradation_pp": 5.0,
             "max_oos_is_cagr_ratio": 3.0,
-            "oos_degradation_pp": -58.86908610750237,
-            "oos_is_cagr_ratio": 3.890574364781921,
+            "oos_degradation_pp": -57.494719853280294,
+            "oos_is_cagr_ratio": 3.749706798350021,
             "oos_trading_days": 494,
             "status": "fail"
           }
@@ -278,13 +278,13 @@
         "failures": [],
         "portfolios": {
           "concentrated": {
-            "cagr": 0.44604493718599425,
+            "cagr": 0.44658773212723735,
             "cagr_target": 0.5,
             "cost_bps_per_side": 25.0,
             "end_date": "2026-06-18",
             "fill_mode": "next_close",
             "integer_shares": true,
-            "max_dd": -0.24622274008482314,
+            "max_dd": -0.2585896333829607,
             "max_dd_target": -0.28,
             "max_fill_lag_days": 7,
             "metric_mode": "broker_ledger_next_close",
@@ -302,13 +302,13 @@
             "years": 6.965092402464066
           },
           "main": {
-            "cagr": 0.34423943947854885,
+            "cagr": 0.3468284481361432,
             "cagr_target": 0.3,
             "cost_bps_per_side": 25.0,
             "end_date": "2026-06-18",
             "fill_mode": "next_close",
             "integer_shares": true,
-            "max_dd": -0.2718646315133716,
+            "max_dd": -0.2604829700344844,
             "max_dd_target": -0.25,
             "max_fill_lag_days": 7,
             "metric_mode": "broker_ledger_next_close",
@@ -346,10 +346,10 @@
             "invalid_total_weight_date_count": 0,
             "missing_explicit_cash_date_count": 0,
             "month_mean_cash_drift_pass": true,
-            "month_mean_cash_drift_pp": 0.1001,
+            "month_mean_cash_drift_pp": 0.1018,
             "negative_cash_date_count": 0,
             "rebalance_day_cash_drift_pass": true,
-            "rebalance_day_mean_cash_drift_pp": 0.1151,
+            "rebalance_day_mean_cash_drift_pp": 0.111,
             "status": "passed",
             "target_cash_contract_pass": true
           },
@@ -360,10 +360,10 @@
             "invalid_total_weight_date_count": 0,
             "missing_explicit_cash_date_count": 0,
             "month_mean_cash_drift_pass": true,
-            "month_mean_cash_drift_pp": 0.2243,
+            "month_mean_cash_drift_pp": 0.2311,
             "negative_cash_date_count": 0,
             "rebalance_day_cash_drift_pass": true,
-            "rebalance_day_mean_cash_drift_pp": 0.2106,
+            "rebalance_day_mean_cash_drift_pp": 0.2186,
             "status": "passed",
             "target_cash_contract_pass": true
           }
@@ -392,34 +392,34 @@
         "mdd_cash_overlay_summary_exists": true,
         "portfolios": {
           "concentrated": {
-            "is_cagr": 0.19094079782556816,
+            "is_cagr": 0.19114036847393323,
             "is_status": "completed",
             "leak_year_tag_count": 8,
-            "mdd_peak_date": "2021-11-18",
+            "mdd_peak_date": "2021-11-08",
             "mdd_research_status": "completed",
             "mdd_trough_date": "2023-08-17",
             "mdd_trough_holding_rows": 5,
-            "oos_is_ratio": 7.235216787803917,
+            "oos_is_ratio": 7.238396214707081,
             "trade_attribution_status": "completed",
             "trade_mdd_contributor_count": 15,
-            "trade_mdd_peak_date": "2021-11-18",
+            "trade_mdd_peak_date": "2021-11-08",
             "trade_mdd_position_rows": 30,
             "trade_mdd_trough_date": "2023-08-17",
             "yearly_rows": 8
           },
           "main": {
-            "is_cagr": 0.20365878430511763,
+            "is_cagr": 0.20909400190514993,
             "is_status": "completed",
             "leak_year_tag_count": 8,
             "mdd_peak_date": "2020-02-19",
             "mdd_research_status": "completed",
             "mdd_trough_date": "2020-03-18",
             "mdd_trough_holding_rows": 14,
-            "oos_is_ratio": 3.890574364781921,
+            "oos_is_ratio": 3.749706798350021,
             "trade_attribution_status": "completed",
             "trade_mdd_contributor_count": 15,
             "trade_mdd_peak_date": "2020-02-19",
-            "trade_mdd_position_rows": 17,
+            "trade_mdd_position_rows": 16,
             "trade_mdd_trough_date": "2020-03-18",
             "yearly_rows": 8
           }
@@ -494,11 +494,11 @@
           "all_strengthened_pass": false,
           "portfolios": {
             "concentrated": {
-              "cagr": 0.1396409630587212,
+              "cagr": 0.14349764730365933,
               "cagr_target": 0.5,
               "days": 1752,
               "end_date": "2026-06-18",
-              "max_dd": -0.522901492188987,
+              "max_dd": -0.5047446699176725,
               "max_dd_target": -0.28,
               "metric_mode": "broker_ledger_next_close",
               "production_activation_allowed": false,
@@ -512,27 +512,27 @@
                   "avg_cash_weight_max": {
                     "pass": true,
                     "threshold": 0.55,
-                    "value": 0.08004332300095675
+                    "value": 0.08005315086175933
                   },
                   "is_cagr_min": {
                     "pass": false,
                     "threshold": 0.3,
-                    "value": 0.0797339181268506
+                    "value": 0.08479810004738608
                   },
                   "max_dd_recent_3y_min": {
                     "pass": false,
                     "threshold": -0.25,
-                    "value": -0.28846012188603476
+                    "value": -0.2841668417487687
                   },
                   "oos_is_cagr_ratio_max": {
                     "pass": false,
                     "threshold": 3.0,
-                    "value": 3.878789296197301
+                    "value": 3.648432095218739
                   },
                   "sharpe_min": {
                     "pass": false,
                     "threshold": 1.4,
-                    "value": 0.5796774129012195
+                    "value": 0.5904265173047876
                   }
                 },
                 "failing": [
@@ -541,20 +541,20 @@
                   "sharpe_min",
                   "max_dd_recent_3y_min"
                 ],
-                "is_cagr": 0.0797339181268506,
-                "is_mdd": -0.522901492188987,
-                "oos_cagr": 0.30927106817430006,
+                "is_cagr": 0.08479810004738608,
+                "is_mdd": -0.5047446699176725,
+                "oos_cagr": 0.30938010982645303,
                 "passing": false,
-                "recent_mdd": -0.28846012188603476
+                "recent_mdd": -0.2841668417487687
               },
               "years": 6.965092402464066
             },
             "main": {
-              "cagr": 0.1577862357140427,
+              "cagr": 0.16256873900651403,
               "cagr_target": 0.3,
               "days": 1752,
               "end_date": "2026-06-18",
-              "max_dd": -0.3655944692817462,
+              "max_dd": -0.3693973878956841,
               "max_dd_target": -0.25,
               "metric_mode": "broker_ledger_next_close",
               "production_activation_allowed": false,
@@ -568,38 +568,38 @@
                   "avg_cash_weight_max": {
                     "pass": true,
                     "threshold": 0.55,
-                    "value": 0.05950858546263528
+                    "value": 0.05961518571554359
                   },
                   "is_cagr_min": {
                     "pass": false,
                     "threshold": 0.25,
-                    "value": 0.11856458250703872
+                    "value": 0.12465130864326879
                   },
                   "max_dd_recent_3y_min": {
                     "pass": true,
                     "threshold": -0.25,
-                    "value": -0.20518267006979074
+                    "value": -0.20351746271631843
                   },
                   "oos_is_cagr_ratio_max": {
                     "pass": true,
                     "threshold": 3.0,
-                    "value": 2.25000906597707
+                    "value": 2.1484885351880525
                   },
                   "sharpe_min": {
                     "pass": false,
                     "threshold": 1.2,
-                    "value": 0.6925179003327422
+                    "value": 0.7102527885479155
                   }
                 },
                 "failing": [
                   "is_cagr_min",
                   "sharpe_min"
                 ],
-                "is_cagr": 0.11856458250703872,
-                "is_mdd": -0.3655944692817462,
-                "oos_cagr": 0.26677138554462343,
+                "is_cagr": 0.12465130864326879,
+                "is_mdd": -0.3693973878956841,
+                "oos_cagr": 0.2678119075162504,
                 "passing": false,
-                "recent_mdd": -0.20518267006979074
+                "recent_mdd": -0.20351746271631843
               },
               "years": 6.965092402464066
             }
@@ -817,9 +817,9 @@
       "ref": "claude/pr146-review-analysis-6dkvd8",
       "requires_user_approval": true,
       "source_evidence": {
-        "cagr": 0.44604493718599425,
+        "cagr": 0.44658773212723735,
         "cagr_target": 0.5,
-        "max_dd": -0.24622274008482314,
+        "max_dd": -0.2585896333829607,
         "max_dd_target": -0.28,
         "strengthened_pass": false,
         "target_pass": false,
@@ -888,9 +888,9 @@
       "ref": "claude/pr146-review-analysis-6dkvd8",
       "requires_user_approval": true,
       "source_evidence": {
-        "cagr": 0.44604493718599425,
+        "cagr": 0.44658773212723735,
         "cagr_target": 0.5,
-        "max_dd": -0.24622274008482314,
+        "max_dd": -0.2585896333829607,
         "max_dd_target": -0.28,
         "strengthened_pass": false,
         "target_pass": false,
@@ -959,9 +959,9 @@
       "ref": "claude/pr146-review-analysis-6dkvd8",
       "requires_user_approval": true,
       "source_evidence": {
-        "cagr": 0.44604493718599425,
+        "cagr": 0.44658773212723735,
         "cagr_target": 0.5,
-        "max_dd": -0.24622274008482314,
+        "max_dd": -0.2585896333829607,
         "max_dd_target": -0.28,
         "strengthened_pass": false,
         "target_pass": false,
@@ -1030,9 +1030,9 @@
       "ref": "claude/pr146-review-analysis-6dkvd8",
       "requires_user_approval": true,
       "source_evidence": {
-        "cagr": 0.44604493718599425,
+        "cagr": 0.44658773212723735,
         "cagr_target": 0.5,
-        "max_dd": -0.24622274008482314,
+        "max_dd": -0.2585896333829607,
         "max_dd_target": -0.28,
         "strengthened_pass": false,
         "target_pass": false,
@@ -1101,9 +1101,9 @@
       "ref": "claude/pr146-review-analysis-6dkvd8",
       "requires_user_approval": true,
       "source_evidence": {
-        "cagr": 0.44604493718599425,
+        "cagr": 0.44658773212723735,
         "cagr_target": 0.5,
-        "max_dd": -0.24622274008482314,
+        "max_dd": -0.2585896333829607,
         "max_dd_target": -0.28,
         "strengthened_pass": false,
         "target_pass": false,

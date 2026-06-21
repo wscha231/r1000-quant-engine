@@ -13,14 +13,14 @@
 
 ## Target Books
 
-- Main: `2019-06-28` to `2026-03-31`, rows `1471`
-- Concentrated: `2019-06-28` to `2026-03-31`, rows `23193`
+- Main: `2019-06-28` to `2026-03-31`, rows `2104`
+- Concentrated: `2019-06-28` to `2026-03-31`, rows `23169`
 - Window ready: `False`
 
 ## Broker Replay
 
-- Main: `2019-07-01` to `2026-06-18`, CAGR `0.34423943947854885`
-- Concentrated: `2019-07-01` to `2026-06-18`, CAGR `0.44604493718599425`
+- Main: `2019-07-01` to `2026-06-18`, CAGR `0.3468284481361432`
+- Concentrated: `2019-07-01` to `2026-06-18`, CAGR `0.44658773212723735`
 - Window ready: `False`
 
 ## Blockers
@@ -41,7 +41,7 @@
 ## Data Extension Plan
 
 - Target window: `2018-06-18` to `2026-06-18`
-- Target-book tickers: `353`
+- Target-book tickers: `405`
 - Hard blockers: `6`
 
 | Task | Status | Action |

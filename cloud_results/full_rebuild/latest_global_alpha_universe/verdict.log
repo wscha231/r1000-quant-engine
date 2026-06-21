@@ -2,7 +2,7 @@
 r1000 Quant Engine -- local run
 ======================================================================
   commit:        7143924 (DIRTY)
-  started:       2026-06-22 07:24:49 KST
+  started:       2026-06-22 07:30:35 KST
   base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
   end_date:      2026-06-22
   mode:          QUICK_RESCORE
@@ -18,7 +18,7 @@ r1000 Quant Engine -- local run
   Phase 9 C3:    auto
   Phase 14:      auto
 ======================================================================
-OK: companyfacts.zip 0.1d old, 1323 MB
+OK: companyfacts.zip 0.2d old, 1323 MB
 
 ======================================================================
 BROKER-LEDGER VERDICT -- OFFICIAL PRODUCTION GATE

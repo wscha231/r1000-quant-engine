@@ -1,6 +1,6 @@
 {
   "features": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro/long_crisis_daily_features.parquet",
-  "generated_at_utc": "2026-06-21T22:29:33.725409+00:00",
+  "generated_at_utc": "2026-06-21T22:34:32.808367+00:00",
   "label": "future_63d_drawdown_le_15pct",
   "production_activation_allowed": false,
   "ranking": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/feature_signal_ranking.csv",

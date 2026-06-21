@@ -4,7 +4,7 @@
   "dispatch_results": [],
   "dispatched_count": 0,
   "execute_requested": false,
-  "generated_at_utc": "2026-06-21T22:55:24+00:00",
+  "generated_at_utc": "2026-06-21T23:01:17+00:00",
   "payloads_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/system_acceptance_audit/workflow_dispatch_payloads.json",
   "plan_rows": [
     {
@@ -144,9 +144,9 @@
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_evidence": {
-          "cagr": 0.44604493718599425,
+          "cagr": 0.44658773212723735,
           "cagr_target": 0.5,
-          "max_dd": -0.24622274008482314,
+          "max_dd": -0.2585896333829607,
           "max_dd_target": -0.28,
           "strengthened_pass": false,
           "target_pass": false,
@@ -236,9 +236,9 @@
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_evidence": {
-          "cagr": 0.44604493718599425,
+          "cagr": 0.44658773212723735,
           "cagr_target": 0.5,
-          "max_dd": -0.24622274008482314,
+          "max_dd": -0.2585896333829607,
           "max_dd_target": -0.28,
           "strengthened_pass": false,
           "target_pass": false,
@@ -328,9 +328,9 @@
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_evidence": {
-          "cagr": 0.44604493718599425,
+          "cagr": 0.44658773212723735,
           "cagr_target": 0.5,
-          "max_dd": -0.24622274008482314,
+          "max_dd": -0.2585896333829607,
           "max_dd_target": -0.28,
           "strengthened_pass": false,
           "target_pass": false,
@@ -420,9 +420,9 @@
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_evidence": {
-          "cagr": 0.44604493718599425,
+          "cagr": 0.44658773212723735,
           "cagr_target": 0.5,
-          "max_dd": -0.24622274008482314,
+          "max_dd": -0.2585896333829607,
           "max_dd_target": -0.28,
           "strengthened_pass": false,
           "target_pass": false,
@@ -512,9 +512,9 @@
         "ref": "claude/pr146-review-analysis-6dkvd8",
         "requires_user_approval": true,
         "source_evidence": {
-          "cagr": 0.44604493718599425,
+          "cagr": 0.44658773212723735,
           "cagr_target": 0.5,
-          "max_dd": -0.24622274008482314,
+          "max_dd": -0.2585896333829607,
           "max_dd_target": -0.28,
           "strengthened_pass": false,
           "target_pass": false,
