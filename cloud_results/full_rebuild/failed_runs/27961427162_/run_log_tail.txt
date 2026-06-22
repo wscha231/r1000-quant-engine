@@ -1,0 +1,10 @@
+usage: run_local.py [-h] [--full] [--no-collector] [--verdict-only]
+                    [--end-date END_DATE] [--base-dir BASE_DIR]
+                    [--fast-mode {true,false}] [--universe-mode UNIVERSE_MODE]
+                    [--backtest-years BACKTEST_YEARS]
+                    [--leader-rescue-mode {auto,latest_only,full_proxy,off}]
+                    [--gate-mode {broker,target}] [--ab-quick]
+                    [--phase9-c1 {auto,0,1}] [--phase9-c2 {auto,0,1}]
+                    [--phase9-c3 {auto,0,1}]
+run_local.py: error: argument --fast-mode: invalid choice: '' (choose from true, false)
+Captured tail of: outputs/full_rebuild_logs/20260622_145944_.log (9 total lines)

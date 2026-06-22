@@ -1,0 +1,36 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        3622d20 (DIRTY)
+  started:       2026-06-22 23:59:44 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-06-22
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  leader_rescue: (cfg default)
+  gate_mode:     broker
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+WARNING: cache_prices missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: cache_macro missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: cache_sec_actual missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: feature_store missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+OK: companyfacts.zip 0.0d old, 1323 MB
+
+======================================================================
+BROKER-LEDGER VERDICT -- OFFICIAL PRODUCTION GATE
+======================================================================
+Official metric mode required: broker_ledger_next_close
+Legacy weight-level metrics are research-only and cannot SHIP.
+
+VERDICT: DEFERRED -- broker_replay evidence not yet written by sidecars
+  PENDING  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main/metrics.json
+  PENDING  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/metrics.json
+  PENDING  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_evaluation/official_metrics.json
