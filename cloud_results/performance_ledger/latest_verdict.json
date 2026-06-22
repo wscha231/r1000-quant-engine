@@ -1,40 +1,22 @@
 {
   "per_portfolio": {
     "main": {
-<<<<<<< Updated upstream
-      "is_cagr": 0.20938816694332907,
-      "prev_is_cagr": 0.20909400190514993,
+      "is_cagr": 0.20465591963173901,
+      "prev_is_cagr": 0.2088904322449341,
       "best_is_cagr": 0.2535727804710297,
       "best_is_run": "27814870719",
-      "delta_vs_prev_pp": 0.0294,
-      "delta_vs_best_pp": -4.4185,
-=======
-      "is_cagr": 0.2088904322449341,
-      "prev_is_cagr": 0.20909400190514993,
-      "best_is_cagr": 0.2535727804710297,
-      "best_is_run": "27814870719",
-      "delta_vs_prev_pp": -0.0204,
-      "delta_vs_best_pp": -4.4682,
->>>>>>> Stashed changes
+      "delta_vs_prev_pp": -0.4235,
+      "delta_vs_best_pp": -4.8917,
       "state": "FLAT",
       "new_best": false
     },
     "concentrated": {
-<<<<<<< Updated upstream
-      "is_cagr": 0.19018957877966058,
-      "prev_is_cagr": 0.19114036847393323,
+      "is_cagr": 0.18785286446973815,
+      "prev_is_cagr": 0.1914613290549274,
       "best_is_cagr": 0.2240682162164802,
       "best_is_run": "27516185696",
-      "delta_vs_prev_pp": -0.0951,
-      "delta_vs_best_pp": -3.3879,
-=======
-      "is_cagr": 0.1914613290549274,
-      "prev_is_cagr": 0.19114036847393323,
-      "best_is_cagr": 0.2240682162164802,
-      "best_is_run": "27516185696",
-      "delta_vs_prev_pp": 0.0321,
-      "delta_vs_best_pp": -3.2607,
->>>>>>> Stashed changes
+      "delta_vs_prev_pp": -0.3608,
+      "delta_vs_best_pp": -3.6215,
       "state": "FLAT",
       "new_best": false
     }

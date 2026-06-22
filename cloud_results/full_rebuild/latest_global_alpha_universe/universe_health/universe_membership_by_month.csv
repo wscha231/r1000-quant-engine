@@ -1,2 +1,2 @@
 date,r1000_base_count,scored_count,candidate_count,price_coverage_pct,fundamental_coverage_pct,universe_source,fallback_used,promotion_allowed
-2026-06-22,700,741,0,0.0,1.0,current_constituents_proxy_static_seed;adr_whitelist;current_constituents_proxy_static_seed+strategic_global_hardware;cycle_play_whitelist;strategic_global_hardware,True,True
+2026-06-22,700,737,0,0.0,1.0,current_constituents_proxy_static_seed;adr_whitelist;current_constituents_proxy_static_seed+strategic_global_hardware;cycle_play_whitelist;strategic_global_hardware,True,True
