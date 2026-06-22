@@ -8,6 +8,7 @@ broker-ledger next-close engine.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -212,6 +213,44 @@ def ma_ratio(prices: dict[str, pd.DataFrame], ticker: str, as_of_date: Any, wind
     return float(end_px / avg), True
 
 
+def _safe_env_float(key: str, default: float) -> float:
+    """Read an R1000_ env override as float, falling back to default on any error."""
+    raw = os.environ.get(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def concentrated_gross_cap_override(gross: float) -> float:
+    """A/B lever for the concentrated benchmark-guard gross-exposure schedule.
+
+    `benchmark_guard_signal` throttles the concentrated portfolio ~15pp harder
+    than main at every benchmark-risk tier (e.g. risk_off gross 0.35 vs 0.50,
+    early_warning 0.70 vs 0.85). That harsher schedule is the dominant source of
+    concentrated's ~42% average cash and the resulting CAGR drag, and it is NOT
+    controlled by `concentrated_regime_cash_vix_threshold` (a dead config field)
+    or `growth_reentry_strength` (a cached feature-store signal). These env
+    overrides let a challenger run relax the concentrated gross schedule through
+    `experiment_env_json` without changing default behavior:
+
+      - R1000_CONC_GROSS_CAP_FLOOR (default 0.0): never throttle concentrated
+        gross below this floor, e.g. 0.70 caps benchmark-guard cash at 30%.
+      - R1000_CONC_GROSS_CAP_SCALE (default 1.0): multiply the gross cap, e.g.
+        1.2 lifts every throttled tier 20% toward fully invested.
+
+    Both default to inert; the final value is clamped to [0, 1].
+    """
+    floor = _safe_env_float("R1000_CONC_GROSS_CAP_FLOOR", 0.0)
+    scale = _safe_env_float("R1000_CONC_GROSS_CAP_SCALE", 1.0)
+    adjusted = float(gross) * scale
+    if adjusted < floor:
+        adjusted = floor
+    return min(max(adjusted, 0.0), 1.0)
+
+
 def benchmark_guard_signal(
     prices: dict[str, pd.DataFrame],
     rebalance_date: Any,
@@ -259,6 +298,9 @@ def benchmark_guard_signal(
     else:
         gross = 1.0
         regime = "risk_on"
+
+    if portfolio_kind == "concentrated":
+        gross = concentrated_gross_cap_override(gross)
 
     return {
         "market_regime": regime,

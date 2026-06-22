@@ -5,6 +5,16 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-21
 
+### 23:58 KST - Concentrated benchmark-guard gross-cap A/B lever (real Family B root cause)
+
+- scope: make Family B actually work. Traced the source of the concentrated portfolio's ~42% average cash. The two fields Family B exposed are both inert on the production path: `concentrated_regime_cash_vix_threshold` is read nowhere in engine code (dead config field), and `growth_reentry_strength` only feeds cached `feature_store` signals (no effect in QUICK/fast runs). The real driver is `r1000_market_leader_engine.benchmark_guard_signal`, whose `gross_exposure_cap` schedule throttles concentrated ~15pp harder than main at every benchmark-risk tier (risk_off 0.35 vs 0.50, caution 0.55 vs 0.70, early_warning 0.70 vs 0.85). `apply_benchmark_risk_overlay` scales all weights by that cap and the remainder becomes cash. Attribution from run 27913892598 concentrated target book (84 months): GREEN 21.2% cash (benchmark-guard only — defense_multiplier is 1.0 in GREEN), WATCH 50.7%, DEFENSE_REVIEW 70.8%, CRISIS_DEFENSE 94.7%.
+- change: added `concentrated_gross_cap_override` and `_safe_env_float` to `r1000_market_leader_engine.py`, applied to the concentrated branch of `benchmark_guard_signal` after the gross schedule is chosen. Two env overrides relax the concentrated gross schedule without changing defaults: `R1000_CONC_GROSS_CAP_FLOOR` (default 0.0; e.g. 0.70 caps benchmark-guard cash at 30%) and `R1000_CONC_GROSS_CAP_SCALE` (default 1.0; multiplies the cap). Final value clamped to [0, 1]. Both reach the process env through the existing `experiment_env_json` to `$GITHUB_ENV` plumbing and match the allowed `^(PHASE_|R1000_|ALPHAOPS_)` pattern. Unlike `growth_reentry_strength`, this runs at target-book build time (vNext replay), so it is effective in fast/skip-collector A/B arms.
+- validation: added `tests/smoke_test.py::logic.concentrated_gross_cap_override_is_default_inert` (default pass-through, floor raises only sub-floor tiers, scale clamps at 1.0, malformed values fall back, override wired for concentrated only before the returned gross). Full smoke suite 127/127.
+- symbols_added: `concentrated_gross_cap_override`, `_safe_env_float` (both in `r1000_market_leader_engine.py`)
+- symbols_changed: `benchmark_guard_signal`
+- config_fields_added: none (env-only overrides `R1000_CONC_GROSS_CAP_FLOOR`, `R1000_CONC_GROSS_CAP_SCALE`; defaults reproduce prior behavior)
+- breaking_changes: none. Defaults are inert; concentrated weights and the main portfolio are unchanged unless a run explicitly sets the overrides. This is an A/B lever, not a default policy change.
+
 ### 22:36 KST - Daily-stop position-risk replay promoted into operating_minimal (Family A option-a)
 
 - scope: make the daily position stop measurable in the fast A/B arms. The production-grade daily-stop next-close ledger (`run_broker_position_risk_replay.py`) already existed and ran in every full rebuild, but only under `SIDECAR_PROFILE = official`. The fast challenger arms we dispatch use `operating_minimal`, so they never produced a `broker_position_risk_replay` MaxDD and the daily-stop drawdown reduction could not be compared against the plain `broker_replay` (monthly next-close) MaxDD.

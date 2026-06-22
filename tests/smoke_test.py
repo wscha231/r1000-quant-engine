@@ -2241,6 +2241,68 @@ def test_operating_minimal_runs_daily_stop_position_risk_replay() -> None:
     )
 
 
+@_test("logic.concentrated_gross_cap_override_is_default_inert")
+def test_concentrated_gross_cap_override_is_default_inert() -> None:
+    """Working Family-B lever: relax the concentrated benchmark-guard gross cap.
+
+    `benchmark_guard_signal` throttles concentrated gross ~15pp harder than main
+    at every benchmark-risk tier, which is the real source of concentrated's
+    ~42% average cash (not the dead `concentrated_regime_cash_vix_threshold`).
+    `concentrated_gross_cap_override` exposes R1000_CONC_GROSS_CAP_FLOOR / _SCALE
+    so a challenger can lift the concentrated gross schedule via
+    experiment_env_json. Defaults must be inert, overrides must clamp to [0, 1],
+    and the wiring must apply to concentrated only (main untouched).
+    """
+    import importlib
+    import os as _os
+
+    mle = importlib.import_module("r1000_market_leader_engine")
+    keys = ("R1000_CONC_GROSS_CAP_FLOOR", "R1000_CONC_GROSS_CAP_SCALE")
+    saved = {k: _os.environ.get(k) for k in keys}
+    try:
+        for k in keys:
+            _os.environ.pop(k, None)
+        # default inert: pass-through, clamped to [0, 1]
+        assert mle.concentrated_gross_cap_override(0.55) == 0.55
+        assert mle.concentrated_gross_cap_override(1.0) == 1.0
+        assert mle.concentrated_gross_cap_override(0.25) == 0.25
+
+        # floor raises only the tiers below it; tiers at/above are untouched
+        _os.environ["R1000_CONC_GROSS_CAP_FLOOR"] = "0.70"
+        assert abs(mle.concentrated_gross_cap_override(0.25) - 0.70) < 1e-9
+        assert abs(mle.concentrated_gross_cap_override(0.55) - 0.70) < 1e-9
+        assert abs(mle.concentrated_gross_cap_override(0.85) - 0.85) < 1e-9
+        assert abs(mle.concentrated_gross_cap_override(1.0) - 1.0) < 1e-9
+        _os.environ.pop("R1000_CONC_GROSS_CAP_FLOOR", None)
+
+        # scale multiplies, clamped at 1.0
+        _os.environ["R1000_CONC_GROSS_CAP_SCALE"] = "1.2"
+        assert abs(mle.concentrated_gross_cap_override(0.70) - 0.84) < 1e-9
+        assert mle.concentrated_gross_cap_override(0.90) == 1.0  # 1.08 clamped
+        _os.environ.pop("R1000_CONC_GROSS_CAP_SCALE", None)
+
+        # malformed values fall back to inert defaults
+        _os.environ["R1000_CONC_GROSS_CAP_FLOOR"] = "not_a_number"
+        assert mle.concentrated_gross_cap_override(0.55) == 0.55
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
+
+    # Wiring: the override must apply to concentrated only, after the gross
+    # schedule is chosen and before the signal dict is returned.
+    src = (ROOT / "r1000_market_leader_engine.py").read_text(encoding="utf-8")
+    guard_idx = src.find("def benchmark_guard_signal(")
+    assert guard_idx != -1, "benchmark_guard_signal missing"
+    wire_idx = src.find('if portfolio_kind == "concentrated":', guard_idx)
+    call_idx = src.find("concentrated_gross_cap_override(gross)", guard_idx)
+    ret_idx = src.find('"gross_exposure_cap": gross', guard_idx)
+    assert wire_idx != -1 and call_idx != -1, "concentrated gross override not wired"
+    assert wire_idx < call_idx < ret_idx, "override must run before the returned gross"
+
+
 @_test("logic.latest_month_mktcap_starvation_guard")
 def test_latest_month_mktcap_starvation_guard() -> None:
     """Universe-collapse guard for the latest snapshot (run 27337807588).
