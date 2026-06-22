@@ -333,6 +333,14 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # default so normal A/B arms are unchanged. Failures stay non-fatal.
   if [ "${R1000_LEVER_SWEEP:-0}" = "1" ]; then
     python tools/run_lever_sweep.py --latest-run outputs --price-cache cache_prices --output-dir outputs/lever_sweep --conc-gross-floors "${R1000_LEVER_SWEEP_FLOORS:-0.0,0.7,0.8,0.9}" --daily-stop-grid "${R1000_LEVER_SWEEP_DAILY_STOP:-default,-0.12:-0.20,-0.10:-0.15,-0.08:-0.12}" 2>&1 | tee outputs/full_rebuild_logs/lever_sweep.log || true
+    # Fail-loud guard: a prior run had R1000_LEVER_SWEEP=1 but produced no
+    # output (harness killed before writing), yet the job still reported
+    # success. Surface the outcome explicitly so a silent no-op is visible.
+    if [ -f outputs/lever_sweep/summary.json ]; then
+      echo "[lever-sweep][guard] summary status: $(python -c 'import json,sys;print(json.load(open("outputs/lever_sweep/summary.json")).get("status","unknown"))' 2>/dev/null || echo unparseable)"
+    else
+      echo "[lever-sweep][guard] WARN: R1000_LEVER_SWEEP=1 but outputs/lever_sweep/summary.json is missing — harness did not complete (OOM/timeout?)."
+    fi
   fi
   python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
   python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true

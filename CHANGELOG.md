@@ -5,6 +5,27 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-22
 
+### 21:10 KST - Run 27937558080 verdict (FAIL/reject) + lever-sweep harness hardened against silent no-op
+
+- run: `27937558080` on `98dbf33`, global_alpha_universe, operating_minimal, fast_mode, 7y. job conclusion success; dated dir committed as `cloud_results/full_rebuild/20260622_27937558080_global_alpha_universe/` (run-id naming fix from `98dbf33` confirmed working — no clobber).
+- official broker-ledger next-close metrics:
+  - Main: CAGR 34.71%, MaxDD -26.03%, Sharpe 1.269, avg_cash 26.6%.
+  - Concentrated: CAGR 44.35%, MaxDD -24.70%, Sharpe 1.400, avg_cash 41.9%.
+- VERDICT: **FAIL / promotion reject** (records the C-floor/sweep track per the standing order). Two independent blockers, both DATA-validity not strategy:
+  1. `status=invalid_window`, `valid=false`: broker ledger 6.965y / 1713 trading days vs required 7.0y / 1764 days (~51 trading days short). reasons: `broker_ledger_years_below_7`, `broker_ledger_trading_days_below_7y`.
+  2. `pit_universe_label_clean=false` → `production_promotion_allowed=false`, `proxy_window_blocker_reason=pit_universe_label_missing` (also blocks 8y/10y proxy evidence).
+  - target gaps (research-only, not production-valid until blockers clear): Conc CAGR 5.65pp short of 50%; Main CAGR 0.29pp short of 35% and MaxDD 1.03pp over -25%.
+- lever_sweep DID NOT PRODUCE OUTPUT: `R1000_LEVER_SWEEP=1` was correctly applied to the env (confirmed in job log env dumps) and the copy line ran, but no `outputs/lever_sweep/summary.json` was committed. Root cause: `run_lever_sweep.py` was killed before its final write (most likely OOM/timeout during the conc-gross arm, which runs a full vNext policy replay per floor); the `|| true` guard then masked it as success. Two runs (~8h) burned with zero Family B data.
+- cash-overlay diagnostic (committed `mdd_cash_overlay_research/.../variant_sweep.csv`, prior analysis): every cash-overlay variant moves AWAY from targets. Concentrated MaxDD is floor-stuck near -25% even at 66% avg cash (MaxDD -25.87→-25.13 for -28.77pp CAGR). Conclusion: cash/overlay is the WRONG lever; the drawdown is idiosyncratic single-name DD, not regime/crisis.
+- hardening (this commit) so the next sweep can never silent-no-op:
+  - `tools/run_lever_sweep.py`: write a skeleton `summary.json` immediately (status=running); run the cheap high-value daily-stop arm FIRST and the OOM-prone conc-gross arm LAST; flush `summary.json`/`sweep_report.md` after every arm; wrap each sweep in try/except recording the traceback into `summary["errors"]`; final `status` = ok|error.
+  - `tools/run_full_rebuild_sidecars.py`: fail-loud guard prints `[lever-sweep][guard]` status (or a WARN if `summary.json` is missing) so a no-op is visible in the job log.
+  - `tests/smoke_test.py`: assert main() always writes summary.json (dry-run, incl. a no-arm run) with status/errors fields, and that the guard line exists. Suite 128/128.
+- symbols_added: none
+- symbols_changed: `tools/run_lever_sweep.py` (`run_conc_gross_sweep`, `run_daily_stop_sweep` gain `on_arm` flush callback; `main` rewritten for skeleton-first + ordered arms + error capture); `tools/run_full_rebuild_sidecars.py` (lever block guard)
+- config_fields_added: none
+- breaking_changes: none. summary.json now carries `status` and `errors` keys (additive).
+
 ### 15:40 KST - Fix lever-sweep result delivery (copy gap + concurrent dated-dir clobber)
 
 - scope: the first lever-sweep run (`27926056802`) succeeded but its `outputs/lever_sweep/` grid never reached the branch — `outputs/lever_sweep` was absent from the workflow's `copy_dir_clean` allowlist, so results were stranded only in the blob-hosted artifact (egress-blocked in the remote env). Separately, the concurrent C-floor arm and sweep run shared the same date-based dated dir and clobbered each other (only the last push survived in `latest_`).

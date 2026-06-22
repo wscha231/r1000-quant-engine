@@ -202,7 +202,11 @@ def _run(cmd: list[str], env: dict[str, str], log: Path) -> int:
     return proc.returncode
 
 
-def run_conc_gross_sweep(args: argparse.Namespace, output_dir: Path) -> list[dict[str, Any]]:
+def run_conc_gross_sweep(
+    args: argparse.Namespace,
+    output_dir: Path,
+    on_arm: "Any" = None,
+) -> list[dict[str, Any]]:
     candidate_book = resolve_candidate_book(args.candidate_book)
     rows: list[dict[str, Any]] = []
     for floor in parse_float_list(args.conc_gross_floors):
@@ -223,6 +227,8 @@ def run_conc_gross_sweep(args: argparse.Namespace, output_dir: Path) -> list[dic
             row["vnext_cmd"] = " ".join(vnext_cmd)
             row["broker_cmd"] = " ".join(broker_cmd)
             rows.append(row)
+            if on_arm is not None:
+                on_arm(rows)
             continue
         env = os.environ.copy()
         env["R1000_CONC_GROSS_CAP_FLOOR"] = str(floor)
@@ -234,10 +240,19 @@ def run_conc_gross_sweep(args: argparse.Namespace, output_dir: Path) -> list[dic
         row["broker_returncode"] = rc_broker
         row.update({f"conc_{k}": v for k, v in read_metrics(REPO_ROOT / arm_dir / "broker" / "metrics.json").items()})
         rows.append(row)
+        # Flush after every arm so a kill mid-sweep (the conc-gross arm runs a
+        # full vNext policy replay per floor and is the OOM/timeout-prone part)
+        # still leaves the completed arms persisted on disk.
+        if on_arm is not None:
+            on_arm(rows)
     return rows
 
 
-def run_daily_stop_sweep(args: argparse.Namespace, output_dir: Path) -> list[dict[str, Any]]:
+def run_daily_stop_sweep(
+    args: argparse.Namespace,
+    output_dir: Path,
+    on_arm: "Any" = None,
+) -> list[dict[str, Any]]:
     books = {"main": args.main_book, "concentrated": args.concentrated_book}
     rows: list[dict[str, Any]] = []
     for label, hard, trailing in parse_daily_stop_grid(args.daily_stop_grid):
@@ -263,6 +278,8 @@ def run_daily_stop_sweep(args: argparse.Namespace, output_dir: Path) -> list[dic
             row[f"{kind}_returncode"] = rc
             row.update({f"{kind}_{k}": v for k, v in read_metrics(REPO_ROOT / arm_dir / kind / "metrics.json").items()})
         rows.append(row)
+        if on_arm is not None:
+            on_arm(rows)
     return rows
 
 
@@ -322,18 +339,49 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary: dict[str, Any] = {
+        "status": "running",
         "dry_run": bool(args.dry_run),
         "candidate_book": resolve_candidate_book(args.candidate_book),
         "conc_gross_floors": args.conc_gross_floors,
         "daily_stop_grid": args.daily_stop_grid,
+        "errors": {},
     }
-    if not args.skip_conc_gross:
-        summary["conc_gross_floor"] = run_conc_gross_sweep(args, output_dir)
-    if not args.skip_daily_stop:
-        summary["daily_stop"] = run_daily_stop_sweep(args, output_dir)
-
+    # Write a skeleton immediately so the output dir is never empty — a prior
+    # silent no-op (process killed before the final write) left nothing behind
+    # and the run still reported success, burning a full rebuild's worth of
+    # compute with zero evidence. Now even a hard kill leaves status="running".
     write_report(output_dir, summary)
-    print(f"[lever-sweep] wrote {output_dir / 'summary.json'} (dry_run={args.dry_run})")
+
+    def _flush(key: str):
+        def _cb(rows: list[dict[str, Any]]) -> None:
+            summary[key] = rows
+            write_report(output_dir, summary)
+        return _cb
+
+    # Daily-stop first: it is the cheap, highest-value arm (a daily walk over an
+    # already-built target book). The conc-gross arm runs a full vNext policy
+    # replay per floor and is the part prone to OOM/timeout, so running it last
+    # guarantees the daily-stop grid is persisted before any heavy arm can die.
+    if not args.skip_daily_stop:
+        try:
+            summary["daily_stop"] = run_daily_stop_sweep(args, output_dir, on_arm=_flush("daily_stop"))
+        except Exception as exc:  # noqa: BLE001 — record and continue, never silent
+            import traceback
+            summary["errors"]["daily_stop"] = traceback.format_exc()
+            print(f"[lever-sweep] daily_stop sweep FAILED: {exc!r}", file=sys.stderr)
+            write_report(output_dir, summary)
+    if not args.skip_conc_gross:
+        try:
+            summary["conc_gross_floor"] = run_conc_gross_sweep(args, output_dir, on_arm=_flush("conc_gross_floor"))
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            summary["errors"]["conc_gross_floor"] = traceback.format_exc()
+            print(f"[lever-sweep] conc_gross sweep FAILED: {exc!r}", file=sys.stderr)
+            write_report(output_dir, summary)
+
+    summary["status"] = "error" if summary["errors"] else "ok"
+    write_report(output_dir, summary)
+    print(f"[lever-sweep] wrote {output_dir / 'summary.json'} status={summary['status']} (dry_run={args.dry_run})")
     return 0
 
 

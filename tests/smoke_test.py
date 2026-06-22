@@ -2374,6 +2374,39 @@ def test_lever_sweep_builds_isolated_commands() -> None:
     assert 'copy_dir_clean outputs/lever_sweep "$DEST/lever_sweep"' in wf, "lever_sweep must be copied into committed cloud_results"
     assert "${GITHUB_RUN_ID}_$INPUT_UNIVERSE_MODE" in wf, "dated cloud_results dir must include run id (concurrent A/B clobber guard)"
 
+    # fail-loud guard: a silent no-op (R1000_LEVER_SWEEP=1 but no output) must be
+    # surfaced in the log, not swallowed by `|| true`.
+    assert "[lever-sweep][guard]" in src, "sidecar must emit a fail-loud guard line for the lever sweep"
+
+    # robustness: main() must always leave a summary.json behind — even with no
+    # arms — so a killed harness is never a silent no-op. Exercise via --dry-run
+    # (no subprocess, no real data needed) in an isolated temp output dir.
+    import json as _json
+    import tempfile as _tempfile
+
+    with _tempfile.TemporaryDirectory() as _td:
+        rc = sweep.main([
+            "--output-dir", str(_Path(_td) / "ls"),
+            "--conc-gross-floors", "0.0,0.8",
+            "--daily-stop-grid", "default,-0.10:-0.15",
+            "--dry-run",
+        ])
+        assert rc == 0
+        _summary_path = _Path(_td) / "ls" / "summary.json"
+        assert _summary_path.is_file(), "main() must always write summary.json"
+        _s = _json.loads(_summary_path.read_text(encoding="utf-8"))
+        assert _s["status"] == "ok", f"dry-run status should be ok, got {_s.get('status')}"
+        assert _s.get("errors") == {}, "dry-run must record no errors"
+        assert len(_s["conc_gross_floor"]) == 2 and len(_s["daily_stop"]) == 2
+
+        # no-arm run still leaves a valid summary (never an empty dir)
+        rc2 = sweep.main([
+            "--output-dir", str(_Path(_td) / "ls2"),
+            "--skip-conc-gross", "--skip-daily-stop", "--dry-run",
+        ])
+        assert rc2 == 0
+        assert (_Path(_td) / "ls2" / "summary.json").is_file(), "no-arm run must still write summary.json"
+
 
 @_test("logic.latest_month_mktcap_starvation_guard")
 def test_latest_month_mktcap_starvation_guard() -> None:
