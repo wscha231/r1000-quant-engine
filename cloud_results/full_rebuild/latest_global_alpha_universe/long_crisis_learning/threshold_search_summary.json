@@ -1,7 +1,7 @@
 {
   "best_thresholds": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/best_thresholds.json",
   "features": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro/long_crisis_daily_features.parquet",
-  "generated_at_utc": "2026-06-22T05:23:58.475444+00:00",
+  "generated_at_utc": "2026-06-22T05:34:37.048374+00:00",
   "production_activation_allowed": false,
   "reason": "",
   "research_only": true,

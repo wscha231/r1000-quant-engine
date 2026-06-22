@@ -1,8 +1,8 @@
 portfolio,rejection_reason,binding_constraint,count
-concentrated,candidate_gate,candidate_gate,858
-concentrated,cash,cash_binding,834
-concentrated,cap_or_replacement,cap_binding,281
-concentrated,unknown_requires_investigation,unknown,14
-main,candidate_gate,candidate_gate,780
+concentrated,candidate_gate,candidate_gate,849
+concentrated,cash,cash_binding,839
+concentrated,cap_or_replacement,cap_binding,285
+concentrated,unknown_requires_investigation,unknown,13
+main,candidate_gate,candidate_gate,774
 main,cash,cash_binding,654
-main,cap_or_replacement,cap_binding,347
+main,cap_or_replacement,cap_binding,356

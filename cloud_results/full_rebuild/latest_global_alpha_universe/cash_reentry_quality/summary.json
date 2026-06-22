@@ -2,27 +2,27 @@
   "by_portfolio": {
     "concentrated": {
       "cash_contract_drift_rows": 0,
-      "cash_drag_vs_baseline": -0.08472571524411765,
+      "cash_drag_vs_baseline": -0.08346952668758667,
       "cash_trap_flag": true,
-      "crisis_avg_cash": 0.878975291708162,
-      "defense_avg_cash": 0.6733723421039043,
-      "green_avg_cash": 0.21185431625091747,
+      "crisis_avg_cash": 0.9471770945894027,
+      "defense_avg_cash": 0.7082814257213353,
+      "green_avg_cash": 0.21183431107326986,
       "latest_broker_cash": NaN,
-      "latest_cash": 0.07850000000000024,
+      "latest_cash": 0.07850000000000001,
       "unknown_cash_reason_share": 0.0,
-      "watch_avg_cash": 0.5067688731075709
+      "watch_avg_cash": 0.5069779525857314
     },
     "main": {
       "cash_contract_drift_rows": 0,
-      "cash_drag_vs_baseline": -0.11010148876616488,
+      "cash_drag_vs_baseline": -0.12651823750202196,
       "cash_trap_flag": true,
       "crisis_avg_cash": 0.8005000000000007,
-      "defense_avg_cash": 0.4353271140948941,
-      "green_avg_cash": 0.15505273412709195,
+      "defense_avg_cash": 0.43533360871820537,
+      "green_avg_cash": 0.155015230924708,
       "latest_broker_cash": NaN,
-      "latest_cash": 0.1919985179455913,
+      "latest_cash": 0.19195680453795805,
       "unknown_cash_reason_share": 0.0,
-      "watch_avg_cash": 0.20503645510421223
+      "watch_avg_cash": 0.2038346851869629
     }
   },
   "candidate_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
@@ -34,7 +34,7 @@
   ],
   "cash_contract_drift_rows": 0,
   "cash_trap_rows": 168,
-  "generated_at": "2026-06-22T05:49:53.572415+00:00",
+  "generated_at": "2026-06-22T06:01:39.770278+00:00",
   "metric_mode": "broker_ledger_next_close",
   "missing_crisis_state_rows": 0,
   "official_metric_source": "outputs/account_evaluation/official_metrics.json",
@@ -42,11 +42,11 @@
   "production_mutation_allowed": false,
   "rows": 168,
   "schema_version": "cash_reentry_quality_audit_v1",
-  "source_artifact_name": "minimal_operating_minimal_27924395094",
+  "source_artifact_name": "minimal_operating_minimal_27926056802",
   "source_branch": "claude/pr146-review-analysis-6dkvd8",
-  "source_commit_sha": "54be78d2eb46739bb86ff74f6d889068fa276f3c",
+  "source_commit_sha": "6ca5b35c5650435f1aa92bc96f9a5c5f23131f18",
   "source_of_truth_level": "GITHUB_ARTIFACT",
-  "source_run_id": "27924395094",
+  "source_run_id": "27926056802",
   "status": "completed",
   "target_book_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_*_target_book.csv"
 }

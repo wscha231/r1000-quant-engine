@@ -2,12 +2,12 @@
   "concentrated_min_target_weight": 0.08,
   "emerging_min_target_weight": 0.0075,
   "full_exit_review_count": 14,
-  "generated_at_utc": "2026-06-22T05:50:35.885644+00:00",
-  "increase_review_count": 2,
+  "generated_at_utc": "2026-06-22T06:02:07.265085+00:00",
+  "increase_review_count": 1,
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "main_dust_threshold": 0.005,
   "main_min_target_weight": 0.01,
-  "order_review_count": 34,
+  "order_review_count": 36,
   "outputs": {
     "dust_cleanup_orders": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operator_review/dust_cleanup_orders.csv",
     "dust_positions_report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operator_review/dust_positions_report.csv",
@@ -15,6 +15,6 @@
   },
   "production_activation_allowed": false,
   "research_only": true,
-  "row_count": 37,
+  "row_count": 39,
   "schema_version": "position-cleanup-review-v1"
 }

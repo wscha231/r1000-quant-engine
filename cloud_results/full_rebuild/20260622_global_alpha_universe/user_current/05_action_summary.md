@@ -22,7 +22,7 @@
 - decision_cadence_path: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/decision_cadence/decision_cadence_summary.json`
 - mid_month_reentry_allowed: `true`
 - cash_policy_flag: `below_combined_cash_target`
-- combined_projected_cash_after_ready_orders: `11.90%`
+- combined_projected_cash_after_ready_orders: `12.10%`
 
 ## Broker Rule Backtest
 
@@ -35,8 +35,8 @@
 
 | Portfolio | Official Broker CAGR | Official Broker MaxDD | Official Sharpe | Daily Position-Risk CAGR | Daily Position-Risk MaxDD | Daily Risk Actions |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 34.65% | -26.00% | 1.268 | 30.08% | -25.93% | 0 |
-| concentrated | 45.06% | -26.05% | 1.399 | 30.17% | -29.41% | 0 |
+| main | 34.88% | -26.05% | 1.275 | 30.12% | -25.89% | 0 |
+| concentrated | 44.67% | -25.87% | 1.394 | 30.06% | -28.17% | 0 |
 
 - Official current-holding performance must be judged by the broker-ledger row, not deprecated weight-level research metrics.
 - Daily monitoring results are displayed separately so a risk overlay cannot be mistaken for the monthly production target-book result.

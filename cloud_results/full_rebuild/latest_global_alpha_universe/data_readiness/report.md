@@ -12,24 +12,24 @@
 
 - cache files: `1122`
 - manifest end: `2026-06-18`
-- manifest tickers: `545`
+- manifest tickers: `551`
 
 ## Latest Outputs
 
 | File | Rows | Max date | Weight sum |
 | --- | ---: | --- | ---: |
-| scored_latest | 742 | 2026-06-22 |  |
-| portfolio_latest | 17 |  | 0.9999999999999993 |
-| concentrated_portfolio_latest | 3 | 2026-06-22 | 0.9999999999999998 |
+| scored_latest | 741 | 2026-06-22 |  |
+| portfolio_latest | 19 |  | 0.9999999999999992 |
+| concentrated_portfolio_latest | 4 | 2026-06-22 | 1.0 |
 
 ## Target Books
 
 | Book | Rows | Min date | Max date | Weight sum |
 | --- | ---: | --- | --- | ---: |
-| main_history | 2072 | 2019-06-28 | 2026-03-31 | 81.99999999999991 |
-| concentrated_history | 23190 | 2019-06-28 | 2026-03-31 | 4939.499999999999 |
-| operating_main | 1268 | 2019-06-28 | 2026-06-18 | 83.99999999999994 |
-| operating_concentrated | 491 | 2019-06-28 | 2026-06-18 | 84.0 |
+| main_history | 2151 | 2019-06-28 | 2026-03-31 | 81.99999999999991 |
+| concentrated_history | 23187 | 2019-06-28 | 2026-03-31 | 4939.499999999999 |
+| operating_main | 1268 | 2019-06-28 | 2026-06-18 | 83.99999999999996 |
+| operating_concentrated | 491 | 2019-06-28 | 2026-06-18 | 83.99999999999999 |
 
 ## Feature Source Coverage
 
@@ -45,7 +45,7 @@
 
 - status: `pass`
 - promotion_allowed: `true`
-- r1000_base_count: `701`
+- r1000_base_count: `700`
 - min_r1000_base: `400`
 - primary_universe_source: `static_iwb_seed`
 - fallback_used: `true`

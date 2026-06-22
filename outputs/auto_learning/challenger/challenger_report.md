@@ -2,7 +2,7 @@
 
 This report evaluates the candidate policy gates. It does not apply the policy to production.
 
-- Policy version: `2026-05-alphaops-20260621-v1`
+- Policy version: `2026-05-alphaops-20260622-v1`
 - Status: `blocked`
 - Approved for promotion: `False`
 - Hard failures: 13
@@ -20,13 +20,13 @@ This report evaluates the candidate policy gates. It does not apply the policy t
 | schema | production_activation_disabled | hard | True | `False` | `False` |
 | schema | human_approval_required | hard | True | `True` | `True` |
 | main | feature_gate_candidate_backtest_executed | hard | False | `candidate_only` | `full candidate rebuild/backtest` |
-| main | main_cagr_floor | hard | False | `0.20165834588806963` | `0.33874897692369466` |
-| main | main_sharpe_floor | hard | False | `1.0971959712745438` | `1.7883127723787382` |
-| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.15775833156669428` |
+| main | main_cagr_floor | hard | False | `0.20165834588806963` | `0.3219294293877022` |
+| main | main_sharpe_floor | hard | False | `1.0971959712745438` | `1.763716696195194` |
+| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.1546303443118915` |
 | main_v2 | main_v2_historical_backtest_exists | hard | False | `latest_snapshot_only` | `83-month main_v2 backtest` |
 | main_v2 | main_v2_cap_audit | soft | True | `{'positions': 11, 'cash': 0.07820306303913749}` | `cap<=15%, positions>0` |
-| concentrated | concentrated_cagr_floor | hard | True | `0.5490632646347016` | `0.3` |
-| concentrated | concentrated_max_dd_floor | hard | True | `-0.14701705345254945` | `-0.25` |
+| concentrated | concentrated_cagr_floor | hard | True | `0.5059777575073019` | `0.3` |
+| concentrated | concentrated_max_dd_floor | hard | True | `-0.1649423408195464` | `-0.25` |
 | concentrated | single_name_and_sector_cap_audit | hard | False | `2` | `0` |
 | orchestrator | orchestrator_historical_backtest_exists | hard | False | `snapshot_report_only` | `83-month orchestrator backtest` |
 | orchestrator | snapshot_cash_floor | soft | True | `0.19999999999999996` | `0.25` |

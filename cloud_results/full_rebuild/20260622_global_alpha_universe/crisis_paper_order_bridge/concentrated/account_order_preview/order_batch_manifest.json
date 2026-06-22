@@ -1,13 +1,13 @@
 {
   "as_of_date": "2026-06-18",
   "client_order_ids": [
-    "r1k-C-20260618-S-SNDK-ba70ca6924b3",
-    "r1k-C-20260618-S-WDC-14d0ecc442fc",
-    "r1k-C-20260618-B-CIEN-b5456b79f2f8",
-    "r1k-C-20260618-B-BE-b2e911fffe03",
-    "r1k-C-20260618-B-LITE-c34fe02763e2"
+    "r1k-C-20260618-S-SNDK-4914333119f5",
+    "r1k-C-20260618-S-WDC-7c5ff22e559c",
+    "r1k-C-20260618-B-CIEN-43d666e1a4f9",
+    "r1k-C-20260618-B-BE-5926ee83bcdd",
+    "r1k-C-20260618-B-LITE-ff9b9472850e"
   ],
-  "order_batch_id": "dd48cbd616c7c20bf4f2bdbddfd88d7d7dbffb86db518058301b8a7777480688",
+  "order_batch_id": "685aefc4b8dcc396ddc0aae5ce6bda3eb608e5472fe895cb89535682378ec827",
   "order_count": 5,
   "portfolio_kind": "concentrated",
   "ready_order_count": 5,

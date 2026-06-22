@@ -4,12 +4,12 @@
     "dispatch_mode": "manual_review_no_workflow_dispatch",
     "failure": "oos_is_cagr_ratio_above_lock",
     "metrics": {
-      "cagr_is": 0.19018957877966058,
-      "cagr_oos": 1.4122784776887967,
+      "cagr_is": 0.1914613290549274,
+      "cagr_oos": 1.3825267213968613,
       "max_allowed_degradation_pp": 6.0,
       "max_oos_is_cagr_ratio": 3.0,
-      "oos_degradation_pp": -122.20888989091361,
-      "oos_is_cagr_ratio": 7.425635446224721,
+      "oos_degradation_pp": -119.10653923419339,
+      "oos_is_cagr_ratio": 7.22091885719771,
       "oos_trading_days": 494
     },
     "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",
@@ -31,12 +31,12 @@
     "dispatch_mode": "manual_review_no_workflow_dispatch",
     "failure": "oos_is_cagr_ratio_above_lock",
     "metrics": {
-      "cagr_is": 0.20938816694332907,
-      "cagr_oos": 0.781453253909125,
+      "cagr_is": 0.2088904322449341,
+      "cagr_oos": 0.7941062357926987,
       "max_allowed_degradation_pp": 5.0,
       "max_oos_is_cagr_ratio": 3.0,
-      "oos_degradation_pp": -57.2065086965796,
-      "oos_is_cagr_ratio": 3.732079349644555,
+      "oos_degradation_pp": -58.52158035477646,
+      "oos_is_cagr_ratio": 3.8015443180354516,
       "oos_trading_days": 494
     },
     "next_action": "Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion.",

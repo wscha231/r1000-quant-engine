@@ -6,17 +6,17 @@
   "as_of_date": "2026-06-18",
   "cash_policy_flag": "below_combined_cash_target",
   "cash_policy_review_action": "RESERVE_CASH",
-  "cash_usd": 195791.88525057415,
-  "current_cash_weight": 0.09197997004046786,
+  "cash_usd": 194792.5297257504,
+  "current_cash_weight": 0.09218885869893761,
   "current_portfolio_snapshot": {
     "as_of_date": "2026-06-18",
     "cash_policy_flag": "below_combined_cash_target",
     "cash_policy_review_action": "RESERVE_CASH",
     "cash_row_count": 2,
-    "combined_cash_gap_weight": 0.028867438929903497,
-    "combined_current_cash_weight": 0.09197997004046786,
-    "combined_target_cash_weight": 0.12084740897037136,
-    "generated_at_utc": "2026-06-22T05:50:34.627415+00:00",
+    "combined_cash_gap_weight": 0.029466709480905143,
+    "combined_current_cash_weight": 0.09218885869893761,
+    "combined_target_cash_weight": 0.12165556817984276,
+    "generated_at_utc": "2026-06-22T06:02:06.233814+00:00",
     "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
     "macro_cash_raise_confirmation_count": 0.0,
     "macro_cash_raise_gate": "none",
@@ -54,7 +54,7 @@
   },
   "equity_row_count": 14,
   "error_count": 2,
-  "generated_at_utc": "2026-06-22T05:50:34.628418+00:00",
+  "generated_at_utc": "2026-06-22T06:02:06.234572+00:00",
   "issue_count": 3,
   "issues": [
     {
@@ -67,7 +67,7 @@
     },
     {
       "check_id": "main_target_missing_price_rows",
-      "details": "{\"missing\": [\"AMAT\", \"ARW\", \"CAT\", \"COHU\", \"ENTG\", \"EXEL\", \"GEV\", \"GOOG\", \"KLAC\", \"LRCX\", \"NUE\", \"R\", \"ROST\", \"TKR\", \"UMC\", \"VRT\"]}",
+      "details": "{\"missing\": [\"AMAT\", \"AMD\", \"AMKR\", \"ARW\", \"CAT\", \"COHU\", \"ENTG\", \"GEV\", \"KLAC\", \"LRCX\", \"NUE\", \"NVT\", \"NXPI\", \"R\", \"TKR\", \"UMC\", \"VRT\"]}",
       "message": "some target tickers are absent from positions_current, usually missing price cache",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/main/positions_current.csv",
       "severity": "error",
@@ -75,7 +75,7 @@
     },
     {
       "check_id": "concentrated_target_missing_price_rows",
-      "details": "{\"missing\": [\"AMAT\"]}",
+      "details": "{\"missing\": [\"MU\", \"TKR\"]}",
       "message": "some target tickers are absent from positions_current, usually missing price cache",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/concentrated/positions_current.csv",
       "severity": "error",
@@ -102,9 +102,9 @@
   "safety_audit_status": "blocked",
   "schema_version": "operating-snapshot-v1",
   "status": "blocked",
-  "target_cash_weight": 0.12084740897037136,
+  "target_cash_weight": 0.12165556817984276,
   "target_precedence": "account_ledger_preview_target_weights",
   "target_source": "account_ledger_preview/*/target_weights.csv",
-  "total_equity_usd": 2128636.105930811,
+  "total_equity_usd": 2112972.570382794,
   "warning_count": 0
 }

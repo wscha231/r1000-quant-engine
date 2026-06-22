@@ -6613,7 +6613,7 @@
     "candidates": [
       {
         "exists": true,
-        "modified_utc": "2026-06-22T01:48:17.782903+00:00",
+        "modified_utc": "2026-06-22T02:46:46.114600+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/sec/companyfacts.zip",
         "size_bytes": 1387110195
       },
@@ -6623,7 +6623,7 @@
       },
       {
         "exists": true,
-        "modified_utc": "2026-06-22T01:47:55.577790+00:00",
+        "modified_utc": "2026-06-22T02:46:26.344161+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/companyfacts.zip",
         "size_bytes": 1387110195
       },
@@ -6635,7 +6635,7 @@
     "canonical_available": true,
     "canonical_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/sec/companyfacts.zip"
   },
-  "generated_at_utc": "2026-06-22T05:49:56.571739+00:00",
+  "generated_at_utc": "2026-06-22T06:01:41.808471+00:00",
   "latest_observable_close_date": "2026-06-18",
   "latest_outputs": {
     "concentrated_portfolio_latest": {
@@ -6643,26 +6643,26 @@
       "max_date": "2026-06-22",
       "min_date": "2026-06-22",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_portfolio_latest.csv",
-      "row_count": 3,
-      "ticker_count": 3,
-      "weight_sum": 0.9999999999999998
+      "row_count": 4,
+      "ticker_count": 4,
+      "weight_sum": 1.0
     },
     "portfolio_latest": {
       "exists": true,
       "max_date": "",
       "min_date": "",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv",
-      "row_count": 17,
-      "ticker_count": 17,
-      "weight_sum": 0.9999999999999993
+      "row_count": 19,
+      "ticker_count": 19,
+      "weight_sum": 0.9999999999999992
     },
     "scored_latest": {
       "exists": true,
       "max_date": "2026-06-22",
       "min_date": "2026-06-22",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
-      "row_count": 742,
-      "ticker_count": 742,
+      "row_count": 741,
+      "ticker_count": 741,
       "weight_sum": null
     }
   },
@@ -6725,7 +6725,7 @@
       "status": null,
       "ticker_count": null
     },
-    "latest_file_modified_utc": "2026-06-22T05:21:06.075739+00:00",
+    "latest_file_modified_utc": "2026-06-22T05:31:04.821362+00:00",
     "root_manifest": {
       "end": "2026-06-18",
       "exists": true,
@@ -6733,12 +6733,12 @@
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices/replay_price_cache_manifest.json",
       "start": "2019-06-14",
       "status": "completed",
-      "ticker_count": 545
+      "ticker_count": 551
     },
     "selected_manifest_end": "2026-06-18",
     "selected_manifest_failed_count": 0,
     "selected_manifest_status": "completed",
-    "selected_manifest_ticker_count": 545
+    "selected_manifest_ticker_count": 551
   },
   "ready_for_fullrun": true,
   "ready_for_policy_replay": true,
@@ -6815,21 +6815,21 @@
         "candidates": [
           {
             "exists": true,
-            "modified_utc": "2026-06-22T05:42:35.937013+00:00",
+            "modified_utc": "2026-06-22T05:47:50.058007+00:00",
             "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
-            "size_bytes": 93788619
+            "size_bytes": 93785125
           },
           {
             "exists": true,
-            "modified_utc": "2026-06-22T05:42:35.937013+00:00",
+            "modified_utc": "2026-06-22T05:47:50.058007+00:00",
             "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
-            "size_bytes": 93788619
+            "size_bytes": 93785125
           },
           {
             "exists": true,
-            "modified_utc": "2026-06-22T05:42:35.937013+00:00",
+            "modified_utc": "2026-06-22T05:47:50.058007+00:00",
             "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
-            "size_bytes": 93788619
+            "size_bytes": 93785125
           }
         ]
       }
@@ -6842,8 +6842,8 @@
       "max_date": "2026-03-31",
       "min_date": "2019-06-28",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv",
-      "row_count": 23190,
-      "ticker_count": 261,
+      "row_count": 23187,
+      "ticker_count": 264,
       "weight_sum": 4939.499999999999
     },
     "main_history": {
@@ -6851,8 +6851,8 @@
       "max_date": "2026-03-31",
       "min_date": "2019-06-28",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
-      "row_count": 2072,
-      "ticker_count": 347,
+      "row_count": 2151,
+      "ticker_count": 368,
       "weight_sum": 81.99999999999991
     },
     "operating_concentrated": {
@@ -6862,7 +6862,7 @@
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
       "row_count": 491,
       "ticker_count": 150,
-      "weight_sum": 84.0
+      "weight_sum": 83.99999999999999
     },
     "operating_main": {
       "exists": true,
@@ -6871,7 +6871,7 @@
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
       "row_count": 1268,
       "ticker_count": 322,
-      "weight_sum": 83.99999999999994
+      "weight_sum": 83.99999999999996
     },
     "operating_summary": {
       "blocked_books": [],
@@ -6891,7 +6891,7 @@
           "main_defense_review_balanced_new_entry_block": {
             "blocked_entries_sample": [
               {
-                "breakout_setup_quality_score": -0.2415333824184674,
+                "breakout_setup_quality_score": -0.2415331057437206,
                 "crisis_state": "DEFENSE_REVIEW",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -6903,10 +6903,10 @@
                 "regime_state": "neutral",
                 "sector": "Energy",
                 "ticker": "AM",
-                "weight_dropped": 0.03911252624194817
+                "weight_dropped": 0.03914021985330604
               },
               {
-                "breakout_setup_quality_score": 0.4694396852670022,
+                "breakout_setup_quality_score": 0.4694380172538394,
                 "crisis_state": "DEFENSE_REVIEW",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -6918,10 +6918,10 @@
                 "regime_state": "neutral",
                 "sector": "Consumer Discretionary",
                 "ticker": "CHH",
-                "weight_dropped": 0.03911252624194817
+                "weight_dropped": 0.03914021985330604
               },
               {
-                "breakout_setup_quality_score": 0.1731079397291583,
+                "breakout_setup_quality_score": 0.1731067151733998,
                 "crisis_state": "DEFENSE_REVIEW",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -6933,10 +6933,10 @@
                 "regime_state": "neutral",
                 "sector": "Industrials",
                 "ticker": "EFX",
-                "weight_dropped": 0.03911252624194817
+                "weight_dropped": 0.03914021985330604
               },
               {
-                "breakout_setup_quality_score": 0.2390136998834548,
+                "breakout_setup_quality_score": 0.2390145275868503,
                 "crisis_state": "DEFENSE_REVIEW",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -6948,10 +6948,10 @@
                 "regime_state": "neutral",
                 "sector": "Industrials",
                 "ticker": "HEI",
-                "weight_dropped": 0.03911252624194817
+                "weight_dropped": 0.03914021985330604
               },
               {
-                "breakout_setup_quality_score": 0.0289226315610893,
+                "breakout_setup_quality_score": 0.0289226388184955,
                 "crisis_state": "DEFENSE_REVIEW",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -6963,10 +6963,10 @@
                 "regime_state": "neutral",
                 "sector": "Consumer Discretionary",
                 "ticker": "POOL",
-                "weight_dropped": 0.03911252624194817
+                "weight_dropped": 0.03914021985330604
               },
               {
-                "breakout_setup_quality_score": -0.0636053694941055,
+                "breakout_setup_quality_score": -0.0636059367920051,
                 "crisis_state": "DEFENSE_REVIEW",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -6978,7 +6978,7 @@
                 "regime_state": "neutral",
                 "sector": "Materials",
                 "ticker": "STLD",
-                "weight_dropped": 0.03911252624194817
+                "weight_dropped": 0.03914021985330604
               }
             ],
             "blocked_new_entries": 6,
@@ -7022,7 +7022,7 @@
                 "ticker": "STLD"
               }
             ],
-            "weight_dropped_total": 0.23467515745168901
+            "weight_dropped_total": 0.23484131911983624
           },
           "main_defense_review_turnaround_new_entry_block": {
             "blocked_entries_sample": [
@@ -7038,7 +7038,7 @@
                 "regime_state": "neutral",
                 "sector": "Industrials",
                 "ticker": "CPRT",
-                "weight_dropped": 0.09808441066750051
+                "weight_dropped": 0.09808599171717756
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7052,7 +7052,7 @@
                 "regime_state": "neutral",
                 "sector": "Consumer Discretionary",
                 "ticker": "ORLY",
-                "weight_dropped": 0.06954036277489008
+                "weight_dropped": 0.06954640829100392
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7066,7 +7066,7 @@
                 "regime_state": "neutral",
                 "sector": "Industrials",
                 "ticker": "CTAS",
-                "weight_dropped": 0.045308132892586755
+                "weight_dropped": 0.04530893588538662
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7080,7 +7080,7 @@
                 "regime_state": "neutral",
                 "sector": "Information Technology",
                 "ticker": "MSFT",
-                "weight_dropped": 0.04481166706745468
+                "weight_dropped": 0.04480886696712956
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7094,7 +7094,7 @@
                 "regime_state": "neutral",
                 "sector": "Information Technology",
                 "ticker": "MTSI",
-                "weight_dropped": 0.03936309013916618
+                "weight_dropped": 0.03936462357505918
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7108,7 +7108,7 @@
                 "regime_state": "neutral",
                 "sector": "Financials",
                 "ticker": "V",
-                "weight_dropped": 0.03712698202365662
+                "weight_dropped": 0.03712538980853143
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7122,7 +7122,7 @@
                 "regime_state": "neutral",
                 "sector": "Health Care",
                 "ticker": "REGN",
-                "weight_dropped": 0.03525594877810228
+                "weight_dropped": 0.03525359988489262
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7136,7 +7136,7 @@
                 "regime_state": "neutral",
                 "sector": "Internet",
                 "ticker": "JD",
-                "weight_dropped": 0.034164933239703724
+                "weight_dropped": 0.034166489775106036
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7150,7 +7150,7 @@
                 "regime_state": "neutral",
                 "sector": "Information Technology",
                 "ticker": "KLAC",
-                "weight_dropped": 0.03376657487262692
+                "weight_dropped": 0.0337668773897415
               },
               {
                 "crisis_state": "DEFENSE_REVIEW",
@@ -7164,7 +7164,7 @@
                 "regime_state": "neutral",
                 "sector": "Communication",
                 "ticker": "GOOGL",
-                "weight_dropped": 0.029554816826011607
+                "weight_dropped": 0.029554606102046566
               }
             ],
             "blocked_new_entries": 10,
@@ -7223,7 +7223,7 @@
                 "ticker": "GOOGL"
               }
             ],
-            "weight_dropped_total": 0.4669769192816993
+            "weight_dropped_total": 0.466981789396075
           },
           "main_neutral_churn_filter": {
             "blocked_entries_sample": [
@@ -7249,7 +7249,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "PDD",
-                "weight_dropped": 0.03923275186063262
+                "weight_dropped": 0.038932665770979015
               },
               {
                 "action": "blocked_entry",
@@ -7257,7 +7257,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "ETSY",
-                "weight_dropped": 0.06027717888210571
+                "weight_dropped": 0.0601091746331504
               },
               {
                 "action": "blocked_entry",
@@ -7273,7 +7273,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "NTRA",
-                "weight_dropped": 0.0383791513336067
+                "weight_dropped": 0.03834469166353154
               },
               {
                 "action": "blocked_entry",
@@ -7281,7 +7281,7 @@
                 "regime_state": "neutral",
                 "swap_count": 3,
                 "ticker": "PDD",
-                "weight_dropped": 0.09330024138793502
+                "weight_dropped": 0.0935533676202132
               },
               {
                 "action": "blocked_entry",
@@ -7297,7 +7297,7 @@
                 "regime_state": "neutral",
                 "swap_count": 3,
                 "ticker": "MRNA",
-                "weight_dropped": 0.07999962304268313
+                "weight_dropped": 0.07999960578314982
               },
               {
                 "action": "blocked_entry",
@@ -7329,7 +7329,7 @@
                 "regime_state": "neutral",
                 "swap_count": 3,
                 "ticker": "LRCX",
-                "weight_dropped": 0.07554443335426789
+                "weight_dropped": 0.07551628328459224
               },
               {
                 "action": "blocked_entry",
@@ -7337,7 +7337,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "PANW",
-                "weight_dropped": 0.09804895711037538
+                "weight_dropped": 0.09762676991056704
               },
               {
                 "action": "blocked_entry",
@@ -7345,7 +7345,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "ELF",
-                "weight_dropped": 0.09814282012274746
+                "weight_dropped": 0.09813413179660807
               },
               {
                 "action": "blocked_entry",
@@ -7361,7 +7361,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "SFM",
-                "weight_dropped": 0.04655447702808773
+                "weight_dropped": 0.046537210526909054
               },
               {
                 "action": "blocked_entry",
@@ -7369,7 +7369,7 @@
                 "regime_state": "neutral",
                 "swap_count": 3,
                 "ticker": "SFM",
-                "weight_dropped": 0.06468463065649922
+                "weight_dropped": 0.06515044379819283
               },
               {
                 "action": "blocked_entry",
@@ -7385,7 +7385,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "CORT",
-                "weight_dropped": 0.11654831825985601
+                "weight_dropped": 0.11625718042073856
               },
               {
                 "action": "blocked_entry",
@@ -7393,7 +7393,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "CRS",
-                "weight_dropped": 0.08044819408308046
+                "weight_dropped": 0.08017614251924925
               },
               {
                 "action": "blocked_entry",
@@ -7401,7 +7401,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "FLNC",
-                "weight_dropped": 0.06768583895440115
+                "weight_dropped": 0.06796863391758712
               },
               {
                 "action": "blocked_entry",
@@ -7409,7 +7409,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "CAVA",
-                "weight_dropped": 0.04330136695055962
+                "weight_dropped": 0.03633009770902672
               },
               {
                 "action": "blocked_entry",
@@ -7417,7 +7417,7 @@
                 "regime_state": "neutral",
                 "swap_count": 3,
                 "ticker": "CORT",
-                "weight_dropped": 0.020047042140962288
+                "weight_dropped": 0.02567608724665214
               },
               {
                 "action": "blocked_entry",
@@ -7425,7 +7425,7 @@
                 "regime_state": "neutral",
                 "swap_count": 3,
                 "ticker": "FLNC",
-                "weight_dropped": 0.034446491279358685
+                "weight_dropped": 0.044470845235636616
               },
               {
                 "action": "blocked_entry",
@@ -7433,7 +7433,7 @@
                 "regime_state": "neutral",
                 "swap_count": 2,
                 "ticker": "TPL",
-                "weight_dropped": 0.11722826327225008
+                "weight_dropped": 0.10819853270203415
               },
               {
                 "action": "blocked_entry",
@@ -7441,7 +7441,7 @@
                 "regime_state": "neutral",
                 "swap_count": 3,
                 "ticker": "CORT",
-                "weight_dropped": 0.0620107799523084
+                "weight_dropped": 0.057005968565521016
               },
               {
                 "action": "blocked_entry",
@@ -7465,7 +7465,7 @@
                 "regime_state": "neutral",
                 "swap_count": 4,
                 "ticker": "AVGO",
-                "weight_dropped": 0.06301894977980566
+                "weight_dropped": 0.06288420070442143
               }
             ],
             "cash_rebuilt_explicitly": true,
@@ -7544,7 +7544,7 @@
                 "ticker": "STLD"
               }
             ],
-            "weight_dropped_total": 2.315853890391104,
+            "weight_dropped_total": 2.309840029860064,
             "window_months": 6
           },
           "neutral_metals_new_entry_block": {
@@ -7573,7 +7573,7 @@
                 "regime_state": "neutral",
                 "sector": "Materials",
                 "ticker": "MP",
-                "weight_dropped": 0.03425166111463032
+                "weight_dropped": 0.034151328155879096
               },
               {
                 "hold_replace_decision": "new_entry",
@@ -7638,7 +7638,7 @@
                 "regime_state": "neutral",
                 "sector": "Materials",
                 "ticker": "SCCO",
-                "weight_dropped": 0.0438258832232333
+                "weight_dropped": 0.043813408375960546
               },
               {
                 "hold_replace_decision": "new_entry",
@@ -7651,7 +7651,7 @@
                 "regime_state": "neutral",
                 "sector": "Materials",
                 "ticker": "RGLD",
-                "weight_dropped": 0.07208724245683341
+                "weight_dropped": 0.07230498959684757
               },
               {
                 "hold_replace_decision": "new_entry",
@@ -7664,7 +7664,7 @@
                 "regime_state": "neutral",
                 "sector": "Materials",
                 "ticker": "SCCO",
-                "weight_dropped": 0.10949731986598077
+                "weight_dropped": 0.10986918335054748
               }
             ],
             "blocked_new_entries": 9,
@@ -7711,7 +7711,7 @@
                 "ticker": "STLD"
               }
             ],
-            "weight_dropped_total": 0.356804963803535
+            "weight_dropped_total": 0.3572817666220918
           },
           "operating_book_current": true,
           "operating_signal_date": "2026-06-18",
@@ -7721,7 +7721,7 @@
           "output_row_count": 1268,
           "portfolio": "main",
           "regime_capacity_overlay": {
-            "avg_cash_weight": 0.22794880920461597,
+            "avg_cash_weight": 0.22778059159963449,
             "bull_floor": 0.9,
             "bull_floor_enabled": false,
             "max_cash_weight": 0.8320000000000001,
@@ -7750,9 +7750,9 @@
             "benchmark_risk_threshold": 0.7,
             "blocked_entries_sample": [
               {
-                "atr14_pct": 0.2045364097226852,
+                "atr14_pct": 0.2045364560007914,
                 "benchmark_risk_score": 2.0,
-                "breakout_setup_quality_score": 0.1649282940779504,
+                "breakout_setup_quality_score": 0.1649271482398662,
                 "crisis_state": "GREEN",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -7767,9 +7767,9 @@
                 "weight_dropped": 0.056999999999999995
               },
               {
-                "atr14_pct": 0.1457104457600407,
+                "atr14_pct": 0.1457104316309134,
                 "benchmark_risk_score": 2.0,
-                "breakout_setup_quality_score": 0.2805138020471793,
+                "breakout_setup_quality_score": 0.2805132005550552,
                 "crisis_state": "GREEN",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -7784,9 +7784,9 @@
                 "weight_dropped": 0.056999999999999995
               },
               {
-                "atr14_pct": 0.1204746233847048,
+                "atr14_pct": 0.1204746311368639,
                 "benchmark_risk_score": 2.0,
-                "breakout_setup_quality_score": 0.3657409791677395,
+                "breakout_setup_quality_score": 0.3657405177084067,
                 "crisis_state": "GREEN",
                 "hold_replace_decision": "new_entry",
                 "holding_state": "NEW",
@@ -7868,7 +7868,7 @@
                 "regime_state": "neutral",
                 "sector": "Materials",
                 "ticker": "STLD",
-                "weight_dropped": 0.04560937932394967
+                "weight_dropped": 0.045620990893521625
               }
             ],
             "blocked_new_entries": 2,
@@ -7903,7 +7903,7 @@
                 "ticker": "STLD"
               }
             ],
-            "weight_dropped_total": 0.10260937932394967
+            "weight_dropped_total": 0.10262099089352161
           },
           "operating_book_current": true,
           "operating_signal_date": "2026-06-18",
@@ -7913,10 +7913,10 @@
           "output_row_count": 491,
           "portfolio": "concentrated",
           "regime_capacity_overlay": {
-            "avg_cash_weight": 0.4139018096333047,
+            "avg_cash_weight": 0.4263193264079765,
             "bull_floor": 0.85,
             "bull_floor_enabled": false,
-            "max_cash_weight": 0.96,
+            "max_cash_weight": 0.97125,
             "multipliers": {
               "bear": 0.5,
               "bull": 1.0,
@@ -7936,7 +7936,7 @@
           "variant_key": "concentrated_N5"
         }
       ],
-      "generated_at_utc": "2026-06-22T05:47:25.609233+00:00",
+      "generated_at_utc": "2026-06-22T05:51:15.938288+00:00",
       "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
       "outputs": {
         "concentrated_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
@@ -7959,24 +7959,24 @@
   },
   "universe_health": {
     "blockers": [],
-    "candidate_count": 46280,
+    "candidate_count": 46276,
     "candidate_replay_book": {
       "date_column": "rebalance_date",
       "exists": true,
-      "fundamental_coverage_pct": 0.7681287813310286,
+      "fundamental_coverage_pct": 0.7681087388711211,
       "max_date": "2026-04-30",
       "min_date": "2019-06-28",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
-      "r1000_base_count": 896,
-      "row_count": 46280,
+      "r1000_base_count": 895,
+      "row_count": 46276,
       "source_column": "source_universe",
       "source_counts": {
         "adr_whitelist": 1355,
-        "current_constituents_proxy_static_seed": 43505,
+        "current_constituents_proxy_static_seed": 43501,
         "current_constituents_proxy_static_seed+strategic_global_hardware": 1173,
         "cycle_play_whitelist": 247
       },
-      "ticker_count": 969
+      "ticker_count": 968
     },
     "exists": true,
     "fallback_source_chain": {
@@ -7988,7 +7988,7 @@
         "data_static_iwb_seed": {
           "exists": true,
           "kind": "file",
-          "modified_utc": "2026-06-22T01:46:40.965675+00:00",
+          "modified_utc": "2026-06-22T02:45:29.335501+00:00",
           "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
           "size_bytes": 62177
         },
@@ -7999,9 +7999,9 @@
         "previous_healthy_candidate_universe": {
           "exists": true,
           "kind": "file",
-          "modified_utc": "2026-06-22T03:22:09.469806+00:00",
+          "modified_utc": "2026-06-22T04:01:35.623918+00:00",
           "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
-          "size_bytes": 37401
+          "size_bytes": 37385
         },
         "restored_drive_iwb_csv": {
           "exists": false,
@@ -8020,11 +8020,11 @@
       "previous_healthy_universe_cache": {
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-22T03:22:09.469806+00:00",
+        "modified_utc": "2026-06-22T04:01:35.623918+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
         "r1000_base_count": 992,
         "row_count": 1118,
-        "size_bytes": 37401,
+        "size_bytes": 37385,
         "ticker_count": 1118
       },
       "restored_drive_iwb": {
@@ -8050,7 +8050,7 @@
           "data_static": {
             "exists": true,
             "kind": "file",
-            "modified_utc": "2026-06-22T01:46:40.965675+00:00",
+            "modified_utc": "2026-06-22T02:45:29.335501+00:00",
             "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
             "size_bytes": 62177
           }
@@ -8058,7 +8058,7 @@
       }
     },
     "fallback_used": true,
-    "generated_at_utc": "2026-06-22T05:47:29.751910+00:00",
+    "generated_at_utc": "2026-06-22T05:51:19.379303+00:00",
     "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
     "min_r1000_base": 400,
     "next_actions": [],
@@ -8068,7 +8068,7 @@
     "primary_universe_source": "static_iwb_seed",
     "production_mutation_allowed": false,
     "promotion_allowed": true,
-    "r1000_base_count": 701,
+    "r1000_base_count": 700,
     "rules": {
       "do_not_use_for": "strategy promotion or A/B baseline when status != pass",
       "fallback_order": [
@@ -8081,7 +8081,7 @@
       "promotion_rule": "non-ADR runs require scored R1000 base >= min_r1000_base and valid 8-year broker-ledger evidence"
     },
     "schema_version": "universe-health-v1",
-    "scored_count": 742,
+    "scored_count": 741,
     "scored_latest": {
       "date_column": "rebalance_date",
       "exists": true,
@@ -8089,17 +8089,17 @@
       "max_date": "2026-06-22",
       "min_date": "2026-06-22",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
-      "r1000_base_count": 701,
-      "row_count": 742,
+      "r1000_base_count": 700,
+      "row_count": 741,
       "source_column": "universe_source",
       "source_counts": {
         "adr_whitelist": 31,
-        "current_constituents_proxy_static_seed": 682,
+        "current_constituents_proxy_static_seed": 681,
         "current_constituents_proxy_static_seed+strategic_global_hardware": 19,
         "cycle_play_whitelist": 6,
         "strategic_global_hardware": 4
       },
-      "ticker_count": 742
+      "ticker_count": 741
     },
     "status": "pass",
     "universe_mode": "global_alpha_universe"

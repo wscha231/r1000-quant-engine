@@ -14,8 +14,8 @@ Measurement-only diagnostic. No cash-policy, target-book, or order mutation.
 
 ## Portfolio Cash
 
-- `concentrated`: GREEN 21.2%, WATCH 50.7%, DEFENSE 67.3%, CRISIS 87.9%, latest 7.9%, cash_drag_vs_baseline -8.5%, cash_trap=True
-- `main`: GREEN 15.5%, WATCH 20.5%, DEFENSE 43.5%, CRISIS 80.1%, latest 19.2%, cash_drag_vs_baseline -11.0%, cash_trap=True
+- `concentrated`: GREEN 21.2%, WATCH 50.7%, DEFENSE 70.8%, CRISIS 94.7%, latest 7.9%, cash_drag_vs_baseline -8.3%, cash_trap=True
+- `main`: GREEN 15.5%, WATCH 20.4%, DEFENSE 43.5%, CRISIS 80.1%, latest 19.2%, cash_drag_vs_baseline -12.7%, cash_trap=True
 
 ## Cash Trap Rules
 

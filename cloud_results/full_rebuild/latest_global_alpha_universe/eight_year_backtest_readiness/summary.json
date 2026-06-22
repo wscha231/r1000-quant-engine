@@ -6,24 +6,24 @@
   ],
   "broker_replay": {
     "concentrated": {
-      "cagr": 0.45064720629468,
+      "cagr": 0.4466882020910221,
       "end_date": "2026-06-18",
       "exists": true,
-      "max_dd": -0.2604847456716285,
+      "max_dd": -0.2587263200220502,
       "metric_mode": "broker_ledger_next_close",
-      "sharpe": 1.3987403813231363,
+      "sharpe": 1.3944336694130188,
       "start_date": "2019-07-01",
       "status": "completed",
       "valid_for_production": true,
       "years": 6.9651
     },
     "main": {
-      "cagr": 0.3465017165605715,
+      "cagr": 0.3488015189573288,
       "end_date": "2026-06-18",
       "exists": true,
-      "max_dd": -0.25995164385516145,
+      "max_dd": -0.2604774681891311,
       "metric_mode": "broker_ledger_next_close",
-      "sharpe": 1.2679613284454645,
+      "sharpe": 1.2747306200060973,
       "start_date": "2019-07-01",
       "status": "completed",
       "valid_for_production": true,
@@ -34,8 +34,8 @@
   },
   "coverage_readiness": null,
   "data_extension_plan": {
-    "concentrated_target_book_ticker_count": 260,
-    "effective_required_price_tickers": 403,
+    "concentrated_target_book_ticker_count": 263,
+    "effective_required_price_tickers": 417,
     "hard_blocker_count": 6,
     "hard_blockers": [
       "price_cache_window",
@@ -45,7 +45,7 @@
       "concentrated_broker_replay_window",
       "pit_universe_label"
     ],
-    "main_target_book_ticker_count": 346,
+    "main_target_book_ticker_count": 367,
     "next_dispatch_hint": "bootstrap_price_cache_then_full_rebuild",
     "sample_target_book_tickers": [
       "AAPL",
@@ -58,7 +58,6 @@
       "AEE",
       "AEM",
       "AEP",
-      "AFG",
       "AGCO",
       "AIT",
       "AIZ",
@@ -77,30 +76,31 @@
       "AMZN",
       "AN",
       "ANET",
-      "APG",
       "APH",
       "APO",
+      "APP",
       "APPF",
       "ATI",
       "ATO",
       "AVGO",
-      "AVT",
       "AXON",
       "AXP",
       "AZO",
       "BABA",
       "BAC",
       "BAH",
+      "BC",
       "BE",
       "BEN",
       "BIIB",
       "BILL",
       "BIO",
       "BJ",
-      "BKNG"
+      "BKNG",
+      "BKR"
     ],
     "schema_version": "data-extension-plan-v1",
-    "selected_target_book_ticker_count": 403,
+    "selected_target_book_ticker_count": 417,
     "target_end_date": "2026-06-18",
     "target_start_date": "2018-06-18",
     "tasks": [
@@ -127,7 +127,7 @@
         },
         "hard_blocker": false,
         "required": {
-          "required_target_book_tickers": 403
+          "required_target_book_tickers": 417
         },
         "scope": "prices",
         "status": "ready",
@@ -137,7 +137,7 @@
         "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so main target books extend across the full 8-year window.",
         "current": {
           "end_date": "2026-03-31",
-          "rows": 2072,
+          "rows": 2151,
           "start_date": "2019-06-28"
         },
         "hard_blocker": true,
@@ -153,7 +153,7 @@
         "action": "Run full_rebuild_manual.yml with backtest_years=8 after price readiness so concentrated target books extend across the full 8-year window.",
         "current": {
           "end_date": "2026-03-31",
-          "rows": 23190,
+          "rows": 23187,
           "start_date": "2019-06-28"
         },
         "hard_blocker": true,
@@ -232,7 +232,7 @@
     "manifest_generated_at_utc": null,
     "sec_companyfacts_available": true
   },
-  "generated_at_utc": "2026-06-22T05:49:57.110351+00:00",
+  "generated_at_utc": "2026-06-22T06:01:42.255286+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "min_years": 8.0,
   "next_actions": [
@@ -265,14 +265,14 @@
       "exists": true,
       "max_date": "2026-03-31",
       "min_date": "2019-06-28",
-      "rows": 23190,
+      "rows": 23187,
       "unique_months": 82
     },
     "main": {
       "exists": true,
       "max_date": "2026-03-31",
       "min_date": "2019-06-28",
-      "rows": 2072,
+      "rows": 2151,
       "unique_months": 82
     },
     "ten_year_ready": false,

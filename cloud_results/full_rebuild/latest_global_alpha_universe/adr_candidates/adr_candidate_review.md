@@ -1,7 +1,7 @@
 # ADR Candidate Review
 
 - This artifact is review-only and does not edit adr_universe.yaml.
-- generated_at_utc: `2026-06-22T05:50:32+00:00`
+- generated_at_utc: `2026-06-22T06:02:04+00:00`
 - candidates: `1122`
 - review_add: `0`
 

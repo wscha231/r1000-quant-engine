@@ -13,7 +13,7 @@
     "write_active_flag": false
   },
   "dry_run": true,
-  "generated_at_utc": "2026-06-21T22:30:42Z",
+  "generated_at_utc": "2026-06-22T05:29:53Z",
   "hard_failures": [
     {
       "check": "delisted_cost_basis_fallback_eliminated",
@@ -53,7 +53,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.33874897692369466
+      "threshold": 0.3219294293877022
     },
     {
       "check": "main_sharpe_floor",
@@ -63,7 +63,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.7883127723787382
+      "threshold": 1.763716696195194
     },
     {
       "check": "main_max_dd_floor",
@@ -73,7 +73,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.15775833156669428
+      "threshold": -0.1546303443118915
     },
     {
       "check": "main_v2_historical_backtest_exists",

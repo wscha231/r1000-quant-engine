@@ -3,7 +3,7 @@
   "audited_ticker_count": 42,
   "bday_note": "weekday counting; US holidays may overstate by <=1 day (conservative)",
   "benchmark_anchor_date": "2026-06-18",
-  "generated_at_utc": "2026-06-22T05:50:44.935793+00:00",
+  "generated_at_utc": "2026-06-22T06:02:14.153720+00:00",
   "latest_cached_bar_date": "2026-06-18",
   "missing_tickers": [],
   "per_ticker": {

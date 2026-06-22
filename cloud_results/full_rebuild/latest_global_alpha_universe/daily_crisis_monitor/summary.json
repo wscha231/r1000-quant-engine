@@ -14,12 +14,12 @@
     "no_op"
   ],
   "auto_trade_allowed": false,
-  "generated_at_utc": "2026-06-22T05:50:37.014466+00:00",
+  "generated_at_utc": "2026-06-22T06:02:08.134810+00:00",
   "hysteresis": {
     "raw_state": "DEFENSE_REVIEW",
     "raw_state_streak": 1,
     "state": "GREEN",
-    "updated_at_utc": "2026-06-22T05:50:37.010646+00:00"
+    "updated_at_utc": "2026-06-22T06:02:08.131957+00:00"
   },
   "long_crisis": {
     "available": true,

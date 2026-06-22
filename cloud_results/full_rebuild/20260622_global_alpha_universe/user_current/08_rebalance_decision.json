@@ -7,12 +7,12 @@
   "daily_operating_refresh": true,
   "data_freshness_status": "blocked",
   "decision": "REVIEW_REQUIRED",
-  "estimated_turnover": 1.8729396646028176,
-  "generated_at_utc": "2026-06-22T05:50:45.464379+00:00",
+  "estimated_turnover": 1.9814378311918635,
+  "generated_at_utc": "2026-06-22T06:02:14.571842+00:00",
   "human_approval_required": true,
   "live_trading_enabled": false,
   "max_turnover_allowed": 0.2,
-  "order_preview_rows": 22,
+  "order_preview_rows": 24,
   "production_mutation_allowed": false,
   "promotion_allowed": false,
   "reason": "prices is stale (latest_asof=2026-06-18)",
@@ -20,12 +20,12 @@
   "review_only": true,
   "schema_version": "daily-rebalance-decision-v1",
   "selection_allowed": false,
-  "source_artifact_name": "minimal_operating_minimal_27924395094",
+  "source_artifact_name": "minimal_operating_minimal_27926056802",
   "source_branch": "claude/pr146-review-analysis-6dkvd8",
-  "source_commit_sha": "54be78d2eb46739bb86ff74f6d889068fa276f3c",
+  "source_commit_sha": "6ca5b35c5650435f1aa92bc96f9a5c5f23131f18",
   "source_of_truth_level": "GITHUB_ARTIFACT",
-  "source_run_id": "27924395094",
-  "target_weight_rows": 22,
+  "source_run_id": "27926056802",
+  "target_weight_rows": 24,
   "warnings": [
     "dated target snapshot archive is missing for this run",
     "etf coverage 0.0 < floor 0.3",
@@ -33,6 +33,6 @@
     "latest target date 2026-06-22 is after latest observable close 2026-06-18; freshness gate uses observable close",
     "macro freshness uses directory_mtime_proxy; add a macro latest_manifest.json/asof watermark",
     "price cache manifest is stale by 4 calendar days",
-    "sec_v1_evidence coverage 0.12130509939498703 < floor 0.2"
+    "sec_v1_evidence coverage 0.1212939752787622 < floor 0.2"
   ]
 }

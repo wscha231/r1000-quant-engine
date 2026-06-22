@@ -4,9 +4,9 @@
 - action: `ALLOW_REVIEW_ONLY`
 - promotion_allowed: `true`
 - universe_mode: `global_alpha_universe`
-- r1000_base_count: `701`
-- scored_count: `742`
-- candidate_count: `46280`
+- r1000_base_count: `700`
+- scored_count: `741`
+- candidate_count: `46276`
 - primary_universe_source: `static_iwb_seed`
 - fallback_used: `true`
 

@@ -1,8 +1,8 @@
 ======================================================================
 r1000 Quant Engine -- local run
 ======================================================================
-  commit:        54be78d (DIRTY)
-  started:       2026-06-22 14:20:13 KST
+  commit:        6ca5b35 (DIRTY)
+  started:       2026-06-22 14:29:43 KST
   base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
   end_date:      2026-06-22
   mode:          QUICK_RESCORE

@@ -2,9 +2,9 @@
   "coverage": {
     "alphaops_candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
     "production_policy": "alphaops_vnext_production",
-    "rows_with_smart_money_evidence": 33904,
+    "rows_with_smart_money_evidence": 33900,
     "sec_enriched_candidate_present": true,
-    "sec_enriched_rows_with_smart_money_evidence": 33904
+    "sec_enriched_rows_with_smart_money_evidence": 33900
   },
   "feature_source_coverage": {
     "available": true,

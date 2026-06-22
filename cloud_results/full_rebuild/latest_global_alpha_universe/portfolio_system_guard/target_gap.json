@@ -43,22 +43,22 @@
   "baseline_books": {},
   "cash_trap_guard": [
     {
-      "avg_cash_weight": 0.26680286657135793,
+      "avg_cash_weight": 0.26668048334415045,
       "cagr_gap_pp": 0.0,
       "cash_trap": false,
       "diagnosis": "cash is defensive only when MDD gap improves without unacceptable CAGR/reentry drag",
-      "latest_cash_weight": 0.14932961856898205,
-      "max_dd_gap_pp": 0.9952,
+      "latest_cash_weight": 0.14969873564720548,
+      "max_dd_gap_pp": 1.0477,
       "portfolio": "main",
       "reasons": [],
       "severity": "ok"
     },
     {
-      "avg_cash_weight": 0.4121512488700648,
-      "cagr_gap_pp": 4.9353,
+      "avg_cash_weight": 0.4248326809658293,
+      "cagr_gap_pp": 5.3312,
       "cash_trap": true,
       "diagnosis": "cash is defensive only when MDD gap improves without unacceptable CAGR/reentry drag",
-      "latest_cash_weight": 0.05784685454131403,
+      "latest_cash_weight": 0.05688547650786673,
       "max_dd_gap_pp": 0.0,
       "portfolio": "concentrated",
       "reasons": [
@@ -71,9 +71,9 @@
     "coverage": {
       "alphaops_candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
       "production_policy": "alphaops_vnext_production",
-      "rows_with_smart_money_evidence": 33904,
+      "rows_with_smart_money_evidence": 33900,
       "sec_enriched_candidate_present": true,
-      "sec_enriched_rows_with_smart_money_evidence": 33904
+      "sec_enriched_rows_with_smart_money_evidence": 33900
     },
     "feature_source_coverage": {
       "available": true,
@@ -251,13 +251,13 @@
     },
     {
       "check": "sec_enriched_candidate_materialized_for_audit",
-      "detail": "sec_enriched_candidate_present=True; rows_with_smart_money_evidence=33904",
+      "detail": "sec_enriched_candidate_present=True; rows_with_smart_money_evidence=33900",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "alphaops_vnext_uses_sec_enriched_candidate_book",
-      "detail": "candidate_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv; rows_with_smart_money_evidence=33904",
+      "detail": "candidate_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv; rows_with_smart_money_evidence=33900",
       "passed": true,
       "severity": "ok"
     },
@@ -281,7 +281,7 @@
     },
     {
       "check": "main_historical_research_book_reaches_broker_end",
-      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-18; rows=2072; operating_book_max=2026-06-18; operating_rows=1268",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-18; rows=2151; operating_book_max=2026-06-18; operating_rows=1268",
       "passed": false,
       "severity": "warn"
     },
@@ -305,7 +305,7 @@
     },
     {
       "check": "concentrated_historical_research_book_reaches_broker_end",
-      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-18; rows=23190; operating_book_max=2026-06-18; operating_rows=491",
+      "detail": "historical_book_max=2026-03-31; broker_end=2026-06-18; rows=23187; operating_book_max=2026-06-18; operating_rows=491",
       "passed": false,
       "severity": "warn"
     },
@@ -323,7 +323,7 @@
     },
     {
       "check": "main_current_position_count_near_latest_target_count",
-      "detail": "main_positions=13; latest_target_rows=17; excess=0",
+      "detail": "main_positions=13; latest_target_rows=19; excess=0",
       "passed": true,
       "severity": "ok"
     },
@@ -395,29 +395,29 @@
     },
     {
       "check": "concentrated_concentration_contract",
-      "detail": "latest_date=2026-06-18; max_name=SNDK@28.50%; max_industry_group=Tech Hardware & Storage@45.07%; group_source=industry_group; violations=[]; preexisting_in_baseline=[]",
+      "detail": "latest_date=2026-06-18; max_name=SNDK@28.50%; max_industry_group=Tech Hardware & Storage@45.06%; group_source=industry_group; violations=[]; preexisting_in_baseline=[]",
       "passed": true,
       "severity": "ok"
     }
   ],
   "goal_search_candidates": [
     {
-      "cagr": 0.3325220911424811,
+      "cagr": 0.3389045289110737,
       "cagr_gap_pp": 0.0,
       "candidate_id": "main_rebalance_interval_fixed_interval_I1",
       "governance_action": "target_pass_review",
-      "max_dd": -0.14217604922105564,
+      "max_dd": -0.1395250060821066,
       "max_dd_gap_pp": 0.0,
       "portfolio": "main",
       "target_pass": true,
       "valid_for_production": false
     },
     {
-      "cagr": 0.5177111938099903,
+      "cagr": 0.5059777575073019,
       "cagr_gap_pp": 0.0,
-      "candidate_id": "concentrated_grid_N2_conviction_curve_I1",
+      "candidate_id": "concentrated_latest_champion",
       "governance_action": "target_pass_review",
-      "max_dd": -0.21580247109741213,
+      "max_dd": -0.1649423408195464,
       "max_dd_gap_pp": 0.0,
       "portfolio": "concentrated",
       "target_pass": true,
@@ -429,34 +429,34 @@
   "portfolio_status": [
     {
       "avg_turnover_monthly": 0.0,
-      "cagr": 0.3465017165605715,
+      "cagr": 0.3488015189573288,
       "cagr_gap_pp": 0.0,
       "cagr_pass": true,
       "cagr_target": 0.3,
-      "max_dd": -0.25995164385516145,
-      "max_dd_improvement_needed_pp": 0.9952,
+      "max_dd": -0.2604774681891311,
+      "max_dd_improvement_needed_pp": 1.0477,
       "max_dd_pass": false,
       "max_dd_target": -0.25,
       "metric_source": "broker_ledger_next_close",
       "official_source_pass": true,
       "portfolio": "main",
-      "sharpe": 1.2679613284454645,
+      "sharpe": 1.2747306200060973,
       "target_pass": false
     },
     {
       "avg_turnover_monthly": 0.0,
-      "cagr": 0.45064720629468,
-      "cagr_gap_pp": 4.9353,
+      "cagr": 0.4466882020910221,
+      "cagr_gap_pp": 5.3312,
       "cagr_pass": false,
       "cagr_target": 0.5,
-      "max_dd": -0.2604847456716285,
+      "max_dd": -0.2587263200220502,
       "max_dd_improvement_needed_pp": 0.0,
       "max_dd_pass": true,
       "max_dd_target": -0.28,
       "metric_source": "broker_ledger_next_close",
       "official_source_pass": true,
       "portfolio": "concentrated",
-      "sharpe": 1.3987403813231363,
+      "sharpe": 1.3944336694130188,
       "target_pass": false
     }
   ],

@@ -9,12 +9,12 @@ Measurement-only diagnostic. No strategy or target-book mutation.
 - production mutation allowed: `False`
 - entry rows: 1517
 - exit rows: 1517
-- premature sell candidates: 523
+- premature sell candidates: 524
 
 ## Portfolio Metrics
 
-- `concentrated`: trades 390, median hold 33.0d, held 180d+ 0.8%, held 365d+ 0.0%
-- `main`: trades 1127, median hold 58.0d, held 180d+ 2.7%, held 365d+ 0.0%
+- `concentrated`: trades 392, median hold 33.0d, held 180d+ 0.8%, held 365d+ 0.0%
+- `main`: trades 1125, median hold 58.0d, held 180d+ 2.7%, held 365d+ 0.0%
 
 ## Interpretation Rules
 
