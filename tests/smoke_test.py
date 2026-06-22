@@ -2367,6 +2367,13 @@ def test_lever_sweep_builds_isolated_commands() -> None:
     assert 'if [ "${R1000_LEVER_SWEEP:-0}" = "1" ]; then' in src, "lever sweep must be opt-in"
     assert "tools/run_lever_sweep.py" in src
 
+    # delivery plumbing: sweep results must be committed to cloud_results (not
+    # only stranded in the blob-hosted artifact), and concurrent same-day A/B
+    # arms must not clobber each other's dated dir.
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert 'copy_dir_clean outputs/lever_sweep "$DEST/lever_sweep"' in wf, "lever_sweep must be copied into committed cloud_results"
+    assert "${GITHUB_RUN_ID}_$INPUT_UNIVERSE_MODE" in wf, "dated cloud_results dir must include run id (concurrent A/B clobber guard)"
+
 
 @_test("logic.latest_month_mktcap_starvation_guard")
 def test_latest_month_mktcap_starvation_guard() -> None:

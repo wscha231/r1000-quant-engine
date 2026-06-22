@@ -5,6 +5,16 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-22
 
+### 15:40 KST - Fix lever-sweep result delivery (copy gap + concurrent dated-dir clobber)
+
+- scope: the first lever-sweep run (`27926056802`) succeeded but its `outputs/lever_sweep/` grid never reached the branch — `outputs/lever_sweep` was absent from the workflow's `copy_dir_clean` allowlist, so results were stranded only in the blob-hosted artifact (egress-blocked in the remote env). Separately, the concurrent C-floor arm and sweep run shared the same date-based dated dir and clobbered each other (only the last push survived in `latest_`).
+- change: `.github/workflows/full_rebuild_manual.yml` now (1) copies `outputs/lever_sweep` into the committed cloud_results bundle, and (2) includes `${GITHUB_RUN_ID}` in the valid-run dated dir name so concurrent same-day A/B arms keep separate dirs (glob `*_$INPUT_UNIVERSE_MODE` still matches; `latest_` still tracks the last valid run).
+- validation: extended `tests/smoke_test.py::logic.lever_sweep_builds_isolated_commands` to assert both the copy line and the run-id dated dir are present. Full smoke suite 128/128.
+- symbols_added: none
+- symbols_changed: `.github/workflows/full_rebuild_manual.yml` push-step (cloud_results copy list + dated-dir naming)
+- config_fields_added: none
+- breaking_changes: none. Dated cloud_results dir naming changes from `YYYYMMDD_<universe>` to `YYYYMMDD_<run_id>_<universe>` for valid runs; existing dirs are unaffected and universe-suffix globs still match.
+
 ### 00:42 KST - Single-run lever sweep harness (stop paying a full rebuild per lever value)
 
 - scope: efficiency fix for A/B iteration. The conc-gross floor and daily-stop levers act only at the target-book/replay stage, not in the walk-forward training that dominates a ~3-4h rebuild, so measuring N lever values previously cost N full rebuilds. This harness reuses one rebuild's scored output and price cache to measure a whole grid in a single run.

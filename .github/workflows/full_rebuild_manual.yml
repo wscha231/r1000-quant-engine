@@ -1279,7 +1279,10 @@ jobs:
           RUN_ARTIFACT_VALID="no"
           if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ] && [ "$UNIVERSE_HEALTHY" = "yes" ]; then
             RUN_ARTIFACT_VALID="yes"
-            DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_$INPUT_UNIVERSE_MODE"
+            # Include run id so concurrent same-day A/B arms keep separate dated
+            # dirs instead of clobbering each other (the "latest" pointer still
+            # tracks the last valid run). Glob "*_$INPUT_UNIVERSE_MODE" matches.
+            DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${GITHUB_RUN_ID}_$INPUT_UNIVERSE_MODE"
           else
             DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_$INPUT_UNIVERSE_MODE"
             if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
@@ -1462,6 +1465,7 @@ jobs:
           copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
           copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
           copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
+          copy_dir_clean outputs/lever_sweep "$DEST/lever_sweep"
           copy_dir_clean outputs/broker_parabolic_risk_replay "$DEST/broker_parabolic_risk_replay"
           copy_dir_clean outputs/broker_execution_policy_replay "$DEST/broker_execution_policy_replay"
           copy_dir_clean outputs/operating_event_backtest "$DEST/operating_event_backtest"
