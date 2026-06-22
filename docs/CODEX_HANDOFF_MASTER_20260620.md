@@ -1,3 +1,5 @@
+> ⚠ **SUPERSEDED 2026-06-22** — 현행 진입점은 `docs/CODEX_HANDOFF_MASTER_20260622.md`. 이 문서는 §0 mission / §6 제약만 유효, 진행상태(§2/§3/§5)는 0622 문서 참조.
+
 # Codex 마스터 핸드오프 — CAGR/MDD 강화 (7Y A/B + 10Y 트랙)
 
 - 작성일: 2026-06-20 KST / 작성: Claude
