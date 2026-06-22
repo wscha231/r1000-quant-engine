@@ -3,6 +3,18 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-22
+
+### 00:42 KST - Single-run lever sweep harness (stop paying a full rebuild per lever value)
+
+- scope: efficiency fix for A/B iteration. The conc-gross floor and daily-stop levers act only at the target-book/replay stage, not in the walk-forward training that dominates a ~3-4h rebuild, so measuring N lever values previously cost N full rebuilds. This harness reuses one rebuild's scored output and price cache to measure a whole grid in a single run.
+- change: added `tools/run_lever_sweep.py`. The conc-gross-floor sweep re-runs `run_alphaops_vnext_policy_replay` in `shadow_only` mode (never replaces operating books) with each `R1000_CONC_GROSS_CAP_FLOOR`, then scores the produced concentrated variant book through `run_broker_ledger_replay` (next-close). The daily-stop sweep runs `run_broker_position_risk_replay` with each `hard:trailing` pair on the existing operating books. Each arm is isolated in its own output sub-directory, failures stay non-fatal, and results aggregate into `outputs/lever_sweep/summary.json` + `sweep_report.md`. Command construction is split from execution and a `--dry-run` flag builds commands without data. `tools/run_full_rebuild_sidecars.py` runs it opt-in only, gated by `R1000_LEVER_SWEEP=1` (floors/grid overridable via `R1000_LEVER_SWEEP_FLOORS` / `R1000_LEVER_SWEEP_DAILY_STOP`), so default A/B arms are unchanged.
+- validation: added `tests/smoke_test.py::logic.lever_sweep_builds_isolated_commands` (parse dedup/sanitize, shadow_only enforced, broker replay points at the produced variant book, daily-stop passes stop flags only when non-default, missing-metrics tolerance, opt-in sidecar wiring). Full smoke suite 128/128. Dry-run verified end-to-end (commands + summary.json + sweep_report.md).
+- symbols_added: `run_lever_sweep.main`, `parse_float_list`, `parse_daily_stop_grid`, `resolve_candidate_book`, `conc_gross_commands`, `daily_stop_command`, `read_metrics`, `run_conc_gross_sweep`, `run_daily_stop_sweep`, `write_report` (all in `tools/run_lever_sweep.py`)
+- symbols_changed: `run_full_rebuild_sidecars.py` SHELL_SCRIPT operating_minimal branch (opt-in lever-sweep block)
+- config_fields_added: none (env-only: `R1000_LEVER_SWEEP`, `R1000_LEVER_SWEEP_FLOORS`, `R1000_LEVER_SWEEP_DAILY_STOP`)
+- breaking_changes: none. Off by default; measurement only; never replaces operating books or the acceptance metric.
+
 ## 2026-06-21
 
 ### 23:58 KST - Concentrated benchmark-guard gross-cap A/B lever (real Family B root cause)

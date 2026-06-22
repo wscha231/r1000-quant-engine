@@ -326,6 +326,14 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_parabolic_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --hard-stop -9 --relative-trim-threshold -9 --relative-exit-threshold -9 --disable-distribution-exit --candidate-id main_broker_parabolic_risk_replay --trailing-activation 0.50 --trailing-stop -0.20 2>&1 | tee outputs/full_rebuild_logs/broker_parabolic_risk_replay_main.log || true
     python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_parabolic_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --hard-stop -9 --relative-trim-threshold -9 --relative-exit-threshold -9 --disable-distribution-exit --candidate-id concentrated_broker_parabolic_risk_replay --trailing-activation 0.50 --trailing-stop -0.20 2>&1 | tee outputs/full_rebuild_logs/broker_parabolic_risk_replay_concentrated.log || true
   fi
+  # Opt-in lever sweep (R1000_LEVER_SWEEP=1). The conc-gross floor and daily-stop
+  # levers act only at the target-book/replay stage, so one rebuild's scored
+  # output can measure a whole grid here instead of paying a full ~3-4h rebuild
+  # per lever value. Measurement only; never replaces operating books. Off by
+  # default so normal A/B arms are unchanged. Failures stay non-fatal.
+  if [ "${R1000_LEVER_SWEEP:-0}" = "1" ]; then
+    python tools/run_lever_sweep.py --latest-run outputs --price-cache cache_prices --output-dir outputs/lever_sweep --conc-gross-floors "${R1000_LEVER_SWEEP_FLOORS:-0.0,0.7,0.8,0.9}" --daily-stop-grid "${R1000_LEVER_SWEEP_DAILY_STOP:-default,-0.12:-0.20,-0.10:-0.15,-0.08:-0.12}" 2>&1 | tee outputs/full_rebuild_logs/lever_sweep.log || true
+  fi
   python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
   python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
   python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true

@@ -2303,6 +2303,71 @@ def test_concentrated_gross_cap_override_is_default_inert() -> None:
     assert wire_idx < call_idx < ret_idx, "override must run before the returned gross"
 
 
+@_test("logic.lever_sweep_builds_isolated_commands")
+def test_lever_sweep_builds_isolated_commands() -> None:
+    """The lever-sweep harness measures a grid in one run (efficiency fix).
+
+    conc-gross floor and daily-stop levers act only at the target-book/replay
+    stage, so `run_lever_sweep.py` reuses one rebuild's scored output to score a
+    whole grid instead of paying a ~3-4h rebuild per value. Verify the pure
+    command builders: parsing dedups/sanitizes, conc-gross runs vNext in
+    shadow_only (never replace_operating) and points the broker replay at the
+    produced concentrated variant book, and daily-stop only passes --hard-stop /
+    --trailing-stop when a non-default pair is given.
+    """
+    import importlib
+    from pathlib import Path as _Path
+
+    sweep = importlib.import_module("tools.run_lever_sweep")
+
+    assert sweep.parse_float_list("0.0, 0.7, 0.7, 0.8") == [0.0, 0.7, 0.8]
+    grid = sweep.parse_daily_stop_grid("default,-0.10:-0.15,default")
+    assert grid[0] == ("default", None, None)
+    assert grid[1][1] == -0.10 and grid[1][2] == -0.15
+    assert len(grid) == 2, "duplicate labels must be dropped"
+
+    vnext_cmd, broker_cmd, book = sweep.conc_gross_commands(
+        0.7,
+        latest_run="outputs",
+        candidate_book="outputs/reports/candidate_replay_book.csv",
+        price_cache="cache_prices",
+        out_dir=_Path("outputs/lever_sweep/conc_gross_floor_0p7"),
+        concentrated_target_n=5,
+        cost_bps=25.0,
+        max_fill_lag_days=7,
+    )
+    assert "--production-output-mode" in vnext_cmd
+    assert vnext_cmd[vnext_cmd.index("--production-output-mode") + 1] == "shadow_only"
+    assert "replace_operating" not in vnext_cmd, "sweep must never replace operating books"
+    assert "concentrated_N5_target_book.csv" in book
+    assert book in broker_cmd, "broker replay must score the produced variant book"
+    assert broker_cmd[broker_cmd.index("--portfolio-kind") + 1] == "concentrated"
+
+    default_cmd = sweep.daily_stop_command(
+        "default", None, None,
+        portfolio_kind="main", target_book="outputs/reports/operating_main_target_book.csv",
+        price_cache="cache_prices", out_dir=_Path("outputs/lever_sweep/daily_stop_default"),
+        cost_bps=25.0, max_fill_lag_days=7,
+    )
+    assert "--hard-stop" not in default_cmd and "--trailing-stop" not in default_cmd
+    tuned_cmd = sweep.daily_stop_command(
+        "t", -0.10, -0.15,
+        portfolio_kind="concentrated", target_book="outputs/reports/operating_concentrated_target_book.csv",
+        price_cache="cache_prices", out_dir=_Path("outputs/lever_sweep/daily_stop_t"),
+        cost_bps=25.0, max_fill_lag_days=7,
+    )
+    assert tuned_cmd[tuned_cmd.index("--hard-stop") + 1] == "-0.1"
+    assert tuned_cmd[tuned_cmd.index("--trailing-stop") + 1] == "-0.15"
+
+    # missing metrics file must not raise
+    assert sweep.read_metrics(_Path("does/not/exist.json"))["status"] == "missing"
+
+    # sidecar wiring: opt-in only, never on by default
+    src = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    assert 'if [ "${R1000_LEVER_SWEEP:-0}" = "1" ]; then' in src, "lever sweep must be opt-in"
+    assert "tools/run_lever_sweep.py" in src
+
+
 @_test("logic.latest_month_mktcap_starvation_guard")
 def test_latest_month_mktcap_starvation_guard() -> None:
     """Universe-collapse guard for the latest snapshot (run 27337807588).
