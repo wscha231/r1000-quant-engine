@@ -91,8 +91,36 @@ def main() -> int:
     )
     assert proc.returncode == 1
     stale_status = json.loads((stale_out / "status.json").read_text(encoding="utf-8"))
-    assert "candidate_replay_book_not_rebuilt_to_expected_window" in stale_status["blockers"]
-    assert "target_books_not_rebuilt_to_expected_window" in stale_status["blockers"]
+    assert "candidate_replay_book_not_in_expected_clean7y_decision_window" in stale_status["blockers"]
+    assert "target_books_not_in_expected_clean7y_decision_window" in stale_status["blockers"]
+
+    too_early = base / "too_early"
+    for rel in (
+        "reports/candidate_replay_book.csv",
+        "reports/operating_main_target_book.csv",
+        "reports/operating_concentrated_target_book.csv",
+        "alphaops_vnext/official_main_target_book.csv",
+        "alphaops_vnext/official_concentrated_target_book.csv",
+    ):
+        write_book(too_early / rel, ["2019-03-29", "2019-05-31", "2019-06-28"])
+    too_early_out = base / "too_early_out"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--latest-run",
+            str(too_early),
+            "--output-dir",
+            str(too_early_out),
+            "--strict",
+        ],
+        cwd=REPO,
+    )
+    assert proc.returncode == 1
+    too_early_status = json.loads((too_early_out / "status.json").read_text(encoding="utf-8"))
+    assert too_early_status["files"]["candidate_replay_book"]["first_rebalance_date"] == "2019-03-29"
+    assert "candidate_replay_book_not_in_expected_clean7y_decision_window" in too_early_status["blockers"]
+    assert "target_books_not_in_expected_clean7y_decision_window" in too_early_status["blockers"]
 
     print("clean7y_window_preflight_smoke: PASS")
     return 0

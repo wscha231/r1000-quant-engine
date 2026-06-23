@@ -119,6 +119,7 @@ def main() -> int:
     parser.add_argument("--evaluation-start-date", default="2019-06-03")
     parser.add_argument("--end-date", default="2026-06-23")
     parser.add_argument("--expected-first-decision", default="2019-05-31")
+    parser.add_argument("--not-before", default=None, help="Earliest allowed actual first decision; defaults to expected first decision.")
     parser.add_argument("--must-be-before", default="2019-06-28")
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args()
@@ -147,9 +148,11 @@ def main() -> int:
 
     must_before = pd.Timestamp(args.must_be_before).normalize()
     expected_first = str(args.expected_first_decision)
+    not_before_raw = str(args.not_before or expected_first)
+    not_before = pd.Timestamp(not_before_raw).normalize()
     generated_pass = expected_first in generated_iso
     filtered_pass = bool(filtered_iso and filtered_iso[0] == expected_first)
-    actual_candidate_pass = bool(first_candidate and pd.Timestamp(first_candidate) < must_before)
+    actual_candidate_pass = bool(first_candidate and not_before <= pd.Timestamp(first_candidate) < must_before)
     target_pass = True
     target_checks: dict[str, bool] = {}
     for name in (
@@ -159,7 +162,7 @@ def main() -> int:
         "official_concentrated_target_book",
     ):
         first = file_status[name].get("first_rebalance_date")
-        ok = bool(first and pd.Timestamp(first) < must_before)
+        ok = bool(first and not_before <= pd.Timestamp(first) < must_before)
         target_checks[name] = ok
         target_pass = target_pass and ok
 
@@ -169,9 +172,9 @@ def main() -> int:
     if not filtered_pass:
         blockers.append("monthly_test_dates_missing_next_close_bridge_decision")
     if not actual_candidate_pass:
-        blockers.append("candidate_replay_book_not_rebuilt_to_expected_window")
+        blockers.append("candidate_replay_book_not_in_expected_clean7y_decision_window")
     if not target_pass:
-        blockers.append("target_books_not_rebuilt_to_expected_window")
+        blockers.append("target_books_not_in_expected_clean7y_decision_window")
     if pit_status.get("pit_status") not in {"pass", "review_required_no_available_from_columns"}:
         blockers.append("first_decision_pit_check_failed")
 
@@ -186,6 +189,7 @@ def main() -> int:
         "expected_first_decision_next_close_fill": (
             pd.Timestamp(expected_fill).date().isoformat() if expected_fill is not None else None
         ),
+        "not_before": not_before_raw,
         "must_be_before": args.must_be_before,
         "generated_month_end_contains_expected": generated_pass,
         "monthly_test_dates_first": filtered_iso[0] if filtered_iso else None,
@@ -208,6 +212,7 @@ def main() -> int:
         f"- evaluation_start_date: `{args.evaluation_start_date}`",
         f"- expected first decision: `{expected_first}`",
         f"- expected next-close fill: `{payload['expected_first_decision_next_close_fill']}`",
+        f"- accepted first-decision range: `[{not_before_raw}, {args.must_be_before})`",
         f"- monthly_test_dates first: `{payload['monthly_test_dates_first']}`",
         f"- candidate first: `{first_candidate}`",
         f"- production_promotion_allowed: `{payload['production_promotion_allowed']}`",
