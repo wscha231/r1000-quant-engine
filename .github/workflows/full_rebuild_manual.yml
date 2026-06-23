@@ -532,9 +532,35 @@ jobs:
           echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
           echo "=========================================="
 
+          if [ "${BACKTEST_YEARS:-7}" = "7" ]; then
+            mkdir -p outputs/full_rebuild_logs
+            python tools/run_clean7y_window_preflight.py \
+              --latest-run outputs \
+              --output-dir outputs/clean7y_window_preflight_source \
+              --source-only \
+              --strict \
+              2>&1 | tee outputs/full_rebuild_logs/clean7y_window_preflight_source.log
+            SOURCE_PREFLIGHT_STATUS=${PIPESTATUS[0]}
+            if [ "$SOURCE_PREFLIGHT_STATUS" -ne 0 ]; then
+              exit "$SOURCE_PREFLIGHT_STATUS"
+            fi
+          fi
+
           # Use --base-dir to override Drive path with repo-local outputs/
           # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
           python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --leader-rescue-mode "$LEADER_RESCUE_MODE" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+
+          if [ "${BACKTEST_YEARS:-7}" = "7" ]; then
+            python tools/run_clean7y_window_preflight.py \
+              --latest-run outputs \
+              --output-dir outputs/clean7y_window_preflight \
+              --strict \
+              2>&1 | tee outputs/full_rebuild_logs/clean7y_window_preflight.log
+            POST_BOOK_PREFLIGHT_STATUS=${PIPESTATUS[0]}
+            if [ "$POST_BOOK_PREFLIGHT_STATUS" -ne 0 ]; then
+              exit "$POST_BOOK_PREFLIGHT_STATUS"
+            fi
+          fi
 
       - name: Verdict (Cell E equivalent)
         if: always()

@@ -85,6 +85,32 @@ def main() -> int:
     assert status["cache_manifest"]["start_pass"] is True
     assert status["projected_calendar_trading_days"]["pass"] is True
     assert status["target_books_first_pass"] is True
+    assert status["mode"] == "post_book"
+    assert status["post_book_validation_required"] is False
+
+    source_only = base / "source_only"
+    source_only_out = base / "source_only_out"
+    write_manifest(source_only)
+    subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--latest-run",
+            str(source_only),
+            "--output-dir",
+            str(source_only_out),
+            "--source-only",
+            "--strict",
+        ],
+        cwd=REPO,
+        check=True,
+    )
+    source_status = json.loads((source_only_out / "status.json").read_text(encoding="utf-8"))
+    assert source_status["status"] == "pass", source_status
+    assert source_status["mode"] == "source_only"
+    assert source_status["post_book_validation_required"] is True
+    assert source_status["files"] == {}
+    assert source_status["first_decision_pit"]["pit_status"] == "skipped_source_only"
 
     stale = base / "stale"
     for rel in (

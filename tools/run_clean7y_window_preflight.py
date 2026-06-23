@@ -2,9 +2,13 @@
 """Preflight the clean 7Y decision/fill window before expensive rebuild use.
 
 This tool is intentionally diagnostic. It does not promote results, mutate
-targets, or run broker replay. It checks whether regenerated candidate/target
-books actually moved the first decision before 2019-06-28, and whether the
-first included decision is PIT-clean when available_from columns are present.
+targets, or run broker replay.
+
+The default mode validates regenerated candidate/target books.  ``--source-only``
+is a fail-fast pre-run check for expensive workflows: it verifies the clean 7Y
+anchor, next-close bridge, replay-cache start, and projected calendar trading
+days before paying for a full rebuild.  It cannot prove generated books moved;
+the default post-book mode still must run after book generation.
 """
 
 from __future__ import annotations
@@ -226,6 +230,11 @@ def main() -> int:
     parser.add_argument("--min-calendar-trading-days", type=int, default=MIN_BROKER_LEDGER_TRADING_DAYS)
     parser.add_argument("--not-before", default=None, help="Earliest allowed actual first decision; defaults to expected first decision.")
     parser.add_argument("--must-be-before", default="2019-06-28")
+    parser.add_argument(
+        "--source-only",
+        action="store_true",
+        help="Check only cache/date/calendar pre-run invariants. Skip candidate/target/PIT checks.",
+    )
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args()
 
@@ -247,6 +256,12 @@ def main() -> int:
     )
     cache_manifest = read_cache_manifest(latest, args.cache_start_floor)
 
+    must_before = pd.Timestamp(args.must_be_before).normalize()
+    expected_first = str(args.expected_first_decision)
+    not_before_raw = str(args.not_before or expected_first)
+    not_before = pd.Timestamp(not_before_raw).normalize()
+    generated_pass = expected_first in generated_iso
+    filtered_pass = bool(filtered_iso and filtered_iso[0] == expected_first)
     files = {
         "candidate_replay_book": latest / "reports" / "candidate_replay_book.csv",
         "operating_main_target_book": latest / "reports" / "operating_main_target_book.csv",
@@ -254,41 +269,41 @@ def main() -> int:
         "official_main_target_book": latest / "alphaops_vnext" / "official_main_target_book.csv",
         "official_concentrated_target_book": latest / "alphaops_vnext" / "official_concentrated_target_book.csv",
     }
-    file_status = {name: read_first_rebalance(path) for name, path in files.items()}
-    first_candidate = file_status["candidate_replay_book"].get("first_rebalance_date")
-    pit_status = first_decision_pit_status(files["candidate_replay_book"], first_candidate)
-
-    must_before = pd.Timestamp(args.must_be_before).normalize()
-    expected_first = str(args.expected_first_decision)
-    not_before_raw = str(args.not_before or expected_first)
-    not_before = pd.Timestamp(not_before_raw).normalize()
-    generated_pass = expected_first in generated_iso
-    filtered_pass = bool(filtered_iso and filtered_iso[0] == expected_first)
-    actual_candidate_pass = bool(first_candidate and not_before <= pd.Timestamp(first_candidate) < must_before)
-    target_pass = True
+    file_status: dict[str, dict[str, Any]] = {}
     target_checks: dict[str, bool] = {}
-    for name in (
-        "operating_main_target_book",
-        "operating_concentrated_target_book",
-        "official_main_target_book",
-        "official_concentrated_target_book",
-    ):
-        first = file_status[name].get("first_rebalance_date")
-        ok = bool(first and not_before <= pd.Timestamp(first) < must_before)
-        target_checks[name] = ok
-        target_pass = target_pass and ok
+    first_candidate = None
+    actual_candidate_pass = None
+    target_pass = None
+    pit_status: dict[str, Any] = {"checked": False, "pit_status": "skipped_source_only" if args.source_only else "not_checked"}
+    if not args.source_only:
+        file_status = {name: read_first_rebalance(path) for name, path in files.items()}
+        first_candidate = file_status["candidate_replay_book"].get("first_rebalance_date")
+        pit_status = first_decision_pit_status(files["candidate_replay_book"], first_candidate)
+        actual_candidate_pass = bool(first_candidate and not_before <= pd.Timestamp(first_candidate) < must_before)
+        target_pass = True
+        for name in (
+            "operating_main_target_book",
+            "operating_concentrated_target_book",
+            "official_main_target_book",
+            "official_concentrated_target_book",
+        ):
+            first = file_status[name].get("first_rebalance_date")
+            ok = bool(first and not_before <= pd.Timestamp(first) < must_before)
+            target_checks[name] = ok
+            target_pass = target_pass and ok
 
     blockers: list[str] = []
     if not generated_pass:
         blockers.append("generated_month_end_missing_expected_first_decision")
     if not filtered_pass:
         blockers.append("monthly_test_dates_missing_next_close_bridge_decision")
-    if not actual_candidate_pass:
-        blockers.append("candidate_replay_book_not_in_expected_clean7y_decision_window")
-    if not target_pass:
-        blockers.append("target_books_not_in_expected_clean7y_decision_window")
-    if pit_status.get("pit_status") != "pass":
-        blockers.append("first_decision_pit_check_failed")
+    if not args.source_only:
+        if not actual_candidate_pass:
+            blockers.append("candidate_replay_book_not_in_expected_clean7y_decision_window")
+        if not target_pass:
+            blockers.append("target_books_not_in_expected_clean7y_decision_window")
+        if pit_status.get("pit_status") != "pass":
+            blockers.append("first_decision_pit_check_failed")
     if not cache_manifest.get("start_pass"):
         blockers.append("replay_price_cache_start_after_clean7y_floor")
     if not projected_calendar_pass:
@@ -298,6 +313,8 @@ def main() -> int:
         "schema_version": "clean7y-window-preflight-v2",
         "production_promotion_allowed": False,
         "purpose": "research_7y_window_preflight",
+        "mode": "source_only" if args.source_only else "post_book",
+        "post_book_validation_required": bool(args.source_only),
         "feature_start_date": args.feature_start_date,
         "evaluation_start_date": args.evaluation_start_date,
         "end_date": args.end_date,
@@ -334,6 +351,7 @@ def main() -> int:
         "# Clean 7Y Window Preflight",
         "",
         f"- status: `{payload['status']}`",
+        f"- mode: `{payload['mode']}`",
         f"- feature_start_date: `{args.feature_start_date}`",
         f"- evaluation_start_date: `{args.evaluation_start_date}`",
         f"- expected first decision: `{expected_first}`",
@@ -343,6 +361,7 @@ def main() -> int:
         f"- accepted first-decision range: `[{not_before_raw}, {args.must_be_before})`",
         f"- monthly_test_dates first: `{payload['monthly_test_dates_first']}`",
         f"- candidate first: `{first_candidate}`",
+        f"- post_book_validation_required: `{payload['post_book_validation_required']}`",
         f"- production_promotion_allowed: `{payload['production_promotion_allowed']}`",
         "",
         "## Blockers",
