@@ -63,6 +63,25 @@ def test_monthly_test_dates_filters_to_evaluation_start() -> None:
     assert [x.strftime("%Y-%m-%d") for x in out] == ["2019-06-28", "2020-02-28", "2020-03-31"]
 
 
+def test_monthly_test_dates_includes_next_close_bridge_month() -> None:
+    from r1000_pipeline import monthly_test_dates
+
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "rebalance_date": [
+                "2018-12-31",
+                "2019-05-31",
+                "2019-06-28",
+                "2019-07-31",
+            ]
+        }
+    )
+    out = monthly_test_dates(frame, "2019-06-03")
+    assert [x.strftime("%Y-%m-%d") for x in out] == ["2019-05-31", "2019-06-28", "2019-07-31"]
+
+
 def test_clean_7y_window_passes_as_research_baseline() -> None:
     gate = evaluate_window_gate(
         {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
@@ -111,6 +130,7 @@ if __name__ == "__main__":
     test_config_locks_clean_7y_and_blocks_proxy_windows()
     test_clean_7y_uses_prehistory_but_evaluates_from_2019_mid()
     test_monthly_test_dates_filters_to_evaluation_start()
+    test_monthly_test_dates_includes_next_close_bridge_month()
     test_clean_7y_window_passes_as_research_baseline()
     test_dirty_8y_and_10y_proxy_windows_fail_without_pit_label()
     test_pit_clean_long_window_passes()

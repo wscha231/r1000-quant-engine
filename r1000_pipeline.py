@@ -9300,15 +9300,34 @@ def choose_catboost_task_type() -> str:
         return "CPU"
 
 
+def _estimated_next_close_fill_date(rebalance_date: Any) -> pd.Timestamp | None:
+    decision_date = pd.to_datetime(rebalance_date, errors="coerce")
+    if pd.isna(decision_date):
+        return None
+    return (pd.Timestamp(decision_date).normalize() + pd.tseries.offsets.BDay(1)).normalize()
+
+
 def monthly_test_dates(df: pd.DataFrame, evaluation_start_date: Any = None) -> list[pd.Timestamp]:
     d = pd.to_datetime(df["rebalance_date"], errors="coerce").dropna()
-    if evaluation_start_date:
-        eval_start = pd.to_datetime(evaluation_start_date, errors="coerce")
-        if pd.notna(eval_start):
-            d = d[d >= pd.Timestamp(eval_start).normalize()]
     if d.empty:
         return []
     months = pd.Series(sorted(d.unique()))
+    if evaluation_start_date:
+        eval_start = pd.to_datetime(evaluation_start_date, errors="coerce")
+        if pd.notna(eval_start):
+            eval_start = pd.Timestamp(eval_start).normalize()
+            on_or_after = months[months >= eval_start]
+            prior = months[months < eval_start]
+            if not prior.empty:
+                last_prior = pd.Timestamp(prior.iloc[-1]).normalize()
+                # Broker evidence is evaluated on next-close fills. A month-end
+                # decision just before the evidence window is valid only when
+                # its estimated next-close fill lands inside the window; older
+                # prehistory months remain training-only.
+                fill_date = _estimated_next_close_fill_date(last_prior)
+                if fill_date is not None and fill_date >= eval_start:
+                    on_or_after = pd.concat([pd.Series([last_prior]), on_or_after], ignore_index=True)
+            months = on_or_after
     return [pd.Timestamp(x) for x in months]
 
 
