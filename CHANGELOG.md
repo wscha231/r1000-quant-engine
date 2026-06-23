@@ -5,6 +5,18 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-22
 
+### 22:30 KST - Codex plan: forward-first timing & leadership optimization
+
+- added: `docs/CODEX_PLAN_FORWARD_TIMING_OPTIMIZATION.md` — handoff plan for Codex.
+- prime directive: optimize for the future, not the known backtest (answer-sheet ban). Every rule must be forward-causal (PIT, no future returns), name/era-agnostic, and survive walk-forward + embargo.
+- evidence (run 27937558080 audits): risk/crisis cash cycle + technical exits (WARNING/TRIM) work and are forward-valid; leaks are rank-driven EXIT_REPLACE premature sells (+8.4% 126d excess left on table, 35% of exits), green idle cash drag (-6pp conc / -11.7pp main), and pct_held_365d=0%.
+- five forward-causal levers specified: (1) leadership-persistence hold [new, highest value], (2) asymmetric trailing-stop exit, (3) regime-conditional gross floor, (4) new-leader detection latency, (5) candidate_gate calibration. Levers 2/3 already under measurement in run 27957500268.
+- data checkpoint: price cache clean (end 2026-06-18 observed). Two OPEN production gates block promotion: window 6.965y<7.0y and pit_universe_label_clean=false. Evidence WARNs: ETF coverage 0.0, SEC v1 0.12.
+- symbols_added: none
+- symbols_changed: none
+- config_fields_added: none (planned env flags listed in doc: R1000_LEADER_PERSIST_*)
+- breaking_changes: none
+
 ### 21:10 KST - Run 27937558080 verdict (FAIL/reject) + lever-sweep harness hardened against silent no-op
 
 - run: `27937558080` on `98dbf33`, global_alpha_universe, operating_minimal, fast_mode, 7y. job conclusion success; dated dir committed as `cloud_results/full_rebuild/20260622_27937558080_global_alpha_universe/` (run-id naming fix from `98dbf33` confirmed working — no clobber).
