@@ -1,3 +1,47 @@
+# Session Handoff - 2026-06-22 KST (Forward-timing optimization + data gate #1 → Codex execution)
+
+> **WHO AM I**: r1000 Quant Engine (Russell 1000 Top-30 institutional).
+> **ONE ACTIVE HANDOFF** — this top block supersedes everything below it (older inboxes kept as history).
+
+## ACTIVE INBOX (2026-06-22 KST) — Codex: execute data gate #1, then lever #1
+
+Branch `claude/pr146-review-analysis-6dkvd8` (PR #147 draft). HEAD ≥ `68ad18b`.
+
+**Context shipped this session (web/Claude):**
+- Verified the system end-to-end on run `27937558080` (broker-ledger): risk/crisis
+  cash cycle + technical exits work and are forward-valid; leaks = rank-driven
+  EXIT_REPLACE premature sells (+8.4% 126d excess left on table), green idle cash
+  drag (−6/−12pp), 0% held >365d.
+- Wrote **`docs/CODEX_PLAN_FORWARD_TIMING_OPTIMIZATION.md`** — the forward-first
+  (answer-sheet-ban) optimization plan: 5 forward-causal levers + the data gates.
+  **Read this first.**
+- Hardened the lever-sweep harness (skeleton-first write, per-arm flush) + added a
+  committed invocation probe (`outputs/lever_sweep/_invocation_probe.json`) because
+  the harness produced no output in 3 runs — see plan §2.1.
+
+**YOUR TASK 1 (highest priority — data gate #1, code fix already landed):**
+- Root cause: broker-ledger window 6.965y < 7.0y because the replay price cache
+  started 2019-06-14 → first fill snapped to 2019-07-01. `build_replay_price_cache.py`
+  now floors the auto-start to `OFFICIAL_BACKTEST_START_DATE − 25d` (2019-05-09).
+- REMAINING (needs local data): the builder only re-downloads missing/stale
+  tickers, so **force a `cache_prices/` rebuild** (delete it / refetch) to backfill
+  the 2019-05 bars, then full rebuild. Verify realized `years` ∈ **[7.00, 7.05]** in
+  `account_evaluation/official_metrics.json` (≤2019-04-30 → ~7.13y → re-triggers the
+  pit-label gate). Landing in that band clears BOTH gates. See plan §3.
+
+**YOUR TASK 2 (after gate clears): lever #1 — leadership-persistence hold.**
+- Suppress rank-driven EXIT_REPLACE while the held name is still a confirmed PIT
+  leader (RS top-decile, >200dma, leader_state DUAL/SECTOR, theme RS+). Env-gated
+  `R1000_LEADER_PERSIST_*`. Verify via `entry_exit_timing_audit` (EXIT_REPLACE 126d
+  excess → ≤0, pct_held_365d ↑) + ship gate. See plan §2 Lever 1.
+
+**Ship gate (unchanged):** ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ −0.05 AND ΔMaxDD ≥ −3pp,
+early_scout ≥ 4, on broker_ledger_next_close. Answer-sheet ban: every rule PIT,
+name/era-agnostic, survives walk-forward+embargo.
+
+---
+---
+
 # Session Handoff - 2026-06-09 KST (Data-hole program: visibility + feed repairs shipped)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
