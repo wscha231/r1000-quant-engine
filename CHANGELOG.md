@@ -5,6 +5,18 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-22
 
+### 23:20 KST - Data gate #1 root cause isolated (7y window) + Codex fix spec
+
+- investigation (no code behavior change): why the broker-ledger window is 6.965y < 7.0y (gate `broker_ledger_years_below_7` / `broker_ledger_trading_days_below_7y`, run 27937558080 / 27957500268).
+- finding: NO Python reads the `BACKTEST_YEARS` workflow env — the engine backtests over all available price history, bounded by the replay price cache, which starts 2019-06-14 (`tools/build_replay_price_cache.py:269` derives start = `min_dt(books) − 14d`). First month-end rebalance 2019-06-28 → first next-close fill 2019-07-01 → 6.965y. `OFFICIAL_BACKTEST_START_DATE="2019-06-03"` (`r1000_config.py:528`) is the intended start but is only read by the gate evaluator, never the engine.
+- key gate insight: `evaluate_window_gate` (`run_account_evaluation.py:282`) only requires `pit_universe_label_clean` when realized `years > 7.05` (L340). Landing the window in [7.00, 7.05]y clears BOTH gates at once (window valid + pit moot).
+- fix spec (delegated to Codex for fast local iteration; ~4h blind per CI try otherwise): force the replay window to start ~2019-05-10 so the first month-end rebalance is 2019-05-31 → fill 2019-06-03 → realized ~7.04y. Knob: `build_replay_price_cache.py --start` / anchor its default to `OFFICIAL_BACKTEST_START_DATE − 25d`, then cache rebuild + full rebuild; verify realized `years` ∈ [7.0, 7.05] in `account_evaluation/official_metrics.json`. Do NOT overshoot ≤2019-04-30 (→ ~7.13y → re-triggers pit gate).
+- documented in `docs/CODEX_PLAN_FORWARD_TIMING_OPTIMIZATION.md` §3.
+- symbols_added: none
+- symbols_changed: none
+- config_fields_added: none
+- breaking_changes: none
+
 ### 22:30 KST - Codex plan: forward-first timing & leadership optimization
 
 - added: `docs/CODEX_PLAN_FORWARD_TIMING_OPTIMIZATION.md` — handoff plan for Codex.
