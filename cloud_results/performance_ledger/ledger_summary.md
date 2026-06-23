@@ -1,18 +1,17 @@
 # Performance Ledger IS-CAGR Trajectory
 
-- Overall trend this run: **REGRESSING**
+- Overall trend this run: **FLAT**
 - Dominant open leak (recommended next focus): `concentrated:structural_underinvestment_bull`
 
 ## Main
-- IS-CAGR `19.94%` | state **REGRESSING** | delta prev `-0.53pp` | best `25.36%`
+- IS-CAGR `20.07%` | state **FLAT** | delta prev `+0.14pp` | best `25.36%`
 ## Concentrated
-- IS-CAGR `18.65%` | state **FLAT** | delta prev `-0.14pp` | best `22.41%`
+- IS-CAGR `18.64%` | state **FLAT** | delta prev `-0.01pp` | best `22.41%`
 
 ## Last 12 runs
 
 | Run | Commit | Main IS | Main full | Conc IS | Conc full | Strengthened |
 | --- | --- | ---: | ---: | ---: | ---: | :---: |
-| 27498401423 | d42daf82 | 21.45% | 34.33% | 21.29% | 44.57% | no |
 | 27516185696 | cd48042 | 22.90% | 35.20% | 22.41% | 44.43% | no |
 | 27614583121 | 0c59381 | 22.36% | 35.01% | 21.65% | 45.00% | no |
 | 27814870719 | d992ae1 | 25.36% | 39.56% | 22.35% | 50.62% | no |
@@ -24,3 +23,4 @@
 | 27926056802 | 6ca5b35 | 20.89% | 34.88% | 19.15% | 44.67% | no |
 | 27937558080 | 98dbf33 | 20.47% | 34.71% | 18.79% | 44.35% | no |
 | 27957500268 | 8eeb06a | 19.94% | 34.92% | 18.65% | 45.95% | no |
+| 28002654508 | dbd8986 | 20.07% | 35.02% | 18.64% | 45.96% | no |

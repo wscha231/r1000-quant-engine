@@ -1,23 +1,23 @@
 {
   "blockers": [],
-  "candidate_count": 45990,
+  "candidate_count": 45993,
   "candidate_replay_book": {
     "date_column": "rebalance_date",
     "exists": true,
-    "fundamental_coverage_pct": 0.769341161121983,
+    "fundamental_coverage_pct": 0.7693562063792316,
     "max_date": "2026-04-30",
     "min_date": "2019-06-28",
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
-    "r1000_base_count": 895,
-    "row_count": 45990,
+    "r1000_base_count": 896,
+    "row_count": 45993,
     "source_column": "source_universe",
     "source_counts": {
       "adr_whitelist": 1293,
-      "current_constituents_proxy_static_seed": 43280,
+      "current_constituents_proxy_static_seed": 43283,
       "current_constituents_proxy_static_seed+strategic_global_hardware": 1170,
       "cycle_play_whitelist": 247
     },
-    "ticker_count": 968
+    "ticker_count": 969
   },
   "fallback_source_chain": {
     "all_checked_paths": {
@@ -28,7 +28,7 @@
       "data_static_iwb_seed": {
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-22T13:56:57.259595+00:00",
+        "modified_utc": "2026-06-23T04:47:52.664678+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
         "size_bytes": 62177
       },
@@ -39,9 +39,9 @@
       "previous_healthy_candidate_universe": {
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-22T14:04:37.772698+00:00",
+        "modified_utc": "2026-06-23T04:53:05.933751+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
-        "size_bytes": 37385
+        "size_bytes": 37398
       },
       "restored_drive_iwb_csv": {
         "exists": false,
@@ -60,11 +60,11 @@
     "previous_healthy_universe_cache": {
       "exists": true,
       "kind": "file",
-      "modified_utc": "2026-06-22T14:04:37.772698+00:00",
+      "modified_utc": "2026-06-23T04:53:05.933751+00:00",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
       "r1000_base_count": 992,
       "row_count": 1118,
-      "size_bytes": 37385,
+      "size_bytes": 37398,
       "ticker_count": 1118
     },
     "restored_drive_iwb": {
@@ -90,7 +90,7 @@
         "data_static": {
           "exists": true,
           "kind": "file",
-          "modified_utc": "2026-06-22T13:56:57.259595+00:00",
+          "modified_utc": "2026-06-23T04:47:52.664678+00:00",
           "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
           "size_bytes": 62177
         }
@@ -98,7 +98,7 @@
     }
   },
   "fallback_used": true,
-  "generated_at_utc": "2026-06-22T16:34:13.795515+00:00",
+  "generated_at_utc": "2026-06-23T08:16:04.838539+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "min_r1000_base": 400,
   "next_actions": [],
@@ -125,8 +125,8 @@
     "date_column": "rebalance_date",
     "exists": true,
     "fundamental_coverage_pct": 1.0,
-    "max_date": "2026-06-22",
-    "min_date": "2026-06-22",
+    "max_date": "2026-06-23",
+    "min_date": "2026-06-23",
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
     "r1000_base_count": 700,
     "row_count": 737,
