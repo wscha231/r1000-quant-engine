@@ -331,8 +331,18 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # output can measure a whole grid here instead of paying a full ~3-4h rebuild
   # per lever value. Measurement only; never replaces operating books. Off by
   # default so normal A/B arms are unchanged. Failures stay non-fatal.
+  # Unconditional invocation probe — committed via the outputs/lever_sweep copy so
+  # the cause is visible in git even though the 31-min sidecar step's mid-log is
+  # too deep to fetch. Three prior runs produced no lever_sweep output at all;
+  # since the harness writes a skeleton summary.json on its first line, an empty
+  # dir means the harness was never invoked — this probe pins down whether this
+  # shell actually saw R1000_LEVER_SWEEP=1.
+  mkdir -p outputs/lever_sweep
+  printf '{"r1000_lever_sweep_seen":"%s","sidecar_profile":"%s","floors":"%s","ts":"%s"}\n' "${R1000_LEVER_SWEEP:-unset}" "${SIDECAR_PROFILE:-unset}" "${R1000_LEVER_SWEEP_FLOORS:-default}" "$(date -u +%FT%TZ)" > outputs/lever_sweep/_invocation_probe.json
   if [ "${R1000_LEVER_SWEEP:-0}" = "1" ]; then
-    python tools/run_lever_sweep.py --latest-run outputs --price-cache cache_prices --output-dir outputs/lever_sweep --conc-gross-floors "${R1000_LEVER_SWEEP_FLOORS:-0.0,0.7,0.8,0.9}" --daily-stop-grid "${R1000_LEVER_SWEEP_DAILY_STOP:-default,-0.12:-0.20,-0.10:-0.15,-0.08:-0.12}" 2>&1 | tee outputs/full_rebuild_logs/lever_sweep.log || true
+    # tee the harness output into outputs/lever_sweep/ (copied to git) so a crash
+    # traceback survives without needing the unreachable step log.
+    python tools/run_lever_sweep.py --latest-run outputs --price-cache cache_prices --output-dir outputs/lever_sweep --conc-gross-floors "${R1000_LEVER_SWEEP_FLOORS:-0.0,0.7,0.8,0.9}" --daily-stop-grid "${R1000_LEVER_SWEEP_DAILY_STOP:-default,-0.12:-0.20,-0.10:-0.15,-0.08:-0.12}" 2>&1 | tee outputs/lever_sweep/_harness.log outputs/full_rebuild_logs/lever_sweep.log || true
     # Fail-loud guard: a prior run had R1000_LEVER_SWEEP=1 but produced no
     # output (harness killed before writing), yet the job still reported
     # success. Surface the outcome explicitly so a silent no-op is visible.
