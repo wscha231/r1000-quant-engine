@@ -2408,6 +2408,34 @@ def test_lever_sweep_builds_isolated_commands() -> None:
         assert (_Path(_td) / "ls2" / "summary.json").is_file(), "no-arm run must still write summary.json"
 
 
+@_test("regression.replay_cache_start_covers_official_window")
+def test_replay_cache_start_covers_official_window() -> None:
+    """The replay price cache must start early enough to realize a >=7.0y window.
+
+    Root cause of the broker-ledger 6.965y < 7.0y acceptance-gate miss: the cache
+    auto-start was min_dt(books)-14d (~2019-06-14), so the first monthly fill
+    snapped to 2019-07-01. build_replay_price_cache now floors the auto-start to
+    OFFICIAL_BACKTEST_START_DATE - warmup so the first month-end rebalance is
+    2019-05-31 -> fill ~2019-06-03 -> ~7.04y, inside the [7.0, 7.05] band that
+    also keeps the pit-universe-label gate moot.
+    """
+    import importlib
+    import pandas as pd
+
+    b = importlib.import_module("tools.build_replay_price_cache")
+    floor = pd.Timestamp(b._OFFICIAL_BACKTEST_START_DATE).normalize() - pd.Timedelta(days=b.OFFICIAL_START_WARMUP_DAYS)
+    # must cover the official start with warmup, and not overshoot past the band
+    # that re-triggers the pit gate (start <= 2019-04-30 -> ~7.13y).
+    assert floor <= pd.Timestamp("2019-05-31"), "cache must cover the 2019-05-31 first rebalance"
+    assert floor > pd.Timestamp("2019-04-30"), "cache start must not overshoot into the >7.05y pit-gate band"
+    # an incremental run (recent book min_dt) must snap back to the official floor
+    derived = pd.Timestamp("2019-06-28") - pd.Timedelta(days=14)
+    assert min(derived, floor) == floor, "incremental cache build must floor to the official window"
+    # a fresh 8y run must be unaffected (its derived start is earlier than the floor)
+    fresh = (pd.Timestamp("2026-06-23") - pd.DateOffset(years=8)) - pd.Timedelta(days=14)
+    assert min(fresh, floor) == fresh, "fresh 8y cache build must be unaffected"
+
+
 @_test("logic.latest_month_mktcap_starvation_guard")
 def test_latest_month_mktcap_starvation_guard() -> None:
     """Universe-collapse guard for the latest snapshot (run 27337807588).

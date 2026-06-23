@@ -26,6 +26,20 @@ from tools.run_weekly_evaluation import CASH_TICKERS, px_cache_name
 
 DEFAULT_OUTPUT = "cache_prices"
 
+# Floor the auto-derived cache start so it always covers the official backtest
+# start with warmup. Without this the cache started ~2019-06-14 (min_dt-14d) and
+# the engine's first monthly fill snapped to 2019-07-01, yielding a 6.965y
+# broker-ledger window < the 7.0y acceptance gate. Anchoring to
+# OFFICIAL_BACKTEST_START_DATE - 25d lands the first month-end rebalance on
+# 2019-05-31 -> fill 2019-06-03 -> ~7.04y (inside the [7.0, 7.05] band that also
+# keeps the pit-universe-label gate moot). Guarded import + literal fallback so
+# this tool never hard-fails on the heavy config import.
+try:
+    from r1000_config import OFFICIAL_BACKTEST_START_DATE as _OFFICIAL_BACKTEST_START_DATE
+except Exception:  # pragma: no cover - config import is best-effort here
+    _OFFICIAL_BACKTEST_START_DATE = "2019-06-03"
+OFFICIAL_START_WARMUP_DAYS = 25
+
 
 def repo_path(path_like: str | Path) -> Path:
     path = Path(path_like)
@@ -266,7 +280,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.max_tickers and args.max_tickers > 0:
         tickers = sorted(set(tickers[: int(args.max_tickers)]) | required_tickers)
     today = pd.Timestamp.utcnow().tz_localize(None).normalize()
-    start_dt = pd.Timestamp(args.start).normalize() if args.start else (min_dt or today - pd.DateOffset(years=8)) - pd.Timedelta(days=14)
+    if args.start:
+        start_dt = pd.Timestamp(args.start).normalize()
+    else:
+        derived = (min_dt or today - pd.DateOffset(years=8)) - pd.Timedelta(days=14)
+        # Never start later than the official backtest start (minus warmup), so the
+        # realized broker-ledger window reaches >=7.0y regardless of the prior
+        # run's book min_dt.
+        official_floor = pd.Timestamp(_OFFICIAL_BACKTEST_START_DATE).normalize() - pd.Timedelta(days=OFFICIAL_START_WARMUP_DAYS)
+        start_dt = min(derived, official_floor)
     end_dt = pd.Timestamp(args.end).normalize() if args.end else today + pd.Timedelta(days=2)
     missing = [ticker for ticker in tickers if not (output_dir / px_cache_name(ticker)).exists()]
     stale = stale_cache_tickers(

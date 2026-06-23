@@ -158,14 +158,20 @@ gate #2 (pit label) is moot and gate #1 passes. Target that band.
    - `OFFICIAL_BACKTEST_START_DATE = "2019-06-03"` (`r1000_config.py:528`) is the
      INTENDED start (2019-06-03…2026-06-18 = 7.04y ✓) but the engine never uses it
      — it is only read by the gate evaluator.
-   - **Fix (Codex, iterate locally — fast):** force the replay window to start
-     ~2019-05-10 so the first month-end rebalance is **2019-05-31** → fill
-     **2019-06-03** → realized **~7.04y** (inside [7.0, 7.05]). Lever:
-     `tools/build_replay_price_cache.py --start 2019-05-10` (or anchor its default
-     to `OFFICIAL_BACKTEST_START_DATE − ~25d`), then rebuild cache + full rebuild.
-     **Precision matters:** start ≤ 2019-04-30 → first fill 2019-05-01 → ~7.13y >
-     7.05 → re-triggers the pit gate. Verify realized `years` ∈ [7.00, 7.05] in
-     `account_evaluation/official_metrics.json` before trusting the run.
+   - **Fix — DONE in code (commit on this branch):** `build_replay_price_cache.py`
+     now floors the auto-derived start to `OFFICIAL_BACKTEST_START_DATE − 25d`
+     (= 2019-05-09) so the first month-end rebalance is **2019-05-31** → fill
+     **2019-06-03** → realized **~7.04y** (inside [7.0, 7.05]). Regression test
+     `regression.replay_cache_start_covers_official_window` added.
+   - **REMAINING for Codex (execution — needs local data):** the cache builder
+     only re-downloads MISSING/STALE tickers (`run()` L271-278), so the anchor
+     alone will NOT backfill earlier bars into already-cached tickers. You must
+     **force a cache rebuild** of `cache_prices/` (delete it or pass
+     `--refresh-stale-days 0` / re-fetch) so the 2019-05-09→ bars are actually
+     downloaded, then full rebuild. **Precision check:** confirm realized `years`
+     ∈ [7.00, 7.05] in `account_evaluation/official_metrics.json` (start ≤
+     2019-04-30 → ~7.13y > 7.05 → re-triggers the pit gate). Iterate the warmup
+     days locally (minutes) rather than via ~4h CI tries.
    - Why Codex not CI: this needs 1-2 cache-rebuild iterations to land the exact
      start; locally that is minutes, on CI it is ~4h blind per try.
 2. **`pit_universe_label_clean = false`** — becomes MOOT once #1 lands in
