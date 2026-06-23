@@ -2,29 +2,29 @@
   "official_metric_mode": "broker_ledger_next_close",
   "portfolios": {
     "concentrated": {
-      "avg_cash_weight": 0.4133115077523461,
-      "broker_ledger_actual_trading_days": 1714,
-      "broker_ledger_trading_days_estimate": 1714,
+      "avg_cash_weight": 0.4193959791535554,
+      "broker_ledger_actual_trading_days": 1733,
+      "broker_ledger_trading_days_estimate": 1733,
       "broker_ledger_window_gate": {
-        "actual_trading_days": 1714,
+        "actual_trading_days": 1733,
         "broker_start_date": "2019-07-01",
-        "broker_start_evaluation_drift_days": 8,
+        "broker_start_evaluation_drift_days": 11,
         "data_readiness": {
           "known_gaps_count": 0,
           "ready_for_fullrun": true,
           "ready_for_policy_replay": true,
           "status": "warn"
         },
-        "end_date": "2026-06-22",
+        "end_date": "2026-06-18",
         "equity_curve_window": {
-          "end_date": "2026-06-22",
+          "end_date": "2026-06-18",
           "exists": true,
           "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/equity_curve.csv",
           "start_date": "2019-07-01",
-          "trading_day_count": 1714
+          "trading_day_count": 1733
         },
-        "estimated_trading_days": 1758,
-        "evaluation_start_date": "2019-06-23",
+        "estimated_trading_days": 1755,
+        "evaluation_start_date": "2019-06-20",
         "evidence_window_label": "research_7y",
         "max_broker_start_evaluation_drift_days": 35,
         "min_trading_days": 1764,
@@ -41,46 +41,46 @@
         ],
         "start_date": "2019-07-01",
         "status": "invalid_window",
-        "trading_days_estimate": 1714,
+        "trading_days_estimate": 1733,
         "valid": false,
-        "years": 6.976043805612594
+        "years": 6.965092402464066
       },
-      "broker_start_evaluation_drift_days": 8,
-      "broker_trade_count": 586,
-      "cagr": 0.45960777470565395,
-      "cagr_gap_pp": 4.0392,
+      "broker_start_evaluation_drift_days": 11,
+      "broker_trade_count": 589,
+      "cagr": 0.45474571128352825,
+      "cagr_gap_pp": 4.5254,
       "cagr_target": 0.5,
       "canonical_cagr_target": 0.5,
       "canonical_max_dd_target": -0.25,
       "data_readiness_policy_replay_ready": true,
       "data_readiness_status": "warn",
-      "end_date": "2026-06-22",
-      "ending_capital_usd": 1398681.0871639494,
-      "evaluation_start_date": "2019-06-23",
+      "end_date": "2026-06-18",
+      "ending_capital_usd": 1360902.7530628347,
+      "evaluation_start_date": "2019-06-20",
       "evidence_window_label": "research_7y",
-      "gross_traded_usd": 14828738.610830307,
-      "is_cagr": 0.18641872101979784,
-      "is_mdd": -0.2459978159609808,
-      "journal_avg_holding_days": 53.50904392764858,
-      "journal_avg_realized_return": 0.12109077606057816,
-      "journal_profit_factor": 3.765795683397593,
+      "gross_traded_usd": 14926552.118066788,
+      "is_cagr": 0.18854562542646258,
+      "is_mdd": -0.2458586131013939,
+      "journal_avg_holding_days": 53.246153846153845,
+      "journal_avg_realized_return": 0.12120789764234981,
+      "journal_profit_factor": 3.777956918024725,
       "journal_status": "completed",
-      "journal_trade_count": 387,
-      "journal_win_rate": 0.5503875968992248,
-      "latest_cash_usd": 77474.65466883231,
-      "latest_cash_weight": 0.05539122204470829,
-      "latest_equity_usd": 1398681.0871639494,
+      "journal_trade_count": 390,
+      "journal_win_rate": 0.5487179487179488,
+      "latest_cash_usd": 78400.61671029573,
+      "latest_cash_weight": 0.05760927188503958,
+      "latest_equity_usd": 1360902.7530628347,
       "latest_position_count": 5,
-      "legacy_cagr": 0.5161428541107949,
-      "legacy_max_dd": -0.1839540748408418,
+      "legacy_cagr": 0.5303414260271835,
+      "legacy_max_dd": -0.18737282847142733,
       "legacy_metric_mode": "weight_level_research_comparison",
-      "legacy_sharpe": 1.5824348286089727,
-      "max_dd": -0.2459978159609808,
+      "legacy_sharpe": 1.7457401422638923,
+      "max_dd": -0.2458586131013939,
       "max_dd_gap_pp": 0.0,
       "max_dd_target": -0.28,
       "official_metric_mode": "broker_ledger_next_close",
       "official_source": "broker_replay/concentrated/metrics.json",
-      "oos_cagr": 1.4779806213251452,
+      "oos_cagr": 1.4451057868051218,
       "order_preview_blocked_count": 0,
       "order_preview_buy_count": 3,
       "order_preview_count": 5,
@@ -89,8 +89,8 @@
       "pit_universe_label_clean": false,
       "portfolio": "concentrated",
       "production_promotion_allowed": false,
-      "recent_mdd": -0.23025233394314226,
-      "sharpe": 1.4341529693138253,
+      "recent_mdd": -0.23236345138050463,
+      "sharpe": 1.412051707046111,
       "start_date": "2019-07-01",
       "starting_capital_usd": 100000.0,
       "status": "completed",
@@ -120,69 +120,69 @@
           "avg_cash_weight_max": {
             "pass": true,
             "threshold": 0.55,
-            "value": 0.4133115077523461
+            "value": 0.4193959791535554
           },
           "is_cagr_min": {
             "pass": false,
             "threshold": 0.3,
-            "value": 0.18641872101979784
+            "value": 0.18854562542646258
           },
           "max_dd_recent_3y_min": {
             "pass": true,
             "threshold": -0.25,
-            "value": -0.23025233394314226
+            "value": -0.23236345138050463
           },
           "oos_is_cagr_ratio_max": {
             "pass": false,
             "threshold": 3.0,
-            "value": 7.92828431200417
+            "value": 7.664488547726866
           },
           "sharpe_min": {
             "pass": true,
             "threshold": 1.4,
-            "value": 1.4341529693138253
+            "value": 1.412051707046111
           }
         },
         "failing": [
           "is_cagr_min",
           "oos_is_cagr_ratio_max"
         ],
-        "is_cagr": 0.18641872101979784,
-        "is_mdd": -0.2459978159609808,
-        "oos_cagr": 1.4779806213251452,
+        "is_cagr": 0.18854562542646258,
+        "is_mdd": -0.2458586131013939,
+        "oos_cagr": 1.4451057868051218,
         "passing": false,
-        "recent_mdd": -0.23025233394314226
+        "recent_mdd": -0.23236345138050463
       },
-      "total_fees_usd": 37071.84652707577,
-      "total_return": 12.986810871639493,
+      "total_fees_usd": 37316.380295166964,
+      "total_return": 12.609027530628348,
       "valid_for_production": false,
       "verdict_status": "invalid_window",
-      "years": 6.976043805612594
+      "years": 6.965092402464066
     },
     "main": {
-      "avg_cash_weight": 0.2636169327596494,
-      "broker_ledger_actual_trading_days": 1753,
-      "broker_ledger_trading_days_estimate": 1753,
+      "avg_cash_weight": 0.2642994168189281,
+      "broker_ledger_actual_trading_days": 1752,
+      "broker_ledger_trading_days_estimate": 1752,
       "broker_ledger_window_gate": {
-        "actual_trading_days": 1753,
+        "actual_trading_days": 1752,
         "broker_start_date": "2019-07-01",
-        "broker_start_evaluation_drift_days": 8,
+        "broker_start_evaluation_drift_days": 11,
         "data_readiness": {
           "known_gaps_count": 0,
           "ready_for_fullrun": true,
           "ready_for_policy_replay": true,
           "status": "warn"
         },
-        "end_date": "2026-06-22",
+        "end_date": "2026-06-18",
         "equity_curve_window": {
-          "end_date": "2026-06-22",
+          "end_date": "2026-06-18",
           "exists": true,
           "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main/equity_curve.csv",
           "start_date": "2019-07-01",
-          "trading_day_count": 1753
+          "trading_day_count": 1752
         },
-        "estimated_trading_days": 1758,
-        "evaluation_start_date": "2019-06-23",
+        "estimated_trading_days": 1755,
+        "evaluation_start_date": "2019-06-20",
         "evidence_window_label": "research_7y",
         "max_broker_start_evaluation_drift_days": 35,
         "min_trading_days": 1764,
@@ -199,46 +199,46 @@
         ],
         "start_date": "2019-07-01",
         "status": "invalid_window",
-        "trading_days_estimate": 1753,
+        "trading_days_estimate": 1752,
         "valid": false,
-        "years": 6.976043805612594
+        "years": 6.965092402464066
       },
-      "broker_start_evaluation_drift_days": 8,
-      "broker_trade_count": 1647,
-      "cagr": 0.3502292258141284,
+      "broker_start_evaluation_drift_days": 11,
+      "broker_trade_count": 1657,
+      "cagr": 0.3472864716440396,
       "cagr_gap_pp": 0.0,
       "cagr_target": 0.3,
       "canonical_cagr_target": 0.35,
       "canonical_max_dd_target": -0.25,
       "data_readiness_policy_replay_ready": true,
       "data_readiness_status": "warn",
-      "end_date": "2026-06-22",
-      "ending_capital_usd": 812322.4597446707,
-      "evaluation_start_date": "2019-06-23",
+      "end_date": "2026-06-18",
+      "ending_capital_usd": 797444.5733724119,
+      "evaluation_start_date": "2019-06-20",
       "evidence_window_label": "research_7y",
-      "gross_traded_usd": 14735933.43420887,
-      "is_cagr": 0.20074126859014418,
-      "is_mdd": -0.26032442012514556,
-      "journal_avg_holding_days": 60.520499108734406,
-      "journal_avg_realized_return": 0.10958571364151017,
-      "journal_profit_factor": 3.546862270710793,
+      "gross_traded_usd": 14874571.391849518,
+      "is_cagr": 0.20366098995309634,
+      "is_mdd": -0.26052377896541024,
+      "journal_avg_holding_days": 59.940444444444445,
+      "journal_avg_realized_return": 0.1083998069814365,
+      "journal_profit_factor": 3.5373539295037366,
       "journal_status": "completed",
-      "journal_trade_count": 1122,
-      "journal_win_rate": 0.56951871657754,
-      "latest_cash_usd": 118855.67738077902,
-      "latest_cash_weight": 0.14631588226446152,
-      "latest_equity_usd": 812322.4597446707,
+      "journal_trade_count": 1125,
+      "journal_win_rate": 0.5688888888888889,
+      "latest_cash_usd": 119131.38923697485,
+      "latest_cash_weight": 0.14939143511023645,
+      "latest_equity_usd": 797444.5733724119,
       "latest_position_count": 13,
-      "legacy_cagr": 0.35298231322109364,
-      "legacy_max_dd": -0.15542546657243672,
+      "legacy_cagr": 0.3279834741777534,
+      "legacy_max_dd": -0.16186137080622076,
       "legacy_metric_mode": "weight_level_research_comparison",
-      "legacy_sharpe": 1.8408732345579772,
-      "max_dd": -0.26032442012514556,
-      "max_dd_gap_pp": 1.0324,
+      "legacy_sharpe": 1.80184369986591,
+      "max_dd": -0.26052377896541024,
+      "max_dd_gap_pp": 1.0524,
       "max_dd_target": -0.25,
       "official_metric_mode": "broker_ledger_next_close",
       "official_source": "broker_replay/main/metrics.json",
-      "oos_cagr": 0.8290255325372577,
+      "oos_cagr": 0.8067913514786365,
       "order_preview_blocked_count": 0,
       "order_preview_buy_count": 7,
       "order_preview_count": 12,
@@ -247,8 +247,8 @@
       "pit_universe_label_clean": false,
       "portfolio": "main",
       "production_promotion_allowed": false,
-      "recent_mdd": -0.23813348171388826,
-      "sharpe": 1.276208074437592,
+      "recent_mdd": -0.23750803304437895,
+      "sharpe": 1.2673640784120184,
       "start_date": "2019-07-01",
       "starting_capital_usd": 100000.0,
       "status": "completed",
@@ -278,44 +278,44 @@
           "avg_cash_weight_max": {
             "pass": true,
             "threshold": 0.55,
-            "value": 0.2636169327596494
+            "value": 0.2642994168189281
           },
           "is_cagr_min": {
             "pass": false,
             "threshold": 0.25,
-            "value": 0.20074126859014418
+            "value": 0.20366098995309634
           },
           "max_dd_recent_3y_min": {
             "pass": true,
             "threshold": -0.25,
-            "value": -0.23813348171388826
+            "value": -0.23750803304437895
           },
           "oos_is_cagr_ratio_max": {
             "pass": false,
             "threshold": 3.0,
-            "value": 4.129821129256132
+            "value": 3.961442746912124
           },
           "sharpe_min": {
             "pass": true,
             "threshold": 1.2,
-            "value": 1.276208074437592
+            "value": 1.2673640784120184
           }
         },
         "failing": [
           "is_cagr_min",
           "oos_is_cagr_ratio_max"
         ],
-        "is_cagr": 0.20074126859014418,
-        "is_mdd": -0.26032442012514556,
-        "oos_cagr": 0.8290255325372577,
+        "is_cagr": 0.20366098995309634,
+        "is_mdd": -0.26052377896541024,
+        "oos_cagr": 0.8067913514786365,
         "passing": false,
-        "recent_mdd": -0.23813348171388826
+        "recent_mdd": -0.23750803304437895
       },
-      "total_fees_usd": 36839.833585522174,
-      "total_return": 7.123224597446706,
+      "total_fees_usd": 37186.42847962379,
+      "total_return": 6.974445733724119,
       "valid_for_production": false,
       "verdict_status": "invalid_window",
-      "years": 6.976043805612594
+      "years": 6.965092402464066
     }
   },
   "production_promotion_allowed": false,

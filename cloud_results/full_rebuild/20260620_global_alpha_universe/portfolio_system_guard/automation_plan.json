@@ -1,0 +1,41 @@
+{
+  "aggressive_lab": {
+    "next_change_needed": "Use only after data-quality and PIT coverage pass; broker replay must confirm any discovered policy.",
+    "owner": ".github/workflows/aggressive_lab_manual.yml and tools/run_aggressive_experiment_matrix.py",
+    "role": "Discovery experiments; failures are retained as research artifacts."
+  },
+  "auto_learning": {
+    "owner": ".github/workflows/quarterly_auto_learning.yml and tools/run_auto_learning_v2.py",
+    "promotion_rule": "No production write without challenger pass, strict target gate, and human approval.",
+    "role": "Feature gates plus Alpha Scientist hypotheses. Proposal-only by default."
+  },
+  "data_refresh": {
+    "default_runtime": "medium",
+    "owner": ".github/workflows/weekly_data_refresh.yml",
+    "role": "Refresh substrate data, PIT freshness, universe, theme, and coverage diagnostics before deeper rebuilds."
+  },
+  "fast_guard": {
+    "default_runtime": "short",
+    "owner": ".github/workflows/portfolio_system_guard.yml",
+    "role": "Fast PR/manual target gap, artifact, error, and promotion-blocker check from committed data.",
+    "status": "active_after_this_change",
+    "strict_mode": "manual input only"
+  },
+  "full_rebuild": {
+    "default_runtime": "long",
+    "owner": ".github/workflows/full_rebuild_manual.yml",
+    "role": "Manual long-run only; use skip_collector=true and fast_mode=true when cached data exists."
+  },
+  "production_defaults": "unchanged",
+  "target_management": {
+    "concentrated_target": "CAGR >= 50%, MaxDD >= -28%",
+    "current_target_pass": false,
+    "main_target": "CAGR >= 30%, MaxDD >= -25%",
+    "recommended_next_focus": [
+      "Run data quality and PIT coverage checks before interpreting CAGR/MDD.",
+      "Use broker-trade attribution to separate data gaps from policy errors across the full period.",
+      "Improve theme leadership and macro regime features before adding broad cash or sizing rules.",
+      "Promote only reversible PIT-safe rules that improve official broker MDD without losing target CAGR."
+    ]
+  }
+}

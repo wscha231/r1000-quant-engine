@@ -7,7 +7,7 @@
     "data_static_iwb_seed": {
       "exists": true,
       "kind": "file",
-      "modified_utc": "2026-06-23T04:47:52.664678+00:00",
+      "modified_utc": "2026-06-20T14:14:42.644123+00:00",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
       "size_bytes": 62177
     },
@@ -18,7 +18,7 @@
     "previous_healthy_candidate_universe": {
       "exists": true,
       "kind": "file",
-      "modified_utc": "2026-06-23T04:53:05.933751+00:00",
+      "modified_utc": "2026-06-20T15:42:56.035540+00:00",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
       "size_bytes": 37398
     },
@@ -39,7 +39,7 @@
   "previous_healthy_universe_cache": {
     "exists": true,
     "kind": "file",
-    "modified_utc": "2026-06-23T04:53:05.933751+00:00",
+    "modified_utc": "2026-06-20T15:42:56.035540+00:00",
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
     "r1000_base_count": 992,
     "row_count": 1118,
@@ -69,7 +69,7 @@
       "data_static": {
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-23T04:47:52.664678+00:00",
+        "modified_utc": "2026-06-20T14:14:42.644123+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
         "size_bytes": 62177
       }
