@@ -102,6 +102,27 @@ def test_window_gate_rejects_short_actual_equity_curve_even_if_metrics_years_pas
     assert "broker_ledger_trading_days_below_7y" in gate["reasons"]
 
 
+def test_window_gate_uses_calendar_days_when_equity_curve_omits_cash_only_rows() -> None:
+    gate = evaluate_window_gate(
+        {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
+        equity_window={
+            "exists": True,
+            "equity_curve_observed_day_count": 1714,
+            "calendar_trading_day_count": 1770,
+            "trading_day_count": 1770,
+            "start_date": "2019-06-03",
+            "end_date": "2026-06-12",
+        },
+        data_readiness={"status": "ready", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is True
+    assert gate["equity_curve_observed_day_count"] == 1714
+    assert gate["calendar_trading_day_count"] == 1770
+    assert gate["actual_trading_days"] == 1770
+    assert "broker_ledger_trading_days_below_7y" not in gate["reasons"]
+
+
 def test_window_gate_rejects_missing_data_readiness_when_required() -> None:
     gate = evaluate_window_gate(
         {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
@@ -129,6 +150,7 @@ if __name__ == "__main__":
     test_window_gate_rejects_dirty_8_year_proxy_window()
     test_window_gate_accepts_pit_clean_8_year_window()
     test_window_gate_rejects_short_actual_equity_curve_even_if_metrics_years_pass()
+    test_window_gate_uses_calendar_days_when_equity_curve_omits_cash_only_rows()
     test_window_gate_rejects_missing_data_readiness_when_required()
     test_workflow_rejects_long_window_without_pit_label()
     print("account_evaluation_window_gate_smoke: PASS")

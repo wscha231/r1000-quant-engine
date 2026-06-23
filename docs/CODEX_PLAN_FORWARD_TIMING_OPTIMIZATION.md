@@ -139,6 +139,29 @@ Per `CLAUDE.md` AlphaOps contract — no CAGR/MDD is production-valid until thes
   `tools/build_replay_price_cache.py` writing manifest `end` from actual cached bars.
 - `data_readiness.blockers = []`; effective latest target 2026-06-18.
 
+**2026-06-23 update — supersedes the stale gate guidance below:**
+
+Run `28002654508` (commit `dbd89866`) succeeded operationally but failed the
+clean 7Y research window: first candidate/target rebalance stayed at
+**2019-06-28**, broker start stayed at **2019-07-01**, realized years stayed
+**6.976**, and concentrated observed equity rows were only **1714**. Do not
+spend another 4h fullrun until this cheap preflight is green:
+
+1. Keep `evaluation_start_date=2019-06-03`; do not move it earlier just to catch
+   2019-05-31. The correct rule is the existing next-close fill bridge:
+   decision **2019-05-31** -> first fill **2019-06-03**.
+2. Require cache manifest start <= **2019-05-09**.
+3. Require `monthly_test_dates_first == 2019-05-31`.
+4. Require candidate and target books first `rebalance_date == 2019-05-31`.
+5. Require first decision PIT leakage == 0 and feature completeness pass
+   (RS/momentum/MA200/RSI must be real, not missing/placeholder fallback).
+6. Require projected calendar trading days >= **1764** for both portfolios.
+7. Report `equity_curve_observed_day_count` separately from
+   `calendar_trading_day_count`; the window gate uses calendar coverage so
+   cash-only missing equity rows do not shorten the evidence window.
+8. `pit_universe_label_clean=false` still blocks production promotion. A clean
+   7Y result is a research baseline, not production approval.
+
 **OPEN production gates — ROOT CAUSE ISOLATED (Claude, run 27937558080 / 27957500268):**
 
 The two gates collapse into ONE fix. Key insight: `evaluate_window_gate`
@@ -192,6 +215,20 @@ gate #2 (pit label) is moot and gate #1 passes. Target that band.
 ---
 
 ## 4. Execution order for Codex
+
+**2026-06-23 execution override:** do this order, even if older bullets below
+say otherwise.
+
+1. Clear the clean 7Y research preflight first. Do not dispatch a fullrun until
+   cache start, first decision, first target/candidate books, PIT leakage,
+   feature completeness, and projected calendar trading days are all green.
+2. Run one full rebuild only after preflight passes. The target is a clean
+   `research_7y` broker-ledger baseline. `pit_universe_label_clean=false` still
+   blocks production promotion; do not fake it and do not claim production.
+3. Implement Lever 1 leadership-persistence only after the clean 7Y baseline is
+   verified.
+4. Fix the lever-sweep invocation blocker from the next normal run; do not spend
+   blind 4h runs on the harness alone.
 
 1. **Fix the lever-sweep invocation blocker (§2.1)** using the committed
    `_invocation_probe.json` from the next run — then Lever 2/3 become measurable in

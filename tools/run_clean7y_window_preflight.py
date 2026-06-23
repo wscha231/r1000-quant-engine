@@ -35,6 +35,24 @@ DATE_COLUMNS = (
     "fund_effective_accepted",
 )
 
+FEATURE_COMPLETENESS_COLUMNS = (
+    "mom_1m",
+    "mom_3m",
+    "mom_6m",
+    "relative_strength_composite",
+    "price_above_ma200",
+    "rsi14",
+)
+FEATURE_NONZERO_COLUMNS = (
+    "mom_1m",
+    "mom_3m",
+    "mom_6m",
+    "relative_strength_composite",
+    "rsi14",
+)
+MIN_BROKER_LEDGER_TRADING_DAYS = int(252 * 7)
+DEFAULT_CACHE_START_FLOOR = "2019-05-09"
+
 
 def repo_path(raw: str | Path) -> Path:
     path = Path(raw)
@@ -63,6 +81,49 @@ def read_first_rebalance(path: Path) -> dict[str, Any]:
     return payload
 
 
+def estimate_calendar_trading_days(start_date: str | None, end_date: str | None) -> int | None:
+    start = pd.to_datetime(start_date, errors="coerce")
+    end = pd.to_datetime(end_date, errors="coerce")
+    if pd.isna(start) or pd.isna(end) or end < start:
+        return None
+    return int(round((pd.Timestamp(end).normalize() - pd.Timestamp(start).normalize()).days * 252.0 / 365.25))
+
+
+def read_cache_manifest(latest_run: Path, cache_start_floor: str) -> dict[str, Any]:
+    candidates = [
+        latest_run / "manifests" / "replay_price_cache_manifest.json",
+        latest_run / "replay_price_cache_manifest.json",
+        REPO_ROOT / "cache_prices" / "replay_price_cache_manifest.json",
+    ]
+    status: dict[str, Any] = {
+        "checked": True,
+        "path": None,
+        "exists": False,
+        "start": None,
+        "required_start_or_before": cache_start_floor,
+        "start_pass": False,
+    }
+    for path in candidates:
+        if not path.exists():
+            continue
+        status["path"] = str(path)
+        status["exists"] = True
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            status["error"] = str(exc)
+            return status
+        start_value = payload.get("start") or payload.get("requested_start")
+        status["start"] = start_value
+        start = pd.to_datetime(start_value, errors="coerce")
+        floor = pd.to_datetime(cache_start_floor, errors="coerce")
+        status["start_pass"] = bool(pd.notna(start) and pd.notna(floor) and start <= floor)
+        status["manifest_end"] = payload.get("end")
+        status["manifest_status"] = payload.get("status")
+        return status
+    return status
+
+
 def first_decision_pit_status(candidate_book: Path, first_decision: str | None) -> dict[str, Any]:
     status: dict[str, Any] = {
         "path": str(candidate_book),
@@ -76,7 +137,7 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         return status
     try:
         header = pd.read_csv(candidate_book, nrows=0)
-        usecols = [c for c in ["rebalance_date", "ticker", *DATE_COLUMNS] if c in header.columns]
+        usecols = [c for c in ["rebalance_date", "ticker", *DATE_COLUMNS, *FEATURE_COMPLETENESS_COLUMNS] if c in header.columns]
         df = pd.read_csv(candidate_book, usecols=usecols)
     except Exception as exc:
         status["pit_status"] = "read_error"
@@ -108,6 +169,48 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
     status["pit_status"] = "pass" if future_rows.empty else "fail_future_available_from"
     if not future_rows.empty and "ticker" in future_rows.columns:
         status["future_available_from_sample"] = future_rows["ticker"].astype(str).head(20).tolist()
+    completeness = feature_completeness_status(first_rows)
+    status["feature_completeness"] = completeness
+    if status["pit_status"] == "pass" and completeness["status"] != "pass":
+        status["pit_status"] = "fail_feature_completeness"
+    return status
+
+
+def feature_completeness_status(first_rows: pd.DataFrame) -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "status": "pass",
+        "required_columns": list(FEATURE_COMPLETENESS_COLUMNS),
+        "missing_columns": [],
+        "column_stats": {},
+        "min_non_placeholder_ratio": 0.80,
+    }
+    if first_rows.empty:
+        status["status"] = "missing_first_decision_rows"
+        return status
+    blockers: list[str] = []
+    for col in FEATURE_COMPLETENESS_COLUMNS:
+        if col not in first_rows.columns:
+            status["missing_columns"].append(col)
+            blockers.append(f"missing:{col}")
+            continue
+        values = pd.to_numeric(first_rows[col], errors="coerce")
+        non_null = values.notna()
+        non_placeholder = non_null & ~values.isin([-999.0, -9999.0])
+        non_zero = non_placeholder & values.ne(0.0)
+        non_placeholder_ratio = float(non_placeholder.mean()) if len(values) else 0.0
+        stat = {
+            "non_null_ratio": float(non_null.mean()) if len(values) else 0.0,
+            "non_placeholder_ratio": non_placeholder_ratio,
+            "non_zero_ratio": float(non_zero.mean()) if len(values) else 0.0,
+        }
+        status["column_stats"][col] = stat
+        if non_placeholder_ratio < status["min_non_placeholder_ratio"]:
+            blockers.append(f"low_non_placeholder:{col}")
+        if col in FEATURE_NONZERO_COLUMNS and float(non_zero.sum()) <= 0.0:
+            blockers.append(f"all_zero_or_placeholder:{col}")
+    if blockers:
+        status["status"] = "fail"
+        status["blockers"] = blockers
     return status
 
 
@@ -119,6 +222,8 @@ def main() -> int:
     parser.add_argument("--evaluation-start-date", default="2019-06-03")
     parser.add_argument("--end-date", default="2026-06-23")
     parser.add_argument("--expected-first-decision", default="2019-05-31")
+    parser.add_argument("--cache-start-floor", default=DEFAULT_CACHE_START_FLOOR)
+    parser.add_argument("--min-calendar-trading-days", type=int, default=MIN_BROKER_LEDGER_TRADING_DAYS)
     parser.add_argument("--not-before", default=None, help="Earliest allowed actual first decision; defaults to expected first decision.")
     parser.add_argument("--must-be-before", default="2019-06-28")
     parser.add_argument("--strict", action="store_true")
@@ -134,6 +239,13 @@ def main() -> int:
     filtered = monthly_test_dates(probe_frame, args.evaluation_start_date)
     filtered_iso = [pd.Timestamp(x).date().isoformat() for x in filtered]
     expected_fill = _estimated_next_close_fill_date(args.expected_first_decision)
+    expected_fill_iso = pd.Timestamp(expected_fill).date().isoformat() if expected_fill is not None else None
+    projected_calendar_trading_days = estimate_calendar_trading_days(expected_fill_iso, args.end_date)
+    projected_calendar_pass = bool(
+        projected_calendar_trading_days is not None
+        and projected_calendar_trading_days >= int(args.min_calendar_trading_days)
+    )
+    cache_manifest = read_cache_manifest(latest, args.cache_start_floor)
 
     files = {
         "candidate_replay_book": latest / "reports" / "candidate_replay_book.csv",
@@ -175,20 +287,34 @@ def main() -> int:
         blockers.append("candidate_replay_book_not_in_expected_clean7y_decision_window")
     if not target_pass:
         blockers.append("target_books_not_in_expected_clean7y_decision_window")
-    if pit_status.get("pit_status") not in {"pass", "review_required_no_available_from_columns"}:
+    if pit_status.get("pit_status") != "pass":
         blockers.append("first_decision_pit_check_failed")
+    if not cache_manifest.get("start_pass"):
+        blockers.append("replay_price_cache_start_after_clean7y_floor")
+    if not projected_calendar_pass:
+        blockers.append("projected_calendar_trading_days_below_7y")
 
     payload = {
-        "schema_version": "clean7y-window-preflight-v1",
+        "schema_version": "clean7y-window-preflight-v2",
         "production_promotion_allowed": False,
         "purpose": "research_7y_window_preflight",
         "feature_start_date": args.feature_start_date,
         "evaluation_start_date": args.evaluation_start_date,
         "end_date": args.end_date,
         "expected_first_decision": expected_first,
-        "expected_first_decision_next_close_fill": (
-            pd.Timestamp(expected_fill).date().isoformat() if expected_fill is not None else None
-        ),
+        "expected_first_decision_next_close_fill": expected_fill_iso,
+        "cache_manifest": cache_manifest,
+        "projected_calendar_trading_days": {
+            "start_date": expected_fill_iso,
+            "end_date": args.end_date,
+            "count": projected_calendar_trading_days,
+            "min_required": int(args.min_calendar_trading_days),
+            "pass": projected_calendar_pass,
+            "portfolios": {
+                "main": projected_calendar_trading_days,
+                "concentrated": projected_calendar_trading_days,
+            },
+        },
         "not_before": not_before_raw,
         "must_be_before": args.must_be_before,
         "generated_month_end_contains_expected": generated_pass,
@@ -212,6 +338,8 @@ def main() -> int:
         f"- evaluation_start_date: `{args.evaluation_start_date}`",
         f"- expected first decision: `{expected_first}`",
         f"- expected next-close fill: `{payload['expected_first_decision_next_close_fill']}`",
+        f"- cache manifest start: `{cache_manifest.get('start')}` (required <= `{args.cache_start_floor}`)",
+        f"- projected calendar trading days: `{projected_calendar_trading_days}` / `{args.min_calendar_trading_days}`",
         f"- accepted first-decision range: `[{not_before_raw}, {args.must_be_before})`",
         f"- monthly_test_dates first: `{payload['monthly_test_dates_first']}`",
         f"- candidate first: `{first_candidate}`",
@@ -225,6 +353,7 @@ def main() -> int:
     lines.extend(["", "## PIT"])
     lines.append(f"- pit_status: `{pit_status.get('pit_status')}`")
     lines.append(f"- future_available_from_rows: `{pit_status.get('future_available_from_rows')}`")
+    lines.append(f"- feature_completeness_status: `{(pit_status.get('feature_completeness') or {}).get('status')}`")
     (out_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return 1 if args.strict and blockers else 0

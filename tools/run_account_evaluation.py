@@ -181,9 +181,24 @@ def pit_universe_label_clean(*payloads: dict[str, Any] | None) -> bool:
 
 
 def equity_curve_window(path: Path) -> dict[str, Any]:
-    """Return actual broker-ledger equity-curve date coverage using stdlib CSV."""
+    """Return broker-ledger equity-curve date coverage using stdlib CSV.
+
+    ``equity_curve_observed_day_count`` is the number of rows actually present
+    in the curve.  ``calendar_trading_day_count`` is the intended coverage
+    proxy for the broker-ledger evidence window.  The latter is what the window
+    gate uses: a cash-only interval should not shorten the evidence window just
+    because the replay did not emit an equity row for that date.
+    """
     if not path.exists():
-        return {"path": str(path), "exists": False, "trading_day_count": None, "start_date": None, "end_date": None}
+        return {
+            "path": str(path),
+            "exists": False,
+            "trading_day_count": None,
+            "equity_curve_observed_day_count": None,
+            "calendar_trading_day_count": None,
+            "start_date": None,
+            "end_date": None,
+        }
     dates: set[date] = set()
     try:
         with path.open("r", encoding="utf-8", newline="") as fh:
@@ -194,15 +209,39 @@ def equity_curve_window(path: Path) -> dict[str, Any]:
                 if parsed is not None:
                     dates.add(parsed.date())
     except Exception:
-        return {"path": str(path), "exists": True, "read_error": True, "trading_day_count": None, "start_date": None, "end_date": None}
+        return {
+            "path": str(path),
+            "exists": True,
+            "read_error": True,
+            "trading_day_count": None,
+            "equity_curve_observed_day_count": None,
+            "calendar_trading_day_count": None,
+            "start_date": None,
+            "end_date": None,
+        }
     if not dates:
-        return {"path": str(path), "exists": True, "trading_day_count": 0, "start_date": None, "end_date": None}
+        return {
+            "path": str(path),
+            "exists": True,
+            "trading_day_count": 0,
+            "equity_curve_observed_day_count": 0,
+            "calendar_trading_day_count": 0,
+            "start_date": None,
+            "end_date": None,
+        }
+    start = min(dates).isoformat()
+    end = max(dates).isoformat()
+    calendar_trading_days = estimate_trading_days(start, end, None)
     return {
         "path": str(path),
         "exists": True,
-        "trading_day_count": len(dates),
-        "start_date": min(dates).isoformat(),
-        "end_date": max(dates).isoformat(),
+        # Backward-compatible field used by older reports.  It now reflects the
+        # calendar window count because that is the intended gate input.
+        "trading_day_count": calendar_trading_days,
+        "equity_curve_observed_day_count": len(dates),
+        "calendar_trading_day_count": calendar_trading_days,
+        "start_date": start,
+        "end_date": end,
     }
 
 
@@ -302,8 +341,14 @@ def evaluate_window_gate(
     years = metric(broker_metrics, "years")
     estimated_trading_days = estimate_trading_days(start_date, end_date, years)
     equity_window = equity_window or {}
-    actual_trading_days = safe_int(equity_window.get("trading_day_count"), default=-1)
-    actual_trading_days = actual_trading_days if actual_trading_days >= 0 else None
+    observed_trading_days = safe_int(
+        equity_window.get("equity_curve_observed_day_count", equity_window.get("trading_day_count")),
+        default=-1,
+    )
+    observed_trading_days = observed_trading_days if observed_trading_days >= 0 else None
+    calendar_trading_days = safe_int(equity_window.get("calendar_trading_day_count"), default=-1)
+    calendar_trading_days = calendar_trading_days if calendar_trading_days >= 0 else None
+    actual_trading_days = calendar_trading_days if calendar_trading_days is not None else observed_trading_days
     trading_days = actual_trading_days if actual_trading_days is not None else estimated_trading_days
     broker_start_date = equity_window.get("start_date") or start_date
     broker_start_evaluation_drift_days = None
@@ -365,6 +410,8 @@ def evaluate_window_gate(
         "trading_days_estimate": trading_days,
         "estimated_trading_days": estimated_trading_days,
         "actual_trading_days": actual_trading_days,
+        "equity_curve_observed_day_count": observed_trading_days,
+        "calendar_trading_day_count": calendar_trading_days,
         "equity_curve_window": equity_window,
         "data_readiness": {
             "status": readiness_status,
@@ -448,6 +495,8 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "years": metric(broker_metrics, "years"),
         "broker_ledger_trading_days_estimate": window_gate.get("trading_days_estimate"),
         "broker_ledger_actual_trading_days": window_gate.get("actual_trading_days"),
+        "broker_ledger_calendar_trading_days": window_gate.get("calendar_trading_day_count"),
+        "broker_ledger_observed_equity_days": window_gate.get("equity_curve_observed_day_count"),
         "data_readiness_status": (window_gate.get("data_readiness") or {}).get("status"),
         "data_readiness_policy_replay_ready": (window_gate.get("data_readiness") or {}).get("ready_for_policy_replay"),
         "starting_capital_usd": metric(broker_metrics, "starting_capital_usd"),
@@ -513,6 +562,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "years",
         "broker_ledger_trading_days_estimate",
         "broker_ledger_actual_trading_days",
+        "broker_ledger_calendar_trading_days",
+        "broker_ledger_observed_equity_days",
         "data_readiness_status",
         "data_readiness_policy_replay_ready",
         "ending_capital_usd",
