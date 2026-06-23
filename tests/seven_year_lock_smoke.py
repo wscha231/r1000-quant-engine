@@ -10,6 +10,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_config import (  # noqa: E402
     EngineConfig,
+    OFFICIAL_BACKTEST_START_DATE,
     OFFICIAL_BACKTEST_WINDOW_YEARS,
     PROXY_8Y_10Y_EVIDENCE_BLOCKED,
     PROXY_WINDOW_BLOCKER_REASON,
@@ -39,7 +40,14 @@ def test_config_locks_clean_7y_and_blocks_proxy_windows() -> None:
 def test_clean_7y_uses_prehistory_but_evaluates_from_2019_mid() -> None:
     cfg = configure_last_n_years_backtest(EngineConfig(), years=7, end_date="2026-06-17")
     assert cfg.start_date == "2016-01-01"
-    assert cfg.evaluation_start_date == "2019-06-17"
+    assert cfg.evaluation_start_date == OFFICIAL_BACKTEST_START_DATE
+    assert cfg.end_date == "2026-06-17"
+
+
+def test_non_7y_backtest_keeps_dynamic_window_start() -> None:
+    cfg = configure_last_n_years_backtest(EngineConfig(), years=5, end_date="2026-06-17")
+    assert cfg.start_date == "2016-01-01"
+    assert cfg.evaluation_start_date == "2021-06-17"
     assert cfg.end_date == "2026-06-17"
 
 
@@ -129,6 +137,7 @@ def test_workflow_rejects_long_window_without_pit_label() -> None:
 if __name__ == "__main__":
     test_config_locks_clean_7y_and_blocks_proxy_windows()
     test_clean_7y_uses_prehistory_but_evaluates_from_2019_mid()
+    test_non_7y_backtest_keeps_dynamic_window_start()
     test_monthly_test_dates_filters_to_evaluation_start()
     test_monthly_test_dates_includes_next_close_bridge_month()
     test_clean_7y_window_passes_as_research_baseline()

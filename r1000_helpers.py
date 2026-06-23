@@ -52,6 +52,8 @@ from r1000_config import (
     ENGINE_REUSE_VERSION,
     EXCLUDE_NAME,
     EngineConfig,
+    OFFICIAL_BACKTEST_START_DATE,
+    OFFICIAL_BACKTEST_WINDOW_YEARS,
     ROBUST_Z_CLIP,
     ROBUST_Z_WINSOR_P,
     SEC_COMPANYFACTS_MEMBER_RE,
@@ -263,7 +265,10 @@ def configure_last_n_years_backtest(
     end_ts = pd.Timestamp(end_date or cfg_obj.end_date).normalize()
     if pd.isna(end_ts):
         raise ValueError("end_date could not be parsed")
-    evaluation_start_ts = (end_ts - pd.DateOffset(years=years)).normalize()
+    if float(years) == float(OFFICIAL_BACKTEST_WINDOW_YEARS):
+        evaluation_start_ts = pd.Timestamp(OFFICIAL_BACKTEST_START_DATE).normalize()
+    else:
+        evaluation_start_ts = (end_ts - pd.DateOffset(years=years)).normalize()
     existing_start_ts = pd.Timestamp(getattr(cfg_obj, "start_date", "") or evaluation_start_ts).normalize()
     if pd.isna(existing_start_ts):
         existing_start_ts = evaluation_start_ts
