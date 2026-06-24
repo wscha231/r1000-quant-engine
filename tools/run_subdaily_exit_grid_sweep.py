@@ -127,13 +127,25 @@ def baseline_for(latest: Path, portfolio: str) -> dict[str, Any]:
 def holdings_path_for(latest: Path, portfolio: str) -> tuple[Path, Path]:
     """Where PRWV looks for monthly holdings + period map."""
     if portfolio == "main":
+        legacy_holdings = latest / "reports" / "main_monthly_weights.csv"
+        if legacy_holdings.exists():
+            return (
+                legacy_holdings,
+                latest / "reports" / "regime_by_month.csv",
+            )
         return (
-            latest / "reports" / "main_monthly_weights.csv",
+            latest / "alphaops_vnext" / "official_main_target_book.csv",
             latest / "reports" / "regime_by_month.csv",
         )
     if portfolio == "concentrated":
+        legacy_holdings = latest / "reports" / "concentrated_strategy_holdings.csv"
+        if legacy_holdings.exists():
+            return (
+                legacy_holdings,
+                latest / "reports" / "concentrated_strategy_monthly.csv",
+            )
         return (
-            latest / "reports" / "concentrated_strategy_holdings.csv",
+            latest / "alphaops_vnext" / "official_concentrated_target_book.csv",
             latest / "reports" / "concentrated_strategy_monthly.csv",
         )
     raise ValueError(f"unknown portfolio_kind: {portfolio!r}")
@@ -223,6 +235,8 @@ def run_prwv(
     hard: float,
     trailing: float,
     trailing_activation: float,
+    relative_trim_threshold: float,
+    relative_exit_threshold: float,
     latest: Path,
     price_cache: Path,
     output_dir: Path,
@@ -230,8 +244,14 @@ def run_prwv(
     python_exec: str | None = None,
 ) -> dict[str, Any]:
     holdings, period_map = holdings_path_for(latest, portfolio)
-    if not holdings.exists() or not period_map.exists():
-        return {"status": "missing_inputs"}
+    if not holdings.exists():
+        return {"status": "missing_inputs", "missing": str(holdings)}
+    if not period_map.exists():
+        # PRWV can infer period ends from the next rebalance when the period map
+        # is empty. This keeps the grid usable on official artifacts that persist
+        # alphaops_vnext target books but not the legacy reports/* monthly files.
+        period_map = output_dir / "_empty_period_map.csv"
+        period_map.write_text("rebalance_date,next_rebalance_date\n", encoding="utf-8")
     py = python_exec or sys.executable
     cmd = [
         py, str(PRWV_TOOL),
@@ -243,6 +263,8 @@ def run_prwv(
         "--hard-stop", str(hard),
         "--trailing-stop", str(trailing),
         "--trailing-activation", str(trailing_activation),
+        "--relative-trim-threshold", str(relative_trim_threshold),
+        "--relative-exit-threshold", str(relative_exit_threshold),
     ]
     proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -295,6 +317,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hard-stop-grid", default=DEFAULT_HARD_GRID)
     parser.add_argument("--trailing-stop-grid", default=DEFAULT_TRAILING_GRID)
     parser.add_argument("--trailing-activation", type=float, default=DEFAULT_TRAILING_ACTIVATION)
+    parser.add_argument("--relative-trim-threshold", type=float, default=-0.06)
+    parser.add_argument("--relative-exit-threshold", type=float, default=-0.12)
     parser.add_argument(
         "--keep-intermediate", action="store_true",
         help="keep per-combo PRWV output dirs (default deletes them after metrics.json is captured)",
@@ -310,6 +334,8 @@ def evaluate_portfolio(
     hard_grid: list[float],
     trailing_grid: list[float],
     trailing_activation: float,
+    relative_trim_threshold: float,
+    relative_exit_threshold: float,
     keep_intermediate: bool = False,
 ) -> dict[str, Any]:
     baseline = baseline_for(latest, portfolio)
@@ -326,7 +352,17 @@ def evaluate_portfolio(
             return combo_metrics[(hard, trailing)]
         sub_out = work_dir / f"hard_{hard:.4f}_trail_{trailing:.4f}".replace("-", "neg")
         sub_out.mkdir(parents=True, exist_ok=True)
-        metrics = run_prwv(hard, trailing, trailing_activation, latest, price_cache, sub_out, portfolio)
+        metrics = run_prwv(
+            hard,
+            trailing,
+            trailing_activation,
+            relative_trim_threshold,
+            relative_exit_threshold,
+            latest,
+            price_cache,
+            sub_out,
+            portfolio,
+        )
         combo_metrics[(hard, trailing)] = metrics
         return metrics
 
@@ -345,6 +381,8 @@ def evaluate_portfolio(
         "ranked": ranked,
         "champion": champion,
         "trailing_activation": trailing_activation,
+        "relative_trim_threshold": relative_trim_threshold,
+        "relative_exit_threshold": relative_exit_threshold,
         "production_activation_allowed": False,
     }
 
@@ -365,12 +403,15 @@ def main() -> int:
         "hard_stop_grid": hard_grid,
         "trailing_stop_grid": trailing_grid,
         "trailing_activation": args.trailing_activation,
+        "relative_trim_threshold": args.relative_trim_threshold,
+        "relative_exit_threshold": args.relative_exit_threshold,
     }
     portfolios = ("main", "concentrated") if args.portfolio_kind == "both" else (args.portfolio_kind,)
     for portfolio in portfolios:
         block = evaluate_portfolio(
             portfolio, latest, price_cache, out_dir,
             hard_grid, trailing_grid, args.trailing_activation,
+            args.relative_trim_threshold, args.relative_exit_threshold,
             keep_intermediate=args.keep_intermediate,
         )
         summary[portfolio] = block
