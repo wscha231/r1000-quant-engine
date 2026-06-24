@@ -2093,17 +2093,16 @@ def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
 
 @_test("regression.run_local_full_defers_broker_verdict_to_sidecar")
 def test_run_local_full_defers_broker_verdict_to_sidecar() -> None:
-    """`run_local.py --full` must NOT fail when broker metrics are absent.
+    """`run_local.py --full` must NOT enforce broker verdicts inline.
 
     Failure-class regression guard (run 27445937281, 2026-06-13): in full-run
     workflow the broker-replay sidecar runs as a SEPARATE step AFTER
-    run_local.py exits. If --full mode lets print_broker_verdict run when
-    metrics.json files don't exist yet, it returns exit 1, fails the
-    "Run FULL rebuild" step under set -o pipefail, and reports the whole run
-    as failed even though the next "Verdict (Cell E equivalent)" step shows
-    completed metrics. The deferral block must:
+    run_local.py exits. Run 28074476465 showed the same false-failure mode when
+    restored cache left stale broker metrics on disk: path-existence checks
+    allowed print_broker_verdict to run too early and fail the "Run FULL
+    rebuild" step under set -o pipefail. The deferral block must:
       - only activate under --full (verdict-only and QUICK_RESCORE still gate)
-      - check ALL three broker-evidence paths before returning 0
+      - return 0 unconditionally for --full after the pipeline completes
       - print an informational DEFERRED banner, not silently swallow real
         verdict output
     """
@@ -2115,13 +2114,16 @@ def test_run_local_full_defers_broker_verdict_to_sidecar() -> None:
     # still enforce the broker gate. All three broker-evidence paths must be
     # checked together — partial presence (e.g. only main metrics) must still
     # defer rather than fail.
-    deferral_prefix = src.split("BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP")[0]
-    deferral_window = deferral_prefix[-2000:]
-    assert "if args.full:" in deferral_window, "deferral must be gated on args.full"
-    for name in ("broker_replay", "main", "concentrated", "account_evaluation"):
-        assert name in deferral_window, f"deferral block must reference {name!r}"
-    assert "all(p.exists() for p in broker_paths)" in deferral_window, (
-        "deferral must check ALL three paths jointly"
+    verdict_start = src.index("# ---------- Step 3: verdict ----------")
+    verdict_end = src.index(
+        "return print_verdict(base_dir, gate_mode=args.gate_mode)",
+        verdict_start,
+    )
+    deferral_block = src[verdict_start:verdict_end]
+    assert "if args.full:" in deferral_block, "deferral must be gated on args.full"
+    assert "return 0" in deferral_block, "full-run deferral must return success"
+    assert "all(p.exists() for p in broker_paths)" not in deferral_block, (
+        "full-run deferral must not depend on stale broker path existence"
     )
 
 

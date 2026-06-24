@@ -1009,23 +1009,17 @@ def main() -> int:
     # informational note and exit 0 instead of a hard failure. --verdict-only
     # and QUICK_RESCORE still enforce the gate because the sidecar artifacts
     # are expected to exist at that point.
+    # Always defer in --full: restored cache may contain stale broker metrics.
     if args.full:
-        out_dir = base_dir / "outputs"
-        broker_paths = [
-            out_dir / "broker_replay" / "main" / "metrics.json",
-            out_dir / "broker_replay" / "concentrated" / "metrics.json",
-            out_dir / "account_evaluation" / "official_metrics.json",
-        ]
-        if not all(p.exists() for p in broker_paths):
-            print()
-            print("=" * 70)
-            print("BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP")
-            print("=" * 70)
-            print("Pipeline build completed; broker-ledger sidecars run in the")
-            print("next workflow step and will populate broker_replay/metrics.json.")
-            print("Inspect the workflow's 'Verdict (Cell E equivalent)' step or")
-            print("re-run `python run_local.py --verdict-only` after the sidecars.")
-            return 0
+        print()
+        print("=" * 70)
+        print("BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP")
+        print("=" * 70)
+        print("Pipeline build completed; broker-ledger sidecars run in the")
+        print("next workflow step and will populate broker_replay/metrics.json.")
+        print("Inspect the workflow's 'Verdict (Cell E equivalent)' step or")
+        print("re-run `python run_local.py --verdict-only` after the sidecars.")
+        return 0
     return print_verdict(base_dir, gate_mode=args.gate_mode)
 
 
