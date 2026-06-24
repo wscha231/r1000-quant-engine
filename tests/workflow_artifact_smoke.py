@@ -381,6 +381,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/data_freshness_contract.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_main.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log",
+        "outputs/full_rebuild_logs/subdaily_exit_grid_wide_trailing.log",
         "outputs/full_rebuild_logs/legacy_monthly_broker_replay_main.log",
         "outputs/full_rebuild_logs/legacy_monthly_broker_replay_concentrated.log",
         "outputs/full_rebuild_logs/event_target_books.log",
@@ -473,11 +474,13 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/reports/weekly_leader_*_target_book.csv",
         "outputs/weekly_leader_snapshots/",
         "outputs/weekly_leader_broker_replay/",
+        "outputs/subdaily_exit_grid_wide_trailing",
         "outputs/cost_sensitivity/",
         "outputs/trade_attribution/",
         "outputs/target_snapshots/latest_manifest.json",
         "outputs/data_readiness/summary.json",
         "outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2",
+        "--output-dir outputs/subdaily_exit_grid_wide_trailing --portfolio-kind both --hard-stop-grid=disabled --trailing-stop-grid=-0.25,-0.30,-0.35,-0.45 --trailing-activation 0.30 --relative-trim-threshold -99 --relative-exit-threshold -99",
     ]:
         assert token in combined, token
 
@@ -493,6 +496,20 @@ def test_sidecar_promotion_hook_runs_before_primary_broker_replay() -> None:
     assert build_idx < hook_idx < replay_idx
     assert "build_long_crisis_inputs" in sidecar_tool
     assert "tools/run_long_crisis_dataset_builder.py" in sidecar_tool
+
+
+def test_subdaily_wide_trailing_grid_runs_after_primary_broker_replay() -> None:
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    build_idx = sidecar_tool.index("tools/build_operating_target_books.py")
+    replay_idx = sidecar_tool.index("--target-book outputs/reports/operating_concentrated_target_book.csv", build_idx)
+    grid_idx = sidecar_tool.index("tools/run_subdaily_exit_grid_sweep.py", replay_idx)
+    mdd_idx = sidecar_tool.index("tools/run_mdd_cash_overlay_research.py", replay_idx)
+    assert replay_idx < grid_idx < mdd_idx
+    grid_call = sidecar_tool[grid_idx:mdd_idx]
+    assert "--latest-run outputs" in grid_call
+    assert "--portfolio-kind both" in grid_call
+    assert "--hard-stop-grid=disabled" in grid_call
+    assert "--relative-trim-threshold -99" in grid_call
 
 
 def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
