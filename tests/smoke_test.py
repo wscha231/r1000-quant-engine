@@ -2114,11 +2114,15 @@ def test_run_local_full_defers_broker_verdict_to_sidecar() -> None:
     # still enforce the broker gate. All three broker-evidence paths must be
     # checked together — partial presence (e.g. only main metrics) must still
     # defer rather than fail.
-    deferral_prefix = src.split("BROKER-LEDGER VERDICT -- DEFERRED TO SIDECAR STEP")[0]
-    deferral_window = deferral_prefix[-2000:]
-    assert "if args.full:" in deferral_window, "deferral must be gated on args.full"
-    assert "return 0" in deferral_window, "full-run deferral must return success"
-    assert "all(p.exists() for p in broker_paths)" not in deferral_window, (
+    verdict_start = src.index("# ---------- Step 3: verdict ----------")
+    verdict_end = src.index(
+        "return print_verdict(base_dir, gate_mode=args.gate_mode)",
+        verdict_start,
+    )
+    deferral_block = src[verdict_start:verdict_end]
+    assert "if args.full:" in deferral_block, "deferral must be gated on args.full"
+    assert "return 0" in deferral_block, "full-run deferral must return success"
+    assert "all(p.exists() for p in broker_paths)" not in deferral_block, (
         "full-run deferral must not depend on stale broker path existence"
     )
 
