@@ -46,6 +46,68 @@ The bottleneck is different by sleeve:
 Therefore, do not apply one cash policy to both sleeves. More cash is likely
 harmful to Concentrated CAGR unless it demonstrably reduces idiosyncratic MDD.
 
+## Right-Tail Skill Policy
+
+Concentrated growth strategies normally earn a large share of returns from a
+small number of winners. Do not reject a result only because it is OOS-heavy or
+because the top winners contribute a large share of CAGR. The correct question
+is whether those winners were identifiable at the rebalance date using PIT-
+visible information.
+
+High OOS/IS ratios, top-winner concentration, or leave-top-winner sensitivity
+are audit triggers, not automatic rejection rules.
+
+Skill-vs-luck audit:
+
+1. **Ex-ante explainability**
+   - At each winner's entry rebalance date, the selected name should rank highly
+     on PIT-visible signals: relative strength, theme leadership, price/volume
+     thrust, earnings/revision/event reaction, Form4/13F/ETF support, and
+     liquidity.
+
+2. **Cross-era repetition**
+   - Winners should appear across multiple eras or themes, not only in one lucky
+     episode.
+
+3. **Era-level leave-best-out**
+   - Removing the best name inside each era is a fair robustness check.
+   - Removing the single best name across the whole seven-year concentrated book
+     is not a fair hard-reject rule by itself, because a concentrated book is
+     designed to monetize right-tail winners.
+
+4. **Factor-adjusted residual alpha**
+   - Regress results against SPY, QQQ, SMH/SOXX, and broad size/value/momentum
+     factors where available.
+   - The winner contribution should include positive residual alpha, not only
+     benchmark or semiconductor beta.
+
+5. **Walk-forward robustness**
+   - The same direction should hold across walk-forward folds and, if available,
+     proxy robustness evidence.
+
+Required diagnostic fields or report rows:
+
+- `winner_capture_rate`
+- `early_entry_score`
+- `hold_winner_score`
+- `premature_sell_loss`
+- `top_1_winner_contribution`
+- `top_3_winner_contribution`
+- `top_5_winner_contribution`
+- `era_leave_best_out_cagr`
+- `factor_adjusted_winner_alpha`
+- `theme_leader_capture`
+
+Decision rule:
+
+- If OOS/IS is high or top-winner concentration is high, run this audit.
+- If the audit passes, classify the result as right-tail skill and allow it to
+  proceed as research evidence.
+- If the audit fails, reject it as luck or overfit.
+
+This audit is an acceptance and interpretation layer. It is not itself a CAGR or
+MDD improvement lever.
+
 ## 1. Gap To Lever Map
 
 ### Concentrated CAGR Gap
@@ -72,6 +134,14 @@ Priority order:
    - Mechanism: shorten PIT-visible leader promotion latency without increasing
      false entries.
    - Expected impact: closes residual Concentrated CAGR gap.
+
+Priority interpretation:
+
+- Expected impact priority: Lever #3 may be the largest Concentrated CAGR lever.
+- Execution safety priority: Lever #1 runs first because it does not increase
+  gross exposure and is less likely to worsen MDD.
+- Do not let the safer first experiment delay the gross-floor work indefinitely;
+  measure Lever #3 next after Lever #1 wiring is proven.
 
 ### Main MDD Gap
 
@@ -115,13 +185,19 @@ This is time-boxed. It is not alpha work.
    - Fix or validate that `run_account_evaluation.py` uses calendar trading-day
      coverage, not only observed equity-curve row count.
    - Cash-only days must not make Concentrated look like a shorter window.
+   - Both Main and Concentrated must report calendar trading-day coverage.
+   - Gate on `calendar_trading_day_count`, not observed equity rows.
    - Output must distinguish:
      - `equity_curve_observed_day_count`
      - `calendar_trading_day_count`
+   - Required projection before another expensive fullrun:
+     - Main `calendar_trading_day_count >= 1764`
+     - Concentrated `calendar_trading_day_count >= 1764`
 
 Phase 0 gate:
 
 - both sleeves have valid window or explicit tolerance label
+- both sleeves have calendar trading-day coverage or explicit tolerance label
 - `ready_for_policy_replay=true`
 - future `available_from` leakage is zero
 - no production-promotion claim if PIT universe membership is not clean
@@ -147,7 +223,8 @@ Phase A gate:
 - Concentrated CAGR >= 50%
 - Concentrated MDD >= -25%
 - `theme_leader_capture` does not regress
-- OOS/walk-forward result is not explained by one era or one ticker
+- high OOS/IS or top-winner concentration triggers the right-tail skill audit
+  above; it is not an automatic reject by itself
 
 ### Phase B: Close Main MDD Gap
 
@@ -212,6 +289,24 @@ Hard gates before using results:
   - EXIT_REPLACE 126d excess moving toward <= 0
   - `pct_held_365d_plus` increasing
   - no unacceptable MDD degradation
+
+Lean A/B sequence:
+
+1. **A/B v1**
+   - Test one conservative threshold first, preferably around `0.75 sigma`.
+   - Required checks:
+     - applied count > 0
+     - `theme_leader_capture` does not regress
+     - common ship metrics do not break
+
+2. **A/B v2**
+   - Only if v1 fires and shows useful signal.
+   - Expand to a grid such as OFF, `0.75 sigma`, `0.85 sigma`, and `1.10 sigma`.
+   - Add heavier diagnostics:
+     - missed new leader count
+     - premature sell loss
+     - `pct_held_365d_plus`
+     - replacement threshold not met forward 63d/126d audit labels
 
 ### Lever #3: Regime-Conditional Gross Floor
 
@@ -313,7 +408,7 @@ Common ship gate:
 - delta MDD >= -3pp
 - `early_scout >= 4`
 - `theme_leader_capture` does not regress
-- no single ticker or single era concentration
+- high OOS/IS or winner concentration triggers the right-tail skill audit
 - walk-forward plus 126-day embargo pass
 
 ## 5. Decision And Stop Rules
@@ -321,6 +416,11 @@ Common ship gate:
 - Each lever must close its assigned gap without breaking the other sleeve.
 - If a lever has no `applied=True` evidence, treat it as a wiring failure, not a
   negative result.
+- OOS/IS ratio above a nominal goal limit is an audit trigger, not an automatic
+  reject for a concentrated right-tail strategy.
+- Leave-top-1 or leave-top-3 diagnostics must be interpreted by era; whole-run
+  top-winner removal is not a fair standalone hard-reject rule for a five-name
+  concentrated book.
 - Phase 0 gets a limited number of attempts. If the clean 7Y gate remains stuck,
   classify as `research_7y_tolerance` and continue alpha work as research only.
 - Production promotion, live trading, T3/recovery, and proxy 8Y/10Y remain
