@@ -298,9 +298,16 @@ def normalize_current_holdings(latest_run: Path, output_dir: Path | None = None)
     out = frame.copy()
     if "ticker" in out.columns:
         out["ticker"] = out["ticker"].map(clean_ticker)
+    if "portfolio_kind" not in out.columns:
+        out["portfolio_kind"] = out.get("portfolio", "")
+    if "portfolio" not in out.columns:
+        out["portfolio"] = out["portfolio_kind"]
+    out["portfolio_kind"] = out["portfolio_kind"].astype(str).str.lower().str.strip()
+    out["portfolio"] = out["portfolio"].astype(str).str.lower().str.strip()
     wanted = [
         "as_of_date",
         "snapshot_semantics",
+        "portfolio",
         "portfolio_kind",
         "row_type",
         "ticker",
@@ -674,14 +681,29 @@ def safety_hard_fail(latest_run: Path) -> tuple[bool, list[str]]:
     return bool(reasons), reasons
 
 
-def build_cash_summary(latest_run: Path, current: pd.DataFrame) -> dict[str, Any]:
+def canonical_cash_targets(target_weights: pd.DataFrame | None) -> dict[str, float]:
+    if target_weights is None or target_weights.empty:
+        return {}
+    out: dict[str, float] = {}
+    for row in target_weights.to_dict("records"):
+        portfolio = str(row.get("portfolio") or row.get("portfolio_kind") or "").lower().strip()
+        ticker = clean_ticker(row.get("ticker"))
+        if portfolio and ticker == "CASH":
+            out[portfolio] = safe_float(row.get("target_weight"), 0.0)
+    return out
+
+
+def build_cash_summary(latest_run: Path, current: pd.DataFrame, target_weights: pd.DataFrame | None = None) -> dict[str, Any]:
     snapshot = read_json(latest_run / "operating_snapshot" / "current_portfolio_snapshot_summary.json")
+    canonical_cash_by_portfolio = canonical_cash_targets(target_weights)
     out: dict[str, Any] = {
         "schema_version": "user-current-cash-summary-v1",
-        "source": "outputs/operating_snapshot/current_portfolio_snapshot_summary.json",
+        "source": "outputs/operating_snapshot/current_portfolio_snapshot_summary.json; outputs/user_current/02_target_weights.csv",
         "combined_current_cash_weight": snapshot.get("combined_current_cash_weight"),
         "combined_target_cash_weight": snapshot.get("combined_target_cash_weight"),
         "combined_cash_gap_weight": snapshot.get("combined_cash_gap_weight"),
+        "combined_canonical_target_cash_weight": None,
+        "combined_current_vs_canonical_cash_gap_weight": None,
         "cash_policy_review_action": snapshot.get("cash_policy_review_action"),
         "cash_policy_flag": snapshot.get("cash_policy_flag"),
         "macro_recommended_cash_floor": snapshot.get("macro_recommended_cash_floor"),
@@ -693,14 +715,29 @@ def build_cash_summary(latest_run: Path, current: pd.DataFrame) -> dict[str, Any
     projected_equity_usd = 0.0
     target_cash_weighted = 0.0
     preview_found = False
+    current_cash_weighted = 0.0
+    canonical_cash_weighted = 0.0
+    canonical_equity_weight = 0.0
     if not current.empty and {"portfolio_kind", "row_type", "current_weight"}.issubset(current.columns):
         cash = current[current["row_type"].astype(str).str.lower().eq("cash")].copy()
         for _, row in cash.iterrows():
             portfolio = str(row.get("portfolio_kind"))
+            current_cash_weight = safe_float(row.get("current_weight"))
+            canonical_target_cash = canonical_cash_by_portfolio.get(portfolio, np.nan)
             item = {
-                "cash_weight": safe_float(row.get("current_weight")),
+                "cash_weight": current_cash_weight,
                 "cash_value_usd": safe_float(row.get("current_value_usd")),
+                "canonical_target_cash_weight": canonical_target_cash,
+                "current_vs_canonical_cash_gap_weight": canonical_target_cash - current_cash_weight
+                if math.isfinite(canonical_target_cash)
+                else np.nan,
+                "target_cash_weight": canonical_target_cash,
+                "target_cash_weight_semantics": "canonical target cash from 02_target_weights.csv",
             }
+            current_cash_weighted += current_cash_weight
+            if math.isfinite(canonical_target_cash):
+                canonical_cash_weighted += canonical_target_cash
+                canonical_equity_weight += 1.0
             preview = read_json(latest_run / "account_ledger_preview" / portfolio / "preview_metrics.json")
             if preview:
                 preview_found = True
@@ -708,7 +745,7 @@ def build_cash_summary(latest_run: Path, current: pd.DataFrame) -> dict[str, Any
                 projected_equity = safe_float(preview.get("projected_equity_usd"), equity)
                 item.update(
                     {
-                        "target_cash_weight": safe_float(preview.get("target_cash_weight"), np.nan),
+                        "preview_target_cash_weight": safe_float(preview.get("target_cash_weight"), np.nan),
                         "projected_cash_weight": safe_float(preview.get("projected_cash_weight"), np.nan),
                         "projected_cash_usd": safe_float(preview.get("projected_cash_usd"), np.nan),
                         "order_count": int(safe_float(preview.get("order_count"), 0.0)),
@@ -720,6 +757,11 @@ def build_cash_summary(latest_run: Path, current: pd.DataFrame) -> dict[str, Any
                 projected_equity_usd += projected_equity
                 target_cash_weighted += safe_float(preview.get("target_cash_weight")) * equity
             out["by_portfolio"][portfolio] = item
+    if canonical_equity_weight > 0:
+        out["combined_canonical_target_cash_weight"] = canonical_cash_weighted / max(canonical_equity_weight, 1e-12)
+        out["combined_current_vs_canonical_cash_gap_weight"] = (
+            canonical_cash_weighted - current_cash_weighted
+        ) / max(canonical_equity_weight, 1e-12)
     if preview_found:
         out["combined_projected_cash_weight_after_ready_orders"] = projected_cash_usd / max(projected_equity_usd, 1e-12)
         out["combined_preview_target_cash_weight"] = target_cash_weighted / max(projected_equity_usd, 1e-12)
@@ -825,6 +867,18 @@ def target_weight_map(target_weights: pd.DataFrame) -> dict[tuple[str, str], flo
     return out
 
 
+def target_row_map(target_weights: pd.DataFrame) -> dict[tuple[str, str], dict[str, Any]]:
+    if target_weights.empty:
+        return {}
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in target_weights.to_dict("records"):
+        portfolio = str(row.get("portfolio") or row.get("portfolio_kind") or "").lower().strip()
+        ticker = clean_ticker(row.get("ticker"))
+        if portfolio and ticker:
+            out[(portfolio, ticker)] = row
+    return out
+
+
 def build_name_rationales(
     latest_run: Path,
     current: pd.DataFrame,
@@ -832,14 +886,18 @@ def build_name_rationales(
     target_weights: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     selected_by_key = representative_selected_rows(latest_run)
-    target_by_key = target_weight_map(target_weights if target_weights is not None else pd.DataFrame())
+    target_frame = target_weights if target_weights is not None else pd.DataFrame()
+    target_by_key = target_weight_map(target_frame)
+    target_rows_by_key = target_row_map(target_frame)
     rows: list[dict[str, Any]] = []
-    if current.empty:
+    if current.empty and not target_rows_by_key:
         columns = [
             "portfolio",
             "ticker",
             "current_weight",
             "target_weight",
+            "canonical_target_weight",
+            "replay_retention_weight",
             "selected_vs_retained",
             "lane",
             "theme",
@@ -870,32 +928,53 @@ def build_name_rationales(
         ]
         return pd.DataFrame(columns=columns)
 
-    for current_row in current.to_dict("records"):
-        portfolio = str(current_row.get("portfolio_kind") or current_row.get("portfolio") or "").lower().strip()
-        ticker = clean_ticker(current_row.get("ticker"))
+    current_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    if not current.empty:
+        for row in current.to_dict("records"):
+            portfolio = str(row.get("portfolio_kind") or row.get("portfolio") or "").lower().strip()
+            ticker = clean_ticker(row.get("ticker"))
+            if portfolio and ticker:
+                current_by_key[(portfolio, ticker)] = row
+
+    for key in sorted(set(current_by_key) | set(target_rows_by_key)):
+        portfolio, ticker = key
+        current_row = current_by_key.get(key, {})
+        target_row = target_rows_by_key.get(key, {})
         selected = selected_by_key.get((portfolio, ticker), {})
-        target_weight = target_by_key.get(
-            (portfolio, ticker),
-            safe_float(first_nonempty(selected, ["target_weight", "weight"], current_row.get("current_weight")), 0.0),
-        )
+        canonical_target_weight = target_by_key.get((portfolio, ticker), 0.0)
+        current_weight = safe_float(current_row.get("current_weight"), 0.0)
         row_type = str(current_row.get("row_type") or "").lower()
-        selection_reason = str(selected.get("selection_reason") or current_row.get("entry_reasons") or "").strip()
+        selection_reason = str(
+            selected.get("selection_reason")
+            or target_row.get("selection_reason")
+            or current_row.get("entry_reasons")
+            or ""
+        ).strip()
         gate_status = str(selected.get("portfolio_candidate_gate_label") or selected.get("gate_status") or "").strip()
-        hold_reason = str(selected.get("holding_state_reason") or current_row.get("daily_review_reason") or "").strip()
+        hold_reason = str(
+            selected.get("holding_state_reason")
+            or current_row.get("daily_review_reason")
+            or target_row.get("review_reason")
+            or ""
+        ).strip()
         replay_retention = (
             ticker == "CASH"
             or "hold_forward_to_latest_close" in selection_reason
             or gate_status.lower() == "rejected"
+            or (bool(current_row) and canonical_target_weight <= 1e-12)
             or safe_float(current_row.get("holding_days"), 0.0) > 0
         )
         if ticker == "CASH" or row_type == "cash":
             selected_vs_retained = "cash_position"
+        elif bool(target_row) and not current_row:
+            selected_vs_retained = "new_target_candidate"
         elif not selected:
             selected_vs_retained = "current_holding_without_selected_latest_row"
         elif replay_retention:
             selected_vs_retained = "replay_retained_holding"
         else:
             selected_vs_retained = "current_policy_selected"
+        replay_retention_weight = current_weight if replay_retention or (current_row and not target_row) else 0.0
         evidence_score = safe_float(
             first_nonempty(
                 selected,
@@ -908,12 +987,18 @@ def build_name_rationales(
             {
                 "portfolio": portfolio,
                 "ticker": ticker,
-                "current_weight": safe_float(current_row.get("current_weight"), 0.0),
-                "target_weight": target_weight,
+                "current_weight": current_weight,
+                "target_weight": canonical_target_weight,
+                "canonical_target_weight": canonical_target_weight,
+                "replay_retention_weight": replay_retention_weight,
                 "selected_vs_retained": selected_vs_retained,
-                "lane": first_nonempty(selected, ["primary_lane", "lane", "portfolio_sleeve_label"], "CASH" if ticker == "CASH" else ""),
-                "theme": first_nonempty(selected, ["theme_phase_primary", "theme", "etf_themes"], ""),
-                "sector": first_nonempty(selected, ["sector"], current_row.get("sector", "")),
+                "lane": first_nonempty(
+                    selected,
+                    ["primary_lane", "lane", "portfolio_sleeve_label"],
+                    first_nonempty(target_row, ["lane"], "CASH" if ticker == "CASH" else ""),
+                ),
+                "theme": first_nonempty(selected, ["theme_phase_primary", "theme", "etf_themes"], target_row.get("theme", "")),
+                "sector": first_nonempty(selected, ["sector"], first_nonempty(target_row, ["sector"], current_row.get("sector", ""))),
                 "subindustry": first_nonempty(selected, ["subindustry", "industry_group"], current_row.get("industry", "")),
                 "leader_state": first_nonempty(selected, ["leader_tier", "holding_state"], current_row.get("risk_state", "")),
                 "selection_reason": selection_reason or ("cash_position" if ticker == "CASH" else ""),
@@ -941,7 +1026,7 @@ def build_name_rationales(
                 "form4_score": safe_float(first_nonempty(selected, ["sec_form4_score", "form4_score"], np.nan), np.nan),
                 "etf_score": safe_float(first_nonempty(selected, ["etf_holdings_score", "etf_score"], np.nan), np.nan),
                 "gate_status": gate_status,
-                "is_new_buy_signal": bool(selected_vs_retained == "current_policy_selected"),
+                "is_new_buy_signal": bool(selected_vs_retained in {"current_policy_selected", "new_target_candidate"}),
                 "is_replay_retention": bool(replay_retention),
                 "data_pit_status": pit_status_from_selected(selected),
                 "membership_pit_status": membership_status_from_selected(selected),
@@ -1182,10 +1267,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     current = attach_broker_rule_columns(current, broker_rule)
     current.to_csv(output_dir / "01_current_holdings.csv", index=False)
 
-    cash = build_cash_summary(latest_run, current)
-    write_json(output_dir / "02_cash_summary.json", cash)
     operating_contract = build_operating_contract_files(latest_run, output_dir, current)
     contract_target_weights = read_csv(output_dir / "02_target_weights.csv")
+    cash = build_cash_summary(latest_run, current, contract_target_weights)
+    write_json(output_dir / "02_cash_summary.json", cash)
     name_rationales = build_name_rationales(latest_run, current, output_dir, contract_target_weights)
 
     period = pd.concat([portfolio_period_returns(latest_run), benchmark_period_returns(price_cache)], ignore_index=True)

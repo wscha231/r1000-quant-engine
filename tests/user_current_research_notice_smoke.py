@@ -509,6 +509,125 @@ def test_user_current_prefers_newer_committed_snapshot_over_stale_restored_snaps
         assert "as_of_date=2026-06-15" in payload["current_holdings_source_detail"]
 
 
+def test_user_current_contract_aligns_current_target_rationales_and_cash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        out = root / "user_current"
+        (latest / "operating_snapshot").mkdir(parents=True)
+        (latest / "account_evaluation").mkdir()
+        (latest / "broker_replay" / "main").mkdir(parents=True)
+        (latest / "broker_replay" / "concentrated").mkdir(parents=True)
+        (latest / "user_portfolio_reports").mkdir(parents=True)
+        (latest / "data_freshness_contract").mkdir(parents=True)
+        pd.DataFrame(
+            [
+                {
+                    "as_of_date": "2026-06-22",
+                    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                    "portfolio_kind": "main",
+                    "row_type": "stock",
+                    "ticker": "OLD",
+                    "current_shares": 10,
+                    "current_price": 40,
+                    "current_value_usd": 400,
+                    "current_weight": 0.4,
+                    "account_source": "simulated_broker_replay",
+                    "approval_status": "blocked_by_safety_audit",
+                },
+                {
+                    "as_of_date": "2026-06-22",
+                    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                    "portfolio_kind": "main",
+                    "row_type": "cash",
+                    "ticker": "CASH",
+                    "current_shares": 0,
+                    "current_price": 1,
+                    "current_value_usd": 600,
+                    "current_weight": 0.6,
+                    "account_source": "simulated_broker_replay",
+                    "approval_status": "blocked_by_safety_audit",
+                },
+            ]
+        ).to_csv(latest / "operating_snapshot" / "current_operating_holdings_latest.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "NEW",
+                    "recommended_weight": 0.7,
+                    "current_account_weight": 0.0,
+                    "rank": 1,
+                    "company_name": "New Leader",
+                    "sector": "Information Technology",
+                    "portfolio_sleeve_label": "MARKET_LEADER",
+                    "score": 99.0,
+                    "suggested_action": "BUY_OR_HOLD_TO_TARGET",
+                    "buy_logic": "new canonical target",
+                },
+                {
+                    "ticker": "CASH",
+                    "recommended_weight": 0.3,
+                    "current_account_weight": 0.6,
+                    "rank": 2,
+                    "company_name": "Cash reserve",
+                    "sector": "Cash",
+                    "suggested_action": "RESERVE_CASH",
+                    "buy_logic": "canonical cash target",
+                },
+            ]
+        ).to_csv(latest / "user_portfolio_reports" / "main_recommendation_latest.csv", index=False)
+        (latest / "data_freshness_contract" / "status.json").write_text(
+            json.dumps(
+                {
+                    "status": "pass",
+                    "selection_allowed": True,
+                    "promotion_allowed": False,
+                    "recommendation_status": "READY_FOR_OPERATING_SELECTION",
+                    "warnings": [],
+                    "blockers": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (latest / "account_evaluation" / "official_metrics.json").write_text(
+            json.dumps({"official_metric_mode": "broker_ledger_next_close", "valid_for_production": False}),
+            encoding="utf-8",
+        )
+        for portfolio in ("main", "concentrated"):
+            pd.DataFrame(
+                [
+                    {"date": "2026-06-01", "equity_usd": 100000, "cash_weight": 0.05},
+                    {"date": "2026-06-22", "equity_usd": 101000, "cash_weight": 0.05},
+                ]
+            ).to_csv(latest / "broker_replay" / portfolio / "equity_curve.csv", index=False)
+
+        build_report(Namespace(latest_run=str(latest), price_cache=str(root / "cache_prices"), output_dir=str(out), strict=False))
+
+        current = pd.read_csv(out / "01_current_holdings.csv")
+        target = pd.read_csv(out / "02_target_weights.csv")
+        orders = pd.read_csv(out / "03_order_preview.csv")
+        rationales = pd.read_csv(out / "07_name_rationales.csv")
+        cash = json.loads((out / "02_cash_summary.json").read_text(encoding="utf-8"))
+
+        assert "portfolio" in current.columns
+        assert set(current["portfolio"]) == {"main"}
+        assert set(target["ticker"]) == {"NEW", "CASH"}
+        assert set(orders["ticker"]) == {"OLD", "NEW", "CASH"}
+        assert set(rationales["ticker"]) == {"OLD", "NEW", "CASH"}
+        by_ticker = {str(row["ticker"]): row for row in rationales.to_dict("records")}
+        assert by_ticker["NEW"]["target_weight"] == 0.7
+        assert by_ticker["NEW"]["canonical_target_weight"] == 0.7
+        assert by_ticker["NEW"]["current_weight"] == 0.0
+        assert by_ticker["NEW"]["selected_vs_retained"] == "new_target_candidate"
+        assert bool(by_ticker["NEW"]["is_new_buy_signal"]) is True
+        assert by_ticker["OLD"]["target_weight"] == 0.0
+        assert by_ticker["OLD"]["canonical_target_weight"] == 0.0
+        assert by_ticker["OLD"]["replay_retention_weight"] == 0.4
+        assert cash["by_portfolio"]["main"]["target_cash_weight"] == 0.3
+        assert cash["by_portfolio"]["main"]["canonical_target_cash_weight"] == 0.3
+        assert cash["by_portfolio"]["main"]["target_cash_weight_semantics"] == "canonical target cash from 02_target_weights.csv"
+
+
 if __name__ == "__main__":
     test_user_current_explains_research_sidecars_do_not_alter_holdings()
     test_user_current_marks_alphaops_vnext_production_as_applied()
@@ -516,4 +635,5 @@ if __name__ == "__main__":
     test_user_current_preserves_restored_snapshot_when_fresh_current_is_empty()
     test_user_current_falls_back_to_committed_cloud_results_snapshot()
     test_user_current_prefers_newer_committed_snapshot_over_stale_restored_snapshot()
+    test_user_current_contract_aligns_current_target_rationales_and_cash()
     print("user_current_research_notice_smoke: PASS")
