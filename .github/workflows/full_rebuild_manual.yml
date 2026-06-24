@@ -534,11 +534,17 @@ jobs:
 
           if [ "${BACKTEST_YEARS:-7}" = "7" ]; then
             mkdir -p outputs/full_rebuild_logs
+            CLEAN7Y_CACHE_DEFER_FLAG=""
+            if [ "$CACHE_PRESENT" != "yes" ]; then
+              CLEAN7Y_CACHE_DEFER_FLAG="--allow-missing-cache-in-source-only"
+              echo "[clean7y-preflight] replay cache not present before collector; deferring cache-start check to post-book preflight"
+            fi
             python tools/run_clean7y_window_preflight.py \
               --latest-run outputs \
               --output-dir outputs/clean7y_window_preflight_source \
               --source-only \
               --strict \
+              $CLEAN7Y_CACHE_DEFER_FLAG \
               2>&1 | tee outputs/full_rebuild_logs/clean7y_window_preflight_source.log
             SOURCE_PREFLIGHT_STATUS=${PIPESTATUS[0]}
             if [ "$SOURCE_PREFLIGHT_STATUS" -ne 0 ]; then

@@ -112,6 +112,64 @@ def main() -> int:
     assert source_status["files"] == {}
     assert source_status["first_decision_pit"]["pit_status"] == "skipped_source_only"
 
+    repo_manifest = REPO / "cache_prices" / "replay_price_cache_manifest.json"
+    repo_manifest_backup = repo_manifest.with_suffix(".json.clean7y-smoke-bak")
+    moved_repo_manifest = False
+    if repo_manifest.exists():
+        if repo_manifest_backup.exists():
+            repo_manifest_backup.unlink()
+        repo_manifest.rename(repo_manifest_backup)
+        moved_repo_manifest = True
+    try:
+        source_only_missing_cache = base / "source_only_missing_cache"
+        source_only_missing_cache_out = base / "source_only_missing_cache_out"
+        subprocess.run(
+            [
+                sys.executable,
+                str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+                "--latest-run",
+                str(source_only_missing_cache),
+                "--output-dir",
+                str(source_only_missing_cache_out),
+                "--source-only",
+                "--allow-missing-cache-in-source-only",
+                "--strict",
+            ],
+            cwd=REPO,
+            check=True,
+        )
+        missing_cache_status = json.loads((source_only_missing_cache_out / "status.json").read_text(encoding="utf-8"))
+        assert missing_cache_status["status"] == "pass", missing_cache_status
+        assert missing_cache_status["mode"] == "source_only"
+        assert missing_cache_status["post_book_validation_required"] is True
+        assert missing_cache_status["cache_check_deferred"] is True
+        assert missing_cache_status["cache_manifest"]["deferred"] is True
+        assert missing_cache_status["cache_manifest"]["exists"] is False
+
+        source_only_missing_cache_strict = base / "source_only_missing_cache_strict"
+        source_only_missing_cache_strict_out = base / "source_only_missing_cache_strict_out"
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+                "--latest-run",
+                str(source_only_missing_cache_strict),
+                "--output-dir",
+                str(source_only_missing_cache_strict_out),
+                "--source-only",
+                "--strict",
+            ],
+            cwd=REPO,
+        )
+        assert proc.returncode == 1
+        missing_cache_strict_status = json.loads(
+            (source_only_missing_cache_strict_out / "status.json").read_text(encoding="utf-8")
+        )
+        assert "replay_price_cache_start_after_clean7y_floor" in missing_cache_strict_status["blockers"]
+    finally:
+        if moved_repo_manifest:
+            repo_manifest_backup.rename(repo_manifest)
+
     stale = base / "stale"
     for rel in (
         "reports/candidate_replay_book.csv",
