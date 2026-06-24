@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from argparse import Namespace
 from pathlib import Path
@@ -46,6 +47,8 @@ from tools.run_alphaops_vnext_policy_replay import (
     crisis_new_buy_allowed,
     enforce_pit_available,
     evidence_support_score,
+    leadership_persistence_hold_protected,
+    replacement_gap_for_weakest,
 )
 from tools.run_market_leader_challenger import resolve_candidate_book
 from tools.run_weekly_evaluation import px_cache_name
@@ -317,6 +320,86 @@ def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
 
 def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
     assert DEFAULT_CONCENTRATED_TARGET_N == 5
+
+
+def _clear_leadership_persistence_env() -> None:
+    os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED", None)
+
+
+def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "ticker": "KEEP",
+        "holding_state": "HOLD",
+        "hold_replace_decision": "keep_prior_holding",
+        "prior_weight": 0.06,
+        "leader_tier": "DUAL_LEADER",
+        "price_above_ma200": 1.0,
+        "price_above_ma50": 1.0,
+        "alphaops_vnext_score": 4.0,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_leadership_persistence_hold_default_off_preserves_standard_gap() -> None:
+    _clear_leadership_persistence_env()
+    row = _healthy_prior_leader_row()
+    protected, reason = leadership_persistence_hold_protected(row, portfolio_kind="concentrated")
+    assert protected is True
+    assert reason == "healthy_prior_leader"
+    gap, gap_reason, applied = replacement_gap_for_weakest(
+        row,
+        portfolio_kind="concentrated",
+        threshold_normal=0.15,
+        threshold_broken=0.08,
+        score_sigma=0.40,
+    )
+    assert gap == 0.15
+    assert gap_reason == "standard_hold_replace_threshold"
+    assert applied is False
+
+
+def test_leadership_persistence_hold_env_protects_only_healthy_prior_leaders() -> None:
+    _clear_leadership_persistence_env()
+    os.environ["PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED"] = "1"
+    try:
+        healthy = _healthy_prior_leader_row()
+        gap, gap_reason, applied = replacement_gap_for_weakest(
+            healthy,
+            portfolio_kind="concentrated",
+            threshold_normal=0.15,
+            threshold_broken=0.08,
+            score_sigma=0.40,
+        )
+        assert round(gap, 6) == 0.44
+        assert gap_reason == "healthy_prior_leader"
+        assert applied is True
+
+        broken = _healthy_prior_leader_row(holding_state="TRIM")
+        gap, gap_reason, applied = replacement_gap_for_weakest(
+            broken,
+            portfolio_kind="concentrated",
+            threshold_normal=0.15,
+            threshold_broken=0.08,
+            score_sigma=0.40,
+        )
+        assert gap == 0.08
+        assert gap_reason == "broken_or_warning_holding"
+        assert applied is False
+
+        lagging = _healthy_prior_leader_row(leader_tier="LAGGING")
+        gap, gap_reason, applied = replacement_gap_for_weakest(
+            lagging,
+            portfolio_kind="concentrated",
+            threshold_normal=0.15,
+            threshold_broken=0.08,
+            score_sigma=0.40,
+        )
+        assert gap == 0.15
+        assert gap_reason.startswith("leader_tier_not_protected")
+        assert applied is False
+    finally:
+        _clear_leadership_persistence_env()
 
 
 def test_concentrated_risk_state_caps_new_entries_only() -> None:
