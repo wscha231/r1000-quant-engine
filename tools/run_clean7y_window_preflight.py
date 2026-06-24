@@ -236,6 +236,15 @@ def main() -> int:
         help="Check only cache/date/calendar pre-run invariants. Skip candidate/target/PIT checks.",
     )
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument(
+        "--allow-missing-cache-in-source-only",
+        action="store_true",
+        help=(
+            "Allow source-only mode to defer the replay cache start check when "
+            "the workflow is about to build/cache data on a fresh runner. "
+            "Post-book mode still enforces the cache manifest."
+        ),
+    )
     args = parser.parse_args()
 
     latest = repo_path(args.latest_run)
@@ -304,7 +313,15 @@ def main() -> int:
             blockers.append("target_books_not_in_expected_clean7y_decision_window")
         if pit_status.get("pit_status") != "pass":
             blockers.append("first_decision_pit_check_failed")
-    if not cache_manifest.get("start_pass"):
+    cache_check_deferred = bool(
+        args.source_only
+        and args.allow_missing_cache_in_source_only
+        and not cache_manifest.get("exists")
+    )
+    if cache_check_deferred:
+        cache_manifest["deferred"] = True
+        cache_manifest["deferred_reason"] = "source_only_missing_cache_collector_will_build"
+    if not cache_manifest.get("start_pass") and not cache_check_deferred:
         blockers.append("replay_price_cache_start_after_clean7y_floor")
     if not projected_calendar_pass:
         blockers.append("projected_calendar_trading_days_below_7y")
@@ -321,6 +338,7 @@ def main() -> int:
         "expected_first_decision": expected_first,
         "expected_first_decision_next_close_fill": expected_fill_iso,
         "cache_manifest": cache_manifest,
+        "cache_check_deferred": cache_check_deferred,
         "projected_calendar_trading_days": {
             "start_date": expected_fill_iso,
             "end_date": args.end_date,
@@ -357,6 +375,7 @@ def main() -> int:
         f"- expected first decision: `{expected_first}`",
         f"- expected next-close fill: `{payload['expected_first_decision_next_close_fill']}`",
         f"- cache manifest start: `{cache_manifest.get('start')}` (required <= `{args.cache_start_floor}`)",
+        f"- cache check deferred: `{payload['cache_check_deferred']}`",
         f"- projected calendar trading days: `{projected_calendar_trading_days}` / `{args.min_calendar_trading_days}`",
         f"- accepted first-decision range: `[{not_before_raw}, {args.must_be_before})`",
         f"- monthly_test_dates first: `{payload['monthly_test_dates_first']}`",
