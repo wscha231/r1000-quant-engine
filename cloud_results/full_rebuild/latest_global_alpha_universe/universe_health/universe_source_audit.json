@@ -1,21 +1,21 @@
 {
   "blockers": [],
-  "candidate_count": 46279,
+  "candidate_count": 46772,
   "candidate_replay_book": {
     "date_column": "rebalance_date",
     "exists": true,
-    "fundamental_coverage_pct": 0.7681237710408608,
+    "fundamental_coverage_pct": 0.7687932951338408,
     "max_date": "2026-04-30",
-    "min_date": "2019-06-28",
+    "min_date": "2019-05-31",
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
     "r1000_base_count": 896,
-    "row_count": 46279,
+    "row_count": 46772,
     "source_column": "source_universe",
     "source_counts": {
-      "adr_whitelist": 1355,
-      "current_constituents_proxy_static_seed": 43504,
-      "current_constituents_proxy_static_seed+strategic_global_hardware": 1173,
-      "cycle_play_whitelist": 247
+      "adr_whitelist": 1370,
+      "current_constituents_proxy_static_seed": 43970,
+      "current_constituents_proxy_static_seed+strategic_global_hardware": 1184,
+      "cycle_play_whitelist": 248
     },
     "ticker_count": 969
   },
@@ -28,7 +28,7 @@
       "data_static_iwb_seed": {
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-20T14:14:42.644123+00:00",
+        "modified_utc": "2026-06-24T04:15:10.831517+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
         "size_bytes": 62177
       },
@@ -39,7 +39,7 @@
       "previous_healthy_candidate_universe": {
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-20T15:42:56.035540+00:00",
+        "modified_utc": "2026-06-24T05:47:33.129477+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
         "size_bytes": 37398
       },
@@ -60,7 +60,7 @@
     "previous_healthy_universe_cache": {
       "exists": true,
       "kind": "file",
-      "modified_utc": "2026-06-20T15:42:56.035540+00:00",
+      "modified_utc": "2026-06-24T05:47:33.129477+00:00",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
       "r1000_base_count": 992,
       "row_count": 1118,
@@ -90,7 +90,7 @@
         "data_static": {
           "exists": true,
           "kind": "file",
-          "modified_utc": "2026-06-20T14:14:42.644123+00:00",
+          "modified_utc": "2026-06-24T04:15:10.831517+00:00",
           "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
           "size_bytes": 62177
         }
@@ -98,7 +98,7 @@
     }
   },
   "fallback_used": true,
-  "generated_at_utc": "2026-06-20T17:52:53.280887+00:00",
+  "generated_at_utc": "2026-06-24T08:07:28.090455+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "min_r1000_base": 400,
   "next_actions": [],
@@ -125,8 +125,8 @@
     "date_column": "rebalance_date",
     "exists": true,
     "fundamental_coverage_pct": 1.0,
-    "max_date": "2026-06-18",
-    "min_date": "2026-06-18",
+    "max_date": "2026-06-24",
+    "min_date": "2026-06-24",
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
     "r1000_base_count": 700,
     "row_count": 741,

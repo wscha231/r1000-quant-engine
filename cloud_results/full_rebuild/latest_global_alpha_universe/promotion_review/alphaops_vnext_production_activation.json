@@ -6,9 +6,9 @@
     "benchmark_risk_threshold": 0.7,
     "blocked_entries_sample": [
       {
-        "atr14_pct": 0.2045364560007914,
+        "atr14_pct": 0.2045364597999774,
         "benchmark_risk_score": 2.0,
-        "breakout_setup_quality_score": 0.1639640496476147,
+        "breakout_setup_quality_score": 0.1655034667737042,
         "crisis_state": "GREEN",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -23,9 +23,9 @@
         "weight_dropped": 0.056999999999999995
       },
       {
-        "atr14_pct": 0.1457104776895617,
+        "atr14_pct": 0.1457104595226598,
         "benchmark_risk_score": 2.0,
-        "breakout_setup_quality_score": 0.2799047707629709,
+        "breakout_setup_quality_score": 0.2807555149622798,
         "crisis_state": "GREEN",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -40,9 +40,9 @@
         "weight_dropped": 0.056999999999999995
       },
       {
-        "atr14_pct": 0.1204746409224134,
+        "atr14_pct": 0.1204745981512625,
         "benchmark_risk_score": 2.0,
-        "breakout_setup_quality_score": 0.3652845152866431,
+        "breakout_setup_quality_score": 0.3658399905078305,
         "crisis_state": "GREEN",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -60,9 +60,9 @@
     "blocked_new_entries": 3,
     "breakout_threshold": 0.4,
     "cash_rebuilt_explicitly": true,
-    "input_row_count": 494,
+    "input_row_count": 500,
     "min_weight": 0.04,
-    "output_row_count": 491,
+    "output_row_count": 497,
     "portfolio": "concentrated",
     "production_activation_allowed": true,
     "research_only": false,
@@ -91,14 +91,14 @@
   },
   "crisis_overlay_status": "applied",
   "current_holdings_source": "alphaops_vnext_policy_target_book",
-  "first_rebalance_date": "2019-06-28",
-  "generated_at_utc": "2026-06-20T17:52:48.924088+00:00",
-  "last_operating_signal_date": "2026-06-18",
+  "first_rebalance_date": "2019-05-31",
+  "generated_at_utc": "2026-06-24T08:07:23.531438+00:00",
+  "last_operating_signal_date": "2026-06-23",
   "last_rebalance_date": "2026-04-30",
   "main_defense_review_balanced_new_entry_block": {
     "blocked_entries_sample": [
       {
-        "breakout_setup_quality_score": -0.2415334570792716,
+        "breakout_setup_quality_score": -0.241533671823145,
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -110,10 +110,10 @@
         "regime_state": "neutral",
         "sector": "Energy",
         "ticker": "AM",
-        "weight_dropped": 0.03916250805408641
+        "weight_dropped": 0.03918478232539229
       },
       {
-        "breakout_setup_quality_score": 0.4694380795287936,
+        "breakout_setup_quality_score": 0.4694377045106645,
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -125,10 +125,10 @@
         "regime_state": "neutral",
         "sector": "Consumer Discretionary",
         "ticker": "CHH",
-        "weight_dropped": 0.03916250805408641
+        "weight_dropped": 0.03918478232539229
       },
       {
-        "breakout_setup_quality_score": 0.1731070166272565,
+        "breakout_setup_quality_score": 0.173107017419381,
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -140,10 +140,10 @@
         "regime_state": "neutral",
         "sector": "Industrials",
         "ticker": "EFX",
-        "weight_dropped": 0.03916250805408641
+        "weight_dropped": 0.03918478232539229
       },
       {
-        "breakout_setup_quality_score": 0.2390151241228645,
+        "breakout_setup_quality_score": 0.2390137950714679,
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -155,10 +155,10 @@
         "regime_state": "neutral",
         "sector": "Industrials",
         "ticker": "HEI",
-        "weight_dropped": 0.03916250805408641
+        "weight_dropped": 0.03918478232539229
       },
       {
-        "breakout_setup_quality_score": 0.0289225323922372,
+        "breakout_setup_quality_score": 0.0289226597140634,
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -170,10 +170,10 @@
         "regime_state": "neutral",
         "sector": "Consumer Discretionary",
         "ticker": "POOL",
-        "weight_dropped": 0.03916250805408641
+        "weight_dropped": 0.03918478232539229
       },
       {
-        "breakout_setup_quality_score": -0.0636057703855938,
+        "breakout_setup_quality_score": -0.0636065370926626,
         "crisis_state": "DEFENSE_REVIEW",
         "hold_replace_decision": "new_entry",
         "holding_state": "NEW",
@@ -185,16 +185,16 @@
         "regime_state": "neutral",
         "sector": "Materials",
         "ticker": "STLD",
-        "weight_dropped": 0.03916250805408641
+        "weight_dropped": 0.03918478232539229
       }
     ],
     "blocked_new_entries": 6,
     "breakout_threshold": 0.5,
     "cash_rebuilt_explicitly": true,
     "crisis_state": "DEFENSE_REVIEW",
-    "input_row_count": 1272,
+    "input_row_count": 1288,
     "lane": "QUALITY_COMPOUNDER",
-    "output_row_count": 1266,
+    "output_row_count": 1282,
     "portfolio": "main",
     "production_activation_allowed": true,
     "regime_state": "neutral",
@@ -229,7 +229,7 @@
         "ticker": "STLD"
       }
     ],
-    "weight_dropped_total": 0.23497504832451846
+    "weight_dropped_total": 0.23510869395235376
   },
   "main_defense_review_turnaround_new_entry_block": {
     "blocked_entries_sample": [
@@ -245,7 +245,7 @@
         "regime_state": "neutral",
         "sector": "Industrials",
         "ticker": "CPRT",
-        "weight_dropped": 0.09808406567944515
+        "weight_dropped": 0.09708011742681487
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -259,21 +259,7 @@
         "regime_state": "neutral",
         "sector": "Consumer Discretionary",
         "ticker": "ORLY",
-        "weight_dropped": 0.06954844748562318
-      },
-      {
-        "crisis_state": "DEFENSE_REVIEW",
-        "hold_replace_decision": "new_entry",
-        "holding_state": "NEW",
-        "industry_group": "Commercial Services",
-        "market_style_regime_label": "turnaround_accumulation",
-        "primary_lane": "QUALITY_COMPOUNDER",
-        "prior_weight": 0.0,
-        "rebalance_date": "2022-11-30",
-        "regime_state": "neutral",
-        "sector": "Industrials",
-        "ticker": "CTAS",
-        "weight_dropped": 0.045306899768951726
+        "weight_dropped": 0.06911227753482288
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -287,7 +273,21 @@
         "regime_state": "neutral",
         "sector": "Information Technology",
         "ticker": "MSFT",
-        "weight_dropped": 0.04481600357694681
+        "weight_dropped": 0.04534279619803746
+      },
+      {
+        "crisis_state": "DEFENSE_REVIEW",
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Commercial Services",
+        "market_style_regime_label": "turnaround_accumulation",
+        "primary_lane": "QUALITY_COMPOUNDER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-11-30",
+        "regime_state": "neutral",
+        "sector": "Industrials",
+        "ticker": "CTAS",
+        "weight_dropped": 0.04473585315066272
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -301,7 +301,7 @@
         "regime_state": "neutral",
         "sector": "Information Technology",
         "ticker": "MTSI",
-        "weight_dropped": 0.03936347523940205
+        "weight_dropped": 0.039022449496136695
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -315,7 +315,7 @@
         "regime_state": "neutral",
         "sector": "Financials",
         "ticker": "V",
-        "weight_dropped": 0.037125558914879106
+        "weight_dropped": 0.037095432205158756
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -329,7 +329,7 @@
         "regime_state": "neutral",
         "sector": "Health Care",
         "ticker": "REGN",
-        "weight_dropped": 0.03525280306929495
+        "weight_dropped": 0.035510733848259146
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -343,7 +343,7 @@
         "regime_state": "neutral",
         "sector": "Internet",
         "ticker": "JD",
-        "weight_dropped": 0.03416704464957376
+        "weight_dropped": 0.03522744767519727
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -357,7 +357,7 @@
         "regime_state": "neutral",
         "sector": "Information Technology",
         "ticker": "KLAC",
-        "weight_dropped": 0.03376757834362841
+        "weight_dropped": 0.03388886022369892
       },
       {
         "crisis_state": "DEFENSE_REVIEW",
@@ -371,15 +371,15 @@
         "regime_state": "neutral",
         "sector": "Communication",
         "ticker": "GOOGL",
-        "weight_dropped": 0.029550618924144536
+        "weight_dropped": 0.029517676282385157
       }
     ],
     "blocked_new_entries": 10,
     "cash_rebuilt_explicitly": true,
     "crisis_state": "DEFENSE_REVIEW",
-    "input_row_count": 1282,
+    "input_row_count": 1298,
     "lane": "QUALITY_COMPOUNDER",
-    "output_row_count": 1272,
+    "output_row_count": 1288,
     "portfolio": "main",
     "production_activation_allowed": true,
     "regime_state": "neutral",
@@ -399,11 +399,11 @@
       },
       {
         "count": 1,
-        "ticker": "CTAS"
+        "ticker": "MSFT"
       },
       {
         "count": 1,
-        "ticker": "MSFT"
+        "ticker": "CTAS"
       },
       {
         "count": 1,
@@ -430,7 +430,7 @@
         "ticker": "GOOGL"
       }
     ],
-    "weight_dropped_total": 0.4669824956518897
+    "weight_dropped_total": 0.46653364404117387
   },
   "main_neutral_churn_filter": {
     "blocked_entries_sample": [
@@ -454,7 +454,7 @@
         "action": "blocked_entry",
         "rebalance_date": "2020-01-31",
         "regime_state": "neutral",
-        "swap_count": 3,
+        "swap_count": 4,
         "ticker": "PODD",
         "weight_dropped": 0.05615384615384615
       },
@@ -464,7 +464,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "PDD",
-        "weight_dropped": 0.03935817159090997
+        "weight_dropped": 0.03907493999772099
       },
       {
         "action": "blocked_entry",
@@ -472,7 +472,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "ETSY",
-        "weight_dropped": 0.060256722419661464
+        "weight_dropped": 0.05978115657498128
       },
       {
         "action": "blocked_entry",
@@ -488,7 +488,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "NTRA",
-        "weight_dropped": 0.03836656650704468
+        "weight_dropped": 0.038351370039961134
       },
       {
         "action": "blocked_entry",
@@ -496,7 +496,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "PDD",
-        "weight_dropped": 0.09342491955999961
+        "weight_dropped": 0.09434702126326876
       },
       {
         "action": "blocked_entry",
@@ -512,7 +512,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "MRNA",
-        "weight_dropped": 0.07999965176358027
+        "weight_dropped": 0.07999960813579436
       },
       {
         "action": "blocked_entry",
@@ -544,7 +544,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "LRCX",
-        "weight_dropped": 0.07547712241538897
+        "weight_dropped": 0.0756842632528024
       },
       {
         "action": "blocked_entry",
@@ -552,7 +552,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "PANW",
-        "weight_dropped": 0.09792046930915896
+        "weight_dropped": 0.0991758142643008
       },
       {
         "action": "blocked_entry",
@@ -560,7 +560,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "ELF",
-        "weight_dropped": 0.0981791656701304
+        "weight_dropped": 0.09705601574311298
       },
       {
         "action": "blocked_entry",
@@ -576,7 +576,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "SFM",
-        "weight_dropped": 0.04649968209653202
+        "weight_dropped": 0.04640782235531157
       },
       {
         "action": "blocked_entry",
@@ -584,7 +584,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "SFM",
-        "weight_dropped": 0.06535693751753248
+        "weight_dropped": 0.06452585878143008
       },
       {
         "action": "blocked_entry",
@@ -600,7 +600,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "CORT",
-        "weight_dropped": 0.11662764956954441
+        "weight_dropped": 0.11648520637856125
       },
       {
         "action": "blocked_entry",
@@ -608,7 +608,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "CRS",
-        "weight_dropped": 0.0804282278912073
+        "weight_dropped": 0.08050768556866977
       },
       {
         "action": "blocked_entry",
@@ -616,7 +616,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "FLNC",
-        "weight_dropped": 0.06743788671893637
+        "weight_dropped": 0.06782952247844237
       },
       {
         "action": "blocked_entry",
@@ -624,7 +624,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "CAVA",
-        "weight_dropped": 0.03186919027439991
+        "weight_dropped": 0.031681486190194716
       },
       {
         "action": "blocked_entry",
@@ -632,7 +632,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "CORT",
-        "weight_dropped": 0.03186919027439991
+        "weight_dropped": 0.031681486190194716
       },
       {
         "action": "blocked_entry",
@@ -640,7 +640,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "FLNC",
-        "weight_dropped": 0.05687820724651315
+        "weight_dropped": 0.057053395753884295
       },
       {
         "action": "blocked_entry",
@@ -648,7 +648,7 @@
         "regime_state": "neutral",
         "swap_count": 2,
         "ticker": "TPL",
-        "weight_dropped": 0.10778421404935243
+        "weight_dropped": 0.10800749126371788
       },
       {
         "action": "blocked_entry",
@@ -656,7 +656,7 @@
         "regime_state": "neutral",
         "swap_count": 3,
         "ticker": "CORT",
-        "weight_dropped": 0.0574422976822971
+        "weight_dropped": 0.061995633413147525
       },
       {
         "action": "blocked_entry",
@@ -676,9 +676,9 @@
       }
     ],
     "cash_rebuilt_explicitly": true,
-    "input_row_count": 1328,
+    "input_row_count": 1344,
     "neutral_entries_blocked": 36,
-    "output_row_count": 1292,
+    "output_row_count": 1308,
     "portfolio": "main",
     "production_activation_allowed": true,
     "research_only": false,
@@ -751,7 +751,7 @@
         "ticker": "ETSY"
       }
     ],
-    "weight_dropped_total": 2.330531217261786,
+    "weight_dropped_total": 2.3357543509830143,
     "window_months": 6
   },
   "neutral_metals_new_entry_block": {
@@ -781,7 +781,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "STLD",
-          "weight_dropped": 0.04560096885794708
+          "weight_dropped": 0.04601341819254355
         }
       ],
       "blocked_new_entries": 2,
@@ -790,11 +790,11 @@
         "metals",
         "mining"
       ],
-      "input_row_count": 496,
+      "input_row_count": 502,
       "lanes": [
         "MARKET_LEADER"
       ],
-      "output_row_count": 494,
+      "output_row_count": 500,
       "portfolio": "concentrated",
       "production_activation_allowed": true,
       "research_only": false,
@@ -816,7 +816,7 @@
           "ticker": "STLD"
         }
       ],
-      "weight_dropped_total": 0.10260096885794708
+      "weight_dropped_total": 0.10301341819254355
     },
     "main": {
       "blocked_entries_sample": [
@@ -857,7 +857,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "MP",
-          "weight_dropped": 0.03421220206608429
+          "weight_dropped": 0.03429294841631036
         },
         {
           "hold_replace_decision": "new_entry",
@@ -922,7 +922,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "SCCO",
-          "weight_dropped": 0.043797209630690524
+          "weight_dropped": 0.043184549320522424
         },
         {
           "hold_replace_decision": "new_entry",
@@ -935,7 +935,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "RGLD",
-          "weight_dropped": 0.07263126914421522
+          "weight_dropped": 0.07242502892221306
         },
         {
           "hold_replace_decision": "new_entry",
@@ -948,7 +948,7 @@
           "regime_state": "neutral",
           "sector": "Materials",
           "ticker": "SCCO",
-          "weight_dropped": 0.10974825829307855
+          "weight_dropped": 0.10996820006347552
         }
       ],
       "blocked_new_entries": 10,
@@ -957,11 +957,11 @@
         "metals",
         "mining"
       ],
-      "input_row_count": 1292,
+      "input_row_count": 1308,
       "lanes": [
         "MARKET_LEADER"
       ],
-      "output_row_count": 1282,
+      "output_row_count": 1298,
       "portfolio": "main",
       "production_activation_allowed": true,
       "research_only": false,
@@ -999,7 +999,7 @@
           "ticker": "STLD"
         }
       ],
-      "weight_dropped_total": 0.4017222724674019
+      "weight_dropped_total": 0.40120406005585474
     }
   },
   "official_target_books": {
@@ -1014,10 +1014,10 @@
     "status": "applied",
     "summaries": {
       "concentrated_N3": {
-        "avg_cash_weight": 0.49080221795345286,
+        "avg_cash_weight": 0.4952040226865321,
         "bull_floor": 0.85,
         "bull_floor_enabled": false,
-        "max_cash_weight": 0.9721669159928581,
+        "max_cash_weight": 0.9721709738515367,
         "multipliers": {
           "bear": 0.5,
           "bull": 1.0,
@@ -1029,13 +1029,13 @@
         },
         "portfolio": "concentrated",
         "rebalance_dates_bull_floor_lifted": 0,
-        "rebalance_dates_dampened": 61,
-        "rebalance_dates_total": 84,
+        "rebalance_dates_dampened": 62,
+        "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "concentrated_N3"
       },
       "concentrated_N5": {
-        "avg_cash_weight": 0.4203299123661092,
+        "avg_cash_weight": 0.4236330703515327,
         "bull_floor": 0.85,
         "bull_floor_enabled": false,
         "max_cash_weight": 0.97125,
@@ -1050,16 +1050,16 @@
         },
         "portfolio": "concentrated",
         "rebalance_dates_bull_floor_lifted": 0,
-        "rebalance_dates_dampened": 61,
-        "rebalance_dates_total": 84,
+        "rebalance_dates_dampened": 62,
+        "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "concentrated_N5"
       },
       "main_N12": {
-        "avg_cash_weight": 0.2349696668081125,
+        "avg_cash_weight": 0.23785497006245765,
         "bull_floor": 0.9,
         "bull_floor_enabled": false,
-        "max_cash_weight": 0.8387089678055689,
+        "max_cash_weight": 0.8382025193788452,
         "multipliers": {
           "bear": 1.0,
           "bull": 1.0,
@@ -1072,12 +1072,12 @@
         "portfolio": "main",
         "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 0,
-        "rebalance_dates_total": 84,
+        "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "main_N12"
       },
       "main_N15": {
-        "avg_cash_weight": 0.224418280535571,
+        "avg_cash_weight": 0.2278308533046659,
         "bull_floor": 0.9,
         "bull_floor_enabled": false,
         "max_cash_weight": 0.8320000000000001,
@@ -1093,15 +1093,15 @@
         "portfolio": "main",
         "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 0,
-        "rebalance_dates_total": 84,
+        "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "main_N15"
       },
       "main_N18": {
-        "avg_cash_weight": 0.2197596078332218,
+        "avg_cash_weight": 0.22287396373937465,
         "bull_floor": 0.9,
         "bull_floor_enabled": false,
-        "max_cash_weight": 0.8320000000000001,
+        "max_cash_weight": 0.79,
         "multipliers": {
           "bear": 1.0,
           "bull": 1.0,
@@ -1114,7 +1114,7 @@
         "portfolio": "main",
         "rebalance_dates_bull_floor_lifted": 0,
         "rebalance_dates_dampened": 0,
-        "rebalance_dates_total": 84,
+        "rebalance_dates_total": 85,
         "status": "completed",
         "variant_key": "main_N18"
       }

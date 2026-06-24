@@ -14,7 +14,7 @@
     "source_case_id": "era_aware",
     "source_policy": "era_aware",
     "source_target_book_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/era_aware_scoring_challenger/concentrated_target_book.csv",
-    "source_target_book_sha256": "1ef2e2a3ca277180931eeba07a2610b7aa00757b01e143e5404be0443f8772e3",
+    "source_target_book_sha256": "7323e211c2303846d222af3b97c8b138ed43ba2067aa7c83e408eb8961f67f87",
     "strengthened_pass": false,
     "target_pass": false
   },
@@ -28,7 +28,7 @@
     "source_case_id": "era_aware",
     "source_policy": "era_aware",
     "source_target_book_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/era_aware_scoring_challenger/main_target_book.csv",
-    "source_target_book_sha256": "7cb3a394e1875feb24176c1606057d934cfae41658d60daecc0902e8f53afbde",
+    "source_target_book_sha256": "a92552117171f03989ee7f5836125791ac6fadbcaf441e8f2b8ffe516cf0faeb",
     "strengthened_pass": false,
     "target_pass": false
   },
@@ -41,9 +41,9 @@
   "source_case_id_main": "era_aware",
   "source_policy_concentrated": "era_aware",
   "source_policy_main": "era_aware",
-  "source_run_id": "27873592126",
+  "source_run_id": "28074476465",
   "source_target_book_path_concentrated": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/era_aware_scoring_challenger/concentrated_target_book.csv",
   "source_target_book_path_main": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/era_aware_scoring_challenger/main_target_book.csv",
-  "source_target_book_sha256_concentrated": "1ef2e2a3ca277180931eeba07a2610b7aa00757b01e143e5404be0443f8772e3",
-  "source_target_book_sha256_main": "7cb3a394e1875feb24176c1606057d934cfae41658d60daecc0902e8f53afbde"
+  "source_target_book_sha256_concentrated": "7323e211c2303846d222af3b97c8b138ed43ba2067aa7c83e408eb8961f67f87",
+  "source_target_book_sha256_main": "a92552117171f03989ee7f5836125791ac6fadbcaf441e8f2b8ffe516cf0faeb"
 }
