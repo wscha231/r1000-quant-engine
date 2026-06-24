@@ -97,6 +97,19 @@ def test_champion_from_ranked_skips_missing() -> None:
     assert champion["hard_stop"] == -0.12
 
 
+def test_holdings_path_falls_back_to_alphaops_vnext_target_book(tmp_path: Path) -> None:
+    latest = tmp_path / "run"
+    target_dir = latest / "alphaops_vnext"
+    target_dir.mkdir(parents=True)
+    main_target = target_dir / "official_main_target_book.csv"
+    main_target.write_text("rebalance_date,ticker,weight\n2020-01-31,ABC,1.0\n", encoding="utf-8")
+
+    holdings, period_map = sweep.holdings_path_for(latest, "main")
+
+    assert holdings == main_target
+    assert period_map == latest / "reports" / "regime_by_month.csv"
+
+
 def test_render_report_has_all_combos() -> None:
     baseline = {"cagr": 0.21, "max_dd": -0.33, "sharpe": 1.0}
     rows = [
@@ -133,6 +146,10 @@ if __name__ == "__main__":
     test_rank_grid_handles_missing_metrics_without_crashing()
     print("PASS test_champion_from_ranked_skips_missing")
     test_champion_from_ranked_skips_missing()
+    print("PASS test_holdings_path_falls_back_to_alphaops_vnext_target_book")
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        test_holdings_path_falls_back_to_alphaops_vnext_target_book(Path(tmp))
     print("PASS test_render_report_has_all_combos")
     test_render_report_has_all_combos()
-    print("\n7/7 passed")
+    print("\n8/8 passed")
