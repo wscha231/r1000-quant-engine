@@ -324,6 +324,7 @@ def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
 
 def _clear_leadership_persistence_env() -> None:
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED", None)
+    os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER", None)
 
 
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
@@ -398,6 +399,26 @@ def test_leadership_persistence_hold_env_protects_only_healthy_prior_leaders() -
         assert gap == 0.15
         assert gap_reason.startswith("leader_tier_not_protected")
         assert applied is False
+    finally:
+        _clear_leadership_persistence_env()
+
+
+def test_leadership_persistence_hold_sigma_multiplier_env_override() -> None:
+    _clear_leadership_persistence_env()
+    os.environ["PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED"] = "1"
+    os.environ["PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER"] = "0.75"
+    try:
+        healthy = _healthy_prior_leader_row()
+        gap, gap_reason, applied = replacement_gap_for_weakest(
+            healthy,
+            portfolio_kind="concentrated",
+            threshold_normal=0.15,
+            threshold_broken=0.08,
+            score_sigma=0.40,
+        )
+        assert round(gap, 6) == 0.30
+        assert gap_reason == "healthy_prior_leader"
+        assert applied is True
     finally:
         _clear_leadership_persistence_env()
 

@@ -156,6 +156,7 @@ CONCENTRATED_HOLD_DECAY_CAP = 0.04
 LEADERSHIP_PERSISTENCE_HOLD_MIN_PRIOR_WEIGHT = 0.02
 LEADERSHIP_PERSISTENCE_HOLD_MIN_GAP = 0.22
 LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER = 1.10
+LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER_ENV = "PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER"
 LEADERSHIP_PERSISTENCE_MAIN_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
 LEADERSHIP_PERSISTENCE_CONCENTRATED_TIERS = {"DUAL_LEADER"}
 CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP = 0.12
@@ -556,6 +557,14 @@ def leadership_persistence_hold_enabled() -> bool:
     return bool(phase_is_enabled("leadership_persistence_hold", default=False))
 
 
+def leadership_persistence_hold_sigma_multiplier() -> float:
+    raw = os.environ.get(LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER_ENV)
+    value = safe_float(raw, LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER)
+    if value <= 0:
+        return float(LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER)
+    return float(value)
+
+
 def leadership_persistence_allowed_tiers(portfolio_kind: str) -> set[str]:
     if portfolio_kind == "concentrated":
         return set(LEADERSHIP_PERSISTENCE_CONCENTRATED_TIERS)
@@ -608,7 +617,7 @@ def replacement_gap_for_weakest(
             gap = max(
                 float(threshold_normal),
                 LEADERSHIP_PERSISTENCE_HOLD_MIN_GAP,
-                LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER * max(float(score_sigma), 0.20),
+                leadership_persistence_hold_sigma_multiplier() * max(float(score_sigma), 0.20),
             )
             return float(gap), reason, True
         return float(threshold_normal), reason, False
