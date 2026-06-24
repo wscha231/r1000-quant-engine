@@ -153,6 +153,12 @@ DEFAULT_CONCENTRATED_TARGET_N = 5
 CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP = 0.20
 CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE_REVIEW"}
 CONCENTRATED_HOLD_DECAY_CAP = 0.04
+LEADERSHIP_PERSISTENCE_HOLD_MIN_PRIOR_WEIGHT = 0.02
+LEADERSHIP_PERSISTENCE_HOLD_MIN_GAP = 0.22
+LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER = 1.10
+LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER_ENV = "PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER"
+LEADERSHIP_PERSISTENCE_MAIN_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
+LEADERSHIP_PERSISTENCE_CONCENTRATED_TIERS = {"DUAL_LEADER"}
 CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP = 0.12
 CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_ATR_THRESHOLD = 0.06
 CONCENTRATED_WATCH_UNCONFIRMED_CONFIRMATION_THRESHOLD = 0.50
@@ -545,6 +551,77 @@ def holding_state(row: dict[str, Any], score_median: float, score_sigma: float) 
     if lane == "EMERGING_TENBAGGER" and safe_float(row.get("negative_fcf_risk_cap"), 1.0) < 0.75:
         return "WARNING", "emerging_negative_fcf_or_dilution_risk_cap"
     return "HOLD", "vnext_score_and_risk_intact"
+
+
+def leadership_persistence_hold_enabled() -> bool:
+    return bool(phase_is_enabled("leadership_persistence_hold", default=False))
+
+
+def leadership_persistence_hold_sigma_multiplier() -> float:
+    raw = os.environ.get(LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER_ENV)
+    value = safe_float(raw, LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER)
+    if value <= 0:
+        return float(LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER)
+    return float(value)
+
+
+def leadership_persistence_allowed_tiers(portfolio_kind: str) -> set[str]:
+    if portfolio_kind == "concentrated":
+        return set(LEADERSHIP_PERSISTENCE_CONCENTRATED_TIERS)
+    return set(LEADERSHIP_PERSISTENCE_MAIN_TIERS)
+
+
+def leadership_persistence_hold_protected(
+    row: dict[str, Any],
+    *,
+    portfolio_kind: str,
+) -> tuple[bool, str]:
+    """Return whether a prior holding is a healthy leader worth extra patience.
+
+    This is PIT-only: it uses the current rebalance row and prior weight already
+    known to the policy replay.  It does not inspect forward returns.
+    """
+    ticker = clean_ticker(row.get("ticker"))
+    if not ticker or ticker in CASH_TICKERS:
+        return False, "cash_or_invalid"
+    if str(row.get("holding_state") or "").upper() != "HOLD":
+        return False, "not_healthy_hold"
+    if str(row.get("hold_replace_decision") or "").lower() != "keep_prior_holding":
+        return False, "not_prior_keep"
+    if safe_float(row.get("prior_weight")) < LEADERSHIP_PERSISTENCE_HOLD_MIN_PRIOR_WEIGHT:
+        return False, "prior_weight_below_floor"
+    leader_tier = str(row.get("leader_tier") or "").upper()
+    if leader_tier not in leadership_persistence_allowed_tiers(portfolio_kind):
+        return False, f"leader_tier_not_protected:{leader_tier or 'unknown'}"
+    if str(row.get("emerging_tenbagger_hard_reject_reason") or "") or bool(row.get("top7_standalone_blocked")):
+        return False, "hard_reject_or_top7_standalone"
+    if safe_float(row.get("price_above_ma200"), 1.0) + safe_float(row.get("price_above_ma50"), 1.0) <= 0.0:
+        return False, "price_trend_not_alive"
+    return True, "healthy_prior_leader"
+
+
+def replacement_gap_for_weakest(
+    weakest: dict[str, Any],
+    *,
+    portfolio_kind: str,
+    threshold_normal: float,
+    threshold_broken: float,
+    score_sigma: float,
+) -> tuple[float, str, bool]:
+    weak_state = str(weakest.get("holding_state") or "").upper()
+    if weak_state in {"WARNING", "TRIM"}:
+        return float(threshold_broken), "broken_or_warning_holding", False
+    if leadership_persistence_hold_enabled():
+        protected, reason = leadership_persistence_hold_protected(weakest, portfolio_kind=portfolio_kind)
+        if protected:
+            gap = max(
+                float(threshold_normal),
+                LEADERSHIP_PERSISTENCE_HOLD_MIN_GAP,
+                leadership_persistence_hold_sigma_multiplier() * max(float(score_sigma), 0.20),
+            )
+            return float(gap), reason, True
+        return float(threshold_normal), reason, False
+    return float(threshold_normal), "standard_hold_replace_threshold", False
 
 
 def crisis_state_for_date(crisis_states: pd.DataFrame, dt: pd.Timestamp) -> dict[str, Any]:
@@ -1816,6 +1893,15 @@ def build_variant_book(
             out["hold_replace_decision"] = "keep_prior_holding"
             out["holding_state_reason"] = state_reason
             out["prior_weight"] = safe_float(old.get("weight"))
+            out["leadership_persistence_hold_enabled"] = bool(leadership_persistence_hold_enabled())
+            protected, protection_reason = leadership_persistence_hold_protected(
+                out,
+                portfolio_kind=portfolio_kind,
+            )
+            out["leadership_persistence_hold_protected"] = bool(
+                leadership_persistence_hold_enabled() and protected
+            )
+            out["leadership_persistence_hold_reason"] = protection_reason
             selected.append(out)
             selected_tickers.add(ticker)
             if str(rec.get("primary_lane")) in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"}:
@@ -1847,15 +1933,53 @@ def build_variant_book(
                 continue
             weakest_idx = min(range(len(selected)), key=lambda i: safe_float(selected[i].get("alphaops_vnext_score")))
             weakest = selected[weakest_idx]
-            weak_state = str(weakest.get("holding_state") or "")
-            required_gap = threshold_broken if weak_state in {"WARNING", "TRIM"} else threshold_normal
+            required_gap, gap_reason, persistence_applied = replacement_gap_for_weakest(
+                weakest,
+                portfolio_kind=portfolio_kind,
+                threshold_normal=threshold_normal,
+                threshold_broken=threshold_broken,
+                score_sigma=score_sigma,
+            )
+            out["hold_replace_required_gap"] = required_gap
+            out["hold_replace_required_gap_reason"] = gap_reason
+            out["leadership_persistence_hold_applied_to_replacement_test"] = bool(persistence_applied)
+            out["replacement_test_weakest_ticker"] = clean_ticker(weakest.get("ticker"))
+            out["replacement_test_weakest_score"] = safe_float(weakest.get("alphaops_vnext_score"))
             if safe_float(rec.get("alphaops_vnext_score")) >= safe_float(weakest.get("alphaops_vnext_score")) + required_gap:
-                rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": clean_ticker(weakest.get("ticker")), "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": "replaced_by_higher_vnext_score", "replacement_ticker": ticker, "prior_holding": clean_ticker(weakest.get("ticker")) in prev})
+                rejects.append({
+                    "rebalance_date": dt.date().isoformat(),
+                    "ticker": clean_ticker(weakest.get("ticker")),
+                    "portfolio_kind": portfolio_kind,
+                    "variant_id": variant_id,
+                    "rejection_reason": "replaced_by_higher_vnext_score",
+                    "replacement_ticker": ticker,
+                    "prior_holding": clean_ticker(weakest.get("ticker")) in prev,
+                    "hold_replace_required_gap": required_gap,
+                    "hold_replace_required_gap_reason": gap_reason,
+                    "leadership_persistence_hold_applied": bool(persistence_applied),
+                })
                 selected_tickers.discard(clean_ticker(weakest.get("ticker")))
                 selected[weakest_idx] = out
                 selected_tickers.add(ticker)
             else:
-                rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": "hold_replace_threshold_not_met", "prior_holding": False})
+                rejects.append({
+                    "rebalance_date": dt.date().isoformat(),
+                    "ticker": ticker,
+                    "portfolio_kind": portfolio_kind,
+                    "variant_id": variant_id,
+                    "rejection_reason": (
+                        "leadership_persistence_hold_threshold_not_met"
+                        if persistence_applied
+                        else "hold_replace_threshold_not_met"
+                    ),
+                    "prior_holding": False,
+                    "replacement_test_weakest_ticker": clean_ticker(weakest.get("ticker")),
+                    "replacement_test_weakest_score": safe_float(weakest.get("alphaops_vnext_score")),
+                    "candidate_score": safe_float(rec.get("alphaops_vnext_score")),
+                    "hold_replace_required_gap": required_gap,
+                    "hold_replace_required_gap_reason": gap_reason,
+                    "leadership_persistence_hold_applied": bool(persistence_applied),
+                })
         cash_target = crisis_cash_target(str(crisis_row.get("crisis_state") or "GREEN"), portfolio_kind)
         weighted = assign_weights(selected, portfolio_kind, cash_target)
         weighted = apply_vnext_benchmark_guard(
