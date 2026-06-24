@@ -568,11 +568,6 @@ jobs:
             fi
           fi
 
-      - name: Verdict (Cell E equivalent)
-        if: always()
-        run: |
-          python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
-
       - name: Auto-learning diagnostics (sidecar)
         if: always()
         run: |
@@ -614,6 +609,11 @@ jobs:
           APPROVED_TARGET_POLICY_PATH: ${{ github.event.inputs.approved_target_policy_path || 'outputs/promotion_review/approved_target_policy.json' }}
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
           BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
+
+      - name: Verdict (post-sidecar Cell E equivalent)
+        if: always()
+        run: |
+          python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
 
       - name: Data health (catalog + coverage gate, warn-only)
         if: always()
