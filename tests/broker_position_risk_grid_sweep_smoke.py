@@ -41,6 +41,47 @@ def test_target_book_prefers_alphaops_official_books(tmp_path: Path) -> None:
     assert grid.target_book_for(latest, "main") == official
 
 
+def test_baseline_falls_back_to_official_metrics_when_broker_replay_blocked(tmp_path: Path) -> None:
+    latest = tmp_path / "outputs"
+    broker = latest / "broker_replay" / "main"
+    broker.mkdir(parents=True)
+    (broker / "metrics.json").write_text(
+        '{"status":"blocked","reason":"target book is empty or invalid"}',
+        encoding="utf-8",
+    )
+    account = latest / "account_evaluation"
+    account.mkdir(parents=True)
+    (account / "official_metrics.json").write_text(
+        """
+{
+  "official_metric_mode": "broker_ledger_next_close",
+  "portfolios": {
+    "main": {
+      "cagr": 0.3315,
+      "max_dd": -0.2601,
+      "sharpe": 1.219,
+      "avg_cash_weight": 0.267,
+      "broker_trade_count": 1681,
+      "broker_ledger_window_gate": {"status": "invalid_window"},
+      "valid_for_production": false
+    }
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    baseline = grid.baseline_for(latest, "main")
+
+    assert baseline["available"] is True
+    assert baseline["cagr"] == 0.3315
+    assert baseline["max_dd"] == -0.2601
+    assert baseline["metric_mode"] == "broker_ledger_next_close"
+    assert baseline["trade_count"] == 1681
+    assert baseline["source"] == "account_evaluation/official_metrics.json#portfolios.main"
+    assert baseline["production_promotion_allowed"] is False
+
+
 def test_rank_grid_prefers_mdd_gain_without_large_cagr_drag() -> None:
     baseline = {"cagr": 0.33, "max_dd": -0.26}
     fake = {
@@ -195,6 +236,7 @@ if __name__ == "__main__":
 
     with tempfile.TemporaryDirectory() as tmp:
         test_target_book_prefers_alphaops_official_books(Path(tmp))
+        test_baseline_falls_back_to_official_metrics_when_broker_replay_blocked(Path(tmp))
         test_missing_baseline_blocks_activation(Path(tmp))
         test_persist_champion_artifacts_copies_auditable_outputs(Path(tmp))
         test_robustness_flags_thin_exit_evidence(Path(tmp))
