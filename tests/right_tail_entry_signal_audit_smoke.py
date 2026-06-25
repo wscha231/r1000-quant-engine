@@ -130,12 +130,18 @@ def main() -> int:
             assert block["winner_count"] == 1, block
             assert block["selected_at_entry_count"] == 1, block
             assert block["skill_evidence_count"] == 1, block
+            assert block["avg_presence_blocks"] == 1.0, block
+            assert block["fragmented_capture_count"] == 0, block
+            assert block["total_sell_count"] == 0, block
             rows = pd.read_csv(out / portfolio / "winner_entry_signals.csv")
             assert rows.loc[0, "ticker"] == "AAA"
             assert rows.loc[0, "entry_signal_date"] == "2023-12-29"
             assert bool(rows.loc[0, "selected_in_target_at_entry"]) is True
             assert bool(rows.loc[0, "used_forward_return_in_ranking"]) is False
             assert int(rows.loc[0, "entry_signal_stack_count"]) >= 5
+            assert int(rows.loc[0, "months_in_target"]) == 1
+            assert int(rows.loc[0, "presence_blocks"]) == 1
+            assert bool(rows.loc[0, "capture_fragmented_flag"]) is False
             assert "period_forward_return" not in rows.columns
     print("right-tail entry signal audit smoke passed")
     return 0

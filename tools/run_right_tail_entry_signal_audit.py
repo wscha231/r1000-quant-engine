@@ -256,6 +256,48 @@ def _signal_summary(candidate_row: pd.Series | None, target_row: pd.Series | Non
     }
 
 
+def _capture_path(target: pd.DataFrame, trades: pd.DataFrame, ticker: str) -> dict[str, Any]:
+    if target.empty:
+        target_rows = pd.DataFrame()
+    else:
+        target_rows = target[target["ticker"] == ticker].copy().sort_values("rebalance_date")
+        target_rows["weight"] = pd.to_numeric(target_rows.get("weight"), errors="coerce").fillna(0.0)
+        target_rows = target_rows[target_rows["weight"] > 0].copy()
+
+    blocks = 0
+    if not target_rows.empty:
+        prev = None
+        for current in target_rows["rebalance_date"]:
+            if prev is None:
+                blocks = 1
+            else:
+                gap_months = (current.year - prev.year) * 12 + (current.month - prev.month)
+                if gap_months > 1:
+                    blocks += 1
+            prev = current
+
+    if trades.empty:
+        ticker_trades = pd.DataFrame()
+    else:
+        ticker_trades = trades[trades["ticker"] == ticker].copy()
+
+    buy_count = int(ticker_trades["side"].eq("BUY").sum()) if not ticker_trades.empty and "side" in ticker_trades.columns else 0
+    sell_count = int(ticker_trades["side"].eq("SELL").sum()) if not ticker_trades.empty and "side" in ticker_trades.columns else 0
+
+    return {
+        "first_target_date": target_rows["rebalance_date"].min().date().isoformat() if not target_rows.empty else "",
+        "last_target_date": target_rows["rebalance_date"].max().date().isoformat() if not target_rows.empty else "",
+        "months_in_target": int(len(target_rows)),
+        "presence_blocks": int(blocks),
+        "max_target_weight": float(target_rows["weight"].max()) if not target_rows.empty else 0.0,
+        "avg_target_weight_when_held": float(target_rows["weight"].mean()) if not target_rows.empty else 0.0,
+        "latest_target_weight": float(target_rows.sort_values("rebalance_date").iloc[-1]["weight"]) if not target_rows.empty else 0.0,
+        "buy_count": buy_count,
+        "sell_count": sell_count,
+        "capture_fragmented_flag": bool(blocks > 1 or sell_count > 1),
+    }
+
+
 def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.DataFrame, dict[str, Any]]:
     winners, winner_summary = _winner_rows(latest_run, portfolio, top_n)
     trades = read_csv(latest_run / "broker_replay" / portfolio / "trades.csv")
@@ -272,6 +314,7 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
         target_row, target_lag = _nearest_entry_row(target, ticker, signal_date)
         rank = _rank_context(candidates, ticker, signal_date)
         signal = _signal_summary(candidate_row, target_row, rank)
+        capture = _capture_path(target, trades, ticker)
         rows.append(
             {
                 "portfolio": portfolio,
@@ -292,6 +335,7 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
                 "production_mutation_allowed": False,
                 **rank,
                 **signal,
+                **capture,
             }
         )
     out = pd.DataFrame(rows)
@@ -307,6 +351,9 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
             "selected_at_entry_count": int(out["selected_in_target_at_entry"].astype(bool).sum()),
             "skill_evidence_count": int(out["skill_evidence_flag"].astype(bool).sum()),
             "avg_entry_signal_stack_count": float(pd.to_numeric(out["entry_signal_stack_count"], errors="coerce").mean()),
+            "avg_presence_blocks": float(pd.to_numeric(out["presence_blocks"], errors="coerce").mean()),
+            "fragmented_capture_count": int(out["capture_fragmented_flag"].astype(bool).sum()),
+            "total_sell_count": int(pd.to_numeric(out["sell_count"], errors="coerce").fillna(0).sum()),
             "used_forward_return_in_ranking": False,
         }
     return out, summary
@@ -331,6 +378,9 @@ def render_report(payload: dict[str, Any]) -> str:
                 f"- selected_at_entry_count: {block.get('selected_at_entry_count', 0)}",
                 f"- skill_evidence_count: {block.get('skill_evidence_count', 0)}",
                 f"- avg_entry_signal_stack_count: {safe_float(block.get('avg_entry_signal_stack_count'), 0.0):.2f}",
+                f"- avg_presence_blocks: {safe_float(block.get('avg_presence_blocks'), 0.0):.2f}",
+                f"- fragmented_capture_count: {block.get('fragmented_capture_count', 0)}",
+                f"- total_sell_count: {block.get('total_sell_count', 0)}",
                 f"- source: `{block.get('source', '')}`",
                 "",
             ]
