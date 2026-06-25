@@ -46,8 +46,10 @@ holds out-of-sample. Proxies (PRWV/weight-level/overlay) screen only; the broker
   score each on broker ledger; **gate-first champion** (MDD ≥ −25 AND CAGR ≥ 0.50). Pass:
   Conc ΔCAGR ≥ +1.0pp AND ΔMaxDD ≥ −1pp AND 2022 cash unchanged.
 
-### Lever II — SHAKEOUT_GUARD (A1, already merged PR #161) — measure now
-- **env**: `PHASE_SHAKEOUT_GUARD_PROD_ENABLED=1`.
+### Lever II — SHAKEOUT_GUARD (A1) — measure once PR #161 is merged
+- **env**: `PHASE_SHAKEOUT_GUARD_PROD_ENABLED=1` — the toggle is WIRED by PR #161
+  (`holding_state` / `shakeout_guard_prod_enabled`). **Confirm PR #161 is merged to master before
+  the A/B**; on a tree without it the flag is doc-only and the treatment is unchanged (no-op).
 - **Strict A/B (lean v1)**: ONE config. **First prove `shakeout_guard_prod_applied=True` rows > 0**
   (no-op risk: requires `leader_tier ∈ {DUAL,SECTOR}`, `sector_leadership_score>0`,
   `smart_money_evidence_confidence ≥ 0.25` populated on replay rows). Then on broker ledger:
@@ -74,9 +76,12 @@ holds out-of-sample. Proxies (PRWV/weight-level/overlay) screen only; the broker
 ### Lever IV — Main trailing stop (Main MDD −1pp)
 - **Code anchor**: `tools/run_broker_position_risk_grid_sweep.py` (PR #158, **account ledger** —
   not the PRWV proxy). Wide-trailing grid already wired.
-- **Strict measurement**: gate-first champion (MDD ≥ −25 AND CAGR ≥ 0.35); **report per-era
-  `risk_exit_count`** — the −35% champion fired only 2× in 7y, so require the MDD benefit to recur
-  across eras (not 1–2 events) and hold OOS before adopting. Pass: Main MaxDD ≥ −25 AND ΔCAGR ≥ −0.5pp.
+- **Strict measurement**: gate-first champion (MDD ≥ −25 AND CAGR ≥ 0.35); firing evidence is
+  `risk_exit_count` in the broker replay artifacts (this is a replay-stage lever — it does NOT
+  write a target-book `applied` column). Robustness bar: **total exits > 2 AND benefit active in
+  ≥2 stress eras** (do NOT require an exit in every era — quiet bull eras may have 0). The −35%
+  champion fired only 2× in 7y → treat as thin until this bar + OOS hold. Pass: Main MaxDD ≥ −25
+  AND ΔCAGR ≥ −0.5pp.
 
 ---
 
@@ -94,9 +99,12 @@ holds out-of-sample. Proxies (PRWV/weight-level/overlay) screen only; the broker
 
 ## 3. How we know the gain is real (not a proxy)
 - Accept only on `broker_replay/<kind>/metrics.json` + `account_evaluation/official_metrics.json`
-  (valid window: years ≥7.0 or tolerance, trading_days ≥1764 BOTH sleeves — fix the concentrated
-  calendar-day count, `ready_for_policy_replay=true`, leakage 0).
-- `applied>0` before reading any delta.
+  (valid window: gate emits `valid_7y` or machine-readable `research_7y_tolerance` — not a manual
+  call; trading_days ≥1764 BOTH sleeves — fix the concentrated calendar-day count;
+  `ready_for_policy_replay=true`; leakage 0). See `docs/CODEX_MEASUREMENT_PROTOCOL.md`.
+- Firing proof before reading any delta — via the channel matching the lever: selection/state
+  levers (I gate, II, III) → target-book `<lever>_applied>0`; replay-stage levers (IV trailing) →
+  `risk_exit_count>0` in broker artifacts.
 - Walk-forward OOS + per-era contribution (`trade_attribution/`); risk levers must not rest on
   1–2 events.
 - `theme_leader_capture` must not regress (no buying CAGR/MDD by abandoning leader capture).
