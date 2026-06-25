@@ -394,7 +394,12 @@ def enforce_pit_available(candidate: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
         or col in {"issuer_float_impact_score", "top_manager_discovery_score"}
     ]
     for col in evidence_cols:
-        d.loc[blocked, col] = 0.0
+        if pd.api.types.is_bool_dtype(d[col]):
+            d.loc[blocked, col] = False
+        elif pd.api.types.is_numeric_dtype(d[col]):
+            d.loc[blocked, col] = 0.0
+        else:
+            d.loc[blocked, col] = ""
     d["pit_evidence_blocked"] = blocked
     d["pit_evidence_block_reason"] = np.where(blocked, "evidence_available_after_rebalance_date", "")
     audit_cols = ["rebalance_date", "ticker", *availability_cols, "pit_evidence_blocked", "pit_evidence_block_reason"]

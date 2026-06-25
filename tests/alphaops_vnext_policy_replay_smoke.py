@@ -258,12 +258,16 @@ def test_sec_available_from_columns_are_pit_checked_and_positive_only() -> None:
                 "rebalance_date": "2026-02-28",
                 "ticker": "FUT",
                 "sec_13f_smart_money_score": 10.0,
+                "top7_standalone_blocked": True,
+                "sec_evidence_flag": "fresh_but_future_dated",
                 "latest_13f_available_from": "2026-03-15T18:00:00Z",
             },
             {
                 "rebalance_date": "2026-02-28",
                 "ticker": "OK",
                 "sec_13f_smart_money_score": 4.0,
+                "top7_standalone_blocked": True,
+                "sec_evidence_flag": "pit_safe",
                 "latest_13f_available_from": "2026-02-15T18:00:00+00:00",
             },
             {
@@ -276,8 +280,12 @@ def test_sec_available_from_columns_are_pit_checked_and_positive_only() -> None:
     by_ticker = {row["ticker"]: row for row in checked.to_dict("records")}
     assert by_ticker["FUT"]["pit_evidence_blocked"] is True
     assert by_ticker["FUT"]["sec_13f_smart_money_score"] == 0.0
+    assert bool(by_ticker["FUT"]["top7_standalone_blocked"]) is False
+    assert by_ticker["FUT"]["sec_evidence_flag"] == ""
     assert by_ticker["OK"]["pit_evidence_blocked"] is False
     assert by_ticker["OK"]["sec_13f_smart_money_score"] == 4.0
+    assert bool(by_ticker["OK"]["top7_standalone_blocked"]) is True
+    assert by_ticker["OK"]["sec_evidence_flag"] == "pit_safe"
     assert len(audit) == 1
 
     support = evidence_support_score(checked)
