@@ -47,6 +47,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     crisis_new_buy_allowed,
     enforce_pit_available,
     evidence_support_score,
+    dynamic_leader_candidate_rescue_portfolios,
     holding_state,
     leadership_persistence_hold_protected,
     replacement_gap_for_weakest,
@@ -346,7 +347,7 @@ def _clear_dynamic_leader_rescue_env() -> None:
     os.environ.pop("PHASE_DYNAMIC_LEADER_CANDIDATE_RESCUE_ENABLED", None)
 
 
-def test_dynamic_leader_candidate_rescue_score_bonus_is_env_gated() -> None:
+def test_dynamic_leader_candidate_rescue_replacement_credit_is_env_gated() -> None:
     _clear_dynamic_leader_rescue_env()
     month = pd.DataFrame(
         [
@@ -385,7 +386,7 @@ def test_dynamic_leader_candidate_rescue_score_bonus_is_env_gated() -> None:
     )
     off = score_month(month)
     assert not off["dynamic_leader_candidate_rescue_alphaops_enabled"].astype(bool).any()
-    assert float(off["dynamic_leader_candidate_rescue_alphaops_bonus"].sum()) == 0.0
+    assert float(off["dynamic_leader_candidate_rescue_replacement_gap_credit"].sum()) == 0.0
     off_score = float(off.loc[off["ticker"].eq("RESCUE"), "alphaops_vnext_score"].iloc[0])
     os.environ["PHASE_DYNAMIC_LEADER_CANDIDATE_RESCUE_ENABLED"] = "1"
     try:
@@ -396,9 +397,19 @@ def test_dynamic_leader_candidate_rescue_score_bonus_is_env_gated() -> None:
     risky = on.loc[on["ticker"].eq("RISKY")].iloc[0]
     assert bool(rescue["dynamic_leader_candidate_rescue_alphaops_enabled"])
     assert bool(rescue["dynamic_leader_candidate_rescue_alphaops_applied"])
-    assert float(rescue["dynamic_leader_candidate_rescue_alphaops_bonus"]) > 0.0
-    assert float(rescue["alphaops_vnext_score"]) > off_score
+    assert float(rescue["dynamic_leader_candidate_rescue_replacement_gap_credit"]) > 0.0
+    assert float(rescue["alphaops_vnext_score"]) == off_score
     assert not bool(risky["dynamic_leader_candidate_rescue_alphaops_applied"])
+
+
+def test_dynamic_leader_candidate_rescue_portfolios_default_main() -> None:
+    os.environ.pop("ALPHAOPS_DYNAMIC_LEADER_CANDIDATE_RESCUE_PORTFOLIOS", None)
+    assert dynamic_leader_candidate_rescue_portfolios() == {"main"}
+    os.environ["ALPHAOPS_DYNAMIC_LEADER_CANDIDATE_RESCUE_PORTFOLIOS"] = "main,concentrated"
+    try:
+        assert dynamic_leader_candidate_rescue_portfolios() == {"main", "concentrated"}
+    finally:
+        os.environ.pop("ALPHAOPS_DYNAMIC_LEADER_CANDIDATE_RESCUE_PORTFOLIOS", None)
 
 
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
@@ -2857,7 +2868,8 @@ if __name__ == "__main__":
     test_sec_available_from_columns_are_pit_checked_and_positive_only()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
-    test_dynamic_leader_candidate_rescue_score_bonus_is_env_gated()
+    test_dynamic_leader_candidate_rescue_replacement_credit_is_env_gated()
+    test_dynamic_leader_candidate_rescue_portfolios_default_main()
     test_shakeout_guard_prod_default_off_preserves_trim()
     test_shakeout_guard_prod_env_suppresses_transient_trim_only()
     test_concentrated_risk_state_caps_new_entries_only()
