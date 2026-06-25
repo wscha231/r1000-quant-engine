@@ -109,6 +109,7 @@ def sample_rows(frame: pd.DataFrame, applied_column: str, source: str, limit: in
         "leader_tier",
         "rs_spy_3m",
         "rs_spy_6m",
+        "alphaops_vnext_candidate_rank",
         "alphaops_vnext_score",
         "candidate_score",
         "replacement_test_weakest_score",

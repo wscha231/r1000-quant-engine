@@ -161,6 +161,7 @@ LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER_ENV = "PHASE_LEADERSHIP_PERSISTENCE
 LEADERSHIP_PERSISTENCE_MAIN_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
 LEADERSHIP_PERSISTENCE_CONCENTRATED_TIERS = {"DUAL_LEADER"}
 CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MIN_RS_SPY_3M = 0.20
+CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MAX_LEADER_RANK = 10
 CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT = 0.07
 CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MIN_GAP = 0.08
 CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT_ENV = (
@@ -798,6 +799,15 @@ def concentrated_selective_leader_capture_adjustment(
     leader_tier = str(candidate.get("leader_tier") or "").upper()
     if leader_tier not in CONCENTRATED_SELECTIVE_LEADER_CAPTURE_TIERS:
         return float(required_gap), f"leader_tier_not_eligible:{leader_tier or 'unknown'}", False, 0.0
+    leader_rank = safe_float(
+        candidate.get("leader_rank_ex_ante"),
+        safe_float(candidate.get("alphaops_vnext_candidate_rank"), math.inf),
+    )
+    if leader_rank > CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MAX_LEADER_RANK:
+        rank_reason = "leader_rank_missing"
+        if math.isfinite(leader_rank):
+            rank_reason = f"leader_rank_above_{CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MAX_LEADER_RANK}"
+        return (float(required_gap), rank_reason, False, 0.0)
     if safe_float(candidate.get("price_above_ma200"), 1.0) + safe_float(candidate.get("price_above_ma50"), 1.0) <= 0.0:
         return float(required_gap), "price_trend_not_alive", False, 0.0
     rs_spy_3m = safe_float(candidate.get("rs_spy_3m"))
@@ -814,7 +824,7 @@ def concentrated_selective_leader_capture_adjustment(
         return float(required_gap), "credit_not_effective", False, 0.0
     return (
         float(adjusted),
-        "rs3_ge_20pct_pit_leader_gap_credit",
+        "rank_top_10_and_rs3_ge_20pct_pit_leader_gap_credit",
         True,
         float(required_gap) - float(adjusted),
     )
@@ -2110,7 +2120,7 @@ def build_variant_book(
         ranked = sorted(month_records, key=lambda rec: safe_float(rec.get("alphaops_vnext_weight_score"), safe_float(rec.get("alphaops_vnext_score"))), reverse=True)
         threshold_normal = max(0.15, 0.75 * max(score_sigma, 0.20))
         threshold_broken = max(0.08, 0.35 * max(score_sigma, 0.20))
-        for rec in ranked:
+        for candidate_rank, rec in enumerate(ranked, start=1):
             ticker = clean_ticker(rec.get("ticker"))
             if not ticker or ticker in selected_tickers:
                 continue
@@ -2119,6 +2129,7 @@ def build_variant_book(
                 rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": reason, "prior_holding": False})
                 continue
             out = dict(rec)
+            out["alphaops_vnext_candidate_rank"] = int(candidate_rank)
             out["holding_state"] = "NEW"
             out["holding_state_reason"] = "new_candidate_cleared_vnext_gates"
             out["hold_replace_threshold_sigma"] = threshold_normal
@@ -2146,7 +2157,7 @@ def build_variant_book(
                 selective_capture_applied,
                 selective_capture_credit,
             ) = concentrated_selective_leader_capture_adjustment(
-                rec,
+                out,
                 portfolio_kind=portfolio_kind,
                 required_gap=required_gap,
                 floor_gap=threshold_broken,
@@ -2173,6 +2184,7 @@ def build_variant_book(
                     "rejection_reason": "replaced_by_higher_vnext_score",
                     "replacement_ticker": ticker,
                     "prior_holding": clean_ticker(weakest.get("ticker")) in prev,
+                    "alphaops_vnext_candidate_rank": int(candidate_rank),
                     "hold_replace_required_gap": required_gap,
                     "hold_replace_required_gap_before_selective_capture": standard_required_gap,
                     "hold_replace_required_gap_reason": gap_reason,
@@ -2199,6 +2211,7 @@ def build_variant_book(
                     "replacement_test_weakest_ticker": clean_ticker(weakest.get("ticker")),
                     "replacement_test_weakest_score": safe_float(weakest.get("alphaops_vnext_score")),
                     "candidate_score": safe_float(rec.get("alphaops_vnext_score")),
+                    "alphaops_vnext_candidate_rank": int(candidate_rank),
                     "hold_replace_required_gap": required_gap,
                     "hold_replace_required_gap_before_selective_capture": standard_required_gap,
                     "hold_replace_required_gap_reason": gap_reason,

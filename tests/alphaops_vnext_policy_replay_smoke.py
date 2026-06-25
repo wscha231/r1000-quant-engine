@@ -447,6 +447,7 @@ def _selective_capture_candidate(**overrides: object) -> dict[str, object]:
     row: dict[str, object] = {
         "ticker": "WIN",
         "leader_tier": "DUAL_LEADER",
+        "leader_rank_ex_ante": 7,
         "rs_spy_3m": 0.24,
         "price_above_ma200": 1.0,
         "price_above_ma50": 1.0,
@@ -482,7 +483,7 @@ def test_concentrated_selective_capture_env_lowers_gap_for_pit_rs_leader_only() 
             leadership_persistence_applied=False,
         )
         assert round(gap, 6) == 0.15
-        assert reason == "rs3_ge_20pct_pit_leader_gap_credit"
+        assert reason == "rank_top_10_and_rs3_ge_20pct_pit_leader_gap_credit"
         assert applied is True
         assert round(credit, 6) == 0.07
 
@@ -507,6 +508,17 @@ def test_concentrated_selective_capture_env_lowers_gap_for_pit_rs_leader_only() 
         assert weak_rs_gap == 0.22
         assert weak_rs_reason.startswith("rs_spy_3m_below")
         assert weak_rs_applied is False
+
+        weak_rank_gap, weak_rank_reason, weak_rank_applied, _ = concentrated_selective_leader_capture_adjustment(
+            _selective_capture_candidate(leader_rank_ex_ante=12),
+            portfolio_kind="concentrated",
+            required_gap=0.22,
+            floor_gap=0.08,
+            leadership_persistence_applied=False,
+        )
+        assert weak_rank_gap == 0.22
+        assert weak_rank_reason == "leader_rank_above_10"
+        assert weak_rank_applied is False
 
         hard_gap, hard_reason, hard_applied, _ = concentrated_selective_leader_capture_adjustment(
             _selective_capture_candidate(emerging_tenbagger_hard_reject_reason="future_leak_guard"),
