@@ -768,6 +768,7 @@ jobs:
             outputs/operating_snapshot/
             outputs/account_ledger_preview/
             outputs/broker_position_risk_replay/
+            outputs/broker_position_risk_grid_wide_trailing/
             outputs/broker_parabolic_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/mdd_cash_overlay_research/
@@ -909,6 +910,7 @@ jobs:
             outputs/regime_capacity_filter/
             outputs/regime_capacity_broker_replay/
             outputs/broker_position_risk_replay/
+            outputs/broker_position_risk_grid_wide_trailing/
             outputs/broker_parabolic_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/operating_event_backtest/
@@ -1377,6 +1379,7 @@ jobs:
             copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
             copy_alphaops_vnext_light
             copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
+            copy_dir_clean outputs/broker_position_risk_grid_wide_trailing "$DEST/broker_position_risk_grid_wide_trailing"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
             copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
@@ -1497,6 +1500,7 @@ jobs:
           copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
           copy_dir_clean outputs/crisis_paper_order_bridge "$DEST/crisis_paper_order_bridge"
           copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
+          copy_dir_clean outputs/broker_position_risk_grid_wide_trailing "$DEST/broker_position_risk_grid_wide_trailing"
           copy_dir_clean outputs/lever_sweep "$DEST/lever_sweep"
           copy_dir_clean outputs/broker_parabolic_risk_replay "$DEST/broker_parabolic_risk_replay"
           copy_dir_clean outputs/broker_execution_policy_replay "$DEST/broker_execution_policy_replay"
