@@ -10,11 +10,13 @@ diagnostic artifacts and are not promoted into production policy.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import shutil
 import subprocess
 import sys
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -37,6 +39,16 @@ DEFAULT_COMPOSITE_WEIGHTS = {
     "cagr_drag_penalty_threshold_pp": 1.0,
     "cagr_drag_penalty_weight": 0.75,
 }
+PORTFOLIO_TARGETS = {
+    "main": {"cagr": 0.35, "max_dd": -0.25},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.25},
+}
+ERA_BUCKETS = [
+    ("2019_2020", date(2019, 1, 1), date(2020, 12, 31)),
+    ("2021_2022", date(2021, 1, 1), date(2022, 12, 31)),
+    ("2023_2024", date(2023, 1, 1), date(2024, 12, 31)),
+    ("2025_2026", date(2025, 1, 1), date(2026, 12, 31)),
+]
 
 
 def repo_path(value: str | Path) -> Path:
@@ -190,17 +202,162 @@ def rank_grid(
                 "overlay_risk_trim_count": int(safe_float(metrics.get("risk_trim_count"))),
                 "overlay_trade_count": int(safe_float(metrics.get("trade_count"))),
                 "metric_mode": metrics.get("metric_mode", ""),
+                "combo_output_dir": metrics.get("_output_dir", ""),
                 **score_composite(overlay_cagr, overlay_mdd, baseline, weights=weights),
             }
         )
     return sorted(rows, key=lambda row: row["composite"], reverse=True)
 
 
-def champion_from_ranked(ranked: list[dict[str, Any]]) -> dict[str, Any] | None:
+def annotate_gate_status(ranked: list[dict[str, Any]], portfolio: str) -> list[dict[str, Any]]:
+    targets = PORTFOLIO_TARGETS.get(portfolio, {"cagr": 0.0, "max_dd": 0.0})
+    out: list[dict[str, Any]] = []
     for row in ranked:
-        if row.get("status") == "ok":
+        updated = dict(row)
+        reasons: list[str] = []
+        if updated.get("status") != "ok":
+            reasons.append(str(updated.get("status") or "not_ok"))
+        if safe_float(updated.get("overlay_cagr")) < safe_float(targets.get("cagr")):
+            reasons.append("cagr_below_target")
+        if safe_float(updated.get("overlay_max_dd")) < safe_float(targets.get("max_dd")):
+            reasons.append("mdd_below_target")
+        updated["target_cagr"] = safe_float(targets.get("cagr"))
+        updated["target_max_dd"] = safe_float(targets.get("max_dd"))
+        updated["gate_pass"] = not reasons
+        updated["gate_fail_reasons"] = reasons
+        out.append(updated)
+    return out
+
+
+def champion_from_ranked(ranked: list[dict[str, Any]], *, gate_first: bool = False) -> dict[str, Any] | None:
+    for row in ranked:
+        if row.get("status") == "ok" and (not gate_first or bool(row.get("gate_pass"))):
             return row
     return None
+
+
+def parse_iso_date(value: Any) -> date | None:
+    try:
+        if value is None or value == "":
+            return None
+        return datetime.fromisoformat(str(value)[:10]).date()
+    except ValueError:
+        return None
+
+
+def era_for_date(value: date | None) -> str:
+    if value is None:
+        return "unknown"
+    for label, start, end in ERA_BUCKETS:
+        if start <= value <= end:
+            return label
+    return "outside"
+
+
+def period_metrics(points: list[tuple[date, float]]) -> dict[str, Any]:
+    if len(points) < 2:
+        return {"available": False}
+    ordered = sorted(points, key=lambda item: item[0])
+    start_dt, start_equity = ordered[0]
+    end_dt, end_equity = ordered[-1]
+    years = max((end_dt - start_dt).days / 365.25, 1e-9)
+    total_return = end_equity / max(start_equity, 1e-12) - 1.0
+    cagr = (end_equity / max(start_equity, 1e-12)) ** (1.0 / years) - 1.0
+    peak = -float("inf")
+    max_dd = 0.0
+    for _dt, equity in ordered:
+        peak = max(peak, equity)
+        if peak > 0:
+            max_dd = min(max_dd, equity / peak - 1.0)
+    return {
+        "available": True,
+        "start_date": start_dt.isoformat(),
+        "end_date": end_dt.isoformat(),
+        "days": (end_dt - start_dt).days + 1,
+        "years": years,
+        "total_return": total_return,
+        "cagr": cagr,
+        "max_dd": max_dd,
+    }
+
+
+def read_equity_points(path: Path) -> list[tuple[date, float]]:
+    rows: list[tuple[date, float]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            dt = parse_iso_date(row.get("date"))
+            equity = safe_float(row.get("equity_usd"), default=float("nan"))
+            if dt is not None and math.isfinite(equity) and equity > 0:
+                rows.append((dt, equity))
+    return rows
+
+
+def read_exit_counts_by_era(path: Path) -> dict[str, int]:
+    counts = {label: 0 for label, _start, _end in ERA_BUCKETS}
+    counts["unknown"] = 0
+    if not path.exists():
+        return counts
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            reason = str(row.get("reason") or row.get("risk_rule_action") or "")
+            if "exit" not in reason:
+                continue
+            dt = parse_iso_date(row.get("fill_date") or row.get("signal_date") or row.get("date"))
+            era = era_for_date(dt)
+            counts[era] = counts.get(era, 0) + 1
+    return counts
+
+
+def build_robustness_block(champion_dir: Path) -> dict[str, Any]:
+    equity_points = read_equity_points(champion_dir / "equity_curve.csv")
+    exit_counts = read_exit_counts_by_era(champion_dir / "risk_actions.csv")
+    per_era: dict[str, Any] = {}
+    for label, start, end in ERA_BUCKETS:
+        points = [(dt, equity) for dt, equity in equity_points if start <= dt <= end]
+        metrics = period_metrics(points)
+        metrics["risk_exit_count"] = int(exit_counts.get(label, 0))
+        per_era[label] = metrics
+    total_exits = sum(int(v) for k, v in exit_counts.items() if k not in {"unknown", "outside"})
+    active_eras = sum(1 for k, v in exit_counts.items() if k not in {"unknown", "outside"} and int(v) > 0)
+    flags: list[str] = []
+    if total_exits <= 2:
+        flags.append("thin_exit_evidence")
+    if active_eras <= 1 and total_exits > 0:
+        flags.append("single_era_exit_concentration")
+    if not equity_points:
+        flags.append("missing_equity_curve")
+    return {
+        "schema_version": "broker_position_risk_grid_robustness_v1",
+        "method": "per_era_diagnostics_not_oos_selection",
+        "oos_selection_used": False,
+        "robustness_flag": "review_required" if flags else "no_obvious_concentration_flag",
+        "flags": flags,
+        "risk_exit_count": total_exits,
+        "risk_exit_active_era_count": active_eras,
+        "risk_exit_count_by_era": exit_counts,
+        "per_era": per_era,
+    }
+
+
+def persist_champion_artifacts(champion: dict[str, Any] | None, destination: Path) -> dict[str, Any]:
+    if not champion:
+        shutil.rmtree(destination, ignore_errors=True)
+        return {"persisted": False, "reason": "no_gate_passing_champion"}
+    source = Path(str(champion.get("combo_output_dir") or ""))
+    if not source.exists():
+        return {"persisted": False, "reason": "missing_combo_output_dir", "source": str(source)}
+    shutil.rmtree(destination, ignore_errors=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, destination)
+    return {
+        "persisted": True,
+        "source": str(source),
+        "destination": str(destination),
+        "trades_csv": str(destination / "trades.csv"),
+        "equity_curve_csv": str(destination / "equity_curve.csv"),
+    }
 
 
 def run_broker_position_risk(
@@ -258,10 +415,17 @@ def run_broker_position_risk(
     payload = load_json(output_dir / "metrics.json")
     if not payload:
         return {"status": "missing_metrics", "error": str(output_dir / "metrics.json")}
+    payload["_output_dir"] = str(output_dir)
     return payload
 
 
-def render_report(portfolio: str, baseline: dict[str, Any], ranked: list[dict[str, Any]]) -> str:
+def render_report(
+    portfolio: str,
+    baseline: dict[str, Any],
+    ranked: list[dict[str, Any]],
+    champion: dict[str, Any] | None,
+    best_ranked: dict[str, Any] | None = None,
+) -> str:
     lines = [f"# Broker Position-Risk Grid Sweep - {portfolio}", ""]
     lines.append("Research-only broker-style daily-stop grid. It uses next-close account-ledger fills, integer shares, fees, and cash ledger.")
     lines.append("Production activation remains false; any candidate still needs explicit review and a full official run.")
@@ -269,17 +433,33 @@ def render_report(portfolio: str, baseline: dict[str, Any], ranked: list[dict[st
     lines.append(
         f"Baseline broker replay: CAGR `{baseline.get('cagr', 0.0):.2%}` / MaxDD `{baseline.get('max_dd', 0.0):.2%}` / Sharpe `{baseline.get('sharpe', 0.0):.3f}`"
     )
+    targets = PORTFOLIO_TARGETS.get(portfolio, {"cagr": 0.0, "max_dd": 0.0})
+    lines.append(
+        f"Gate-first champion target: CAGR `>= {targets['cagr']:.2%}` and MaxDD `>= {targets['max_dd']:.2%}`."
+    )
+    if champion is None:
+        lines.append("No gate-passing champion was found. Composite ranking below is diagnostic only.")
+        if best_ranked is not None:
+            lines.append(
+                f"Best ranked near-miss: `{best_ranked.get('hard_stop_label')}` hard / `{best_ranked.get('trailing_stop_label')}` trailing, "
+                f"CAGR `{safe_float(best_ranked.get('overlay_cagr')):.2%}`, MaxDD `{safe_float(best_ranked.get('overlay_max_dd')):.2%}`."
+            )
+    else:
+        lines.append(
+            f"Champion: `{champion.get('hard_stop_label')}` hard / `{champion.get('trailing_stop_label')}` trailing, "
+            f"CAGR `{safe_float(champion.get('overlay_cagr')):.2%}`, MaxDD `{safe_float(champion.get('overlay_max_dd')):.2%}`."
+        )
     lines.append("")
-    lines.append("| rank | hard | trailing | CAGR | MaxDD | cagr_gap_pp | mdd_imp_pp | exits | trades | composite |")
-    lines.append("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| rank | gate | hard | trailing | CAGR | MaxDD | cagr_gap_pp | mdd_imp_pp | exits | trades | composite |")
+    lines.append("|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
     for idx, row in enumerate(ranked, 1):
         if row.get("status") != "ok":
             lines.append(
-                f"| {idx} | `{row.get('hard_stop_label', '?')}` | `{row.get('trailing_stop_label', '?')}` | - | - | - | - | - | - | `{row.get('status', '?')}` |"
+                f"| {idx} | no | `{row.get('hard_stop_label', '?')}` | `{row.get('trailing_stop_label', '?')}` | - | - | - | - | - | - | `{row.get('status', '?')}` |"
             )
             continue
         lines.append(
-            f"| {idx} | `{row['hard_stop_label']}` | `{row['trailing_stop_label']}` | {row['overlay_cagr']:.2%} | {row['overlay_max_dd']:.2%} | "
+            f"| {idx} | {'yes' if row.get('gate_pass') else 'no'} | `{row['hard_stop_label']}` | `{row['trailing_stop_label']}` | {row['overlay_cagr']:.2%} | {row['overlay_max_dd']:.2%} | "
             f"{row['cagr_gap_pp']:+.2f} | {row['mdd_improvement_pp']:+.2f} | {row['overlay_risk_exit_count']} | {row['overlay_trade_count']} | `{row['composite']:.4f}` |"
         )
     lines.append("")
@@ -337,14 +517,50 @@ def evaluate_portfolio(
         return metrics
 
     combos = [(hard, trailing) for hard in hard_grid for trailing in trailing_grid]
-    ranked = rank_grid(combos, loader, baseline)
-    champion = champion_from_ranked(ranked)
+    ranked = annotate_gate_status(rank_grid(combos, loader, baseline), portfolio)
+    best_ranked = champion_from_ranked(ranked, gate_first=False)
+    champion = champion_from_ranked(ranked, gate_first=True)
+    champion_dir = output_dir / portfolio / "champion"
+    best_ranked_dir = output_dir / portfolio / "best_ranked"
+    champion_artifacts = persist_champion_artifacts(champion, champion_dir)
+    best_ranked_artifacts = persist_champion_artifacts(best_ranked, best_ranked_dir)
+    robustness = build_robustness_block(champion_dir) if champion_artifacts.get("persisted") else {
+        "schema_version": "broker_position_risk_grid_robustness_v1",
+        "method": "per_era_diagnostics_not_oos_selection",
+        "oos_selection_used": False,
+        "robustness_flag": "no_gate_passing_champion",
+        "flags": ["no_gate_passing_champion"],
+    }
+    best_ranked_robustness = build_robustness_block(best_ranked_dir) if best_ranked_artifacts.get("persisted") else {
+        "schema_version": "broker_position_risk_grid_robustness_v1",
+        "method": "per_era_diagnostics_not_oos_selection",
+        "oos_selection_used": False,
+        "robustness_flag": "missing_best_ranked",
+        "flags": ["missing_best_ranked"],
+    }
+    if champion is not None:
+        champion = dict(champion)
+        champion["champion_artifacts"] = champion_artifacts
+        champion["robustness"] = robustness
+        # Avoid persisting machine-local temporary paths in the public summary.
+        champion.pop("combo_output_dir", None)
+    if best_ranked is not None:
+        best_ranked = dict(best_ranked)
+        best_ranked["best_ranked_artifacts"] = best_ranked_artifacts
+        best_ranked["robustness"] = best_ranked_robustness
+        best_ranked.pop("combo_output_dir", None)
+    public_ranked: list[dict[str, Any]] = []
+    for row in ranked:
+        clean = dict(row)
+        clean.pop("combo_output_dir", None)
+        public_ranked.append(clean)
     if not keep_intermediate:
         shutil.rmtree(combo_dir, ignore_errors=True)
+    status = "completed" if champion is not None else "no_gate_passing_config"
     return {
         "schema_version": "broker_position_risk_grid_sweep_v1",
         "portfolio": portfolio,
-        "status": "completed",
+        "status": status,
         "target_book": str(target_book),
         "baseline_broker_ledger": baseline,
         "combos_evaluated": len(combos),
@@ -354,8 +570,14 @@ def evaluate_portfolio(
         "relative_trim_threshold": relative_trim_threshold,
         "relative_exit_threshold": relative_exit_threshold,
         "disable_distribution_exit": bool(disable_distribution_exit),
-        "ranked": ranked,
+        "gate_targets": PORTFOLIO_TARGETS.get(portfolio, {}),
+        "ranked": public_ranked,
         "champion": champion,
+        "best_ranked": best_ranked,
+        "champion_artifacts": champion_artifacts,
+        "best_ranked_artifacts": best_ranked_artifacts,
+        "robustness": robustness,
+        "best_ranked_robustness": best_ranked_robustness,
         "production_activation_allowed": False,
         "review_only": True,
     }
@@ -416,8 +638,17 @@ def main() -> int:
             keep_intermediate=args.keep_intermediate,
         )
         summary[portfolio] = result
-        if result.get("status") == "completed":
-            write_text(output_dir / portfolio / "report.md", render_report(portfolio, result["baseline_broker_ledger"], result["ranked"]))
+        if result.get("status") in {"completed", "no_gate_passing_config"}:
+            write_text(
+                output_dir / portfolio / "report.md",
+                render_report(
+                    portfolio,
+                    result["baseline_broker_ledger"],
+                    result["ranked"],
+                    result.get("champion"),
+                    result.get("best_ranked"),
+                ),
+            )
 
     write_json(output_dir / "summary.json", summary)
     print(f"[broker_position_risk_grid_sweep] wrote {output_dir / 'summary.json'}")

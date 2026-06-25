@@ -60,6 +60,88 @@ def test_rank_grid_prefers_mdd_gain_without_large_cagr_drag() -> None:
     assert ranked[-1]["drag_penalty"] > 0.0
 
 
+def test_gate_first_champion_rejects_non_passing_concentrated_config() -> None:
+    ranked = [
+        {
+            "status": "ok",
+            "hard_stop": grid.DISABLED_STOP_VALUE,
+            "trailing_stop": -0.30,
+            "overlay_cagr": 0.4842,
+            "overlay_max_dd": -0.2582,
+            "composite": 0.60,
+        },
+        {
+            "status": "ok",
+            "hard_stop": grid.DISABLED_STOP_VALUE,
+            "trailing_stop": -0.45,
+            "overlay_cagr": 0.4822,
+            "overlay_max_dd": -0.2490,
+            "composite": 0.50,
+        },
+    ]
+
+    annotated = grid.annotate_gate_status(ranked, "concentrated")
+    champion = grid.champion_from_ranked(annotated, gate_first=True)
+
+    assert champion is None
+    assert annotated[0]["gate_pass"] is False
+    assert "cagr_below_target" in annotated[0]["gate_fail_reasons"]
+    assert "mdd_below_target" in annotated[0]["gate_fail_reasons"]
+
+
+def test_gate_first_champion_accepts_main_target_config() -> None:
+    ranked = [
+        {
+            "status": "ok",
+            "hard_stop": grid.DISABLED_STOP_VALUE,
+            "trailing_stop": -0.35,
+            "overlay_cagr": 0.351,
+            "overlay_max_dd": -0.249,
+            "composite": 0.40,
+        }
+    ]
+
+    annotated = grid.annotate_gate_status(ranked, "main")
+    champion = grid.champion_from_ranked(annotated, gate_first=True)
+
+    assert champion is not None
+    assert champion["gate_pass"] is True
+
+
+def test_persist_champion_artifacts_copies_auditable_outputs(tmp_path: Path) -> None:
+    combo = tmp_path / "combo"
+    combo.mkdir()
+    (combo / "trades.csv").write_text("date,ticker,reason\n2020-01-02,AAA,daily_trailing_stop_exit\n", encoding="utf-8")
+    (combo / "equity_curve.csv").write_text("date,equity_usd\n2020-01-02,100000\n", encoding="utf-8")
+    destination = tmp_path / "portfolio" / "champion"
+
+    result = grid.persist_champion_artifacts({"combo_output_dir": str(combo)}, destination)
+
+    assert result["persisted"] is True
+    assert (destination / "trades.csv").exists()
+    assert (destination / "equity_curve.csv").exists()
+
+
+def test_robustness_flags_thin_exit_evidence(tmp_path: Path) -> None:
+    champion = tmp_path / "champion"
+    champion.mkdir()
+    (champion / "equity_curve.csv").write_text(
+        "date,equity_usd\n2019-06-03,100000\n2020-06-03,120000\n2022-06-03,150000\n2026-06-03,300000\n",
+        encoding="utf-8",
+    )
+    (champion / "risk_actions.csv").write_text(
+        "fill_date,reason\n2020-03-20,daily_trailing_stop_exit\n2020-04-10,daily_trailing_stop_exit\n",
+        encoding="utf-8",
+    )
+
+    block = grid.build_robustness_block(champion)
+
+    assert block["oos_selection_used"] is False
+    assert "thin_exit_evidence" in block["flags"]
+    assert "single_era_exit_concentration" in block["flags"]
+    assert block["per_era"]["2019_2020"]["risk_exit_count"] == 2
+
+
 def test_missing_baseline_blocks_activation(tmp_path: Path) -> None:
     result = grid.evaluate_portfolio(
         portfolio="main",
@@ -96,11 +178,14 @@ def test_render_report_marks_research_only() -> None:
         }
     ]
 
-    text = grid.render_report("main", baseline, ranked)
+    annotated = grid.annotate_gate_status(ranked, "main")
+    champion = grid.champion_from_ranked(annotated, gate_first=True)
+    text = grid.render_report("main", baseline, annotated, champion)
 
     assert "Research-only" in text
     assert "Production activation remains false" in text
     assert "-35.00%" in text
+    assert "Gate-first champion target" in text
 
 
 if __name__ == "__main__":
@@ -111,6 +196,10 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         test_target_book_prefers_alphaops_official_books(Path(tmp))
         test_missing_baseline_blocks_activation(Path(tmp))
+        test_persist_champion_artifacts_copies_auditable_outputs(Path(tmp))
+        test_robustness_flags_thin_exit_evidence(Path(tmp))
     test_rank_grid_prefers_mdd_gain_without_large_cagr_drag()
+    test_gate_first_champion_rejects_non_passing_concentrated_config()
+    test_gate_first_champion_accepts_main_target_config()
     test_render_report_marks_research_only()
     print("broker_position_risk_grid_sweep_smoke: PASS")
