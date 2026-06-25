@@ -55,6 +55,7 @@ so failed layers are not retried unchanged, while useful diagnostics are kept.
 | #169 | Stock-selection forward audit labels | Keep, merge candidate | Adds review-only `forward_21d/63d/126d_excess` labels with `used_forward_return_in_ranking=false`; needed to identify missed-leader leaks without live lookahead. |
 | #174 | Gross-floor sweep env wiring | Keep, merge candidate | Fixes a measurement no-op: `R1000_CONC_GROSS_CAP_FLOOR` now reaches the regime-capacity overlay. The measured broad floor lever failed, but the wiring fix is necessary for any future gross-exposure screen. |
 | #175 | Alpha/beta name-contribution fallback | Keep, merge candidate after CI | Uses `positions_latest.csv` when `holdings_daily.csv` is absent so top-winner contribution does not silently report zero. Output is partial and labelled as such. |
+| #176 | Right-tail entry signal audit | Keep, merge candidate after CI | Turns #175's top-winner contribution into a PIT entry-signal audit. Realized PnL only chooses names for review; candidate/target-book fields at entry signal date decide whether the winner was ex-ante identifiable. |
 
 ### Keep As Small Research Levers
 
@@ -110,12 +111,13 @@ Ready, mergeable, CI green unless explicitly noted:
 4. PR #170 - default-OFF Main-only dynamic leader replacement-gap credit.
 5. PR #174 - gross-floor env override wiring; measurement correctness only.
 6. PR #175 - alpha/beta name-contribution fallback, if CI passes.
+7. PR #176 - right-tail entry signal audit, if CI passes.
 
 Recommended merge order:
 
 1. #167 and #169 first, because they improve measurement quality.
-2. #174 and #175 next, because they close measurement blind spots found during
-   the failed gross-floor and attribution screens.
+2. #174, #175, and #176 next, because they close measurement blind spots found
+   during the failed gross-floor, attribution, and right-tail screens.
 3. #166 and #170 next, because they are default-OFF research levers.
 4. Keep SHAKEOUT plumbing default-OFF unless a new screen proves
    `applied_count > 0` and broker-ledger behavior changes.
@@ -139,7 +141,7 @@ Recommended merge order:
 
 1. Do not use gross-floor/cash reduction as the next lever.
 2. Do not retry the current selective leader capture rule unchanged.
-3. Use #169 and #175 together to isolate right-tail winner skill:
+3. Use #169, #175, and #176 together to isolate right-tail winner skill:
    - identify top contribution winners from labelled, partial name-contribution
      evidence,
    - inspect their entry-date PIT signals rather than their future returns,
