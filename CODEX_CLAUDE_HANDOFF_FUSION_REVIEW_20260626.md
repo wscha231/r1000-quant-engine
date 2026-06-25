@@ -150,6 +150,8 @@ Safety fields:
 - `production_mutation_allowed=false`
 - `live_trading_enabled=false`
 - `used_forward_return_in_ranking=false`
+- `forward_blind_policy_design_required=true`
+- `full_population_walkforward_required=true`
 
 Forward returns:
 
@@ -158,6 +160,18 @@ Forward returns:
 - not used in target construction,
 - not used in cash policy,
 - not used in live signals.
+
+Outcome-selected diagnostics:
+
+- `positive_name_contribution` is deliberately marked as an
+  outcome-selected source.
+- It can only confirm another PIT-visible source. It cannot create a review
+  candidate by itself because `pit_signal_source_count >= 1` is required.
+- The summary emits `outcome_selected_candidate_count` and a
+  `queue_bias_warning`.
+- Any policy derived from the queue must be designed from PIT columns with
+  forward/audit columns hidden, then frozen, then validated on the full
+  candidate population with walk-forward/OOS evidence.
 
 If producer artifacts are missing, the sidecar emits an empty queue instead of
 mutating policy.
@@ -179,6 +193,13 @@ Commands run successfully:
 The smoke test intentionally includes a `LUCK` ticker with huge forward return
 labels but weak PIT evidence. It verifies that `LUCK` is **not** promoted to a
 fusion candidate. This is the key leakage guard.
+
+Additional leakage edge cases now covered:
+
+- `ONEPIT`: huge forward audit label plus exactly one PIT source. It is not a
+  candidate because it lacks two independent sources.
+- `OUTCOME`: two non-PIT/outcome-selected sources and zero PIT sources. It is
+  not a candidate because outcome evidence cannot substitute for PIT evidence.
 
 ## Current Open Merge Queue
 
@@ -203,6 +224,10 @@ Rationale:
 - #178 intersects those diagnostics into a fusion queue.
 - #166/#170 are small default-OFF levers; they should not be treated as solved
   target improvements without broker-ledger A/B.
+- #174 has been checked as measurement plumbing only: it wires the
+  `R1000_CONC_GROSS_CAP_FLOOR` override into an already gated sweep path and
+  explicitly reports that broad Concentrated gross floor should not be
+  activated.
 
 ## Layers Rejected So Far
 
@@ -253,6 +278,26 @@ Please review the current direction and answer these:
    - no target/cash/scoring/live mutation,
    - forward returns only in `audit_*` columns?
 
+## Current Direction After Claude Review
+
+Claude's current review is accepted:
+
+- #178 can be marked ready because it is review-only and empty-queue safe.
+- Do not interpret an empty queue before producer PRs #172/#175/#176/#177 land.
+- Stop audit proliferation after the producer set and #178: generate the fusion
+  queue once, then design exactly one default-OFF candidate.
+- First candidate should target the larger clean-7Y gap: Concentrated CAGR.
+- Preferred candidate shape: high-RS cap/replacement miss rescue with a PIT
+  entry-stack requirement, segment scoped, not a broad selective-capture layer.
+- The candidate must be designed forward-blind, then tested on the full
+  candidate population with broker-ledger A/B.
+
+Clean 7Y target gap to keep in view:
+
+- Main: 33.15% CAGR / -26.02% MaxDD, so both CAGR and MDD miss.
+- Concentrated: 46.24% CAGR / -25.82% MaxDD, so CAGR is about 3.76pp short
+  and MDD is about 0.82pp outside the target.
+
 ## Non-Negotiables To Preserve
 
 - Do not claim production promotion.
@@ -280,4 +325,3 @@ If Claude agrees:
    - broker-ledger A/B,
    - no MDD damage,
    - no forward-label leakage.
-

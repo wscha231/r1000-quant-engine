@@ -12,7 +12,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_fusion_candidate_review import run  # noqa: E402
+from tools.run_fusion_candidate_review import base_candidate, normalize_candidate_rows, run  # noqa: E402
 
 
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -83,6 +83,16 @@ def build_fixture(root: Path) -> Path:
                 "fwd_63d_excess_spy": 9.99,
                 "fwd_126d_excess_spy": 9.99,
             },
+            {
+                "portfolio": "concentrated",
+                "ticker": "ONEPIT",
+                "drop_date": "2024-03-29",
+                "drop_skill_evidence_flag": True,
+                "drop_candidate_rank_percentile": 0.95,
+                "drop_entry_signal_stack_count": 9,
+                "fwd_63d_excess_spy": 12.34,
+                "fwd_126d_excess_spy": 12.34,
+            },
         ],
     )
     write_csv(
@@ -138,7 +148,7 @@ def main() -> int:
         base = build_fixture(root)
         out = root / "fusion"
         payload = run(base, out)
-        assert payload["schema_version"] == "fusion-candidate-review-v1"
+        assert payload["schema_version"] == "fusion-candidate-review-v2"
         assert payload["research_only"] is True
         assert payload["policy_eligible"] is False
         assert payload["used_forward_return_in_ranking"] is False
@@ -151,12 +161,31 @@ def main() -> int:
         assert bool(aaa["used_forward_return_in_ranking"]) is False
         assert bool(aaa["policy_eligible"]) is False
         assert "LUCK" not in set(rows[rows["fusion_review_candidate"].astype(bool)]["ticker"])
+        onepit = rows[rows["ticker"].eq("ONEPIT")].iloc[0]
+        assert bool(onepit["fusion_review_candidate"]) is False
+        assert int(onepit["independent_source_count"]) == 1
+        assert int(onepit["pit_signal_source_count"]) == 1
+        assert float(onepit["audit_forward_126d_excess_spy_max"]) > 10.0
         segments = pd.read_csv(out / "segment_fusion_summary.csv")
         assert bool(segments.iloc[0]["segment_review_candidate"]) is True
         summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert summary["segment_review_candidate_count"] == 1
+        assert summary["forward_blind_policy_design_required"] is True
+        assert summary["full_population_walkforward_required"] is True
+        assert summary["outcome_selected_candidate_count"] == 1
         report = (out / "report.md").read_text(encoding="utf-8")
         assert "Forward returns are audit labels only" in report
+        assert "designed forward-blind" in report
+        outcome_only = base_candidate("concentrated", "OUTCOME")
+        outcome_only["evidence_sources"] = {"positive_name_contribution", "drawdown_name_contribution"}
+        outcome_only["pit_signal_sources"] = set()
+        outcome_only["outcome_selected_sources"] = {"positive_name_contribution", "drawdown_name_contribution"}
+        frame = normalize_candidate_rows({("concentrated", "OUTCOME"): outcome_only})
+        row = frame.iloc[0]
+        assert bool(row["fusion_review_candidate"]) is False
+        assert int(row["independent_source_count"]) == 2
+        assert int(row["pit_signal_source_count"]) == 0
+        assert int(row["outcome_selected_source_count"]) == 2
     print("fusion candidate review smoke passed")
     return 0
 

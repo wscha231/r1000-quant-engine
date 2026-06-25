@@ -19,7 +19,7 @@ from typing import Any
 
 import pandas as pd
 
-SCHEMA_VERSION = "fusion-candidate-review-v1"
+SCHEMA_VERSION = "fusion-candidate-review-v2"
 DEFAULT_OUTPUT_DIR = "outputs/fusion_candidate_review"
 
 
@@ -104,6 +104,7 @@ def base_candidate(portfolio: str, ticker: str) -> dict[str, Any]:
         "ticker": ticker,
         "evidence_sources": set(),
         "pit_signal_sources": set(),
+        "outcome_selected_sources": set(),
         "source_dates": [],
         "sector": "",
         "theme": "",
@@ -165,6 +166,7 @@ def add_source(
     row: pd.Series,
     *,
     pit_signal: bool,
+    outcome_selected: bool = False,
     date_names: tuple[str, ...] = (),
 ) -> None:
     if not ticker:
@@ -173,6 +175,8 @@ def add_source(
     candidate["evidence_sources"].add(source)
     if pit_signal:
         candidate["pit_signal_sources"].add(source)
+    if outcome_selected:
+        candidate["outcome_selected_sources"].add(source)
     for name in date_names:
         if name in row.index and str(row.get(name, "")).strip():
             candidate["source_dates"].append(f"{source}:{row.get(name)}")
@@ -307,6 +311,7 @@ def load_name_contribution(base: Path, candidates: dict[tuple[str, str], dict[st
                 "positive_name_contribution",
                 row,
                 pit_signal=False,
+                outcome_selected=True,
                 date_names=("date", "as_of_date"),
             )
             candidate = ensure_candidate(candidates, portfolio, ticker)
@@ -323,9 +328,11 @@ def normalize_candidate_rows(candidates: dict[tuple[str, str], dict[str, Any]]) 
     for candidate in candidates.values():
         sources = sorted(candidate.pop("evidence_sources"))
         pit_sources = sorted(candidate.pop("pit_signal_sources"))
+        outcome_sources = sorted(candidate.pop("outcome_selected_sources"))
         dates = sorted(set(candidate.pop("source_dates")))
         independent_source_count = len(sources)
         pit_signal_source_count = len(pit_sources)
+        outcome_selected_source_count = len(outcome_sources)
         fusion_review_candidate = independent_source_count >= 2 and pit_signal_source_count >= 1
         # This score intentionally excludes forward-return labels.
         fusion_review_score = independent_source_count + 0.25 * pit_signal_source_count
@@ -333,9 +340,12 @@ def normalize_candidate_rows(candidates: dict[tuple[str, str], dict[str, Any]]) 
             **candidate,
             "evidence_sources": ";".join(sources),
             "pit_signal_sources": ";".join(pit_sources),
+            "outcome_selected_sources": ";".join(outcome_sources),
             "source_dates": ";".join(dates),
             "independent_source_count": independent_source_count,
             "pit_signal_source_count": pit_signal_source_count,
+            "outcome_selected_source_count": outcome_selected_source_count,
+            "has_outcome_selected_source": outcome_selected_source_count > 0,
             "fusion_review_score": round(float(fusion_review_score), 4),
             "fusion_review_candidate": bool(fusion_review_candidate),
             "policy_eligible": False,
@@ -349,6 +359,8 @@ def normalize_candidate_rows(candidates: dict[tuple[str, str], dict[str, Any]]) 
             "ticker",
             "evidence_sources",
             "independent_source_count",
+            "pit_signal_source_count",
+            "outcome_selected_source_count",
             "fusion_review_candidate",
             "used_forward_return_in_ranking",
         ])
@@ -403,6 +415,9 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- fusion_review_candidate_count: {payload.get('fusion_review_candidate_count', 0)}",
         f"- segment_review_candidate_count: {payload.get('segment_review_candidate_count', 0)}",
         f"- used_forward_return_in_ranking: `{payload.get('used_forward_return_in_ranking')}`",
+        f"- outcome_selected_candidate_count: {payload.get('outcome_selected_candidate_count', 0)}",
+        f"- forward_blind_policy_design_required: `{payload.get('forward_blind_policy_design_required')}`",
+        f"- full_population_walkforward_required: `{payload.get('full_population_walkforward_required')}`",
         "",
         "## Inputs",
         "",
@@ -417,6 +432,10 @@ def render_report(payload: dict[str, Any]) -> str:
         "  point to the same ticker and at least one source is PIT signal evidence.",
         "- `policy_eligible=false` is intentional. A future policy still needs a",
         "  default-OFF implementation and broker-ledger A/B acceptance.",
+        "- Outcome-selected sources such as positive realized contribution are",
+        "  confirmatory diagnostics only. They may bias the review queue toward",
+        "  past winners, so any derived predicate must be designed forward-blind",
+        "  from PIT columns and validated on the full candidate population.",
     ])
     return "\n".join(lines) + "\n"
 
@@ -447,8 +466,21 @@ def run(base_dir: Path, output_dir: Path) -> dict[str, Any]:
         "production_mutation_allowed": False,
         "live_trading_enabled": False,
         "used_forward_return_in_ranking": False,
+        "forward_blind_policy_design_required": True,
+        "full_population_walkforward_required": True,
         "fusion_review_candidate_count": int(candidate_frame.get("fusion_review_candidate", pd.Series(dtype=bool)).astype(bool).sum()) if not candidate_frame.empty else 0,
         "segment_review_candidate_count": int(segment_frame.get("segment_review_candidate", pd.Series(dtype=bool)).astype(bool).sum()) if not segment_frame.empty else 0,
+        "outcome_selected_candidate_count": (
+            int(
+                candidate_frame[
+                    candidate_frame.get("fusion_review_candidate", pd.Series(dtype=bool)).astype(bool)
+                    & candidate_frame.get("has_outcome_selected_source", pd.Series(dtype=bool)).astype(bool)
+                ].shape[0]
+            )
+            if not candidate_frame.empty
+            else 0
+        ),
+        "queue_bias_warning": "candidate queue may be outcome-selected when positive_name_contribution is present; derived policies require forward-blind PIT design and full-population walk-forward validation",
         "candidate_signals_path": str(output_dir / "candidate_signals.csv"),
         "segment_fusion_summary_path": str(output_dir / "segment_fusion_summary.csv"),
         "inputs": {
