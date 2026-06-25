@@ -2737,6 +2737,23 @@ class EngineConfig:
 
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
+    # --------------- dynamic leader candidate rescue ---------------
+    # Default OFF, research-only A/B lever. Some verified growth leaders
+    # (memory/storage cycle leaders) can fail the fundamental-lane minimum
+    # while already showing PIT-observable RS acceleration, industry-group
+    # leadership, intact MA200 trend, and low stale/risk-entry scores. This
+    # optional gate admits only that narrow profile; it does not use forward
+    # returns, ticker names, dates, or sectors.
+    dynamic_leader_candidate_rescue_enabled: bool = False
+    dynamic_leader_candidate_rescue_min_score: float = 0.75
+    dynamic_leader_candidate_rescue_min_rs_3m: float = 0.25
+    dynamic_leader_candidate_rescue_min_rs_6m: float = 0.15
+    dynamic_leader_candidate_rescue_min_rs_acceleration: float = 1.50
+    dynamic_leader_candidate_rescue_min_group_strength: float = 0.75
+    dynamic_leader_candidate_rescue_min_mktcap: float = 10_000_000_000.0
+    dynamic_leader_candidate_rescue_max_risk_entry: float = 0.35
+    dynamic_leader_candidate_rescue_max_stale: float = 0.25
+    dynamic_leader_candidate_rescue_min_confirmation: float = 0.80
     # --------------- fast mode ---------------
     fast_mode: bool = False  # set True to cut Phase 4+5 runtime by ~60%
 

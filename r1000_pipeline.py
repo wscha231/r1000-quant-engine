@@ -842,6 +842,84 @@ def annotate_portfolio_candidate_gate(
         sleeve_label.eq("early_scout")
         & d["early_scout_fundamental_pass"].fillna(False).astype(bool)
     )
+    rescue_active = phase_is_enabled(
+        "dynamic_leader_candidate_rescue",
+        default=bool(getattr(cfg, "dynamic_leader_candidate_rescue_enabled", False)),
+    )
+    if rescue_active:
+        mktcap_live = pd.to_numeric(
+            d.get("market_cap_live", pd.Series(float("nan"), index=d.index)),
+            errors="coerce",
+        )
+        mktcap_live = mktcap_live.fillna(
+            pd.to_numeric(d.get("mktcap", pd.Series(0.0, index=d.index)), errors="coerce")
+        ).fillna(0.0)
+        rescue_confirmation = row_mean(
+            [
+                (
+                    numeric_series_or_default(d, "score", 0.0)
+                    >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_score", 0.75))
+                ).astype(float),
+                (
+                    numeric_series_or_default(d, "rs_benchmark_3m", 0.0)
+                    >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_rs_3m", 0.25))
+                ).astype(float),
+                (
+                    numeric_series_or_default(d, "rs_benchmark_6m", 0.0)
+                    >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_rs_6m", 0.15))
+                ).astype(float),
+                (
+                    numeric_series_or_default(d, "rs_acceleration_score", 0.0)
+                    >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_rs_acceleration", 1.50))
+                ).astype(float),
+                (
+                    numeric_series_or_default(d, "industry_group_strength_score", 0.0)
+                    >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_group_strength", 0.75))
+                ).astype(float),
+                (numeric_series_or_default(d, "price_above_ma200", 0.0) > 0.5).astype(float),
+            ],
+            d.index,
+        ).fillna(0.0)
+        dynamic_leader_rescue_pass = (
+            ~gate_keep
+            & (rescue_confirmation >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_confirmation", 0.80)))
+            & (
+                numeric_series_or_default(d, "score", 0.0)
+                >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_score", 0.75))
+            )
+            & (
+                numeric_series_or_default(d, "rs_benchmark_3m", 0.0)
+                >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_rs_3m", 0.25))
+            )
+            & (
+                numeric_series_or_default(d, "rs_benchmark_6m", 0.0)
+                >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_rs_6m", 0.15))
+            )
+            & (
+                numeric_series_or_default(d, "rs_acceleration_score", 0.0)
+                >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_rs_acceleration", 1.50))
+            )
+            & (
+                numeric_series_or_default(d, "industry_group_strength_score", 0.0)
+                >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_group_strength", 0.75))
+            )
+            & (numeric_series_or_default(d, "price_above_ma200", 0.0) > 0.5)
+            & (
+                numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0)
+                <= float(getattr(cfg, "dynamic_leader_candidate_rescue_max_risk_entry", 0.35))
+            )
+            & (
+                numeric_series_or_default(d, "portfolio_stale_mega_leader_score", 0.0)
+                <= float(getattr(cfg, "dynamic_leader_candidate_rescue_max_stale", 0.25))
+            )
+            & (mktcap_live >= float(getattr(cfg, "dynamic_leader_candidate_rescue_min_mktcap", 10_000_000_000.0)))
+        )
+    else:
+        rescue_confirmation = pd.Series(0.0, index=d.index, dtype=float)
+        dynamic_leader_rescue_pass = pd.Series(False, index=d.index, dtype=bool)
+    d["dynamic_leader_candidate_rescue_score"] = rescue_confirmation
+    d["dynamic_leader_candidate_rescue_pass"] = dynamic_leader_rescue_pass
+    gate_keep = gate_keep | dynamic_leader_rescue_pass
     d["portfolio_candidate_minimum_pass"] = gate_keep
     d["portfolio_candidate_gate_label"] = "rejected"
     d.loc[
@@ -857,6 +935,7 @@ def annotate_portfolio_candidate_gate(
         "portfolio_candidate_gate_label",
     ] = "early_relaxed"
     d.loc[adr_fallback_pass & gate_keep, "portfolio_candidate_gate_label"] = "adr_global_alpha_fallback"
+    d.loc[dynamic_leader_rescue_pass, "portfolio_candidate_gate_label"] = "dynamic_leader_rescue"
     return d
 
 
