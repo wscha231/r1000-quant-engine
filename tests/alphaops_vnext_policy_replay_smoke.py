@@ -44,6 +44,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_watch_unconfirmed_market_leader_new_entry_cap,
     apply_neutral_metals_new_entry_block,
     build,
+    concentrated_selective_leader_capture_adjustment,
     crisis_new_buy_allowed,
     enforce_pit_available,
     evidence_support_score,
@@ -337,6 +338,11 @@ def _clear_leadership_persistence_env() -> None:
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER", None)
 
 
+def _clear_concentrated_selective_capture_env() -> None:
+    os.environ.pop("PHASE_CONCENTRATED_SELECTIVE_LEADER_CAPTURE_ENABLED", None)
+    os.environ.pop("PHASE_CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT", None)
+
+
 def _clear_shakeout_guard_env() -> None:
     os.environ.pop("PHASE_SHAKEOUT_GUARD_PROD_ENABLED", None)
 
@@ -435,6 +441,104 @@ def test_leadership_persistence_hold_sigma_multiplier_env_override() -> None:
         assert applied is True
     finally:
         _clear_leadership_persistence_env()
+
+
+def _selective_capture_candidate(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "ticker": "WIN",
+        "leader_tier": "DUAL_LEADER",
+        "rs_spy_3m": 0.24,
+        "price_above_ma200": 1.0,
+        "price_above_ma50": 1.0,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_concentrated_selective_capture_default_off_preserves_gap() -> None:
+    _clear_concentrated_selective_capture_env()
+    gap, reason, applied, credit = concentrated_selective_leader_capture_adjustment(
+        _selective_capture_candidate(),
+        portfolio_kind="concentrated",
+        required_gap=0.22,
+        floor_gap=0.08,
+        leadership_persistence_applied=False,
+    )
+    assert gap == 0.22
+    assert reason == "disabled"
+    assert applied is False
+    assert credit == 0.0
+
+
+def test_concentrated_selective_capture_env_lowers_gap_for_pit_rs_leader_only() -> None:
+    _clear_concentrated_selective_capture_env()
+    os.environ["PHASE_CONCENTRATED_SELECTIVE_LEADER_CAPTURE_ENABLED"] = "1"
+    try:
+        gap, reason, applied, credit = concentrated_selective_leader_capture_adjustment(
+            _selective_capture_candidate(),
+            portfolio_kind="concentrated",
+            required_gap=0.22,
+            floor_gap=0.08,
+            leadership_persistence_applied=False,
+        )
+        assert round(gap, 6) == 0.15
+        assert reason == "rs3_ge_20pct_pit_leader_gap_credit"
+        assert applied is True
+        assert round(credit, 6) == 0.07
+
+        main_gap, main_reason, main_applied, _ = concentrated_selective_leader_capture_adjustment(
+            _selective_capture_candidate(),
+            portfolio_kind="main",
+            required_gap=0.22,
+            floor_gap=0.08,
+            leadership_persistence_applied=False,
+        )
+        assert main_gap == 0.22
+        assert main_reason == "not_concentrated"
+        assert main_applied is False
+
+        weak_rs_gap, weak_rs_reason, weak_rs_applied, _ = concentrated_selective_leader_capture_adjustment(
+            _selective_capture_candidate(rs_spy_3m=0.10),
+            portfolio_kind="concentrated",
+            required_gap=0.22,
+            floor_gap=0.08,
+            leadership_persistence_applied=False,
+        )
+        assert weak_rs_gap == 0.22
+        assert weak_rs_reason.startswith("rs_spy_3m_below")
+        assert weak_rs_applied is False
+
+        hard_gap, hard_reason, hard_applied, _ = concentrated_selective_leader_capture_adjustment(
+            _selective_capture_candidate(emerging_tenbagger_hard_reject_reason="future_leak_guard"),
+            portfolio_kind="concentrated",
+            required_gap=0.22,
+            floor_gap=0.08,
+            leadership_persistence_applied=False,
+        )
+        assert hard_gap == 0.22
+        assert hard_reason == "hard_reject_or_top7_standalone"
+        assert hard_applied is False
+    finally:
+        _clear_concentrated_selective_capture_env()
+
+
+def test_concentrated_selective_capture_does_not_override_persistence_hold() -> None:
+    _clear_concentrated_selective_capture_env()
+    os.environ["PHASE_CONCENTRATED_SELECTIVE_LEADER_CAPTURE_ENABLED"] = "1"
+    try:
+        gap, reason, applied, credit = concentrated_selective_leader_capture_adjustment(
+            _selective_capture_candidate(),
+            portfolio_kind="concentrated",
+            required_gap=0.44,
+            floor_gap=0.08,
+            leadership_persistence_applied=True,
+        )
+        assert gap == 0.44
+        assert reason == "blocked_by_leadership_persistence"
+        assert applied is False
+        assert credit == 0.0
+    finally:
+        _clear_concentrated_selective_capture_env()
 
 
 def _shakeout_guard_row(**overrides: object) -> dict[str, object]:
@@ -2797,6 +2901,9 @@ if __name__ == "__main__":
     test_sec_available_from_columns_are_pit_checked_and_positive_only()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
+    test_concentrated_selective_capture_default_off_preserves_gap()
+    test_concentrated_selective_capture_env_lowers_gap_for_pit_rs_leader_only()
+    test_concentrated_selective_capture_does_not_override_persistence_hold()
     test_shakeout_guard_prod_default_off_preserves_trim()
     test_shakeout_guard_prod_env_suppresses_transient_trim_only()
     test_concentrated_risk_state_caps_new_entries_only()

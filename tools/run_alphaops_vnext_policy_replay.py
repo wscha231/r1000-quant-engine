@@ -160,6 +160,13 @@ LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER = 1.10
 LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER_ENV = "PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER"
 LEADERSHIP_PERSISTENCE_MAIN_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
 LEADERSHIP_PERSISTENCE_CONCENTRATED_TIERS = {"DUAL_LEADER"}
+CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MIN_RS_SPY_3M = 0.20
+CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT = 0.07
+CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MIN_GAP = 0.08
+CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT_ENV = (
+    "PHASE_CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT"
+)
+CONCENTRATED_SELECTIVE_LEADER_CAPTURE_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
 CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP = 0.12
 CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_ATR_THRESHOLD = 0.06
 CONCENTRATED_WATCH_UNCONFIRMED_CONFIRMATION_THRESHOLD = 0.50
@@ -683,11 +690,23 @@ def leadership_persistence_hold_enabled() -> bool:
     return bool(phase_is_enabled("leadership_persistence_hold", default=False))
 
 
+def concentrated_selective_leader_capture_enabled() -> bool:
+    return bool(phase_is_enabled("concentrated_selective_leader_capture", default=False))
+
+
 def leadership_persistence_hold_sigma_multiplier() -> float:
     raw = os.environ.get(LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER_ENV)
     value = safe_float(raw, LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER)
     if value <= 0:
         return float(LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER)
+    return float(value)
+
+
+def concentrated_selective_leader_capture_gap_credit() -> float:
+    raw = os.environ.get(CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT_ENV)
+    value = safe_float(raw, CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT)
+    if value <= 0:
+        return float(CONCENTRATED_SELECTIVE_LEADER_CAPTURE_GAP_CREDIT)
     return float(value)
 
 
@@ -748,6 +767,57 @@ def replacement_gap_for_weakest(
             return float(gap), reason, True
         return float(threshold_normal), reason, False
     return float(threshold_normal), "standard_hold_replace_threshold", False
+
+
+def concentrated_selective_leader_capture_adjustment(
+    candidate: dict[str, Any],
+    *,
+    portfolio_kind: str,
+    required_gap: float,
+    floor_gap: float,
+    leadership_persistence_applied: bool,
+) -> tuple[float, str, bool, float]:
+    """Lower the replacement gap for narrow, PIT-visible Concentrated leaders.
+
+    This is a default-off research lever derived from missed-leader audit slices.
+    It uses only current rebalance features and never reads forward labels.
+    """
+    if not concentrated_selective_leader_capture_enabled():
+        return float(required_gap), "disabled", False, 0.0
+    if portfolio_kind != "concentrated":
+        return float(required_gap), "not_concentrated", False, 0.0
+    if leadership_persistence_applied:
+        return float(required_gap), "blocked_by_leadership_persistence", False, 0.0
+    ticker = clean_ticker(candidate.get("ticker"))
+    if not ticker or ticker in CASH_TICKERS:
+        return float(required_gap), "cash_or_invalid", False, 0.0
+    if str(candidate.get("emerging_tenbagger_hard_reject_reason") or "") or bool(
+        candidate.get("top7_standalone_blocked")
+    ):
+        return float(required_gap), "hard_reject_or_top7_standalone", False, 0.0
+    leader_tier = str(candidate.get("leader_tier") or "").upper()
+    if leader_tier not in CONCENTRATED_SELECTIVE_LEADER_CAPTURE_TIERS:
+        return float(required_gap), f"leader_tier_not_eligible:{leader_tier or 'unknown'}", False, 0.0
+    if safe_float(candidate.get("price_above_ma200"), 1.0) + safe_float(candidate.get("price_above_ma50"), 1.0) <= 0.0:
+        return float(required_gap), "price_trend_not_alive", False, 0.0
+    rs_spy_3m = safe_float(candidate.get("rs_spy_3m"))
+    if rs_spy_3m < CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MIN_RS_SPY_3M:
+        return (
+            float(required_gap),
+            f"rs_spy_3m_below_{CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MIN_RS_SPY_3M:.2f}",
+            False,
+            0.0,
+        )
+    credit = concentrated_selective_leader_capture_gap_credit()
+    adjusted = max(float(floor_gap), CONCENTRATED_SELECTIVE_LEADER_CAPTURE_MIN_GAP, float(required_gap) - credit)
+    if adjusted >= float(required_gap):
+        return float(required_gap), "credit_not_effective", False, 0.0
+    return (
+        float(adjusted),
+        "rs3_ge_20pct_pit_leader_gap_credit",
+        True,
+        float(required_gap) - float(adjusted),
+    )
 
 
 def crisis_state_for_date(crisis_states: pd.DataFrame, dt: pd.Timestamp) -> dict[str, Any]:
@@ -2069,8 +2139,28 @@ def build_variant_book(
                 threshold_broken=threshold_broken,
                 score_sigma=score_sigma,
             )
+            standard_required_gap = required_gap
+            (
+                required_gap,
+                selective_capture_reason,
+                selective_capture_applied,
+                selective_capture_credit,
+            ) = concentrated_selective_leader_capture_adjustment(
+                rec,
+                portfolio_kind=portfolio_kind,
+                required_gap=required_gap,
+                floor_gap=threshold_broken,
+                leadership_persistence_applied=persistence_applied,
+            )
+            out["hold_replace_required_gap_before_selective_capture"] = standard_required_gap
             out["hold_replace_required_gap"] = required_gap
             out["hold_replace_required_gap_reason"] = gap_reason
+            out["concentrated_selective_leader_capture_enabled"] = bool(
+                concentrated_selective_leader_capture_enabled()
+            )
+            out["concentrated_selective_leader_capture_applied"] = bool(selective_capture_applied)
+            out["concentrated_selective_leader_capture_reason"] = selective_capture_reason
+            out["concentrated_selective_leader_capture_gap_credit"] = selective_capture_credit
             out["leadership_persistence_hold_applied_to_replacement_test"] = bool(persistence_applied)
             out["replacement_test_weakest_ticker"] = clean_ticker(weakest.get("ticker"))
             out["replacement_test_weakest_score"] = safe_float(weakest.get("alphaops_vnext_score"))
@@ -2084,7 +2174,11 @@ def build_variant_book(
                     "replacement_ticker": ticker,
                     "prior_holding": clean_ticker(weakest.get("ticker")) in prev,
                     "hold_replace_required_gap": required_gap,
+                    "hold_replace_required_gap_before_selective_capture": standard_required_gap,
                     "hold_replace_required_gap_reason": gap_reason,
+                    "concentrated_selective_leader_capture_applied": bool(selective_capture_applied),
+                    "concentrated_selective_leader_capture_reason": selective_capture_reason,
+                    "concentrated_selective_leader_capture_gap_credit": selective_capture_credit,
                     "leadership_persistence_hold_applied": bool(persistence_applied),
                 })
                 selected_tickers.discard(clean_ticker(weakest.get("ticker")))
@@ -2106,7 +2200,11 @@ def build_variant_book(
                     "replacement_test_weakest_score": safe_float(weakest.get("alphaops_vnext_score")),
                     "candidate_score": safe_float(rec.get("alphaops_vnext_score")),
                     "hold_replace_required_gap": required_gap,
+                    "hold_replace_required_gap_before_selective_capture": standard_required_gap,
                     "hold_replace_required_gap_reason": gap_reason,
+                    "concentrated_selective_leader_capture_applied": bool(selective_capture_applied),
+                    "concentrated_selective_leader_capture_reason": selective_capture_reason,
+                    "concentrated_selective_leader_capture_gap_credit": selective_capture_credit,
                     "leadership_persistence_hold_applied": bool(persistence_applied),
                 })
         cash_target = crisis_cash_target(str(crisis_row.get("crisis_state") or "GREEN"), portfolio_kind)
