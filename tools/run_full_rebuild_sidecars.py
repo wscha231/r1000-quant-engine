@@ -385,6 +385,10 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # had PIT-visible signals and then rebounded. Forward returns are audit labels
   # only; this never mutates scoring, target books, cash policy, or trading.
   python tools/run_right_tail_drop_counterfactual_audit.py --latest-run outputs --price-cache cache_prices --output-dir outputs/right_tail_drop_counterfactual_audit 2>&1 | tee outputs/full_rebuild_logs/right_tail_drop_counterfactual_audit.log || true
+  # Fusion candidate review: intersects independent diagnostics before any new
+  # capture-continuity policy is designed. Forward returns are audit labels only;
+  # no scoring, target, cash, workflow, production, or live mutation.
+  python tools/run_fusion_candidate_review.py --base-dir outputs --output-dir outputs/fusion_candidate_review 2>&1 | tee outputs/full_rebuild_logs/fusion_candidate_review.log || true
   # Era leadership diagnostic: factor IC and top-name contribution by era.
   # Review-only sidecar; no production scoring or target-book mutation.
   python tools/run_era_leadership_sidecar.py --latest-run outputs --output-dir outputs/era_leadership 2>&1 | tee outputs/full_rebuild_logs/era_leadership.log || true

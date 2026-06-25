@@ -674,6 +674,7 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/alpha_beta_attribution/
+            outputs/fusion_candidate_review/
             outputs/cagr_walkforward/
             outputs/daily_market_snapshot/
             outputs/broker_replay/main/metrics.json
@@ -738,6 +739,7 @@ jobs:
             outputs/full_rebuild_logs/entry_exit_timing_audit.log
             outputs/full_rebuild_logs/cash_reentry_quality_audit.log
             outputs/full_rebuild_logs/alpha_beta_attribution.log
+            outputs/full_rebuild_logs/fusion_candidate_review.log
             outputs/full_rebuild_logs/cagr_walkforward.log
             outputs/full_rebuild_logs/daily_market_snapshot.log
             outputs/full_rebuild_logs/adr_candidate_scanner.log
@@ -782,6 +784,7 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/alpha_beta_attribution/
+            outputs/fusion_candidate_review/
             outputs/cagr_walkforward/
             outputs/daily_market_snapshot/
             data_pit/free/market_snapshot/
@@ -826,8 +829,10 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/alpha_beta_attribution/
+            outputs/fusion_candidate_review/
             outputs/full_rebuild_logs/universe_health_audit.log
             outputs/full_rebuild_logs/alpha_beta_attribution.log
+            outputs/full_rebuild_logs/fusion_candidate_review.log
             outputs/full_rebuild_logs/cagr_walkforward.log
             outputs/full_rebuild_logs/daily_market_snapshot.log
           if-no-files-found: warn
@@ -939,6 +944,7 @@ jobs:
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
             outputs/alpha_beta_attribution/
+            outputs/fusion_candidate_review/
             outputs/main_cash_drag_replay/
             outputs/crisis_reentry_replay/
             outputs/broker_crisis_reentry_replay/
@@ -1388,6 +1394,7 @@ jobs:
             copy_dir_clean outputs/eight_year_backtest_readiness "$DEST/eight_year_backtest_readiness"
             copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
             copy_dir_clean outputs/alpha_beta_attribution "$DEST/alpha_beta_attribution"
+            copy_dir_clean outputs/fusion_candidate_review "$DEST/fusion_candidate_review"
             copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
             copy_dir_clean outputs/trade_attribution "$DEST/trade_attribution"
             copy_dir_clean outputs/era_aware_scoring_challenger "$DEST/era_aware_scoring_challenger"
@@ -1524,6 +1531,7 @@ jobs:
           copy_dir_clean outputs/oos_lock "$DEST/oos_lock"
           copy_dir_clean outputs/is_attribution "$DEST/is_attribution"
           copy_dir_clean outputs/alpha_beta_attribution "$DEST/alpha_beta_attribution"
+          copy_dir_clean outputs/fusion_candidate_review "$DEST/fusion_candidate_review"
           copy_dir_clean outputs/era_leadership "$DEST/era_leadership"
           copy_dir_clean outputs/trade_attribution "$DEST/trade_attribution"
           copy_dir_clean outputs/era_aware_scoring_challenger "$DEST/era_aware_scoring_challenger"
