@@ -543,6 +543,18 @@ def test_shakeout_guard_prod_env_suppresses_transient_trim_only() -> None:
         assert fallback.protected is True
         assert fallback.fallback_source == "benchmark_fallback"
 
+        target_book_fallback = shakeout_guard_prod_decision(
+            _shakeout_guard_row(
+                sector_leadership_score=pd.NA,
+                smart_money_evidence_confidence=pd.NA,
+                industry_group_strength_score=0.72,
+                lane_confidence=0.40,
+            )
+        )
+        assert target_book_fallback.protected is True
+        assert "sector:industry_group_strength_score" in target_book_fallback.fallback_source
+        assert "confidence:lane_confidence" in target_book_fallback.fallback_source
+
         not_prior = shakeout_guard_prod_decision(_shakeout_guard_row(shakeout_guard_prior_holding=False))
         assert not_prior.protected is False
         assert not_prior.block_reason == "not_prior_holding"

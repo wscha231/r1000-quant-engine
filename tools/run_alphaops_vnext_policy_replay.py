@@ -599,6 +599,20 @@ def leader_state_row_with_fallbacks(row: dict[str, Any]) -> tuple[pd.Series, str
         fallback_source = "benchmark_fallback"
     else:
         fallback_source = "qqq_native"
+    if not _is_present(state_row.get("sector_leadership_score")):
+        for fallback_col in ("industry_group_strength_score", "rs_sector_3m", "rs_sector_6m"):
+            fallback_value = state_row.get(fallback_col)
+            if _is_present(fallback_value):
+                state_row["sector_leadership_score"] = fallback_value
+                fallback_source = f"{fallback_source}|sector:{fallback_col}"
+                break
+    if not _is_present(state_row.get("smart_money_evidence_confidence")):
+        for fallback_col in ("lane_confidence", "evidence_support_score", "selection_confirmation_score"):
+            fallback_value = state_row.get(fallback_col)
+            if _is_present(fallback_value):
+                state_row["smart_money_evidence_confidence"] = fallback_value
+                fallback_source = f"{fallback_source}|confidence:{fallback_col}"
+                break
     return pd.Series(state_row), fallback_source
 
 
