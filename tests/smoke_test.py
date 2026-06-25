@@ -2344,6 +2344,14 @@ def test_lever_sweep_builds_isolated_commands() -> None:
     assert "concentrated_N5_target_book.csv" in book
     assert book in broker_cmd, "broker replay must score the produced variant book"
     assert broker_cmd[broker_cmd.index("--portfolio-kind") + 1] == "concentrated"
+    control_env = sweep.conc_gross_env({"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"}, 0.0)
+    assert control_env["R1000_CONC_GROSS_CAP_FLOOR"] == "0.0"
+    assert control_env["PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED"] == "0", "control arm must not inherit enabled phase"
+    assert control_env["PHASE_BULL_FLOOR_ENABLED"] == "0"
+    tuned_env = sweep.conc_gross_env({}, 0.7)
+    assert tuned_env["R1000_CONC_GROSS_CAP_FLOOR"] == "0.7"
+    assert tuned_env["PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED"] == "1", "non-control floor arm must enable vNext bull floor"
+    assert tuned_env["PHASE_BULL_FLOOR_ENABLED"] == "0"
 
     default_cmd = sweep.daily_stop_command(
         "default", None, None,

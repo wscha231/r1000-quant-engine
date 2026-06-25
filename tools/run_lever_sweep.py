@@ -47,6 +47,8 @@ OPERATING_MAIN_BOOK = "outputs/reports/operating_main_target_book.csv"
 OPERATING_CONCENTRATED_BOOK = "outputs/reports/operating_concentrated_target_book.csv"
 
 METRIC_KEYS = ("cagr", "sharpe", "max_dd", "avg_cash_weight", "years")
+CONC_GROSS_BULL_FLOOR_PHASE = "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED"
+LEGACY_BULL_FLOOR_PHASE = "PHASE_BULL_FLOOR_ENABLED"
 
 
 def parse_float_list(text: str) -> list[float]:
@@ -146,6 +148,23 @@ def conc_gross_commands(
     return vnext_cmd, broker_cmd, book
 
 
+def conc_gross_env(base_env: dict[str, str], floor: float) -> dict[str, str]:
+    """Return an isolated env for one concentrated gross-floor sweep arm.
+
+    The gross-cap override uses ``R1000_CONC_GROSS_CAP_FLOOR``. The vNext
+    regime-capacity bull-floor overlay is separately gated by
+    ``PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED``; set it explicitly so non-zero
+    floor arms are not silent no-ops, and so the control arm cannot inherit an
+    enabled phase from the caller's shell.
+    """
+    env = dict(base_env)
+    enabled = float(floor) > 1e-12
+    env["R1000_CONC_GROSS_CAP_FLOOR"] = str(floor)
+    env[CONC_GROSS_BULL_FLOOR_PHASE] = "1" if enabled else "0"
+    env[LEGACY_BULL_FLOOR_PHASE] = "0"
+    return env
+
+
 def daily_stop_command(
     label: str,
     hard: float | None,
@@ -230,8 +249,7 @@ def run_conc_gross_sweep(
             if on_arm is not None:
                 on_arm(rows)
             continue
-        env = os.environ.copy()
-        env["R1000_CONC_GROSS_CAP_FLOOR"] = str(floor)
+        env = conc_gross_env(os.environ, floor)
         rc_vnext = _run(vnext_cmd, env, arm_dir / "vnext.log")
         rc_broker = 1
         if Path(REPO_ROOT / book).is_file():
