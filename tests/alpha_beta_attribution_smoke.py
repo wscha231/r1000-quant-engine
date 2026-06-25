@@ -48,11 +48,19 @@ def _build_fixture(root: Path) -> tuple[Path, Path]:
             json.dumps({"cagr": 0.25, "max_dd": -0.05, "metric_mode": "broker_ledger_next_close"}),
             encoding="utf-8",
         )
-        holdings_rows = []
-        for i, dt in enumerate(dates):
-            holdings_rows.append({"date": dt.date().isoformat(), "ticker": "AAA", "market_value_usd": 60_000 + i * 150, "weight": 0.60})
-            holdings_rows.append({"date": dt.date().isoformat(), "ticker": "BBB", "market_value_usd": 30_000 + i * 30, "weight": 0.30})
-        pd.DataFrame(holdings_rows).to_csv(broker / "holdings_daily.csv", index=False)
+        if portfolio == "main":
+            holdings_rows = []
+            for i, dt in enumerate(dates):
+                holdings_rows.append({"date": dt.date().isoformat(), "ticker": "AAA", "market_value_usd": 60_000 + i * 150, "weight": 0.60})
+                holdings_rows.append({"date": dt.date().isoformat(), "ticker": "BBB", "market_value_usd": 30_000 + i * 30, "weight": 0.30})
+            pd.DataFrame(holdings_rows).to_csv(broker / "holdings_daily.csv", index=False)
+        else:
+            pd.DataFrame(
+                [
+                    {"as_of_date": dates[-1].date().isoformat(), "ticker": "AAA", "realized_pnl_usd": 5000.0, "unrealized_pnl_usd": 2500.0},
+                    {"as_of_date": dates[-1].date().isoformat(), "ticker": "BBB", "realized_pnl_usd": -500.0, "unrealized_pnl_usd": 1000.0},
+                ]
+            ).to_csv(broker / "positions_latest.csv", index=False)
     return latest, cache
 
 
@@ -75,7 +83,11 @@ def main() -> int:
             assert abs(float(block["stock_selection_residual_alpha"])) < 1e-6, block
             assert abs(float(block["smh_soxx_semiconductor_beta"])) < 1e-9, block
             assert "sector_theme_beta_proxy" in block
-            assert block["name_contribution_status"] == "completed"
+            if portfolio == "main":
+                assert block["name_contribution_status"] == "completed"
+            else:
+                assert block["name_contribution_status"] == "completed_positions_latest_fallback_partial"
+                assert "positions_latest.csv" in str(block["name_contribution_source"])
             assert block["top_1_winner_contribution"] > 0
             assert (out / portfolio / "factor_returns.csv").exists()
             assert (out / portfolio / "name_contribution.csv").exists()
