@@ -44,7 +44,13 @@ ships must be reproduced on the broker ledger. Strict trailing-stop grids must u
 ## 2. Window validity preconditions (no metric is real until these hold)
 
 From `account_evaluation/official_metrics.json` `broker_ledger_window_gate`:
-- `years >= 7.0` (or explicitly classified `research_7y_tolerance` ≈ 6.96y — never silently).
+- `years >= 7.0`, OR a **machine-readable** tolerance: the gate must EMIT an explicit
+  classification field (e.g. `window_classification ∈ {valid_7y, research_7y_tolerance,
+  invalid_window}` with the `years` value). Tolerance is acceptable for a research comparison
+  ONLY when the gate itself emits `research_7y_tolerance` (years ≥ a fixed floor, e.g. 6.90).
+  There is **no human/manual tolerance** — today `evaluate_window_gate` emits only
+  `invalid_window`, so this requires a small `tools/run_account_evaluation.py` change to add the
+  emitted field FIRST. Until that field exists, `invalid_window` means no result.
 - `actual_trading_days >= 1764` for **BOTH** sleeves. NOTE: concentrated currently undercounts
   (equity-curve ROW count, not calendar trading days) — fix to calendar trading days in
   `[broker_start, end]` or this gate fails for the cash-heavy sleeve regardless of the start fix.
@@ -53,7 +59,7 @@ From `account_evaluation/official_metrics.json` `broker_ledger_window_gate`:
 - `pit_universe_label_clean = false` is expected → production promotion stays blocked. That is
   acceptable for a research baseline; it does NOT invalidate a research_7y CAGR/MDD comparison.
 
-If the window is invalid AND not classified as tolerance, do not report CAGR/MDD as a result.
+If the gate does not emit `valid_7y` or `research_7y_tolerance`, do not report CAGR/MDD as a result.
 
 ---
 
@@ -63,10 +69,16 @@ If the window is invalid AND not classified as tolerance, do not report CAGR/MDD
    price cache (reuse one rebuild — the lever acts at target-book/replay stage). Flip exactly
    ONE env flag (e.g. `PHASE_SHAKEOUT_GUARD_PROD_ENABLED`); everything else identical. Never
    co-enable two new levers in the first A/B (isolate; e.g. shakeout vs persistence-hold).
-2. **No-op proof FIRST.** The treatment must show the lever fired:
-   `<lever>_applied = True` row count `> 0` in the target book. If it is 0, the result is a
-   WIRING NO-OP, not "no effect" — stop and check the gating fields are populated on replay
-   rows (e.g. `leader_tier`, `sector_leadership_score`, `smart_money_evidence_confidence`).
+2. **No-op proof FIRST.** The treatment must show the lever fired — by the evidence channel that
+   matches WHERE the lever acts:
+   - **Selection / state levers** (A1 SHAKEOUT, A2 earnings, persistence-hold): a target-book
+     `<lever>_applied = True` row count `> 0`.
+   - **Replay-stage levers** (trailing/position stops via `run_broker_position_risk_grid_sweep.py`):
+     firing is recorded in the broker replay artifacts, not the target book — use
+     `risk_exit_count > 0` (or `risk_actions.csv` rows), since these levers never mutate the book.
+   If the matching channel shows 0, the result is a WIRING NO-OP, not "no effect" — stop and check
+   the gating fields are populated on replay rows (e.g. `leader_tier`, `sector_leadership_score`,
+   `smart_money_evidence_confidence`).
 3. **Delta on the canonical metric.** ΔCAGR, ΔMaxDD, ΔSharpe = treatment − baseline, read from
    `broker_replay/<kind>/metrics.json`. Use the lever-sweep harness for cheap multi-value grids;
    a full rebuild is needed only for changes to scoring/feature_store, not for replay-stage levers.
@@ -82,9 +94,11 @@ If the window is invalid AND not classified as tolerance, do not report CAGR/MDD
   growth/concentrated book, right-tail concentration is acceptable **only if** the winners were
   identifiable ex-ante by PIT signals and repeat across ≥3 eras (skill, not luck). Reject if the
   whole gain is a single era or a single name, or pure SPY/QQQ/SMH/SOXX beta.
-- **Risk levers must not rest on 1–2 events**: for stop/trailing levers, report per-era
-  `risk_exit_count`. A −1pp MaxDD that comes from 2 stop events in 7 years is fragile, not robust
-  — require the benefit to recur across eras.
+- **Risk levers must not rest on 1–2 events**: for stop/trailing levers, report `risk_exit_count`
+  by era. The robustness bar matches the grid tool's check — reject as thin only if **total
+  exits ≤ 2 OR the benefit is confined to a single active era**. Do NOT require an exit in every
+  era: quiet bull eras may legitimately have 0 stop events. A −1pp MaxDD from 2 events in 7 years
+  is fragile; recurring exits across **≥2 stress eras** is robust.
 - **No answer-sheet**: no hardcoded tickers/dates/sectors/thresholds-fit-to-known-crashes.
 
 ---
@@ -105,10 +119,10 @@ When sweeping a grid (trailing stop, gross floor, thresholds):
 
 | Lever | Target gap | Strict measurement | Pass condition |
 |---|---|---|---|
-| A1 SHAKEOUT_GUARD (PR #161) | hold winners → CAGR | broker A/B, env ON | applied>0; premature_sell/EXIT_REPLACE 126d excess ↓; pct_held_365d_plus ↑; ΔCAGR ≥ +0.5pp; ΔMaxDD ≥ −3pp; capture non-regress |
+| A1 SHAKEOUT_GUARD | hold winners → CAGR | broker A/B, `PHASE_SHAKEOUT_GUARD_PROD_ENABLED=1` (toggle WIRED by PR #161 — confirm #161 is MERGED to master before running, else treatment is unchanged) | applied>0; premature_sell/EXIT_REPLACE 126d excess ↓; pct_held_365d_plus ↑; ΔCAGR ≥ +0.5pp; ΔMaxDD ≥ −3pp; capture non-regress |
 | A2 earnings state gate | hold earnings-strong / cut earnings-broken | broker A/B | applied>0; realized loss-before-exit ↓ on broken names; ship gate; capture non-regress |
 | Gross floor (Conc) | Conc CAGR +4pp | lever-sweep grid + broker, gate-first | Conc ΔCAGR ≥ +1.0pp; 2022 defensive cash UNCHANGED; ΔMaxDD ≥ −1pp |
-| Trailing stop (Main) | Main MaxDD −1pp | `run_broker_position_risk_grid_sweep.py` (account ledger), gate-first, per-era exits | Main MaxDD ≥ −25; per-era exit_count > 1; OOS holds; ΔCAGR ≥ −0.5pp |
+| Trailing stop (Main) | Main MaxDD −1pp | `run_broker_position_risk_grid_sweep.py` (account ledger; firing = `risk_exit_count`), gate-first | Main MaxDD ≥ −25; total exits > 2 AND active in ≥2 stress eras; OOS holds; ΔCAGR ≥ −0.5pp |
 
 For each: read `entry_exit_timing_audit/` (premature_sell, pct_held_365d_plus, EXIT_REPLACE
 126d excess) and `stock_selection_quality/theme_leader_capture.csv` alongside the broker metrics.
@@ -117,9 +131,13 @@ For each: read `entry_exit_timing_audit/` (premature_sell, pct_held_365d_plus, E
 
 ## 7. Definition of "real improvement" + final target proof
 
-**Per-lever ship gate (all required, on broker_ledger_next_close, valid window):**
-- `applied > 0` (fired), AND
-- ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ −0.05 AND ΔMaxDD ≥ −3pp, AND
+**Per-lever ship gate (on broker_ledger_next_close, valid window). The CAGR/MaxDD requirement is
+TARGET-SPECIFIC — a risk-reduction lever is not required to also add CAGR:**
+- `applied > 0` (fired, via the matching evidence channel — §3.2), AND
+- **CAGR-target levers** (gross floor, hold-winners): ΔCAGR ≥ +0.5pp AND ΔMaxDD ≥ −3pp; **OR**
+  **MaxDD-target levers** (trailing, faster-cut): ΔMaxDD improves toward/past −25% AND
+  ΔCAGR ≥ −0.5pp (bounded drag — no positive-CAGR requirement), AND
+- ΔSharpe ≥ −0.05, AND
 - moves its sleeve's target gap the right way without breaking the other sleeve's passing metric, AND
 - `theme_leader_capture` non-regress, AND
 - survives walk-forward (OOS fold improvement, not full-period only).
