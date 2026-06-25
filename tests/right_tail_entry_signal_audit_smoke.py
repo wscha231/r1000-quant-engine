@@ -132,6 +132,8 @@ def main() -> int:
             assert block["skill_evidence_count"] == 1, block
             assert block["avg_presence_blocks"] == 1.0, block
             assert block["fragmented_capture_count"] == 0, block
+            assert block["total_capture_drop_count"] == 0, block
+            assert block["total_capture_reentry_count"] == 0, block
             assert block["total_sell_count"] == 0, block
             rows = pd.read_csv(out / portfolio / "winner_entry_signals.csv")
             assert rows.loc[0, "ticker"] == "AAA"
@@ -141,6 +143,8 @@ def main() -> int:
             assert int(rows.loc[0, "entry_signal_stack_count"]) >= 5
             assert int(rows.loc[0, "months_in_target"]) == 1
             assert int(rows.loc[0, "presence_blocks"]) == 1
+            assert int(rows.loc[0, "capture_drop_count"]) == 0
+            assert pd.isna(rows.loc[0, "first_capture_drop_date"]) or rows.loc[0, "first_capture_drop_date"] == ""
             assert bool(rows.loc[0, "capture_fragmented_flag"]) is False
             assert "period_forward_return" not in rows.columns
     print("right-tail entry signal audit smoke passed")

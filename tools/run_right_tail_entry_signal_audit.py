@@ -259,13 +259,17 @@ def _signal_summary(candidate_row: pd.Series | None, target_row: pd.Series | Non
 def _capture_path(target: pd.DataFrame, trades: pd.DataFrame, ticker: str) -> dict[str, Any]:
     if target.empty:
         target_rows = pd.DataFrame()
+        all_dates: list[pd.Timestamp] = []
     else:
+        all_dates = sorted(pd.Timestamp(x) for x in target["rebalance_date"].dropna().unique())
         target_rows = target[target["ticker"] == ticker].copy().sort_values("rebalance_date")
         target_rows["weight"] = pd.to_numeric(target_rows.get("weight"), errors="coerce").fillna(0.0)
         target_rows = target_rows[target_rows["weight"] > 0].copy()
 
     blocks = 0
+    held_dates: set[pd.Timestamp] = set()
     if not target_rows.empty:
+        held_dates = {pd.Timestamp(x) for x in target_rows["rebalance_date"]}
         prev = None
         for current in target_rows["rebalance_date"]:
             if prev is None:
@@ -275,6 +279,18 @@ def _capture_path(target: pd.DataFrame, trades: pd.DataFrame, ticker: str) -> di
                 if gap_months > 1:
                     blocks += 1
             prev = current
+
+    drop_dates: list[str] = []
+    reentry_dates: list[str] = []
+    if held_dates and all_dates:
+        was_held = False
+        for current in all_dates:
+            is_held = current in held_dates
+            if was_held and not is_held:
+                drop_dates.append(current.date().isoformat())
+            if not was_held and is_held and drop_dates:
+                reentry_dates.append(current.date().isoformat())
+            was_held = is_held
 
     if trades.empty:
         ticker_trades = pd.DataFrame()
@@ -294,6 +310,11 @@ def _capture_path(target: pd.DataFrame, trades: pd.DataFrame, ticker: str) -> di
         "latest_target_weight": float(target_rows.sort_values("rebalance_date").iloc[-1]["weight"]) if not target_rows.empty else 0.0,
         "buy_count": buy_count,
         "sell_count": sell_count,
+        "capture_drop_count": int(len(drop_dates)),
+        "first_capture_drop_date": drop_dates[0] if drop_dates else "",
+        "capture_drop_dates": ";".join(drop_dates[:12]),
+        "capture_reentry_count": int(len(reentry_dates)),
+        "capture_reentry_dates": ";".join(reentry_dates[:12]),
         "capture_fragmented_flag": bool(blocks > 1 or sell_count > 1),
     }
 
@@ -353,6 +374,8 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
             "avg_entry_signal_stack_count": float(pd.to_numeric(out["entry_signal_stack_count"], errors="coerce").mean()),
             "avg_presence_blocks": float(pd.to_numeric(out["presence_blocks"], errors="coerce").mean()),
             "fragmented_capture_count": int(out["capture_fragmented_flag"].astype(bool).sum()),
+            "total_capture_drop_count": int(pd.to_numeric(out["capture_drop_count"], errors="coerce").fillna(0).sum()),
+            "total_capture_reentry_count": int(pd.to_numeric(out["capture_reentry_count"], errors="coerce").fillna(0).sum()),
             "total_sell_count": int(pd.to_numeric(out["sell_count"], errors="coerce").fillna(0).sum()),
             "used_forward_return_in_ranking": False,
         }
@@ -380,6 +403,8 @@ def render_report(payload: dict[str, Any]) -> str:
                 f"- avg_entry_signal_stack_count: {safe_float(block.get('avg_entry_signal_stack_count'), 0.0):.2f}",
                 f"- avg_presence_blocks: {safe_float(block.get('avg_presence_blocks'), 0.0):.2f}",
                 f"- fragmented_capture_count: {block.get('fragmented_capture_count', 0)}",
+                f"- total_capture_drop_count: {block.get('total_capture_drop_count', 0)}",
+                f"- total_capture_reentry_count: {block.get('total_capture_reentry_count', 0)}",
                 f"- total_sell_count: {block.get('total_sell_count', 0)}",
                 f"- source: `{block.get('source', '')}`",
                 "",
