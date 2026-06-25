@@ -93,6 +93,23 @@ DEFAULT_BULL_FLOOR_SINGLE_CAP = {
     "main": 0.15,
     "concentrated": 0.30,
 }
+REGIME_CAPACITY_BULL_FLOOR_ENV = {
+    "main": "R1000_MAIN_GROSS_CAP_FLOOR",
+    "concentrated": "R1000_CONC_GROSS_CAP_FLOOR",
+}
+
+
+def regime_capacity_bull_floor(portfolio_kind: str) -> tuple[float, str]:
+    """Return the env-overridable bull stock floor for one portfolio."""
+    default = float(DEFAULT_REGIME_CAPACITY_BULL_FLOOR.get(portfolio_kind, 0.90))
+    env_key = REGIME_CAPACITY_BULL_FLOOR_ENV.get(portfolio_kind, "")
+    raw = os.environ.get(env_key) if env_key else None
+    if raw is None or str(raw).strip() == "":
+        return default, "default"
+    value = safe_float(raw, default)
+    if not math.isfinite(value):
+        return default, f"invalid_env:{env_key}"
+    return float(max(0.0, min(1.0, value))), f"env:{env_key}"
 
 
 def capped_proportional_fill(
@@ -2965,7 +2982,7 @@ def apply_regime_capacity_overlay(
         phase_is_enabled("regime_capacity_bull_floor", default=False)
         or phase_is_enabled("bull_floor", default=False)
     )
-    bull_floor = float(DEFAULT_REGIME_CAPACITY_BULL_FLOOR.get(portfolio_kind, 0.90))
+    bull_floor, bull_floor_source = regime_capacity_bull_floor(portfolio_kind)
     bull_single_cap = float(DEFAULT_BULL_FLOOR_SINGLE_CAP.get(portfolio_kind, 0.20))
     bull_floor_dates = 0
     out = book.copy()
@@ -3065,6 +3082,7 @@ def apply_regime_capacity_overlay(
         "rebalance_dates_dampened": int((pd.to_numeric(audit.get("multiplier", pd.Series(dtype=float)), errors="coerce") < 1.0).sum()) if not audit.empty else 0,
         "bull_floor_enabled": bool(bull_floor_enabled),
         "bull_floor": bull_floor,
+        "bull_floor_source": bull_floor_source,
         "rebalance_dates_bull_floor_lifted": int(bull_floor_dates),
         "avg_cash_weight": float(pd.to_numeric(audit.get("cash_weight", pd.Series(dtype=float)), errors="coerce").mean()) if not audit.empty else 0.0,
         "max_cash_weight": float(pd.to_numeric(audit.get("cash_weight", pd.Series(dtype=float)), errors="coerce").max()) if not audit.empty else 0.0,

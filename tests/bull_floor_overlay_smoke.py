@@ -27,7 +27,12 @@ from tools.run_alphaops_vnext_policy_replay import (  # noqa: E402
 
 
 def _clear_env() -> None:
-    for k in ("PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED", "PHASE_BULL_FLOOR_ENABLED"):
+    for k in (
+        "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED",
+        "PHASE_BULL_FLOOR_ENABLED",
+        "R1000_CONC_GROSS_CAP_FLOOR",
+        "R1000_MAIN_GROSS_CAP_FLOOR",
+    ):
         os.environ.pop(k, None)
 
 
@@ -99,6 +104,25 @@ def test_overlay_on_lifts_bull_book_to_floor() -> None:
         cash = out[out["ticker"].isin(["CASH", "__CASH__"])]
         assert abs(float(cash["weight"].sum()) - 0.15) < 1e-6
         assert (out["regime_capacity_bull_floor_applied"]).any()
+    finally:
+        _clear_env()
+
+
+def test_overlay_respects_concentrated_floor_env_override() -> None:
+    _clear_env()
+    os.environ["PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED"] = "1"
+    os.environ["R1000_CONC_GROSS_CAP_FLOOR"] = "0.70"
+    try:
+        book = _bull_book()
+        out, summary, audit = apply_regime_capacity_overlay(book, portfolio_kind="concentrated")
+        assert summary["bull_floor_enabled"] is True
+        assert summary["bull_floor"] == 0.70
+        assert summary["bull_floor_source"] == "env:R1000_CONC_GROSS_CAP_FLOOR"
+        assert summary["rebalance_dates_bull_floor_lifted"] == 1
+        stock = out[~out["ticker"].isin(["CASH", "__CASH__"])]
+        assert abs(stock["weight"].sum() - 0.70) < 1e-6
+        cash = out[out["ticker"].isin(["CASH", "__CASH__"])]
+        assert abs(float(cash["weight"].sum()) - 0.30) < 1e-6
     finally:
         _clear_env()
 
