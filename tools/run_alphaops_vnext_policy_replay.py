@@ -178,6 +178,15 @@ CONCENTRATED_WATCH_DAMAGED_WEAK_ML_CONFIRMATION_THRESHOLD = 0.50
 CONCENTRATED_WATCH_DAMAGED_WEAK_ML_BREAKOUT_THRESHOLD = 0.60
 CONCENTRATED_WATCH_DAMAGED_WEAK_ML_TICKER_RET_1M_THRESHOLD = 0.05
 CONCENTRATED_GREEN_BULL_QQQ_DOWN_NEW_ENTRY_CAP = 0.08
+DYNAMIC_LEADER_CANDIDATE_RESCUE_BONUS = 0.35
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_SCORE = 0.75
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_RS_3M = 0.25
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_RS_6M = 0.15
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_RS_ACCELERATION = 1.50
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_GROUP_STRENGTH = 0.75
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_MKTCAP = 10_000_000_000.0
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MAX_RISK_ENTRY = 0.35
+DYNAMIC_LEADER_CANDIDATE_RESCUE_MAX_STALE = 0.25
 CONCENTRATED_GREEN_BULL_QQQ_DOWN_THRESHOLD = 0.0
 CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_GREEN_CONSUMER_OVERHEAT_RS_1M_THRESHOLD = 0.25
@@ -440,6 +449,43 @@ def alphaops_score(frame: pd.DataFrame) -> pd.Series:
     )
 
 
+def dynamic_leader_candidate_rescue_enabled() -> bool:
+    return bool(phase_is_enabled("dynamic_leader_candidate_rescue", default=False))
+
+
+def apply_dynamic_leader_candidate_rescue_bonus(frame: pd.DataFrame) -> pd.DataFrame:
+    d = frame.copy()
+    enabled = dynamic_leader_candidate_rescue_enabled()
+    existing_pass = (
+        d.get("dynamic_leader_candidate_rescue_pass", pd.Series(False, index=d.index))
+        .fillna(False)
+        .astype(bool)
+    )
+    mktcap = pd.to_numeric(d.get("market_cap_live", pd.Series(float("nan"), index=d.index)), errors="coerce")
+    mktcap = mktcap.fillna(pd.to_numeric(d.get("mktcap", pd.Series(0.0, index=d.index)), errors="coerce")).fillna(0.0)
+    computed_pass = (
+        (numeric(d, "score") >= DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_SCORE)
+        & (numeric(d, "rs_benchmark_3m") >= DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_RS_3M)
+        & (numeric(d, "rs_benchmark_6m") >= DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_RS_6M)
+        & (numeric(d, "rs_acceleration_score") >= DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_RS_ACCELERATION)
+        & (numeric(d, "industry_group_strength_score") >= DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_GROUP_STRENGTH)
+        & (numeric(d, "price_above_ma200") > 0.5)
+        & (numeric(d, "portfolio_risk_entry_block_score") <= DYNAMIC_LEADER_CANDIDATE_RESCUE_MAX_RISK_ENTRY)
+        & (numeric(d, "portfolio_stale_mega_leader_score") <= DYNAMIC_LEADER_CANDIDATE_RESCUE_MAX_STALE)
+        & (mktcap >= DYNAMIC_LEADER_CANDIDATE_RESCUE_MIN_MKTCAP)
+    )
+    applied = (existing_pass | computed_pass) if enabled else pd.Series(False, index=d.index, dtype=bool)
+    d["dynamic_leader_candidate_rescue_alphaops_enabled"] = bool(enabled)
+    d["dynamic_leader_candidate_rescue_alphaops_applied"] = applied.astype(bool)
+    d["dynamic_leader_candidate_rescue_alphaops_bonus"] = applied.astype(float) * DYNAMIC_LEADER_CANDIDATE_RESCUE_BONUS
+    if "dynamic_leader_candidate_rescue_score" not in d.columns:
+        d["dynamic_leader_candidate_rescue_score"] = applied.astype(float)
+    d["alphaops_vnext_score"] = pd.to_numeric(d["alphaops_vnext_score"], errors="coerce").fillna(0.0) + d[
+        "dynamic_leader_candidate_rescue_alphaops_bonus"
+    ]
+    return d
+
+
 def concentrated_allowed_leader_tiers() -> set[str]:
     raw = os.environ.get("ALPHAOPS_CONCENTRATED_LEADER_ALLOWED_TIERS", "DUAL_LEADER")
     allowed = {part.strip() for part in str(raw).split(",") if part.strip()}
@@ -522,6 +568,7 @@ def score_month(month: pd.DataFrame) -> pd.DataFrame:
         d = apply_cycle_leadership_mask_to_lanes(d)
     d["evidence_support_score"] = evidence_support_score(d)
     d["alphaops_vnext_score"] = alphaops_score(d)
+    d = apply_dynamic_leader_candidate_rescue_bonus(d)
     d["dual_leader_gate"] = (
         numeric(d, "rs_spy_3m").gt(0.0)
         & numeric(d, "rs_qqq_3m").gt(0.0)

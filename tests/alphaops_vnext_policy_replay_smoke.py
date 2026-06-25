@@ -50,6 +50,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     holding_state,
     leadership_persistence_hold_protected,
     replacement_gap_for_weakest,
+    score_month,
     shakeout_guard_prod_decision,
 )
 from tools.run_market_leader_challenger import resolve_candidate_book
@@ -339,6 +340,65 @@ def _clear_leadership_persistence_env() -> None:
 
 def _clear_shakeout_guard_env() -> None:
     os.environ.pop("PHASE_SHAKEOUT_GUARD_PROD_ENABLED", None)
+
+
+def _clear_dynamic_leader_rescue_env() -> None:
+    os.environ.pop("PHASE_DYNAMIC_LEADER_CANDIDATE_RESCUE_ENABLED", None)
+
+
+def test_dynamic_leader_candidate_rescue_score_bonus_is_env_gated() -> None:
+    _clear_dynamic_leader_rescue_env()
+    month = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2026-01-31",
+                "ticker": "RESCUE",
+                "score": 2.5,
+                "rs_benchmark_3m": 0.40,
+                "rs_benchmark_6m": 0.25,
+                "rs_acceleration_score": 2.5,
+                "industry_group_strength_score": 1.25,
+                "price_above_ma200": 1.0,
+                "portfolio_risk_entry_block_score": 0.10,
+                "portfolio_stale_mega_leader_score": 0.0,
+                "market_cap_live": pd.NA,
+                "mktcap": 50_000_000_000.0,
+                "dollar_vol_20d": 100_000_000,
+                "data_confidence": 1.0,
+            },
+            {
+                "rebalance_date": "2026-01-31",
+                "ticker": "RISKY",
+                "score": 2.5,
+                "rs_benchmark_3m": 0.40,
+                "rs_benchmark_6m": 0.25,
+                "rs_acceleration_score": 2.5,
+                "industry_group_strength_score": 1.25,
+                "price_above_ma200": 1.0,
+                "portfolio_risk_entry_block_score": 0.80,
+                "portfolio_stale_mega_leader_score": 0.0,
+                "market_cap_live": 50_000_000_000.0,
+                "dollar_vol_20d": 100_000_000,
+                "data_confidence": 1.0,
+            },
+        ]
+    )
+    off = score_month(month)
+    assert not off["dynamic_leader_candidate_rescue_alphaops_enabled"].astype(bool).any()
+    assert float(off["dynamic_leader_candidate_rescue_alphaops_bonus"].sum()) == 0.0
+    off_score = float(off.loc[off["ticker"].eq("RESCUE"), "alphaops_vnext_score"].iloc[0])
+    os.environ["PHASE_DYNAMIC_LEADER_CANDIDATE_RESCUE_ENABLED"] = "1"
+    try:
+        on = score_month(month)
+    finally:
+        _clear_dynamic_leader_rescue_env()
+    rescue = on.loc[on["ticker"].eq("RESCUE")].iloc[0]
+    risky = on.loc[on["ticker"].eq("RISKY")].iloc[0]
+    assert bool(rescue["dynamic_leader_candidate_rescue_alphaops_enabled"])
+    assert bool(rescue["dynamic_leader_candidate_rescue_alphaops_applied"])
+    assert float(rescue["dynamic_leader_candidate_rescue_alphaops_bonus"]) > 0.0
+    assert float(rescue["alphaops_vnext_score"]) > off_score
+    assert not bool(risky["dynamic_leader_candidate_rescue_alphaops_applied"])
 
 
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
@@ -2797,6 +2857,7 @@ if __name__ == "__main__":
     test_sec_available_from_columns_are_pit_checked_and_positive_only()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
+    test_dynamic_leader_candidate_rescue_score_bonus_is_env_gated()
     test_shakeout_guard_prod_default_off_preserves_trim()
     test_shakeout_guard_prod_env_suppresses_transient_trim_only()
     test_concentrated_risk_state_caps_new_entries_only()
