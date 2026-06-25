@@ -24,11 +24,43 @@ if str(REPO_ROOT) not in sys.path:
 from tools.run_weekly_evaluation import load_price_series, price_on_or_after  # noqa: E402
 
 
-SCHEMA_VERSION = "right-tail-drop-counterfactual-audit-v1"
+SCHEMA_VERSION = "right-tail-drop-counterfactual-audit-v2"
 PORTFOLIOS = ("main", "concentrated")
 CASH_TICKERS = {"", "CASH", "__CASH__", "BIL", "SGOV"}
 HORIZONS = (21, 63, 126)
 BENCHMARKS = ("SPY", "QQQ", "SMH", "SOXX")
+CANDIDATE_METADATA_COLUMNS = (
+    "sector",
+    "industry_group",
+    "portfolio_sleeve_label",
+    "market_style_regime_label",
+    "regime_state",
+    "theme_phase_primary",
+    "theme_horizon_primary",
+    "theme_holding_profile_primary",
+)
+SEGMENT_GROUP_COLUMNS = (
+    "candidate_sector",
+    "candidate_industry_group",
+    "candidate_portfolio_sleeve_label",
+    "candidate_market_style_regime_label",
+    "candidate_regime_state",
+)
+SEGMENT_SUMMARY_COLUMNS = (
+    "subset",
+    "group_column",
+    "group_value",
+    "event_count",
+    "completed_63d_count",
+    "completed_126d_count",
+    "avg_63d_excess_spy",
+    "avg_126d_excess_spy",
+    "positive_126d_count",
+    "positive_126d_rate",
+    "max_126d_excess_spy",
+    "min_126d_excess_spy",
+    "used_forward_return_in_ranking",
+)
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -204,6 +236,14 @@ def signal_summary(candidate_row: pd.Series | None, rank: dict[str, Any]) -> dic
     }
 
 
+def candidate_metadata(candidate_row: pd.Series | None) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for column in CANDIDATE_METADATA_COLUMNS:
+        value = "" if candidate_row is None or column not in candidate_row.index else candidate_row.get(column, "")
+        out[f"candidate_{column}"] = "" if pd.isna(value) else value
+    return out
+
+
 def forward_return_from_price(px: pd.DataFrame, start_date: pd.Timestamp, horizon: int) -> dict[str, Any]:
     if px.empty:
         return {f"fwd_{horizon}d_status": "missing_price"}
@@ -265,7 +305,61 @@ def benchmark_return_cache(price_cache: Path, drop_dates: list[pd.Timestamp]) ->
     return out
 
 
-def analyze_portfolio(latest_run: Path, price_cache: Path, candidates: pd.DataFrame, portfolio: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+def high_signal_mask(frame: pd.DataFrame) -> pd.Series:
+    if frame.empty:
+        return pd.Series(dtype=bool)
+    rank_pct = pd.to_numeric(frame.get("candidate_rank_percentile"), errors="coerce").fillna(0.0)
+    stack = pd.to_numeric(frame.get("drop_signal_stack_count"), errors="coerce").fillna(0.0)
+    return frame["drop_skill_evidence_flag"].astype(bool) & rank_pct.ge(0.80) & stack.ge(7)
+
+
+def segment_summary(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(columns=SEGMENT_SUMMARY_COLUMNS)
+    subsets: dict[str, pd.Series] = {
+        "all_drops": pd.Series(True, index=frame.index),
+        "skill_signal": frame["drop_skill_evidence_flag"].astype(bool),
+        "high_signal": high_signal_mask(frame),
+    }
+    rows: list[dict[str, Any]] = []
+    for subset_name, mask in subsets.items():
+        subset = frame[mask].copy()
+        min_n = 3 if subset_name == "high_signal" else 5
+        if subset.empty:
+            continue
+        for group_column in SEGMENT_GROUP_COLUMNS:
+            if group_column not in subset.columns:
+                continue
+            grouped = subset[subset[group_column].fillna("").astype(str).str.len().gt(0)].groupby(group_column)
+            for group_value, group in grouped:
+                vals_63 = pd.to_numeric(group.get("fwd_63d_excess_spy"), errors="coerce").dropna()
+                vals_126 = pd.to_numeric(group.get("fwd_126d_excess_spy"), errors="coerce").dropna()
+                if len(vals_126) < min_n:
+                    continue
+                rows.append(
+                    {
+                        "subset": subset_name,
+                        "group_column": group_column,
+                        "group_value": group_value,
+                        "event_count": int(len(group)),
+                        "completed_63d_count": int(len(vals_63)),
+                        "completed_126d_count": int(len(vals_126)),
+                        "avg_63d_excess_spy": float(vals_63.mean()) if not vals_63.empty else math.nan,
+                        "avg_126d_excess_spy": float(vals_126.mean()),
+                        "positive_126d_count": int((vals_126 > 0.0).sum()),
+                        "positive_126d_rate": float((vals_126 > 0.0).mean()),
+                        "max_126d_excess_spy": float(vals_126.max()),
+                        "min_126d_excess_spy": float(vals_126.min()),
+                        "used_forward_return_in_ranking": False,
+                    }
+                )
+    if not rows:
+        return pd.DataFrame(columns=SEGMENT_SUMMARY_COLUMNS)
+    out = pd.DataFrame(rows)
+    return out.sort_values(["subset", "avg_126d_excess_spy"], ascending=[True, False]).reset_index(drop=True)
+
+
+def analyze_portfolio(latest_run: Path, price_cache: Path, candidates: pd.DataFrame, portfolio: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     target = normalize_target_book(target_book_path(latest_run, portfolio))
     events = drop_events(target, portfolio)
     drop_dates = [pd.Timestamp(event["drop_date"]) for event in events]
@@ -282,6 +376,7 @@ def analyze_portfolio(latest_run: Path, price_cache: Path, candidates: pd.DataFr
             **event,
             **rank,
             **signal,
+            **candidate_metadata(candidate_row),
             **returns,
             "used_forward_return_in_ranking": False,
             "production_mutation_allowed": False,
@@ -297,12 +392,19 @@ def analyze_portfolio(latest_run: Path, price_cache: Path, candidates: pd.DataFr
         rows.append(row)
     frame = pd.DataFrame(rows)
     if frame.empty:
-        return frame, {"status": "empty", "drop_event_count": 0, "target_book": str(target_book_path(latest_run, portfolio))}
+        return frame, pd.DataFrame(), {"status": "empty", "drop_event_count": 0, "target_book": str(target_book_path(latest_run, portfolio))}
     skill = frame[frame["drop_skill_evidence_flag"].astype(bool)].copy()
     rank_pct = pd.to_numeric(frame.get("candidate_rank_percentile"), errors="coerce").fillna(0.0)
-    stack = pd.to_numeric(frame.get("drop_signal_stack_count"), errors="coerce").fillna(0.0)
-    high_signal_mask = frame["drop_skill_evidence_flag"].astype(bool) & rank_pct.ge(0.80) & stack.ge(7)
-    high_signal = frame[high_signal_mask].copy()
+    high_signal = frame[high_signal_mask(frame)].copy()
+    segments = segment_summary(frame)
+    top_high_signal_segments = (
+        segments[segments["subset"].eq("high_signal")]
+        .sort_values("avg_126d_excess_spy", ascending=False)
+        .head(5)
+        .to_dict(orient="records")
+        if not segments.empty
+        else []
+    )
     summary = {
         "status": "completed",
         "target_book": str(target_book_path(latest_run, portfolio)),
@@ -314,6 +416,8 @@ def analyze_portfolio(latest_run: Path, price_cache: Path, candidates: pd.DataFr
         "missed_rebound_126d_spy_count": int(frame["missed_rebound_126d_spy_flag"].astype(bool).sum()),
         "high_signal_missed_rebound_63d_spy_count": int((high_signal.get("missed_rebound_63d_spy_flag", pd.Series(dtype=bool)).astype(bool)).sum()) if not high_signal.empty else 0,
         "high_signal_missed_rebound_126d_spy_count": int((high_signal.get("missed_rebound_126d_spy_flag", pd.Series(dtype=bool)).astype(bool)).sum()) if not high_signal.empty else 0,
+        "segment_summary_rows": int(len(segments)),
+        "top_high_signal_segments_126d_spy": top_high_signal_segments,
         "used_forward_return_in_ranking": False,
     }
     for horizon in HORIZONS:
@@ -322,7 +426,7 @@ def analyze_portfolio(latest_run: Path, price_cache: Path, candidates: pd.DataFr
             summary[f"avg_skill_drop_{col}"] = float(pd.to_numeric(skill[col], errors="coerce").mean())
         if col in high_signal.columns:
             summary[f"avg_high_signal_drop_{col}"] = float(pd.to_numeric(high_signal[col], errors="coerce").mean())
-    return frame, summary
+    return frame, segments, summary
 
 
 def render_report(payload: dict[str, Any]) -> str:
@@ -347,6 +451,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 f"- missed_rebound_126d_spy_count: {block.get('missed_rebound_126d_spy_count', 0)}",
                 f"- high_signal_missed_rebound_63d_spy_count: {block.get('high_signal_missed_rebound_63d_spy_count', 0)}",
                 f"- high_signal_missed_rebound_126d_spy_count: {block.get('high_signal_missed_rebound_126d_spy_count', 0)}",
+                f"- segment_summary_rows: {block.get('segment_summary_rows', 0)}",
                 f"- avg_skill_drop_fwd_63d_excess_spy: {safe_float(block.get('avg_skill_drop_fwd_63d_excess_spy'), 0.0):.4f}",
                 f"- avg_skill_drop_fwd_126d_excess_spy: {safe_float(block.get('avg_skill_drop_fwd_126d_excess_spy'), 0.0):.4f}",
                 f"- avg_high_signal_drop_fwd_63d_excess_spy: {safe_float(block.get('avg_high_signal_drop_fwd_63d_excess_spy'), 0.0):.4f}",
@@ -354,6 +459,18 @@ def render_report(payload: dict[str, Any]) -> str:
                 "",
             ]
         )
+        top_segments = block.get("top_high_signal_segments_126d_spy") or []
+        if top_segments:
+            lines.extend(["Top high-signal 126d SPY-excess segments:", ""])
+            for segment in top_segments[:5]:
+                lines.append(
+                    "- "
+                    f"{segment.get('group_column')}={segment.get('group_value')}: "
+                    f"n={segment.get('completed_126d_count')}, "
+                    f"avg126={safe_float(segment.get('avg_126d_excess_spy'), 0.0):.4f}, "
+                    f"pos_rate={safe_float(segment.get('positive_126d_rate'), 0.0):.2f}"
+                )
+            lines.append("")
     return "\n".join(lines)
 
 
@@ -375,19 +492,29 @@ def run(latest_run: Path, price_cache: Path, output_dir: Path, portfolios: tuple
         "portfolios": {},
     }
     all_rows: list[pd.DataFrame] = []
+    all_segments: list[pd.DataFrame] = []
     for portfolio in portfolios:
-        rows, summary = analyze_portfolio(latest_run, price_cache, candidates, portfolio)
+        rows, segments, summary = analyze_portfolio(latest_run, price_cache, candidates, portfolio)
         payload["portfolios"][portfolio] = summary
         portfolio_dir = output_dir / portfolio
         portfolio_dir.mkdir(parents=True, exist_ok=True)
         rows.to_csv(portfolio_dir / "drop_counterfactuals.csv", index=False)
+        segments.to_csv(portfolio_dir / "segment_summary.csv", index=False)
         write_json(portfolio_dir / "summary.json", summary)
         if not rows.empty:
             all_rows.append(rows)
+        if not segments.empty:
+            segment_copy = segments.copy()
+            segment_copy.insert(0, "portfolio", portfolio)
+            all_segments.append(segment_copy)
     if all_rows:
         pd.concat(all_rows, ignore_index=True).to_csv(output_dir / "drop_counterfactuals.csv", index=False)
     else:
         pd.DataFrame().to_csv(output_dir / "drop_counterfactuals.csv", index=False)
+    if all_segments:
+        pd.concat(all_segments, ignore_index=True).to_csv(output_dir / "segment_summary.csv", index=False)
+    else:
+        pd.DataFrame(columns=("portfolio", *SEGMENT_SUMMARY_COLUMNS)).to_csv(output_dir / "segment_summary.csv", index=False)
     write_json(output_dir / "summary.json", payload)
     write_text(output_dir / "report.md", render_report(payload))
     return payload
