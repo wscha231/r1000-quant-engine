@@ -46,7 +46,7 @@ so failed layers are not retried unchanged, while useful diagnostics are kept.
 | Concentrated gross-floor sweep after env-wire fix | Floor `0.70/0.80/0.85/0.90` reduced CAGR from 41.67% to 39.92%/39.29%/38.54%/37.86% and worsened MaxDD to -32.69%/-34.97%/-36.60%/-38.16%. | Reject broad cash reduction. | Keep PR #174 wiring fix because it makes future sweeps honest; current cash is not idle drag in this screen. |
 | Main position-risk grid follow-up | Best ranked hard `-30%` + trailing `-20%` improved Main MaxDD to -24.34% but CAGR fell to 33.08%; no gate-passing champion. | Reject as target-achieving layer. | Keep risk-exit artifact persistence/per-era diagnostics; a risk overlay may repair MDD only after a separate CAGR-positive lever exists. |
 | Alpha/beta attribution name-contribution fallback | `positions_latest.csv` fallback produced non-zero partial name-contribution evidence where `holdings_daily.csv` was absent. Concentrated residual alpha annualized 29.18%, but top-5 contribution is partial and open-position biased. | Keep as diagnostic. | Use it to identify right-tail winners for a PIT entry-signal audit; do not use partial top-winner contribution as ship evidence. |
-| Right-tail entry/capture audit | Run `28074476465` top open winners had PIT-visible entry signals: Main 5/5 and Concentrated 5/5 skill-evidence flags. But capture was fragmented: Main top-5 avg presence blocks 3.2 with 31 sells, 6 target-book drops, 6 reentries; Concentrated avg presence blocks 2.2 with 15 sells, 1 target-book drop, 1 reentry. | Keep as diagnostic and sidecar artifact. | Next lever should target fragmented capture of already-identified winners, not broad exposure, broad persistence, or broad replacement acceleration. |
+| Right-tail entry/capture audit | Run `28074476465` top open winners had PIT-visible entry signals: Main 5/5 and Concentrated 5/5 skill-evidence flags. But capture was fragmented: Main top-5 avg presence blocks 3.2 with 31 sells, 6 target-book drops, 6 reentries; Concentrated avg presence blocks 2.2 with 15 sells, 1 target-book drop, 1 reentry. Drop-date review found Main 6/6 drops still had skill-evidence signals and 2/6 were still rank >= 80th percentile; Concentrated 1/1 drop still had skill-evidence signal. | Keep as diagnostic and sidecar artifact. | Next lever should target fragmented capture of already-identified winners that still show PIT evidence at drop time, not broad exposure, broad persistence, or broad replacement acceleration. |
 
 ### Keep As Measurement / Plumbing
 
@@ -56,7 +56,7 @@ so failed layers are not retried unchanged, while useful diagnostics are kept.
 | #169 | Stock-selection forward audit labels | Keep, merge candidate | Adds review-only `forward_21d/63d/126d_excess` labels with `used_forward_return_in_ranking=false`; needed to identify missed-leader leaks without live lookahead. |
 | #174 | Gross-floor sweep env wiring | Keep, merge candidate | Fixes a measurement no-op: `R1000_CONC_GROSS_CAP_FLOOR` now reaches the regime-capacity overlay. The measured broad floor lever failed, but the wiring fix is necessary for any future gross-exposure screen. |
 | #175 | Alpha/beta name-contribution fallback | Keep, merge candidate after CI | Uses `positions_latest.csv` when `holdings_daily.csv` is absent so top-winner contribution does not silently report zero. Output is partial and labelled as such. |
-| #176 | Right-tail entry signal audit | Keep, merge candidate after CI | Turns #175's top-winner contribution into a PIT entry-signal audit. Realized PnL only chooses names for review; candidate/target-book fields at entry signal date decide whether the winner was ex-ante identifiable. |
+| #176 | Right-tail entry signal audit | Keep, merge candidate after CI | Turns #175's top-winner contribution into a PIT entry-signal and drop-date audit. Realized PnL only chooses names for review; candidate/target-book fields at entry and drop dates decide whether the winner was ex-ante identifiable and whether dropped winners still had PIT-visible evidence. |
 
 ### Keep As Small Research Levers
 
@@ -147,7 +147,8 @@ Recommended merge order:
      evidence,
    - inspect their entry-date PIT signals rather than their future returns,
    - compare missed leaders and selected leaders by era/theme,
-   - only then design a narrower capture rule.
+   - audit drop dates where the dropped winner still had PIT skill evidence,
+   - only then design a narrower capture-continuity rule.
 4. Any future capture rule must require applied-count telemetry, no forward
    returns in ranking, and broker-ledger CAGR improvement without MaxDD damage.
 
@@ -159,7 +160,8 @@ Recommended merge order:
 - Concentrated needs evidence-driven right-tail capture diagnostics, not more
   gross exposure or broad replacement pressure.
 - The current top right-tail names were generally identified ex ante; the
-  stronger leak is fragmented capture after entry.
+  stronger leak is fragmented capture after entry, especially drops where
+  PIT-visible skill evidence was still present.
 - The most important infrastructure now is accurate measurement: baseline
   fallback, forward audit labels, and strict separation of official target-book
   metrics from daily risk-overlay metrics.
