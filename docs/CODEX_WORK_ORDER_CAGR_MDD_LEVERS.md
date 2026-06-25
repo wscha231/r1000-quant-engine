@@ -2,7 +2,8 @@
 
 > Role split: this doc is the **solution + work instruction** (ChatGPT-Pro / Claude review
 > side). Codex implements and measures. Companions: `docs/CODEX_MEASUREMENT_PROTOCOL.md`
-> (the proof bar — read it; every claim here must clear it), `docs/CODEX_RESEARCH_LEADER_CAPTURE.md`,
+> (the proof bar — read it; every claim here must clear it; **it lands via PR #162 — merge #162
+> before relying on this work order**), `docs/CODEX_RESEARCH_LEADER_CAPTURE.md`,
 > `docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md`, `CLAUDE.md`.
 >
 > GOAL: produce a **real** CAGR/MDD improvement that survives the strictest measurement
@@ -40,18 +41,26 @@ holds out-of-sample. Proxies (PRWV/weight-level/overlay) screen only; the broker
   `WATCH/DEFENSE_REVIEW/CRISIS_*` keep the current gross cut — **the 2022 defensive cash MUST be
   byte-for-byte unchanged** (verify: 2022 concentrated avg cash stays ≈79.8%).
 - **env**: `PHASE_REGIME_GROSS_FLOOR_ENABLED` (default OFF) + `R1000_CONC_GROSS_CAP_FLOOR`.
+  NOTE: `run_lever_sweep.py` today injects only `R1000_CONC_GROSS_CAP_FLOOR`
+  (`tools/run_lever_sweep.py:234`). With the new phase gate, the sweep (or the command) MUST also
+  set `PHASE_REGIME_GROSS_FLOOR_ENABLED=1`, or every non-control arm is a no-op — update the
+  harness to inject it before sweeping.
 - **Expected**: Concentrated CAGR +1~3pp; ΔMaxDD small (GREEN-only exposure, bounded by the
   0.4pp headroom).
-- **Strict A/B**: `run_lever_sweep.py` conc-gross grid `{0.0,0.7,0.8,0.9}` under the GREEN gate →
-  score each on broker ledger; **gate-first champion** (MDD ≥ −25 AND CAGR ≥ 0.50). Pass:
-  Conc ΔCAGR ≥ +1.0pp AND ΔMaxDD ≥ −1pp AND 2022 cash unchanged.
+- **Strict A/B (two stages)**: (1) SCREEN — `run_lever_sweep.py` conc-gross grid `{0.0,0.7,0.8,0.9}`
+  with the GREEN gate ON → per-arm broker metrics to shortlist; **gate-first** (MDD ≥ −25 AND
+  CAGR ≥ 0.50). (2) ACCEPT — the sweep does NOT emit `account_evaluation/official_metrics.json`,
+  so re-measure the shortlisted arm in a run that DOES (full sidecar/fullrun) and confirm the
+  window/leakage gates there. Pass (on the accept run): Conc ΔCAGR ≥ +1.0pp AND ΔMaxDD ≥ −1pp AND
+  2022 cash unchanged.
 
 ### Lever II — SHAKEOUT_GUARD (A1) — measure once PR #161 is merged
 - **env**: `PHASE_SHAKEOUT_GUARD_PROD_ENABLED=1` — the toggle is WIRED by PR #161
   (`holding_state` / `shakeout_guard_prod_enabled`). **Confirm PR #161 is merged to master before
   the A/B**; on a tree without it the flag is doc-only and the treatment is unchanged (no-op).
 - **Strict A/B (lean v1)**: ONE config. **First prove `shakeout_guard_prod_applied=True` rows > 0**
-  (no-op risk: requires `leader_tier ∈ {DUAL,SECTOR}`, `sector_leadership_score>0`,
+  (no-op risk: requires `leader_tier ∈ {DUAL_LEADER, SECTOR_LEADER}` (exact values — not `DUAL`/`SECTOR`),
+  `sector_leadership_score>0`,
   `smart_money_evidence_confidence ≥ 0.25` populated on replay rows). Then on broker ledger:
   premature_sell / EXIT_REPLACE 126d excess ↓ (`entry_exit_timing_audit/`), `pct_held_365d_plus`
   ↑, ΔCAGR ≥ +0.5pp, ΔMaxDD ≥ −3pp, `theme_leader_capture` non-regress. Keep persistence-hold OFF
