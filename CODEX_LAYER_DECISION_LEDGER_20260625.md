@@ -118,9 +118,9 @@ Ready, mergeable, CI green unless explicitly noted:
 4. PR #166 - default-OFF earnings revision break warning.
 5. PR #170 - default-OFF Main-only dynamic leader replacement-gap credit.
 6. PR #174 - gross-floor env override wiring; measurement correctness only.
-7. PR #175 - alpha/beta name-contribution fallback, if CI passes.
-8. PR #176 - right-tail entry signal audit, if CI passes.
-9. PR #177 - right-tail drop counterfactual audit, if CI passes.
+7. PR #175 - alpha/beta name-contribution fallback.
+8. PR #176 - right-tail entry signal audit.
+9. PR #177 - right-tail drop counterfactual audit.
 
 Recommended merge order:
 
@@ -133,6 +133,51 @@ Recommended merge order:
 4. #166 and #170 next, because they are default-OFF research levers.
 5. Keep SHAKEOUT plumbing default-OFF unless a new screen proves
    `applied_count > 0` and broker-ledger behavior changes.
+
+## Salvage And Fusion Policy
+
+Rejected layers are not automatically discarded. They are split into:
+
+- `discard`: the broad policy rule that failed broker-ledger evidence.
+- `keep`: the measurement plumbing, telemetry, or narrow PIT-visible signal
+  that survived the audit.
+- `fuse`: the next candidate rule only if multiple independent diagnostics
+  point to the same ex-ante condition.
+
+A rejected layer may contribute to a future rule only when all of the following
+are true:
+
+1. The failed policy itself is not reused unchanged.
+2. The reusable part is observable at the decision date.
+3. The reusable part appears in at least two diagnostics, such as entry-signal
+   evidence plus cap/replacement misses, or drop counterfactuals plus
+   alpha/beta residual attribution.
+4. The future rule has `applied_count > 0` telemetry before any performance
+   interpretation.
+5. Broker-ledger CAGR/MDD is the acceptance metric; forward returns remain
+   audit labels only.
+
+Current salvage map:
+
+| Failed or incomplete layer | Discard | Keep | Possible fusion candidate |
+|---|---|---|---|
+| Broad leadership persistence | Broad replacement-gap inflation | PIT winner state, drop-date signal, `applied_count` telemetry | Hold only when a current winner still has entry-quality PIT evidence and a segment/era diagnostic supports continuation. |
+| Broad right-tail drop continuation | "Dropped winners usually rebound" | Segment summaries, drop-date skill evidence, high-signal drop rows | Segment-scoped continuity review for machinery/industrial infrastructure and energy only after ex-ante feature review. |
+| Broad gross floor / cash reduction | Raising gross exposure across the sleeve | Honest env wiring and cash-by-regime evidence | Later regime-gross work must preserve 2022 defense cash and reduce only proven green idle cash. |
+| Main risk overlay | Standalone trailing-stop champion | Risk-exit persistence, per-era exit diagnostics | Re-test only after a CAGR-positive Main layer lifts baseline above target. |
+| Concentrated selective capture | Broad RS/rank replacement pressure | `rs3_ge_20pct` cap/replacement miss signal and missed-leader telemetry | Candidate rescue only when high-RS miss also has PIT entry-signal stack and does not worsen drawdown in broker replay. |
+| SHAKEOUT wiring | Treating no-op plumbing as alpha | Narrow safety plumbing and reason codes | Revisit only if replay rows include enough PIT fields for non-zero protected shakeouts. |
+
+The immediate fusion direction is therefore not a new broad rule. It is a
+diagnostic work order:
+
+1. Use #175 and #176 to list selected winners that were ex-ante identifiable.
+2. Use #172 and #177 to list missed or dropped leaders that still had PIT
+   support at the decision date.
+3. Intersect those names by segment, regime, and entry-quality features.
+4. Promote only a small default-OFF candidate rule if the intersection has a
+   plausible non-forward predicate and enough observations to avoid a one-name
+   rule.
 
 ## Next Work Order
 
