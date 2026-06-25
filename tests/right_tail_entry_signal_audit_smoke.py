@@ -88,6 +88,26 @@ def _write_fixture(root: Path) -> Path:
             },
             {
                 "rebalance_date": "2024-01-31",
+                "ticker": "AAA",
+                "score": 98.0,
+                "sector": "Technology",
+                "industry_group": "Semiconductors",
+                "portfolio_sleeve_label": "MARKET_LEADER",
+                "rs_benchmark_3m": 0.22,
+                "rs_benchmark_6m": 0.38,
+                "price_above_ma200": 1.0,
+                "oneil_leadership_score": 0.88,
+                "future_winner_scout_score": 0.92,
+                "industry_group_strength_score": 0.76,
+                "h6_dynamic_leader_score": 0.68,
+                "eps_revision_score": 0.60,
+                "actual_results_score": 0.82,
+                "entry_quality_score": 0.70,
+                "overheat_penalty": 0.0,
+                "period_forward_return": 8.88,
+            },
+            {
+                "rebalance_date": "2024-01-31",
                 "ticker": "BBB",
                 "score": 5.0,
                 "rs_benchmark_3m": -0.02,
@@ -106,6 +126,13 @@ def _write_fixture(root: Path) -> Path:
                     "weight": 0.20,
                     "leader_tier": "DUAL_LEADER",
                     "primary_lane": "MARKET_LEADER",
+                },
+                {
+                    "rebalance_date": "2024-01-31",
+                    "ticker": "ZZZ",
+                    "weight": 0.20,
+                    "leader_tier": "SECTOR_LEADER",
+                    "primary_lane": "MARKET_LEADER",
                 }
             ]
         ).to_csv(alphaops / f"official_{portfolio}_target_book.csv", index=False)
@@ -118,7 +145,7 @@ def main() -> int:
         latest = _write_fixture(root)
         out = root / "out"
         payload = run(latest, out, ("main", "concentrated"), top_n=1)
-        assert payload["schema_version"] == "right-tail-entry-signal-audit-v1"
+        assert payload["schema_version"] == "right-tail-entry-signal-audit-v2"
         assert payload["research_only"] is True
         assert payload["used_forward_return_in_ranking"] is False
         assert (out / "summary.json").exists()
@@ -131,9 +158,11 @@ def main() -> int:
             assert block["selected_at_entry_count"] == 1, block
             assert block["skill_evidence_count"] == 1, block
             assert block["avg_presence_blocks"] == 1.0, block
-            assert block["fragmented_capture_count"] == 0, block
-            assert block["total_capture_drop_count"] == 0, block
+            assert block["fragmented_capture_count"] == 1, block
+            assert block["total_capture_drop_count"] == 1, block
             assert block["total_capture_reentry_count"] == 0, block
+            assert block["total_drop_still_skill_signal_count"] == 1, block
+            assert block["total_drop_still_rank80_count"] == 1, block
             assert block["total_sell_count"] == 0, block
             rows = pd.read_csv(out / portfolio / "winner_entry_signals.csv")
             assert rows.loc[0, "ticker"] == "AAA"
@@ -143,10 +172,21 @@ def main() -> int:
             assert int(rows.loc[0, "entry_signal_stack_count"]) >= 5
             assert int(rows.loc[0, "months_in_target"]) == 1
             assert int(rows.loc[0, "presence_blocks"]) == 1
-            assert int(rows.loc[0, "capture_drop_count"]) == 0
-            assert pd.isna(rows.loc[0, "first_capture_drop_date"]) or rows.loc[0, "first_capture_drop_date"] == ""
-            assert bool(rows.loc[0, "capture_fragmented_flag"]) is False
+            assert int(rows.loc[0, "capture_drop_count"]) == 1
+            assert rows.loc[0, "first_capture_drop_date"] == "2024-01-31"
+            assert bool(rows.loc[0, "capture_fragmented_flag"]) is True
+            assert int(rows.loc[0, "drop_review_count"]) == 1
+            assert int(rows.loc[0, "drop_still_skill_signal_count"]) == 1
+            assert int(rows.loc[0, "drop_still_rank80_count"]) == 1
             assert "period_forward_return" not in rows.columns
+            drop_rows = pd.read_csv(out / portfolio / "drop_signal_reviews.csv")
+            assert drop_rows.loc[0, "ticker"] == "AAA"
+            assert drop_rows.loc[0, "drop_date"] == "2024-01-31"
+            assert bool(drop_rows.loc[0, "drop_skill_evidence_flag"]) is True
+            assert bool(drop_rows.loc[0, "used_forward_return_in_ranking"]) is False
+            assert "period_forward_return" not in drop_rows.columns
+        combined_drop_rows = pd.read_csv(out / "drop_signal_reviews.csv")
+        assert len(combined_drop_rows) == 2
     print("right-tail entry signal audit smoke passed")
     return 0
 

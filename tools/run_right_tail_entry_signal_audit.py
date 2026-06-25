@@ -17,7 +17,7 @@ from typing import Any
 import pandas as pd
 
 
-SCHEMA_VERSION = "right-tail-entry-signal-audit-v1"
+SCHEMA_VERSION = "right-tail-entry-signal-audit-v2"
 PORTFOLIOS = ("main", "concentrated")
 CASH_TICKERS = {"", "CASH", "__CASH__", "BIL", "SGOV"}
 
@@ -315,8 +315,43 @@ def _capture_path(target: pd.DataFrame, trades: pd.DataFrame, ticker: str) -> di
         "capture_drop_dates": ";".join(drop_dates[:12]),
         "capture_reentry_count": int(len(reentry_dates)),
         "capture_reentry_dates": ";".join(reentry_dates[:12]),
-        "capture_fragmented_flag": bool(blocks > 1 or sell_count > 1),
+        "capture_fragmented_flag": bool(blocks > 1 or sell_count > 1 or drop_dates),
     }
+
+
+def _drop_signal_reviews(candidates: pd.DataFrame, portfolio: str, ticker: str, drop_dates: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    dates = [pd.Timestamp(x) for x in str(drop_dates or "").split(";") if str(x).strip()]
+    rows: list[dict[str, Any]] = []
+    for drop_date in dates:
+        candidate_row, lag_days = _nearest_entry_row(candidates, ticker, drop_date)
+        rank = _rank_context(candidates, ticker, drop_date)
+        signal = _signal_summary(candidate_row, None, rank)
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "ticker": ticker,
+                "drop_date": drop_date.date().isoformat(),
+                "drop_candidate_match_lag_days": lag_days,
+                "drop_candidate_rank_status": rank.get("candidate_rank_status", ""),
+                "drop_candidate_rank": rank.get("candidate_rank", ""),
+                "drop_candidate_count": rank.get("candidate_count", ""),
+                "drop_candidate_rank_percentile": rank.get("candidate_rank_percentile", 0.0),
+                "drop_signal_stack_count": signal.get("entry_signal_stack_count", 0),
+                "drop_skill_evidence_flag": bool(signal.get("skill_evidence_flag", False)),
+                "drop_ex_ante_signal_flags": signal.get("ex_ante_signal_flags", ""),
+                "used_forward_return_in_ranking": False,
+                "production_mutation_allowed": False,
+            }
+        )
+    still_skill = int(sum(1 for row in rows if bool(row.get("drop_skill_evidence_flag"))))
+    still_rank80 = int(sum(1 for row in rows if safe_float(row.get("drop_candidate_rank_percentile"), 0.0) >= 0.80))
+    summary = {
+        "drop_review_count": int(len(rows)),
+        "drop_still_skill_signal_count": still_skill,
+        "drop_still_rank80_count": still_rank80,
+        "first_drop_still_signal_date": next((row["drop_date"] for row in rows if bool(row.get("drop_skill_evidence_flag"))), ""),
+    }
+    return rows, summary
 
 
 def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -325,6 +360,7 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
     candidates = _candidate_book(latest_run)
     target = _target_book(latest_run, portfolio)
     rows: list[dict[str, Any]] = []
+    drop_review_rows: list[dict[str, Any]] = []
     for _, winner in winners.iterrows():
         ticker = clean_ticker(winner.get("ticker"))
         entry = _first_entry(trades, ticker)
@@ -336,6 +372,8 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
         rank = _rank_context(candidates, ticker, signal_date)
         signal = _signal_summary(candidate_row, target_row, rank)
         capture = _capture_path(target, trades, ticker)
+        drop_reviews, drop_summary = _drop_signal_reviews(candidates, portfolio, ticker, str(capture.get("capture_drop_dates") or ""))
+        drop_review_rows.extend(drop_reviews)
         rows.append(
             {
                 "portfolio": portfolio,
@@ -357,6 +395,7 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
                 **rank,
                 **signal,
                 **capture,
+                **drop_summary,
             }
         )
     out = pd.DataFrame(rows)
@@ -376,9 +415,13 @@ def analyze_portfolio(latest_run: Path, portfolio: str, top_n: int) -> tuple[pd.
             "fragmented_capture_count": int(out["capture_fragmented_flag"].astype(bool).sum()),
             "total_capture_drop_count": int(pd.to_numeric(out["capture_drop_count"], errors="coerce").fillna(0).sum()),
             "total_capture_reentry_count": int(pd.to_numeric(out["capture_reentry_count"], errors="coerce").fillna(0).sum()),
+            "total_drop_still_skill_signal_count": int(pd.to_numeric(out["drop_still_skill_signal_count"], errors="coerce").fillna(0).sum()),
+            "total_drop_still_rank80_count": int(pd.to_numeric(out["drop_still_rank80_count"], errors="coerce").fillna(0).sum()),
             "total_sell_count": int(pd.to_numeric(out["sell_count"], errors="coerce").fillna(0).sum()),
             "used_forward_return_in_ranking": False,
         }
+    if drop_review_rows:
+        summary["_drop_review_rows"] = drop_review_rows
     return out, summary
 
 
@@ -405,6 +448,8 @@ def render_report(payload: dict[str, Any]) -> str:
                 f"- fragmented_capture_count: {block.get('fragmented_capture_count', 0)}",
                 f"- total_capture_drop_count: {block.get('total_capture_drop_count', 0)}",
                 f"- total_capture_reentry_count: {block.get('total_capture_reentry_count', 0)}",
+                f"- total_drop_still_skill_signal_count: {block.get('total_drop_still_skill_signal_count', 0)}",
+                f"- total_drop_still_rank80_count: {block.get('total_drop_still_rank80_count', 0)}",
                 f"- total_sell_count: {block.get('total_sell_count', 0)}",
                 f"- source: `{block.get('source', '')}`",
                 "",
@@ -431,17 +476,27 @@ def run(latest_run: Path, output_dir: Path, portfolios: tuple[str, ...] = PORTFO
     all_rows: list[pd.DataFrame] = []
     for portfolio in portfolios:
         rows, summary = analyze_portfolio(latest_run, portfolio, top_n)
+        drop_review_rows = summary.pop("_drop_review_rows", [])
         payload["portfolios"][portfolio] = summary
         portfolio_dir = output_dir / portfolio
         portfolio_dir.mkdir(parents=True, exist_ok=True)
         rows.to_csv(portfolio_dir / "winner_entry_signals.csv", index=False)
+        if drop_review_rows:
+            pd.DataFrame(drop_review_rows).to_csv(portfolio_dir / "drop_signal_reviews.csv", index=False)
         write_json(portfolio_dir / "summary.json", summary)
         if not rows.empty:
             all_rows.append(rows)
+        if drop_review_rows:
+            payload.setdefault("_drop_review_frames", []).append(pd.DataFrame(drop_review_rows))
     if all_rows:
         pd.concat(all_rows, ignore_index=True).to_csv(output_dir / "winner_entry_signals.csv", index=False)
     else:
         pd.DataFrame().to_csv(output_dir / "winner_entry_signals.csv", index=False)
+    drop_frames = payload.pop("_drop_review_frames", [])
+    if drop_frames:
+        pd.concat(drop_frames, ignore_index=True).to_csv(output_dir / "drop_signal_reviews.csv", index=False)
+    else:
+        pd.DataFrame().to_csv(output_dir / "drop_signal_reviews.csv", index=False)
     write_json(output_dir / "summary.json", payload)
     write_text(output_dir / "report.md", render_report(payload))
     return payload
