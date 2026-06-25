@@ -50,6 +50,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     holding_state,
     leadership_persistence_hold_protected,
     replacement_gap_for_weakest,
+    shakeout_guard_prod_decision,
 )
 from tools.run_market_leader_challenger import resolve_candidate_book
 from tools.run_weekly_evaluation import px_cache_name
@@ -447,6 +448,7 @@ def _shakeout_guard_row(**overrides: object) -> dict[str, object]:
         "systemic_crisis_score": 0.0,
         "macro_risk_off_score": 0.0,
         "negative_fcf_risk_cap": 1.0,
+        "shakeout_guard_prior_holding": True,
     }
     row.update(overrides)
     return row
@@ -467,6 +469,22 @@ def test_shakeout_guard_prod_env_suppresses_transient_trim_only() -> None:
         assert state == "HOLD"
         assert reason.startswith("shakeout_guard_prod_suppressed_trim:")
 
+        hard_reject, reject_reason = holding_state(
+            _shakeout_guard_row(emerging_tenbagger_hard_reject_reason="failed_pit_gate"),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert hard_reject == "EXIT"
+        assert reject_reason == "failed_pit_gate"
+
+        top7_exit, top7_reason = holding_state(
+            _shakeout_guard_row(top7_standalone_blocked=True),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert top7_exit == "EXIT"
+        assert top7_reason == "top7_support_without_confirmation"
+
         hard_exit, hard_reason = holding_state(
             _shakeout_guard_row(price_above_ma200=0.0, price_above_ma50=0.0),
             score_median=1.0,
@@ -482,6 +500,44 @@ def test_shakeout_guard_prod_env_suppresses_transient_trim_only() -> None:
         )
         assert medium_break == "WARNING"
         assert break_reason == "short_and_medium_relative_strength_negative"
+
+        three_month_only_break, three_month_reason = holding_state(
+            _shakeout_guard_row(alphaops_vnext_score=1.0, rs_benchmark_1w=0.02, rs_benchmark_3m=-0.02),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert three_month_only_break == "HOLD"
+        assert three_month_reason == "vnext_score_and_risk_intact"
+
+        crisis_trim, crisis_reason = holding_state(
+            _shakeout_guard_row(systemic_crisis_score=0.70),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert crisis_trim == "TRIM"
+        assert crisis_reason == "score_below_monthly_peer_band"
+
+        defense_trim, defense_reason = holding_state(
+            _shakeout_guard_row(crisis_state="DEFENSE_REVIEW"),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert defense_trim == "TRIM"
+        assert defense_reason == "score_below_monthly_peer_band"
+
+        native = shakeout_guard_prod_decision(
+            _shakeout_guard_row(rs_qqq_1m=-0.01, rs_qqq_3m=0.05, rs_qqq_6m=0.16)
+        )
+        assert native.protected is True
+        assert native.fallback_source == "qqq_native"
+
+        fallback = shakeout_guard_prod_decision(_shakeout_guard_row())
+        assert fallback.protected is True
+        assert fallback.fallback_source == "benchmark_fallback"
+
+        not_prior = shakeout_guard_prod_decision(_shakeout_guard_row(shakeout_guard_prior_holding=False))
+        assert not_prior.protected is False
+        assert not_prior.block_reason == "not_prior_holding"
     finally:
         _clear_shakeout_guard_env()
 

@@ -14,6 +14,7 @@ import math
 import os
 import sys
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -539,40 +540,115 @@ def shakeout_guard_prod_enabled() -> bool:
     return bool(phase_is_enabled("shakeout_guard_prod", default=False))
 
 
-def leader_state_row_with_fallbacks(row: dict[str, Any]) -> pd.Series:
+def shakeout_guard_warning_suppress_enabled() -> bool:
+    return bool(phase_is_enabled("shakeout_guard_warning_suppress", default=False))
+
+
+@dataclass(frozen=True)
+class ShakeoutGuardDecision:
+    enabled: bool
+    evaluated: bool
+    protected: bool
+    applied: bool
+    block_reason: str
+    classifier_state: str
+    classifier_reason: str
+    fallback_source: str
+
+
+def _is_present(value: Any) -> bool:
+    try:
+        missing = bool(pd.isna(value))
+    except (TypeError, ValueError):
+        missing = False
+    blank_text = isinstance(value, str) and value.strip().lower() in {"", "nan", "none"}
+    return not missing and not blank_text
+
+
+def leader_state_row_with_fallbacks(row: dict[str, Any]) -> tuple[pd.Series, str]:
     state_row = dict(row)
+    sources: list[str] = []
     for suffix in ("1m", "3m", "6m"):
         qqq_col = f"rs_qqq_{suffix}"
         value = state_row.get(qqq_col)
-        try:
-            missing = bool(pd.isna(value))
-        except (TypeError, ValueError):
-            missing = False
-        blank_text = isinstance(value, str) and value.strip().lower() in {"", "nan", "none"}
-        if missing or blank_text:
-            state_row[qqq_col] = state_row.get(f"rs_benchmark_{suffix}", state_row.get(f"rs_spy_{suffix}", 0.0))
-    return pd.Series(state_row)
+        if _is_present(value):
+            sources.append("qqq_native")
+            continue
+        benchmark_value = state_row.get(f"rs_benchmark_{suffix}")
+        if _is_present(benchmark_value):
+            state_row[qqq_col] = benchmark_value
+            sources.append("benchmark_fallback")
+            continue
+        spy_value = state_row.get(f"rs_spy_{suffix}")
+        if _is_present(spy_value):
+            state_row[qqq_col] = spy_value
+            sources.append("spy_fallback")
+            continue
+        state_row[qqq_col] = 0.0
+        sources.append("zero_fallback")
+    if "zero_fallback" in sources:
+        fallback_source = "zero_fallback"
+    elif "spy_fallback" in sources:
+        fallback_source = "spy_fallback"
+    elif "benchmark_fallback" in sources:
+        fallback_source = "benchmark_fallback"
+    else:
+        fallback_source = "qqq_native"
+    return pd.Series(state_row), fallback_source
 
 
-def shakeout_guard_prod_protected(row: dict[str, Any]) -> tuple[bool, str]:
+def crisis_state_blocks_shakeout_guard(row: dict[str, Any]) -> tuple[bool, str]:
+    crisis_state = str(row.get("crisis_state") or "").strip().upper()
+    if not crisis_state:
+        return False, ""
+    if crisis_state == "WATCH" or "CRISIS" in crisis_state or "DEFENSE" in crisis_state:
+        return True, crisis_state
+    return False, ""
+
+
+def shakeout_guard_prod_decision(row: dict[str, Any], *, applied: bool = False) -> ShakeoutGuardDecision:
     """Protect only intact leaders from transient TRIM/WARNING state changes."""
+    enabled = shakeout_guard_prod_enabled()
+    if not enabled:
+        return ShakeoutGuardDecision(enabled=False, evaluated=False, protected=False, applied=False, block_reason="disabled", classifier_state="", classifier_reason="", fallback_source="")
     ticker = clean_ticker(row.get("ticker"))
-    if not shakeout_guard_prod_enabled():
-        return False, "disabled"
     if not ticker or ticker in CASH_TICKERS:
-        return False, "cash_or_invalid"
+        return ShakeoutGuardDecision(enabled=True, evaluated=False, protected=False, applied=False, block_reason="cash_or_invalid", classifier_state="", classifier_reason="", fallback_source="")
+    if not bool(row.get("shakeout_guard_prior_holding")):
+        return ShakeoutGuardDecision(enabled=True, evaluated=False, protected=False, applied=False, block_reason="not_prior_holding", classifier_state="", classifier_reason="", fallback_source="")
     leader_tier = str(row.get("leader_tier") or "").upper()
     if leader_tier not in {"DUAL_LEADER", "SECTOR_LEADER"}:
-        return False, f"leader_tier_not_protected:{leader_tier or 'unknown'}"
+        return ShakeoutGuardDecision(enabled=True, evaluated=False, protected=False, applied=False, block_reason=f"leader_tier_not_protected:{leader_tier or 'unknown'}", classifier_state="", classifier_reason="", fallback_source="")
     if safe_float(row.get("price_above_ma200"), 1.0) < 0.5:
-        return False, "below_ma200"
+        return ShakeoutGuardDecision(enabled=True, evaluated=False, protected=False, applied=False, block_reason="below_ma200", classifier_state="", classifier_reason="", fallback_source="")
     benchmark_3m = safe_float(row.get("rs_benchmark_3m"), safe_float(row.get("rs_qqq_3m"), 0.0))
     if benchmark_3m < 0.0:
-        return False, "medium_relative_strength_negative"
-    state, reason = classify_leader_state(leader_state_row_with_fallbacks(row))
+        return ShakeoutGuardDecision(enabled=True, evaluated=False, protected=False, applied=False, block_reason="medium_relative_strength_negative", classifier_state="", classifier_reason="", fallback_source="")
+    if max(safe_float(row.get("systemic_crisis_score")), safe_float(row.get("macro_risk_off_score"))) >= 0.65:
+        return ShakeoutGuardDecision(enabled=True, evaluated=False, protected=False, applied=False, block_reason="macro_crisis_blocked", classifier_state="", classifier_reason="", fallback_source="")
+    crisis_blocked, crisis_state = crisis_state_blocks_shakeout_guard(row)
+    if crisis_blocked:
+        return ShakeoutGuardDecision(enabled=True, evaluated=False, protected=False, applied=False, block_reason=f"crisis_state_blocked:{crisis_state}", classifier_state="", classifier_reason="", fallback_source="")
+    leader_row, fallback_source = leader_state_row_with_fallbacks(row)
+    state, reason = classify_leader_state(leader_row)
     if state == "SHAKEOUT_GUARD":
-        return True, reason
-    return False, f"leader_state:{state}:{reason}"
+        return ShakeoutGuardDecision(enabled=True, evaluated=True, protected=True, applied=bool(applied), block_reason="applied" if applied else "", classifier_state=state, classifier_reason=reason, fallback_source=fallback_source)
+    return ShakeoutGuardDecision(enabled=True, evaluated=True, protected=False, applied=False, block_reason=f"classifier_not_shakeout:{state}:{reason}", classifier_state=state, classifier_reason=reason, fallback_source=fallback_source)
+
+
+def shakeout_guard_prod_telemetry(row: dict[str, Any], state_reason: str) -> dict[str, Any]:
+    applied = str(state_reason).startswith("shakeout_guard_prod_suppressed_")
+    decision = shakeout_guard_prod_decision(row, applied=applied)
+    return {
+        "shakeout_guard_prod_enabled": bool(decision.enabled),
+        "shakeout_guard_prod_evaluated": bool(decision.evaluated),
+        "shakeout_guard_prod_applied": bool(decision.applied),
+        "shakeout_guard_prod_block_reason": decision.block_reason,
+        "shakeout_guard_prod_classifier_state": decision.classifier_state,
+        "shakeout_guard_prod_classifier_reason": decision.classifier_reason,
+        "shakeout_guard_prod_fallback_source": decision.fallback_source,
+        "shakeout_guard_prod_reason": state_reason if applied else "",
+    }
 
 
 def holding_state(row: dict[str, Any], score_median: float, score_sigma: float) -> tuple[str, str]:
@@ -584,14 +660,14 @@ def holding_state(row: dict[str, Any], score_median: float, score_sigma: float) 
         return "EXIT", hard_reject or "top7_support_without_confirmation"
     if price_alive <= 0.0:
         return "EXIT", "price_trend_not_alive"
-    shakeout_protected, shakeout_reason = shakeout_guard_prod_protected(row)
+    shakeout_decision = shakeout_guard_prod_decision(row)
     if score < score_median - max(score_sigma, 0.25):
-        if shakeout_protected:
-            return "HOLD", f"shakeout_guard_prod_suppressed_trim:{shakeout_reason}"
+        if shakeout_decision.protected:
+            return "HOLD", f"shakeout_guard_prod_suppressed_trim:{shakeout_decision.classifier_reason}"
         return "TRIM", "score_below_monthly_peer_band"
     if numeric(pd.DataFrame([row]), "rs_benchmark_1w").iloc[0] < 0 and numeric(pd.DataFrame([row]), "rs_benchmark_3m").iloc[0] < 0:
-        if shakeout_protected:
-            return "HOLD", f"shakeout_guard_prod_suppressed_warning:{shakeout_reason}"
+        if shakeout_guard_warning_suppress_enabled() and shakeout_decision.protected:
+            return "HOLD", f"shakeout_guard_prod_suppressed_warning:{shakeout_decision.classifier_reason}"
         return "WARNING", "short_and_medium_relative_strength_negative"
     if lane == "EMERGING_TENBAGGER" and safe_float(row.get("negative_fcf_risk_cap"), 1.0) < 0.75:
         return "WARNING", "emerging_negative_fcf_or_dilution_risk_cap"
@@ -1925,7 +2001,9 @@ def build_variant_book(
             rec = by_ticker.get(ticker)
             if not rec:
                 continue
-            state, state_reason = holding_state(rec, score_median, score_sigma)
+            rec_for_state = dict(rec)
+            rec_for_state["shakeout_guard_prior_holding"] = True
+            state, state_reason = holding_state(rec_for_state, score_median, score_sigma)
             if state == "EXIT":
                 rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": state_reason, "prior_holding": True})
                 continue
@@ -1937,10 +2015,7 @@ def build_variant_book(
             out["holding_state"] = state
             out["hold_replace_decision"] = "keep_prior_holding"
             out["holding_state_reason"] = state_reason
-            shakeout_applied = str(state_reason).startswith("shakeout_guard_prod_suppressed_")
-            out["shakeout_guard_prod_enabled"] = bool(shakeout_guard_prod_enabled())
-            out["shakeout_guard_prod_applied"] = bool(shakeout_applied)
-            out["shakeout_guard_prod_reason"] = state_reason if shakeout_applied else ""
+            out.update(shakeout_guard_prod_telemetry(rec_for_state, state_reason))
             out["prior_weight"] = safe_float(old.get("weight"))
             out["leadership_persistence_hold_enabled"] = bool(leadership_persistence_hold_enabled())
             protected, protection_reason = leadership_persistence_hold_protected(
