@@ -47,6 +47,7 @@ so failed layers are not retried unchanged, while useful diagnostics are kept.
 | Main position-risk grid follow-up | Best ranked hard `-30%` + trailing `-20%` improved Main MaxDD to -24.34% but CAGR fell to 33.08%; no gate-passing champion. | Reject as target-achieving layer. | Keep risk-exit artifact persistence/per-era diagnostics; a risk overlay may repair MDD only after a separate CAGR-positive lever exists. |
 | Alpha/beta attribution name-contribution fallback | `positions_latest.csv` fallback produced non-zero partial name-contribution evidence where `holdings_daily.csv` was absent. Concentrated residual alpha annualized 29.18%, but top-5 contribution is partial and open-position biased. | Keep as diagnostic. | Use it to identify right-tail winners for a PIT entry-signal audit; do not use partial top-winner contribution as ship evidence. |
 | Right-tail entry/capture audit | Run `28074476465` top open winners had PIT-visible entry signals: Main 5/5 and Concentrated 5/5 skill-evidence flags. But capture was fragmented: Main top-5 avg presence blocks 3.2 with 31 sells, 6 target-book drops, 6 reentries; Concentrated avg presence blocks 2.2 with 15 sells, 1 target-book drop, 1 reentry. Drop-date review found Main 6/6 drops still had skill-evidence signals and 2/6 were still rank >= 80th percentile; Concentrated 1/1 drop still had skill-evidence signal. | Keep as diagnostic and sidecar artifact. | Next lever should target fragmented capture of already-identified winners that still show PIT evidence at drop time, not broad exposure, broad persistence, or broad replacement acceleration. |
+| Right-tail drop counterfactual audit | Full target-book drop scan found many missed-rebound examples, but broad continuation did not pass the average test. Main had 517 drops, 393 skill-signal drops, 140 high-signal drops; high-signal avg 63d/126d SPY excess was -1.03pp/-1.52pp. Concentrated had 190 drops, 153 skill-signal drops, 72 high-signal drops; high-signal avg 63d/126d SPY excess was -1.41pp/-0.73pp. | Keep as diagnostic; reject broad drop-continuity hold. | Use the tool to segment rare large misses by theme, regime, event, and entry quality. Do not convert "dropped winner later rebounded" into a broad hold policy. |
 
 ### Keep As Measurement / Plumbing
 
@@ -57,6 +58,7 @@ so failed layers are not retried unchanged, while useful diagnostics are kept.
 | #174 | Gross-floor sweep env wiring | Keep, merge candidate | Fixes a measurement no-op: `R1000_CONC_GROSS_CAP_FLOOR` now reaches the regime-capacity overlay. The measured broad floor lever failed, but the wiring fix is necessary for any future gross-exposure screen. |
 | #175 | Alpha/beta name-contribution fallback | Keep, merge candidate after CI | Uses `positions_latest.csv` when `holdings_daily.csv` is absent so top-winner contribution does not silently report zero. Output is partial and labelled as such. |
 | #176 | Right-tail entry signal audit | Keep, merge candidate after CI | Turns #175's top-winner contribution into a PIT entry-signal and drop-date audit. Realized PnL only chooses names for review; candidate/target-book fields at entry and drop dates decide whether the winner was ex-ante identifiable and whether dropped winners still had PIT-visible evidence. |
+| #177 | Right-tail drop counterfactual audit | Keep, merge candidate after CI | Measures all target-book drop events with PIT-visible signal context plus forward-return audit labels. It preserves large missed-rebound examples while showing broad high-signal drop continuation has negative average SPY excess and should not be shipped as a broad hold lever. |
 
 ### Keep As Small Research Levers
 
@@ -101,6 +103,7 @@ Interpretation:
 | Broad leadership-persistence hold | `0.75σ` did not move broker metrics; `1.10σ` lowered Main to 33.78% CAGR and Concentrated to 39.72% CAGR. | Reject broad hold inflation. Future hold logic must be tied to PIT winner evidence, not broad state protection. |
 | Concentrated selective leader capture | Broad and tightened variants failed to improve Concentrated CAGR and worsened drawdown when active. | Reject current form. Retain telemetry for diagnosing which replacement pressures are harmful. |
 | Main position-risk grid as standalone solution | Best ranked grid improved MDD but lowered CAGR to 33.08%, leaving no gate-passing champion. | Reject as standalone. May be re-tested only after a CAGR-positive layer lifts Main above target. |
+| Broad right-tail drop-continuity hold | Counterfactual audit found large individual missed rebounds, but the high-signal dropped subset averaged negative 63d/126d SPY excess in both portfolios. | Reject broad form. | Only segment-specific, PIT-explained rules may be considered later; broad "keep dropped winners" is not supported. |
 
 ## Current Ready / Near-Ready Merge Candidates
 
@@ -113,12 +116,14 @@ Ready, mergeable, CI green unless explicitly noted:
 5. PR #174 - gross-floor env override wiring; measurement correctness only.
 6. PR #175 - alpha/beta name-contribution fallback, if CI passes.
 7. PR #176 - right-tail entry signal audit, if CI passes.
+8. PR #177 - right-tail drop counterfactual audit, if CI passes.
 
 Recommended merge order:
 
 1. #167 and #169 first, because they improve measurement quality.
-2. #174, #175, and #176 next, because they close measurement blind spots found
-   during the failed gross-floor, attribution, and right-tail screens.
+2. #174, #175, #176, and #177 next, because they close measurement blind
+   spots found during the failed gross-floor, attribution, and right-tail
+   screens.
 3. #166 and #170 next, because they are default-OFF research levers.
 4. Keep SHAKEOUT plumbing default-OFF unless a new screen proves
    `applied_count > 0` and broker-ledger behavior changes.
@@ -148,6 +153,8 @@ Recommended merge order:
    - inspect their entry-date PIT signals rather than their future returns,
    - compare missed leaders and selected leaders by era/theme,
    - audit drop dates where the dropped winner still had PIT skill evidence,
+   - reject broad drop-continuity unless a segmented subset has positive
+     average excess return and ex-ante PIT explanation,
    - only then design a narrower capture-continuity rule.
 4. Any future capture rule must require applied-count telemetry, no forward
    returns in ranking, and broker-ledger CAGR improvement without MaxDD damage.
