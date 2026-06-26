@@ -16,6 +16,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from tools.run_stock_selection_quality_audit import run  # noqa: E402
+from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -33,6 +34,20 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_price_cache(cache: Path, ticker: str, prices: list[float]) -> None:
+    cache.mkdir(parents=True, exist_ok=True)
+    dates = pd.date_range("2026-06-01", periods=len(prices), freq="B")
+    frame = pd.DataFrame(
+        {
+            "Open": prices,
+            "Close": prices,
+            "Adj Close": prices,
+        },
+        index=dates,
+    )
+    frame.to_parquet(cache / px_cache_name(ticker))
 
 
 def main() -> int:
@@ -157,6 +172,19 @@ def main() -> int:
         assert int(rank_available.loc[rank_available["ticker"].eq("EVID"), "leader_rank_ex_ante"].iloc[0]) > int(
             rank_available.loc[rank_available["ticker"].eq("NVDA"), "leader_rank_ex_ante"].iloc[0]
         ), "forward return must not improve ex-ante leader rank"
+
+        price_cache = root / "price_cache"
+        _write_price_cache(price_cache, "SPY", [100.0 + 0.10 * i for i in range(150)])
+        _write_price_cache(price_cache, "EMRG", [100.0 + 1.00 * i for i in range(150)])
+        label_out = root / "label_out"
+        label_summary = run(latest, label_out, price_cache=price_cache, leaders_per_date=4)
+        assert label_summary["forward_label_benchmark"] == "SPY", label_summary
+        assert label_summary["forward_labels_used_for_ranking"] is False, label_summary
+        assert label_summary["forward_label_computed_rows_63d"] >= 1, label_summary
+        label_available = pd.read_csv(label_out / "selected_vs_available_leaders.csv")
+        emrg_label = pd.to_numeric(label_available.loc[label_available["ticker"].eq("EMRG"), "forward_63d_excess"], errors="coerce")
+        assert emrg_label.notna().any(), label_available
+        assert float(emrg_label.dropna().iloc[0]) > 0.50, emrg_label
 
         latest_only = root / "latest_only"
         latest_reports = latest_only / "reports"

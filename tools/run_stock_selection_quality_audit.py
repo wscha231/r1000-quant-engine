@@ -13,6 +13,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,10 +22,19 @@ import pandas as pd
 
 from historical_replay_lib import read_table, repo_path, safe_float, write_json, write_text
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.run_weekly_evaluation import load_price_series
+
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/stock_selection_quality"
+DEFAULT_PRICE_CACHE = "cache_prices"
 CASH_TICKER = "CASH"
+FORWARD_LABEL_BENCHMARK = "SPY"
+FORWARD_LABEL_HORIZONS = (21, 63, 126)
 
 COMMON_METADATA_COLUMNS = [
     "source_run_id",
@@ -384,6 +394,95 @@ def _prepare_candidates(candidates: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _price_return_after_trading_days(px: pd.DataFrame, date_like: Any, horizon: int) -> float | None:
+    if px.empty or "close" not in px.columns:
+        return None
+    try:
+        date = pd.Timestamp(date_like)
+    except Exception:
+        return None
+    idx = pd.DatetimeIndex(px.index)
+    start_pos = int(idx.searchsorted(date, side="left"))
+    end_pos = start_pos + int(horizon)
+    if start_pos >= len(idx) or end_pos >= len(idx):
+        return None
+    start_price = safe_float(px["close"].iloc[start_pos], math.nan)
+    end_price = safe_float(px["close"].iloc[end_pos], math.nan)
+    if not math.isfinite(start_price) or not math.isfinite(end_price) or start_price <= 0.0:
+        return None
+    return float(end_price / start_price - 1.0)
+
+
+def _load_price_cache(price_cache: Path, ticker: str, cache: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    normalized = str(ticker).upper().strip()
+    if normalized in cache:
+        return cache[normalized]
+    frame = load_price_series(price_cache, normalized)
+    cache[normalized] = frame
+    return frame
+
+
+def _apply_forward_return_labels(candidates: pd.DataFrame, price_cache: Path | None) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "forward_label_benchmark": FORWARD_LABEL_BENCHMARK,
+        "forward_labels_price_cache": str(price_cache) if price_cache is not None else "",
+        "forward_labels_price_cache_available": bool(price_cache is not None and price_cache.exists()),
+        "forward_labels_used_for_ranking": False,
+    }
+    computed = {horizon: 0 for horizon in FORWARD_LABEL_HORIZONS}
+    for horizon in FORWARD_LABEL_HORIZONS:
+        col = f"forward_{horizon}d_excess"
+        if col in candidates.columns:
+            candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
+    if candidates.empty:
+        for horizon in FORWARD_LABEL_HORIZONS:
+            summary[f"forward_label_rows_{horizon}d"] = 0
+            summary[f"forward_label_computed_rows_{horizon}d"] = 0
+        return summary
+    if price_cache is None or not price_cache.exists():
+        for horizon in FORWARD_LABEL_HORIZONS:
+            col = f"forward_{horizon}d_excess"
+            summary[f"forward_label_rows_{horizon}d"] = int(pd.to_numeric(candidates.get(col), errors="coerce").notna().sum()) if col in candidates.columns else 0
+            summary[f"forward_label_computed_rows_{horizon}d"] = 0
+        return summary
+
+    cache: dict[str, pd.DataFrame] = {}
+    benchmark_px = _load_price_cache(price_cache, FORWARD_LABEL_BENCHMARK, cache)
+    if benchmark_px.empty:
+        summary["forward_label_blocked_reason"] = "missing_benchmark_price_cache"
+        for horizon in FORWARD_LABEL_HORIZONS:
+            col = f"forward_{horizon}d_excess"
+            summary[f"forward_label_rows_{horizon}d"] = int(pd.to_numeric(candidates.get(col), errors="coerce").notna().sum()) if col in candidates.columns else 0
+            summary[f"forward_label_computed_rows_{horizon}d"] = 0
+        return summary
+
+    for idx, row in candidates.iterrows():
+        ticker = str(row.get("ticker", "")).upper().strip()
+        if not ticker or ticker == CASH_TICKER:
+            continue
+        date = row.get("rebalance_date")
+        ticker_px = _load_price_cache(price_cache, ticker, cache)
+        if ticker_px.empty:
+            continue
+        for horizon in FORWARD_LABEL_HORIZONS:
+            col = f"forward_{horizon}d_excess"
+            existing = safe_float(row.get(col), math.nan)
+            if math.isfinite(existing):
+                continue
+            ticker_ret = _price_return_after_trading_days(ticker_px, date, horizon)
+            benchmark_ret = _price_return_after_trading_days(benchmark_px, date, horizon)
+            if ticker_ret is None or benchmark_ret is None:
+                continue
+            candidates.at[idx, col] = float(ticker_ret - benchmark_ret)
+            computed[horizon] += 1
+
+    for horizon in FORWARD_LABEL_HORIZONS:
+        col = f"forward_{horizon}d_excess"
+        summary[f"forward_label_rows_{horizon}d"] = int(pd.to_numeric(candidates.get(col), errors="coerce").notna().sum()) if col in candidates.columns else 0
+        summary[f"forward_label_computed_rows_{horizon}d"] = int(computed[horizon])
+    return summary
+
+
 def _nearest_candidate_slice(candidates: pd.DataFrame, date: str) -> pd.DataFrame:
     if candidates.empty:
         return candidates
@@ -495,6 +594,7 @@ def run(
     latest_run: Path,
     output_dir: Path,
     candidate_book: Path | None = None,
+    price_cache: Path | None = None,
     leaders_per_date: int = 25,
     source_run_id: str = "",
     source_commit_sha: str = "",
@@ -528,6 +628,7 @@ def run(
         return payload
 
     candidates = _prepare_candidates(candidates_raw)
+    forward_label_summary = _apply_forward_return_labels(candidates, price_cache)
     latest_candidate_date = sorted(candidates["rebalance_date"].astype(str).unique())[-1]
     targets, target_source, cash_by_date = _load_targets(latest_run, latest_candidate_date)
     meta = _metadata(
@@ -673,6 +774,7 @@ def run(
         "missed_leader_historical_audit_allowed": bool(historical_valid),
         "used_forward_return_in_ranking": False,
         "historical_audit_enabled": bool(historical_valid),
+        **forward_label_summary,
         "rejection_reason_counts": {
             str(k): int(v)
             for k, v in (missed["rejection_reason"].value_counts(dropna=False).to_dict() if not missed.empty else {}).items()
@@ -698,6 +800,8 @@ def _render_report(payload: dict[str, Any]) -> str:
         f"- selected rows: {payload.get('selected_rows', 0)}",
         f"- available ex-ante leader rows: {payload.get('available_leader_rows', 0)}",
         f"- missed ex-ante leader rows: {payload.get('missed_leader_rows', 0)}",
+        f"- forward label benchmark: `{payload.get('forward_label_benchmark', '')}`",
+        f"- forward labels used for ranking: `{payload.get('forward_labels_used_for_ranking', False)}`",
         "",
         "## Rejection Reasons",
         "",
@@ -728,6 +832,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--candidate-book", default="")
+    parser.add_argument("--price-cache", default=DEFAULT_PRICE_CACHE)
     parser.add_argument("--leaders-per-date", type=int, default=25)
     parser.add_argument("--source-run-id", default="")
     parser.add_argument("--source-commit-sha", default="")
@@ -744,6 +849,7 @@ def main() -> int:
         repo_path(args.latest_run),
         repo_path(args.output_dir),
         candidate_book=candidate_book,
+        price_cache=repo_path(args.price_cache) if args.price_cache else None,
         leaders_per_date=int(args.leaders_per_date),
         source_run_id=args.source_run_id,
         source_commit_sha=args.source_commit_sha,
