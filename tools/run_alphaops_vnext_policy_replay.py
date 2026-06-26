@@ -33,6 +33,8 @@ from r1000_market_leader_engine import (  # noqa: E402
     MarketLeaderVariant,
     RISK_MODE_BENCHMARK_GUARD,
     apply_benchmark_risk_overlay,
+    compute_sector_leadership_score,
+    compute_smart_money_confirmation_score,
 )
 from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS, replay as broker_replay  # noqa: E402
 from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
@@ -535,6 +537,10 @@ def apply_concentrated_leader_gate_annotations(month: pd.DataFrame, portfolio_ki
 
 def score_month(month: pd.DataFrame) -> pd.DataFrame:
     d = score_candidate_lanes(month.copy())
+    if "sector_leadership_score" not in d.columns:
+        d = compute_sector_leadership_score(d)
+    if "smart_money_evidence_confidence" not in d.columns:
+        d = compute_smart_money_confirmation_score(d)
     if phase_is_enabled("cycle_leadership_mask", default=False):
         d = apply_cycle_leadership_mask_to_lanes(d)
     d["evidence_support_score"] = evidence_support_score(d)
