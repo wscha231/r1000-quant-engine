@@ -146,6 +146,8 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/auto_policy_challenger_smoke.py", []),
     ("tests/alphaops_vnext_policy_replay_smoke.py", []),
     ("tests/shakeout_guard_applied_screen_smoke.py", []),
+    ("tests/leadership_persistence_applied_screen_smoke.py", []),
+    ("tests/hold_duration_leak_screen_smoke.py", []),
     ("tests/cost_sensitivity_sidecar_smoke.py", []),
     ("tests/trade_attribution_analysis_smoke.py", []),
     ("tests/concentrated_cap_replacement_audit_smoke.py", []),
