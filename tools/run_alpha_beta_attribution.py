@@ -198,7 +198,33 @@ def _name_contributions(latest_run: Path, portfolio: str, start_equity: float, p
     path = latest_run / "broker_replay" / portfolio / "holdings_daily.csv"
     h = read_csv(path)
     if h.empty or "date" not in h.columns or "ticker" not in h.columns:
-        return pd.DataFrame(), pd.DataFrame(), {"status": "missing_holdings_daily", "source": str(path)}
+        positions_path = latest_run / "broker_replay" / portfolio / "positions_latest.csv"
+        positions = read_csv(positions_path)
+        required = {"ticker", "realized_pnl_usd", "unrealized_pnl_usd"}
+        if positions.empty or not required.issubset(set(positions.columns)):
+            return pd.DataFrame(), pd.DataFrame(), {"status": "missing_holdings_daily", "source": str(path)}
+        contrib = positions.copy()
+        contrib["ticker"] = contrib["ticker"].astype(str).str.upper().str.strip()
+        contrib["realized_pnl_usd"] = pd.to_numeric(contrib["realized_pnl_usd"], errors="coerce").fillna(0.0)
+        contrib["unrealized_pnl_usd"] = pd.to_numeric(contrib["unrealized_pnl_usd"], errors="coerce").fillna(0.0)
+        contrib["pnl_usd"] = contrib["realized_pnl_usd"] + contrib["unrealized_pnl_usd"]
+        contrib["contribution_return_on_start"] = contrib["pnl_usd"] / max(start_equity, 1e-9)
+        total_positive = float(contrib.loc[contrib["pnl_usd"] > 0, "pnl_usd"].sum())
+        contrib["positive_contribution_share"] = contrib["pnl_usd"].clip(lower=0.0) / max(total_positive, 1e-9)
+        contrib = contrib.sort_values("pnl_usd", ascending=False)
+        top = contrib.head(5)
+        total_return = float(contrib["pnl_usd"].sum()) / max(start_equity, 1e-9)
+        summary = {
+            "status": "completed_positions_latest_fallback_partial",
+            "source": str(positions_path),
+            "coverage_note": "positions_latest fallback includes current open positions plus realized pnl tracked on those tickers; fully closed historical names may be absent",
+            "top_1_winner_contribution": float(contrib.head(1)["contribution_return_on_start"].sum()) if not contrib.empty else 0.0,
+            "top_3_winner_contribution": float(contrib.head(3)["contribution_return_on_start"].sum()) if not contrib.empty else 0.0,
+            "top_5_winner_contribution": float(top["contribution_return_on_start"].sum()) if not top.empty else 0.0,
+            "top_5_positive_share": float(top["pnl_usd"].clip(lower=0.0).sum() / max(total_positive, 1e-9)) if not top.empty else 0.0,
+            "position_concentration_alpha": float(contrib.head(5)["contribution_return_on_start"].sum() - total_return) if not contrib.empty else 0.0,
+        }
+        return contrib, pd.DataFrame(), summary
     out = h.copy()
     out["date"] = pd.to_datetime(out["date"], errors="coerce")
     out["ticker"] = out["ticker"].astype(str).str.upper().str.strip()
@@ -295,6 +321,7 @@ def analyze_portfolio(latest_run: Path, price_cache: Path, output_dir: Path, por
         "broker_max_dd": safe_float(metrics.get("max_dd", metrics.get("max_drawdown")), math.nan),
         "cash_drag": float(avg_cash * max(spy_ann, 0.0)),
         "name_contribution_status": name_summary.get("status"),
+        "name_contribution_source": name_summary.get("source"),
         **model,
         **{k: v for k, v in name_summary.items() if k not in {"status", "source"}},
     }
