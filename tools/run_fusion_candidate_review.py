@@ -236,8 +236,8 @@ def load_drop_counterfactuals(base: Path, candidates: dict[tuple[str, str], dict
         portfolio = norm_portfolio(row.get("portfolio"))
         high_signal = (
             safe_bool(row.get("drop_skill_evidence_flag"))
-            and safe_float(row.get("drop_candidate_rank_percentile")) >= 0.80
-            and safe_float(row.get("drop_entry_signal_stack_count", row.get("entry_signal_stack_count"))) >= 7
+            and first_float(row, ("drop_candidate_rank_percentile", "candidate_rank_percentile")) >= 0.80
+            and first_float(row, ("drop_entry_signal_stack_count", "drop_signal_stack_count", "entry_signal_stack_count")) >= 7
         )
         if not high_signal:
             continue
@@ -386,8 +386,19 @@ def load_segment_summary(base: Path) -> pd.DataFrame:
             "policy_eligible",
         ])
     out = rows.copy()
+    rename_map = {
+        "group_column": "group_field",
+        "event_count": "observations",
+        "positive_126d_rate": "positive_rate_126d_excess_spy",
+    }
+    out = out.rename(columns={src: dst for src, dst in rename_map.items() if src in out.columns and dst not in out.columns})
+    for col in ("group_field", "group_value", "subset"):
+        if col not in out.columns:
+            out[col] = ""
     for col in ("observations", "avg_126d_excess_spy", "positive_rate_126d_excess_spy"):
-        out[col] = pd.to_numeric(out.get(col), errors="coerce").fillna(0.0)
+        if col not in out.columns:
+            out[col] = 0.0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
     out["segment_review_candidate"] = (
         out.get("subset", "").astype(str).eq("high_signal")
         & out["observations"].ge(3)
