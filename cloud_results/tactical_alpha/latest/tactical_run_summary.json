@@ -1,9 +1,9 @@
 {
-  "run_timestamp_utc": "2026-06-24T23:57:04.159699+00:00",
+  "run_timestamp_utc": "2026-06-26T00:05:47.633900+00:00",
   "run_status": "review_ready",
-  "schedule_as_of": "2026-06-24",
-  "target_trading_day": "2026-06-24",
-  "data_as_of": "2026-06-24",
+  "schedule_as_of": "2026-06-26",
+  "target_trading_day": "2026-06-26",
+  "data_as_of": "2026-06-25",
   "latest_scored_rebalance_date": "2026-06-24",
   "scored_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",
   "previous_holdings_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cloud_results/tactical_alpha/latest/tactical_portfolio_latest.csv",
