@@ -34,6 +34,10 @@ REQUIRED_COLUMNS = (
     "ticker_change_coverage_status",
     "membership_pit_status",
 )
+OPTIONAL_COLUMNS = (
+    "membership_end_date",
+    "source_provenance_status",
+)
 CLEAN_SOURCE_KINDS = {"official_historical_membership", "historical_membership_file"}
 TRUTHY = {"1", "true", "yes", "y", "clean", "pit_clean"}
 CURRENT_PROXY_TOKENS = ("current_constituents", "current_constituents_proxy")
@@ -42,6 +46,7 @@ PROXY_TOKENS = ("proxy", "pit_proxy_universe")
 OFFICIAL_TOKENS = ("official_pit_r1000", "official_historical_membership")
 CLEAN_STATUS_VALUES = {"", "clean", "covered", "pass", "known", "ok", "pit_clean"}
 UNKNOWN_STATUS_VALUES = {"unknown", "missing", "unclean", "blocked", "not_covered", "gap"}
+PROVENANCE_CLEAN_VALUES = {"reviewed", "verified", "audited", "official", "licensed", "clean", "pass"}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -143,6 +148,11 @@ def status_bad(value: Any) -> bool:
     return text in UNKNOWN_STATUS_VALUES
 
 
+def provenance_clean(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text in PROVENANCE_CLEAN_VALUES
+
+
 def normalized_membership_rows(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
     for row in rows:
@@ -164,6 +174,7 @@ def normalized_membership_rows(rows: list[dict[str, str]]) -> list[dict[str, Any
                 "delisted_coverage_status": str(row.get("delisted_coverage_status") or "").strip(),
                 "ticker_change_coverage_status": str(row.get("ticker_change_coverage_status") or "").strip(),
                 "membership_pit_status": str(row.get("membership_pit_status") or "").strip(),
+                "source_provenance_status": str(row.get("source_provenance_status") or "").strip(),
                 "_source_kind": source_kind,
             }
         )
@@ -193,6 +204,9 @@ def audit_membership_file(
     survivorship_bad_rows = 0
     delisted_bad_rows = 0
     ticker_change_bad_rows = 0
+    source_provenance_unreviewed_rows = 0
+    membership_end_date_violation_rows = 0
+    same_day_available_from_rows = 0
 
     for row in rows:
         date_key = row["rebalance_date"]
@@ -223,12 +237,26 @@ def audit_membership_file(
                     "ticker": ticker,
                 }
             )
+        elif row["rebalance_date"] and row["membership_available_from"] == row["rebalance_date"]:
+            same_day_available_from_rows += 1
+        if row["membership_end_date"] and row["rebalance_date"] and row["rebalance_date"] > row["membership_end_date"]:
+            membership_end_date_violation_rows += 1
+            violations.append(
+                {
+                    "type": "membership_after_membership_end_date",
+                    "rebalance_date": row["rebalance_date"],
+                    "membership_end_date": row["membership_end_date"],
+                    "ticker": ticker,
+                }
+            )
         if status_bad(row["survivorship_status"]):
             survivorship_bad_rows += 1
         if status_bad(row["delisted_coverage_status"]):
             delisted_bad_rows += 1
         if status_bad(row["ticker_change_coverage_status"]):
             ticker_change_bad_rows += 1
+        if kind in CLEAN_SOURCE_KINDS and not provenance_clean(row.get("source_provenance_status")):
+            source_provenance_unreviewed_rows += 1
 
     coverage_by_date = [
         {"rebalance_date": date_key, "membership_count": len(tickers), "coverage_pass": len(tickers) >= coverage_floor}
@@ -254,6 +282,10 @@ def audit_membership_file(
         blockers.append("membership_coverage_floor_failed")
     if survivorship_bad_rows or delisted_bad_rows or ticker_change_bad_rows:
         blockers.append("membership_lifecycle_coverage_not_clean")
+    if membership_end_date_violation_rows:
+        blockers.append("membership_end_date_violated")
+    if source_provenance_unreviewed_rows:
+        blockers.append("source_provenance_review_required")
 
     clean = not blockers
     official_clean = clean and source_kind == "official_historical_membership"
@@ -293,6 +325,28 @@ def audit_membership_file(
         "survivorship_bad_rows": int(survivorship_bad_rows),
         "delisted_coverage_bad_rows": int(delisted_bad_rows),
         "ticker_change_coverage_bad_rows": int(ticker_change_bad_rows),
+        "source_provenance_unreviewed_rows": int(source_provenance_unreviewed_rows),
+        "membership_end_date_violation_rows": int(membership_end_date_violation_rows),
+        "same_day_membership_available_from_rows": int(same_day_available_from_rows),
+        "recommended_production_coverage_floor": int(max(coverage_floor, 900)),
+        "recommended_production_coverage_pass": bool(
+            coverage_by_date
+            and all(row["membership_count"] >= max(coverage_floor, 900) for row in coverage_by_date)
+        ),
+        "production_review_warnings": [
+            warning
+            for warning, active in [
+                ("same_day_membership_available_from_rows_present", bool(same_day_available_from_rows)),
+                (
+                    "membership_count_below_recommended_production_floor",
+                    bool(
+                        coverage_by_date
+                        and any(row["membership_count"] < max(coverage_floor, 900) for row in coverage_by_date)
+                    ),
+                ),
+            ]
+            if active
+        ],
         "coverage_floor": int(coverage_floor),
         "coverage_pass": bool(coverage_pass),
         "coverage_by_date": coverage_by_date,
@@ -305,7 +359,11 @@ def audit_membership_file(
     public_rows = [{key: value for key, value in row.items() if not key.startswith("_")} for row in rows]
     write_json(output_dir / "pit_membership_manifest.json", manifest)
     write_json(output_dir / "pit_membership_audit.json", audit)
-    write_csv(output_dir / "pit_membership_by_month.csv", public_rows, list(REQUIRED_COLUMNS[:4]) + ["membership_end_date"] + list(REQUIRED_COLUMNS[4:]))
+    write_csv(
+        output_dir / "pit_membership_by_month.csv",
+        public_rows,
+        list(REQUIRED_COLUMNS[:4]) + ["membership_end_date"] + list(REQUIRED_COLUMNS[4:]) + ["source_provenance_status"],
+    )
     write_report(output_dir / "pit_membership_audit.md", manifest, audit)
     return {"manifest": manifest, "audit": audit}
 
@@ -330,10 +388,24 @@ def write_report(path: Path, manifest: dict[str, Any], audit: dict[str, Any]) ->
         f"- static seed rows: `{audit.get('static_seed_rows')}`",
         f"- proxy rows: `{audit.get('proxy_rows')}`",
         f"- official rows: `{audit.get('official_rows')}`",
+        f"- source provenance unreviewed rows: `{audit.get('source_provenance_unreviewed_rows')}`",
+        f"- membership end-date violation rows: `{audit.get('membership_end_date_violation_rows')}`",
+        f"- same-day available_from rows: `{audit.get('same_day_membership_available_from_rows')}`",
+        f"- recommended production coverage floor: `{audit.get('recommended_production_coverage_floor')}`",
+        f"- recommended production coverage pass: `{str(audit.get('recommended_production_coverage_pass')).lower()}`",
+        "",
+        "## Production Review Warnings",
+        "",
+    ]
+    warnings = audit.get("production_review_warnings") or []
+    lines.extend([f"- {item}" for item in warnings] if warnings else ["- none"])
+    lines.extend(
+        [
         "",
         "## Blockers",
         "",
-    ]
+        ]
+    )
     blockers = audit.get("blockers") or []
     lines.extend([f"- {item}" for item in blockers] if blockers else ["- none"])
     lines.append("")

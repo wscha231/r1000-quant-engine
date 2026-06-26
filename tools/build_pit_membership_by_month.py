@@ -38,6 +38,7 @@ OUTPUT_SCHEMA_COLUMNS = [
     "delisted_coverage_status",
     "ticker_change_coverage_status",
     "membership_pit_status",
+    "source_provenance_status",
 ]
 CLEAN_SOURCE_KINDS = {"official_historical_membership", "historical_membership_file"}
 
@@ -136,6 +137,7 @@ def source_defaults(source_kind: str, source_name: str) -> dict[str, Any]:
         "delisted_coverage_status": "clean" if clean_source else "unknown",
         "ticker_change_coverage_status": "clean" if clean_source else "unknown",
         "membership_pit_status": pit_status,
+        "source_provenance_status": "",
     }
 
 
@@ -175,6 +177,7 @@ def normalize_membership_input(
     delisted_col = first_col(cols, ["delisted_coverage_status"])
     ticker_change_col = first_col(cols, ["ticker_change_coverage_status"])
     pit_col = first_col(cols, ["membership_pit_status"])
+    provenance_col = first_col(cols, ["source_provenance_status", "membership_source_provenance", "source_provenance"])
 
     out = pd.DataFrame()
     out["ticker"] = d[ticker_col].map(normalize_ticker)
@@ -200,6 +203,9 @@ def normalize_membership_input(
     out["delisted_coverage_status"] = d[delisted_col].astype(str) if delisted_col else defaults["delisted_coverage_status"]
     out["ticker_change_coverage_status"] = d[ticker_change_col].astype(str) if ticker_change_col else defaults["ticker_change_coverage_status"]
     out["membership_pit_status"] = d[pit_col].astype(str) if pit_col else defaults["membership_pit_status"]
+    out["source_provenance_status"] = (
+        d[provenance_col].astype(str) if provenance_col else defaults["source_provenance_status"]
+    )
     return out.drop_duplicates().reset_index(drop=True)
 
 
@@ -272,6 +278,7 @@ def row_to_output_dict(row: Any, rebalance_date: Any, membership_end_date: Any) 
         "delisted_coverage_status": str(getattr(row, "delisted_coverage_status", "unknown")),
         "ticker_change_coverage_status": str(getattr(row, "ticker_change_coverage_status", "unknown")),
         "membership_pit_status": str(getattr(row, "membership_pit_status", "unknown")),
+        "source_provenance_status": str(getattr(row, "source_provenance_status", "")),
     }
 
 
@@ -304,6 +311,11 @@ def main() -> int:
     ap.add_argument("--source-kind", default="historical_membership_file")
     ap.add_argument("--source-name", default="")
     ap.add_argument("--default-available-from", default="")
+    ap.add_argument(
+        "--source-provenance-status",
+        default="",
+        help="Optional provenance review status to stamp when source rows do not already provide one.",
+    )
     ap.add_argument("--coverage-floor", type=int, default=400)
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
@@ -321,6 +333,9 @@ def main() -> int:
         source_name=source_name,
         default_available_from=args.default_available_from,
     )
+    if args.source_provenance_status and not normalized.empty:
+        missing_provenance = normalized["source_provenance_status"].astype(str).str.strip().isin({"", "nan", "None"})
+        normalized.loc[missing_provenance, "source_provenance_status"] = args.source_provenance_status
     output = expand_membership_by_month(normalized, start_date=args.start_date, end_date=args.end_date)
     out_path = output_dir / "pit_membership_by_month.csv"
     output.to_csv(out_path, index=False)

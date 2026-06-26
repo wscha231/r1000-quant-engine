@@ -61,6 +61,8 @@ def test_clean_date_range_membership_expands_and_passes() -> None:
                 "2020-03-31",
                 "--coverage-floor",
                 "2",
+                "--source-provenance-status",
+                "reviewed",
             ]
         )
         assert result.returncode == 0, result.stderr
@@ -72,6 +74,41 @@ def test_clean_date_range_membership_expands_and_passes() -> None:
         assert audit["pit_universe_label_clean"] is True
         assert audit["coverage_pass"] is True
         assert manifest["production_mutation_allowed"] is False
+
+
+def test_clean_source_without_provenance_stays_blocked() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        src = root / "membership.csv"
+        out = root / "out"
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "AAA",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-03-31",
+                    "membership_available_from": "2019-12-15",
+                }
+            ]
+        ).to_csv(src, index=False)
+        result = run_tool(
+            [
+                "--membership-file",
+                str(src),
+                "--output-dir",
+                str(out),
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-03-31",
+                "--coverage-floor",
+                "1",
+            ]
+        )
+        assert result.returncode == 0, result.stderr
+        audit = read_json(out / "pit_membership_audit.json")
+        assert audit["pit_universe_label_clean"] is False
+        assert "source_provenance_review_required" in audit["blockers"]
 
 
 def test_missing_available_from_stays_blocked() -> None:
@@ -147,6 +184,7 @@ def test_current_constituents_source_blocks_clean_label() -> None:
 
 if __name__ == "__main__":
     test_clean_date_range_membership_expands_and_passes()
+    test_clean_source_without_provenance_stays_blocked()
     test_missing_available_from_stays_blocked()
     test_current_constituents_source_blocks_clean_label()
     print("pit_membership_producer_smoke: PASS")

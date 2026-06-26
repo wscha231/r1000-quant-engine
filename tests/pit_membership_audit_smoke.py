@@ -22,6 +22,8 @@ def write_membership(path: Path, rows: list[dict[str, object]]) -> None:
     fieldnames = list(REQUIRED_COLUMNS)
     if any("membership_end_date" in row for row in rows):
         fieldnames.insert(4, "membership_end_date")
+    if any("source_provenance_status" in row for row in rows):
+        fieldnames.append("source_provenance_status")
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -43,6 +45,7 @@ def clean_row(ticker: str, date: str = "2020-01-31") -> dict[str, object]:
         "delisted_coverage_status": "clean",
         "ticker_change_coverage_status": "clean",
         "membership_pit_status": "clean",
+        "source_provenance_status": "reviewed",
     }
 
 
@@ -115,6 +118,36 @@ def test_current_constituents_proxy_blocks_clean_label() -> None:
         assert pit_universe_label_clean(audit) is False
 
 
+def test_unreviewed_source_provenance_blocks_clean_label() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        row = clean_row("AAA")
+        row["source_provenance_status"] = ""
+        membership = root / "membership.csv"
+        write_membership(membership, [row])
+
+        audit = audit_membership_file(membership, root / "out", coverage_floor=1)["audit"]
+        assert audit["status"] == "blocked"
+        assert audit["pit_universe_label_clean"] is False
+        assert audit["source_provenance_unreviewed_rows"] == 1
+        assert "source_provenance_review_required" in audit["blockers"]
+
+
+def test_membership_end_date_violation_blocks_clean_label() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        row = clean_row("AAA", date="2020-03-31")
+        row["membership_end_date"] = "2020-02-29"
+        membership = root / "membership.csv"
+        write_membership(membership, [row])
+
+        audit = audit_membership_file(membership, root / "out", coverage_floor=1)["audit"]
+        assert audit["status"] == "blocked"
+        assert audit["pit_universe_label_clean"] is False
+        assert audit["membership_end_date_violation_rows"] == 1
+        assert "membership_end_date_violated" in audit["blockers"]
+
+
 def test_universe_health_wires_pit_membership_audit_without_loosening_breadth_gate() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -165,5 +198,7 @@ if __name__ == "__main__":
     test_future_membership_blocks_clean_label()
     test_missing_membership_available_from_blocks_clean_label()
     test_current_constituents_proxy_blocks_clean_label()
+    test_unreviewed_source_provenance_blocks_clean_label()
+    test_membership_end_date_violation_blocks_clean_label()
     test_universe_health_wires_pit_membership_audit_without_loosening_breadth_gate()
     print("pit_membership_audit_smoke: PASS")
