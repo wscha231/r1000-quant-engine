@@ -566,6 +566,10 @@ def shakeout_guard_warning_suppress_enabled() -> bool:
     return bool(phase_is_enabled("shakeout_guard_warning_suppress", default=False))
 
 
+def earnings_revision_break_enabled() -> bool:
+    return bool(phase_is_enabled("earnings_revision_break", default=False))
+
+
 @dataclass(frozen=True)
 class ShakeoutGuardDecision:
     enabled: bool
@@ -576,6 +580,17 @@ class ShakeoutGuardDecision:
     classifier_state: str
     classifier_reason: str
     fallback_source: str
+
+
+@dataclass(frozen=True)
+class EarningsRevisionBreakDecision:
+    enabled: bool
+    evaluated: bool
+    break_warning: bool
+    applied: bool
+    block_reason: str
+    negative_signal_count: int
+    signal_summary: str
 
 
 def _is_present(value: Any) -> bool:
@@ -658,6 +673,44 @@ def shakeout_guard_prod_decision(row: dict[str, Any], *, applied: bool = False) 
     return ShakeoutGuardDecision(enabled=True, evaluated=True, protected=False, applied=False, block_reason=f"classifier_not_shakeout:{state}:{reason}", classifier_state=state, classifier_reason=reason, fallback_source=fallback_source)
 
 
+def earnings_revision_break_decision(row: dict[str, Any], *, applied: bool = False) -> EarningsRevisionBreakDecision:
+    """Flag prior leaders with PIT-visible fundamental/event deterioration as WARNING."""
+    enabled = earnings_revision_break_enabled()
+    if not enabled:
+        return EarningsRevisionBreakDecision(enabled=False, evaluated=False, break_warning=False, applied=False, block_reason="disabled", negative_signal_count=0, signal_summary="")
+    ticker = clean_ticker(row.get("ticker"))
+    if not ticker or ticker in CASH_TICKERS:
+        return EarningsRevisionBreakDecision(enabled=True, evaluated=False, break_warning=False, applied=False, block_reason="cash_or_invalid", negative_signal_count=0, signal_summary="")
+    if not bool(row.get("shakeout_guard_prior_holding")):
+        return EarningsRevisionBreakDecision(enabled=True, evaluated=False, break_warning=False, applied=False, block_reason="not_prior_holding", negative_signal_count=0, signal_summary="")
+    leader_tier = str(row.get("leader_tier") or "").upper()
+    if leader_tier not in {"DUAL_LEADER", "SECTOR_LEADER"}:
+        return EarningsRevisionBreakDecision(enabled=True, evaluated=False, break_warning=False, applied=False, block_reason=f"leader_tier_not_protected:{leader_tier or 'unknown'}", negative_signal_count=0, signal_summary="")
+    if safe_float(row.get("price_above_ma200"), 1.0) < 0.5:
+        return EarningsRevisionBreakDecision(enabled=True, evaluated=False, break_warning=False, applied=False, block_reason="below_ma200", negative_signal_count=0, signal_summary="")
+
+    weak_tape = (
+        safe_float(row.get("rs_benchmark_1m"), safe_float(row.get("rs_qqq_1m"), 0.0)) < 0.0
+        or safe_float(row.get("rs_benchmark_3m"), safe_float(row.get("rs_qqq_3m"), 0.0)) < 0.0
+        or safe_float(row.get("price_above_ma50"), 1.0) < 0.5
+    )
+    if not weak_tape:
+        return EarningsRevisionBreakDecision(enabled=True, evaluated=True, break_warning=False, applied=False, block_reason="tape_not_weak", negative_signal_count=0, signal_summary="")
+
+    signals: list[str] = []
+    if safe_float(row.get("profitability_inflection_score")) <= -0.50:
+        signals.append("profitability_inflection")
+    if safe_float(row.get("event_reaction_score")) <= -0.75:
+        signals.append("event_reaction")
+    eps_growth = safe_float(row.get("eps_growth_yoy"), math.nan)
+    if math.isfinite(eps_growth) and -5.0 <= eps_growth <= -0.35:
+        signals.append("eps_growth_yoy")
+
+    if len(signals) < 2:
+        return EarningsRevisionBreakDecision(enabled=True, evaluated=True, break_warning=False, applied=False, block_reason="insufficient_negative_evidence", negative_signal_count=len(signals), signal_summary=",".join(signals))
+    return EarningsRevisionBreakDecision(enabled=True, evaluated=True, break_warning=True, applied=bool(applied), block_reason="applied" if applied else "", negative_signal_count=len(signals), signal_summary=",".join(signals))
+
+
 def shakeout_guard_prod_telemetry(row: dict[str, Any], state_reason: str) -> dict[str, Any]:
     applied = str(state_reason).startswith("shakeout_guard_prod_suppressed_")
     decision = shakeout_guard_prod_decision(row, applied=applied)
@@ -670,6 +723,20 @@ def shakeout_guard_prod_telemetry(row: dict[str, Any], state_reason: str) -> dic
         "shakeout_guard_prod_classifier_reason": decision.classifier_reason,
         "shakeout_guard_prod_fallback_source": decision.fallback_source,
         "shakeout_guard_prod_reason": state_reason if applied else "",
+    }
+
+
+def earnings_revision_break_telemetry(row: dict[str, Any], state_reason: str) -> dict[str, Any]:
+    applied = str(state_reason).startswith("earnings_revision_break_warning:")
+    decision = earnings_revision_break_decision(row, applied=applied)
+    return {
+        "earnings_revision_break_enabled": bool(decision.enabled),
+        "earnings_revision_break_evaluated": bool(decision.evaluated),
+        "earnings_revision_break_applied": bool(decision.applied),
+        "earnings_revision_break_block_reason": decision.block_reason,
+        "earnings_revision_break_negative_signal_count": int(decision.negative_signal_count),
+        "earnings_revision_break_signal_summary": decision.signal_summary,
+        "earnings_revision_break_reason": state_reason if applied else "",
     }
 
 
@@ -693,6 +760,9 @@ def holding_state(row: dict[str, Any], score_median: float, score_sigma: float) 
         return "WARNING", "short_and_medium_relative_strength_negative"
     if lane == "EMERGING_TENBAGGER" and safe_float(row.get("negative_fcf_risk_cap"), 1.0) < 0.75:
         return "WARNING", "emerging_negative_fcf_or_dilution_risk_cap"
+    revision_break = earnings_revision_break_decision(row)
+    if revision_break.break_warning:
+        return "WARNING", f"earnings_revision_break_warning:{revision_break.signal_summary}"
     return "HOLD", "vnext_score_and_risk_intact"
 
 
@@ -2038,6 +2108,7 @@ def build_variant_book(
             out["hold_replace_decision"] = "keep_prior_holding"
             out["holding_state_reason"] = state_reason
             out.update(shakeout_guard_prod_telemetry(rec_for_state, state_reason))
+            out.update(earnings_revision_break_telemetry(rec_for_state, state_reason))
             out["prior_weight"] = safe_float(old.get("weight"))
             out["leadership_persistence_hold_enabled"] = bool(leadership_persistence_hold_enabled())
             protected, protection_reason = leadership_persistence_hold_protected(
@@ -2103,6 +2174,17 @@ def build_variant_book(
                     "hold_replace_required_gap": required_gap,
                     "hold_replace_required_gap_reason": gap_reason,
                     "leadership_persistence_hold_applied": bool(persistence_applied),
+                    "replacement_test_weakest_holding_state": weakest.get("holding_state"),
+                    "replacement_test_weakest_holding_state_reason": weakest.get("holding_state_reason"),
+                    "replacement_test_weakest_earnings_revision_break_applied": bool(
+                        weakest.get("earnings_revision_break_applied")
+                    ),
+                    "replacement_test_weakest_earnings_revision_break_reason": weakest.get(
+                        "earnings_revision_break_reason"
+                    ),
+                    "replacement_test_weakest_earnings_revision_break_signal_summary": weakest.get(
+                        "earnings_revision_break_signal_summary"
+                    ),
                 })
                 selected_tickers.discard(clean_ticker(weakest.get("ticker")))
                 selected[weakest_idx] = out
@@ -2125,6 +2207,17 @@ def build_variant_book(
                     "hold_replace_required_gap": required_gap,
                     "hold_replace_required_gap_reason": gap_reason,
                     "leadership_persistence_hold_applied": bool(persistence_applied),
+                    "replacement_test_weakest_holding_state": weakest.get("holding_state"),
+                    "replacement_test_weakest_holding_state_reason": weakest.get("holding_state_reason"),
+                    "replacement_test_weakest_earnings_revision_break_applied": bool(
+                        weakest.get("earnings_revision_break_applied")
+                    ),
+                    "replacement_test_weakest_earnings_revision_break_reason": weakest.get(
+                        "earnings_revision_break_reason"
+                    ),
+                    "replacement_test_weakest_earnings_revision_break_signal_summary": weakest.get(
+                        "earnings_revision_break_signal_summary"
+                    ),
                 })
         cash_target = crisis_cash_target(str(crisis_row.get("crisis_state") or "GREEN"), portfolio_kind)
         weighted = assign_weights(selected, portfolio_kind, cash_target)

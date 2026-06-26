@@ -44,6 +44,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_watch_unconfirmed_market_leader_new_entry_cap,
     apply_neutral_metals_new_entry_block,
     build,
+    build_variant_book,
     crisis_new_buy_allowed,
     enforce_pit_available,
     evidence_support_score,
@@ -341,6 +342,10 @@ def _clear_shakeout_guard_env() -> None:
     os.environ.pop("PHASE_SHAKEOUT_GUARD_PROD_ENABLED", None)
 
 
+def _clear_earnings_revision_break_env() -> None:
+    os.environ.pop("PHASE_EARNINGS_REVISION_BREAK_ENABLED", None)
+
+
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
     row: dict[str, object] = {
         "ticker": "KEEP",
@@ -548,6 +553,174 @@ def test_shakeout_guard_prod_env_suppresses_transient_trim_only() -> None:
         assert not_prior.block_reason == "not_prior_holding"
     finally:
         _clear_shakeout_guard_env()
+
+
+def _earnings_revision_break_row(**overrides: object) -> dict[str, object]:
+    row = _shakeout_guard_row(
+        ticker="BREAK",
+        alphaops_vnext_score=1.0,
+        rs_benchmark_1m=-0.04,
+        rs_benchmark_3m=0.04,
+        rs_qqq_1m=-0.04,
+        rs_qqq_3m=0.04,
+        rs_qqq_6m=0.12,
+        sector_leadership_score=0.35,
+        profitability_inflection_score=-0.70,
+        event_reaction_score=-0.90,
+        eps_growth_yoy=-0.40,
+    )
+    row.update(overrides)
+    return row
+
+
+def test_earnings_revision_break_default_off_preserves_hold() -> None:
+    _clear_earnings_revision_break_env()
+    state, reason = holding_state(_earnings_revision_break_row(), score_median=1.0, score_sigma=0.30)
+    assert state == "HOLD"
+    assert reason == "vnext_score_and_risk_intact"
+
+
+def test_earnings_revision_break_env_flags_weak_prior_leader_only() -> None:
+    _clear_earnings_revision_break_env()
+    os.environ["PHASE_EARNINGS_REVISION_BREAK_ENABLED"] = "1"
+    try:
+        state, reason = holding_state(_earnings_revision_break_row(), score_median=1.0, score_sigma=0.30)
+        assert state == "WARNING"
+        assert reason.startswith("earnings_revision_break_warning:")
+        assert "profitability_inflection" in reason and "event_reaction" in reason
+
+        hard_exit, hard_reason = holding_state(
+            _earnings_revision_break_row(price_above_ma200=0.0, price_above_ma50=0.0),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert hard_exit == "EXIT"
+        assert hard_reason == "price_trend_not_alive"
+
+        strong_tape, strong_reason = holding_state(
+            _earnings_revision_break_row(rs_benchmark_1m=0.02, rs_benchmark_3m=0.04, rs_qqq_1m=0.02),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert strong_tape == "HOLD"
+        assert strong_reason == "vnext_score_and_risk_intact"
+
+        weak_evidence, weak_reason = holding_state(
+            _earnings_revision_break_row(
+                profitability_inflection_score=-0.10,
+                event_reaction_score=-0.10,
+                eps_growth_yoy=0.0,
+            ),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert weak_evidence == "HOLD"
+        assert weak_reason == "vnext_score_and_risk_intact"
+    finally:
+        _clear_earnings_revision_break_env()
+
+
+def test_earnings_revision_break_replacement_reject_preserves_prior_telemetry() -> None:
+    _clear_earnings_revision_break_env()
+    os.environ["PHASE_EARNINGS_REVISION_BREAK_ENABLED"] = "1"
+    try:
+        rows = [
+            {
+                **_earnings_revision_break_row(
+                    ticker="OLD",
+                    rebalance_date="2020-01-31",
+                    lane_confidence=4.0,
+                    market_leader_lane_score=4.0,
+                    valuation_support_score=1.0,
+                    top7_support_boost=0.0,
+                    rs_benchmark_1w=0.10,
+                    rs_benchmark_1m=0.10,
+                    rs_benchmark_3m=0.20,
+                    rs_benchmark_6m=0.25,
+                    rs_spy_1m=0.10,
+                    rs_spy_3m=0.20,
+                    rs_spy_6m=0.25,
+                    rs_qqq_1m=0.10,
+                    rs_qqq_3m=0.20,
+                    rs_qqq_6m=0.25,
+                    profitability_inflection_score=0.40,
+                    event_reaction_score=0.30,
+                    eps_growth_yoy=0.20,
+                )
+            },
+            {
+                **_earnings_revision_break_row(
+                    ticker="OLD",
+                    rebalance_date="2020-02-29",
+                    lane_confidence=2.0,
+                    market_leader_lane_score=2.0,
+                    valuation_support_score=0.5,
+                    top7_support_boost=0.0,
+                    rs_benchmark_1w=-0.05,
+                    rs_benchmark_1m=-0.05,
+                    rs_benchmark_3m=0.10,
+                    rs_benchmark_6m=0.15,
+                    rs_spy_1m=-0.05,
+                    rs_spy_3m=0.10,
+                    rs_spy_6m=0.15,
+                    rs_qqq_1m=-0.05,
+                    rs_qqq_3m=0.10,
+                    rs_qqq_6m=0.15,
+                    profitability_inflection_score=-0.80,
+                    event_reaction_score=-0.90,
+                    eps_growth_yoy=-0.50,
+                )
+            },
+            {
+                **_earnings_revision_break_row(
+                    ticker="NEW",
+                    rebalance_date="2020-02-29",
+                    lane_confidence=3.0,
+                    market_leader_lane_score=3.0,
+                    valuation_support_score=0.6,
+                    top7_support_boost=0.0,
+                    rs_benchmark_1w=0.10,
+                    rs_benchmark_1m=0.15,
+                    rs_benchmark_3m=0.25,
+                    rs_benchmark_6m=0.30,
+                    rs_spy_1m=0.15,
+                    rs_spy_3m=0.25,
+                    rs_spy_6m=0.30,
+                    rs_qqq_1m=0.15,
+                    rs_qqq_3m=0.25,
+                    rs_qqq_6m=0.30,
+                    profitability_inflection_score=0.40,
+                    event_reaction_score=0.50,
+                    eps_growth_yoy=0.30,
+                )
+            },
+        ]
+        candidate = pd.DataFrame(rows)
+        candidate["rebalance_date"] = pd.to_datetime(candidate["rebalance_date"]).dt.normalize()
+        target, _lanes, rejected, _exposure = build_variant_book(
+            candidate,
+            portfolio_kind="concentrated",
+            target_n=1,
+            crisis_states=pd.DataFrame(),
+            prices={},
+        )
+        assert not target.empty
+        replaced = rejected[
+            rejected["rejection_reason"].astype(str).eq("replaced_by_higher_vnext_score")
+            & rejected["ticker"].astype(str).eq("OLD")
+        ]
+        assert not replaced.empty
+        row = replaced.iloc[-1]
+        assert bool(row["replacement_test_weakest_earnings_revision_break_applied"]) is True
+        assert str(row["replacement_test_weakest_holding_state"]) == "WARNING"
+        assert str(row["replacement_test_weakest_holding_state_reason"]).startswith(
+            "earnings_revision_break_warning:"
+        )
+        assert "profitability_inflection" in str(
+            row["replacement_test_weakest_earnings_revision_break_signal_summary"]
+        )
+    finally:
+        _clear_earnings_revision_break_env()
 
 
 def test_concentrated_risk_state_caps_new_entries_only() -> None:
@@ -2799,6 +2972,9 @@ if __name__ == "__main__":
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_shakeout_guard_prod_default_off_preserves_trim()
     test_shakeout_guard_prod_env_suppresses_transient_trim_only()
+    test_earnings_revision_break_default_off_preserves_hold()
+    test_earnings_revision_break_env_flags_weak_prior_leader_only()
+    test_earnings_revision_break_replacement_reject_preserves_prior_telemetry()
     test_concentrated_risk_state_caps_new_entries_only()
     test_main_neutral_churn_filter_blocks_reentries_and_rebuilds_cash()
     test_neutral_metals_new_entry_block_removes_new_entries_and_rebuilds_cash()
