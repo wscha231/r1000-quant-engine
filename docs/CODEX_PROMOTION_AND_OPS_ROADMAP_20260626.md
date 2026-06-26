@@ -13,10 +13,13 @@
 Clean 7Y baseline (run `28074476465`, broker_ledger_next_close):
 Main `33.15% / -26.02%`, Concentrated `46.24% / -25.82%`. **Both sleeves miss both
 targets.** The 7Y window gate now PASSES (`years 7.055`) — data gate #1 is solved.
-The remaining production blocker is **`pit_universe_label_clean=false`**.
+The remaining non-performance evidence/substrate blocker is
+**`pit_universe_label_clean=false`**. Performance acceptance is still a separate blocker
+because both sleeves miss the current target contract.
 
 Promotion requires TWO things, not one:
-1. **`pit_universe_label_clean=true`** — the only standing production blocker (Track A).
+1. **`pit_universe_label_clean=true`** — the standing non-performance evidence/substrate
+   blocker (Track A).
 2. At least one sleeve clears its acceptance bar on broker-ledger, valid window, **with OOS**
    (Track C alpha) — OR the bar is re-defined to an achievable production gate (§2).
 
@@ -73,7 +76,7 @@ a checker that reads the artifacts):
 - **Live/paper parity**: broker-ledger replay reconciles with a paper-execution ledger over
   ≥ N months before any live step.
 
-**Target-bar decision (raise with the user):** `Conc 50% absolute CAGR` over a clean PIT 7Y
+**Target-bar decision (raise with the user; do not change silently):** `Conc 50% absolute CAGR` over a clean PIT 7Y
 is very aggressive (broad levers all failed; 46.24/−25.82 looks near the achievable frontier).
 Consider defining the PRODUCTION bar on **relative + risk** terms (e.g. `excess_cagr ≥ +12pp
 vs SPX AND IR ≥ 1.0 AND MDD ≤ −25%`) rather than an absolute 50% that may be unreachable
