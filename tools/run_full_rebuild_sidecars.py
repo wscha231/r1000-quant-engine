@@ -377,6 +377,10 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   # growth/tech, semiconductor factor beta, cash drag, and name contribution.
   # Review-only measurement sidecar; no scoring, target, cash, or order mutation.
   python tools/run_alpha_beta_attribution.py --latest-run outputs --price-cache cache_prices --output-dir outputs/alpha_beta_attribution 2>&1 | tee outputs/full_rebuild_logs/alpha_beta_attribution.log || true
+  # Right-tail entry signal audit: verifies whether top contribution names had
+  # PIT-visible entry signals. Realized PnL only chooses audit targets; no
+  # forward-return ranking, target, cash, scoring, or order mutation.
+  python tools/run_right_tail_entry_signal_audit.py --latest-run outputs --output-dir outputs/right_tail_entry_signal_audit 2>&1 | tee outputs/full_rebuild_logs/right_tail_entry_signal_audit.log || true
   # Era leadership diagnostic: factor IC and top-name contribution by era.
   # Review-only sidecar; no production scoring or target-book mutation.
   python tools/run_era_leadership_sidecar.py --latest-run outputs --output-dir outputs/era_leadership 2>&1 | tee outputs/full_rebuild_logs/era_leadership.log || true
