@@ -163,6 +163,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/data_freshness_macro_snapshot_smoke.py", []),
     ("tests/daily_market_snapshot_smoke.py", []),
     ("tests/universe_health_audit_smoke.py", []),
+    ("tests/pit_membership_audit_smoke.py", []),
     ("tests/daily_user_current_contract_smoke.py", []),
     ("tests/top_manager_discovery_signals_smoke.py", []),
     ("tests/etf_nport_history_smoke.py", []),

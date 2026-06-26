@@ -20,6 +20,11 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.run_pit_membership_audit import audit_membership_file  # noqa: E402
+
 DATE_COLUMNS = ("rebalance_date", "feature_date", "as_of_date", "date", "Date")
 SOURCE_COLUMNS = ("universe_source", "source_universe")
 R1000_SOURCE_TOKENS = (
@@ -375,6 +380,20 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     if not candidate_path.exists():
         blockers.append("candidate_replay_book.csv missing")
 
+    pit_membership_result: dict[str, Any] = {}
+    pit_membership_audit: dict[str, Any] = {}
+    pit_universe_label_clean = False
+    if getattr(args, "pit_membership_file", ""):
+        pit_membership_result = audit_membership_file(
+            repo_path(args.pit_membership_file),
+            output_dir,
+            coverage_floor=int(getattr(args, "pit_membership_coverage_floor", 400)),
+        )
+        pit_membership_audit = pit_membership_result.get("audit") or {}
+        pit_universe_label_clean = bool(pit_membership_audit.get("pit_universe_label_clean"))
+        if not pit_universe_label_clean:
+            blockers.append("pit_membership_audit_blocked")
+
     next_actions = []
     if blockers:
         next_actions.extend(
@@ -396,6 +415,14 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "universe_mode": args.universe_mode,
         "status": status,
         "promotion_allowed": promotion_allowed,
+        "production_promotion_allowed": bool(promotion_allowed and pit_universe_label_clean),
+        "pit_universe_label_clean": bool(pit_universe_label_clean),
+        "historical_universe_pit_clean": bool(
+            (pit_membership_audit or {}).get("historical_universe_pit_clean", False)
+        ),
+        "official_pit_r1000": bool((pit_membership_audit or {}).get("official_pit_r1000", False)),
+        "pit_membership_audit": pit_membership_audit,
+        "pit_membership_manifest": pit_membership_result.get("manifest") if pit_membership_result else {},
         "min_r1000_base": int(args.min_r1000_base),
         "r1000_base_count": r1000_base_count,
         "scored_count": scored_count,
@@ -416,6 +443,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "hard_fail",
             ],
             "promotion_rule": "non-ADR runs require scored R1000 base >= min_r1000_base and valid 8-year broker-ledger evidence",
+            "production_promotion_rule": "production also requires pit_universe_label_clean=true from a no-future-membership audit",
             "do_not_use_for": "strategy promotion or A/B baseline when status != pass",
         },
     }
@@ -465,6 +493,8 @@ def write_report(path: Path, payload: dict[str, Any]) -> None:
         f"- status: `{payload.get('status')}`",
         f"- action: `{action}`",
         f"- promotion_allowed: `{str(payload.get('promotion_allowed')).lower()}`",
+        f"- production_promotion_allowed: `{str(payload.get('production_promotion_allowed')).lower()}`",
+        f"- pit_universe_label_clean: `{str(payload.get('pit_universe_label_clean')).lower()}`",
         f"- universe_mode: `{payload.get('universe_mode')}`",
         f"- r1000_base_count: `{payload.get('r1000_base_count')}`",
         f"- scored_count: `{payload.get('scored_count')}`",
@@ -501,6 +531,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="outputs/universe_health")
     parser.add_argument("--min-r1000-base", type=int, default=400)
     parser.add_argument("--universe-mode", default="global_alpha_universe")
+    parser.add_argument("--pit-membership-file", default="")
+    parser.add_argument("--pit-membership-coverage-floor", type=int, default=400)
     parser.add_argument("--strict", action="store_true", help="Exit nonzero when universe promotion is not allowed.")
     return parser.parse_args()
 
