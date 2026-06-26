@@ -87,8 +87,16 @@ alphaops score bonus in this work order.
 Do not hardcode `Capital Goods - Machinery`, `Construction & Engineering`,
 `bear`, or any observed winning segment into the policy.
 
-Instead, if segment scoping is used, it must be selected from training-only
-diagnostics and frozen before OOS measurement.
+Segment scoping is required. The raw PIT predicate alone did not discriminate
+the four observed cap/drop overlaps, so a predicate-only rescue must emit
+`status=no_segment_candidate` and stay inactive. The actual hypothesis is that
+a training-only segment screen can identify where the dropped-leader rescue is
+repeatable.
+
+The segment screen must be selected from training-only diagnostics and frozen
+before OOS measurement. Use the first roughly five years of the clean 7Y window
+as the IS training period and the last roughly two years as the OOS measurement
+period.
 
 Allowed segment screen for an IS-only training fold:
 
@@ -101,7 +109,9 @@ Allowed segment screen for an IS-only training fold:
 Then evaluate the frozen segment rule on the OOS fold. The OOS report must show
 whether the selected segment screen generalizes. If no segment survives the
 training screen, the lever must emit `status=no_segment_candidate` and remain
-inactive.
+inactive. If OOS observations are too sparse to interpret, emit
+`status=inconclusive_oos_sample` and do not ship or ready-for-human-review the
+lever.
 
 ## Required Outputs
 
@@ -150,9 +160,13 @@ Step 3: acceptance gate
 
 Step 4: overfit guard
 
-- IS-trained segment screen must be measured on OOS.
+- IS-trained segment screen must be measured on the last roughly two years of
+  OOS data after a first roughly five years training freeze.
+- Predicate-only rescue without a surviving segment is invalid and must remain
+  inactive.
 - A result that only works in one segment, one ticker, or one event is a review
   signal, not a ship signal.
+- Sparse OOS evidence is inconclusive, not a pass.
 - OOS/IS and leave-top-winner-out are audit triggers, not automatic rejection,
   but skill-vs-luck evidence must be shown before any ready-for-human-review
   label.
