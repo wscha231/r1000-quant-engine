@@ -163,6 +163,10 @@ def screen_portfolio(
     guard_block_reasons: Counter[str] = Counter()
     guard_classifier_states: Counter[str] = Counter()
     leader_tiers: Counter[str] = Counter()
+    benchmark_tier_candidate_states: Counter[str] = Counter()
+    loose_abs_1m_candidate_states: Counter[str] = Counter()
+    benchmark_tier_candidate_rows = 0
+    loose_abs_1m_candidate_rows = 0
     for raw_dt in sorted(pd.to_datetime(candidate["rebalance_date"], errors="coerce").dropna().unique()):
         dt = pd.Timestamp(raw_dt).normalize()
         prior = prior_by_date.get(dt, set())
@@ -200,6 +204,19 @@ def screen_portfolio(
             leader_tiers[str(rec.get("leader_tier") or "unknown")] += 1
             if decision.protected:
                 protected += 1
+            benchmark_tier_candidate = (
+                safe_float(rec.get("rs_benchmark_3m")) > 0.0
+                and safe_float(rec.get("rs_benchmark_6m")) > 0.0
+                and safe_float(rec.get("sector_leadership_score")) > 0.0
+                and safe_float(rec.get("smart_money_evidence_confidence")) >= 0.25
+                and safe_float(rec.get("price_above_ma200"), 1.0) >= 0.5
+            )
+            if benchmark_tier_candidate:
+                benchmark_tier_candidate_rows += 1
+                benchmark_tier_candidate_states[str(base_state)] += 1
+                if safe_float(rec.get("r_1m")) < 0.0:
+                    loose_abs_1m_candidate_rows += 1
+                    loose_abs_1m_candidate_states[str(base_state)] += 1
             if str(on_reason).startswith("shakeout_guard_prod_suppressed_"):
                 suppressed += 1
                 rows.append(
@@ -236,6 +253,10 @@ def screen_portfolio(
         "guard_block_reason_counts": dict(sorted(guard_block_reasons.items())),
         "guard_classifier_state_counts": dict(sorted(guard_classifier_states.items())),
         "leader_tier_counts": dict(sorted(leader_tiers.items())),
+        "benchmark_tier_candidate_rows": int(benchmark_tier_candidate_rows),
+        "benchmark_tier_candidate_baseline_state_counts": dict(sorted(benchmark_tier_candidate_states.items())),
+        "loose_abs_1m_candidate_rows": int(loose_abs_1m_candidate_rows),
+        "loose_abs_1m_candidate_baseline_state_counts": dict(sorted(loose_abs_1m_candidate_states.items())),
     }
 
 
@@ -261,6 +282,8 @@ def render_report(payload: dict[str, Any]) -> str:
                 f"- suppressed rows: `{item.get('suppressed_rows')}`",
                 f"- baseline states: `{item.get('baseline_state_counts', {})}`",
                 f"- guard block reasons: `{item.get('guard_block_reason_counts', {})}`",
+                f"- benchmark-tier fallback candidates: `{item.get('benchmark_tier_candidate_rows')}` / states `{item.get('benchmark_tier_candidate_baseline_state_counts', {})}`",
+                f"- loose absolute-1m candidates: `{item.get('loose_abs_1m_candidate_rows')}` / states `{item.get('loose_abs_1m_candidate_baseline_state_counts', {})}`",
                 "",
             ]
         )

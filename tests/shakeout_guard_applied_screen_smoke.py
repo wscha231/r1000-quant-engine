@@ -35,6 +35,7 @@ def _candidate_row(ticker: str, *, score_level: float, leader: bool) -> dict[str
         "rs_spy_6m": 0.12 if leader else -0.05,
         "rs_qqq_6m": 0.10 if leader else -0.05,
         "rs_benchmark_1w": 0.01 if leader else -0.01,
+        "r_1m": -0.03 if leader else 0.04,
         "rs_benchmark_1m": -0.02 if leader else -0.02,
         "rs_benchmark_3m": 0.04 if leader else -0.03,
         "rs_benchmark_6m": 0.10 if leader else -0.05,
@@ -103,6 +104,10 @@ def test_screen_counts_only_actual_shakeout_suppression() -> None:
     assert summary["status"] == "screen_passed"
     assert summary["prior_holding_evaluated_rows"] == 1
     assert summary["suppressed_rows"] == 1
+    assert summary["benchmark_tier_candidate_rows"] == 1
+    assert summary["benchmark_tier_candidate_baseline_state_counts"] == {"TRIM": 1}
+    assert summary["loose_abs_1m_candidate_rows"] == 1
+    assert summary["loose_abs_1m_candidate_baseline_state_counts"] == {"TRIM": 1}
     assert len(rows) == 1
     row = rows[0]
     assert row["ticker"] == "LEAD"
