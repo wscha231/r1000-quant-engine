@@ -148,6 +148,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/shakeout_guard_applied_screen_smoke.py", []),
     ("tests/leadership_persistence_applied_screen_smoke.py", []),
     ("tests/hold_duration_leak_screen_smoke.py", []),
+    ("tests/sizing_signal_screen_smoke.py", []),
     ("tests/cost_sensitivity_sidecar_smoke.py", []),
     ("tests/trade_attribution_analysis_smoke.py", []),
     ("tests/concentrated_cap_replacement_audit_smoke.py", []),
