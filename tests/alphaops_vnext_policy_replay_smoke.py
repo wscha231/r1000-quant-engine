@@ -50,6 +50,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     holding_state,
     leadership_persistence_hold_protected,
     replacement_gap_for_weakest,
+    score_month,
     shakeout_guard_prod_decision,
 )
 from tools.run_market_leader_challenger import resolve_candidate_book
@@ -548,6 +549,75 @@ def test_shakeout_guard_prod_env_suppresses_transient_trim_only() -> None:
         assert not_prior.block_reason == "not_prior_holding"
     finally:
         _clear_shakeout_guard_env()
+
+
+def test_score_month_populates_shakeout_guard_inputs_from_enriched_candidate_rows() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2021-06-30",
+                "ticker": "LEAD",
+                "sector": "Technology",
+                "industry_group": "Semiconductors",
+                "rs_spy_1w": 0.02,
+                "rs_qqq_1w": 0.01,
+                "rs_spy_1m": -0.01,
+                "rs_qqq_1m": -0.02,
+                "rs_spy_3m": 0.05,
+                "rs_qqq_3m": 0.04,
+                "rs_spy_6m": 0.12,
+                "rs_qqq_6m": 0.10,
+                "rs_benchmark_1w": 0.01,
+                "rs_benchmark_3m": 0.04,
+                "rs_benchmark_6m": 0.10,
+                "rs_semis_3m": 0.06,
+                "industry_group_strength_score": 1.0,
+                "industry_within_leader_rank": 1.0,
+                "oneil_leadership_score": 1.0,
+                "sub_industry_rs_score": 1.0,
+                "industry_leader_gap": 1.0,
+                "sec_form4_cluster_buy_score": 0.8,
+                "sec_13f_smart_money_score": 0.7,
+                "etf_holdings_score_shadow": 0.6,
+                "price_above_ma200": 1.0,
+                "price_above_ma50": 1.0,
+                "primary_lane": "MARKET_LEADER",
+            },
+            {
+                "rebalance_date": "2021-06-30",
+                "ticker": "LAG",
+                "sector": "Technology",
+                "industry_group": "Software",
+                "rs_spy_1w": -0.02,
+                "rs_qqq_1w": -0.02,
+                "rs_spy_1m": -0.03,
+                "rs_qqq_1m": -0.03,
+                "rs_spy_3m": -0.04,
+                "rs_qqq_3m": -0.04,
+                "rs_spy_6m": -0.06,
+                "rs_qqq_6m": -0.06,
+                "rs_benchmark_1w": -0.02,
+                "rs_benchmark_3m": -0.04,
+                "rs_benchmark_6m": -0.06,
+                "rs_semis_3m": -0.04,
+                "industry_group_strength_score": -1.0,
+                "industry_within_leader_rank": -1.0,
+                "oneil_leadership_score": -1.0,
+                "sub_industry_rs_score": -1.0,
+                "industry_leader_gap": -1.0,
+                "price_above_ma200": 1.0,
+                "price_above_ma50": 1.0,
+                "primary_lane": "MARKET_LEADER",
+            },
+        ]
+    )
+    scored = score_month(frame)
+    leader = scored[scored["ticker"].eq("LEAD")].iloc[0]
+    assert "sector_leadership_score" in scored.columns
+    assert "smart_money_evidence_confidence" in scored.columns
+    assert float(leader["sector_leadership_score"]) > 0.0
+    assert float(leader["smart_money_evidence_confidence"]) >= 0.25
+    assert leader["leader_tier"] == "DUAL_LEADER"
 
 
 def test_concentrated_risk_state_caps_new_entries_only() -> None:
@@ -2799,6 +2869,7 @@ if __name__ == "__main__":
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_shakeout_guard_prod_default_off_preserves_trim()
     test_shakeout_guard_prod_env_suppresses_transient_trim_only()
+    test_score_month_populates_shakeout_guard_inputs_from_enriched_candidate_rows()
     test_concentrated_risk_state_caps_new_entries_only()
     test_main_neutral_churn_filter_blocks_reentries_and_rebuilds_cash()
     test_neutral_metals_new_entry_block_removes_new_entries_and_rebuilds_cash()
