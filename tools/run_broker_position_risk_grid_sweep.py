@@ -124,14 +124,42 @@ def target_book_for(latest: Path, portfolio: str) -> Path:
 
 def baseline_for(latest: Path, portfolio: str) -> dict[str, Any]:
     metrics = load_json(latest / "broker_replay" / portfolio / "metrics.json")
+    if metrics and metrics.get("status") == "completed":
+        return {
+            "available": True,
+            "cagr": safe_float(metrics.get("cagr")),
+            "max_dd": safe_float(metrics.get("max_dd")),
+            "sharpe": safe_float(metrics.get("sharpe")),
+            "avg_cash_weight": safe_float(metrics.get("avg_cash_weight")),
+            "trade_count": int(safe_float(metrics.get("trade_count"))),
+            "metric_mode": metrics.get("metric_mode", ""),
+            "source": f"broker_replay/{portfolio}/metrics.json",
+        }
+    official = load_json(latest / "account_evaluation" / "official_metrics.json")
+    portfolio_metrics = (official.get("portfolios") or {}).get(portfolio) if isinstance(official, dict) else {}
+    if isinstance(portfolio_metrics, dict) and portfolio_metrics:
+        trade_count = portfolio_metrics.get("broker_trade_count", portfolio_metrics.get("trade_count"))
+        return {
+            "available": True,
+            "cagr": safe_float(portfolio_metrics.get("cagr")),
+            "max_dd": safe_float(portfolio_metrics.get("max_dd")),
+            "sharpe": safe_float(portfolio_metrics.get("sharpe")),
+            "avg_cash_weight": safe_float(portfolio_metrics.get("avg_cash_weight")),
+            "trade_count": int(safe_float(trade_count)),
+            "metric_mode": official.get("official_metric_mode", portfolio_metrics.get("metric_mode", "")),
+            "source": f"account_evaluation/official_metrics.json#portfolios.{portfolio}",
+            "window_status": (portfolio_metrics.get("broker_ledger_window_gate") or {}).get("status", ""),
+            "production_promotion_allowed": bool(portfolio_metrics.get("valid_for_production", False)),
+        }
     return {
-        "available": bool(metrics),
-        "cagr": safe_float(metrics.get("cagr")),
-        "max_dd": safe_float(metrics.get("max_dd")),
-        "sharpe": safe_float(metrics.get("sharpe")),
-        "avg_cash_weight": safe_float(metrics.get("avg_cash_weight")),
-        "trade_count": int(safe_float(metrics.get("trade_count"))),
-        "metric_mode": metrics.get("metric_mode", ""),
+        "available": False,
+        "cagr": 0.0,
+        "max_dd": 0.0,
+        "sharpe": 0.0,
+        "avg_cash_weight": 0.0,
+        "trade_count": 0,
+        "metric_mode": "",
+        "source": "",
     }
 
 
