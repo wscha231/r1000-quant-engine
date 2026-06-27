@@ -36,6 +36,15 @@ from r1000_market_leader_engine import (  # noqa: E402
     compute_sector_leadership_score,
     compute_smart_money_confirmation_score,
 )
+from tools.concentrated_score_sizing_reweight import (  # noqa: E402
+    CAP_MODES as CONCENTRATED_SCORE_SIZING_CAP_MODES,
+    DEFAULT_BLEND as DEFAULT_CONCENTRATED_SCORE_SIZING_BLEND,
+    DEFAULT_CAP_MODE as DEFAULT_CONCENTRATED_SCORE_SIZING_CAP_MODE,
+    DEFAULT_RANK_POWER as DEFAULT_CONCENTRATED_SCORE_SIZING_RANK_POWER,
+    DEFAULT_SIGNAL as DEFAULT_CONCENTRATED_SCORE_SIZING_SIGNAL,
+    DEFAULT_SINGLE_CAP as DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP,
+    reweight_concentrated_records,
+)
 from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS, replay as broker_replay  # noqa: E402
 from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
     CRISIS_HYSTERESIS,
@@ -246,9 +255,11 @@ CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BENCHMARK_RISK_THRESH
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_ATR_THRESHOLD = 0.10
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BREAKOUT_THRESHOLD = 0.40
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_SECTORS = {"Energy", "Materials"}
-CONCENTRATED_SCORE_SIZING_REWEIGHT_SIGNAL = "alphaops_vnext_score"
-CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND = 0.75
-CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = 1.5
+CONCENTRATED_SCORE_SIZING_REWEIGHT_SIGNAL = DEFAULT_CONCENTRATED_SCORE_SIZING_SIGNAL
+CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND = DEFAULT_CONCENTRATED_SCORE_SIZING_BLEND
+CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = DEFAULT_CONCENTRATED_SCORE_SIZING_RANK_POWER
+CONCENTRATED_SCORE_SIZING_REWEIGHT_CAP_MODE = DEFAULT_CONCENTRATED_SCORE_SIZING_CAP_MODE
+CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP = DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -577,6 +588,36 @@ def shakeout_guard_warning_suppress_enabled() -> bool:
 
 def concentrated_score_sizing_reweight_enabled() -> bool:
     return bool(phase_is_enabled("concentrated_score_sizing_reweight", default=False))
+
+
+def concentrated_score_sizing_signal() -> str:
+    raw = os.environ.get("R1000_CONC_SCORE_SIZING_SIGNAL", "").strip()
+    return raw or CONCENTRATED_SCORE_SIZING_REWEIGHT_SIGNAL
+
+
+def concentrated_score_sizing_blend() -> float:
+    raw = os.environ.get("R1000_CONC_SCORE_SIZING_BLEND", "")
+    value = safe_float(raw, CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND)
+    return float(max(0.0, min(1.0, value)))
+
+
+def concentrated_score_sizing_rank_power() -> float:
+    raw = os.environ.get("R1000_CONC_SCORE_SIZING_RANK_POWER", "")
+    value = safe_float(raw, CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER)
+    return float(max(0.0, value))
+
+
+def concentrated_score_sizing_cap_mode() -> str:
+    raw = os.environ.get("R1000_CONC_SCORE_SIZING_CAP_MODE", "").strip()
+    if raw and raw in CONCENTRATED_SCORE_SIZING_CAP_MODES:
+        return raw
+    return CONCENTRATED_SCORE_SIZING_REWEIGHT_CAP_MODE
+
+
+def concentrated_score_sizing_single_cap() -> float:
+    raw = os.environ.get("R1000_CONC_SCORE_SIZING_SINGLE_CAP", "")
+    value = safe_float(raw, CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP)
+    return float(max(0.0, value))
 
 
 @dataclass(frozen=True)
@@ -1992,44 +2033,21 @@ def apply_concentrated_score_sizing_reweight(
         return weighted
     if not concentrated_score_sizing_reweight_enabled():
         return weighted
-    signal = CONCENTRATED_SCORE_SIZING_REWEIGHT_SIGNAL
-    base_weights = [
-        max(0.0, safe_float(row.get("target_weight"), safe_float(row.get("weight"))))
-        for row in weighted
-    ]
-    gross = float(sum(base_weights))
-    if gross <= 1e-12:
+    out, telemetry = reweight_concentrated_records(
+        weighted,
+        signal=concentrated_score_sizing_signal(),
+        blend=concentrated_score_sizing_blend(),
+        rank_power=concentrated_score_sizing_rank_power(),
+        cap_mode=concentrated_score_sizing_cap_mode(),
+        single_cap=concentrated_score_sizing_single_cap(),
+    )
+    if telemetry.get("status") != "applied":
         return weighted
-    scores = pd.Series([safe_float(row.get(signal), float("nan")) for row in weighted], dtype=float)
-    if scores.notna().sum() < 2 or scores.nunique(dropna=True) < 2:
-        return weighted
-    ranks = scores.rank(method="average", pct=True).fillna(0.0).clip(lower=0.0)
-    raw = ranks.pow(CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER)
-    denom = float(raw.sum())
-    if denom <= 1e-12:
-        return weighted
-    target_alloc = raw / denom * gross
-    blend = float(CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND)
-    out: list[dict[str, Any]] = []
-    for i, rec in enumerate(weighted):
-        item = dict(rec)
-        before = float(base_weights[i])
-        after = max(0.0, (1.0 - blend) * before + blend * float(target_alloc.iloc[i]))
-        cap = safe_float(item.get("effective_single_weight_cap"), target_caps("concentrated")["single"])
-        item["pre_concentrated_score_sizing_reweight_weight"] = before
-        item["weight"] = after
-        item["target_weight"] = after
-        item["concentrated_score_sizing_reweight_status"] = "applied"
-        item["concentrated_score_sizing_reweight_signal"] = signal
-        item["concentrated_score_sizing_reweight_blend"] = blend
-        item["concentrated_score_sizing_reweight_rank_power"] = CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER
-        item["concentrated_score_sizing_reweight_delta"] = after - before
-        item["concentrated_score_sizing_reweight_cap_exceeded"] = bool(after > cap + 1e-10)
+    for item in out:
         item["selection_reason"] = (
             str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
             + "|concentrated_score_sizing_reweight"
         )
-        out.append(item)
     return out
 
 
