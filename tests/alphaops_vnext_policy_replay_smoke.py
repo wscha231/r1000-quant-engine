@@ -25,6 +25,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap,
     apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_concentrated_high_vol_weak_timing_new_entry_cap,
+    apply_concentrated_score_sizing_reweight,
     apply_concentrated_unconfirmed_high_vol_new_entry_cap,
     apply_concentrated_unconfirmed_quality_bull_new_entry_cap,
     apply_concentrated_watch_damaged_weak_market_leader_cap,
@@ -333,6 +334,71 @@ def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
     assert DEFAULT_CONCENTRATED_TARGET_N == 5
 
 
+def test_concentrated_score_sizing_reweight_default_off_preserves_weights() -> None:
+    _clear_concentrated_score_sizing_env()
+    selected = [
+        {
+            "ticker": "LOW",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "effective_single_weight_cap": 0.30,
+            "alphaops_vnext_score": 1.0,
+        },
+        {
+            "ticker": "HIGH",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "effective_single_weight_cap": 0.30,
+            "alphaops_vnext_score": 3.0,
+        },
+    ]
+
+    out = apply_concentrated_score_sizing_reweight(selected, "concentrated")
+
+    assert out == selected
+
+
+def test_concentrated_score_sizing_reweight_preserves_gross_and_marks_cap_breach() -> None:
+    _clear_concentrated_score_sizing_env()
+    os.environ["PHASE_CONCENTRATED_SCORE_SIZING_REWEIGHT_ENABLED"] = "1"
+    try:
+        selected = [
+            {
+                "ticker": "LOW",
+                "weight": 0.30,
+                "target_weight": 0.30,
+                "effective_single_weight_cap": 0.30,
+                "alphaops_vnext_score": 1.0,
+            },
+            {
+                "ticker": "MID",
+                "weight": 0.25,
+                "target_weight": 0.25,
+                "effective_single_weight_cap": 0.30,
+                "alphaops_vnext_score": 2.0,
+            },
+            {
+                "ticker": "HIGH",
+                "weight": 0.20,
+                "target_weight": 0.20,
+                "effective_single_weight_cap": 0.30,
+                "alphaops_vnext_score": 3.0,
+            },
+        ]
+
+        out = apply_concentrated_score_sizing_reweight(selected, "concentrated")
+    finally:
+        _clear_concentrated_score_sizing_env()
+
+    before = {row["ticker"]: float(row["weight"]) for row in selected}
+    after = {row["ticker"]: float(row["weight"]) for row in out}
+    assert round(sum(after.values()), 10) == round(sum(before.values()), 10)
+    assert after["HIGH"] > before["HIGH"]
+    assert after["LOW"] < before["LOW"]
+    assert all(row["concentrated_score_sizing_reweight_status"] == "applied" for row in out)
+    assert any(bool(row["concentrated_score_sizing_reweight_cap_exceeded"]) for row in out)
+
+
 def _clear_leadership_persistence_env() -> None:
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED", None)
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER", None)
@@ -340,6 +406,10 @@ def _clear_leadership_persistence_env() -> None:
 
 def _clear_shakeout_guard_env() -> None:
     os.environ.pop("PHASE_SHAKEOUT_GUARD_PROD_ENABLED", None)
+
+
+def _clear_concentrated_score_sizing_env() -> None:
+    os.environ.pop("PHASE_CONCENTRATED_SCORE_SIZING_REWEIGHT_ENABLED", None)
 
 
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
