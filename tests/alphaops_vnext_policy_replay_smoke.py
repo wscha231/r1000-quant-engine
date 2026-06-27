@@ -399,6 +399,61 @@ def test_concentrated_score_sizing_reweight_preserves_gross_and_marks_cap_breach
     assert any(bool(row["concentrated_score_sizing_reweight_cap_exceeded"]) for row in out)
 
 
+def test_concentrated_score_sizing_reweight_main_portfolio_noop() -> None:
+    _clear_concentrated_score_sizing_env()
+    os.environ["PHASE_CONCENTRATED_SCORE_SIZING_REWEIGHT_ENABLED"] = "1"
+    try:
+        selected = [
+            {"ticker": "LOW", "weight": 0.30, "target_weight": 0.30, "alphaops_vnext_score": 1.0},
+            {"ticker": "HIGH", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 3.0},
+        ]
+
+        out = apply_concentrated_score_sizing_reweight(selected, "main")
+    finally:
+        _clear_concentrated_score_sizing_env()
+
+    assert out == selected
+
+
+def test_concentrated_score_sizing_reweight_cap30_env_preserves_gross_without_breach() -> None:
+    _clear_concentrated_score_sizing_env()
+    os.environ["PHASE_CONCENTRATED_SCORE_SIZING_REWEIGHT_ENABLED"] = "1"
+    os.environ["R1000_CONC_SCORE_SIZING_CAP_MODE"] = "cap30_waterfill"
+    os.environ["R1000_CONC_SCORE_SIZING_BLEND"] = "0.75"
+    os.environ["R1000_CONC_SCORE_SIZING_RANK_POWER"] = "1.5"
+    try:
+        selected = [
+            {"ticker": "LOW", "weight": 0.30, "target_weight": 0.30, "alphaops_vnext_score": 1.0},
+            {"ticker": "MID", "weight": 0.25, "target_weight": 0.25, "alphaops_vnext_score": 2.0},
+            {"ticker": "HIGH", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 3.0},
+        ]
+
+        out = apply_concentrated_score_sizing_reweight(selected, "concentrated")
+    finally:
+        _clear_concentrated_score_sizing_env()
+
+    assert round(sum(float(row["weight"]) for row in out), 10) == round(sum(float(row["weight"]) for row in selected), 10)
+    assert max(float(row["weight"]) for row in out) <= 0.3000000001
+    assert all(row["concentrated_score_sizing_reweight_cap_mode"] == "cap30_waterfill" for row in out)
+    assert not any(bool(row["concentrated_score_sizing_reweight_cap_exceeded"]) for row in out)
+
+
+def test_concentrated_score_sizing_reweight_constant_signal_noop() -> None:
+    _clear_concentrated_score_sizing_env()
+    os.environ["PHASE_CONCENTRATED_SCORE_SIZING_REWEIGHT_ENABLED"] = "1"
+    try:
+        selected = [
+            {"ticker": "A", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 1.0},
+            {"ticker": "B", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 1.0},
+        ]
+
+        out = apply_concentrated_score_sizing_reweight(selected, "concentrated")
+    finally:
+        _clear_concentrated_score_sizing_env()
+
+    assert out == selected
+
+
 def _clear_leadership_persistence_env() -> None:
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED", None)
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER", None)
@@ -410,6 +465,11 @@ def _clear_shakeout_guard_env() -> None:
 
 def _clear_concentrated_score_sizing_env() -> None:
     os.environ.pop("PHASE_CONCENTRATED_SCORE_SIZING_REWEIGHT_ENABLED", None)
+    os.environ.pop("R1000_CONC_SCORE_SIZING_SIGNAL", None)
+    os.environ.pop("R1000_CONC_SCORE_SIZING_BLEND", None)
+    os.environ.pop("R1000_CONC_SCORE_SIZING_RANK_POWER", None)
+    os.environ.pop("R1000_CONC_SCORE_SIZING_CAP_MODE", None)
+    os.environ.pop("R1000_CONC_SCORE_SIZING_SINGLE_CAP", None)
 
 
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
@@ -2937,6 +2997,11 @@ if __name__ == "__main__":
     test_sec_available_from_columns_are_pit_checked_and_positive_only()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
+    test_concentrated_score_sizing_reweight_default_off_preserves_weights()
+    test_concentrated_score_sizing_reweight_preserves_gross_and_marks_cap_breach()
+    test_concentrated_score_sizing_reweight_main_portfolio_noop()
+    test_concentrated_score_sizing_reweight_cap30_env_preserves_gross_without_breach()
+    test_concentrated_score_sizing_reweight_constant_signal_noop()
     test_shakeout_guard_prod_default_off_preserves_trim()
     test_shakeout_guard_prod_env_suppresses_transient_trim_only()
     test_score_month_populates_shakeout_guard_inputs_from_enriched_candidate_rows()
