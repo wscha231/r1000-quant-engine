@@ -3128,6 +3128,46 @@ def test_adr_global_alpha_fallback_gate() -> None:
     assert not bool(us["portfolio_candidate_minimum_pass"])
 
 
+@_test("logic.dynamic_leader_candidate_rescue_gate")
+def test_dynamic_leader_candidate_rescue_gate() -> None:
+    """A/B-only rescue admits strong PIT leaders that fail fundamental lanes,
+    while default OFF and high-risk rows remain rejected.
+    """
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_pipeline import annotate_portfolio_candidate_gate
+
+    df = pd.DataFrame(
+        {
+            "ticker": ["RESCUE", "RISKY"],
+            "portfolio_sleeve_label": ["future_winner", "future_winner"],
+            "score": [2.5, 2.5],
+            "rs_benchmark_3m": [0.40, 0.40],
+            "rs_benchmark_6m": [0.25, 0.25],
+            "rs_acceleration_score": [2.5, 2.5],
+            "industry_group_strength_score": [1.25, 1.25],
+            "price_above_ma200": [1.0, 1.0],
+            "portfolio_risk_entry_block_score": [0.10, 0.80],
+            "portfolio_stale_mega_leader_score": [0.0, 0.0],
+            "mktcap": [50_000_000_000.0, 50_000_000_000.0],
+        }
+    )
+    default_out = annotate_portfolio_candidate_gate(df, EngineConfig())
+    assert not bool(default_out.loc[default_out["ticker"].eq("RESCUE"), "portfolio_candidate_minimum_pass"].iloc[0])
+    assert str(default_out.loc[default_out["ticker"].eq("RESCUE"), "portfolio_candidate_gate_label"].iloc[0]) == "rejected"
+
+    cfg = EngineConfig()
+    cfg.dynamic_leader_candidate_rescue_enabled = True
+    enabled_out = annotate_portfolio_candidate_gate(df, cfg)
+    rescue = enabled_out.loc[enabled_out["ticker"].eq("RESCUE")].iloc[0]
+    risky = enabled_out.loc[enabled_out["ticker"].eq("RISKY")].iloc[0]
+    assert bool(rescue["portfolio_candidate_minimum_pass"])
+    assert bool(rescue["dynamic_leader_candidate_rescue_pass"])
+    assert str(rescue["portfolio_candidate_gate_label"]) == "dynamic_leader_rescue"
+    assert not bool(risky["portfolio_candidate_minimum_pass"])
+    assert not bool(risky["dynamic_leader_candidate_rescue_pass"])
+
+
 @_test("regression.global_alpha_universe_window_audit_wired")
 def test_global_alpha_universe_window_audit_wired() -> None:
     """The shared global-alpha universe, official 8-year execution path, and
