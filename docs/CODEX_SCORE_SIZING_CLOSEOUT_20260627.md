@@ -72,9 +72,21 @@ can differ slightly when the local price cache extends beyond the official run
 end date. That drift must be explained, but it does not change this lever's
 decision: cap-safe score sizing is rejected.
 
+## Follow-up Sweep Result
+
+The next proposed Concentrated CAGR lever was a **green/bull gross-exposure
+floor** cheap broker sweep. That sweep has now been run and rejected:
+
+- floor `0.7`: CAGR 46.23%, MDD -34.90%
+- floor `0.8`: CAGR 45.40%, MDD -37.07%
+- floor `0.9`: CAGR 44.36%, MDD -39.69%
+
+The lever fired, but broad exposure increased drawdown sharply and reduced
+CAGR. Therefore, do not dispatch a fullrun from either score-sizing or broad
+gross-floor evidence.
+
 ## Next Priority
 
-The next Concentrated CAGR lever should be a **green/bull gross-exposure floor**
-cheap broker sweep, not another score-sizing fullrun. It must preserve
-WATCH/DEFENSE/CRISIS cash defense and prove the effect on broker-ledger
-metrics before any full rebuild.
+Move to a narrower **PIT-confirmed winner hold / earnings-guidance evidence**
+screen. This must prove a cheap broker-ledger-relevant edge before any new
+policy hook or fullrun.
