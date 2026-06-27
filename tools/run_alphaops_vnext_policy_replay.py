@@ -246,6 +246,9 @@ CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BENCHMARK_RISK_THRESH
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_ATR_THRESHOLD = 0.10
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BREAKOUT_THRESHOLD = 0.40
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_SECTORS = {"Energy", "Materials"}
+CONCENTRATED_SCORE_SIZING_REWEIGHT_SIGNAL = "alphaops_vnext_score"
+CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND = 0.75
+CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = 1.5
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -570,6 +573,10 @@ def shakeout_guard_prod_enabled() -> bool:
 
 def shakeout_guard_warning_suppress_enabled() -> bool:
     return bool(phase_is_enabled("shakeout_guard_warning_suppress", default=False))
+
+
+def concentrated_score_sizing_reweight_enabled() -> bool:
+    return bool(phase_is_enabled("concentrated_score_sizing_reweight", default=False))
 
 
 @dataclass(frozen=True)
@@ -1969,6 +1976,63 @@ def apply_concentrated_unconfirmed_high_vol_new_entry_cap(
     return capped
 
 
+def apply_concentrated_score_sizing_reweight(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    """Research-only score-family sizing tilt for concentrated books.
+
+    This implements the #191 cheap-screen candidate as a default-OFF policy
+    hook. It keeps the selected names and gross stock exposure unchanged, then
+    blends final post-cap weights toward rank-power allocation by
+    alphaops_vnext_score. It intentionally does not touch cash. Any post-tilt
+    single-name cap breach is reported as telemetry for broker A/B review.
+    """
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    if not concentrated_score_sizing_reweight_enabled():
+        return weighted
+    signal = CONCENTRATED_SCORE_SIZING_REWEIGHT_SIGNAL
+    base_weights = [
+        max(0.0, safe_float(row.get("target_weight"), safe_float(row.get("weight"))))
+        for row in weighted
+    ]
+    gross = float(sum(base_weights))
+    if gross <= 1e-12:
+        return weighted
+    scores = pd.Series([safe_float(row.get(signal), float("nan")) for row in weighted], dtype=float)
+    if scores.notna().sum() < 2 or scores.nunique(dropna=True) < 2:
+        return weighted
+    ranks = scores.rank(method="average", pct=True).fillna(0.0).clip(lower=0.0)
+    raw = ranks.pow(CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER)
+    denom = float(raw.sum())
+    if denom <= 1e-12:
+        return weighted
+    target_alloc = raw / denom * gross
+    blend = float(CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND)
+    out: list[dict[str, Any]] = []
+    for i, rec in enumerate(weighted):
+        item = dict(rec)
+        before = float(base_weights[i])
+        after = max(0.0, (1.0 - blend) * before + blend * float(target_alloc.iloc[i]))
+        cap = safe_float(item.get("effective_single_weight_cap"), target_caps("concentrated")["single"])
+        item["pre_concentrated_score_sizing_reweight_weight"] = before
+        item["weight"] = after
+        item["target_weight"] = after
+        item["concentrated_score_sizing_reweight_status"] = "applied"
+        item["concentrated_score_sizing_reweight_signal"] = signal
+        item["concentrated_score_sizing_reweight_blend"] = blend
+        item["concentrated_score_sizing_reweight_rank_power"] = CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER
+        item["concentrated_score_sizing_reweight_delta"] = after - before
+        item["concentrated_score_sizing_reweight_cap_exceeded"] = bool(after > cap + 1e-10)
+        item["selection_reason"] = (
+            str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+            + "|concentrated_score_sizing_reweight"
+        )
+        out.append(item)
+    return out
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -2162,6 +2226,7 @@ def build_variant_book(
         weighted = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_concentrated_score_sizing_reweight(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}
         for rec in weighted:
