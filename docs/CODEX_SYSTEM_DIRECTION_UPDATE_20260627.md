@@ -12,6 +12,14 @@ The current system direction is:
 4. Discard broad levers that fail, but retain narrowly useful diagnostics.
 5. Move only one scoped candidate at a time into broker-ledger proof.
 
+The active research target is now fixed as:
+
+- Concentrated CAGR >= 50%
+- Concentrated MDD >= -25%
+
+This is a research target until PIT membership is clean. It is not production
+promotion authority.
+
 ## Latest Closed Work
 
 ### Score-Sizing
@@ -92,7 +100,7 @@ Interpretation:
 
 ### Next Candidate Class
 
-The next high-value direction should be **narrow, PIT-confirmed winner hold /
+The next high-value direction is **narrow, PIT-confirmed winner hold /
 earnings-event confirmation**, not broad exposure:
 
 1. Event/earnings guidance evidence layer:
@@ -135,3 +143,51 @@ one question before any hook is written:
 > drawdown?
 
 If the cheap screen does not show this, stop and do not add another policy hook.
+
+## Earnings / Guidance Hold Screen Result
+
+Tool:
+
+```bash
+python tools/run_earnings_guidance_hold_screen.py \
+  --latest-run artifacts/28074476465/outputs \
+  --output-dir artifacts/28074476465/earnings_guidance_hold_screen_20260627
+```
+
+Result: **screen pass for a narrow hook candidate**.
+
+Primary predicate:
+
+```text
+portfolio = concentrated
+pit_leader_hold_candidate = true
+actual_results_score > 0
+```
+
+This is PIT-observable at the prior rebalance row and does not use forward
+returns for live ranking. Forward 126d returns remain audit labels only.
+
+| Split | Rows | Positive Rate | Mean 126d Excess | Median |
+| --- | ---: | ---: | ---: | ---: |
+| Full | 52 | 53.85% | +10.39% | +3.45% |
+| IS before 2024-06-03 | 41 | 53.66% | +9.83% | +5.26% |
+| OOS from 2024-06-03 | 11 | 54.55% | +12.50% | +0.29% |
+
+Interpretation:
+
+- Broad hold-duration rescue was negative and remains rejected.
+- A narrow actual-results-confirmed hold predicate is the first surviving
+  candidate after score-sizing and gross-floor rejects.
+- This does not prove CAGR/MDD improvement yet. It only permits the next step:
+  a default-OFF target-book hook candidate and cheap broker A/B.
+
+Next required hook design:
+
+- default OFF,
+- Concentrated only,
+- prior holding only,
+- require `actual_results_score > 0`,
+- require existing PIT leader hold predicate,
+- no ticker/date/sector hardcoding,
+- prove `applied_count > 0` before broker delta,
+- accept only if broker-ledger moves toward CAGR >= 50% and MDD >= -25%.
