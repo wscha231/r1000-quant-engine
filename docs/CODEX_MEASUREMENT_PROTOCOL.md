@@ -151,7 +151,33 @@ Production promotion remains separate (needs `pit_universe_label_clean`).
 
 ---
 
-## 8. Guardrails (unchanged)
+## 8. AI Capex late-cycle research layer
+
+The AI Capex layer is a research-only screen until it passes the normal broker-ledger acceptance
+path.
+
+Rules:
+- Uploaded PDF stock examples are `idea_only`; they are not buy lists.
+- `ai_capex_value_chain_bucket`, earnings revisions, guidance, and keyword shocks are PIT inputs
+  only when `available_from <= decision_date`.
+- `tools/run_ai_capex_bottleneck_screen.py` may use 63d/126d forward excess only as audit labels.
+  It must emit `used_forward_return_in_ranking=false`.
+- A screen pass can justify only a later default-OFF hook proposal.
+- No fullrun is allowed until a default-OFF hook shows broker-ledger A/B improvement with OOS
+  non-collapse and concentration/MDD gates intact.
+- Late-cycle AI regime telemetry must not force trades. It can split screens and explain risk.
+
+Failure signals for this layer:
+- EPS/revenue revision rollover
+- guidance cut
+- margin or ASP pressure
+- customer pushback/order-delay keyword shock
+- 3M RS break
+- price below MA200
+
+---
+
+## 9. Guardrails (unchanged)
 
 PIT-only; env-gated default OFF; new feature columns into `build_feature_store.keep_cols` +
 `hard_sanitize` + phase zero-placeholder (else silently 0.0); CI smoke in the same commit;
