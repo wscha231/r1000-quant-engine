@@ -45,6 +45,7 @@ from tools.concentrated_score_sizing_reweight import (  # noqa: E402
     DEFAULT_SINGLE_CAP as DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP,
     reweight_concentrated_records,
 )
+from tools.ai_capex_taxonomy import enrich_frame as enrich_ai_capex_frame  # noqa: E402
 from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS, replay as broker_replay  # noqa: E402
 from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
     CRISIS_HYSTERESIS,
@@ -260,6 +261,7 @@ CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND = DEFAULT_CONCENTRATED_SCORE_SIZING_BLE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = DEFAULT_CONCENTRATED_SCORE_SIZING_RANK_POWER
 CONCENTRATED_SCORE_SIZING_REWEIGHT_CAP_MODE = DEFAULT_CONCENTRATED_SCORE_SIZING_CAP_MODE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP = DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP
+AI_CAPEX_MOMENTUM_TILT_STRENGTH = 0.15
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -618,6 +620,16 @@ def concentrated_score_sizing_single_cap() -> float:
     raw = os.environ.get("R1000_CONC_SCORE_SIZING_SINGLE_CAP", "")
     value = safe_float(raw, CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP)
     return float(max(0.0, value))
+
+
+def ai_capex_momentum_tilt_enabled() -> bool:
+    return bool(phase_is_enabled("ai_capex_momentum_tilt", default=False))
+
+
+def ai_capex_momentum_tilt_strength() -> float:
+    raw = os.environ.get("R1000_MAIN_AI_CAPEX_TILT_STRENGTH", "")
+    value = safe_float(raw, AI_CAPEX_MOMENTUM_TILT_STRENGTH)
+    return float(max(0.0, min(1.0, value)))
 
 
 @dataclass(frozen=True)
@@ -2051,6 +2063,84 @@ def apply_concentrated_score_sizing_reweight(
     return out
 
 
+def apply_main_ai_capex_momentum_tilt(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    """Default-OFF Main-only tilt toward existing AI bottleneck momentum names.
+
+    This mirrors the cheap broker A/B arm that passed for Main and failed for
+    Concentrated. It preserves the selected ticker set and stock gross, does
+    not require earnings confirmation, and never applies to Concentrated.
+    """
+
+    if portfolio_kind != "main" or not weighted:
+        return weighted
+    if not ai_capex_momentum_tilt_enabled():
+        return weighted
+
+    frame = pd.DataFrame([dict(row) for row in weighted])
+    if frame.empty or "ticker" not in frame.columns:
+        return weighted
+    enriched = enrich_ai_capex_frame(frame)
+    if "rs_benchmark_3m" in enriched.columns:
+        rs_raw = enriched["rs_benchmark_3m"]
+    elif "rs_spy_3m" in enriched.columns:
+        rs_raw = enriched["rs_spy_3m"]
+    else:
+        rs_raw = pd.Series(0.0, index=enriched.index)
+    rs_3m = pd.to_numeric(rs_raw, errors="coerce").fillna(0.0)
+    momentum_rank = rs_3m.rank(pct=True).fillna(0.5)
+    eligible = (
+        enriched["ai_capex_value_chain_bucket"].astype(str).ne("AI_OTHER")
+        & (pd.to_numeric(enriched["ai_capex_bottleneck_score"], errors="coerce").fillna(0.0) >= 0.5)
+        & ((rs_3m > 0.0) | (momentum_rank >= 0.6))
+    )
+    if int(eligible.sum()) <= 0:
+        return weighted
+
+    before = [max(0.0, safe_float(row.get("target_weight"), safe_float(row.get("weight")))) for row in weighted]
+    stock_gross = float(sum(before))
+    if stock_gross <= 1e-12:
+        return weighted
+    strength = ai_capex_momentum_tilt_strength()
+    raw = [weight * (1.0 + strength if bool(flag) else 1.0) for weight, flag in zip(before, eligible.tolist())]
+    raw_sum = float(sum(raw))
+    if raw_sum <= 1e-12:
+        return weighted
+    scaled = [weight * stock_gross / raw_sum for weight in raw]
+    ceilings = [
+        max(0.0, safe_float(row.get("effective_single_weight_cap"), target_caps("main")["single"]))
+        for row in weighted
+    ]
+    after = capped_proportional_fill(scaled, stock_gross, ceilings)
+    if abs(sum(after) - stock_gross) > 1e-8:
+        return weighted
+    if sum(abs(a - b) for a, b in zip(after, before)) <= 1e-12:
+        return weighted
+
+    out: list[dict[str, Any]] = []
+    for idx, row in enumerate(weighted):
+        item = dict(row)
+        item["pre_main_ai_capex_momentum_tilt_weight"] = before[idx]
+        item["main_ai_capex_momentum_tilt_weight"] = after[idx]
+        item["main_ai_capex_momentum_tilt_delta"] = after[idx] - before[idx]
+        item["main_ai_capex_momentum_tilt_enabled"] = True
+        item["main_ai_capex_momentum_tilt_applied"] = bool(eligible.iloc[idx])
+        item["main_ai_capex_momentum_tilt_strength"] = strength
+        item["ai_capex_value_chain_bucket"] = enriched.iloc[idx].get("ai_capex_value_chain_bucket")
+        item["ai_capex_bottleneck_score"] = safe_float(enriched.iloc[idx].get("ai_capex_bottleneck_score"))
+        item["weight"] = after[idx]
+        item["target_weight"] = after[idx]
+        if bool(eligible.iloc[idx]):
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|main_ai_capex_momentum_tilt"
+            )
+        out.append(item)
+    return out
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -2244,6 +2334,7 @@ def build_variant_book(
         weighted = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_main_ai_capex_momentum_tilt(weighted, portfolio_kind)
         weighted = apply_concentrated_score_sizing_reweight(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}

@@ -112,3 +112,59 @@ Then run a cheap target-book screen to verify:
 
 Only after that should broker A/B be rerun through the policy path.
 
+## Follow-Up Implementation: Main Default-OFF Hook
+
+Implemented:
+
+`PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED`
+
+Code path:
+
+- `tools/run_alphaops_vnext_policy_replay.py::apply_main_ai_capex_momentum_tilt`
+- called after the existing Main risk/cap overlays
+- before output rows are written
+
+Rules:
+
+- Main only
+- Concentrated always no-op
+- default OFF returns the original records unchanged
+- existing selected tickers only
+- stock gross preserved
+- cash unchanged
+- no earnings confirmation requirement
+- no production activation
+
+Telemetry:
+
+- `pre_main_ai_capex_momentum_tilt_weight`
+- `main_ai_capex_momentum_tilt_weight`
+- `main_ai_capex_momentum_tilt_delta`
+- `main_ai_capex_momentum_tilt_enabled`
+- `main_ai_capex_momentum_tilt_applied`
+- `main_ai_capex_momentum_tilt_strength`
+- `ai_capex_value_chain_bucket`
+- `ai_capex_bottleneck_score`
+
+Fast applied screen:
+
+`tools/run_ai_capex_momentum_tilt_applied_screen.py`
+
+Clean7Y target-book application:
+
+| Portfolio | Status | Dates | Applied events | Changed dates | Total abs weight delta | Cash unchanged | Ticker set preserved |
+|---|---|---:|---:|---:|---:|---|---|
+| Main | `screen_pass_applied` | 85 | 360 | 81 | 3.2497 | true | true |
+| Concentrated | `blocked_no_applied_events` | 85 | 0 | 0 | 0.0000 | true | true |
+
+Interpretation:
+
+- The hook is not a no-op for Main.
+- The hook is a deliberate no-op for Concentrated, matching the broker A/B rejection.
+- A full policy replay or fullrun is still not justified until this target-book path is reviewed and accepted.
+
+Validation:
+
+- `tests/ai_capex_momentum_tilt_hook_smoke.py`
+- `tests/ai_capex_momentum_tilt_applied_screen_smoke.py`
+- `tools/run_pr_validation.py --only ai_capex --only alphaops_vnext_policy_replay`
