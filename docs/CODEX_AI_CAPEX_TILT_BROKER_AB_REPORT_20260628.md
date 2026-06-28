@@ -168,3 +168,56 @@ Validation:
 - `tests/ai_capex_momentum_tilt_hook_smoke.py`
 - `tests/ai_capex_momentum_tilt_applied_screen_smoke.py`
 - `tools/run_pr_validation.py --only ai_capex --only alphaops_vnext_policy_replay`
+
+## Follow-Up Broker Replay: Hook-Generated Target Book
+
+After the applied-count screen passed, the hook-generated Main target book was
+sent through `tools/run_broker_ledger_replay.py` with the same clean7Y artifact
+price cache and next-close broker settings.
+
+Inputs:
+
+- baseline target book: `artifacts/28074476465/outputs/alphaops_vnext/official_main_target_book.csv`
+- tilt target book: `artifacts/28074476465/ai_capex_momentum_tilt_applied_screen_20260628/main/tilted_target_book.csv`
+- price cache: `artifacts/28074476465/cache_prices`
+- broker mode: `broker_ledger_next_close`, integer shares, 25bps per side, max fill lag 7
+- OOS split: `2024-06-03`
+- OOS2 split: `2023-06-03`
+
+Result:
+
+| Metric | Baseline | Main AI Capex tilt | Delta |
+|---|---:|---:|---:|
+| CAGR | 33.93% | 34.91% | +0.98pp |
+| MaxDD | -26.02% | -26.04% | -0.03pp |
+| Sharpe | 1.239 | 1.257 | +0.018 |
+| Years | 7.061 | 7.061 | 0.000 |
+| Avg cash | 26.69% | 26.70% | +0.01pp |
+| Trades | 1693 | 1694 | +1 |
+| Fees | $37,986 | $38,545 | +$559 |
+| Gross traded | $15.19M | $15.42M | +$0.22M |
+
+OOS checks:
+
+| Window | Baseline CAGR | Tilt CAGR | Delta | Baseline MaxDD | Tilt MaxDD | Delta |
+|---|---:|---:|---:|---:|---:|---:|
+| OOS 2024-06-03+ | 71.88% | 73.59% | +1.71pp | -24.31% | -24.28% | +0.03pp |
+| OOS2 2023-06-03+ | 58.04% | 59.82% | +1.78pp | -24.31% | -24.28% | +0.03pp |
+
+Verdict:
+
+- `research_pass_main_cagr_candidate`
+- The hook clears the CAGR-improvement bar for Main on the broker ledger.
+- OOS and OOS2 do not collapse.
+- Full-window MDD is effectively flat but still slightly worse, and the
+  absolute Main MDD target remains failed.
+- Main target remains below the 35% CAGR mission target by about 0.09pp.
+- This is not a production candidate and does not justify a fullrun by itself.
+
+Next gate:
+
+- Review this as a Main CAGR lever only.
+- Pairing it with a separate Main MDD repair lever is still required before any
+  mission-target claim.
+- Do not apply it to Concentrated; the Concentrated AI Capex tilt was rejected
+  by the previous broker A/B.
