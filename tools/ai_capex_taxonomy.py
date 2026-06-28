@@ -175,6 +175,7 @@ def row_text(row: pd.Series | dict[str, Any]) -> str:
         "Name",
         "name",
         "sector",
+        "industry_group",
         "industry",
         "subindustry",
         "theme",
@@ -196,15 +197,18 @@ def classify_row(row: pd.Series | dict[str, Any]) -> dict[str, Any]:
     text = row_text(row)
     ticker = clean_ticker(row.get("ticker", "") if hasattr(row, "get") else "")
     scores: dict[str, int] = {}
+    details: dict[str, dict[str, int]] = {}
     for spec in SPECS:
         keyword_hits = count_matches(text, spec.keywords)
         industry_hits = count_matches(text, spec.industries)
         seed_hit = 1 if ticker in {item.upper() for item in spec.seed_tickers} else 0
         scores[spec.bucket] = keyword_hits * 2 + industry_hits * 2 + seed_hit
+        details[spec.bucket] = {"keyword_hits": keyword_hits, "industry_hits": industry_hits, "seed_hit": seed_hit}
     bucket = max(scores, key=scores.get) if scores else "AI_OTHER"
     if scores.get(bucket, 0) <= 0:
         bucket = "AI_OTHER"
     spec = SPEC_BY_BUCKET.get(bucket)
+    detail = details.get(bucket, {"keyword_hits": 0, "industry_hits": 0, "seed_hit": 0})
     keyword_score = min(1.0, (scores.get(bucket, 0) or 0) / 6.0)
     pricing_power = min(1.0, count_matches(text, PRICING_POWER_KEYWORDS) / 3.0)
     substitution_risk = min(1.0, count_matches(text, SUBSTITUTION_KEYWORDS) / 2.0)
@@ -216,17 +220,25 @@ def classify_row(row: pd.Series | dict[str, Any]) -> dict[str, Any]:
         source_confidence = "seed_example_only"
     else:
         source_confidence = "text_or_industry_match"
-    bottleneck_score = max(
-        0.0,
-        min(
-            1.0,
-            0.55 * keyword_score
-            + 0.35 * pricing_power
-            + 0.10 * (1.0 if bucket in {"AI_MEMORY", "AI_STORAGE", "AI_CONNECT", "AI_POWER", "AI_GRID"} else 0.0)
-            - 0.15 * substitution_risk
-            - 0.10 * peakout_risk,
-        ),
+    structural_bucket_bonus = 0.10 if bucket in {"AI_MEMORY", "AI_STORAGE", "AI_CONNECT", "AI_POWER", "AI_GRID"} else 0.0
+    evidence_floor = 0.0
+    if bucket != "AI_OTHER":
+        if detail.get("keyword_hits", 0) > 0:
+            evidence_floor = max(evidence_floor, 0.55)
+        if detail.get("industry_hits", 0) > 0:
+            evidence_floor = max(evidence_floor, 0.50 + structural_bucket_bonus)
+        if detail.get("seed_hit", 0) > 0:
+            # Seed examples are still idea-only, but they should be testable in
+            # cheap screens when paired with PIT earnings/RS confirmation.
+            evidence_floor = max(evidence_floor, 0.50 + structural_bucket_bonus)
+    raw_score = (
+        0.55 * keyword_score
+        + 0.35 * pricing_power
+        + structural_bucket_bonus
+        - 0.15 * substitution_risk
+        - 0.10 * peakout_risk
     )
+    bottleneck_score = max(0.0, min(1.0, max(raw_score, evidence_floor)))
     return {
         "ai_capex_value_chain_bucket": bucket,
         "ai_capex_supplier_type": "none" if bucket == "AI_OTHER" else "capex_supplier",

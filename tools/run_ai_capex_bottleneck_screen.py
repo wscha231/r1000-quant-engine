@@ -88,6 +88,8 @@ def prepare(frame: pd.DataFrame) -> pd.DataFrame:
     )
     d["eps_revision_13w"] = first_existing(d, ["eps_revision_13w", "revision_eps_13w", "eps_estimate_revision_13w"], 0.0)
     d["revenue_revision_13w"] = first_existing(d, ["revenue_revision_13w", "sales_revision_13w"], 0.0)
+    d["positive_guidance_flag"] = first_existing(d, ["positive_guidance_flag", "guidance_raise_flag"], 0.0)
+    d["actual_results_score"] = first_existing(d, ["actual_results_score", "earnings_actual_results_score"], 0.0)
     d["rs_3m"] = first_existing(
         d,
         ["rs_benchmark_3m", "rs_spy_3m", "relative_strength_3m", "momentum_3m", "return_63d"],
@@ -96,6 +98,13 @@ def prepare(frame: pd.DataFrame) -> pd.DataFrame:
     d["momentum_rank_proxy"] = d["rs_3m"].rank(pct=True).fillna(0.5)
     d["ai_bottleneck_high"] = pd.to_numeric(d.get("ai_capex_bottleneck_score"), errors="coerce").fillna(0.0) >= 0.5
     d["eps_revision_positive"] = (d["eps_revision_13w"] > 0) | (d["revenue_revision_13w"] > 0)
+    d["earnings_confirmation_positive"] = (
+        d["eps_revision_positive"] | (d["positive_guidance_flag"] > 0) | (d["actual_results_score"] > 0)
+    )
+    d["earnings_confirmation_source"] = "neutral"
+    d.loc[d["actual_results_score"] > 0, "earnings_confirmation_source"] = "actual_results_score"
+    d.loc[d["positive_guidance_flag"] > 0, "earnings_confirmation_source"] = "positive_guidance"
+    d.loc[d["eps_revision_positive"], "earnings_confirmation_source"] = "eps_or_revenue_revision"
     d["momentum_high"] = (d["rs_3m"] > 0) | (d["momentum_rank_proxy"] >= 0.6)
     d["is_ai_capex_bucket"] = d["ai_capex_value_chain_bucket"].astype(str).ne("AI_OTHER")
     d["screen_group"] = (
@@ -103,7 +112,7 @@ def prepare(frame: pd.DataFrame) -> pd.DataFrame:
         + "|bottleneck_"
         + d["ai_bottleneck_high"].map({True: "high", False: "low"})
         + "|revision_"
-        + d["eps_revision_positive"].map({True: "pos", False: "nonpos"})
+        + d["earnings_confirmation_positive"].map({True: "pos", False: "nonpos"})
         + "|momentum_"
         + d["momentum_high"].map({True: "high", False: "low"})
     )
@@ -162,6 +171,18 @@ def decide(stats: pd.DataFrame, target_group: str, min_count: int, min_oos_count
         "target_full": full_row,
         "target_oos": oos_row,
     }
+
+
+def best_group(stats: pd.DataFrame, split: str, min_count: int) -> dict[str, Any]:
+    d = stats[stats["split"].eq(split)].copy()
+    if d.empty:
+        return {}
+    d["count"] = pd.to_numeric(d["count"], errors="coerce").fillna(0)
+    d["mean_126d_excess"] = pd.to_numeric(d["mean_126d_excess"], errors="coerce").fillna(float("-inf"))
+    d = d[d["count"] >= min_count]
+    if d.empty:
+        return {}
+    return d.sort_values("mean_126d_excess", ascending=False).iloc[0].to_dict()
 
 
 def render_report(payload: dict[str, Any], stats: pd.DataFrame) -> str:
@@ -236,7 +257,12 @@ def main() -> int:
         "forward_returns_audit_only": True,
         "oos_start": oos_start.date().isoformat(),
         "row_count": int(len(prepared)),
+        "earnings_confirmation_source_counts": prepared["earnings_confirmation_source"].value_counts().to_dict()
+        if "earnings_confirmation_source" in prepared.columns
+        else {},
         "stats_csv": str(stats_path),
+        "best_full_group": best_group(stats, "full", int(args.min_count)),
+        "best_oos_group": best_group(stats, "oos", int(args.min_oos_count)),
         **decision,
     }
     write_json(output_dir / "summary.json", payload)
