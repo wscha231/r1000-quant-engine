@@ -275,3 +275,82 @@ Do not implement a broad fragility trim. The next MDD research step, if needed,
 should be a narrower stress-window attribution screen that asks whether a small
 set of recurring PIT features explains the specific left-tail losses without
 cutting high-volatility winners.
+
+## Implementation Result: Stress-Window Attribution
+
+Implemented:
+
+`tools/run_main_stress_window_attribution.py`
+
+Validation:
+
+- `tests/main_stress_window_attribution_smoke.py`
+- `tools/run_pr_validation.py --only main_crash_fragility_screen --only main_stress_window_attribution`
+
+Clean7Y artifact application:
+
+`artifacts/28074476465/main_stress_window_attribution_20260628`
+
+Stress windows:
+
+- `2020-02-19:2020-03-18`
+- `2025-02-18:2025-04-04`
+
+Summary:
+
+| Metric | Value |
+|---|---:|
+| Stress rows | 71 |
+| Stress windows | 2 |
+| Tickers | 46 |
+| Top predicate | `weight_top20` |
+| Top predicate loss share | 57.10% |
+| Top predicate rows | 25 |
+| Top predicate windows | 2 |
+| Verdict | `screen_pass_design_default_off_stress_hook` |
+
+Top predicates:
+
+| Predicate | Rows | Windows | Avg stress return | Loss share | Other avg stress return |
+|---|---:|---:|---:|---:|---:|
+| `weight_top20` | 25 | 2 | -31.54% | 57.10% | -22.18% |
+| `weak_market_state` | 43 | 2 | -20.79% | 38.74% | -32.67% |
+| `extension_top20` | 15 | 2 | -31.01% | 30.92% | -23.99% |
+| `cluster_top20` | 16 | 2 | -23.33% | 29.17% | -26.10% |
+| `vol_top20` | 15 | 2 | -27.03% | 26.04% | -25.06% |
+
+Interpretation:
+
+- The recurring stress-window signal is not broad fragility; it is large
+  position size into stress windows.
+- `extension_top20` is a secondary signal, but weaker than position size.
+- This still does not automatically justify a cap hook because large positions
+  also drive winner compounding.
+
+## Quick Broker Check: Main Single-Name Cap
+
+As a sanity check, Main target books were post-processed with stock-gross
+preserving caps and replayed through broker ledger:
+
+`artifacts/28074476465/main_stress_cap_broker_ab_20260628`
+
+| Arm | CAGR | MaxDD | Sharpe | Verdict |
+|---|---:|---:|---:|---|
+| Baseline | 33.93% | -26.02% | 1.239 | reference |
+| Main cap 10% | 32.68% | -26.03% | 1.216 | reject, CAGR lower and MDD unchanged |
+| Main cap 8% | 31.05% | -26.35% | 1.185 | reject, CAGR lower and MDD worse |
+
+Interpretation:
+
+- Stress-window attribution correctly identifies that large positions explain a
+  lot of stress losses.
+- A blunt lower Main cap is still not useful; it cuts winner compounding and
+  does not fix full-window MDD.
+- Do not implement a generic Main single-name cap reduction.
+
+Updated next step:
+
+The next MDD candidate must be more selective than `weight_top20` alone. It
+should combine large position size with an additional PIT stress condition such
+as extreme extension plus early market damage, and it must prove broker-ledger
+MDD improvement without the cap10/cap8 CAGR collapse.
