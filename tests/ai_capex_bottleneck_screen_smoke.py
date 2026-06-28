@@ -44,12 +44,41 @@ def _rows() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _earnings_signals() -> pd.DataFrame:
+    rows = []
+    for idx, date in enumerate(["2021-12-15", "2022-12-15", "2024-07-01", "2024-12-15"]):
+        rows.append(
+            {
+                "ticker": f"MEM{idx}",
+                "available_from": date,
+                "eps_revision_13w": 0.20,
+                "revenue_revision_13w": 0.10,
+                "positive_guidance_flag": 1,
+                "negative_guidance_flag": 0,
+            }
+        )
+        rows.append(
+            {
+                "ticker": f"MEM{idx}",
+                "available_from": "2030-01-01",
+                "eps_revision_13w": -0.99,
+                "revenue_revision_13w": -0.99,
+                "positive_guidance_flag": 0,
+                "negative_guidance_flag": 1,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def test_prepare_marks_forward_returns_audit_only_inputs() -> None:
-    prepared = prepare(_rows())
+    prepared, signal_meta = prepare(_rows(), _earnings_signals())
     target = prepared[prepared["ticker"].eq("MEM0")].iloc[0]
     assert target["ai_capex_value_chain_bucket"] == "AI_MEMORY"
     assert bool(target["ai_bottleneck_high"])
     assert bool(target["eps_revision_positive"])
+    assert target["earnings_confirmation_source"] == "vendor_eps_or_revenue_revision"
+    assert signal_meta["earnings_signal_joined_rows"] == 4
+    assert signal_meta["earnings_signal_future_rows_filtered"] == 4
     assert "forward_126d_excess_audit_only" in prepared.columns
 
 
@@ -57,8 +86,10 @@ def test_cli_screen_passes_only_to_default_off_hook_stage() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         inp = root / "candidates.csv"
+        signals = root / "earnings_signals.csv"
         out = root / "out"
         _rows().to_csv(inp, index=False)
+        _earnings_signals().to_csv(signals, index=False)
         old_argv = sys.argv[:]
         try:
             sys.argv = [
@@ -67,6 +98,8 @@ def test_cli_screen_passes_only_to_default_off_hook_stage() -> None:
                 str(inp),
                 "--output-dir",
                 str(out),
+                "--earnings-signals",
+                str(signals),
                 "--min-count",
                 "3",
                 "--min-oos-count",
@@ -79,6 +112,8 @@ def test_cli_screen_passes_only_to_default_off_hook_stage() -> None:
         assert payload["screen_pass"] is True
         assert payload["used_forward_return_in_ranking"] is False
         assert payload["production_activation_allowed"] is False
+        assert payload["earnings_signal_joined_rows"] == 4
+        assert payload["earnings_confirmation_source_counts"]["vendor_eps_or_revenue_revision"] == 4
 
 
 if __name__ == "__main__":

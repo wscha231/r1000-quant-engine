@@ -108,6 +108,48 @@ The follow-up changes fixed this without using forward returns:
 - `actual_results_score > 0` is allowed as a PIT earnings-confirmation fallback.
 - Screen summaries now emit `best_full_group` and `best_oos_group` so we can see whether the intended target group is actually the best group.
 
+## 2026-06-28 Follow-Up: True EPS/Guidance Feed Join
+
+`run_ai_capex_bottleneck_screen.py` now attempts a PIT as-of join against:
+
+`data_pit/events/earnings_revision_signals.parquet`
+
+Join rule:
+
+- match by ticker
+- use only rows with `available_from <= screen_date`
+- ignore future `available_from`
+- write joined values to `vendor_*` columns
+- prefer true vendor EPS/revenue revision or positive guidance over `actual_results_score`
+
+This means a real EPS/guidance feed can be added later without rewriting the screen. The fallback remains explicit and auditable.
+
+Current clean 7Y artifact state:
+
+| Sleeve | earnings signal status | joined rows | confirmation source counts |
+|---|---|---:|---|
+| Concentrated | `missing_or_empty` | 0 | `actual_results_score_fallback`: 254, `neutral`: 243 |
+| Main | `missing_or_empty` | 0 | `actual_results_score_fallback`: 789, `neutral`: 493 |
+
+Therefore the real-data screen pass is still a fallback-based research signal, not a true FactSet-style EPS/guidance-confirmed signal.
+
+Updated screen results remain unchanged in direction:
+
+| Sleeve | Target group full mean 126d excess | OOS mean 126d excess | Best group |
+|---|---:|---:|---|
+| Concentrated | +7.85% | +14.58% | `ai|bottleneck_high|revision_nonpos|momentum_high` |
+| Main | +4.59% | +9.25% | `ai|bottleneck_high|revision_nonpos|momentum_high` |
+
+Important interpretation:
+
+- The intended group still passes: `ai|bottleneck_high|revision_pos|momentum_high`.
+- But the stronger group in both sleeves remains `ai|bottleneck_high|revision_nonpos|momentum_high`.
+- Since `revision_pos` is currently driven by `actual_results_score_fallback`, do not require earnings confirmation in a policy hook yet.
+- The next policy candidate must compare:
+  - AI bottleneck + momentum
+  - AI bottleneck + momentum + actual-results fallback
+  - AI bottleneck + momentum + true vendor EPS/guidance confirmation when the feed exists
+
 ## No-Lookahead Check
 
 The cheap screen still reports:
