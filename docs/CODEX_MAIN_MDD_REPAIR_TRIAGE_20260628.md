@@ -354,3 +354,69 @@ The next MDD candidate must be more selective than `weight_top20` alone. It
 should combine large position size with an additional PIT stress condition such
 as extreme extension plus early market damage, and it must prove broker-ledger
 MDD improvement without the cap10/cap8 CAGR collapse.
+
+## Implementation Result: Stress-Condition Cap Broker A/B
+
+Implemented:
+
+`tools/run_main_stress_condition_cap_broker_ab.py`
+
+Validation:
+
+- `tests/main_stress_condition_cap_broker_ab_smoke.py`
+- registered in `tools/run_pr_validation.py`
+
+Clean7Y artifact application:
+
+`artifacts/28074476465/main_stress_condition_cap_broker_ab_20260628`
+
+Arms:
+
+- `baseline`
+- `large_ext_cap10`
+- `large_ext_cap11`
+- `large_ext_weak_cap10`
+- `large_ext_weak_cap11`
+- `large_ext_vol_cap10`
+- `large_ext_fragile_cap10`
+
+All non-baseline arms preserve selected tickers and cash policy. They only cap
+already-selected Main names when PIT-observable conditions are true:
+
+- large position size (`weight_rank >= 0.80`)
+- extension (`ma200_extension_rank >= 0.80`)
+- optional weak market state, high volatility, or high crash-fragility score
+
+Broker replay result:
+
+| Arm | Applied rows | CAGR | MaxDD | Sharpe | Verdict |
+|---|---:|---:|---:|---:|---|
+| Baseline | 0 | 33.93% | -26.02% | 1.239 | reference |
+| `large_ext_cap10` | 79 | 33.04% | -26.02% | 1.225 | reject, CAGR damage |
+| `large_ext_cap11` | 67 | 33.56% | -26.02% | 1.234 | reject, no MDD edge |
+| `large_ext_weak_cap10` | 32 | 33.83% | -26.02% | 1.239 | reject, no MDD edge |
+| `large_ext_weak_cap11` | 27 | 33.96% | -26.02% | 1.241 | reject, no MDD edge |
+| `large_ext_vol_cap10` | 32 | 33.72% | -26.02% | 1.241 | reject, no MDD edge |
+| `large_ext_fragile_cap10` | 0 | 33.93% | -26.02% | 1.239 | blocked, no applied rows |
+
+Interpretation:
+
+- The predicate fired for multiple non-baseline arms, so this is not a no-op.
+- MaxDD stayed unchanged in every fired arm. The Main left-tail problem is not
+  fixed by monthly stock-level conditional caps.
+- This closes the cheap cap/fragility path for Main MDD repair. Broad cash,
+  stop overlays, broad fragility, blunt caps, and stress-condition caps have all
+  failed on broker-ledger evidence.
+
+Updated next step:
+
+Do not add more monthly stock-level cap variants. The remaining Main MDD repair
+path has to move to a different mechanism:
+
+1. intramonth/fast-crash market defense that can react before the monthly target
+   book is updated;
+2. explicit index/market hedge research, measured as broker-ledger overlay and
+   not as production trading;
+3. or governance review of the Main target, because the current monthly long-only
+   target-book levers repeatedly fail to move the 2020 max drawdown without
+   damaging CAGR.

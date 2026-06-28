@@ -158,6 +158,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/macro_circuit_breaker_filter_smoke.py", []),
     ("tests/main_crash_fragility_screen_smoke.py", []),
     ("tests/main_stress_window_attribution_smoke.py", []),
+    ("tests/main_stress_condition_cap_broker_ab_smoke.py", []),
     ("tests/daily_crisis_monitor_long_crisis_smoke.py", []),
     ("tests/regime_capacity_filter_smoke.py", []),
     ("tests/audit_features.py", ["--no-runtime"]),
