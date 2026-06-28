@@ -149,6 +149,8 @@ def join_earnings_signals(frame: pd.DataFrame, signals: pd.DataFrame) -> tuple[p
         meta["earnings_signal_status"] = "no_candidate_rows"
         return d, meta
     out = pd.concat(frames, ignore_index=True).sort_values("_row_id").drop(columns=["_row_id"])
+    if "earnings_signal_available_from" not in out.columns:
+        out["earnings_signal_available_from"] = pd.NaT
     for col in value_cols:
         vendor_col = f"vendor_{col}"
         if vendor_col not in out.columns:
