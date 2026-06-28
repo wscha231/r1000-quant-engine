@@ -214,3 +214,64 @@ Do not repeat these unless new evidence changes:
 4. Broker-ledger A/B is required before any fullrun.
 5. Even if CAGR/MDD targets pass, `pit_universe_label_clean=false` blocks
    production promotion.
+
+## Implementation Result: First Crash-Fragility Screen
+
+Implemented:
+
+`tools/run_main_crash_fragility_screen.py`
+
+Validation:
+
+- `tests/main_crash_fragility_screen_smoke.py`
+- `tools/run_pr_validation.py --only main_crash_fragility_screen`
+
+Clean7Y artifact application:
+
+`artifacts/28074476465/main_crash_fragility_screen_20260628`
+
+Summary:
+
+| Metric | Value |
+|---|---:|
+| Rows | 1194 |
+| Dates | 85 |
+| Tickers | 324 |
+| High-fragility rows | 67 |
+| Low-fragility rows | 115 |
+| High active years | 7 |
+| High minus low 42d downside gap | -0.82pp |
+| Verdict | `screen_reject_no_material_fragility_edge` |
+
+Bucket report:
+
+| Bucket | Rows | Avg score | Avg 21d return | Avg 42d return | Avg 42d downside | Negative 42d rate |
+|---|---:|---:|---:|---:|---:|---:|
+| high | 67 | 0.712 | -0.59% | 2.42% | -4.74% | 35.82% |
+| medium | 1012 | 0.482 | 1.92% | 3.97% | -4.61% | 42.89% |
+| low | 115 | 0.289 | 0.69% | 4.19% | -3.92% | 39.13% |
+
+Interpretation:
+
+- The high-fragility bucket has slightly worse 42d downside than low fragility,
+  but the gap is not material enough for a hook.
+- Negative 42d rate is not worse for the high bucket than for the low bucket.
+- Simple volatility/ATR/MA/RS/cluster/market-state fragility is not a reliable
+  Main MDD repair signal.
+- A default-OFF `PHASE_MAIN_CRASH_FRAGILITY_TRIM_ENABLED` hook is rejected for
+  now.
+
+Additional quick splits:
+
+- Top volatility names had worse downside, but also much stronger average
+  forward return. Trimming them would likely cut winners.
+- Broad weak-market-state and cluster exposure splits were not strong enough.
+- Sector-level weak spots exist in small samples, but are not robust enough to
+  become a policy rule.
+
+Updated next step:
+
+Do not implement a broad fragility trim. The next MDD research step, if needed,
+should be a narrower stress-window attribution screen that asks whether a small
+set of recurring PIT features explains the specific left-tail losses without
+cutting high-volatility winners.
