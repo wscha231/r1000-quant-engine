@@ -420,3 +420,78 @@ path has to move to a different mechanism:
 3. or governance review of the Main target, because the current monthly long-only
    target-book levers repeatedly fail to move the 2020 max drawdown without
    damaging CAGR.
+
+## Implementation Result: Intramonth Event-Defense Broker A/B
+
+Implemented:
+
+`tools/run_main_event_defense_broker_ab.py`
+
+Validation:
+
+- `tests/main_event_defense_broker_ab_smoke.py`
+- registered in `tools/run_pr_validation.py`
+
+Clean7Y artifact application:
+
+`artifacts/28074476465/main_event_defense_broker_ab_20260628`
+
+This harness tests the next mechanism after monthly caps failed: event-driven
+target books and daily crisis-cash snapshots. It is still research-only and
+uses the same broker-ledger replay.
+
+Arms:
+
+- `baseline_monthly`
+- `crisis_cash_preserve_default`
+- `crisis_cash_preserve_strict`
+- `crisis_cash_preserve_strict_fast_release`
+- `event_default`
+- `crisis_cash_strict`
+- `crisis_cash_strict_fast_release`
+- `event_default_no_cluster_caps`
+
+The `crisis_cash_preserve_*` arms are the cleanest test: they apply daily crisis
+cash changes without position exits and never lower the monthly target-book cash
+floor. This avoids the accidental "defense by raising stock exposure" failure
+mode.
+
+Broker replay result:
+
+| Arm | Events | Exits | CAGR | MaxDD | Sharpe | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline monthly | 0 | 0 | 33.93% | -26.02% | 1.239 | reference |
+| `crisis_cash_preserve_default` | 82 | 0 | 32.93% | -26.99% | 1.219 | reject, MDD worse and CAGR damage |
+| `crisis_cash_preserve_strict` | 88 | 0 | 31.47% | -25.49% | 1.197 | reject, partial MDD improvement but CAGR damage |
+| `crisis_cash_preserve_strict_fast_release` | 81 | 0 | 31.73% | -25.49% | 1.203 | reject, partial MDD improvement but CAGR damage |
+| `event_default` | 449 | 314 | 24.22% | -42.85% | 1.022 | reject |
+| `crisis_cash_strict` | 186 | 98 | 32.17% | -36.33% | 1.118 | reject |
+| `crisis_cash_strict_fast_release` | 179 | 98 | 32.46% | -36.95% | 1.123 | reject |
+| `event_default_no_cluster_caps` | 449 | 314 | 24.33% | -49.55% | 0.961 | reject |
+
+Interpretation:
+
+- Intramonth cash overlays do fire; this is not a no-op.
+- The cleanest strict cash-only arms move MaxDD from `-26.02%` to `-25.49%`,
+  but still miss the `-25%` target and reduce CAGR by more than 2pp.
+- Event target books with position exits are much worse. They introduce too
+  many exits and whipsaw the portfolio.
+- Even if paired with the PR #199 Main AI Capex CAGR candidate, the strict
+  cash-only arms are not close to the mission tradeoff.
+
+Updated next step:
+
+The cheap Main MDD paths are now exhausted:
+
+- monthly cash/stop overlays: rejected
+- broad fragility: rejected
+- blunt caps: rejected
+- stress-condition caps: rejected
+- intramonth event/cash overlays: rejected
+
+The remaining honest paths are:
+
+1. explicit hedge research measured as a broker-ledger overlay, not production;
+2. structural portfolio redesign that changes the Main objective/selection mix;
+3. governance review of whether `Main MDD >= -25%` is realistic for the current
+   long-only monthly target-book architecture.
