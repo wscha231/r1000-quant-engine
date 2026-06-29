@@ -24,6 +24,7 @@ DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/free_data_lake_bootstrap"
 DEFAULT_MANIFEST_DIR = "manifests/free_data"
 DEFAULT_PIT_LABEL = "pit_proxy_universe"
+REQUIRED_BENCHMARK_PRICE_TICKERS = ("SPY", "QQQ")
 
 
 @dataclass
@@ -279,6 +280,7 @@ def build_manifest(
             "price_start": args.price_start,
             "max_price_tickers": int(args.max_price_tickers),
             "max_scored": int(args.max_scored),
+            "required_benchmark_price_tickers": list(REQUIRED_BENCHMARK_PRICE_TICKERS),
             "required_downloads": bool(args.required_downloads),
         },
         "latest_run": latest_summary,
@@ -363,6 +365,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 args.price_start,
                 "--batch-size",
                 str(args.batch_size),
+                "--required-tickers",
+                *REQUIRED_BENCHMARK_PRICE_TICKERS,
             ]
             if int(args.max_price_tickers) > 0:
                 command += ["--max-tickers", str(args.max_price_tickers)]
