@@ -1,0 +1,41 @@
+{
+  "base_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "candidate_signals_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/fusion_candidate_review/candidate_signals.csv",
+  "forward_blind_policy_design_required": true,
+  "full_population_walkforward_required": true,
+  "fusion_review_candidate_count": 97,
+  "generated_at_utc": "2026-06-29T13:01:28.710411+00:00",
+  "inputs": {
+    "alpha_beta_attribution/*/name_contribution.csv": {
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_beta_attribution/<portfolio>/name_contribution.csv",
+      "rows": 220
+    },
+    "concentrated_cap_replacement_audit/top_missed_cap_replacement.csv": {
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_cap_replacement_audit/top_missed_cap_replacement.csv",
+      "rows": 0
+    },
+    "right_tail_drop_counterfactual_audit/drop_counterfactuals.csv": {
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/right_tail_drop_counterfactual_audit/drop_counterfactuals.csv",
+      "rows": 237
+    },
+    "right_tail_entry_signal_audit/drop_signal_reviews.csv": {
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/right_tail_entry_signal_audit/drop_signal_reviews.csv",
+      "rows": 8
+    },
+    "right_tail_entry_signal_audit/winner_entry_signals.csv": {
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/right_tail_entry_signal_audit/winner_entry_signals.csv",
+      "rows": 10
+    }
+  },
+  "live_trading_enabled": false,
+  "outcome_selected_candidate_count": 97,
+  "policy_eligible": false,
+  "production_mutation_allowed": false,
+  "queue_bias_warning": "candidate queue may be outcome-selected when positive_name_contribution is present; derived policies require forward-blind PIT design and full-population walk-forward validation",
+  "research_only": true,
+  "schema_version": "fusion-candidate-review-v2",
+  "segment_fusion_summary_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/fusion_candidate_review/segment_fusion_summary.csv",
+  "segment_review_candidate_count": 13,
+  "status": "completed",
+  "used_forward_return_in_ranking": false
+}
