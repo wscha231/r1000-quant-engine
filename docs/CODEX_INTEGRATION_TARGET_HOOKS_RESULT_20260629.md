@@ -1,0 +1,93 @@
+# Integration Target Hooks Result (2026-06-29)
+
+## Summary
+
+This integration branch combines the currently surviving Main and
+Concentrated default-OFF research hooks:
+
+- Main:
+  - `PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED=1`
+  - `PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED=1`
+- Concentrated:
+  - `PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED=1`
+
+The integration replay is still research-only. It uses the clean 7Y artifact
+and local broker-ledger replay; it is not a full rebuild and not a production
+promotion.
+
+## Reference Baseline
+
+Artifact: `artifacts/28074476465/outputs/account_evaluation/official_metrics.json`
+
+| Sleeve | CAGR | MaxDD | Sharpe |
+|---|---:|---:|---:|
+| Main | 33.15% | -26.02% | 1.219 |
+| Concentrated | 46.24% | -25.82% | 1.421 |
+
+## Integrated Cheap Broker Replay
+
+Target-book output:
+`artifacts/28074476465/integration_main_conc_target_hooks_20260629/`
+
+Broker settings:
+
+- `broker_ledger_next_close`
+- Integer shares
+- 25 bps cost
+- Max fill lag 7 days
+- Window 2019-06-03 to 2026-06-25
+
+| Sleeve | CAGR | MaxDD | Sharpe | Avg Cash | Trades |
+|---|---:|---:|---:|---:|---:|
+| Main | 36.82% | -24.76% | 1.325 | 27.02% | 1660 |
+| Concentrated | 50.07% | -24.96% | 1.477 | 40.88% | 653 |
+
+Both sleeves clear the current research targets:
+
+- Main: CAGR >= 35%, MaxDD >= -25%
+- Concentrated: CAGR >= 50%, MaxDD >= -25%
+
+## Applied Counts
+
+- Main fast-crash hedge fired on 2 rebalance dates.
+- Main fast-crash risk buffer was 0.5% while the hedge phase was enabled.
+- Concentrated cash-funded early entry applied on 44 rows.
+
+## Side-Path Decisions
+
+### Kept
+
+- AI Capex bottleneck/momentum tilt for Main CAGR.
+- Funded fast-crash hedge for Main crash convexity.
+- Small generic Main risk buffer because the unbuffered result was only
+  `-25.003%` MaxDD.
+- Concentrated cash-funded early entry because it directly deploys idle cash
+  into PIT-ranked unheld leaders without selling existing winners.
+
+### Rejected
+
+- Main trend-break hedge variants. They worsened MaxDD in cheap broker probes.
+- Direct 2-week RS scoring. Keep it as sidecar/telemetry only until a separate
+  broker-ledger A/B proves it is stable OOS and not a chase/whipsaw signal.
+
+## Important Caveats
+
+- This is not production evidence because `pit_universe_label_clean=false`
+  still blocks production promotion.
+- This is not a fresh-data fullrun. It reuses the clean 7Y artifact.
+- PR stacking still matters:
+  - Main AI Capex tilt dependency.
+  - Main fast-crash hedge hook.
+  - Concentrated cash-funded early-entry hook.
+- A final fullrun should wait until the hooks are reviewed/merged or explicitly
+  run from an integration branch with fresh latest-close data and clean
+  preflight.
+
+## Next Step
+
+1. Review/merge the component PRs.
+2. Keep this integration branch as the combined evidence path.
+3. Refresh latest close data.
+4. Run one full rebuild only after cheap preflight confirms the same hooks are
+   active and data freshness is clean.
+5. Continue PIT membership cleanup in parallel.
