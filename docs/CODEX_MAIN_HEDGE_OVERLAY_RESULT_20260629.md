@@ -1,0 +1,156 @@
+# Main Hedge Overlay Result - 2026-06-29
+
+## Summary
+
+This PR adds a research-only funded hedge overlay broker A/B harness for the
+Main book.  It tests whether Main MDD can be repaired without repeatedly
+tuning cash/stop/event-defense variants that previously failed.
+
+The key result is important:
+
+```text
+AI Capex tilt15 + fast_crash_hedge:
+  CAGR 35.12%
+  MDD -24.23%
+  Sharpe 1.269
+```
+
+This is the first cheap broker-ledger evidence in this branch of work that
+crosses the Main `35% / -25%` target line.  It remains research-only because
+the AI Capex tilt target book was reconstructed from a prior broker artifact
+and must be converted into a normal default-OFF policy hook before any fullrun.
+
+## What Changed
+
+Added:
+
+- `tools/run_main_hedge_overlay_broker_ab.py`
+- `tests/main_hedge_overlay_broker_ab_smoke.py`
+
+The harness:
+
+- reads an existing Main target book,
+- requires a real inverse ETF hedge ticker in the price cache,
+- creates funded hedge target books,
+- reduces long exposure pro-rata to fund the hedge,
+- keeps total gross bounded by the original target book,
+- runs `tools/run_broker_ledger_replay.py` with `broker_ledger_next_close`,
+- writes `summary.json`, `arm_metrics.csv`, per-arm target books, hedge actions,
+  and broker outputs.
+
+No operating target book is mutated.
+
+## Price Cache
+
+`SH` was not present in the clean 7Y artifact cache.  It was added locally with:
+
+```text
+python tools/build_replay_price_cache.py \
+  --books artifacts/28074476465/outputs/alphaops_vnext/official_main_target_book.csv \
+  --output-dir artifacts/28074476465/cache_prices \
+  --required-tickers SH SPY QQQ \
+  --start 2019-05-01 \
+  --batch-size 10 \
+  --refresh-stale-days -1
+```
+
+The cache update wrote one missing ticker (`SH`) and did not require a fullrun.
+
+## Baseline Main Hedge A/B
+
+Command:
+
+```text
+python tools/run_main_hedge_overlay_broker_ab.py \
+  --latest-run artifacts/28074476465/outputs \
+  --price-cache artifacts/28074476465/cache_prices \
+  --output-dir artifacts/28074476465/main_hedge_overlay_broker_ab_20260629 \
+  --hedge-ticker SH \
+  --benchmark-ticker SPY \
+  --cost-bps 25 \
+  --max-fill-lag-days 7
+```
+
+Results:
+
+| arm | verdict | CAGR | MDD | Sharpe | dCAGR pp | dMDD pp | hedge dates |
+|---|---|---:|---:|---:|---:|---:|---:|
+| baseline_main | baseline | 33.93% | -26.02% | 1.239 | 0.00 | 0.00 | 0 |
+| static_small_hedge | reject_mdd_not_repaired | 32.76% | -25.13% | 1.236 | -1.17 | +0.88 | 85 |
+| crisis_state_hedge | reject_cagr_drag_too_large | 32.49% | -24.41% | 1.222 | -1.44 | +1.60 | 40 |
+| trend_break_hedge | research_pass_main_mdd_candidate | 33.45% | -24.56% | 1.234 | -0.48 | +1.46 | 14 |
+| fast_crash_hedge | research_pass_main_mdd_candidate | 34.19% | -24.26% | 1.254 | +0.26 | +1.76 | 2 |
+| hybrid_crisis_trend_hedge | reject_cagr_drag_too_large | 33.13% | -24.31% | 1.229 | -0.80 | +1.71 | 14 |
+| cash_plus_hedge | reject_cagr_drag_too_large | 33.06% | -24.32% | 1.228 | -0.87 | +1.70 | 14 |
+
+Interpretation:
+
+- A permanent hedge is too expensive.
+- Crisis-state hedging repairs MDD but costs too much CAGR.
+- `fast_crash_hedge` is the best standalone Main MDD lever: it fires only twice,
+  repairs MDD, and slightly improves CAGR.
+
+## AI Capex Tilt + Hedge Combination
+
+The prior AI Capex tilt broker artifact did not persist `target_book.csv`, but
+it did persist `target_vs_actual_weights.csv`.  A research-only target book was
+reconstructed from:
+
+```text
+artifacts/28074476465/ai_capex_momentum_tilt_policy_broker_ab_20260628/tilt15/broker/target_vs_actual_weights.csv
+```
+
+The reconstructed target book is:
+
+```text
+artifacts/28074476465/ai_capex_momentum_tilt_policy_broker_ab_20260628/tilt15_reconstructed_target_book.csv
+```
+
+Command:
+
+```text
+python tools/run_main_hedge_overlay_broker_ab.py \
+  --latest-run artifacts/28074476465/outputs \
+  --target-book artifacts/28074476465/ai_capex_momentum_tilt_policy_broker_ab_20260628/tilt15_reconstructed_target_book.csv \
+  --price-cache artifacts/28074476465/cache_prices \
+  --output-dir artifacts/28074476465/main_ai_capex_tilt15_plus_hedge_overlay_ab_20260629 \
+  --hedge-ticker SH \
+  --benchmark-ticker SPY \
+  --cost-bps 25 \
+  --max-fill-lag-days 7
+```
+
+Result:
+
+| arm | verdict | CAGR | MDD | Sharpe | dCAGR pp | dMDD pp | hedge dates |
+|---|---|---:|---:|---:|---:|---:|---:|
+| AI Capex tilt15 baseline | baseline | 34.91% | -26.04% | 1.257 | 0.00 | 0.00 | 0 |
+| AI Capex tilt15 + fast_crash_hedge | research_pass_main_mdd_candidate | 35.12% | -24.23% | 1.269 | +0.20 | +1.82 | 2 |
+
+This crosses the Main mission threshold in cheap broker-ledger replay:
+
+```text
+Main target: CAGR >= 35%, MDD >= -25%
+Observed:    CAGR 35.12%, MDD -24.23%
+```
+
+## Guardrails
+
+This is not production-ready:
+
+- `pit_universe_label_clean=false` still blocks production promotion.
+- The AI Capex tilt target book was reconstructed from a broker artifact, not
+  generated by a merged policy path in this PR.
+- `fast_crash_hedge` fires only twice, so the rule needs governance review and
+  follow-up robustness checks before any operating hook.
+- No fullrun should be dispatched from this PR alone.
+
+## Next Required Work
+
+1. Promote the AI Capex tilt target generation into a normal default-OFF policy
+   hook if not already merged elsewhere.
+2. Promote `fast_crash_hedge` into a default-OFF Main hedge overlay hook.
+3. Run a single combined cheap broker A/B from freshly generated target books,
+   not reconstructed artifacts.
+4. Only if the combined generated-book A/B still passes, consider a fullrun.
+5. Continue separately on Concentrated CAGR, which remains below the 50% target.
