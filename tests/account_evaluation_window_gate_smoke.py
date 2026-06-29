@@ -194,6 +194,40 @@ def test_window_classification_proxy_long_window_blocked_and_pit_clean_long() ->
     assert clean["research_acceptable"] is True
 
 
+def test_window_gate_accepts_official_anchored_overshoot_window() -> None:
+    # Regression for run 28360773460: window anchored EXACTLY at the official start
+    # (2019-06-03, drift 0) but aged to 7.064y > 7.05 ceiling. Must NOT be proxy-blocked
+    # just because realized years exceed the tolerance ceiling — it is the canonical
+    # clean window, so status=ok / valid=true / window_classification=valid_7y.
+    gate = evaluate_window_gate(
+        {"start_date": "2019-06-03", "evaluation_start_date": "2019-06-03", "end_date": "2026-06-26", "years": 7.0637},
+        equity_window={"exists": True, "calendar_trading_day_count": 1780, "trading_day_count": 1780, "start_date": "2019-06-03", "end_date": "2026-06-26"},
+        data_readiness={"status": "warn", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is True
+    assert gate["status"] == "ok"
+    assert gate["window_classification"] == "valid_7y"
+    assert gate["broker_starts_before_official_start"] is False
+    assert "proxy_8y_10y_evidence_blocked_until_pit_universe_clean" not in gate["reasons"]
+
+
+def test_window_gate_still_blocks_genuine_early_started_proxy_window() -> None:
+    # A window that STARTS earlier than official (2018-06-01, ~367d before) is genuine
+    # extra history and must stay proxy-blocked when pit is not clean — the overshoot
+    # exemption keys on start date, not realized years.
+    gate = evaluate_window_gate(
+        {"start_date": "2018-06-01", "evaluation_start_date": "2018-06-01", "end_date": "2026-06-26", "years": 8.05},
+        equity_window={"exists": True, "calendar_trading_day_count": 2030, "trading_day_count": 2030, "start_date": "2018-06-01", "end_date": "2026-06-26"},
+        data_readiness={"status": "warn", "ready_for_policy_replay": True, "ready_for_fullrun": True, "free_data_coverage": {"known_gaps": []}},
+        require_data_readiness=True,
+    )
+    assert gate["valid"] is False
+    assert gate["broker_starts_before_official_start"] is True
+    assert gate["window_classification"] == "proxy_long_window_blocked"
+    assert "proxy_8y_10y_evidence_blocked_until_pit_universe_clean" in gate["reasons"]
+
+
 def test_window_gate_rejects_missing_data_readiness_when_required() -> None:
     gate = evaluate_window_gate(
         {"start_date": "2019-06-03", "end_date": "2026-06-12", "years": 7.03},
@@ -227,6 +261,8 @@ if __name__ == "__main__":
     test_window_classification_invalid_below_tolerance_floor()
     test_window_classification_not_tolerance_when_non_band_reason_present()
     test_window_classification_proxy_long_window_blocked_and_pit_clean_long()
+    test_window_gate_accepts_official_anchored_overshoot_window()
+    test_window_gate_still_blocks_genuine_early_started_proxy_window()
     test_window_gate_rejects_missing_data_readiness_when_required()
     test_workflow_rejects_long_window_without_pit_label()
     print("account_evaluation_window_gate_smoke: PASS")

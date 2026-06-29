@@ -29,6 +29,7 @@ if str(REPO_ROOT) not in sys.path:
 
 try:
     from r1000_config import (
+        OFFICIAL_BACKTEST_START_DATE,
         OFFICIAL_BACKTEST_WINDOW_YEARS,
         PROXY_8Y_10Y_EVIDENCE_BLOCKED,
         PROXY_WINDOW_BLOCKER_REASON,
@@ -44,6 +45,7 @@ except Exception:  # pragma: no cover - fallback for isolated smoke contexts
         "main": {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
         "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.28},
     }
+    OFFICIAL_BACKTEST_START_DATE = "2019-06-03"
     OFFICIAL_BACKTEST_WINDOW_YEARS = 7.0
     PROXY_8Y_10Y_EVIDENCE_BLOCKED = True
     PROXY_WINDOW_BLOCKER_REASON = "pit_universe_label_missing"
@@ -61,6 +63,12 @@ OFFICIAL_WINDOW_TOLERANCE_YEARS = 0.05
 # proceed without bypassing the strict 7.0y production gate.
 RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS = round(float(OFFICIAL_BACKTEST_WINDOW_YEARS) - 0.10, 4)  # 6.90
 MAX_BROKER_START_EVALUATION_DRIFT_DAYS = 35
+# A window anchored at/after the official backtest start is the canonical clean window
+# even when elapsed calendar time pushes realized years past the tolerance ceiling
+# (e.g., the fixed 2019-06-03 start aged to 7.06y by mid-2026). Proxy-8Y/10Y detection
+# must key on the broker start being EARLIER than official (genuine extra history), NOT
+# on realized years > 7.05 — otherwise the canonical window self-invalidates as it ages.
+OFFICIAL_START_PROXY_GRACE_DAYS = 35
 CANONICAL_MISSION_TARGETS = {
     "main": {"cagr": 0.35, "max_dd": -0.25},
     "concentrated": {"cagr": 0.50, "max_dd": -0.25},
@@ -361,6 +369,12 @@ def evaluate_window_gate(
     broker_start_dt = parse_date(broker_start_date)
     if eval_start_dt is not None and broker_start_dt is not None:
         broker_start_evaluation_drift_days = (broker_start_dt - eval_start_dt).days
+    official_start_dt = parse_date(OFFICIAL_BACKTEST_START_DATE)
+    broker_starts_before_official = bool(
+        broker_start_dt is not None
+        and official_start_dt is not None
+        and (official_start_dt - broker_start_dt).days > OFFICIAL_START_PROXY_GRACE_DAYS
+    )
     reasons: list[str] = []
     if not start_date or not end_date:
         reasons.append("missing_start_or_end_date")
@@ -387,7 +401,13 @@ def evaluate_window_gate(
         reasons.append("data_readiness_not_ready_for_policy_replay")
     if known_gaps:
         reasons.append("free_data_coverage_known_gaps")
-    if years is not None and years > upper_bound and PROXY_8Y_10Y_EVIDENCE_BLOCKED and not pit_clean:
+    if (
+        years is not None
+        and years > upper_bound
+        and PROXY_8Y_10Y_EVIDENCE_BLOCKED
+        and not pit_clean
+        and broker_starts_before_official
+    ):
         reasons.append("proxy_8y_10y_evidence_blocked_until_pit_universe_clean")
         reasons.append(PROXY_WINDOW_BLOCKER_REASON)
     status = "ok" if not reasons else "invalid_window"
@@ -406,7 +426,14 @@ def evaluate_window_gate(
     if years is None:
         window_classification = "invalid_window"
     elif years > upper_bound:
-        window_classification = "pit_clean_long_window" if pit_clean else "proxy_long_window_blocked"
+        if not broker_starts_before_official:
+            # Anchored at/after the official start: elapsed-years overshoot of the 7.05y
+            # ceiling is still the canonical clean window, not a long proxy window.
+            window_classification = "valid_7y" if status == "ok" else "invalid_window"
+        elif pit_clean:
+            window_classification = "pit_clean_long_window"
+        else:
+            window_classification = "proxy_long_window_blocked"
     elif years >= MIN_BROKER_LEDGER_YEARS:
         window_classification = "valid_7y" if status == "ok" else "invalid_window"
     elif (
@@ -445,6 +472,9 @@ def evaluate_window_gate(
         "broker_start_date": broker_start_date,
         "broker_start_evaluation_drift_days": broker_start_evaluation_drift_days,
         "max_broker_start_evaluation_drift_days": MAX_BROKER_START_EVALUATION_DRIFT_DAYS,
+        "official_backtest_start_date": OFFICIAL_BACKTEST_START_DATE,
+        "broker_starts_before_official_start": broker_starts_before_official,
+        "official_start_proxy_grace_days": OFFICIAL_START_PROXY_GRACE_DAYS,
         "years": years,
         "trading_days_estimate": trading_days,
         "estimated_trading_days": estimated_trading_days,
