@@ -55,6 +55,11 @@ PORTFOLIOS = ("main", "concentrated")
 MIN_BROKER_LEDGER_YEARS = float(OFFICIAL_BACKTEST_WINDOW_YEARS)
 MIN_BROKER_LEDGER_TRADING_DAYS = int(252 * MIN_BROKER_LEDGER_YEARS)
 OFFICIAL_WINDOW_TOLERANCE_YEARS = 0.05
+# Research tolerance floor (observability only): a window in [floor, 7.0y) is NOT
+# production-valid (status stays invalid_window, valid stays False), but it is
+# classified `research_7y_tolerance` so a research-only CAGR/MDD comparison can
+# proceed without bypassing the strict 7.0y production gate.
+RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS = round(float(OFFICIAL_BACKTEST_WINDOW_YEARS) - 0.10, 4)  # 6.90
 MAX_BROKER_START_EVALUATION_DRIFT_DAYS = 35
 CANONICAL_MISSION_TARGETS = {
     "main": {"cagr": 0.35, "max_dd": -0.25},
@@ -387,9 +392,43 @@ def evaluate_window_gate(
         reasons.append(PROXY_WINDOW_BLOCKER_REASON)
     status = "ok" if not reasons else "invalid_window"
     evidence_window_label = "pit_clean_long_window" if pit_clean and years is not None and years > upper_bound else "research_7y"
+    # Machine-readable window classification (observability only — does NOT change
+    # `status`/`valid`). A sub-7.0y window stays invalid_window for production, but a
+    # window in [RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS, 7.0y) whose ONLY blocker is the
+    # years band is labeled research_7y_tolerance so a research CAGR/MDD comparison can
+    # be reported without bypassing the strict production gate.
+    # The years and trading-days gates fire in lockstep (1764d == 7.0y), so a window in
+    # the tolerance band trips both. Treat both as one "year-band" signal and apply the
+    # same proportional floor to trading days; only NON-band reasons disqualify tolerance.
+    research_trading_days_floor = int(252 * RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS)  # 1738
+    year_band_reasons = {"broker_ledger_years_below_7", "broker_ledger_trading_days_below_7y"}
+    non_band_reasons = [r for r in reasons if r not in year_band_reasons]
+    if years is None:
+        window_classification = "invalid_window"
+    elif years > upper_bound:
+        window_classification = "pit_clean_long_window" if pit_clean else "proxy_long_window_blocked"
+    elif years >= MIN_BROKER_LEDGER_YEARS:
+        window_classification = "valid_7y" if status == "ok" else "invalid_window"
+    elif (
+        years >= RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS
+        and (trading_days is not None and trading_days >= research_trading_days_floor)
+        and not non_band_reasons
+    ):
+        window_classification = "research_7y_tolerance"
+    else:
+        window_classification = "invalid_window"
+    research_acceptable = window_classification in (
+        "valid_7y",
+        "research_7y_tolerance",
+        "pit_clean_long_window",
+    )
     return {
         "status": status,
         "valid": status == "ok",
+        "window_classification": window_classification,
+        "research_window_tolerance_floor_years": RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS,
+        "research_window_tolerance_floor_trading_days": research_trading_days_floor,
+        "research_acceptable": bool(research_acceptable),
         "reasons": reasons,
         "min_years": MIN_BROKER_LEDGER_YEARS,
         "min_trading_days": MIN_BROKER_LEDGER_TRADING_DAYS,

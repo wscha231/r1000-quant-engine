@@ -3,6 +3,19 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-06-29
+
+### 20:31 KST - Window gate emits machine-readable classification (research_7y_tolerance)
+
+- scope: observability-only change to the broker-ledger window gate. `evaluate_window_gate` previously emitted only `status ∈ {ok, invalid_window}`, so a window landing in the recurring 6.97–7.05y boundary band (runs 27937558080 6.965y, 28002654508 6.976y) was hard-classified `invalid_window` with no signal that it was a legitimate research-tolerance window. Per `docs/CODEX_MEASUREMENT_PROTOCOL.md` §2 ("add the emitted field FIRST"), the gate now emits a machine-readable classification.
+- change: `tools/run_account_evaluation.py::evaluate_window_gate` now returns `window_classification ∈ {valid_7y, research_7y_tolerance, pit_clean_long_window, proxy_long_window_blocked, invalid_window}` plus `research_acceptable` (bool) and the tolerance floors. A window in `[RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS=6.90, 7.0)` whose ONLY blockers are the year band (`broker_ledger_years_below_7` / `broker_ledger_trading_days_below_7y`, treated together with a proportional 1738-day floor) is classified `research_7y_tolerance`.
+- safety: production gate semantics UNCHANGED. `status`/`valid` stay strict — a sub-7.0y window remains `status=invalid_window`, `valid=false`, `production_promotion_allowed=false`. The new fields are descriptive only and cannot promote a sub-7Y window. Any non-band blocker (trading days short of the proportional floor, data-readiness missing, broker-start drift) forces `invalid_window` even inside the year band.
+- validation: 5 new assertions in `tests/account_evaluation_window_gate_smoke.py` (valid_7y, research_7y_tolerance for a 6.95y/1751d run, invalid below 6.90 floor, non-band-reason exclusion, proxy_long_window_blocked vs pit_clean_long_window). Suite PASS; adjacent `account_evaluation_smoke` + `seven_year_lock_smoke` PASS.
+- symbols_added: `RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS` (`tools/run_account_evaluation.py`); window gate return keys `window_classification`, `research_acceptable`, `research_window_tolerance_floor_years`, `research_window_tolerance_floor_trading_days`
+- symbols_changed: `tools/run_account_evaluation.py::evaluate_window_gate`
+- config_fields_added: none
+- breaking_changes: none (return dict gains additive keys; `status`/`valid` unchanged)
+
 ## 2026-06-22
 
 ### 23:20 KST - Data gate #1 root cause isolated (7y window) + Codex fix spec
