@@ -144,6 +144,8 @@ def whipsaw_events(trades: pd.DataFrame, *, max_rebuy_days: int) -> pd.DataFrame
                     "days_to_rebuy": days,
                     "sell_quantity": safe_float(sell.get("quantity")),
                     "buy_quantity": safe_float(buy.get("quantity")),
+                    "sell_shares_after": safe_float(sell.get("shares_after")),
+                    "buy_shares_after": safe_float(buy.get("shares_after")),
                     "matched_quantity": matched_qty,
                     "sell_price": sell_price,
                     "buy_price": buy_price,
