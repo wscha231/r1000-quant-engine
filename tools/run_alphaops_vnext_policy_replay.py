@@ -260,6 +260,9 @@ CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND = DEFAULT_CONCENTRATED_SCORE_SIZING_BLE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = DEFAULT_CONCENTRATED_SCORE_SIZING_RANK_POWER
 CONCENTRATED_SCORE_SIZING_REWEIGHT_CAP_MODE = DEFAULT_CONCENTRATED_SCORE_SIZING_CAP_MODE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP = DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP
+CONCENTRATED_WHIPSAW_SELL_THROTTLE_RETENTION_RATIO = 0.75
+CONCENTRATED_WHIPSAW_SELL_THROTTLE_MAX_LIFT = 0.08
+CONCENTRATED_WHIPSAW_SELL_THROTTLE_MIN_PRIOR_WEIGHT = 0.02
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -618,6 +621,22 @@ def concentrated_score_sizing_single_cap() -> float:
     raw = os.environ.get("R1000_CONC_SCORE_SIZING_SINGLE_CAP", "")
     value = safe_float(raw, CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP)
     return float(max(0.0, value))
+
+
+def concentrated_whipsaw_sell_throttle_enabled() -> bool:
+    return bool(phase_is_enabled("concentrated_whipsaw_sell_throttle", default=False))
+
+
+def concentrated_whipsaw_sell_throttle_retention_ratio() -> float:
+    raw = os.environ.get("R1000_CONC_WHIPSAW_SELL_THROTTLE_RETENTION_RATIO", "")
+    value = safe_float(raw, CONCENTRATED_WHIPSAW_SELL_THROTTLE_RETENTION_RATIO)
+    return float(max(0.0, min(1.0, value)))
+
+
+def concentrated_whipsaw_sell_throttle_max_lift() -> float:
+    raw = os.environ.get("R1000_CONC_WHIPSAW_SELL_THROTTLE_MAX_LIFT", "")
+    value = safe_float(raw, CONCENTRATED_WHIPSAW_SELL_THROTTLE_MAX_LIFT)
+    return float(max(0.0, min(0.30, value)))
 
 
 @dataclass(frozen=True)
@@ -2051,6 +2070,141 @@ def apply_concentrated_score_sizing_reweight(
     return out
 
 
+def concentrated_whipsaw_sell_throttle_thesis_intact(row: dict[str, Any]) -> tuple[bool, str]:
+    """PIT-only thesis-integrity predicate from the whipsaw feature screen."""
+    ticker = clean_ticker(row.get("ticker"))
+    if not ticker or ticker in CASH_TICKERS:
+        return False, "cash_or_invalid"
+    if str(row.get("holding_state") or "").upper() != "HOLD":
+        return False, "not_hold_state"
+    if str(row.get("hold_replace_decision") or "").lower() != "keep_prior_holding":
+        return False, "not_prior_keep"
+    if safe_float(row.get("prior_weight")) < CONCENTRATED_WHIPSAW_SELL_THROTTLE_MIN_PRIOR_WEIGHT:
+        return False, "prior_weight_below_floor"
+    leader_tier = str(row.get("leader_tier") or "").upper()
+    if leader_tier not in {"DUAL_LEADER", "SECTOR_LEADER"}:
+        return False, f"leader_tier_not_protected:{leader_tier or 'unknown'}"
+    if str(row.get("emerging_tenbagger_hard_reject_reason") or "") or bool(row.get("top7_standalone_blocked")):
+        return False, "hard_reject_or_top7_standalone"
+    if safe_float(row.get("rs_benchmark_3m")) <= 0.0 or safe_float(row.get("rs_benchmark_6m")) <= 0.0:
+        return False, "medium_or_long_relative_strength_not_intact"
+    if safe_float(row.get("price_above_ma200")) < 0.5:
+        return False, "below_ma200"
+    if safe_float(row.get("actual_results_score")) <= 0.0:
+        return False, "actual_results_not_positive"
+    crisis_state = str(row.get("crisis_state") or "").upper()
+    if "CRISIS" in crisis_state or "DEFENSE" in crisis_state:
+        return False, f"crisis_state_blocked:{crisis_state}"
+    return True, "thesis_intact_actual_results"
+
+
+def apply_concentrated_whipsaw_sell_throttle(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    """Limit monthly sell pressure on thesis-intact prior leaders.
+
+    The hook is default-OFF and research-only.  It preserves selected names,
+    total stock gross, and cash by funding any protected-name lift from other
+    stock weights pro-rata.  It does not re-add dropped names, so it targets the
+    material partial-sell whipsaw pattern found by `run_whipsaw_pit_feature_screen`.
+    """
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    if not concentrated_whipsaw_sell_throttle_enabled():
+        return weighted
+
+    items = [dict(row) for row in weighted]
+    ratio = concentrated_whipsaw_sell_throttle_retention_ratio()
+    max_lift = concentrated_whipsaw_sell_throttle_max_lift()
+    single_cap = float(target_caps("concentrated").get("single", 0.30))
+    candidates: list[dict[str, Any]] = []
+    candidate_indices: set[int] = set()
+
+    for idx, item in enumerate(items):
+        item["concentrated_whipsaw_sell_throttle_enabled"] = True
+        intact, reason = concentrated_whipsaw_sell_throttle_thesis_intact(item)
+        item["concentrated_whipsaw_sell_throttle_predicate"] = reason
+        weight = safe_float(item.get("weight"))
+        prior_weight = safe_float(item.get("prior_weight"))
+        retention_floor = min(prior_weight, prior_weight * ratio, single_cap)
+        requested_lift = max(0.0, retention_floor - weight)
+        requested_lift = min(requested_lift, max_lift)
+        item["concentrated_whipsaw_sell_throttle_retention_ratio"] = ratio
+        item["concentrated_whipsaw_sell_throttle_max_lift"] = max_lift
+        item["concentrated_whipsaw_sell_throttle_prior_weight"] = prior_weight
+        item["concentrated_whipsaw_sell_throttle_retention_floor"] = retention_floor
+        item["concentrated_whipsaw_sell_throttle_requested_lift"] = requested_lift
+        item["concentrated_whipsaw_sell_throttle_applied_lift"] = 0.0
+        item["concentrated_whipsaw_sell_throttle_funding_reduction"] = 0.0
+        if intact and requested_lift > 1e-9:
+            candidates.append({"idx": idx, "requested_lift": requested_lift})
+            candidate_indices.add(idx)
+            item["concentrated_whipsaw_sell_throttle_status"] = "candidate"
+        elif intact:
+            item["concentrated_whipsaw_sell_throttle_status"] = "not_needed"
+        else:
+            item["concentrated_whipsaw_sell_throttle_status"] = "not_candidate"
+
+    requested_total = sum(float(c["requested_lift"]) for c in candidates)
+    if requested_total <= 1e-12:
+        return items
+
+    source_indices: list[int] = []
+    source_total = 0.0
+    for idx, item in enumerate(items):
+        if idx in candidate_indices:
+            continue
+        ticker = clean_ticker(item.get("ticker"))
+        if not ticker or ticker in CASH_TICKERS:
+            continue
+        weight = safe_float(item.get("weight"))
+        if weight <= 1e-9:
+            continue
+        source_indices.append(idx)
+        source_total += weight
+
+    if source_total <= 1e-12:
+        for c in candidates:
+            items[int(c["idx"])]["concentrated_whipsaw_sell_throttle_status"] = "blocked_no_funding_source"
+        return items
+
+    funding_scale = min(1.0, source_total / requested_total)
+    applied_total = requested_total * funding_scale
+    for c in candidates:
+        idx = int(c["idx"])
+        lift = float(c["requested_lift"]) * funding_scale
+        item = items[idx]
+        old_weight = safe_float(item.get("weight"))
+        old_target = safe_float(item.get("target_weight"), old_weight)
+        item["pre_concentrated_whipsaw_sell_throttle_weight"] = old_weight
+        item["weight"] = old_weight + lift
+        item["target_weight"] = old_target + lift
+        item["concentrated_whipsaw_sell_throttle_applied_lift"] = lift
+        item["concentrated_whipsaw_sell_throttle_funding_scale"] = funding_scale
+        item["concentrated_whipsaw_sell_throttle_status"] = "applied" if lift > 1e-9 else "blocked_scaled_to_zero"
+        if lift > 1e-9:
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|concentrated_whipsaw_sell_throttle"
+            )
+
+    for idx in source_indices:
+        item = items[idx]
+        weight = safe_float(item.get("weight"))
+        target_weight = safe_float(item.get("target_weight"), weight)
+        reduction = applied_total * (weight / source_total)
+        item["pre_concentrated_whipsaw_sell_throttle_weight"] = weight
+        item["weight"] = max(0.0, weight - reduction)
+        item["target_weight"] = max(0.0, target_weight - reduction)
+        item["concentrated_whipsaw_sell_throttle_funding_reduction"] = reduction
+        item["concentrated_whipsaw_sell_throttle_status"] = (
+            "funding_source" if reduction > 1e-9 else item.get("concentrated_whipsaw_sell_throttle_status", "not_candidate")
+        )
+        item["concentrated_whipsaw_sell_throttle_funding_scale"] = funding_scale
+    return items
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -2244,6 +2398,7 @@ def build_variant_book(
         weighted = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_concentrated_whipsaw_sell_throttle(weighted, portfolio_kind)
         weighted = apply_concentrated_score_sizing_reweight(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}
