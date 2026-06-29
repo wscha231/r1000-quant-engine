@@ -81,6 +81,13 @@ Both sleeves clear the current research targets:
   to scoring only after a forward-blind screen and broker-ledger A/B show
   full-period value. The current passing integration already has three active
   levers, so adding a fourth unproven score feature would blur attribution.
+  A new read-only sidecar (`tools/run_rs_2w_entry_timing_screen.py`) now audits
+  this automatically. On the clean 7Y concentrated early-entry artifact it found
+  `2w_rs_positive` mean 126d excess `+3.80%` with `48.57%` hit rate, while
+  `1w_rs_positive` was stronger at `+6.73%` and `57.14%`. The `2w_rs_top_half`
+  bucket was useful (`+6.92%`, `63.64%`) but not enough to justify direct score
+  mutation without a separate broker-ledger A/B. Current verdict:
+  `keep_2w_rs_telemetry_only`.
 - Rejected trend-break hedge variants can still contribute to future crash
   diagnostics as stress labels, not as target-book actions.
 - Broad hold/rescue variants remain rejected as policy hooks, but their

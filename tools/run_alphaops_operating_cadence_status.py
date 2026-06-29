@@ -13,6 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
+
+MAX_AUDIT_AGE_DAYS = 2
+
 
 def read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -23,11 +28,41 @@ def read_json(path: Path) -> dict[str, Any]:
         return {"_invalid_json": str(exc)}
 
 
-def status_from_artifacts(latest_run: Path, *, material_change: bool = False) -> dict[str, Any]:
+def first_portfolio_gate(account_eval: dict[str, Any]) -> dict[str, Any]:
+    portfolios = account_eval.get("portfolios")
+    if not isinstance(portfolios, dict):
+        return {}
+    for name in ("main", "concentrated"):
+        item = portfolios.get(name)
+        if isinstance(item, dict) and isinstance(item.get("broker_ledger_window_gate"), dict):
+            return item["broker_ledger_window_gate"]
+    return {}
+
+
+def account_eval_data_readiness(account_eval: dict[str, Any]) -> dict[str, Any]:
+    gate = first_portfolio_gate(account_eval)
+    readiness = gate.get("data_readiness")
+    return readiness if isinstance(readiness, dict) else {}
+
+
+def audit_age_days(price_audit: dict[str, Any], today: pd.Timestamp | None = None) -> int | None:
+    raw = price_audit.get("audit_date")
+    if not raw:
+        return None
+    parsed = pd.to_datetime(raw, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    current = today.normalize() if today is not None else pd.Timestamp(datetime.now(timezone.utc).date())
+    return max(0, int((current.normalize() - pd.Timestamp(parsed).normalize()).days))
+
+
+def status_from_artifacts(latest_run: Path, *, material_change: bool = False, today: pd.Timestamp | None = None) -> dict[str, Any]:
     price_audit = read_json(latest_run / "latest_price_date_audit.json")
     goal_verifier = read_json(latest_run / "goal_verifier" / "summary.json")
     account_eval = read_json(latest_run / "account_evaluation" / "official_metrics.json")
     data_readiness = read_json(latest_run / "data_readiness" / "summary.json")
+    if not data_readiness:
+        data_readiness = account_eval_data_readiness(account_eval)
 
     price_status = str(price_audit.get("status") or "missing")
     goal_status = str(goal_verifier.get("status") or "missing")
@@ -36,10 +71,17 @@ def status_from_artifacts(latest_run: Path, *, material_change: bool = False) ->
         or data_readiness.get("ready_for_fullrun")
         or data_readiness.get("status") == "ready"
     )
-    pit_clean = bool(account_eval.get("pit_universe_label_clean") or account_eval.get("historical_universe_pit_clean"))
-    production_allowed = bool(account_eval.get("production_promotion_allowed"))
+    gate = first_portfolio_gate(account_eval)
+    pit_clean = bool(
+        account_eval.get("pit_universe_label_clean")
+        or account_eval.get("historical_universe_pit_clean")
+        or gate.get("pit_universe_label_clean")
+    )
+    production_allowed = bool(account_eval.get("production_promotion_allowed") or gate.get("production_promotion_allowed"))
 
-    data_refresh_required = price_status not in {"ok"}
+    audit_age = audit_age_days(price_audit, today=today)
+    audit_record_stale = audit_age is None or audit_age > MAX_AUDIT_AGE_DAYS
+    data_refresh_required = price_status not in {"ok"} or audit_record_stale
     verifier_missing = goal_status == "missing"
     goal_pass = goal_status == "pass"
     fullrun_ready = (not data_refresh_required) and (material_change or verifier_missing)
@@ -64,6 +106,10 @@ def status_from_artifacts(latest_run: Path, *, material_change: bool = False) ->
             "latest_cached_bar_date": price_audit.get("latest_cached_bar_date"),
             "benchmark_anchor_date": price_audit.get("benchmark_anchor_date"),
             "stale_trading_days": price_audit.get("stale_trading_days"),
+            "audit_date": price_audit.get("audit_date"),
+            "audit_record_age_days": audit_age,
+            "audit_record_stale": audit_record_stale,
+            "max_audit_age_days": MAX_AUDIT_AGE_DAYS,
             "data_refresh_required": data_refresh_required,
         },
         "goal_verifier": {
@@ -104,6 +150,9 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.append(f"- price_audit_status: `{payload['price_audit']['status']}`")
     lines.append(f"- benchmark_anchor_date: `{payload['price_audit'].get('benchmark_anchor_date')}`")
     lines.append(f"- stale_trading_days: `{payload['price_audit'].get('stale_trading_days')}`")
+    lines.append(f"- audit_date: `{payload['price_audit'].get('audit_date')}`")
+    lines.append(f"- audit_record_age_days: `{payload['price_audit'].get('audit_record_age_days')}`")
+    lines.append(f"- audit_record_stale: `{payload['price_audit'].get('audit_record_stale')}`")
     lines.append(f"- goal_verifier_status: `{payload['goal_verifier']['status']}`")
     lines.append(f"- main_pass: `{payload['goal_verifier'].get('main_pass')}`")
     lines.append(f"- concentrated_pass: `{payload['goal_verifier'].get('concentrated_pass')}`")

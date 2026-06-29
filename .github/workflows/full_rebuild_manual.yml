@@ -675,6 +675,7 @@ jobs:
             outputs/alpha_plane_measurement_status.json
             outputs/goal_verifier/
             outputs/operating_cadence_status/
+            outputs/rs_2w_entry_timing_screen/
             outputs/alpha_beta_attribution/
             outputs/fusion_candidate_review/
             outputs/cagr_walkforward/
@@ -742,6 +743,7 @@ jobs:
             outputs/full_rebuild_logs/cash_reentry_quality_audit.log
             outputs/full_rebuild_logs/goal_verifier.log
             outputs/full_rebuild_logs/operating_cadence_status.log
+            outputs/full_rebuild_logs/rs_2w_entry_timing_screen.log
             outputs/full_rebuild_logs/alpha_beta_attribution.log
             outputs/full_rebuild_logs/fusion_candidate_review.log
             outputs/full_rebuild_logs/cagr_walkforward.log
@@ -787,6 +789,7 @@ jobs:
             outputs/entry_exit_timing_audit/
             outputs/cash_reentry_quality/
             outputs/alpha_plane_measurement_status.json
+            outputs/rs_2w_entry_timing_screen/
             outputs/alpha_beta_attribution/
             outputs/fusion_candidate_review/
             outputs/cagr_walkforward/
@@ -836,6 +839,7 @@ jobs:
             outputs/fusion_candidate_review/
             outputs/full_rebuild_logs/universe_health_audit.log
             outputs/full_rebuild_logs/alpha_beta_attribution.log
+            outputs/full_rebuild_logs/rs_2w_entry_timing_screen.log
             outputs/full_rebuild_logs/fusion_candidate_review.log
             outputs/full_rebuild_logs/cagr_walkforward.log
             outputs/full_rebuild_logs/daily_market_snapshot.log
