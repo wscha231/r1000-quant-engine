@@ -11,16 +11,22 @@ def test_sidecar_invokes_goal_verifier_after_account_evaluation() -> None:
     script = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
     account = "python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation"
     verifier = "python tools/verify_alphaops_goal_artifact.py --latest-run outputs --target-dir outputs/alphaops_vnext --output-dir outputs/goal_verifier"
+    cadence = "python tools/run_alphaops_operating_cadence_status.py --latest-run outputs --output-dir outputs/operating_cadence_status"
     assert account in script
     assert verifier in script
+    assert cadence in script
     assert script.index(account) < script.index(verifier)
+    assert script.index(verifier) < script.index(cadence)
     assert "outputs/full_rebuild_logs/goal_verifier.log" in script
+    assert "outputs/full_rebuild_logs/operating_cadence_status.log" in script
 
 
 def test_fullrun_artifact_uploads_goal_verifier_outputs() -> None:
     workflow = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
     assert "outputs/goal_verifier/" in workflow
+    assert "outputs/operating_cadence_status/" in workflow
     assert "outputs/full_rebuild_logs/goal_verifier.log" in workflow
+    assert "outputs/full_rebuild_logs/operating_cadence_status.log" in workflow
 
 
 if __name__ == "__main__":

@@ -580,6 +580,7 @@ python tools/run_broker_crisis_reentry_replay.py --latest-run outputs --price-ca
 python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
 python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
 python tools/verify_alphaops_goal_artifact.py --latest-run outputs --target-dir outputs/alphaops_vnext --output-dir outputs/goal_verifier 2>&1 | tee outputs/full_rebuild_logs/goal_verifier.log || true
+python tools/run_alphaops_operating_cadence_status.py --latest-run outputs --output-dir outputs/operating_cadence_status 2>&1 | tee outputs/full_rebuild_logs/operating_cadence_status.log || true
 python tools/run_oos_lock_audit.py --latest-run outputs --output-dir outputs/oos_lock --config research/oos_lock.yaml 2>&1 | tee outputs/full_rebuild_logs/oos_lock.log || true
 run_cash_contract_validator
 run_metric_hygiene_report
