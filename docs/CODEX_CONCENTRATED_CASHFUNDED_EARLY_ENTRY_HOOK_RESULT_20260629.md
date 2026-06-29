@@ -108,28 +108,35 @@ Rejected paths still contributed useful parts:
 - broad reentry timing remains a possible later combination, but is not included
   here to keep attribution clean.
 
-## 2-Week RS Note
+## 2-Week RS Follow-Up
 
-The current replay feature set has standard RS windows for `1w`, `1m`, `3m`,
-and `6m`. A 2-week RS comparison is technically easy to add by extending
-`WINDOWS` in `tools/run_alphaops_vnext_policy_replay.py`, but it should not be
-mixed into this hook PR.
+The 2-week RS follow-up has been completed and rejected as a policy input.
 
-Reason:
+What was tested:
 
-- the current hook already passes using existing PIT fields;
-- adding a new 2-week RS feature would create a second variable and blur
-  attribution;
-- the correct next step is a sidecar/screen that tests whether `rs_benchmark_2w`
-  or `rs_qqq_2w` improves early-entry candidate quality before promoting it to a
-  policy signal.
+- `2w` RS telemetry was added to the same PIT price-cache path used for `1w`,
+  `1m`, `3m`, and `6m`;
+- `tools/run_rs_2w_entry_timing_screen.py` found that `2w_rs_top_half` was a
+  plausible timing/tie-breaker candidate on forward-label diagnostics;
+- `tools/run_rs_timing_tiebreaker_broker_ab.py` then tested the candidate by
+  removing failing cash-funded early-entry rows and returning that weight to
+  cash before broker-ledger replay.
 
-Recommended follow-up:
+Broker A/B result on the clean 7Y integration artifact:
 
-- add `2w: ("days", 10)` as telemetry only;
-- compare early-entry candidates by `1w`, `2w`, `1m`, and `3m` RS;
-- accept only if 2-week RS improves full-period broker delta or reduces MDD
-  without lowering applied count too far.
+| Arm | CAGR | MaxDD | Sharpe | Decision |
+|---|---:|---:|---:|---|
+| baseline | 50.07% | -24.96% | 1.477 | keep |
+| `rs2w_positive` | 49.88% | -24.82% | 1.475 | reject: lower CAGR |
+| `rs2w_is_median` | 49.52% | -25.60% | 1.478 | reject: lower CAGR and worse MDD |
+
+Conclusion:
+
+- keep 2-week RS as sidecar/diagnostic telemetry only;
+- do not add it to `alphaops_score`;
+- do not add a 2-week RS tie-breaker to the integration fullrun flags;
+- do not rerun this path unless a materially different candidate population is
+  created and independently passes a new broker-ledger A/B.
 
 ## Caveats
 
