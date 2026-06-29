@@ -77,6 +77,7 @@ authenticated shell/UI and continue with artifact verification.
 
 ```powershell
 $envJson = '{"PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED":"1","PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED":"1","PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED":"1"}'
+$envJsonForGh = $envJson -replace '"','\"'
 
 gh workflow run full_rebuild_manual.yml `
   -R wscha231/r1000-quant-engine `
@@ -91,7 +92,7 @@ gh workflow run full_rebuild_manual.yml `
   -f artifact_profile=official `
   -f gdrive_sync_mode=official `
   -f portfolio_policy=alphaops_vnext_production `
-  -f experiment_env_json=$envJson
+  -f experiment_env_json=$envJsonForGh
 ```
 
 If data refresh did not update the cache, rerun full rebuild with

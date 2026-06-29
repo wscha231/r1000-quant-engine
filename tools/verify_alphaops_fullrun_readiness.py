@@ -72,6 +72,7 @@ def build_fullrun_command(*, repo: str, ref: str, env_payload: dict[str, str], s
     skip_text = "true" if skip_collector else "false"
     lines = [
         f"$envJson = '{env_json}'",
+        "$envJsonForGh = $envJson -replace '\"','\\\"'",
         "",
         "gh workflow run full_rebuild_manual.yml `",
         f"  -R {repo} `",
@@ -86,7 +87,7 @@ def build_fullrun_command(*, repo: str, ref: str, env_payload: dict[str, str], s
         "  -f artifact_profile=official `",
         "  -f gdrive_sync_mode=official `",
         "  -f portfolio_policy=alphaops_vnext_production `",
-        "  -f experiment_env_json=$envJson",
+        "  -f experiment_env_json=$envJsonForGh",
     ]
     return "\n".join(lines)
 

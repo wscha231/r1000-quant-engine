@@ -33,6 +33,8 @@ def test_ready_price_audit_emits_fullrun_command() -> None:
     assert "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED" in payload["fullrun_command"]
     assert "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED" in payload["fullrun_command"]
     assert "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED" in payload["fullrun_command"]
+    assert "$envJsonForGh = $envJson -replace" in payload["fullrun_command"]
+    assert "experiment_env_json=$envJsonForGh" in payload["fullrun_command"]
     assert payload["production_promotion_allowed"] is False
 
 
