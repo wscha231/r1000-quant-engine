@@ -83,6 +83,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/free_data_daily_price_audit_wiring_smoke.py", []),
     ("tests/rs_2w_telemetry_smoke.py", []),
     ("tests/rs_2w_entry_timing_screen_smoke.py", []),
+    ("tests/rs_timing_tiebreaker_broker_ab_smoke.py", []),
     ("tests/sec_cik_schema_smoke.py", []),
     ("tests/sec_form4_parser_smoke.py", []),
     ("tests/sec_13f_parser_smoke.py", []),

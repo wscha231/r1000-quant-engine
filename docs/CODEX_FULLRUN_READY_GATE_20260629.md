@@ -159,5 +159,6 @@ Use this cadence after the integration fullrun lands:
 - Always:
   - keep PIT membership cleanup active in parallel;
   - keep any 2-week RS result as telemetry until a separate broker-ledger A/B
-    proves it improves full-period results without OOS collapse; prefer a
-    narrow tie-breaker over direct score mutation.
+    proves it improves full-period results without OOS collapse. The 2026-06-29
+    cheap broker A/B rejected both `rs2w_positive` and `rs2w_is_median`, so do
+    not add a 2-week RS flag to the integration fullrun.

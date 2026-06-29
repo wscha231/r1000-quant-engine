@@ -90,10 +90,14 @@ Both sleeves clear the current research targets:
   bucket was useful (`+6.92%`, `63.64%`) but not enough to justify direct score
   mutation without a separate broker-ledger A/B. The sidecar has been upgraded
   to schema v2 so `2w_rs_top_half` can be surfaced as a default-OFF timing
-  tie-breaker candidate when it clears observation/OOS thresholds. That still
-  does not authorize direct score mutation or adding another fullrun flag.
-  Current clean7Y interpretation remains: keep as telemetry unless a separate
-  cheap broker A/B justifies a tie-breaker.
+  tie-breaker candidate when it clears observation/OOS thresholds. A follow-up
+  cheap broker A/B (`tools/run_rs_timing_tiebreaker_broker_ab.py`) tested that
+  candidate by removing failing cash-funded early-entry rows and returning the
+  weight to cash. Result: reject. Baseline Concentrated was `50.07%` CAGR /
+  `-24.96%` MaxDD; `rs2w_positive` was `49.88%` / `-24.82%`; `rs2w_is_median`
+  was `49.52%` / `-25.60%`. Therefore 2-week RS remains useful as timing
+  telemetry, but should not be promoted to direct scoring, a tie-breaker, or a
+  fullrun flag.
 - Rejected trend-break hedge variants can still contribute to future crash
   diagnostics as stress labels, not as target-book actions.
 - Broad hold/rescue variants remain rejected as policy hooks, but their
