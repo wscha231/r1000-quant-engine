@@ -42,8 +42,25 @@ gh workflow run free_data_daily_update.yml `
   -f max_price_tickers=0
 ```
 
+Run this from an authenticated GitHub CLI session or the GitHub Actions UI.
+The current Codex workspace may not have `gh auth` available even if the user's
+normal PowerShell session does. If `gh auth status` reports not logged in, do
+not spend time debugging the strategy code; dispatch the workflow from an
+authenticated shell/UI and continue with artifact verification.
+
 3. Confirm latest-close freshness from the workflow artifact or committed
    cache/manifest. Do not proceed if prices are future-dated or stale.
+
+   The operating cadence tool now treats an old `latest_price_date_audit.json`
+   as stale even when its `status` is `ok`. A valid pre-fullrun audit requires:
+
+   - `status=ok`
+   - `audit_record_stale=false`
+   - `audit_record_age_days <= 2`
+   - no future-dated prices
+
+   If any of these fail, the next action remains `run_free_data_daily_update`
+   and `skip_collector=true` fullrun is blocked.
 
 4. Dispatch one full rebuild only after freshness is clean:
 
@@ -83,6 +100,11 @@ The fullrun result is acceptable as research evidence only if all are true:
 - hooks have nonzero telemetry:
   - Main fast-crash hedge actions emitted.
   - Concentrated cash-funded early-entry applied rows emitted.
+- `outputs/operating_cadence_status/summary.json` does not request another
+  daily data refresh.
+- `outputs/rs_2w_entry_timing_screen/summary.json` is interpreted as a timing
+  diagnostic only. It must not be used to claim a new score feature unless a
+  separate broker-ledger A/B is run.
 
 Run the verifier before interpreting the run:
 
