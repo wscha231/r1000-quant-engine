@@ -262,6 +262,12 @@ CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = DEFAULT_CONCENTRATED_SCORE_SIZIN
 CONCENTRATED_SCORE_SIZING_REWEIGHT_CAP_MODE = DEFAULT_CONCENTRATED_SCORE_SIZING_CAP_MODE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP = DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP
 AI_CAPEX_MOMENTUM_TILT_STRENGTH = 0.15
+MAIN_FAST_CRASH_HEDGE_TICKER = "SH"
+MAIN_FAST_CRASH_HEDGE_BENCHMARK = "SPY"
+MAIN_FAST_CRASH_HEDGE_WEIGHT = 0.075
+MAIN_FAST_CRASH_RISK_BUFFER_WEIGHT = 0.005
+MAIN_FAST_CRASH_HEDGE_5D_DROP = -0.05
+MAIN_FAST_CRASH_HEDGE_10D_DROP = -0.08
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -630,6 +636,30 @@ def ai_capex_momentum_tilt_strength() -> float:
     raw = os.environ.get("R1000_MAIN_AI_CAPEX_TILT_STRENGTH", "")
     value = safe_float(raw, AI_CAPEX_MOMENTUM_TILT_STRENGTH)
     return float(max(0.0, min(1.0, value)))
+
+
+def main_fast_crash_hedge_enabled() -> bool:
+    return bool(phase_is_enabled("main_fast_crash_hedge", default=False))
+
+
+def main_fast_crash_hedge_ticker() -> str:
+    return clean_ticker(os.environ.get("R1000_MAIN_FAST_CRASH_HEDGE_TICKER", MAIN_FAST_CRASH_HEDGE_TICKER))
+
+
+def main_fast_crash_hedge_benchmark() -> str:
+    return clean_ticker(os.environ.get("R1000_MAIN_FAST_CRASH_HEDGE_BENCHMARK", MAIN_FAST_CRASH_HEDGE_BENCHMARK))
+
+
+def main_fast_crash_hedge_weight() -> float:
+    raw = os.environ.get("R1000_MAIN_FAST_CRASH_HEDGE_WEIGHT", "")
+    value = safe_float(raw, MAIN_FAST_CRASH_HEDGE_WEIGHT)
+    return float(max(0.0, min(0.25, value)))
+
+
+def main_fast_crash_risk_buffer_weight() -> float:
+    raw = os.environ.get("R1000_MAIN_FAST_CRASH_RISK_BUFFER_WEIGHT", "")
+    value = safe_float(raw, MAIN_FAST_CRASH_RISK_BUFFER_WEIGHT)
+    return float(max(0.0, min(0.05, value)))
 
 
 @dataclass(frozen=True)
@@ -3133,6 +3163,220 @@ def apply_concentrated_green_benchmark_risk_cyclical_new_entry_block(
     return filtered, payload
 
 
+def main_fast_crash_price_features(px: pd.DataFrame, dt: pd.Timestamp) -> dict[str, Any]:
+    if px.empty:
+        return {"coverage": False}
+    idx = pd.DatetimeIndex(px.index)
+    pos = int(idx.searchsorted(pd.Timestamp(dt).normalize(), side="right")) - 1
+    if pos < 0:
+        return {"coverage": False}
+    close = pd.to_numeric(px["close"], errors="coerce")
+    cur = safe_float(close.iloc[pos], 0.0)
+    if cur <= 0:
+        return {"coverage": False}
+    start_5 = close.iloc[pos - 5] if pos >= 5 else float("nan")
+    start_10 = close.iloc[pos - 10] if pos >= 10 else float("nan")
+    ret_5d = float(cur / start_5 - 1.0) if safe_float(start_5) > 0 else 0.0
+    ret_10d = float(cur / start_10 - 1.0) if safe_float(start_10) > 0 else 0.0
+    return {
+        "coverage": True,
+        "close": cur,
+        "ret_5d": ret_5d,
+        "ret_10d": ret_10d,
+    }
+
+
+def apply_main_fast_crash_hedge(
+    book: pd.DataFrame,
+    portfolio_kind: str,
+    *,
+    price_cache: Path,
+) -> tuple[pd.DataFrame, dict[str, Any], pd.DataFrame]:
+    schema_version = "alphaops-vnext-main-fast-crash-hedge-v1"
+    if portfolio_kind != "main":
+        return book, {
+            "schema_version": schema_version,
+            "status": "skipped",
+            "reason": "main_only",
+            "portfolio": portfolio_kind,
+        }, pd.DataFrame()
+    if not main_fast_crash_hedge_enabled():
+        return book, {
+            "schema_version": schema_version,
+            "status": "disabled",
+            "portfolio": portfolio_kind,
+        }, pd.DataFrame()
+    if book.empty or "rebalance_date" not in book.columns or "ticker" not in book.columns or "weight" not in book.columns:
+        return book, {
+            "schema_version": schema_version,
+            "status": "blocked",
+            "reason": "empty_or_missing_required_columns",
+            "portfolio": portfolio_kind,
+        }, pd.DataFrame()
+
+    hedge_ticker = main_fast_crash_hedge_ticker()
+    benchmark_ticker = main_fast_crash_hedge_benchmark()
+    hedge_weight = main_fast_crash_hedge_weight()
+    risk_buffer_weight = main_fast_crash_risk_buffer_weight()
+    if not hedge_ticker or hedge_ticker in CASH_TICKERS or hedge_weight <= 1e-12:
+        return book, {
+            "schema_version": schema_version,
+            "status": "blocked",
+            "reason": "invalid_hedge_config",
+            "portfolio": portfolio_kind,
+            "hedge_ticker": hedge_ticker,
+            "hedge_weight": hedge_weight,
+        }, pd.DataFrame()
+
+    hedge_px = load_price_series(price_cache, hedge_ticker)
+    benchmark_px = load_price_series(price_cache, benchmark_ticker)
+    if hedge_px.empty or benchmark_px.empty:
+        return book, {
+            "schema_version": schema_version,
+            "status": "blocked",
+            "reason": "missing_hedge_or_benchmark_price",
+            "portfolio": portfolio_kind,
+            "hedge_ticker": hedge_ticker,
+            "benchmark_ticker": benchmark_ticker,
+            "hedge_price_rows": int(len(hedge_px)),
+            "benchmark_price_rows": int(len(benchmark_px)),
+        }, pd.DataFrame()
+
+    working = book.copy()
+    working["rebalance_date"] = pd.to_datetime(working["rebalance_date"], errors="coerce")
+    working = working.dropna(subset=["rebalance_date"])
+    working["ticker"] = working["ticker"].map(clean_ticker)
+    working["weight"] = pd.to_numeric(working["weight"], errors="coerce").fillna(0.0)
+    if "target_weight" in working.columns:
+        working["target_weight"] = pd.to_numeric(working["target_weight"], errors="coerce").fillna(working["weight"])
+    else:
+        working["target_weight"] = working["weight"]
+
+    rebuilt: list[pd.DataFrame] = []
+    action_rows: list[dict[str, Any]] = []
+    for raw_dt in sorted(working["rebalance_date"].dropna().unique()):
+        dt = pd.Timestamp(raw_dt).normalize()
+        day = working[working["rebalance_date"].eq(raw_dt)].copy()
+        features = main_fast_crash_price_features(benchmark_px, dt)
+        ret_5d = safe_float(features.get("ret_5d"))
+        ret_10d = safe_float(features.get("ret_10d"))
+        signal = bool(features.get("coverage") and (ret_5d <= MAIN_FAST_CRASH_HEDGE_5D_DROP or ret_10d <= MAIN_FAST_CRASH_HEDGE_10D_DROP))
+        day["main_fast_crash_hedge_enabled"] = True
+        day["main_fast_crash_hedge_signal"] = bool(signal)
+        day["main_fast_crash_hedge_ticker"] = hedge_ticker
+        day["main_fast_crash_hedge_weight"] = 0.0
+        day["main_fast_crash_risk_buffer_weight"] = 0.0
+        day["main_fast_crash_hedge_benchmark_ret_5d"] = ret_5d
+        day["main_fast_crash_hedge_benchmark_ret_10d"] = ret_10d
+        stock_mask = ~day["ticker"].isin(CASH_TICKERS | {hedge_ticker})
+        hedge_existing_mask = day["ticker"].eq(hedge_ticker)
+        if hedge_existing_mask.any():
+            day = day.loc[~hedge_existing_mask].copy()
+            stock_mask = ~day["ticker"].isin(CASH_TICKERS | {hedge_ticker})
+        pre_stock = float(day.loc[stock_mask, "weight"].sum())
+        hedge_w = min(hedge_weight, max(0.0, pre_stock)) if signal else 0.0
+        risk_buffer_w = min(risk_buffer_weight, max(0.0, pre_stock - hedge_w)) if risk_buffer_weight > 1e-12 else 0.0
+        total_funded_w = min(pre_stock, hedge_w + risk_buffer_w)
+        if total_funded_w > 1e-12 and pre_stock > 1e-12:
+            scale = max(0.0, (pre_stock - total_funded_w) / pre_stock)
+            day.loc[stock_mask, "weight"] = day.loc[stock_mask, "weight"] * scale
+            day.loc[stock_mask, "target_weight"] = day.loc[stock_mask, "target_weight"] * scale
+            if "selection_reason" in day.columns:
+                reason_suffix = "|main_fast_crash_hedge_funded" if hedge_w > 1e-12 else "|main_fast_crash_risk_buffer"
+                day.loc[stock_mask, "selection_reason"] = day.loc[stock_mask, "selection_reason"].astype(str) + reason_suffix
+            day.loc[stock_mask, "main_fast_crash_risk_buffer_weight"] = risk_buffer_w
+        if signal and hedge_w > 1e-12 and pre_stock > 1e-12:
+            template = day.iloc[0] if not day.empty else pd.Series(dtype=object)
+            hedge_row = dict(template.to_dict())
+            hedge_row.update(
+                {
+                    "rebalance_date": dt.date().isoformat(),
+                    "ticker": hedge_ticker,
+                    "Name": f"{hedge_ticker} hedge",
+                    "sector": "Hedge",
+                    "industry_group": "Inverse ETF Hedge",
+                    "weight": hedge_w,
+                    "target_weight": hedge_w,
+                    "portfolio_kind": portfolio_kind,
+                    "primary_lane": "HEDGE",
+                    "holding_state": "HEDGE",
+                    "hold_replace_decision": "main_fast_crash_hedge",
+                    "selection_reason": "main_fast_crash_hedge_funded_overlay",
+                    "main_fast_crash_hedge_enabled": True,
+                    "main_fast_crash_hedge_signal": True,
+                    "main_fast_crash_hedge_ticker": hedge_ticker,
+                    "main_fast_crash_hedge_weight": hedge_w,
+                    "main_fast_crash_risk_buffer_weight": risk_buffer_w,
+                    "main_fast_crash_hedge_benchmark_ret_5d": ret_5d,
+                    "main_fast_crash_hedge_benchmark_ret_10d": ret_10d,
+                    "production_policy": "alphaops_vnext_production",
+                    "current_holdings_source": "alphaops_vnext_policy_target_book",
+                }
+            )
+            day = pd.concat([day, pd.DataFrame([hedge_row])], ignore_index=True)
+        post_stock = float(day.loc[~day["ticker"].isin(CASH_TICKERS | {hedge_ticker}), "weight"].sum())
+        cash_weight = max(0.0, 1.0 - float(day.loc[~day["ticker"].isin(CASH_TICKERS), "weight"].sum()))
+        cash_mask = day["ticker"].isin(CASH_TICKERS)
+        if cash_mask.any():
+            first_cash_idx = day.index[cash_mask][0]
+            day.loc[cash_mask, ["weight", "target_weight"]] = 0.0
+            day.loc[first_cash_idx, "weight"] = cash_weight
+            day.loc[first_cash_idx, "target_weight"] = cash_weight
+            if "selection_reason" in day.columns:
+                day.loc[first_cash_idx, "selection_reason"] = "cash_from_main_fast_crash_hedge"
+        elif cash_weight > 1e-10:
+            template = day.iloc[0] if not day.empty else None
+            cash = capacity_cash_row(dt, portfolio_kind, cash_weight, template)
+            cash["selection_reason"] = "cash_from_main_fast_crash_hedge"
+            day = pd.concat([day, pd.DataFrame([cash])], ignore_index=True)
+        total_weight = float(day["weight"].sum())
+        action_rows.append(
+            {
+                "rebalance_date": dt.date().isoformat(),
+                "portfolio_kind": portfolio_kind,
+                "hedge_ticker": hedge_ticker,
+                "benchmark_ticker": benchmark_ticker,
+                "signal": bool(signal),
+                "hedge_weight": hedge_w,
+                "risk_buffer_weight": risk_buffer_w,
+                "total_funded_weight": total_funded_w,
+                "pre_stock_weight": pre_stock,
+                "post_stock_weight": post_stock,
+                "cash_weight": cash_weight,
+                "total_weight": total_weight,
+                "benchmark_ret_5d": ret_5d,
+                "benchmark_ret_10d": ret_10d,
+            }
+        )
+        rebuilt.append(day)
+
+    result = pd.concat(rebuilt, ignore_index=True) if rebuilt else working
+    result["rebalance_date"] = pd.to_datetime(result["rebalance_date"], errors="coerce").dt.date.astype(str)
+    result = result.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
+    actions = pd.DataFrame(action_rows)
+    hedge_dates = int(pd.to_numeric(actions.get("hedge_weight", pd.Series(dtype=float)), errors="coerce").gt(0.0).sum()) if not actions.empty else 0
+    summary = {
+        "schema_version": schema_version,
+        "status": "completed",
+        "portfolio": portfolio_kind,
+        "hedge_ticker": hedge_ticker,
+        "benchmark_ticker": benchmark_ticker,
+        "hedge_weight": hedge_weight,
+        "risk_buffer_weight": risk_buffer_weight,
+        "ret_5d_threshold": MAIN_FAST_CRASH_HEDGE_5D_DROP,
+        "ret_10d_threshold": MAIN_FAST_CRASH_HEDGE_10D_DROP,
+        "rebalance_dates_total": int(len(actions)),
+        "hedge_dates": hedge_dates,
+        "avg_hedge_weight": float(pd.to_numeric(actions.get("hedge_weight", pd.Series(dtype=float)), errors="coerce").mean()) if not actions.empty else 0.0,
+        "max_hedge_weight": float(pd.to_numeric(actions.get("hedge_weight", pd.Series(dtype=float)), errors="coerce").max()) if not actions.empty else 0.0,
+        "funded_by_pro_rata_long_reduction": True,
+        "total_gross_leq_one": bool((pd.to_numeric(actions.get("total_weight", pd.Series(dtype=float)), errors="coerce").fillna(0.0) <= 1.000001).all()) if not actions.empty else True,
+        "research_only": True,
+        "production_activation_allowed": False,
+    }
+    return result, summary, actions
+
+
 def apply_regime_capacity_overlay(
     book: pd.DataFrame,
     *,
@@ -3474,6 +3718,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     main_defense_review_turnaround_block_summary: dict[str, Any] = {}
     main_defense_review_balanced_block_summary: dict[str, Any] = {}
     concentrated_green_benchmark_risk_block_summary: dict[str, Any] = {}
+    main_fast_crash_hedge_summary: dict[str, Any] = {}
+    main_fast_crash_hedge_actions = pd.DataFrame()
     if not main_book.empty:
         main_book, main_churn_filter_summary = apply_main_neutral_regime_churn_filter(main_book, "main")
         main_book, neutral_metals_block_summaries["main"] = apply_neutral_metals_new_entry_block(main_book, "main")
@@ -3489,6 +3735,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "main",
             )
         )
+        main_book, main_fast_crash_hedge_summary, main_fast_crash_hedge_actions = apply_main_fast_crash_hedge(
+            main_book,
+            "main",
+            price_cache=price_cache,
+        )
         variants[main_key] = main_book
         operating_append_summaries.setdefault(main_key, {})["main_neutral_churn_filter"] = main_churn_filter_summary
         operating_append_summaries[main_key]["neutral_metals_new_entry_block"] = neutral_metals_block_summaries["main"]
@@ -3498,6 +3749,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         operating_append_summaries[main_key]["main_defense_review_balanced_new_entry_block"] = (
             main_defense_review_balanced_block_summary
         )
+        operating_append_summaries[main_key]["main_fast_crash_hedge"] = main_fast_crash_hedge_summary
         operating_append_summaries[main_key]["output_row_count"] = int(len(main_book))
         write_csv(output_dir / "variants" / f"{main_key}_target_book.csv", main_book)
     if not concentrated_book.empty:
@@ -3530,6 +3782,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         output_dir / "main_defense_review_balanced_new_entry_block.json",
         main_defense_review_balanced_block_summary,
     )
+    write_json(output_dir / "main_fast_crash_hedge.json", main_fast_crash_hedge_summary)
+    write_csv(output_dir / "main_fast_crash_hedge_actions.csv", main_fast_crash_hedge_actions)
     write_json(
         output_dir / "concentrated_green_benchmark_risk_cyclical_new_entry_block.json",
         concentrated_green_benchmark_risk_block_summary,
