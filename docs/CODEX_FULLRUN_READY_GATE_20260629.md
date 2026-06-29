@@ -62,6 +62,17 @@ authenticated shell/UI and continue with artifact verification.
    If any of these fail, the next action remains `run_free_data_daily_update`
    and `skip_collector=true` fullrun is blocked.
 
+   The daily update workflow also emits:
+
+   - `outputs/fullrun_readiness/summary.json`
+   - `outputs/fullrun_readiness/report.md`
+   - `outputs/full_rebuild_logs/fullrun_readiness.log`
+
+   Treat `outputs/fullrun_readiness/summary.json` as the authoritative
+   pre-fullrun gate. Only dispatch the full rebuild when `fullrun_ready=true`.
+   If it is blocked, fix or rerun the daily data update instead of interpreting
+   old price data.
+
 4. Dispatch one full rebuild only after freshness is clean:
 
 ```powershell
