@@ -72,22 +72,28 @@ Both sleeves clear the current research targets:
 - Main trend-break hedge variants. They worsened MaxDD in cheap broker probes.
 - Direct 2-week RS scoring. Keep it as sidecar/telemetry only until a separate
   broker-ledger A/B proves it is stable OOS and not a chase/whipsaw signal.
+  The only acceptable promotion path is a default-OFF timing tie-breaker, not a
+  broad unconditional score term.
 
 ### Sidecar-Only Candidates
 
 - 2-week RS comparison remains useful as a timing diagnostic. The integration
   branch now emits `2w` RS telemetry from the same PIT price-cache path used for
   `1w`, `1m`, `3m`, and `6m`, but it does not enter `score_total`. Promote it
-  to scoring only after a forward-blind screen and broker-ledger A/B show
-  full-period value. The current passing integration already has three active
-  levers, so adding a fourth unproven score feature would blur attribution.
+  only after a forward-blind screen and broker-ledger A/B show full-period
+  value. The current passing integration already has three active levers, so
+  adding a fourth unproven score feature would blur attribution.
   A new read-only sidecar (`tools/run_rs_2w_entry_timing_screen.py`) now audits
   this automatically. On the clean 7Y concentrated early-entry artifact it found
   `2w_rs_positive` mean 126d excess `+3.80%` with `48.57%` hit rate, while
   `1w_rs_positive` was stronger at `+6.73%` and `57.14%`. The `2w_rs_top_half`
   bucket was useful (`+6.92%`, `63.64%`) but not enough to justify direct score
-  mutation without a separate broker-ledger A/B. Current verdict:
-  `keep_2w_rs_telemetry_only`.
+  mutation without a separate broker-ledger A/B. The sidecar has been upgraded
+  to schema v2 so `2w_rs_top_half` can be surfaced as a default-OFF timing
+  tie-breaker candidate when it clears observation/OOS thresholds. That still
+  does not authorize direct score mutation or adding another fullrun flag.
+  Current clean7Y interpretation remains: keep as telemetry unless a separate
+  cheap broker A/B justifies a tie-breaker.
 - Rejected trend-break hedge variants can still contribute to future crash
   diagnostics as stress labels, not as target-book actions.
 - Broad hold/rescue variants remain rejected as policy hooks, but their

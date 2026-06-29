@@ -68,7 +68,37 @@ def test_empty_population_is_blocked_without_mutation() -> None:
     assert summary["verdict"] == "keep_telemetry_only"
 
 
+def test_2w_top_half_can_only_become_tiebreaker_candidate() -> None:
+    rows = []
+    dates = list(pd.date_range("2024-01-31", periods=20, freq="ME"))
+    for idx, dt in enumerate(dates):
+        is_winner = idx < 10
+        rows.append(
+            {
+                "rebalance_date": dt,
+                "forward_126d_excess_audit_only": 0.10 if is_winner else -0.05,
+                "forward_63d_excess_audit_only": 0.03 if is_winner else -0.02,
+                # 2w positive is intentionally too broad: it includes four
+                # weak rows, while top-half isolates the stronger timing rows.
+                "rs_benchmark_2w": 0.20 if is_winner else (0.01 if idx < 16 else -0.05),
+                # 1w positive is a strong comparator, so 2w-positive must not
+                # be treated as a direct score gate.
+                "rs_benchmark_1w": 0.10 if is_winner else -0.10,
+                "rs_benchmark_1m": 0.0,
+                "rs_benchmark_3m": 0.0,
+            }
+        )
+    summary, _table = evaluate(pd.DataFrame(rows), oos_start="2024-04-01")
+
+    assert summary["verdict"] == "screen_pass_design_default_off_2w_rs_tiebreaker"
+    assert summary["recommended_next_action"] == "design_default_off_2w_rs_tiebreaker_then_broker_ab"
+    assert summary["score_mutation_allowed"] is False
+    assert summary["policy_mutation_allowed"] is False
+    assert summary["best_two_week_bucket"]["label"] == "2w_rs_top_half"
+
+
 if __name__ == "__main__":
     test_2w_screen_passes_only_as_audit_sidecar()
     test_empty_population_is_blocked_without_mutation()
+    test_2w_top_half_can_only_become_tiebreaker_candidate()
     print("rs_2w_entry_timing_screen_smoke: PASS")

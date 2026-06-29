@@ -38,6 +38,7 @@ DEFAULT_HORIZONS = (63, 126)
 MIN_OBS = 8
 MIN_OOS_OBS = 3
 MIN_EDGE_PP = 0.005
+TIEBREAKER_TOLERANCE_PP = 0.005
 
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -193,6 +194,27 @@ def split_stats(frame: pd.DataFrame, mask: pd.Series, *, oos_start: pd.Timestamp
     }
 
 
+def bucket_passes(
+    row: dict[str, Any],
+    *,
+    base_mean: float | None,
+    min_obs: int = MIN_OBS,
+    min_oos_obs: int = MIN_OOS_OBS,
+    min_edge_pp: float = MIN_EDGE_PP,
+) -> bool:
+    mean = row.get("mean_126d_excess")
+    oos_mean = row.get("oos_mean_126d_excess")
+    return (
+        int(row.get("rows") or 0) >= min_obs
+        and int(row.get("oos_rows") or 0) >= min_oos_obs
+        and mean is not None
+        and base_mean is not None
+        and oos_mean is not None
+        and safe_float(mean) >= safe_float(base_mean) + float(min_edge_pp)
+        and safe_float(oos_mean) >= -float(min_edge_pp)
+    )
+
+
 def evaluate(frame: pd.DataFrame, *, oos_start: str) -> tuple[dict[str, Any], pd.DataFrame]:
     if frame.empty:
         return {
@@ -214,6 +236,13 @@ def evaluate(frame: pd.DataFrame, *, oos_start: str) -> tuple[dict[str, Any], pd
     base = table[table["label"].eq("all_applied")].iloc[0].to_dict()
     two = table[table["label"].eq("2w_rs_positive")]
     two_row = two.iloc[0].to_dict() if not two.empty else {}
+    two_half = table[table["label"].eq("2w_rs_top_half")]
+    two_half_row = two_half.iloc[0].to_dict() if not two_half.empty else {}
+    two_buckets = table[table["label"].isin(["2w_rs_positive", "2w_rs_top_half"])].copy()
+    two_best = None
+    if not two_buckets.empty:
+        two_buckets["mean_for_rank"] = pd.to_numeric(two_buckets["mean_126d_excess"], errors="coerce").fillna(-999.0)
+        two_best = two_buckets.sort_values("mean_for_rank", ascending=False).iloc[0].to_dict()
     other = table[
         table["label"].isin(["1w_rs_positive", "1m_rs_positive", "3m_rs_positive"])
     ].copy()
@@ -221,6 +250,22 @@ def evaluate(frame: pd.DataFrame, *, oos_start: str) -> tuple[dict[str, Any], pd
     if not other.empty:
         other["mean_for_rank"] = pd.to_numeric(other["mean_126d_excess"], errors="coerce").fillna(-999.0)
         other_best = other.sort_values("mean_for_rank", ascending=False).iloc[0].to_dict()
+    other_buckets = table[
+        table["label"].isin(
+            [
+                "1w_rs_positive",
+                "1w_rs_top_half",
+                "1m_rs_positive",
+                "1m_rs_top_half",
+                "3m_rs_positive",
+                "3m_rs_top_half",
+            ]
+        )
+    ].copy()
+    other_bucket_best = None
+    if not other_buckets.empty:
+        other_buckets["mean_for_rank"] = pd.to_numeric(other_buckets["mean_126d_excess"], errors="coerce").fillna(-999.0)
+        other_bucket_best = other_buckets.sort_values("mean_for_rank", ascending=False).iloc[0].to_dict()
 
     two_mean = two_row.get("mean_126d_excess")
     base_mean = base.get("mean_126d_excess")
@@ -236,25 +281,41 @@ def evaluate(frame: pd.DataFrame, *, oos_start: str) -> tuple[dict[str, Any], pd
         and (other_mean is None or two_mean >= safe_float(other_mean) - 1e-12)
         and two_oos >= -MIN_EDGE_PP
     )
+    tiebreaker_screen = False
+    if two_best is not None and bucket_passes(two_best, base_mean=base_mean):
+        best_other_bucket_mean = other_bucket_best.get("mean_126d_excess") if other_bucket_best else None
+        tiebreaker_screen = best_other_bucket_mean is None or safe_float(two_best.get("mean_126d_excess")) >= (
+            safe_float(best_other_bucket_mean) - TIEBREAKER_TOLERANCE_PP
+        )
     if pass_screen:
         verdict = "screen_pass_design_default_off_2w_rs_gate"
+        recommended_next_action = "design_default_off_2w_rs_gate_then_broker_ab"
+    elif tiebreaker_screen:
+        verdict = "screen_pass_design_default_off_2w_rs_tiebreaker"
+        recommended_next_action = "design_default_off_2w_rs_tiebreaker_then_broker_ab"
     else:
         verdict = "keep_2w_rs_telemetry_only"
+        recommended_next_action = "keep_telemetry_only"
     summary = {
-        "schema_version": "rs-2w-entry-timing-screen-v1",
+        "schema_version": "rs-2w-entry-timing-screen-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "completed",
         "verdict": verdict,
+        "recommended_next_action": recommended_next_action,
         "audit_only": True,
         "policy_mutation_allowed": False,
         "score_mutation_allowed": False,
         "min_obs": MIN_OBS,
         "min_oos_obs": MIN_OOS_OBS,
         "min_edge_pp": MIN_EDGE_PP,
+        "tiebreaker_tolerance_pp": TIEBREAKER_TOLERANCE_PP,
         "total_rows": int(len(frame)),
         "base_mean_126d_excess": base_mean,
         "two_week_positive": two_row,
+        "two_week_top_half": two_half_row,
+        "best_two_week_bucket": two_best,
         "best_other_positive_window": other_best,
+        "best_other_bucket": other_bucket_best,
         "windows": {str(row["label"]): row for row in table.to_dict("records")},
     }
     return summary, table
@@ -263,9 +324,11 @@ def evaluate(frame: pd.DataFrame, *, oos_start: str) -> tuple[dict[str, Any], pd
 def render_report(summary: dict[str, Any], table: pd.DataFrame) -> str:
     lines = ["# RS 2W Entry Timing Screen", ""]
     lines.append(f"- verdict: `{summary.get('verdict')}`")
+    lines.append(f"- recommended_next_action: `{summary.get('recommended_next_action')}`")
     lines.append(f"- total_rows: `{summary.get('total_rows')}`")
     lines.append("- audit_only: `true`")
     lines.append("- score_mutation_allowed: `false`")
+    lines.append("- interpretation: `2w RS can only become an env-gated tie-breaker after broker A/B; this sidecar never mutates score.`")
     lines.append("")
     lines.append("## Window Comparison")
     lines.append("")

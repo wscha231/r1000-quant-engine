@@ -115,7 +115,11 @@ The fullrun result is acceptable as research evidence only if all are true:
   daily data refresh.
 - `outputs/rs_2w_entry_timing_screen/summary.json` is interpreted as a timing
   diagnostic only. It must not be used to claim a new score feature unless a
-  separate broker-ledger A/B is run.
+  separate broker-ledger A/B is run. Schema v2 may surface
+  `screen_pass_design_default_off_2w_rs_tiebreaker` when `2w_rs_top_half`
+  clears observation and OOS checks; that is only permission to design a
+  default-OFF tie-breaker screen, not permission to add a broad `2w` score term
+  or another fullrun flag.
 
 Run the verifier before interpreting the run:
 
@@ -155,4 +159,5 @@ Use this cadence after the integration fullrun lands:
 - Always:
   - keep PIT membership cleanup active in parallel;
   - keep any 2-week RS result as telemetry until a separate broker-ledger A/B
-    proves it improves full-period results without OOS collapse.
+    proves it improves full-period results without OOS collapse; prefer a
+    narrow tie-breaker over direct score mutation.
