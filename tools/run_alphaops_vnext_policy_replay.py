@@ -172,6 +172,7 @@ def capped_proportional_fill(
 
 WINDOWS = {
     "1w": ("days", 5),
+    "2w": ("days", 10),
     "1m": ("months", 1),
     "3m": ("months", 3),
     "6m": ("months", 6),

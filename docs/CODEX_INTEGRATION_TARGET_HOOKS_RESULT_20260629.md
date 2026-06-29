@@ -63,12 +63,29 @@ Both sleeves clear the current research targets:
   `-25.003%` MaxDD.
 - Concentrated cash-funded early entry because it directly deploys idle cash
   into PIT-ranked unheld leaders without selling existing winners.
+- Read-only goal verifier. This is not an alpha lever; it prevents accidental
+  manual promotion by checking both sleeves, hook telemetry, and the PIT
+  production blocker from one command.
 
 ### Rejected
 
 - Main trend-break hedge variants. They worsened MaxDD in cheap broker probes.
 - Direct 2-week RS scoring. Keep it as sidecar/telemetry only until a separate
   broker-ledger A/B proves it is stable OOS and not a chase/whipsaw signal.
+
+### Sidecar-Only Candidates
+
+- 2-week RS comparison remains useful as a timing diagnostic. The integration
+  branch now emits `2w` RS telemetry from the same PIT price-cache path used for
+  `1w`, `1m`, `3m`, and `6m`, but it does not enter `score_total`. Promote it
+  to scoring only after a forward-blind screen and broker-ledger A/B show
+  full-period value. The current passing integration already has three active
+  levers, so adding a fourth unproven score feature would blur attribution.
+- Rejected trend-break hedge variants can still contribute to future crash
+  diagnostics as stress labels, not as target-book actions.
+- Broad hold/rescue variants remain rejected as policy hooks, but their
+  whipsaw rows are useful for post-trade attribution and for testing narrower
+  thesis-intact hold candidates.
 
 ## Important Caveats
 
@@ -91,3 +108,5 @@ Both sleeves clear the current research targets:
 4. Run one full rebuild only after cheap preflight confirms the same hooks are
    active and data freshness is clean.
 5. Continue PIT membership cleanup in parallel.
+6. Run `tools/verify_alphaops_goal_artifact.py` against the fullrun artifact
+   before interpreting the result.

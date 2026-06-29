@@ -84,8 +84,42 @@ The fullrun result is acceptable as research evidence only if all are true:
   - Main fast-crash hedge actions emitted.
   - Concentrated cash-funded early-entry applied rows emitted.
 
+Run the verifier before interpreting the run:
+
+```powershell
+$py='C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+
+& $py tools\verify_alphaops_goal_artifact.py `
+  --latest-run <fullrun-artifact-or-outputs-dir> `
+  --target-dir <fullrun-artifact-or-outputs-dir>\alphaops_vnext `
+  --output-dir <fullrun-artifact-or-outputs-dir>\goal_verifier `
+  --expect-pit-unclean
+```
+
 ## Production Caveat
 
 `pit_universe_label_clean=false` remains a hard production blocker. A passing
 fullrun can be classified as clean `research_7y` / `ready_for_human_review`, not
 production promotion.
+
+## Forward Operating Cadence
+
+Use this cadence after the integration fullrun lands:
+
+- Daily after the latest regular-session close:
+  - run/verify `free_data_daily_update.yml`;
+  - confirm no future-dated prices;
+  - refresh user-current/order-preview outputs only as review-only artifacts.
+- Weekly:
+  - run cheap sidecars for hook applied counts, cash usage, 2-week RS telemetry,
+    and leader capture drift;
+  - do not run full rebuild unless a hook, data source, or market regime changed
+    enough to justify the 2-6 hour cost.
+- Monthly or after material code/data changes:
+  - run one official full rebuild with the integration env flags;
+  - run `verify_alphaops_goal_artifact.py`;
+  - archive the verifier report with the run.
+- Always:
+  - keep PIT membership cleanup active in parallel;
+  - keep any 2-week RS result as telemetry until a separate broker-ledger A/B
+    proves it improves full-period results without OOS collapse.
