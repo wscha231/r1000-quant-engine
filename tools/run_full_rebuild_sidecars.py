@@ -454,7 +454,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     run_patch_manifest
     python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
   fi
-  python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
+  python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json --extra-tickers SH 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
   run_patch_manifest
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
@@ -613,7 +613,7 @@ if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "mar
   run_sidecar_promotion_hook
 fi
 python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
-python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
+python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json --extra-tickers SH 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
 python tools/run_auto_learning_v2.py --latest-run outputs --output-dir outputs/auto_learning_v2 --research-dir outputs/auto_learning_v2/research 2>&1 | tee outputs/full_rebuild_logs/auto_learning_v2.log || true
 python tools/run_winner_lifecycle_reports.py --latest-run outputs --output-dir outputs/winner_lifecycle 2>&1 | tee outputs/full_rebuild_logs/winner_lifecycle.log || true
 python tools/run_winner_onset_study.py --scored outputs/scored_latest.csv --top-tickers 80 --limit 80 --years 10 --output-dir outputs/winner_onset_study 2>&1 | tee outputs/full_rebuild_logs/winner_onset_study.log || true

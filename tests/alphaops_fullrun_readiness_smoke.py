@@ -23,7 +23,7 @@ def test_ready_price_audit_emits_fullrun_command() -> None:
             "latest_cached_bar_date": "2026-06-29",
             "benchmark_anchor_date": "2026-06-29",
             "audit_date": "2026-06-29",
-            "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29"},
+            "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29", "SH": "2026-06-29"},
         },
         today=pd.Timestamp("2026-06-29"),
     )
@@ -35,6 +35,7 @@ def test_ready_price_audit_emits_fullrun_command() -> None:
     assert "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED" in payload["fullrun_command"]
     assert "$envJsonForGh = $envJson -replace" in payload["fullrun_command"]
     assert "experiment_env_json=$envJsonForGh" in payload["fullrun_command"]
+    assert payload["required_price_tickers"] == ["QQQ", "SH", "SPY"]
     assert payload["production_promotion_allowed"] is False
 
 
@@ -71,8 +72,28 @@ def test_future_dated_price_blocks_fullrun() -> None:
     assert "future_dated_prices" in payload["blockers"]
 
 
+def test_missing_hedge_price_blocks_fullrun_when_hedge_env_enabled() -> None:
+    payload = evaluate(
+        {
+            "status": "ok",
+            "stale_price_review": False,
+            "stale_trading_days": 0,
+            "benchmark_anchor_date": "2026-06-29",
+            "latest_cached_bar_date": "2026-06-29",
+            "audit_date": "2026-06-29",
+            "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29"},
+        },
+        today=pd.Timestamp("2026-06-29"),
+    )
+    assert payload["fullrun_ready"] is False
+    assert "missing_required_env_price_tickers" in payload["blockers"]
+    assert payload["missing_required_price_tickers"] == ["SH"]
+    assert payload["fullrun_command"] == ""
+
+
 if __name__ == "__main__":
     test_ready_price_audit_emits_fullrun_command()
     test_old_audit_blocks_fullrun_even_if_status_ok()
     test_future_dated_price_blocks_fullrun()
+    test_missing_hedge_price_blocks_fullrun_when_hedge_env_enabled()
     print("alphaops_fullrun_readiness_smoke: PASS")

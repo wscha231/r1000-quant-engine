@@ -13,6 +13,7 @@ def test_free_data_daily_update_emits_latest_price_audit() -> None:
     assert command in workflow
     assert "outputs/full_rebuild_logs/latest_price_date_audit.log" in workflow
     assert "outputs/latest_price_date_audit.json" in workflow
+    assert "--extra-tickers SH" in workflow
     assert "latest_price_date_audit.json" in workflow
     assert "python tools/verify_alphaops_fullrun_readiness.py --price-audit outputs/latest_price_date_audit.json" in workflow
     assert "outputs/full_rebuild_logs/fullrun_readiness.log" in workflow

@@ -23,6 +23,8 @@ DEFAULT_ENV = {
     "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED": "1",
     "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED": "1",
 }
+DEFAULT_MAIN_FAST_CRASH_HEDGE_TICKER = "SH"
+DEFAULT_MAIN_FAST_CRASH_HEDGE_BENCHMARK = "SPY"
 MAX_AUDIT_AGE_DAYS = 2
 
 
@@ -67,6 +69,38 @@ def future_dated_prices(audit: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
+def required_env_price_tickers(env_payload: dict[str, str]) -> list[str]:
+    tickers: set[str] = {"SPY", "QQQ"}
+    if str(env_payload.get("PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED") or "").strip() in {"1", "true", "True"}:
+        tickers.add(DEFAULT_MAIN_FAST_CRASH_HEDGE_TICKER)
+        tickers.add(DEFAULT_MAIN_FAST_CRASH_HEDGE_BENCHMARK)
+    return sorted(tickers)
+
+
+def missing_required_price_tickers(audit: dict[str, Any], required: list[str]) -> list[str]:
+    per_ticker = audit.get("per_ticker") or {}
+    if not isinstance(per_ticker, dict):
+        return list(required)
+    available = {str(t).upper() for t, raw_date in per_ticker.items() if parse_date(raw_date) is not None}
+    return [ticker for ticker in required if ticker.upper() not in available]
+
+
+def stale_required_price_tickers(audit: dict[str, Any], required: list[str]) -> list[dict[str, str]]:
+    anchor = parse_date(audit.get("benchmark_anchor_date") or audit.get("latest_cached_bar_date") or audit.get("audit_date"))
+    if anchor is None:
+        return []
+    per_ticker = audit.get("per_ticker") or {}
+    if not isinstance(per_ticker, dict):
+        return []
+    out: list[dict[str, str]] = []
+    per_upper = {str(k).upper(): v for k, v in per_ticker.items()}
+    for ticker in required:
+        bar_date = parse_date(per_upper.get(ticker.upper()))
+        if bar_date is not None and bar_date < anchor:
+            out.append({"ticker": ticker.upper(), "bar_date": bar_date.date().isoformat(), "anchor_date": anchor.date().isoformat()})
+    return out
+
+
 def build_fullrun_command(*, repo: str, ref: str, env_payload: dict[str, str], skip_collector: bool) -> str:
     env_json = json.dumps(env_payload, sort_keys=True, separators=(",", ":"))
     skip_text = "true" if skip_collector else "false"
@@ -101,6 +135,8 @@ def evaluate(
     max_audit_age_days: int = MAX_AUDIT_AGE_DAYS,
 ) -> dict[str, Any]:
     blockers: list[str] = []
+    env_payload = DEFAULT_ENV.copy()
+    required_tickers = required_env_price_tickers(env_payload)
     status = str(audit.get("status") or "missing")
     if not audit:
         blockers.append("missing_latest_price_date_audit")
@@ -129,9 +165,15 @@ def evaluate(
         blockers.append("future_dated_prices")
     if not audit.get("benchmark_anchor_date"):
         blockers.append("missing_benchmark_anchor_date")
+    missing_required = missing_required_price_tickers(audit, required_tickers)
+    if missing_required:
+        blockers.append("missing_required_env_price_tickers")
+    stale_required = stale_required_price_tickers(audit, required_tickers)
+    if stale_required:
+        blockers.append("stale_required_env_price_tickers")
 
     fullrun_ready = not blockers
-    command = build_fullrun_command(repo=repo, ref=ref, env_payload=DEFAULT_ENV, skip_collector=True)
+    command = build_fullrun_command(repo=repo, ref=ref, env_payload=env_payload, skip_collector=True)
     return {
         "schema_version": "alphaops-fullrun-readiness-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -150,7 +192,10 @@ def evaluate(
             "future_dated_prices": future,
             "missing_tickers": audit.get("missing_tickers") or [],
         },
-        "required_experiment_env": DEFAULT_ENV,
+        "required_experiment_env": env_payload,
+        "required_price_tickers": required_tickers,
+        "missing_required_price_tickers": missing_required,
+        "stale_required_price_tickers": stale_required,
         "next_action": "dispatch_full_rebuild_manual" if fullrun_ready else "rerun_free_data_daily_update_or_fix_freshness",
         "fullrun_command": command if fullrun_ready else "",
         "production_promotion_allowed": False,
