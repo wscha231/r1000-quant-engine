@@ -431,6 +431,7 @@ MACRO_PRICE_TICKERS = {
 
 MACRO_FRED_SERIES = {
     "vix": "VIXCLS",
+    "dgs3mo": "DGS3MO",
     "dgs10": "DGS10",
     "dxy": "DTWEXBGS",
     "m2": "M2SL",
