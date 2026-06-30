@@ -64,12 +64,15 @@ def test_free_data_lake_bootstrap_dry_run_outputs_manifest() -> None:
         payload = run(args)
         assert payload["coverage"]["pit_label"] == "pit_proxy_universe"
         assert payload["coverage"]["sources"]["universe"]["status"] == "available"
+        assert payload["manifest"]["requested"]["required_benchmark_price_tickers"] == ["SPY", "QQQ"]
         assert (root / "manifests" / "free_data" / "latest_manifest.json").exists()
         assert (root / "data_pit" / "free" / "coverage_audit.json").exists()
         price_manifest = root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json"
         assert price_manifest.exists()
         price_payload = json.loads(price_manifest.read_text(encoding="utf-8"))
         assert price_payload["status"] == "dry_run"
+        assert price_payload["required_tickers"] == ["QQQ", "SPY"]
+        assert price_payload["required_ticker_count"] == 2
 
 
 def main() -> int:

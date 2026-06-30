@@ -4,9 +4,9 @@
 - Dominant open leak (recommended next focus): `concentrated:structural_underinvestment_bull`
 
 ## Main
-- IS-CAGR `20.27%` | state **FLAT** | delta prev `-0.10pp` | best `25.36%`
+- IS-CAGR `23.28%` | state **IMPROVING** | delta prev `+3.01pp` | best `25.36%`
 ## Concentrated
-- IS-CAGR `21.69%` | state **IMPROVING** | delta prev `+2.83pp` | best `22.41%`
+- IS-CAGR `24.84%` | state **IMPROVING** | delta prev `+3.16pp` | best `22.41%`  NEW BEST
 
 ## Last 12 runs
 
@@ -19,3 +19,4 @@
 | 27814870719 | d992ae1 | 25.36% | 39.56% | 22.35% | 50.62% | no |
 | 27873592126 | a3dbd01 | 20.37% | 34.73% | 18.85% | 45.47% | no |
 | 28074476465 | 9b23a01 | 20.27% | 33.15% | 21.69% | 46.24% | no |
+| 28360773460 | efa2473 | 23.28% | 35.28% | 24.84% | 46.66% | no |

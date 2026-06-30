@@ -1,0 +1,20 @@
+{
+  "generated_at_utc": "2026-06-29T08:51:59.904319+00:00",
+  "production_activation_allowed": false,
+  "reason": "missing broad market price series; need SPY, ^GSPC, or FRED SP500 cache",
+  "research_only": true,
+  "source_rows": {
+    "dgs10_DGS10": 0,
+    "dxy_DTWEXBGS": 0,
+    "fed_assets_WALCL": 0,
+    "hy_oas_BAMLH0A0HYM2": 0,
+    "m2_M2SL": 0,
+    "market_^GSPC": 0,
+    "qqq": 0,
+    "reverse_repo_RRPTSYD": 0,
+    "reverse_repo_alt_RRPONTSYD": 0,
+    "tga_WDTGAL": 0,
+    "vix_VIXCLS": 0
+  },
+  "status": "blocked"
+}

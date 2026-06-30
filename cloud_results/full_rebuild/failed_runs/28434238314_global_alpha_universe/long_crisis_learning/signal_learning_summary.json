@@ -1,0 +1,9 @@
+{
+  "features": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro/long_crisis_daily_features.parquet",
+  "generated_at_utc": "2026-06-30T09:34:38.917122+00:00",
+  "label": "future_63d_drawdown_le_15pct",
+  "production_activation_allowed": false,
+  "reason": "missing features or label column",
+  "research_only": true,
+  "status": "blocked"
+}

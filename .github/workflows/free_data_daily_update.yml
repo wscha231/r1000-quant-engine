@@ -167,12 +167,16 @@ jobs:
           SEC_MAX_AGE_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.sec_max_age_days || '3' }}
         run: |
           set -euo pipefail
+          EXPERIMENT_ENV_JSON='{"PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED":"1","PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED":"1","PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED":"1"}'
+          REQUIRED_PRICE_TICKERS="$(python tools/print_required_price_tickers.py --experiment-env-json "$EXPERIMENT_ENV_JSON" --output-format csv)"
+          echo "[required-price-tickers] $REQUIRED_PRICE_TICKERS"
           # Engine validation writes the recurring CAGR / Sharpe / MaxDD report.
           LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
           ARGS=(
             --latest-run "$LATEST"
             --price-mode target_books
             --max-price-tickers "$MAX_PRICE_TICKERS"
+            --required-tickers "$REQUIRED_PRICE_TICKERS"
             --pit-label pit_proxy_universe
           )
           if [ "$SEC_COMPANYFACTS" = "true" ]; then
@@ -182,6 +186,8 @@ jobs:
           mkdir -p outputs/free_data_proxy_backtest/main outputs/free_data_proxy_backtest/concentrated outputs/full_rebuild_logs
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_main.log || true
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true
+          python tools/run_latest_price_date_audit.py --latest-run "$LATEST" --price-cache cache_prices --output outputs/latest_price_date_audit.json --max-book-tickers 80 --extra-tickers "$REQUIRED_PRICE_TICKERS" 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
+          python tools/verify_alphaops_fullrun_readiness.py --price-audit outputs/latest_price_date_audit.json --output-dir outputs/fullrun_readiness --ref "${GITHUB_REF_NAME:-codex/integration-main-conc-target-hooks-20260629}" --experiment-env-json "$EXPERIMENT_ENV_JSON" 2>&1 | tee outputs/full_rebuild_logs/fullrun_readiness.log || true
           python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
           python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
 
@@ -197,7 +203,11 @@ jobs:
             outputs/free_data_engine_validation/
             outputs/ten_year_backtest_readiness/
             outputs/full_rebuild_logs/free_data_*.log
+            outputs/full_rebuild_logs/latest_price_date_audit.log
+            outputs/full_rebuild_logs/fullrun_readiness.log
             outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+            outputs/latest_price_date_audit.json
+            outputs/fullrun_readiness/
             data_pit/free/coverage_audit.json
             manifests/free_data/latest_manifest.json
           retention-days: 90
@@ -226,3 +236,6 @@ jobs:
           rclone copy outputs/free_data_engine_validation "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation/"
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
           rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
+          if [ -f outputs/latest_price_date_audit.json ]; then
+            rclone copyto outputs/latest_price_date_audit.json "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/latest_price_date_audit.json"
+          fi
