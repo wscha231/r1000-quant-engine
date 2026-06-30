@@ -73,6 +73,21 @@ def book_tickers(latest_run: Path, max_tickers: int) -> list[str]:
     return tickers[: max(0, int(max_tickers))]
 
 
+def parse_ticker_list(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        raw_items = value
+    else:
+        raw_items = str(value).replace(";", ",").split(",")
+    out: list[str] = []
+    for raw in raw_items:
+        ticker = str(raw).upper().strip()
+        if ticker and ticker not in {"CASH", "__CASH__"} and ticker not in out:
+            out.append(ticker)
+    return out
+
+
 def latest_bar_date(price_cache: Path, ticker: str) -> pd.Timestamp | None:
     px = load_price_series(price_cache, ticker)
     if px.empty:
@@ -98,8 +113,12 @@ def run_audit(
     audit_date: pd.Timestamp,
     stale_threshold: int,
     max_book_tickers: int,
+    extra_tickers: list[str] | None = None,
 ) -> dict[str, Any]:
-    tickers = list(BENCHMARK_TICKERS) + book_tickers(latest_run, max_book_tickers)
+    tickers: list[str] = []
+    for ticker in list(BENCHMARK_TICKERS) + parse_ticker_list(extra_tickers) + book_tickers(latest_run, max_book_tickers):
+        if ticker not in tickers:
+            tickers.append(ticker)
     per_ticker: dict[str, str] = {}
     missing: list[str] = []
     dates: list[pd.Timestamp] = []
@@ -141,6 +160,7 @@ def run_audit(
         "per_ticker": per_ticker,
         "missing_tickers": missing,
         "audited_ticker_count": len(tickers),
+        "extra_tickers": parse_ticker_list(extra_tickers),
         "price_cache": str(price_cache),
         "bday_note": "weekday counting; US holidays may overstate by <=1 day (conservative)",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -156,6 +176,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--audit-date", default="", help="YYYY-MM-DD; defaults to today (UTC).")
     parser.add_argument("--stale-trading-days-threshold", type=int, default=2)
     parser.add_argument("--max-book-tickers", type=int, default=40)
+    parser.add_argument("--extra-tickers", default="", help="Comma-separated additional tickers that must be included in the freshness audit, e.g. hedge instruments.")
     return parser.parse_args()
 
 
@@ -172,6 +193,7 @@ def main() -> int:
         audit_date=audit_date,
         stale_threshold=args.stale_trading_days_threshold,
         max_book_tickers=args.max_book_tickers,
+        extra_tickers=parse_ticker_list(args.extra_tickers),
     )
     out = repo_path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
