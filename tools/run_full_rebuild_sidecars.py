@@ -22,7 +22,10 @@ PORTFOLIO_POLICY="${PORTFOLIO_POLICY:-alphaops_vnext_production}"
 APPROVED_TARGET_POLICY_PATH="${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
 UNIVERSE_MODE="${UNIVERSE_MODE:-global_alpha_universe}"
 BACKTEST_YEARS="${BACKTEST_YEARS:-}"
+REQUIRED_PRICE_TICKERS="${REQUIRED_PRICE_TICKERS:-$(python tools/print_required_price_tickers.py --output-format csv)}"
+IFS=',' read -r -a REQUIRED_PRICE_TICKER_ARGS <<< "$REQUIRED_PRICE_TICKERS"
 echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE} portfolio_policy=${PORTFOLIO_POLICY} universe_mode=${UNIVERSE_MODE} backtest_years=${BACKTEST_YEARS}"
+echo "[sidecar] required_price_tickers=${REQUIRED_PRICE_TICKERS}"
 
 run_patch_manifest() {
   local run_id="${GITHUB_RUN_ID:-local}"
@@ -113,7 +116,7 @@ refresh_replay_price_cache() {
     echo "[price-cache] no monthly books available; cannot refresh replay price cache manifest" | tee outputs/full_rebuild_logs/replay_price_cache_refresh.log
     return 0
   fi
-  python tools/build_replay_price_cache.py --books "${books[@]}" --scored outputs/scored_latest.csv --output-dir cache_prices --required-tickers SPY QQQ --refresh-stale-days 2 2>&1 | tee outputs/full_rebuild_logs/replay_price_cache_refresh.log
+  python tools/build_replay_price_cache.py --books "${books[@]}" --scored outputs/scored_latest.csv --output-dir cache_prices --required-tickers "${REQUIRED_PRICE_TICKER_ARGS[@]}" --refresh-stale-days 2 2>&1 | tee outputs/full_rebuild_logs/replay_price_cache_refresh.log
 }
 
 run_alphaops_vnext_production() {
@@ -142,7 +145,7 @@ build_daily_market_snapshot() {
     "${BOOK_ARGS[@]}" \
     --scored outputs/scored_latest.csv \
     --max-scored 250 \
-    --required-tickers SPY QQQ SMH SOXX \
+    --required-tickers "${REQUIRED_PRICE_TICKER_ARGS[@]}" SMH SOXX \
     --output-dir outputs/daily_market_snapshot \
     --data-lake-dir data_pit/free/market_snapshot \
     --info-cache data_raw/free/market_snapshot/yf_market_info_cache.csv \
@@ -454,7 +457,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     run_patch_manifest
     python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
   fi
-  python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json --extra-tickers SH 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
+  python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json --extra-tickers "$REQUIRED_PRICE_TICKERS" 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
   run_patch_manifest
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
@@ -613,7 +616,7 @@ if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "mar
   run_sidecar_promotion_hook
 fi
 python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
-python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json --extra-tickers SH 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
+python tools/run_latest_price_date_audit.py --price-cache cache_prices --latest-run outputs --output outputs/latest_price_date_audit.json --extra-tickers "$REQUIRED_PRICE_TICKERS" 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
 python tools/run_auto_learning_v2.py --latest-run outputs --output-dir outputs/auto_learning_v2 --research-dir outputs/auto_learning_v2/research 2>&1 | tee outputs/full_rebuild_logs/auto_learning_v2.log || true
 python tools/run_winner_lifecycle_reports.py --latest-run outputs --output-dir outputs/winner_lifecycle 2>&1 | tee outputs/full_rebuild_logs/winner_lifecycle.log || true
 python tools/run_winner_onset_study.py --scored outputs/scored_latest.csv --top-tickers 80 --limit 80 --years 10 --output-dir outputs/winner_onset_study 2>&1 | tee outputs/full_rebuild_logs/winner_onset_study.log || true

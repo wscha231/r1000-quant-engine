@@ -25,6 +25,7 @@ DEFAULT_OUTPUT_DIR = "outputs/free_data_lake_bootstrap"
 DEFAULT_MANIFEST_DIR = "manifests/free_data"
 DEFAULT_PIT_LABEL = "pit_proxy_universe"
 REQUIRED_BENCHMARK_PRICE_TICKERS = ("SPY", "QQQ")
+CASH_TICKERS = {"", "CASH", "__CASH__", "USD", "US DOLLAR", "NAN", "NONE"}
 
 
 @dataclass
@@ -58,6 +59,21 @@ def read_json(path: Path, default: Any = None) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+
+
+def parse_required_tickers(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    if value is None:
+        raw_items: list[str] = []
+    elif isinstance(value, (list, tuple)):
+        raw_items = [str(item) for item in value]
+    else:
+        raw_items = str(value or "").replace(";", ",").split(",")
+    out: list[str] = []
+    for raw in raw_items:
+        ticker = str(raw or "").upper().strip()
+        if ticker and ticker not in CASH_TICKERS and ticker not in out:
+            out.append(ticker)
+    return out
 
 
 def path_stats(path: Path) -> dict[str, Any]:
@@ -281,6 +297,7 @@ def build_manifest(
             "max_price_tickers": int(args.max_price_tickers),
             "max_scored": int(args.max_scored),
             "required_benchmark_price_tickers": list(REQUIRED_BENCHMARK_PRICE_TICKERS),
+            "required_extra_price_tickers": parse_required_tickers(getattr(args, "required_tickers", "")),
             "required_downloads": bool(args.required_downloads),
         },
         "latest_run": latest_summary,
@@ -349,6 +366,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
         else:
+            required_price_tickers = parse_required_tickers(
+                list(REQUIRED_BENCHMARK_PRICE_TICKERS)
+                + parse_required_tickers(getattr(args, "required_tickers", ""))
+            )
             command = [
                 sys.executable,
                 str(REPO_ROOT / "tools" / "build_replay_price_cache.py"),
@@ -366,7 +387,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "--batch-size",
                 str(args.batch_size),
                 "--required-tickers",
-                *REQUIRED_BENCHMARK_PRICE_TICKERS,
+                *required_price_tickers,
             ]
             if int(args.max_price_tickers) > 0:
                 command += ["--max-tickers", str(args.max_price_tickers)]
@@ -405,6 +426,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-price-tickers", type=int, default=80)
     parser.add_argument("--max-scored", type=int, default=250)
     parser.add_argument("--batch-size", type=int, default=40)
+    parser.add_argument(
+        "--required-tickers",
+        default="",
+        help="Comma-separated extra tickers required by enabled experiment flags, e.g. SH.",
+    )
     parser.add_argument("--required-downloads", action="store_true")
     return parser.parse_args()
 

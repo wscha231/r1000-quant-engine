@@ -29,6 +29,7 @@ if str(REPO_ROOT) not in sys.path:
 
 try:
     from r1000_config import (
+        OFFICIAL_BACKTEST_START_DATE,
         OFFICIAL_BACKTEST_WINDOW_YEARS,
         PROXY_8Y_10Y_EVIDENCE_BLOCKED,
         PROXY_WINDOW_BLOCKER_REASON,
@@ -44,6 +45,7 @@ except Exception:  # pragma: no cover - fallback for isolated smoke contexts
         "main": {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
         "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.28},
     }
+    OFFICIAL_BACKTEST_START_DATE = "2019-06-03"
     OFFICIAL_BACKTEST_WINDOW_YEARS = 7.0
     PROXY_8Y_10Y_EVIDENCE_BLOCKED = True
     PROXY_WINDOW_BLOCKER_REASON = "pit_universe_label_missing"
@@ -55,7 +57,18 @@ PORTFOLIOS = ("main", "concentrated")
 MIN_BROKER_LEDGER_YEARS = float(OFFICIAL_BACKTEST_WINDOW_YEARS)
 MIN_BROKER_LEDGER_TRADING_DAYS = int(252 * MIN_BROKER_LEDGER_YEARS)
 OFFICIAL_WINDOW_TOLERANCE_YEARS = 0.05
+# Research tolerance floor (observability only): a window in [floor, 7.0y) is NOT
+# production-valid (status stays invalid_window, valid stays False), but it is
+# classified `research_7y_tolerance` so a research-only CAGR/MDD comparison can
+# proceed without bypassing the strict 7.0y production gate.
+RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS = round(float(OFFICIAL_BACKTEST_WINDOW_YEARS) - 0.10, 4)  # 6.90
 MAX_BROKER_START_EVALUATION_DRIFT_DAYS = 35
+# A window anchored at/after the official backtest start is the canonical clean window
+# even when elapsed calendar time pushes realized years past the tolerance ceiling
+# (e.g., the fixed 2019-06-03 start aged to 7.06y by mid-2026). Proxy-8Y/10Y detection
+# must key on the broker start being EARLIER than official (genuine extra history), NOT
+# on realized years > 7.05 — otherwise the canonical window self-invalidates as it ages.
+OFFICIAL_START_PROXY_GRACE_DAYS = 35
 CANONICAL_MISSION_TARGETS = {
     "main": {"cagr": 0.35, "max_dd": -0.25},
     "concentrated": {"cagr": 0.50, "max_dd": -0.25},
@@ -356,6 +369,12 @@ def evaluate_window_gate(
     broker_start_dt = parse_date(broker_start_date)
     if eval_start_dt is not None and broker_start_dt is not None:
         broker_start_evaluation_drift_days = (broker_start_dt - eval_start_dt).days
+    official_start_dt = parse_date(OFFICIAL_BACKTEST_START_DATE)
+    broker_starts_before_official = bool(
+        broker_start_dt is not None
+        and official_start_dt is not None
+        and (official_start_dt - broker_start_dt).days > OFFICIAL_START_PROXY_GRACE_DAYS
+    )
     reasons: list[str] = []
     if not start_date or not end_date:
         reasons.append("missing_start_or_end_date")
@@ -382,14 +401,61 @@ def evaluate_window_gate(
         reasons.append("data_readiness_not_ready_for_policy_replay")
     if known_gaps:
         reasons.append("free_data_coverage_known_gaps")
-    if years is not None and years > upper_bound and PROXY_8Y_10Y_EVIDENCE_BLOCKED and not pit_clean:
+    if (
+        years is not None
+        and years > upper_bound
+        and PROXY_8Y_10Y_EVIDENCE_BLOCKED
+        and not pit_clean
+        and broker_starts_before_official
+    ):
         reasons.append("proxy_8y_10y_evidence_blocked_until_pit_universe_clean")
         reasons.append(PROXY_WINDOW_BLOCKER_REASON)
     status = "ok" if not reasons else "invalid_window"
     evidence_window_label = "pit_clean_long_window" if pit_clean and years is not None and years > upper_bound else "research_7y"
+    # Machine-readable window classification (observability only — does NOT change
+    # `status`/`valid`). A sub-7.0y window stays invalid_window for production, but a
+    # window in [RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS, 7.0y) whose ONLY blocker is the
+    # years band is labeled research_7y_tolerance so a research CAGR/MDD comparison can
+    # be reported without bypassing the strict production gate.
+    # The years and trading-days gates fire in lockstep (1764d == 7.0y), so a window in
+    # the tolerance band trips both. Treat both as one "year-band" signal and apply the
+    # same proportional floor to trading days; only NON-band reasons disqualify tolerance.
+    research_trading_days_floor = int(252 * RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS)  # 1738
+    year_band_reasons = {"broker_ledger_years_below_7", "broker_ledger_trading_days_below_7y"}
+    non_band_reasons = [r for r in reasons if r not in year_band_reasons]
+    if years is None:
+        window_classification = "invalid_window"
+    elif years > upper_bound:
+        if not broker_starts_before_official:
+            # Anchored at/after the official start: elapsed-years overshoot of the 7.05y
+            # ceiling is still the canonical clean window, not a long proxy window.
+            window_classification = "valid_7y" if status == "ok" else "invalid_window"
+        elif pit_clean:
+            window_classification = "pit_clean_long_window"
+        else:
+            window_classification = "proxy_long_window_blocked"
+    elif years >= MIN_BROKER_LEDGER_YEARS:
+        window_classification = "valid_7y" if status == "ok" else "invalid_window"
+    elif (
+        years >= RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS
+        and (trading_days is not None and trading_days >= research_trading_days_floor)
+        and not non_band_reasons
+    ):
+        window_classification = "research_7y_tolerance"
+    else:
+        window_classification = "invalid_window"
+    research_acceptable = window_classification in (
+        "valid_7y",
+        "research_7y_tolerance",
+        "pit_clean_long_window",
+    )
     return {
         "status": status,
         "valid": status == "ok",
+        "window_classification": window_classification,
+        "research_window_tolerance_floor_years": RESEARCH_WINDOW_TOLERANCE_FLOOR_YEARS,
+        "research_window_tolerance_floor_trading_days": research_trading_days_floor,
+        "research_acceptable": bool(research_acceptable),
         "reasons": reasons,
         "min_years": MIN_BROKER_LEDGER_YEARS,
         "min_trading_days": MIN_BROKER_LEDGER_TRADING_DAYS,
@@ -406,6 +472,9 @@ def evaluate_window_gate(
         "broker_start_date": broker_start_date,
         "broker_start_evaluation_drift_days": broker_start_evaluation_drift_days,
         "max_broker_start_evaluation_drift_days": MAX_BROKER_START_EVALUATION_DRIFT_DAYS,
+        "official_backtest_start_date": OFFICIAL_BACKTEST_START_DATE,
+        "broker_starts_before_official_start": broker_starts_before_official,
+        "official_start_proxy_grace_days": OFFICIAL_START_PROXY_GRACE_DAYS,
         "years": years,
         "trading_days_estimate": trading_days,
         "estimated_trading_days": estimated_trading_days,
