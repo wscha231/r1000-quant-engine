@@ -9,11 +9,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.alphaops_required_price_tickers import parse_env_payload, required_price_tickers_for_env
 
 
 DEFAULT_REF = "codex/integration-main-conc-target-hooks-20260629"
@@ -23,8 +30,6 @@ DEFAULT_ENV = {
     "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED": "1",
     "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED": "1",
 }
-DEFAULT_MAIN_FAST_CRASH_HEDGE_TICKER = "SH"
-DEFAULT_MAIN_FAST_CRASH_HEDGE_BENCHMARK = "SPY"
 MAX_AUDIT_AGE_DAYS = 2
 
 
@@ -67,14 +72,6 @@ def future_dated_prices(audit: dict[str, Any]) -> list[dict[str, str]]:
         if bar_date is not None and bar_date > audit_date:
             out.append({"ticker": str(ticker), "bar_date": bar_date.date().isoformat()})
     return out
-
-
-def required_env_price_tickers(env_payload: dict[str, str]) -> list[str]:
-    tickers: set[str] = {"SPY", "QQQ"}
-    if str(env_payload.get("PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED") or "").strip() in {"1", "true", "True"}:
-        tickers.add(DEFAULT_MAIN_FAST_CRASH_HEDGE_TICKER)
-        tickers.add(DEFAULT_MAIN_FAST_CRASH_HEDGE_BENCHMARK)
-    return sorted(tickers)
 
 
 def missing_required_price_tickers(audit: dict[str, Any], required: list[str]) -> list[str]:
@@ -131,12 +128,15 @@ def evaluate(
     *,
     repo: str = DEFAULT_REPO,
     ref: str = DEFAULT_REF,
+    env_payload: dict[str, str] | None = None,
     today: pd.Timestamp | None = None,
     max_audit_age_days: int = MAX_AUDIT_AGE_DAYS,
 ) -> dict[str, Any]:
     blockers: list[str] = []
-    env_payload = DEFAULT_ENV.copy()
-    required_tickers = required_env_price_tickers(env_payload)
+    resolved_env_payload = DEFAULT_ENV.copy()
+    if env_payload:
+        resolved_env_payload.update({str(k): str(v) for k, v in env_payload.items()})
+    required_tickers = required_price_tickers_for_env(resolved_env_payload)
     status = str(audit.get("status") or "missing")
     if not audit:
         blockers.append("missing_latest_price_date_audit")
@@ -173,7 +173,7 @@ def evaluate(
         blockers.append("stale_required_env_price_tickers")
 
     fullrun_ready = not blockers
-    command = build_fullrun_command(repo=repo, ref=ref, env_payload=env_payload, skip_collector=True)
+    command = build_fullrun_command(repo=repo, ref=ref, env_payload=resolved_env_payload, skip_collector=True)
     return {
         "schema_version": "alphaops-fullrun-readiness-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -192,7 +192,8 @@ def evaluate(
             "future_dated_prices": future,
             "missing_tickers": audit.get("missing_tickers") or [],
         },
-        "required_experiment_env": env_payload,
+        "required_experiment_env": resolved_env_payload,
+        "required_price_ticker_source": "experiment_env",
         "required_price_tickers": required_tickers,
         "missing_required_price_tickers": missing_required,
         "stale_required_price_tickers": stale_required,
@@ -243,6 +244,7 @@ def main() -> int:
     parser.add_argument("--output-dir", default="outputs/fullrun_readiness")
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--ref", default=DEFAULT_REF)
+    parser.add_argument("--experiment-env-json", default="")
     parser.add_argument("--today", default="")
     parser.add_argument("--max-audit-age-days", type=int, default=MAX_AUDIT_AGE_DAYS)
     args = parser.parse_args()
@@ -252,6 +254,7 @@ def main() -> int:
         read_json(Path(args.price_audit)),
         repo=args.repo,
         ref=args.ref,
+        env_payload=parse_env_payload(args.experiment_env_json),
         today=today,
         max_audit_age_days=args.max_audit_age_days,
     )
