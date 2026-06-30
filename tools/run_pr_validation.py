@@ -49,6 +49,7 @@ CHILD_ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/smoke_test.py", []),
     ("tests/broker_ledger_replay_smoke.py", []),
+    ("tests/broker_cash_carry_smoke.py", []),
     ("tests/broker_ledger_correctness_smoke.py", []),
     ("tests/broker_position_risk_replay_smoke.py", []),
     ("tests/broker_position_risk_grid_sweep_smoke.py", []),

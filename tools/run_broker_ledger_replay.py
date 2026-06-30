@@ -35,6 +35,13 @@ from tools.run_weekly_evaluation import load_price_series, px_cache_name, price_
 
 CASH_TICKERS = {"CASH", "__CASH__"}
 DEFAULT_OUT_DIR = "outputs/broker_replay"
+CASH_CARRY_MODE_NONE = "none"
+CASH_CARRY_MODE_RISK_FREE = "risk_free_rate"
+DEFAULT_CASH_RATE_SOURCE = "DGS3MO"
+DEFAULT_CASH_RATE_LAG_DAYS = 1
+DEFAULT_CASH_CARRY_HAIRCUT_BPS = 50.0
+DEFAULT_CASH_CARRY_DAY_COUNT = 365
+DEFAULT_CASH_CARRY_CALENDAR_TICKERS = ("SPY", "QQQ")
 DEFAULT_CONCENTRATED_CHAMPION_FILTERS = {
     "target_stock_names": "3",
     "weighting_mode": "score_power",
@@ -59,6 +66,13 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return out
     except (TypeError, ValueError):
         return default
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
 
 def read_csv(path: Path) -> pd.DataFrame:
@@ -152,6 +166,135 @@ def resolve_concentrated_champion_filters(
         "default_static",
         f"champion comparison artifact missing or invalid: {comparison_path}",
     )
+
+
+@dataclass(frozen=True)
+class CashCarryConfig:
+    """Research-only cash interest accounting configuration.
+
+    This is deliberately separate from the official broker-ledger metric. The
+    default ``mode=none`` must preserve the historical replay schema and
+    metrics exactly.
+    """
+
+    mode: str = CASH_CARRY_MODE_NONE
+    rate_source: str = DEFAULT_CASH_RATE_SOURCE
+    rate_lag_days: int = DEFAULT_CASH_RATE_LAG_DAYS
+    haircut_bps: float = DEFAULT_CASH_CARRY_HAIRCUT_BPS
+    day_count: int = DEFAULT_CASH_CARRY_DAY_COUNT
+    rate_path: Path | None = None
+
+
+def cash_carry_enabled(config: CashCarryConfig | None) -> bool:
+    return bool(config and str(config.mode).strip().lower() == CASH_CARRY_MODE_RISK_FREE)
+
+
+def resolve_cash_carry_config(
+    *,
+    mode: str | None = None,
+    rate_source: str | None = None,
+    rate_lag_days: int | None = None,
+    haircut_bps: float | None = None,
+    day_count: int | None = None,
+    rate_path: str | Path | None = None,
+) -> CashCarryConfig:
+    env_enabled = env_flag("R1000_BROKER_CASH_CARRY_ENABLED", False)
+    resolved_mode = (mode or "").strip().lower()
+    if not resolved_mode:
+        resolved_mode = CASH_CARRY_MODE_RISK_FREE if env_enabled else CASH_CARRY_MODE_NONE
+    source = (rate_source or os.environ.get("R1000_BROKER_CASH_RATE_SOURCE") or DEFAULT_CASH_RATE_SOURCE).strip()
+    env_lag = os.environ.get("R1000_BROKER_CASH_RATE_LAG_DAYS")
+    env_haircut = os.environ.get("R1000_BROKER_CASH_CARRY_HAIRCUT_BPS")
+    env_day_count = os.environ.get("R1000_BROKER_CASH_CARRY_DAY_COUNT")
+    env_path = os.environ.get("R1000_BROKER_CASH_RATE_PATH")
+    return CashCarryConfig(
+        mode=resolved_mode,
+        rate_source=source or DEFAULT_CASH_RATE_SOURCE,
+        rate_lag_days=int(rate_lag_days if rate_lag_days is not None else safe_float(env_lag, DEFAULT_CASH_RATE_LAG_DAYS)),
+        haircut_bps=float(haircut_bps if haircut_bps is not None else safe_float(env_haircut, DEFAULT_CASH_CARRY_HAIRCUT_BPS)),
+        day_count=max(1, int(day_count if day_count is not None else safe_float(env_day_count, DEFAULT_CASH_CARRY_DAY_COUNT))),
+        rate_path=repo_path(rate_path or env_path) if (rate_path or env_path) else None,
+    )
+
+
+def _cash_rate_cache_candidates(config: CashCarryConfig, price_cache: Path) -> list[Path]:
+    if config.rate_path:
+        return [config.rate_path]
+    source = str(config.rate_source or DEFAULT_CASH_RATE_SOURCE).strip()
+    series_id = source.upper()
+    key = source.lower()
+    names = [
+        f"fred_{key}_{series_id}.parquet",
+        f"fred_{series_id.lower()}_{series_id}.parquet",
+        f"fred_{key}_{series_id}.csv",
+        f"fred_{series_id.lower()}_{series_id}.csv",
+    ]
+    roots = [
+        REPO_ROOT / "cache_macro",
+        price_cache.parent / "cache_macro",
+        Path.cwd() / "cache_macro",
+    ]
+    out: list[Path] = []
+    for root in roots:
+        for name in names:
+            out.append(root / name)
+    return out
+
+
+def load_cash_rate_series(config: CashCarryConfig, price_cache: Path) -> pd.DataFrame:
+    """Load a PIT cash-rate table from the existing FRED cache convention.
+
+    FRED rates are percentages. ``available_from`` is rate date plus a business
+    day lag, so same-day observations are never silently used before release.
+    """
+
+    if not cash_carry_enabled(config):
+        return pd.DataFrame()
+    selected_path = next((path for path in _cash_rate_cache_candidates(config, price_cache) if path.exists()), None)
+    if selected_path is None:
+        return pd.DataFrame()
+    try:
+        raw = pd.read_parquet(selected_path) if selected_path.suffix.lower() == ".parquet" else pd.read_csv(selected_path)
+    except Exception:
+        return pd.DataFrame()
+    if raw.empty:
+        return pd.DataFrame()
+    cols = {str(c).strip().lower(): c for c in raw.columns}
+    date_col = cols.get("date") or cols.get("rate_date") or raw.columns[0]
+    value_col = cols.get("value") or cols.get("rate_pct") or cols.get(str(config.rate_source).lower())
+    if value_col is None and len(raw.columns) > 1:
+        value_col = raw.columns[1]
+    if value_col is None:
+        return pd.DataFrame()
+    rate_dates = pd.to_datetime(raw[date_col], errors="coerce", utc=True)
+    out = pd.DataFrame(
+        {
+            "rate_date": rate_dates.dt.tz_convert(None).dt.normalize(),
+            "rate_pct": pd.to_numeric(raw[value_col], errors="coerce"),
+        }
+    ).dropna(subset=["rate_date", "rate_pct"])
+    if out.empty:
+        return pd.DataFrame()
+    out = out.sort_values("rate_date").drop_duplicates("rate_date", keep="last")
+    out["available_from"] = out["rate_date"] + pd.offsets.BDay(max(0, int(config.rate_lag_days)))
+    out["rate_source"] = str(config.rate_source or DEFAULT_CASH_RATE_SOURCE).upper()
+    return out.sort_values("available_from").reset_index(drop=True)
+
+
+def lookup_cash_rate(rate_table: pd.DataFrame, as_of_date: pd.Timestamp) -> dict[str, Any] | None:
+    if rate_table.empty or "available_from" not in rate_table.columns:
+        return None
+    as_of = pd.Timestamp(as_of_date).normalize()
+    d = rate_table[pd.to_datetime(rate_table["available_from"], errors="coerce") <= as_of]
+    if d.empty:
+        return None
+    row = d.iloc[-1]
+    return {
+        "rate_pct": safe_float(row.get("rate_pct")),
+        "rate_date": pd.Timestamp(row.get("rate_date")).date().isoformat() if pd.notna(row.get("rate_date")) else None,
+        "available_from": pd.Timestamp(row.get("available_from")).date().isoformat() if pd.notna(row.get("available_from")) else None,
+        "rate_source": str(row.get("rate_source") or ""),
+    }
 
 
 def filter_concentrated_champion(
@@ -252,7 +395,11 @@ def weight_book_diagnostics(targets: pd.DataFrame, max_reasonable_weight_sum: fl
     }
 
 
-def target_period_ends(targets: pd.DataFrame, price_cache: Path) -> dict[pd.Timestamp, pd.Timestamp]:
+def target_period_ends(
+    targets: pd.DataFrame,
+    price_cache: Path,
+    calendar_prices: dict[str, pd.DataFrame] | None = None,
+) -> dict[pd.Timestamp, pd.Timestamp]:
     dates = sorted(pd.to_datetime(targets["rebalance_date"], errors="coerce").dropna().unique())
     out: dict[pd.Timestamp, pd.Timestamp] = {}
     for i, raw_dt in enumerate(dates):
@@ -267,6 +414,10 @@ def target_period_ends(targets: pd.DataFrame, price_cache: Path) -> dict[pd.Time
             px = load_price_series(price_cache, ticker)
             if not px.empty:
                 latest.append(pd.Timestamp(px.index.max()).normalize())
+        if not latest and calendar_prices:
+            for px in calendar_prices.values():
+                if not px.empty:
+                    latest.append(pd.Timestamp(px.index.max()).normalize())
         if latest:
             out[dt] = max(latest)
     return out
@@ -277,12 +428,19 @@ def mark_dates_for_period(
     prices: dict[str, pd.DataFrame],
     start_dt: pd.Timestamp,
     end_dt: pd.Timestamp,
+    calendar_prices: dict[str, pd.DataFrame] | None = None,
 ) -> list[pd.Timestamp]:
     dates: set[pd.Timestamp] = set()
     for ticker in tickers:
         if ticker in CASH_TICKERS:
             continue
         px = prices.get(ticker, pd.DataFrame())
+        if px.empty:
+            continue
+        idx = pd.DatetimeIndex(px.index).tz_localize(None)
+        for raw in idx[(idx >= start_dt) & (idx <= end_dt)]:
+            dates.add(pd.Timestamp(raw).normalize())
+    for px in (calendar_prices or {}).values():
         if px.empty:
             continue
         idx = pd.DatetimeIndex(px.index).tz_localize(None)
@@ -321,12 +479,80 @@ def fill_price(
     return actual_dt, px
 
 
+def calendar_fill_date(
+    calendar_prices: dict[str, pd.DataFrame],
+    signal_date: pd.Timestamp,
+    fill_mode: str,
+    max_fill_lag_days: int,
+) -> pd.Timestamp | None:
+    target_date = pd.Timestamp(signal_date)
+    if fill_mode in {"next_close", "next_open"}:
+        target_date = target_date + pd.Timedelta(days=1)
+    candidates: list[pd.Timestamp] = []
+    for px in calendar_prices.values():
+        actual_dt, _value = price_on_or_after(px, target_date, "close")
+        if actual_dt is None:
+            continue
+        actual = pd.Timestamp(actual_dt).normalize()
+        if (actual - pd.Timestamp(target_date).normalize()).days <= int(max_fill_lag_days):
+            candidates.append(actual)
+    return min(candidates) if candidates else None
+
+
 @dataclass
 class LedgerState:
     cash: float
     shares: dict[str, float] = field(default_factory=dict)
     cost_basis: dict[str, float] = field(default_factory=dict)
     realized_pnl: dict[str, float] = field(default_factory=dict)
+    cash_interest_accrued: float = 0.0
+    last_cash_accrual_date: pd.Timestamp | None = None
+
+
+def accrue_cash_interest(
+    *,
+    state: LedgerState,
+    mark_date: pd.Timestamp,
+    cash_carry_config: CashCarryConfig,
+    cash_rate_table: pd.DataFrame,
+) -> dict[str, Any]:
+    if not cash_carry_enabled(cash_carry_config):
+        return {}
+    date = pd.Timestamp(mark_date).normalize()
+    if state.last_cash_accrual_date is None:
+        state.last_cash_accrual_date = date
+        rate = lookup_cash_rate(cash_rate_table, date)
+        return {
+            "cash_interest_daily": 0.0,
+            "cash_interest_accrued_to_date": float(state.cash_interest_accrued),
+            "cash_rate_used": safe_float(rate.get("rate_pct")) if rate else np.nan,
+            "cash_rate_available_from": rate.get("available_from") if rate else "",
+            "cash_rate_source": rate.get("rate_source") if rate else str(cash_carry_config.rate_source).upper(),
+            "cash_rate_date": rate.get("rate_date") if rate else "",
+            "cash_net_annual_rate": np.nan,
+            "cash_interest_days": 0,
+        }
+    days = max(0, (date - pd.Timestamp(state.last_cash_accrual_date).normalize()).days)
+    rate = lookup_cash_rate(cash_rate_table, date)
+    raw_rate_pct = safe_float(rate.get("rate_pct")) if rate else 0.0
+    gross_annual = max(raw_rate_pct / 100.0, 0.0)
+    haircut = max(float(cash_carry_config.haircut_bps), 0.0) / 10000.0
+    net_annual = max(gross_annual - haircut, 0.0)
+    credit = max(float(state.cash), 0.0) * net_annual * (days / max(float(cash_carry_config.day_count), 1.0))
+    if credit > 0:
+        state.cash += float(credit)
+        state.cash_interest_accrued += float(credit)
+    state.last_cash_accrual_date = date
+    return {
+        "cash_interest_daily": float(credit),
+        "cash_interest_accrued_to_date": float(state.cash_interest_accrued),
+        "cash_rate_used": raw_rate_pct if rate else np.nan,
+        "cash_rate_available_from": rate.get("available_from") if rate else "",
+        "cash_rate_source": rate.get("rate_source") if rate else str(cash_carry_config.rate_source).upper(),
+        "cash_rate_date": rate.get("rate_date") if rate else "",
+        "cash_net_annual_rate": float(net_annual),
+        "cash_interest_days": int(days),
+    }
 
 
 def account_equity(state: LedgerState, prices: dict[str, pd.DataFrame], date: pd.Timestamp) -> tuple[float, dict[str, float]]:
@@ -409,6 +635,7 @@ def calc_metrics(
     *,
     date_range: tuple[str, str] | tuple[str, None] | None = None,
     label: str = "full",
+    cash_carry_mode: str = CASH_CARRY_MODE_NONE,
 ) -> dict[str, Any]:
     if equity_curve.empty:
         return {"status": "blocked", "reason": "empty equity curve", "label": label}
@@ -467,12 +694,14 @@ def calc_metrics(
             in_range &= eq_dates <= pd.to_datetime(date_range[1], errors="coerce")
         cash_weight_series = cash_weight_series[in_range]
         cash_usd_series = cash_usd_series[in_range]
+    base_metric_mode = "broker_ledger_next_close" if str(equity_curve.get("fill_mode", pd.Series([""])).iloc[0]) == "next_close" else "broker_ledger"
+    metric_mode = f"{base_metric_mode}_cash_carry" if str(cash_carry_mode).lower() != CASH_CARRY_MODE_NONE else base_metric_mode
     return {
         "status": "completed",
         "label": label,
         "date_range": [str(date_range[0]) if date_range and date_range[0] else None,
                        str(date_range[1]) if date_range and date_range[1] else None] if date_range else None,
-        "metric_mode": "broker_ledger_next_close" if str(equity_curve.get("fill_mode", pd.Series([""])).iloc[0]) == "next_close" else "broker_ledger",
+        "metric_mode": metric_mode,
         "start_date": dates.min().date().isoformat(),
         "end_date": dates.max().date().isoformat(),
         "days": int(len(eq)),
@@ -510,6 +739,7 @@ def calc_metrics_with_oos(
     oos_end: str | None = None,
     oos2_start: str | None = None,
     oos2_end: str | None = None,
+    cash_carry_mode: str = CASH_CARRY_MODE_NONE,
 ) -> dict[str, Any]:
     """Compute metrics over the full window plus IS/OOS slices.
 
@@ -517,7 +747,7 @@ def calc_metrics_with_oos(
     final equity_curve date). A second OOS window (oos2) is computed when
     oos2_start is given; it overlaps OOS by design (longer-horizon sanity).
     """
-    full = calc_metrics(equity_curve, trades, starting_capital, label="full")
+    full = calc_metrics(equity_curve, trades, starting_capital, label="full", cash_carry_mode=cash_carry_mode)
     splits: dict[str, dict[str, Any]] = {"full": full}
     if oos_start:
         oos_lo = pd.to_datetime(oos_start, errors="coerce")
@@ -525,16 +755,16 @@ def calc_metrics_with_oos(
             is_hi = (oos_lo - pd.Timedelta(days=1)).date().isoformat()
             splits["is"] = calc_metrics(
                 equity_curve, trades, starting_capital,
-                date_range=(None, is_hi), label="is",
+                date_range=(None, is_hi), label="is", cash_carry_mode=cash_carry_mode,
             )
             splits["oos"] = calc_metrics(
                 equity_curve, trades, starting_capital,
-                date_range=(oos_start, oos_end), label="oos",
+                date_range=(oos_start, oos_end), label="oos", cash_carry_mode=cash_carry_mode,
             )
     if oos2_start:
         splits["oos2"] = calc_metrics(
             equity_curve, trades, starting_capital,
-            date_range=(oos2_start, oos2_end), label="oos2",
+            date_range=(oos2_start, oos2_end), label="oos2", cash_carry_mode=cash_carry_mode,
         )
     return {
         "full": splits.get("full", {}),
@@ -608,6 +838,14 @@ def latest_account_state(
         "total_fees_usd": total_fees,
         "positions": rows,
     }
+    if str(metrics.get("cash_carry_mode") or CASH_CARRY_MODE_NONE) != CASH_CARRY_MODE_NONE:
+        account.update(
+            {
+                "cash_carry_mode": metrics.get("cash_carry_mode"),
+                "cash_interest_accrued_usd": float(state.cash_interest_accrued),
+                "cash_carry_research_only": True,
+            }
+        )
     return account, positions
 
 
@@ -629,8 +867,27 @@ def replay(
     oos_end: str | None = None,
     oos2_start: str | None = None,
     oos2_end: str | None = None,
+    cash_carry_config: CashCarryConfig | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    cash_carry_config = cash_carry_config or resolve_cash_carry_config()
+    carry_enabled = cash_carry_enabled(cash_carry_config)
+    cash_rate_table = load_cash_rate_series(cash_carry_config, price_cache) if carry_enabled else pd.DataFrame()
+    if carry_enabled and cash_rate_table.empty:
+        payload = {
+            "status": "blocked",
+            "reason": "cash_rate_series_unavailable",
+            "target_book": str(target_book),
+            "price_cache": str(price_cache),
+            "cash_carry_mode": cash_carry_config.mode,
+            "cash_rate_source": cash_carry_config.rate_source,
+            "cash_rate_path": str(cash_carry_config.rate_path) if cash_carry_config.rate_path else "",
+            "metric_mode": "DO_NOT_USE",
+            "valid_for_production": False,
+            "research_only": True,
+        }
+        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return payload
     raw = read_csv(target_book)
     if disable_concentrated_champion_filter:
         # Research books (e.g. Market Leader N3/N5 variants) carry their own
@@ -680,7 +937,29 @@ def replay(
     tickers = sorted({str(x).upper() for x in targets["ticker"].unique() if str(x).upper() not in CASH_TICKERS})
     prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
-    periods = target_period_ends(targets, price_cache)
+    calendar_prices: dict[str, pd.DataFrame] = {}
+    if carry_enabled:
+        for ticker in DEFAULT_CASH_CARRY_CALENDAR_TICKERS:
+            px = load_price_series(price_cache, ticker)
+            if not px.empty:
+                calendar_prices[ticker] = px
+                break
+        if not calendar_prices:
+            payload = {
+                "status": "blocked",
+                "reason": "cash_carry_calendar_unavailable",
+                "target_book": str(target_book),
+                "price_cache": str(price_cache),
+                "cash_carry_mode": cash_carry_config.mode,
+                "cash_rate_source": cash_carry_config.rate_source,
+                "required_calendar_tickers": list(DEFAULT_CASH_CARRY_CALENDAR_TICKERS),
+                "metric_mode": "DO_NOT_USE",
+                "valid_for_production": False,
+                "research_only": True,
+            }
+            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            return payload
+    periods = target_period_ends(targets, price_cache, calendar_prices if carry_enabled else None)
     state = LedgerState(cash=float(starting_capital))
     trade_rows: list[dict[str, Any]] = []
     equity_rows: list[dict[str, Any]] = []
@@ -702,8 +981,20 @@ def replay(
                 fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
                 fill_px_by_ticker[ticker] = float(px)
         if not fill_dt_by_ticker:
-            continue
-        fill_dt = min(fill_dt_by_ticker.values())
+            if not carry_enabled:
+                continue
+            fill_dt = calendar_fill_date(calendar_prices, signal_dt, fill_mode, max_fill_lag_days)
+            if fill_dt is None:
+                continue
+        else:
+            fill_dt = min(fill_dt_by_ticker.values())
+        if carry_enabled:
+            accrue_cash_interest(
+                state=state,
+                mark_date=fill_dt,
+                cash_carry_config=cash_carry_config,
+                cash_rate_table=cash_rate_table,
+            )
         current_equity, current_values = account_equity(state, prices, fill_dt)
         target_weights = {
             str(row.ticker).upper(): safe_float(row.weight)
@@ -770,27 +1061,39 @@ def replay(
                     "price": px if px is not None else np.nan,
                 }
             )
-        cash_rows.append({"date": fill_dt.date().isoformat(), "cash_usd": float(state.cash), "equity_usd": float(equity_after), "cash_weight": float(state.cash / equity_after) if equity_after > 0 else np.nan})
+        cash_row = {"date": fill_dt.date().isoformat(), "cash_usd": float(state.cash), "equity_usd": float(equity_after), "cash_weight": float(state.cash / equity_after) if equity_after > 0 else np.nan}
+        if carry_enabled:
+            cash_row["cash_interest_accrued_to_date"] = float(state.cash_interest_accrued)
+        cash_rows.append(cash_row)
 
         period_end = periods.get(signal_dt, fill_dt)
         active_tickers = set(state.shares.keys()) | set(target_weights.keys())
-        period_marks = mark_dates_for_period(active_tickers, prices, fill_dt, period_end)
+        period_marks = mark_dates_for_period(active_tickers, prices, fill_dt, period_end, calendar_prices if carry_enabled else None)
         if not period_marks:
             period_marks = [fill_dt]
         for date in period_marks:
+            cash_interest_fields: dict[str, Any] = {}
+            if carry_enabled:
+                cash_interest_fields = accrue_cash_interest(
+                    state=state,
+                    mark_date=date,
+                    cash_carry_config=cash_carry_config,
+                    cash_rate_table=cash_rate_table,
+                )
             equity, values = account_equity(state, prices, date)
             cash_weight = float(state.cash / equity) if equity > 0 else np.nan
-            equity_rows.append(
-                {
-                    "date": pd.Timestamp(date).date().isoformat(),
-                    "equity_usd": float(equity),
-                    "cash_usd": float(state.cash),
-                    "cash_weight": cash_weight,
-                    "stock_value_usd": float(sum(values.values())),
-                    "position_count": int(sum(1 for qty in state.shares.values() if abs(qty) > 1e-12)),
-                    "fill_mode": fill_mode,
-                }
-            )
+            equity_row = {
+                "date": pd.Timestamp(date).date().isoformat(),
+                "equity_usd": float(equity),
+                "cash_usd": float(state.cash),
+                "cash_weight": cash_weight,
+                "stock_value_usd": float(sum(values.values())),
+                "position_count": int(sum(1 for qty in state.shares.values() if abs(qty) > 1e-12)),
+                "fill_mode": fill_mode,
+            }
+            if carry_enabled:
+                equity_row.update(cash_interest_fields)
+            equity_rows.append(equity_row)
             for ticker, value in values.items():
                 px = price_at_or_before(prices, ticker, date)
                 holdings_rows.append(
@@ -828,7 +1131,7 @@ def replay(
     holdings_df = pd.DataFrame(holdings_rows)
     cash_df = pd.DataFrame(cash_rows)
     target_vs_actual_df = pd.DataFrame(target_vs_actual_rows)
-    metrics = calc_metrics(equity_df, trades_df, starting_capital)
+    metrics = calc_metrics(equity_df, trades_df, starting_capital, cash_carry_mode=cash_carry_config.mode)
     # Stage 0 OOS lock — IS/OOS slices computed alongside the full-window
     # metrics. Top-level fields are preserved so existing consumers
     # (portfolio_system_guard, run_local.py verdict) keep working; the windows
@@ -838,6 +1141,7 @@ def replay(
             equity_df, trades_df, starting_capital,
             oos_start=oos_start, oos_end=oos_end,
             oos2_start=oos2_start, oos2_end=oos2_end,
+            cash_carry_mode=cash_carry_config.mode,
         )
         metrics["windows"] = windows
     metrics.update(
@@ -852,11 +1156,26 @@ def replay(
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
             "price_cache": str(price_cache),
-            "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares),
+            "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares and not carry_enabled),
             "max_fill_lag_days": int(max_fill_lag_days),
             **weight_diag,
         }
     )
+    if carry_enabled:
+        metrics.update(
+            {
+                "cash_carry_mode": cash_carry_config.mode,
+                "cash_carry_research_only": True,
+                "production_activation_allowed": False,
+                "cash_rate_source": str(cash_carry_config.rate_source).upper(),
+                "cash_rate_lag_days": int(cash_carry_config.rate_lag_days),
+                "cash_carry_haircut_bps": float(cash_carry_config.haircut_bps),
+                "cash_carry_day_count": int(cash_carry_config.day_count),
+                "cash_interest_accrued_usd": float(state.cash_interest_accrued),
+                "cash_interest_accrued_pct_starting_capital": float(state.cash_interest_accrued / max(float(starting_capital), 1e-12)),
+                "cash_carry_calendar_tickers": list(calendar_prices.keys()),
+            }
+        )
 
     equity_df.to_csv(output_dir / "equity_curve.csv", index=False)
     trades_df.to_csv(output_dir / "trades.csv", index=False)
@@ -897,8 +1216,7 @@ def replay(
 def render_report(metrics: dict[str, Any]) -> str:
     if metrics.get("status") != "completed":
         return "# Broker Ledger Replay\n\nStatus: blocked\n\nReason: " + str(metrics.get("reason", "unknown")) + "\n"
-    return "\n".join(
-        [
+    lines = [
             "# Broker Ledger Replay",
             "",
             f"- Portfolio: `{metrics.get('portfolio_kind')}`",
@@ -912,11 +1230,25 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Ending capital: ${safe_float(metrics.get('ending_capital_usd')):,.2f}",
             f"- Trade count: {int(safe_float(metrics.get('trade_count')))}",
             f"- Total fees: ${safe_float(metrics.get('total_fees_usd')):,.2f}",
+    ]
+    if str(metrics.get("cash_carry_mode") or CASH_CARRY_MODE_NONE) != CASH_CARRY_MODE_NONE:
+        lines.extend(
+            [
+                f"- Cash carry mode: `{metrics.get('cash_carry_mode')}`",
+                f"- Cash rate source: `{metrics.get('cash_rate_source')}`",
+                f"- Cash interest accrued: ${safe_float(metrics.get('cash_interest_accrued_usd')):,.2f}",
+                "",
+                "Cash-carry metrics are research-only accounting adjustments and are not production promotion evidence.",
+            ]
+        )
+    lines.extend(
+        [
             "",
             "This replay uses account cash and shares. It is stricter than target-weight metrics.",
             "",
         ]
     )
+    return "\n".join(lines)
 
 
 def parse_args() -> argparse.Namespace:
@@ -953,6 +1285,17 @@ def parse_args() -> argparse.Namespace:
         help="ISO date; secondary OOS window start (longer-horizon sanity). Empty string disables. Env R1000_OOS2_START supplies the default.",
     )
     parser.add_argument("--oos2-end", default=None, help="ISO date; secondary OOS window end (optional).")
+    parser.add_argument(
+        "--cash-carry-mode",
+        choices=[CASH_CARRY_MODE_NONE, CASH_CARRY_MODE_RISK_FREE],
+        default=None,
+        help="Research-only cash interest accounting mode. Env R1000_BROKER_CASH_CARRY_ENABLED=1 enables risk_free_rate when omitted.",
+    )
+    parser.add_argument("--cash-rate-source", default=None, help="FRED rate source id, default DGS3MO.")
+    parser.add_argument("--cash-rate-path", default=None, help="Optional explicit cached rate CSV/parquet for tests or offline replay.")
+    parser.add_argument("--cash-rate-lag-days", type=int, default=None, help="Business-day PIT lag before a FRED rate is usable; default 1.")
+    parser.add_argument("--cash-carry-haircut-bps", type=float, default=None, help="Annual haircut subtracted from the raw cash rate; default 50bps.")
+    parser.add_argument("--cash-carry-day-count", type=int, default=None, help="Day-count denominator for cash interest; default ACT/365.")
     return parser.parse_args()
 
 
@@ -994,6 +1337,14 @@ def main() -> int:
         oos_end=args.oos_end or None,
         oos2_start=oos2_start,
         oos2_end=args.oos2_end or None,
+        cash_carry_config=resolve_cash_carry_config(
+            mode=args.cash_carry_mode,
+            rate_source=args.cash_rate_source,
+            rate_lag_days=args.cash_rate_lag_days,
+            haircut_bps=args.cash_carry_haircut_bps,
+            day_count=args.cash_carry_day_count,
+            rate_path=args.cash_rate_path,
+        ),
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2
