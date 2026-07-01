@@ -18,10 +18,12 @@ if str(REPO_ROOT) not in sys.path:
 from tools.run_broker_ledger_replay import (  # noqa: E402
     CASH_CARRY_MODE_NONE,
     CASH_CARRY_MODE_RISK_FREE,
+    CASH_TICKERS,
     CashCarryConfig,
     load_cash_rate_series,
     replay,
 )
+from tools.alphaops_required_price_tickers import parse_env_payload, required_price_tickers_for_env  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
@@ -94,19 +96,43 @@ def find_target_books(latest_run: Path) -> dict[str, Path]:
     return out
 
 
-def latest_price_date(price_cache: Path, tickers: list[str]) -> str | None:
-    dates: list[pd.Timestamp] = []
+def price_date_by_ticker(price_cache: Path, tickers: list[str]) -> dict[str, str | None]:
+    out: dict[str, str | None] = {}
     for ticker in tickers:
+        ticker = str(ticker or "").strip().upper()
+        if not ticker:
+            continue
         frame = load_price_series(price_cache, ticker)
         if frame.empty:
+            out[ticker] = None
             continue
         raw_dates = pd.to_datetime(frame.index if frame.index.name else frame.get("date", frame.index), errors="coerce")
         valid_dates = pd.Series(raw_dates).dropna()
         if not valid_dates.empty:
-            dates.append(pd.Timestamp(valid_dates.max()).normalize())
+            out[ticker] = pd.Timestamp(valid_dates.max()).normalize().date().isoformat()
+        else:
+            out[ticker] = None
+    return out
+
+
+def latest_price_date(price_cache: Path, tickers: list[str]) -> str | None:
+    date_map = price_date_by_ticker(price_cache, tickers)
+    dates = [pd.Timestamp(value).normalize() for value in date_map.values() if value]
     if not dates:
         return None
     return max(dates).date().isoformat()
+
+
+def target_book_tickers(target_books: dict[str, Path]) -> list[str]:
+    tickers: set[str] = set()
+    for path in target_books.values():
+        frame = pd.read_csv(path) if path.exists() else pd.DataFrame()
+        if frame.empty or "ticker" not in frame.columns:
+            continue
+        for ticker in frame["ticker"].astype(str).str.upper().str.strip():
+            if ticker and ticker not in CASH_TICKERS and ticker != "NAN":
+                tickers.add(ticker)
+    return sorted(tickers)
 
 
 def target_book_max_date(target_books: dict[str, Path]) -> str | None:
@@ -151,9 +177,15 @@ def alignment_payload(
     price_cache: Path,
     target_books: dict[str, Path],
     rate_table: pd.DataFrame,
+    env_payload: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     required_end = official_end_date(latest_run) or target_book_max_date(target_books)
-    price_max = latest_price_date(price_cache, ["SPY", "QQQ"])
+    target_tickers = target_book_tickers(target_books)
+    env_tickers = required_price_tickers_for_env(env_payload or {})
+    required_tickers = sorted(set(target_tickers) | set(env_tickers))
+    price_dates = price_date_by_ticker(price_cache, required_tickers)
+    valid_price_dates = [pd.Timestamp(value).normalize() for value in price_dates.values() if value]
+    price_max = max(valid_price_dates).date().isoformat() if valid_price_dates else None
     rate_max = None
     if not rate_table.empty and "available_from" in rate_table.columns:
         parsed = pd.to_datetime(rate_table["available_from"], errors="coerce").dropna()
@@ -162,12 +194,31 @@ def alignment_payload(
     required_ts = pd.to_datetime(required_end, errors="coerce") if required_end else pd.NaT
     price_ts = pd.to_datetime(price_max, errors="coerce") if price_max else pd.NaT
     rate_ts = pd.to_datetime(rate_max, errors="coerce") if rate_max else pd.NaT
-    price_aligned = bool(pd.notna(required_ts) and pd.notna(price_ts) and price_ts >= required_ts)
+    missing_tickers: list[str] = []
+    stale_tickers: list[dict[str, Any]] = []
+    for ticker in required_tickers:
+        value = price_dates.get(ticker)
+        ticker_ts = pd.to_datetime(value, errors="coerce") if value else pd.NaT
+        if pd.isna(ticker_ts):
+            missing_tickers.append(ticker)
+        elif pd.notna(required_ts) and ticker_ts < required_ts:
+            stale_tickers.append({"ticker": ticker, "price_max_date": pd.Timestamp(ticker_ts).date().isoformat()})
+    target_price_cache_min = min(valid_price_dates).date().isoformat() if valid_price_dates else None
+    aligned_all_targets = bool(pd.notna(required_ts) and not missing_tickers and not stale_tickers)
+    price_aligned = bool(pd.notna(required_ts) and pd.notna(price_ts) and price_ts >= required_ts and aligned_all_targets)
     rate_aligned = bool(pd.notna(required_ts) and pd.notna(rate_ts) and rate_ts >= required_ts)
     return {
         "required_end_date": required_end,
         "price_cache_max_date": price_max,
         "price_cache_aligned": price_aligned,
+        "target_price_cache_min_date": target_price_cache_min,
+        "target_price_cache_max_date": price_max,
+        "target_price_cache_missing_tickers": missing_tickers,
+        "target_price_cache_stale_tickers": stale_tickers,
+        "target_price_cache_aligned_all_targets": aligned_all_targets,
+        "required_price_tickers_checked": required_tickers,
+        "target_price_tickers_checked": target_tickers,
+        "env_price_tickers_checked": env_tickers,
         "rate_cache_max_available_from": rate_max,
         "rate_cache_aligned": rate_aligned,
     }
@@ -189,6 +240,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     oos_end = getattr(args, "oos_end", "")
     oos2_start = getattr(args, "oos2_start", "2023-01-01")
     oos2_end = getattr(args, "oos2_end", "")
+    env_payload = parse_env_payload(getattr(args, "experiment_env_json", ""))
     carry_cfg = CashCarryConfig(
         mode=CASH_CARRY_MODE_RISK_FREE,
         rate_source=args.rate_source,
@@ -211,7 +263,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         }
         write_json(output_dir / "summary.json", payload)
         return payload
-    alignment = alignment_payload(latest_run=latest_run, price_cache=price_cache, target_books=target_books, rate_table=rate_table)
+    alignment = alignment_payload(
+        latest_run=latest_run,
+        price_cache=price_cache,
+        target_books=target_books,
+        rate_table=rate_table,
+        env_payload=env_payload,
+    )
     if not bool(alignment.get("price_cache_aligned")) or not bool(alignment.get("rate_cache_aligned")):
         payload = {
             "status": "blocked",
@@ -297,6 +355,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "price_cache": str(price_cache),
         "rate_source": args.rate_source,
         "rate_path": str(rate_path) if rate_path else "",
+        "experiment_env_json": getattr(args, "experiment_env_json", ""),
         "rate_row_count": int(len(rate_table)),
         "rate_min_available_from": pd.to_datetime(rate_table["available_from"], errors="coerce").min().date().isoformat(),
         "rate_max_available_from": pd.to_datetime(rate_table["available_from"], errors="coerce").max().date().isoformat(),
@@ -342,6 +401,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--day-count", type=int, default=365)
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument("--experiment-env-json", default="")
     parser.add_argument("--oos-start", default="2024-07-01")
     parser.add_argument("--oos-end", default="")
     parser.add_argument("--oos2-start", default="2023-01-01")

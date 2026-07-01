@@ -318,3 +318,46 @@ Interpretation:
 - The earlier cash-carry result remains useful as a directional probe.
 - The tooling now prevents that older-cache probe from being mistaken for official aligned evidence.
 - A new fullrun is still not required before official aligned cash-carry measurement.
+
+## 13. 2026-07-01 Target-Ticker Price Alignment Follow-Up
+
+Claude / GPT Pro review identified one remaining load-bearing gap: cash-carry price-cache alignment could not rely only on `SPY` and `QQQ`. If benchmarks were fresh but actual target tickers were stale, the measurement could look official while replaying stale target prices.
+
+Codex fixed this in `tools/run_cash_carry_measurement.py`:
+
+- Required price tickers now include:
+  - all non-CASH tickers present in operating / official target books
+  - shared env-required tickers from `tools/alphaops_required_price_tickers.py`
+  - `SPY` / `QQQ` benchmark anchors
+  - `SH` only when the fast-crash hedge env requires it
+- Summary now reports:
+  - `target_price_cache_min_date`
+  - `target_price_cache_max_date`
+  - `target_price_cache_missing_tickers`
+  - `target_price_cache_stale_tickers`
+  - `target_price_cache_aligned_all_targets`
+  - `required_price_tickers_checked`
+  - `target_price_tickers_checked`
+  - `env_price_tickers_checked`
+
+Validation:
+
+- Added a smoke case where `SPY` / `QQQ` are fresh but target ticker `AAA` is stale.
+- The measurement blocks with:
+  - `status=blocked`
+  - `reason=blocked_stale_price_cache_for_cash_carry`
+
+Artifact re-check:
+
+- Re-running cash-carry measurement against recovered run `28436307420` with the older `2026-06-22` cache now blocks on all-target alignment, not just benchmark alignment.
+- Example emitted fields:
+  - `required_end_date=2026-06-29`
+  - `price_cache_max_date=2026-06-22`
+  - `target_price_cache_aligned_all_targets=false`
+  - target tickers such as `SNDK`, `WDC`, `BE`, `CIEN`, `AMD`, `AMAT`, and many historical target-book tickers are correctly flagged stale when the cache ends before the official run end date.
+
+Interpretation:
+
+- Official cash-carry measurement now requires fresh actual target ticker prices.
+- The old directional probe remains useful for expectation-setting only.
+- The next execution step is still not fullrun; it is fresh replay price cache generation followed by official-aligned cash-carry measurement.

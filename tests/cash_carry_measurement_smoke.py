@@ -41,6 +41,7 @@ def test_cash_carry_measurement_blocks_without_rate_cache_and_passes_with_rates(
         reports.mkdir(parents=True)
         cache.mkdir()
         _write_px(cache, "SPY", [100.0, 100.0, 100.0, 100.0, 100.0])
+        _write_px(cache, "QQQ", [100.0, 100.0, 100.0, 100.0, 100.0])
         for name in ["operating_main_target_book.csv", "operating_concentrated_target_book.csv"]:
             pd.DataFrame([{"rebalance_date": "2026-01-02", "ticker": "CASH", "weight": 1.0}]).to_csv(
                 reports / name, index=False
@@ -74,8 +75,46 @@ def test_cash_carry_measurement_blocks_without_rate_cache_and_passes_with_rates(
         assert (Path(args.output_dir) / "arm_metrics.csv").exists()
 
 
+def test_cash_carry_measurement_blocks_when_target_ticker_cache_is_stale() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        reports = latest / "reports"
+        cache = root / "cache_prices"
+        reports.mkdir(parents=True)
+        cache.mkdir()
+        _write_px(cache, "SPY", [100.0, 100.0, 100.0, 100.0, 100.0])
+        _write_px(cache, "QQQ", [100.0, 100.0, 100.0, 100.0, 100.0])
+        _write_px(cache, "AAA", [10.0, 10.0, 10.0], start="2025-12-22")
+        for name in ["operating_main_target_book.csv", "operating_concentrated_target_book.csv"]:
+            pd.DataFrame([{"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 1.0}]).to_csv(
+                reports / name, index=False
+            )
+        rate_path = root / "rates.csv"
+        pd.DataFrame([{"date": "2026-01-02", "value": 4.0}]).to_csv(rate_path, index=False)
+        args = Args()
+        args.latest_run = str(latest)
+        args.price_cache = str(cache)
+        args.output_dir = str(root / "measurement_stale_target")
+        args.rate_source = "DGS3MO"
+        args.rate_path = str(rate_path)
+        args.rate_lag_days = 1
+        args.haircut_bps = 50.0
+        args.day_count = 365
+        args.cost_bps = 25.0
+        args.max_fill_lag_days = 7
+        payload = run(args)
+        assert payload["status"] == "blocked", payload
+        assert payload["reason"] == "blocked_stale_price_cache_for_cash_carry"
+        assert payload["price_cache_aligned"] is False
+        assert "AAA" in {row["ticker"] for row in payload["target_price_cache_stale_tickers"]}
+        assert "AAA" in set(payload["target_price_tickers_checked"])
+        assert {"SPY", "QQQ"}.issubset(set(payload["env_price_tickers_checked"]))
+
+
 def main() -> int:
     test_cash_carry_measurement_blocks_without_rate_cache_and_passes_with_rates()
+    test_cash_carry_measurement_blocks_when_target_ticker_cache_is_stale()
     print("cash_carry_measurement_smoke: PASS")
     return 0
 
