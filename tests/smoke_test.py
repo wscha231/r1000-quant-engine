@@ -2337,6 +2337,12 @@ def test_lever_sweep_builds_isolated_commands() -> None:
         concentrated_target_n=5,
         cost_bps=25.0,
         max_fill_lag_days=7,
+        replay_end_date="2026-06-29",
+        cash_carry_mode="risk_free_rate",
+        cash_rate_path="cache_macro/fred_dgs3mo_DGS3MO.parquet",
+        cash_rate_source="DGS3MO",
+        cash_carry_haircut_bps=50.0,
+        cash_carry_day_count=365,
     )
     assert "--production-output-mode" in vnext_cmd
     assert vnext_cmd[vnext_cmd.index("--production-output-mode") + 1] == "shadow_only"
@@ -2344,6 +2350,12 @@ def test_lever_sweep_builds_isolated_commands() -> None:
     assert "concentrated_N5_target_book.csv" in book
     assert book in broker_cmd, "broker replay must score the produced variant book"
     assert broker_cmd[broker_cmd.index("--portfolio-kind") + 1] == "concentrated"
+    assert broker_cmd[broker_cmd.index("--replay-end-date") + 1] == "2026-06-29"
+    assert broker_cmd[broker_cmd.index("--cash-carry-mode") + 1] == "risk_free_rate"
+    assert broker_cmd[broker_cmd.index("--cash-rate-path") + 1] == "cache_macro/fred_dgs3mo_DGS3MO.parquet"
+    assert broker_cmd[broker_cmd.index("--cash-rate-source") + 1] == "DGS3MO"
+    assert broker_cmd[broker_cmd.index("--cash-carry-haircut-bps") + 1] == "50.0"
+    assert broker_cmd[broker_cmd.index("--cash-carry-day-count") + 1] == "365"
     control_env = sweep.conc_gross_env({"PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "1"}, 0.0)
     assert control_env["R1000_CONC_GROSS_CAP_FLOOR"] == "0.0"
     assert control_env["PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED"] == "0", "control arm must not inherit enabled phase"

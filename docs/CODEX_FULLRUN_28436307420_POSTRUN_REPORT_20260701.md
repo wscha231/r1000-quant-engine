@@ -398,3 +398,35 @@ Interpretation:
   - all actual target/env ticker prices must be fresh through the official end date
   - replay must not extend past the official end date even if the cache contains later bars
 - Fullrun is still not the next step. The next step is fresh replay price cache generation, then official-aligned cash-carry measurement with `--replay-end-date 2026-06-29`.
+
+## 15. 2026-07-01 Bull-Floor Cash-Carry Pass-Through Follow-Up
+
+Claude / GPT Pro review also flagged that bull-floor must be measured as a net incremental effect on top of the cash-carry baseline, not as a simple arithmetic sum of zero-yield bull-floor delta plus cash-carry delta. If the sweep relies only on environment variables, artifacts can become ambiguous about whether the broker arm was actually cash-carry adjusted.
+
+Codex fixed this in `tools/run_lever_sweep.py`:
+
+- Concentrated gross / bull-floor broker replay arms now accept and pass through:
+  - `--cash-carry-mode`
+  - `--cash-rate-path`
+  - `--cash-rate-source`
+  - `--cash-rate-lag-days`
+  - `--cash-carry-haircut-bps`
+  - `--cash-carry-day-count`
+- Existing `--replay-end-date` pass-through remains active.
+- Dry-run command generation now exposes the full broker replay command, making it auditable that an arm is `cash-carry ON + bull-floor ON/OFF` rather than zero-yield.
+
+Validation:
+
+- `tools/run_lever_sweep.py --dry-run --replay-end-date 2026-06-29 --cash-carry-mode risk_free_rate --cash-rate-path cache_macro/fred_dgs3mo_DGS3MO.parquet --cash-rate-source DGS3MO --cash-carry-haircut-bps 50 --cash-carry-day-count 365` emits broker commands containing all cash-carry and replay-end arguments.
+- `tests/smoke_test.py --quick` passes.
+- Targeted validation passes:
+  - `broker_cash_carry_smoke`
+  - `cash_carry_measurement_smoke`
+  - `bull_floor_overlay_smoke`
+
+Interpretation:
+
+- Phase 1 bull-floor measurement can now be run in the intended comparison frame:
+  - baseline = cash-carry ON, bull-floor OFF
+  - treatment = cash-carry ON, bull-floor ON
+- The result should be interpreted as net incremental stock deployment benefit after forfeited cash carry, not as additive cash-carry plus bull-floor deltas.

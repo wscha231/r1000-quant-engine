@@ -113,6 +113,12 @@ def conc_gross_commands(
     cost_bps: float,
     max_fill_lag_days: int,
     replay_end_date: str = "",
+    cash_carry_mode: str = "",
+    cash_rate_path: str = "",
+    cash_rate_source: str = "",
+    cash_rate_lag_days: int | None = None,
+    cash_carry_haircut_bps: float | None = None,
+    cash_carry_day_count: int | None = None,
 ) -> tuple[list[str], list[str], str]:
     """Build (vnext_cmd, broker_cmd, concentrated_book_path) for one floor arm.
 
@@ -148,6 +154,18 @@ def conc_gross_commands(
     ]
     if replay_end_date:
         broker_cmd.extend(["--replay-end-date", replay_end_date, "--official-baseline-end-date", replay_end_date])
+    if cash_carry_mode:
+        broker_cmd.extend(["--cash-carry-mode", cash_carry_mode])
+    if cash_rate_path:
+        broker_cmd.extend(["--cash-rate-path", cash_rate_path])
+    if cash_rate_source:
+        broker_cmd.extend(["--cash-rate-source", cash_rate_source])
+    if cash_rate_lag_days is not None:
+        broker_cmd.extend(["--cash-rate-lag-days", str(cash_rate_lag_days)])
+    if cash_carry_haircut_bps is not None:
+        broker_cmd.extend(["--cash-carry-haircut-bps", str(cash_carry_haircut_bps)])
+    if cash_carry_day_count is not None:
+        broker_cmd.extend(["--cash-carry-day-count", str(cash_carry_day_count)])
     return vnext_cmd, broker_cmd, book
 
 
@@ -244,6 +262,12 @@ def run_conc_gross_sweep(
             cost_bps=args.cost_bps,
             max_fill_lag_days=args.max_fill_lag_days,
             replay_end_date=args.replay_end_date,
+            cash_carry_mode=args.cash_carry_mode,
+            cash_rate_path=args.cash_rate_path,
+            cash_rate_source=args.cash_rate_source,
+            cash_rate_lag_days=args.cash_rate_lag_days,
+            cash_carry_haircut_bps=args.cash_carry_haircut_bps,
+            cash_carry_day_count=args.cash_carry_day_count,
         )
         row: dict[str, Any] = {"lever": "conc_gross_floor", "floor": floor}
         if args.dry_run:
@@ -353,6 +377,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--replay-end-date", default="", help="Optional official-window replay end date passed to broker replay arms.")
+    parser.add_argument("--cash-carry-mode", default="", choices=["", "none", "risk_free_rate"], help="Optional broker cash-carry mode passed to conc-gross broker replay arms.")
+    parser.add_argument("--cash-rate-path", default="", help="Optional cash-rate table passed to conc-gross broker replay arms.")
+    parser.add_argument("--cash-rate-source", default="", help="Optional cash-rate source id passed to conc-gross broker replay arms.")
+    parser.add_argument("--cash-rate-lag-days", type=int, default=None)
+    parser.add_argument("--cash-carry-haircut-bps", type=float, default=None)
+    parser.add_argument("--cash-carry-day-count", type=int, default=None)
     parser.add_argument("--skip-conc-gross", action="store_true")
     parser.add_argument("--skip-daily-stop", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="build commands only; no execution")
