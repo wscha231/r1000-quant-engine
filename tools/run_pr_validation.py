@@ -141,6 +141,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/conc_dropped_leader_rescue_screen_smoke.py", []),
     ("tests/performance_ledger_smoke.py", []),
     ("tests/bull_floor_overlay_smoke.py", []),
+    ("tests/official_book_bull_floor_broker_ab_smoke.py", []),
     ("tests/fast_crash_env_override_smoke.py", []),
     ("tests/adr_candidate_scanner_smoke.py", []),
     ("tests/adr_universe_apply_smoke.py", []),

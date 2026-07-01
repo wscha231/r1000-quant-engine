@@ -946,21 +946,32 @@ def replay(
     )
     target_dates = pd.to_datetime(targets.get("rebalance_date", pd.Series(dtype=str)), errors="coerce").dropna()
     last_target_date = pd.Timestamp(target_dates.max()).normalize() if not target_dates.empty else None
+    replay_end_filtered_target_row_count = 0
+    replay_end_filtered_target_date_count = 0
     if requested_replay_end_ts is not None and last_target_date is not None and requested_replay_end_ts < last_target_date:
-        payload = {
-            "status": "blocked",
-            "reason": "replay_end_date_before_last_target_rebalance",
-            "target_book": str(target_book),
-            "price_cache": str(price_cache),
-            "last_target_rebalance_date": last_target_date.date().isoformat(),
-            "requested_replay_end_date": requested_replay_end_text,
-            "official_baseline_end_date": official_baseline_end_text,
-            "metric_mode": "DO_NOT_USE",
-            "valid_for_production": False,
-            "research_only": True,
-        }
-        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        return payload
+        parsed_dates = pd.to_datetime(targets["rebalance_date"], errors="coerce")
+        future_mask = parsed_dates > requested_replay_end_ts
+        replay_end_filtered_target_row_count = int(future_mask.sum())
+        replay_end_filtered_target_date_count = int(parsed_dates[future_mask].dropna().dt.normalize().nunique())
+        targets = targets.loc[~future_mask].copy()
+        target_dates = pd.to_datetime(targets.get("rebalance_date", pd.Series(dtype=str)), errors="coerce").dropna()
+        if targets.empty or target_dates.empty:
+            payload = {
+                "status": "blocked",
+                "reason": "no_target_rebalance_on_or_before_replay_end_date",
+                "target_book": str(target_book),
+                "price_cache": str(price_cache),
+                "last_target_rebalance_date": last_target_date.date().isoformat(),
+                "requested_replay_end_date": requested_replay_end_text,
+                "official_baseline_end_date": official_baseline_end_text,
+                "replay_end_filtered_target_row_count": replay_end_filtered_target_row_count,
+                "replay_end_filtered_target_date_count": replay_end_filtered_target_date_count,
+                "metric_mode": "DO_NOT_USE",
+                "valid_for_production": False,
+                "research_only": True,
+            }
+            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            return payload
     if targets.empty:
         payload = {
             "status": "blocked",
@@ -1029,6 +1040,7 @@ def replay(
     holdings_rows: list[dict[str, Any]] = []
     cash_rows: list[dict[str, Any]] = []
     target_vs_actual_rows: list[dict[str, Any]] = []
+    replay_end_skipped_rebalance_count = 0
 
     for signal_dt in sorted(periods.keys()):
         target = targets[targets["rebalance_date"].eq(signal_dt)].copy()
@@ -1051,6 +1063,9 @@ def replay(
                 continue
         else:
             fill_dt = min(fill_dt_by_ticker.values())
+        if requested_replay_end_ts is not None and fill_dt > requested_replay_end_ts:
+            replay_end_skipped_rebalance_count += 1
+            continue
         if carry_enabled:
             accrue_cash_interest(
                 state=state,
@@ -1204,6 +1219,9 @@ def replay(
             "requested_replay_end_date": requested_replay_end_text,
             "actual_equity_curve_end_date": actual_equity_curve_end_text,
             "replay_end_date_clamped": bool(clamp_state.get("replay_end_date_clamped", False)),
+            "replay_end_skipped_rebalance_count": int(replay_end_skipped_rebalance_count),
+            "replay_end_filtered_target_row_count": int(replay_end_filtered_target_row_count),
+            "replay_end_filtered_target_date_count": int(replay_end_filtered_target_date_count),
             "official_baseline_end_date": official_baseline_end_text,
             "end_date_matches_official": False,
             "metric_mode": "DO_NOT_USE",
@@ -1246,6 +1264,9 @@ def replay(
             "requested_replay_end_date": requested_replay_end_text,
             "actual_equity_curve_end_date": actual_equity_curve_end_text,
             "replay_end_date_clamped": bool(clamp_state.get("replay_end_date_clamped", False)),
+            "replay_end_skipped_rebalance_count": int(replay_end_skipped_rebalance_count),
+            "replay_end_filtered_target_row_count": int(replay_end_filtered_target_row_count),
+            "replay_end_filtered_target_date_count": int(replay_end_filtered_target_date_count),
             "official_baseline_end_date": official_baseline_end_text,
             "end_date_matches_official": end_date_matches_official,
             "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares and not carry_enabled),

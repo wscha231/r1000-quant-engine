@@ -171,6 +171,77 @@ def test_replay_end_date_clamps_fresh_cache_window() -> None:
         assert curve["date"].max() == "2026-01-06"
 
 
+def test_replay_end_date_skips_next_close_rebalance_after_window() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "broker"
+        cache.mkdir()
+        _write_px(cache, "AAA", [10.0, 10.0, 10.0, 10.0, 10.0, 10.0], start="2026-01-02")
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
+                {"rebalance_date": "2026-01-06", "ticker": "AAA", "weight": 0.90},
+            ]
+        ).to_csv(target, index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            replay_end_date="2026-01-06",
+            official_baseline_end_date="2026-01-06",
+        )
+
+        assert metrics["status"] == "completed", metrics
+        assert metrics["actual_equity_curve_end_date"] == "2026-01-06"
+        assert metrics["end_date_matches_official"] is True
+        assert metrics["replay_end_skipped_rebalance_count"] == 1
+        curve = pd.read_csv(out / "equity_curve.csv")
+        assert curve["date"].max() == "2026-01-06"
+        trades = pd.read_csv(out / "trades.csv")
+        assert "2026-01-06" not in set(trades.get("signal_date", pd.Series(dtype=str)).astype(str))
+
+
+def test_replay_end_date_filters_future_target_rows() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "broker"
+        cache.mkdir()
+        _write_px(cache, "AAA", [10.0, 10.0, 10.0, 10.0, 10.0, 10.0], start="2026-01-02")
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
+                {"rebalance_date": "2026-01-07", "ticker": "AAA", "weight": 0.90},
+            ]
+        ).to_csv(target, index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            replay_end_date="2026-01-06",
+            official_baseline_end_date="2026-01-06",
+        )
+
+        assert metrics["status"] == "completed", metrics
+        assert metrics["actual_equity_curve_end_date"] == "2026-01-06"
+        assert metrics["end_date_matches_official"] is True
+        assert metrics["replay_end_filtered_target_date_count"] == 1
+        assert metrics["replay_end_filtered_target_row_count"] == 1
+        curve = pd.read_csv(out / "equity_curve.csv")
+        assert curve["date"].max() == "2026-01-06"
+
+
 def test_future_rate_is_not_used_before_available_from() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -225,6 +296,8 @@ def main() -> int:
     test_default_off_preserves_metric_mode_and_schema()
     test_cash_carry_uses_dgs3mo_percent_act365_and_one_day_lag()
     test_replay_end_date_clamps_fresh_cache_window()
+    test_replay_end_date_skips_next_close_rebalance_after_window()
+    test_replay_end_date_filters_future_target_rows()
     test_future_rate_is_not_used_before_available_from()
     test_negative_cash_does_not_accrue_interest()
     print("broker_cash_carry_smoke: PASS")
