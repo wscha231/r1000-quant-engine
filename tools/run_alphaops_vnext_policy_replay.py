@@ -2611,6 +2611,7 @@ def append_latest_operating_decision(
     price_cache: Path,
     portfolio_kind: str,
     variant_key: str,
+    operating_append_end_date: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     if book.empty:
         return book, {
@@ -2622,16 +2623,24 @@ def append_latest_operating_decision(
     history_max = latest_book_date(book)
     latest_slice = book[pd.to_datetime(book["rebalance_date"], errors="coerce").dt.normalize().eq(history_max)].copy()
     price_close = latest_price_close_date(price_cache, latest_slice["ticker"].astype(str).tolist()) if not latest_slice.empty else None
+    append_close = price_close
+    append_clamped = False
+    if append_close is not None and operating_append_end_date is not None:
+        limit = pd.Timestamp(operating_append_end_date).normalize()
+        if append_close > limit:
+            append_close = limit
+            append_clamped = True
     appended = False
     append_reason = "latest close unavailable"
     out = book.copy()
-    if history_max is not None and price_close is not None:
-        if pd.Timestamp(price_close).normalize() > pd.Timestamp(history_max).normalize():
+    if history_max is not None and append_close is not None:
+        if pd.Timestamp(append_close).normalize() > pd.Timestamp(history_max).normalize():
             latest_rows = latest_slice.copy()
-            latest_rows["rebalance_date"] = pd.Timestamp(price_close).date().isoformat()
+            latest_rows["rebalance_date"] = pd.Timestamp(append_close).date().isoformat()
             latest_rows["operating_appended"] = True
             latest_rows["operating_signal_source_date"] = pd.Timestamp(history_max).date().isoformat()
-            latest_rows["operating_latest_price_date"] = pd.Timestamp(price_close).date().isoformat()
+            latest_rows["operating_latest_price_date"] = pd.Timestamp(append_close).date().isoformat()
+            latest_rows["operating_unclamped_latest_price_date"] = date_text(price_close)
             latest_rows["decision_frequency"] = "monthly_replay_plus_latest_close_hold_forward"
             latest_rows["operating_decision_semantics"] = "latest_close_hold_forward_from_vnext_policy"
             if "selection_reason" in latest_rows.columns:
@@ -2641,6 +2650,8 @@ def append_latest_operating_decision(
             out = pd.concat([out, latest_rows], ignore_index=True)
             appended = True
             append_reason = "latest vNext target held forward to latest observable close"
+            if append_clamped:
+                append_reason = "latest vNext target held forward to operating append end date"
         else:
             append_reason = "latest price close is not newer than vNext policy book"
     if "operating_appended" not in out.columns:
@@ -2649,17 +2660,21 @@ def append_latest_operating_decision(
         out["operating_signal_source_date"] = ""
     if "operating_latest_price_date" not in out.columns:
         out["operating_latest_price_date"] = ""
+    if "operating_unclamped_latest_price_date" not in out.columns:
+        out["operating_unclamped_latest_price_date"] = ""
     if not out.empty:
         out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce").dt.date.astype(str)
         out = out.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
     output_max = latest_book_date(out)
-    current = bool(price_close is not None and output_max is not None and output_max >= price_close)
+    current = bool(append_close is not None and output_max is not None and output_max >= append_close)
     return out, {
         "portfolio": portfolio_kind,
         "variant_key": variant_key,
         "history_max_rebalance_date": date_text(history_max),
         "latest_price_close_date": date_text(price_close),
-        "operating_signal_date": date_text(price_close if price_close is not None else history_max),
+        "operating_append_end_date": date_text(operating_append_end_date),
+        "operating_append_clamped": bool(append_clamped),
+        "operating_signal_date": date_text(append_close if append_close is not None else history_max),
         "output_max_rebalance_date": date_text(output_max),
         "latest_target_appended": bool(appended),
         "operating_book_current": bool(current),
@@ -3781,6 +3796,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
     price_cache = repo_path(args.price_cache)
+    operating_append_end_date = pd.to_datetime(getattr(args, "operating_append_end_date", None), errors="coerce")
+    if pd.isna(operating_append_end_date):
+        operating_append_end_date = None
+    else:
+        operating_append_end_date = pd.Timestamp(operating_append_end_date).normalize()
     output_dir.mkdir(parents=True, exist_ok=True)
     candidate_book, source_mode = resolve_candidate_book(latest_run, args.candidate_book)
     candidate = normalize_candidate_frame(read_table(candidate_book))
@@ -3857,6 +3877,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             price_cache=price_cache,
             portfolio_kind=portfolio_kind,
             variant_key=key,
+            operating_append_end_date=operating_append_end_date,
         )
         current_book, capacity_summary, capacity_audit = apply_regime_capacity_overlay(
             current_book,
@@ -4097,6 +4118,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-current-report", action="store_true")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument(
+        "--operating-append-end-date",
+        default=None,
+        help=(
+            "Optional research/audit clamp for hold-forward operating decisions. "
+            "By default operating books append to the latest observable close."
+        ),
+    )
     parser.add_argument("--long-crisis-features", default="data_pit/macro/long_crisis_daily_features.parquet")
     parser.add_argument("--long-crisis-thresholds", default="outputs/long_crisis_learning/best_thresholds.json")
     return parser.parse_args()

@@ -44,6 +44,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_quality_hold_weak_timing_trim,
     apply_main_watch_unconfirmed_market_leader_new_entry_cap,
     apply_neutral_metals_new_entry_block,
+    append_latest_operating_decision,
     build,
     crisis_new_buy_allowed,
     enforce_pit_available,
@@ -152,6 +153,45 @@ def write_price_cache(cache_dir: Path, tickers: set[str], latest_date: str = "20
             },
             index=index,
         ).to_parquet(cache_dir / px_cache_name(ticker))
+
+
+def test_append_latest_operating_decision_can_be_clamped_for_control_repro() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        price_cache = root / "cache_prices"
+        write_price_cache(price_cache, {"AAA", "BBB"}, latest_date="2026-03-05")
+        book = pd.DataFrame(
+            [
+                {"rebalance_date": "2026-02-28", "ticker": "AAA", "weight": 0.6},
+                {"rebalance_date": "2026-02-28", "ticker": "BBB", "weight": 0.4},
+            ]
+        )
+
+        default_book, default_summary = append_latest_operating_decision(
+            book,
+            price_cache=price_cache,
+            portfolio_kind="main",
+            variant_key="main_N15",
+        )
+        assert default_summary["latest_target_appended"] is True
+        assert default_summary["operating_append_clamped"] is False
+        assert default_summary["operating_signal_date"] == "2026-03-05"
+        assert default_book["rebalance_date"].max() == "2026-03-05"
+
+        clamped_book, clamped_summary = append_latest_operating_decision(
+            book,
+            price_cache=price_cache,
+            portfolio_kind="main",
+            variant_key="main_N15",
+            operating_append_end_date=pd.Timestamp("2026-03-03"),
+        )
+        assert clamped_summary["latest_target_appended"] is True
+        assert clamped_summary["operating_append_clamped"] is True
+        assert clamped_summary["latest_price_close_date"] == "2026-03-05"
+        assert clamped_summary["operating_signal_date"] == "2026-03-03"
+        assert clamped_book["rebalance_date"].max() == "2026-03-03"
+        latest_rows = clamped_book[clamped_book["rebalance_date"].astype(str).eq("2026-03-03")]
+        assert set(latest_rows["operating_unclamped_latest_price_date"].astype(str)) == {"2026-03-05"}
 
 
 def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() -> None:
