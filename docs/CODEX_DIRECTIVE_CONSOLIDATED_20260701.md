@@ -50,6 +50,36 @@ gap, with zero added drawdown and no change to holdings. **This is the single hi
 
 ---
 
+## 1b. Round-2 code-verified refinements (CRITICAL — neither prior directive caught these)
+
+1. **🔴 Cash-carry is a SILENT NO-OP as shipped — the DGS3MO rate is never fetched.** `#214` added
+   `"dgs3mo":"DGS3MO"` to `MACRO_FRED_SERIES` and the ledger reads `cache_macro/fred_dgs3mo_DGS3MO.parquet`,
+   BUT the pipeline only calls `load_fred_series(...)` for the 14 feature series (vix, dgs10, hy_oas, dxy, m2,
+   ...) and **NEVER for `dgs3mo`** (verified: `r1000_pipeline.py` L4396–L5031). No workflow/sidecar
+   materializes it either. So enabling `R1000_BROKER_CASH_CARRY_ENABLED=1` today → `load_cash_rate_series`
+   returns empty → `raw_rate_pct=0` → **credit=0**. A naive P1 would report Δ=0 and everyone would wrongly
+   conclude "cash-carry does nothing." **This is the real reason it looks like it wouldn't help.**
+   - **Fix (P1 prerequisite):** materialize `cache_macro/fred_dgs3mo_DGS3MO.parquet` — add
+     `load_fred_series(cfg, paths, "dgs3mo", MACRO_FRED_SERIES["dgs3mo"])` in the pipeline macro step (mirrors
+     the dgs10 call), OR a standalone fetch in the workflow before the broker replay. Confirm the file lands in
+     the same `cache_macro` the ledger reads (`REPO_ROOT/cache_macro`).
+   - **Mandatory no-op guard:** when cash-carry is enabled, assert `cash_interest_accrued_usd > 0`. If 0 →
+     FAIL LOUD (rate not found), do NOT report Δ=0 as "no effect." (Analytic triage estimate remains
+     Main +0.85 pp / Conc +1.42 pp; the exact number needs the real daily DGS3MO once fetched.)
+2. **P0.1 caveat — verify the operating book is genuine hysteresis, not a frozen echo.** Before making the
+   operating/official target book canonical, the drift audit (P0.2) must confirm the operating book EVER
+   deviates from current holdings when raw scores diverge strongly. If it equals current holdings EVERY month
+   regardless of scores, that is a separate "stale echo" bug and making it canonical would freeze the portfolio
+   permanently. Distinguish healthy-hysteresis (low turnover, still re-evaluates) from stuck-echo (never moves).
+3. **P0.4 hard wall — GitHub hosted-runner max is 6h; 5h50m cancel means a SUCCESSFUL run barely fits.**
+   Fail-fast fixes the failure case, but a VALID run's critical path (rebuild → official metrics → target books
+   → safety audit → commit) must fit with margin. The ~73-min goal-search research sidecar can push a valid run
+   over the ceiling. So in `run_full_rebuild_sidecars.py`, run the completion-critical chain FIRST and
+   defer/split the heavy research grid into a separate job or gate it behind a time budget — it must never
+   cancel an otherwise-valid run.
+
+---
+
 ## 2. Answer to the user's asset question (short-bonds / gold / silver instead of cash)
 
 - **"Hold short-term Treasuries instead of cash" ≈ cash-carry**, which is already measured at **+1.42 pp
@@ -92,6 +122,9 @@ current holdings: `hedge_dates`, `latest_hedge_active`, `reason_current_hedge_ab
 holding without price → block; user-target vs preview-target agree; drift audit passes). No fullrun before this.
 
 ### P1 — MEASURE cash-carry (no fullrun; highest ROI; confirms the +1.4 pp)
+**P1.0 prerequisite (do FIRST — see §1b.1):** materialize `cache_macro/fred_dgs3mo_DGS3MO.parquet` (the rate is
+not currently fetched → cash-carry is a silent no-op without it). Then enforce the no-op guard
+`cash_interest_accrued_usd > 0` or FAIL LOUD.
 On the recovered artifact 28436307420 (or the latest broker replay), run the broker ledger twice:
 `R1000_BROKER_CASH_CARRY_ENABLED=0` vs `=1` (DGS3MO, 50 bps, day_count 365). Report Main/Conc CAGR·MaxDD·Sharpe
 before→after, `cash_interest_accrued_usd`, and **tier-2 `is_cagr_min` / `oos_is_cagr_ratio` before→after**
