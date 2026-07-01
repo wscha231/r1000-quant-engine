@@ -52,20 +52,24 @@ gap, with zero added drawdown and no change to holdings. **This is the single hi
 
 ## 1b. Round-2 code-verified refinements (CRITICAL — neither prior directive caught these)
 
-1. **🔴 Cash-carry is a SILENT NO-OP as shipped — the DGS3MO rate is never fetched.** `#214` added
+1. **🔴 Cash-carry is BLOCKED (not silent) as shipped — the DGS3MO rate is never materialized.** `#214` added
    `"dgs3mo":"DGS3MO"` to `MACRO_FRED_SERIES` and the ledger reads `cache_macro/fred_dgs3mo_DGS3MO.parquet`,
    BUT the pipeline only calls `load_fred_series(...)` for the 14 feature series (vix, dgs10, hy_oas, dxy, m2,
    ...) and **NEVER for `dgs3mo`** (verified: `r1000_pipeline.py` L4396–L5031). No workflow/sidecar
-   materializes it either. So enabling `R1000_BROKER_CASH_CARRY_ENABLED=1` today → `load_cash_rate_series`
-   returns empty → `raw_rate_pct=0` → **credit=0**. A naive P1 would report Δ=0 and everyone would wrongly
-   conclude "cash-carry does nothing." **This is the real reason it looks like it wouldn't help.**
-   - **Fix (P1 prerequisite):** materialize `cache_macro/fred_dgs3mo_DGS3MO.parquet` — add
-     `load_fred_series(cfg, paths, "dgs3mo", MACRO_FRED_SERIES["dgs3mo"])` in the pipeline macro step (mirrors
-     the dgs10 call), OR a standalone fetch in the workflow before the broker replay. Confirm the file lands in
-     the same `cache_macro` the ledger reads (`REPO_ROOT/cache_macro`).
-   - **Mandatory no-op guard:** when cash-carry is enabled, assert `cash_interest_accrued_usd > 0`. If 0 →
-     FAIL LOUD (rate not found), do NOT report Δ=0 as "no effect." (Analytic triage estimate remains
-     Main +0.85 pp / Conc +1.42 pp; the exact number needs the real daily DGS3MO once fetched.)
+   materializes it. Correction (thanks to the ChatGPT-Pro review): this is NOT a silent 0-accrual — the replay
+   has an upfront guard that returns `status=blocked, reason="cash_rate_series_unavailable"`
+   (`run_broker_ledger_replay.py:878`) when cash-carry is enabled and the rate table is empty. So the real
+   failure mode is a **measurement blocker** (safer/louder than a silent 0), but the net effect is the same:
+   **no cash-carry number until DGS3MO is materialized.** This is why enabling cash-carry has produced nothing.
+   - **Fix (P1 prerequisite):** materialize `cache_macro/fred_dgs3mo_DGS3MO.parquet` (dedicated
+     `tools/materialize_cash_rate_series.py`, or add `load_fred_series(cfg, paths, "dgs3mo", ...)` mirroring the
+     dgs10 call). Confirm the file lands in the same `cache_macro` the ledger reads (`REPO_ROOT/cache_macro`),
+     covers the full replay window, and the enabled replay no longer returns `cash_rate_series_unavailable`.
+   - **Two complementary guards:** (a) the existing empty-table block (`cash_rate_series_unavailable`) — primary;
+     (b) after a successful run, assert `cash_interest_accrued_usd > 0` — secondary, to catch a
+     *present-but-partial/stale/all-zero* rate table that would slip past (a) and silently under-accrue on
+     missing dates. Both belong. (Analytic triage estimate stays Main +0.85 pp / Conc +1.42 pp; the exact
+     number needs the real daily DGS3MO once materialized — estimate ≠ official replay.)
 2. **P0.1 caveat — verify the operating book is genuine hysteresis, not a frozen echo.** Before making the
    operating/official target book canonical, the drift audit (P0.2) must confirm the operating book EVER
    deviates from current holdings when raw scores diverge strongly. If it equals current holdings EVERY month
