@@ -361,3 +361,40 @@ Interpretation:
 - Official cash-carry measurement now requires fresh actual target ticker prices.
 - The old directional probe remains useful for expectation-setting only.
 - The next execution step is still not fullrun; it is fresh replay price cache generation followed by official-aligned cash-carry measurement.
+
+## 14. 2026-07-01 Replay End-Date Clamp Follow-Up
+
+Claude / GPT Pro review identified one more official-measurement trap: after a fresh price-cache refresh, `run_broker_ledger_replay.py` could extend the final target period to the cache's newest bar. That would make cash-carry / bull-floor replay run beyond official run `28436307420`'s broker end date (`2026-06-29`) and break apples-to-apples comparison.
+
+Codex fixed this in `tools/run_broker_ledger_replay.py`:
+
+- Added `--replay-end-date`.
+- Added `--official-baseline-end-date`.
+- The final target period now clamps to `min(price_cache_latest, replay_end_date)`.
+- If `replay_end_date` is earlier than the target book's last rebalance date, replay blocks.
+- If a requested `replay_end_date` is not actually present in the replay equity curve, replay blocks with `replay_end_date_not_observed`.
+- Metrics now report:
+  - `requested_replay_end_date`
+  - `actual_equity_curve_end_date`
+  - `replay_end_date_clamped`
+  - `official_baseline_end_date`
+  - `end_date_matches_official`
+
+Pass-throughs:
+
+- `tools/run_cash_carry_measurement.py` now passes the official end date into both baseline and cash-carry broker replay arms.
+- `tools/run_lever_sweep.py` accepts `--replay-end-date` and passes it to the concentrated gross / bull-floor broker replay command.
+
+Validation:
+
+- Added a broker smoke where price cache contains bars after the official end date but `replay_end_date=2026-01-06`; the equity curve ends exactly at `2026-01-06`, not at the cache max date.
+- Cash-carry measurement smoke now requires `end_date_matches_official=true`.
+- `run_lever_sweep.py --dry-run --replay-end-date 2026-06-29` shows the broker command includes both `--replay-end-date 2026-06-29` and `--official-baseline-end-date 2026-06-29`.
+- Re-running recovered run `28436307420` cash-carry measurement against the stale 2026-06-22 cache still blocks with `blocked_stale_price_cache_for_cash_carry`, now with explicit `requested_replay_end_date=2026-06-29`.
+
+Interpretation:
+
+- Official-aligned replay-stage measurement now has both required guards:
+  - all actual target/env ticker prices must be fresh through the official end date
+  - replay must not extend past the official end date even if the cache contains later bars
+- Fullrun is still not the next step. The next step is fresh replay price cache generation, then official-aligned cash-carry measurement with `--replay-end-date 2026-06-29`.

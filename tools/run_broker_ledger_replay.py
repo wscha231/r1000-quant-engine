@@ -399,13 +399,22 @@ def target_period_ends(
     targets: pd.DataFrame,
     price_cache: Path,
     calendar_prices: dict[str, pd.DataFrame] | None = None,
+    replay_end_date: str | pd.Timestamp | None = None,
+    clamp_state: dict[str, Any] | None = None,
 ) -> dict[pd.Timestamp, pd.Timestamp]:
     dates = sorted(pd.to_datetime(targets["rebalance_date"], errors="coerce").dropna().unique())
+    replay_end = pd.to_datetime(replay_end_date, errors="coerce") if replay_end_date else pd.NaT
+    replay_end = pd.Timestamp(replay_end).normalize() if pd.notna(replay_end) else None
     out: dict[pd.Timestamp, pd.Timestamp] = {}
+    clamped = False
     for i, raw_dt in enumerate(dates):
         dt = pd.Timestamp(raw_dt).normalize()
         if i + 1 < len(dates):
-            out[dt] = pd.Timestamp(dates[i + 1]).normalize()
+            end_dt = pd.Timestamp(dates[i + 1]).normalize()
+            if replay_end is not None and end_dt > replay_end:
+                end_dt = replay_end
+                clamped = True
+            out[dt] = end_dt
             continue
         latest: list[pd.Timestamp] = []
         for ticker in targets.loc[targets["rebalance_date"].eq(dt), "ticker"].astype(str).str.upper().unique():
@@ -419,7 +428,13 @@ def target_period_ends(
                 if not px.empty:
                     latest.append(pd.Timestamp(px.index.max()).normalize())
         if latest:
-            out[dt] = max(latest)
+            end_dt = max(latest)
+            if replay_end is not None and end_dt > replay_end:
+                end_dt = replay_end
+                clamped = True
+            out[dt] = end_dt
+    if clamp_state is not None:
+        clamp_state["replay_end_date_clamped"] = bool(clamped)
     return out
 
 
@@ -868,10 +883,30 @@ def replay(
     oos2_start: str | None = None,
     oos2_end: str | None = None,
     cash_carry_config: CashCarryConfig | None = None,
+    replay_end_date: str | None = None,
+    official_baseline_end_date: str | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
     carry_enabled = cash_carry_enabled(cash_carry_config)
+    requested_replay_end = pd.to_datetime(replay_end_date, errors="coerce") if replay_end_date else pd.NaT
+    if replay_end_date and pd.isna(requested_replay_end):
+        payload = {
+            "status": "blocked",
+            "reason": "invalid_replay_end_date",
+            "target_book": str(target_book),
+            "price_cache": str(price_cache),
+            "requested_replay_end_date": str(replay_end_date),
+            "official_baseline_end_date": str(official_baseline_end_date or replay_end_date or ""),
+            "metric_mode": "DO_NOT_USE",
+            "valid_for_production": False,
+            "research_only": True,
+        }
+        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return payload
+    requested_replay_end_ts = pd.Timestamp(requested_replay_end).normalize() if pd.notna(requested_replay_end) else None
+    requested_replay_end_text = requested_replay_end_ts.date().isoformat() if requested_replay_end_ts is not None else ""
+    official_baseline_end_text = str(official_baseline_end_date or requested_replay_end_text or "")
     cash_rate_table = load_cash_rate_series(cash_carry_config, price_cache) if carry_enabled else pd.DataFrame()
     if carry_enabled and cash_rate_table.empty:
         payload = {
@@ -882,6 +917,8 @@ def replay(
             "cash_carry_mode": cash_carry_config.mode,
             "cash_rate_source": cash_carry_config.rate_source,
             "cash_rate_path": str(cash_carry_config.rate_path) if cash_carry_config.rate_path else "",
+            "requested_replay_end_date": requested_replay_end_text,
+            "official_baseline_end_date": official_baseline_end_text,
             "metric_mode": "DO_NOT_USE",
             "valid_for_production": False,
             "research_only": True,
@@ -907,6 +944,23 @@ def replay(
         champion_filters,
         disable_champion_filter=disable_concentrated_champion_filter,
     )
+    target_dates = pd.to_datetime(targets.get("rebalance_date", pd.Series(dtype=str)), errors="coerce").dropna()
+    last_target_date = pd.Timestamp(target_dates.max()).normalize() if not target_dates.empty else None
+    if requested_replay_end_ts is not None and last_target_date is not None and requested_replay_end_ts < last_target_date:
+        payload = {
+            "status": "blocked",
+            "reason": "replay_end_date_before_last_target_rebalance",
+            "target_book": str(target_book),
+            "price_cache": str(price_cache),
+            "last_target_rebalance_date": last_target_date.date().isoformat(),
+            "requested_replay_end_date": requested_replay_end_text,
+            "official_baseline_end_date": official_baseline_end_text,
+            "metric_mode": "DO_NOT_USE",
+            "valid_for_production": False,
+            "research_only": True,
+        }
+        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return payload
     if targets.empty:
         payload = {
             "status": "blocked",
@@ -956,10 +1010,19 @@ def replay(
                 "metric_mode": "DO_NOT_USE",
                 "valid_for_production": False,
                 "research_only": True,
+                "requested_replay_end_date": requested_replay_end_text,
+                "official_baseline_end_date": official_baseline_end_text,
             }
             (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
             return payload
-    periods = target_period_ends(targets, price_cache, calendar_prices if carry_enabled else None)
+    clamp_state: dict[str, Any] = {}
+    periods = target_period_ends(
+        targets,
+        price_cache,
+        calendar_prices if carry_enabled else None,
+        replay_end_date=requested_replay_end_ts,
+        clamp_state=clamp_state,
+    )
     state = LedgerState(cash=float(starting_capital))
     trade_rows: list[dict[str, Any]] = []
     equity_rows: list[dict[str, Any]] = []
@@ -1127,6 +1190,30 @@ def replay(
         (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
     equity_df = equity_df.drop_duplicates("date", keep="last").sort_values("date")
+    actual_equity_curve_end = pd.Timestamp(pd.to_datetime(equity_df["date"], errors="coerce").dropna().max()).normalize()
+    actual_equity_curve_end_text = actual_equity_curve_end.date().isoformat()
+    end_date_matches_official = bool(
+        requested_replay_end_ts is None or actual_equity_curve_end == requested_replay_end_ts
+    )
+    if requested_replay_end_ts is not None and not end_date_matches_official:
+        payload = {
+            "status": "blocked",
+            "reason": "replay_end_date_not_observed",
+            "target_book": str(target_book),
+            "price_cache": str(price_cache),
+            "requested_replay_end_date": requested_replay_end_text,
+            "actual_equity_curve_end_date": actual_equity_curve_end_text,
+            "replay_end_date_clamped": bool(clamp_state.get("replay_end_date_clamped", False)),
+            "official_baseline_end_date": official_baseline_end_text,
+            "end_date_matches_official": False,
+            "metric_mode": "DO_NOT_USE",
+            "valid_for_production": False,
+            "research_only": True,
+            **weight_diag,
+        }
+        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        equity_df.to_csv(output_dir / "equity_curve.csv", index=False)
+        return payload
     trades_df = pd.DataFrame(trade_rows)
     holdings_df = pd.DataFrame(holdings_rows)
     cash_df = pd.DataFrame(cash_rows)
@@ -1156,6 +1243,11 @@ def replay(
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
             "price_cache": str(price_cache),
+            "requested_replay_end_date": requested_replay_end_text,
+            "actual_equity_curve_end_date": actual_equity_curve_end_text,
+            "replay_end_date_clamped": bool(clamp_state.get("replay_end_date_clamped", False)),
+            "official_baseline_end_date": official_baseline_end_text,
+            "end_date_matches_official": end_date_matches_official,
             "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares and not carry_enabled),
             "max_fill_lag_days": int(max_fill_lag_days),
             **weight_diag,
@@ -1296,6 +1388,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cash-rate-lag-days", type=int, default=None, help="Business-day PIT lag before a FRED rate is usable; default 1.")
     parser.add_argument("--cash-carry-haircut-bps", type=float, default=None, help="Annual haircut subtracted from the raw cash rate; default 50bps.")
     parser.add_argument("--cash-carry-day-count", type=int, default=None, help="Day-count denominator for cash interest; default ACT/365.")
+    parser.add_argument("--replay-end-date", default="", help="Optional ISO date that clamps the final replay mark date for apples-to-apples official-window tests.")
+    parser.add_argument("--official-baseline-end-date", default="", help="Optional official baseline end date to report alongside replay-end-date.")
     return parser.parse_args()
 
 
@@ -1337,6 +1431,8 @@ def main() -> int:
         oos_end=args.oos_end or None,
         oos2_start=oos2_start,
         oos2_end=args.oos2_end or None,
+        replay_end_date=args.replay_end_date or None,
+        official_baseline_end_date=args.official_baseline_end_date or args.replay_end_date or None,
         cash_carry_config=resolve_cash_carry_config(
             mode=args.cash_carry_mode,
             rate_source=args.cash_rate_source,

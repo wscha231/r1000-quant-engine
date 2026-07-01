@@ -112,6 +112,7 @@ def conc_gross_commands(
     concentrated_target_n: int,
     cost_bps: float,
     max_fill_lag_days: int,
+    replay_end_date: str = "",
 ) -> tuple[list[str], list[str], str]:
     """Build (vnext_cmd, broker_cmd, concentrated_book_path) for one floor arm.
 
@@ -145,6 +146,8 @@ def conc_gross_commands(
         "--cost-bps", str(cost_bps),
         "--max-fill-lag-days", str(max_fill_lag_days),
     ]
+    if replay_end_date:
+        broker_cmd.extend(["--replay-end-date", replay_end_date, "--official-baseline-end-date", replay_end_date])
     return vnext_cmd, broker_cmd, book
 
 
@@ -240,6 +243,7 @@ def run_conc_gross_sweep(
             concentrated_target_n=args.concentrated_target_n,
             cost_bps=args.cost_bps,
             max_fill_lag_days=args.max_fill_lag_days,
+            replay_end_date=args.replay_end_date,
         )
         row: dict[str, Any] = {"lever": "conc_gross_floor", "floor": floor}
         if args.dry_run:
@@ -348,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument("--replay-end-date", default="", help="Optional official-window replay end date passed to broker replay arms.")
     parser.add_argument("--skip-conc-gross", action="store_true")
     parser.add_argument("--skip-daily-stop", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="build commands only; no execution")

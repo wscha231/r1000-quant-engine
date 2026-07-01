@@ -131,6 +131,46 @@ def test_cash_carry_uses_dgs3mo_percent_act365_and_one_day_lag() -> None:
         assert curve["cash_rate_available_from"].dropna().astype(str).iloc[-1] == "2026-01-05"
 
 
+def test_replay_end_date_clamps_fresh_cache_window() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "broker"
+        cache.mkdir()
+        _write_px(cache, "SPY", [100.0, 100.0, 100.0, 100.0, 100.0], start="2026-01-02")
+        rate_path = root / "fred_dgs3mo_DGS3MO.csv"
+        _write_rates(rate_path, [{"date": "2026-01-02", "value": 4.0}])
+        target = root / "cash_targets.csv"
+        pd.DataFrame([{"rebalance_date": "2026-01-02", "ticker": "CASH", "weight": 1.0}]).to_csv(target, index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            replay_end_date="2026-01-06",
+            official_baseline_end_date="2026-01-06",
+            cash_carry_config=CashCarryConfig(
+                mode=CASH_CARRY_MODE_RISK_FREE,
+                rate_path=rate_path,
+                haircut_bps=0.0,
+                day_count=365,
+                rate_lag_days=1,
+            ),
+        )
+
+        assert metrics["status"] == "completed", metrics
+        assert metrics["requested_replay_end_date"] == "2026-01-06"
+        assert metrics["actual_equity_curve_end_date"] == "2026-01-06"
+        assert metrics["official_baseline_end_date"] == "2026-01-06"
+        assert metrics["end_date_matches_official"] is True
+        assert metrics["replay_end_date_clamped"] is True
+        curve = pd.read_csv(out / "equity_curve.csv")
+        assert curve["date"].max() == "2026-01-06"
+
+
 def test_future_rate_is_not_used_before_available_from() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -184,6 +224,7 @@ def test_negative_cash_does_not_accrue_interest() -> None:
 def main() -> int:
     test_default_off_preserves_metric_mode_and_schema()
     test_cash_carry_uses_dgs3mo_percent_act365_and_one_day_lag()
+    test_replay_end_date_clamps_fresh_cache_window()
     test_future_rate_is_not_used_before_available_from()
     test_negative_cash_does_not_accrue_interest()
     print("broker_cash_carry_smoke: PASS")

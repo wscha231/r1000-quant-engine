@@ -42,8 +42,14 @@ def test_cash_carry_measurement_blocks_without_rate_cache_and_passes_with_rates(
         cache.mkdir()
         _write_px(cache, "SPY", [100.0, 100.0, 100.0, 100.0, 100.0])
         _write_px(cache, "QQQ", [100.0, 100.0, 100.0, 100.0, 100.0])
+        _write_px(cache, "AAA", [10.0, 10.0, 10.0, 10.0, 10.0])
         for name in ["operating_main_target_book.csv", "operating_concentrated_target_book.csv"]:
-            pd.DataFrame([{"rebalance_date": "2026-01-02", "ticker": "CASH", "weight": 1.0}]).to_csv(
+            pd.DataFrame(
+                [
+                    {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
+                    {"rebalance_date": "2026-01-02", "ticker": "CASH", "weight": 0.50},
+                ]
+            ).to_csv(
                 reports / name, index=False
             )
         args = Args()
@@ -57,6 +63,8 @@ def test_cash_carry_measurement_blocks_without_rate_cache_and_passes_with_rates(
         args.day_count = 365
         args.cost_bps = 25.0
         args.max_fill_lag_days = 7
+        args.replay_end_date = "2026-01-08"
+        args.official_baseline_end_date = "2026-01-08"
         blocked = run(args)
         assert blocked["status"] == "blocked"
         assert blocked["reason"] == "cash_rate_series_unavailable"
@@ -71,6 +79,8 @@ def test_cash_carry_measurement_blocks_without_rate_cache_and_passes_with_rates(
         assert payload["cash_carry_measurement_pass"] is True
         assert payload["deltas"]["main"]["metric_mode"] == "broker_ledger_next_close_cash_carry"
         assert payload["deltas"]["main"]["cash_interest_accrued_usd"] > 0
+        assert payload["end_date_matches_official"] is True
+        assert payload["deltas"]["main"]["cash_carry_actual_equity_curve_end_date"] == "2026-01-08"
         assert payload["deltas"]["concentrated"]["cash_interest_accrued_usd"] > 0
         assert (Path(args.output_dir) / "arm_metrics.csv").exists()
 

@@ -270,6 +270,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         rate_table=rate_table,
         env_payload=env_payload,
     )
+    replay_end_date = (getattr(args, "replay_end_date", "") or alignment.get("required_end_date") or "").strip()
+    official_baseline_end_date = (getattr(args, "official_baseline_end_date", "") or alignment.get("required_end_date") or replay_end_date).strip()
     if not bool(alignment.get("price_cache_aligned")) or not bool(alignment.get("rate_cache_aligned")):
         payload = {
             "status": "blocked",
@@ -278,6 +280,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "price_cache": str(price_cache),
             "rate_source": args.rate_source,
             "rate_path": str(rate_path) if rate_path else "",
+            "requested_replay_end_date": replay_end_date,
+            "official_baseline_end_date": official_baseline_end_date,
             **alignment,
             "production_activation_allowed": False,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -304,6 +308,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             oos_end=oos_end or None,
             oos2_start=oos2_start or None,
             oos2_end=oos2_end or None,
+            replay_end_date=replay_end_date or None,
+            official_baseline_end_date=official_baseline_end_date or replay_end_date or None,
             cash_carry_config=CashCarryConfig(mode=CASH_CARRY_MODE_NONE),
         )
         carry = replay(
@@ -318,6 +324,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             oos_end=oos_end or None,
             oos2_start=oos2_start or None,
             oos2_end=oos2_end or None,
+            replay_end_date=replay_end_date or None,
+            official_baseline_end_date=official_baseline_end_date or replay_end_date or None,
             cash_carry_config=carry_cfg,
         )
         rows.append(arm_row(portfolio, "baseline", base))
@@ -341,21 +349,32 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "cash_interest_accrued_usd": accrued,
             "no_op_guard_pass": bool(carry.get("status") == "completed" and accrued > 0.0),
             "metric_mode": carry.get("metric_mode"),
+            "baseline_end_date_matches_official": bool(base.get("end_date_matches_official")),
+            "cash_carry_end_date_matches_official": bool(carry.get("end_date_matches_official")),
+            "baseline_actual_equity_curve_end_date": base.get("actual_equity_curve_end_date"),
+            "cash_carry_actual_equity_curve_end_date": carry.get("actual_equity_curve_end_date"),
             "baseline_oos_is_cagr_ratio": ratio(base_oos_cagr, base_is_cagr),
             "cash_carry_oos_is_cagr_ratio": ratio(carry_oos_cagr, carry_is_cagr),
             "is_cagr_delta_pp": (carry_is_cagr - base_is_cagr) * 100.0 if carry_is_cagr is not None and base_is_cagr is not None else None,
             "oos_cagr_delta_pp": (carry_oos_cagr - base_oos_cagr) * 100.0 if carry_oos_cagr is not None and base_oos_cagr is not None else None,
         }
     pd.DataFrame(rows).to_csv(output_dir / "arm_metrics.csv", index=False)
+    end_date_pass = all(
+        bool(v.get("baseline_end_date_matches_official")) and bool(v.get("cash_carry_end_date_matches_official"))
+        for v in deltas.values()
+    ) if deltas else False
     no_op_pass = all(v.get("no_op_guard_pass") for v in deltas.values()) if deltas else False
     payload = {
-        "status": "completed" if no_op_pass else "blocked",
+        "status": "completed" if no_op_pass and end_date_pass else "blocked",
         "schema_version": "cash-carry-measurement-v1",
         "latest_run": str(latest_run),
         "price_cache": str(price_cache),
         "rate_source": args.rate_source,
         "rate_path": str(rate_path) if rate_path else "",
         "experiment_env_json": getattr(args, "experiment_env_json", ""),
+        "requested_replay_end_date": replay_end_date,
+        "official_baseline_end_date": official_baseline_end_date,
+        "end_date_matches_official": bool(end_date_pass),
         "rate_row_count": int(len(rate_table)),
         "rate_min_available_from": pd.to_datetime(rate_table["available_from"], errors="coerce").min().date().isoformat(),
         "rate_max_available_from": pd.to_datetime(rate_table["available_from"], errors="coerce").max().date().isoformat(),
@@ -365,7 +384,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "oos2_start": oos2_start,
         "oos2_end": oos2_end,
         "deltas": deltas,
-        "cash_carry_measurement_pass": bool(no_op_pass),
+        "cash_carry_measurement_pass": bool(no_op_pass and end_date_pass),
         "production_activation_allowed": False,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -375,6 +394,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     report.append(f"- Rate rows: {payload['rate_row_count']}")
     report.append(f"- Price cache aligned: `{payload['price_cache_aligned']}` ({payload['price_cache_max_date']} vs required {payload['required_end_date']})")
     report.append(f"- Rate cache aligned: `{payload['rate_cache_aligned']}` ({payload['rate_cache_max_available_from']})")
+    report.append(f"- End date matches official: `{payload['end_date_matches_official']}` ({payload['requested_replay_end_date']})")
     report.append("")
     report.append("| Portfolio | CAGR delta pp | MDD delta pp | IS CAGR delta pp | OOS CAGR delta pp | Cash interest | No-op guard |")
     report.append("| --- | ---: | ---: | ---: | ---: | ---: | --- |")
@@ -402,6 +422,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--experiment-env-json", default="")
+    parser.add_argument("--replay-end-date", default="")
+    parser.add_argument("--official-baseline-end-date", default="")
     parser.add_argument("--oos-start", default="2024-07-01")
     parser.add_argument("--oos-end", default="")
     parser.add_argument("--oos2-start", default="2023-01-01")
