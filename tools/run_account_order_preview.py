@@ -220,6 +220,88 @@ def add_zero_position_target_prices(
     return pd.concat([current, pd.DataFrame(rows)], ignore_index=True)
 
 
+def build_target_price_coverage(
+    *,
+    current: pd.DataFrame,
+    target: pd.DataFrame,
+    price_cache: Path,
+    as_of_date: pd.Timestamp,
+) -> pd.DataFrame:
+    """Report target price coverage without confusing target-only buys with holdings.
+
+    `positions_current.csv` is an account view. A new buy target naturally is not
+    a current position, so the live safety audit needs a separate price coverage
+    contract for all target tickers.
+    """
+    rows: list[dict[str, Any]] = []
+    current_by_ticker: dict[str, dict[str, Any]] = {}
+    if not current.empty and "ticker" in current.columns:
+        for row in current.to_dict("records"):
+            ticker = normalize_ticker(row.get("ticker"))
+            if ticker:
+                current_by_ticker[ticker] = row
+    if target.empty or "ticker" not in target.columns:
+        return pd.DataFrame(
+            columns=[
+                "portfolio",
+                "ticker",
+                "target_weight",
+                "current_weight",
+                "current_position_exists",
+                "target_only_new_buy",
+                "reference_price",
+                "reference_price_date",
+                "price_source",
+                "price_status",
+                "stale_price",
+                "missing_price_reason",
+            ]
+        )
+    for row in target.to_dict("records"):
+        ticker = normalize_ticker(row.get("ticker"))
+        if not ticker:
+            continue
+        portfolio_kind = str(row.get("portfolio_kind") or row.get("portfolio") or "")
+        target_weight = safe_float(row.get("target_weight"), 0.0)
+        current_row = current_by_ticker.get(ticker, {})
+        shares = safe_float(current_row.get("shares"), 0.0)
+        current_position_exists = bool(abs(shares) > 1e-12)
+        current_weight = safe_float(current_row.get("current_weight"), 0.0)
+        if ticker in CASH_TICKERS:
+            price = 1.0
+            price_dt = as_of_date
+            source = "cash_par"
+        else:
+            price_dt, price = latest_price(price_cache, ticker, as_of_date)
+            source = "price_cache"
+            if price is None and current_row:
+                price = safe_float(current_row.get("price"), np.nan)
+                raw_dt = pd.to_datetime(current_row.get("price_date"), errors="coerce")
+                price_dt = pd.Timestamp(raw_dt).normalize() if pd.notna(raw_dt) else None
+                source = "positions_current_fallback"
+        ok = price is not None and float(price) > 0 and price_dt is not None
+        stale = False
+        if ok:
+            stale = int((pd.Timestamp(as_of_date).normalize() - pd.Timestamp(price_dt).normalize()).days) < 0
+        rows.append(
+            {
+                "portfolio": portfolio_kind,
+                "ticker": ticker,
+                "target_weight": float(target_weight),
+                "current_weight": float(current_weight),
+                "current_position_exists": bool(current_position_exists),
+                "target_only_new_buy": bool(target_weight > 1e-12 and not current_position_exists and ticker not in CASH_TICKERS),
+                "reference_price": float(price) if ok else np.nan,
+                "reference_price_date": pd.Timestamp(price_dt).date().isoformat() if ok else "",
+                "price_source": source if ok else "",
+                "price_status": "ok" if ok else "missing_price",
+                "stale_price": bool(stale),
+                "missing_price_reason": "" if ok else "no_price_on_or_before_as_of_date",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def build_orders(
     *,
     current: pd.DataFrame,
@@ -498,6 +580,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         price_cache=price_cache,
         as_of_date=as_of,
     )
+    target_price_coverage = build_target_price_coverage(
+        current=current,
+        target=target,
+        price_cache=price_cache,
+        as_of_date=as_of,
+    )
     orders = build_orders(
         current=current,
         target=target,
@@ -512,6 +600,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     current.to_csv(output_dir / "positions_current.csv", index=False)
     target.to_csv(output_dir / "target_weights.csv", index=False)
+    target_price_coverage.to_csv(output_dir / "target_price_coverage.csv", index=False)
     orders.to_csv(output_dir / "orders_preview.csv", index=False)
     projected, projected_metrics = build_projected_positions_after_orders(
         current=current,

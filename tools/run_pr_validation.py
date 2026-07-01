@@ -50,6 +50,8 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/smoke_test.py", []),
     ("tests/broker_ledger_replay_smoke.py", []),
     ("tests/broker_cash_carry_smoke.py", []),
+    ("tests/cash_rate_materialization_smoke.py", []),
+    ("tests/cash_carry_measurement_smoke.py", []),
     ("tests/broker_ledger_correctness_smoke.py", []),
     ("tests/broker_position_risk_replay_smoke.py", []),
     ("tests/broker_position_risk_grid_sweep_smoke.py", []),
@@ -196,6 +198,8 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/pit_membership_audit_smoke.py", []),
     ("tests/pit_membership_producer_smoke.py", []),
     ("tests/daily_user_current_contract_smoke.py", []),
+    ("tests/account_order_preview_smoke.py", []),
+    ("tests/live_trading_safety_audit_smoke.py", []),
     ("tests/top_manager_discovery_signals_smoke.py", []),
     ("tests/etf_nport_history_smoke.py", []),
 ]

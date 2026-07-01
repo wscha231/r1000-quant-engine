@@ -231,10 +231,13 @@ def audit_account_preview(
     positions = read_csv(positions_path)
     target_weights_path = preview_dir / "target_weights.csv"
     preview_target = read_csv(target_weights_path)
+    target_price_coverage_path = preview_dir / "target_price_coverage.csv"
+    target_price_coverage = read_csv(target_price_coverage_path)
     for path, frame, check_id in [
         (orders_path, orders, "orders"),
         (positions_path, positions, "positions"),
         (target_weights_path, preview_target, "target_weights"),
+        (target_price_coverage_path, target_price_coverage, "target_price_coverage"),
     ]:
         banned = banned_columns(list(frame.columns)) if not frame.empty else []
         if banned:
@@ -263,12 +266,58 @@ def audit_account_preview(
         if stale:
             issue(issues, "error", f"{portfolio}_stale_prices", "positions_current uses stale/mismatched prices", positions_path, {"examples": stale[:10], "max_stale_days": max_stale_days})
 
-    if not target.empty and not positions.empty and "ticker" in positions.columns:
-        target_tickers = set(target["ticker"].astype(str).str.upper()) - {"CASH"}
-        position_tickers = set(positions["ticker"].astype(str).str.upper())
-        missing = sorted(target_tickers - position_tickers)
-        if missing:
-            issue(issues, "error", f"{portfolio}_target_missing_price_rows", "some target tickers are absent from positions_current, usually missing price cache", positions_path, {"missing": missing[:20]})
+    price_target = preview_target if not preview_target.empty else target
+    if not price_target.empty and "ticker" in price_target.columns:
+        target_tickers = set(price_target["ticker"].astype(str).str.upper()) - {"CASH"}
+        if not target_price_coverage.empty and "ticker" in target_price_coverage.columns:
+            coverage = target_price_coverage.copy()
+            coverage["ticker"] = coverage["ticker"].astype(str).str.upper()
+            coverage = coverage[coverage["ticker"].isin(target_tickers)].copy()
+            if "price_status" not in coverage.columns:
+                issue(
+                    issues,
+                    "error",
+                    f"{portfolio}_target_price_coverage_bad_schema",
+                    "target_price_coverage is missing price_status",
+                    target_price_coverage_path,
+                )
+            else:
+                covered_tickers = set(coverage["ticker"].astype(str).str.upper())
+                missing_coverage = sorted(target_tickers - covered_tickers)
+                bad = coverage[~coverage["price_status"].astype(str).str.lower().eq("ok")].copy()
+                if missing_coverage:
+                    issue(
+                        issues,
+                        "error",
+                        f"{portfolio}_target_price_coverage_missing_rows",
+                        "target_price_coverage is missing target tickers",
+                        target_price_coverage_path,
+                        {"missing": missing_coverage[:20]},
+                    )
+                if not bad.empty:
+                    issue(
+                        issues,
+                        "error",
+                        f"{portfolio}_target_price_missing",
+                        "target tickers have missing or invalid reference prices",
+                        target_price_coverage_path,
+                        {
+                            "examples": bad[["ticker", "price_status"]].head(20).to_dict("records"),
+                        },
+                    )
+        elif not positions.empty and "ticker" in positions.columns:
+            position_tickers = set(positions["ticker"].astype(str).str.upper())
+            order_tickers = set(orders["ticker"].astype(str).str.upper()) if not orders.empty and "ticker" in orders.columns else set()
+            missing = sorted(target_tickers - position_tickers - order_tickers)
+            if missing:
+                issue(
+                    issues,
+                    "error",
+                    f"{portfolio}_target_missing_price_rows",
+                    "target tickers are absent from positions_current and orders_preview; usually missing price cache",
+                    positions_path,
+                    {"missing": missing[:20]},
+                )
 
     if orders.empty:
         return

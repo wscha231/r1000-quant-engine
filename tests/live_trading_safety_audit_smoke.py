@@ -13,7 +13,19 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_live_trading_safety_audit import run
-from r1000_pipeline import drop_actionable_leakage_columns
+try:
+    from r1000_pipeline import drop_actionable_leakage_columns
+except ModuleNotFoundError:
+    def drop_actionable_leakage_columns(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame.drop(
+            columns=[
+                "r_1m",
+                "bench_r_12m",
+                "period_forward_return",
+                "forward_return_coverage_score",
+            ],
+            errors="ignore",
+        )
 
 
 class Args:
@@ -68,6 +80,69 @@ def _write_preview(root: Path, portfolio: str) -> None:
     ).to_csv(out / "orders_preview.csv", index=False)
 
 
+def _write_preview_with_target_only_coverage(root: Path, portfolio: str, *, bbb_status: str = "ok") -> None:
+    out = root / "account_ledger_preview" / portfolio
+    out.mkdir(parents=True)
+    (out / "preview_metrics.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "as_of_date": "2026-01-10",
+                "account_state_as_of_date": "2026-01-10",
+                "equity_usd": 100000,
+                "cash_usd": 10000,
+                "integer_shares": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {"ticker": "AAA", "shares": 100, "price": 100, "price_date": "2026-01-10", "market_value_usd": 10000, "current_weight": 0.10},
+        ]
+    ).to_csv(out / "positions_current.csv", index=False)
+    pd.DataFrame([{"ticker": "AAA", "target_weight": 0.10}, {"ticker": "BBB", "target_weight": 0.20}]).to_csv(
+        out / "target_weights.csv", index=False
+    )
+    pd.DataFrame(
+        [
+            {"ticker": "BBB", "side": "BUY", "quantity": 10, "gross_value_usd": 500, "estimated_fee_usd": 1.25, "estimated_cash_after_usd": 9498.75, "status": "ready"},
+        ]
+    ).to_csv(out / "orders_preview.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "portfolio": portfolio,
+                "ticker": "AAA",
+                "target_weight": 0.10,
+                "current_weight": 0.10,
+                "current_position_exists": True,
+                "target_only_new_buy": False,
+                "reference_price": 100.0,
+                "reference_price_date": "2026-01-10",
+                "price_source": "price_cache",
+                "price_status": "ok",
+                "stale_price": False,
+                "missing_price_reason": "",
+            },
+            {
+                "portfolio": portfolio,
+                "ticker": "BBB",
+                "target_weight": 0.20,
+                "current_weight": 0.0,
+                "current_position_exists": False,
+                "target_only_new_buy": True,
+                "reference_price": 50.0 if bbb_status == "ok" else "",
+                "reference_price_date": "2026-01-10" if bbb_status == "ok" else "",
+                "price_source": "price_cache" if bbb_status == "ok" else "",
+                "price_status": bbb_status,
+                "stale_price": False,
+                "missing_price_reason": "" if bbb_status == "ok" else "no_price_on_or_before_as_of_date",
+            },
+        ]
+    ).to_csv(out / "target_price_coverage.csv", index=False)
+
+
 def test_live_trading_safety_passes_clean_preview() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -90,6 +165,29 @@ def test_live_trading_safety_blocks_forward_columns() -> None:
         payload = run(_args(root))
         assert payload["status"] == "blocked"
         assert any(row["check_id"] == "main_target_leakage_columns" for row in payload["issues"])
+
+
+def test_target_only_new_buy_with_price_coverage_passes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10}, {"ticker": "BBB", "weight": 0.20}]).to_csv(root / "portfolio_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10}, {"ticker": "BBB", "weight": 0.20}]).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
+        _write_preview_with_target_only_coverage(root, "main", bbb_status="ok")
+        _write_preview_with_target_only_coverage(root, "concentrated", bbb_status="ok")
+        payload = run(_args(root))
+        assert payload["status"] == "pass", payload
+
+
+def test_target_only_new_buy_without_price_coverage_blocks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10}, {"ticker": "BBB", "weight": 0.20}]).to_csv(root / "portfolio_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10}, {"ticker": "BBB", "weight": 0.20}]).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
+        _write_preview_with_target_only_coverage(root, "main", bbb_status="missing_price")
+        _write_preview_with_target_only_coverage(root, "concentrated", bbb_status="ok")
+        payload = run(_args(root))
+        assert payload["status"] == "blocked"
+        assert any(row["check_id"] == "main_target_price_missing" for row in payload["issues"])
 
 
 def test_actionable_export_hygiene_strips_forward_columns() -> None:
@@ -117,6 +215,8 @@ def test_actionable_export_hygiene_strips_forward_columns() -> None:
 def main() -> int:
     test_live_trading_safety_passes_clean_preview()
     test_live_trading_safety_blocks_forward_columns()
+    test_target_only_new_buy_with_price_coverage_passes()
+    test_target_only_new_buy_without_price_coverage_blocks()
     test_actionable_export_hygiene_strips_forward_columns()
     print("live_trading_safety_audit_smoke: PASS")
     return 0

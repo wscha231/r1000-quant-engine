@@ -9,6 +9,7 @@ stable filenames the operating workflow promises to users.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -80,6 +81,20 @@ def first_value(row: dict[str, Any], names: list[str], default: Any = "") -> Any
         if text and text.lower() != "nan":
             return value
     return default
+
+
+def file_sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except Exception:
+        return ""
+
+
+def file_timestamp(path: Path) -> str:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    except Exception:
+        return ""
 
 
 def load_current_holdings(output_dir: Path) -> pd.DataFrame:
@@ -165,11 +180,16 @@ def target_rows_from_portfolio_reports(latest_run: Path, review_required: bool, 
     rows: list[dict[str, Any]] = []
     reports_dir = latest_run / "user_portfolio_reports"
     for portfolio in PORTFOLIOS:
-        frame = read_csv(reports_dir / f"{portfolio}_recommendation_latest.csv")
+        source_file = reports_dir / f"{portfolio}_recommendation_latest.csv"
+        frame = read_csv(source_file)
         if frame.empty:
-            frame = read_csv(reports_dir / portfolio / "recommendation_latest.csv")
+            source_file = reports_dir / portfolio / "recommendation_latest.csv"
+            frame = read_csv(source_file)
         if frame.empty:
             continue
+        source_path = str(source_file)
+        snapshot_hash = file_sha256(source_file)
+        generated_at = file_timestamp(source_file)
         for source_row in frame.to_dict("records"):
             ticker = clean_ticker(source_row.get("ticker"))
             if not ticker:
@@ -197,6 +217,12 @@ def target_rows_from_portfolio_reports(latest_run: Path, review_required: bool, 
                     "production_mutation_allowed": False,
                     "live_trading_enabled": False,
                     "human_approval_required": True,
+                    "target_book_source": source_path,
+                    "target_snapshot_hash": snapshot_hash,
+                    "target_snapshot_source_path": source_path,
+                    "target_snapshot_generated_at": generated_at,
+                    "target_snapshot_semantics": "portfolio_report_recommendation_fallback",
+                    "target_snapshot_portfolio": portfolio,
                 }
             )
     return pd.DataFrame(rows)
@@ -224,11 +250,15 @@ def target_rows_from_operating_books(latest_run: Path, review_required: bool, re
                 break
         if frame.empty or "ticker" not in frame.columns:
             continue
+        source_file = Path(source_path)
+        snapshot_hash = file_sha256(source_file)
+        generated_at = file_timestamp(source_file)
         date_col = "rebalance_date" if "rebalance_date" in frame.columns else ""
         if date_col:
             dates = pd.to_datetime(frame[date_col], errors="coerce")
             if dates.notna().any():
                 frame = frame.loc[dates.eq(dates.max())].copy()
+                generated_at = pd.Timestamp(dates.max()).date().isoformat()
         for source_row in frame.to_dict("records"):
             ticker = clean_ticker(source_row.get("ticker"))
             if not ticker:
@@ -256,6 +286,11 @@ def target_rows_from_operating_books(latest_run: Path, review_required: bool, re
                     "live_trading_enabled": False,
                     "human_approval_required": True,
                     "target_book_source": source_path,
+                    "target_snapshot_hash": snapshot_hash,
+                    "target_snapshot_source_path": source_path,
+                    "target_snapshot_generated_at": generated_at,
+                    "target_snapshot_semantics": "alphaops_vnext_operating_target",
+                    "target_snapshot_portfolio": portfolio,
                 }
             )
     return pd.DataFrame(rows)
@@ -267,9 +302,9 @@ def load_target_weights(
     review_reason: str,
     current_holdings: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    frame = target_rows_from_portfolio_reports(latest_run, review_required, review_reason)
+    frame = target_rows_from_operating_books(latest_run, review_required, review_reason)
     if frame.empty:
-        frame = target_rows_from_operating_books(latest_run, review_required, review_reason)
+        frame = target_rows_from_portfolio_reports(latest_run, review_required, review_reason)
     columns = [
         "portfolio",
         "ticker",
@@ -292,6 +327,11 @@ def load_target_weights(
         "live_trading_enabled",
         "human_approval_required",
         "target_book_source",
+        "target_snapshot_hash",
+        "target_snapshot_source_path",
+        "target_snapshot_generated_at",
+        "target_snapshot_semantics",
+        "target_snapshot_portfolio",
     ]
     if frame.empty:
         return pd.DataFrame(columns=columns)

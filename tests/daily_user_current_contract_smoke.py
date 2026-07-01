@@ -152,8 +152,78 @@ def test_contract_writes_required_review_only_files() -> None:
         assert "human_approval_required" in notice
 
 
+def test_contract_prefers_operating_target_books_over_user_reports() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        user_current = latest / "user_current"
+        (latest / "user_portfolio_reports").mkdir(parents=True)
+        (latest / "reports").mkdir(parents=True)
+        user_current.mkdir(parents=True)
+        write_json(
+            latest / "data_freshness_contract" / "status.json",
+            {
+                "status": "pass",
+                "selection_allowed": True,
+                "promotion_allowed": False,
+                "recommendation_status": "READY_FOR_OPERATING_SELECTION",
+                "production_mutation_allowed": False,
+            },
+        )
+        write_json(
+            latest / "daily_operating_selection_refresh" / "summary.json",
+            {
+                "review_only": True,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+                "selection_allowed": True,
+                "promotion_allowed": False,
+            },
+        )
+        write_json(user_current / "summary.json", {"schema_version": "user-current-report-v1", "status": "completed"})
+        pd.DataFrame(
+            [
+                {"portfolio_kind": "main", "ticker": "AAA", "current_weight": 0.10, "current_shares": 10, "current_price": 100.0},
+            ]
+        ).to_csv(user_current / "01_current_holdings.csv", index=False)
+        pd.DataFrame(
+            [
+                {"portfolio_kind": "main", "rank": 1, "ticker": "RAW", "recommended_weight": 0.90, "score": 9.0},
+            ]
+        ).to_csv(latest / "user_portfolio_reports" / "main_recommendation_latest.csv", index=False)
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-06-29", "ticker": "AAA", "weight": 0.25, "Name": "A Co", "sector": "Tech"},
+                {"rebalance_date": "2026-06-29", "ticker": "CASH", "weight": 0.75, "Name": "Cash", "sector": "Cash"},
+            ]
+        ).to_csv(latest / "reports" / "operating_main_target_book.csv", index=False)
+
+        build_contract(
+            type(
+                "Args",
+                (),
+                {
+                    "latest_run": str(latest),
+                    "output_dir": str(user_current),
+                    "source_run_id": "123",
+                    "source_commit_sha": "abc",
+                    "source_branch": "master",
+                    "source_artifact_name": "fixture",
+                },
+            )()
+        )
+
+        target = pd.read_csv(user_current / "02_target_weights.csv")
+        assert "RAW" not in set(target["ticker"])
+        aaa = target.loc[target["ticker"].eq("AAA")].iloc[0]
+        assert abs(float(aaa["target_weight"]) - 0.25) < 1e-9
+        assert aaa["target_snapshot_semantics"] == "alphaops_vnext_operating_target"
+        assert str(aaa["target_snapshot_hash"])
+
+
 def main() -> int:
     test_contract_writes_required_review_only_files()
+    test_contract_prefers_operating_target_books_over_user_reports()
     print("daily_user_current_contract_smoke: PASS")
     return 0
 

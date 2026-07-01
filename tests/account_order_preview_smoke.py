@@ -82,8 +82,14 @@ def test_order_preview_builds_sell_first_orders() -> None:
         assert "idempotency_key" in orders.columns
         assert orders["client_order_id"].is_unique
         assert (out / "positions_current.csv").exists()
+        assert (out / "target_price_coverage.csv").exists()
         assert (out / "projected_positions_after_orders.csv").exists()
         assert (out / "preview_metrics.json").exists()
+        coverage = pd.read_csv(out / "target_price_coverage.csv")
+        bbb = coverage.loc[coverage["ticker"].eq("BBB")].iloc[0]
+        assert bool(bbb["target_only_new_buy"]) is True
+        assert bbb["price_status"] == "ok"
+        assert float(bbb["reference_price"]) == 50.0
         assert "projected_cash_weight" in payload
         assert "target_cash_weight" in payload
         assert abs(payload["target_cash_weight"] - 0.10) < 1e-9
