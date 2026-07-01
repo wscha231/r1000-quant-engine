@@ -655,9 +655,18 @@ jobs:
             outputs/promotion_review/era_aware_approved_target_policy_candidate.json
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
+            outputs/alphaops_vnext/target_generation_input_manifest.json
             outputs/alphaops_vnext/crisis_state_audit.csv
             outputs/alphaops_vnext/crisis_window_detection_report.csv
             outputs/alphaops_vnext/daily_crisis_state.csv
+            outputs/alphaops_vnext/crisis_hysteresis_config.json
+            outputs/alphaops_vnext/lane_feature_mapping.json
+            outputs/alphaops_vnext/pit_evidence_audit.csv
+            outputs/alphaops_vnext/lane_exposure_by_month.csv
+            outputs/alphaops_vnext/regime_capacity_overlay_audit.csv
+            outputs/alphaops_vnext/*_block.json
+            outputs/alphaops_vnext/main_fast_crash_hedge.json
+            outputs/alphaops_vnext/main_fast_crash_hedge_actions.csv
             outputs/alphaops_vnext/selected_latest.csv
             outputs/alphaops_vnext/official_*_target_book.csv
             outputs/alphaops_vnext/variants/*_target_book.csv
@@ -798,9 +807,19 @@ jobs:
             data_raw/free/market_snapshot/yf_market_info_cache.csv
             outputs/alphaops_vnext/summary.json
             outputs/alphaops_vnext/production_activation.json
+            outputs/alphaops_vnext/target_generation_input_manifest.json
             outputs/alphaops_vnext/crisis_state_audit.csv
             outputs/alphaops_vnext/crisis_window_detection_report.csv
             outputs/alphaops_vnext/daily_crisis_state.csv
+            outputs/alphaops_vnext/crisis_hysteresis_config.json
+            outputs/alphaops_vnext/lane_feature_mapping.json
+            outputs/alphaops_vnext/pit_evidence_audit.csv
+            outputs/alphaops_vnext/lane_exposure_by_month.csv
+            outputs/alphaops_vnext/regime_capacity_overlay_audit.csv
+            outputs/alphaops_vnext/rejected_by_reason.csv
+            outputs/alphaops_vnext/*_block.json
+            outputs/alphaops_vnext/main_fast_crash_hedge.json
+            outputs/alphaops_vnext/main_fast_crash_hedge_actions.csv
             outputs/alphaops_vnext/selected_latest.csv
             outputs/alphaops_vnext/official_*_target_book.csv
             outputs/alphaops_vnext/variants/*_target_book.csv
@@ -1368,9 +1387,18 @@ jobs:
               mkdir -p "$dst/variants"
               cp "$src"/summary.json "$dst"/ 2>/dev/null || true
               cp "$src"/production_activation.json "$dst"/ 2>/dev/null || true
+              cp "$src"/target_generation_input_manifest.json "$dst"/ 2>/dev/null || true
               cp "$src"/crisis_state_audit.csv "$dst"/ 2>/dev/null || true
               cp "$src"/crisis_window_detection_report.csv "$dst"/ 2>/dev/null || true
               cp "$src"/daily_crisis_state.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/crisis_hysteresis_config.json "$dst"/ 2>/dev/null || true
+              cp "$src"/lane_feature_mapping.json "$dst"/ 2>/dev/null || true
+              cp "$src"/pit_evidence_audit.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/lane_exposure_by_month.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/regime_capacity_overlay_audit.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/*_block.json "$dst"/ 2>/dev/null || true
+              cp "$src"/main_fast_crash_hedge.json "$dst"/ 2>/dev/null || true
+              cp "$src"/main_fast_crash_hedge_actions.csv "$dst"/ 2>/dev/null || true
               cp "$src"/selected_latest.csv "$dst"/ 2>/dev/null || true
               cp "$src"/official_*_target_book.csv "$dst"/ 2>/dev/null || true
               cp "$src"/variants/*_target_book.csv "$dst/variants"/ 2>/dev/null || true

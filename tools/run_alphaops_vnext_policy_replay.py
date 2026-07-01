@@ -9,6 +9,7 @@ official broker-ledger target books so the subsequent broker replay and
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -57,7 +58,7 @@ from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
 from tools.run_market_leader_challenger import normalize_candidate_frame, read_table, resolve_candidate_book  # noqa: E402
 from tools.run_neutral_regime_churn_filter import apply_churn_filter, compute_swap_counts  # noqa: E402
 from tools.run_user_current_report import build_report as build_user_current_report  # noqa: E402
-from tools.run_weekly_evaluation import load_price_series, price_on_or_before  # noqa: E402
+from tools.run_weekly_evaluation import load_price_series, price_on_or_before, px_cache_name  # noqa: E402
 
 
 DEFAULT_LATEST_RUN = "outputs"
@@ -327,6 +328,25 @@ def repo_path(value: str | Path) -> Path:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def file_sha256(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_meta(path: Path) -> dict[str, Any]:
+    return {
+        "path": str(path),
+        "exists": bool(path.exists()),
+        "bytes": int(path.stat().st_size) if path.exists() and path.is_file() else 0,
+        "sha256": file_sha256(path),
+    }
 
 
 def write_csv(path: Path, frame: pd.DataFrame) -> pd.DataFrame:
@@ -2605,6 +2625,86 @@ def latest_book_date(book: pd.DataFrame) -> pd.Timestamp | None:
     return pd.Timestamp(dates.max()).normalize() if not dates.empty else None
 
 
+TARGET_GENERATION_ENV_KEYS = [
+    "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED",
+    "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED",
+    "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED",
+    "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED",
+    "R1000_CONC_GROSS_CAP_FLOOR",
+    "R1000_CONC_SCORE_SIZING_SIGNAL",
+    "R1000_CONC_SCORE_SIZING_BLEND",
+    "R1000_CONC_SCORE_SIZING_RANK_POWER",
+    "R1000_CONC_SCORE_SIZING_CAP_MODE",
+    "R1000_CONC_SCORE_SIZING_SINGLE_CAP",
+    "R1000_MAIN_AI_CAPEX_TILT_STRENGTH",
+    "R1000_MAIN_FAST_CRASH_HEDGE_TICKER",
+    "R1000_MAIN_FAST_CRASH_HEDGE_BENCHMARK",
+    "R1000_MAIN_FAST_CRASH_HEDGE_WEIGHT",
+    "R1000_MAIN_FAST_CRASH_RISK_BUFFER_WEIGHT",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_SIGNAL",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_ALLOW_CRISIS",
+]
+
+
+def target_generation_input_manifest(
+    *,
+    latest_run: Path,
+    output_dir: Path,
+    candidate_book: Path,
+    candidate_source_mode: str,
+    candidate: pd.DataFrame,
+    price_cache: Path,
+    long_crisis_features: Path,
+    long_crisis_thresholds: Path,
+    operating_append_end_date: pd.Timestamp | None,
+) -> dict[str, Any]:
+    tickers = sorted(
+        {
+            clean_ticker(t)
+            for t in candidate.get("ticker", pd.Series(dtype=str)).astype(str).tolist()
+            if clean_ticker(t) and clean_ticker(t) not in CASH_TICKERS
+        }
+    )
+    required_files = [price_cache / px_cache_name(ticker) for ticker in tickers]
+    existing = [path for path in required_files if path.exists()]
+    missing = [tickers[idx] for idx, path in enumerate(required_files) if not path.exists()]
+    manifest_path = price_cache / "replay_price_cache_manifest.json"
+    payload = {
+        "schema_version": "alphaops-vnext-target-generation-input-manifest-v1",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "research_only": True,
+        "latest_run": str(latest_run),
+        "output_dir": str(output_dir),
+        "candidate_book": file_meta(candidate_book),
+        "candidate_source_mode": candidate_source_mode,
+        "candidate_row_count": int(len(candidate)),
+        "candidate_rebalance_date_min": date_text(pd.to_datetime(candidate.get("rebalance_date"), errors="coerce").min()),
+        "candidate_rebalance_date_max": date_text(pd.to_datetime(candidate.get("rebalance_date"), errors="coerce").max()),
+        "price_cache": {
+            "path": str(price_cache),
+            "manifest": file_meta(manifest_path),
+            "required_ticker_count": int(len(tickers)),
+            "required_price_file_count": int(len(required_files)),
+            "existing_price_file_count": int(len(existing)),
+            "missing_price_file_count": int(len(missing)),
+            "missing_ticker_sample": missing[:25],
+        },
+        "macro_crisis_inputs": {
+            "long_crisis_features": file_meta(long_crisis_features),
+            "long_crisis_thresholds": file_meta(long_crisis_thresholds),
+        },
+        "env": {key: os.environ.get(key, "") for key in TARGET_GENERATION_ENV_KEYS},
+        "code": {
+            "github_sha": os.environ.get("GITHUB_SHA", ""),
+            "github_ref": os.environ.get("GITHUB_REF", ""),
+        },
+        "operating_append_end_date": date_text(operating_append_end_date),
+    }
+    return payload
+
+
 def append_latest_operating_decision(
     book: pd.DataFrame,
     *,
@@ -3820,6 +3920,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     candidate, pit_audit = enforce_pit_available(candidate)
     write_csv(output_dir / "pit_evidence_audit.csv", pit_audit)
+    long_crisis_features = repo_path(args.long_crisis_features)
+    long_crisis_thresholds = repo_path(args.long_crisis_thresholds)
+    write_json(
+        output_dir / "target_generation_input_manifest.json",
+        target_generation_input_manifest(
+            latest_run=latest_run,
+            output_dir=output_dir,
+            candidate_book=candidate_book,
+            candidate_source_mode=source_mode,
+            candidate=candidate,
+            price_cache=price_cache,
+            long_crisis_features=long_crisis_features,
+            long_crisis_thresholds=long_crisis_thresholds,
+            operating_append_end_date=operating_append_end_date,
+        ),
+    )
     candidate = enrich_relative_strength(candidate, price_cache)
     prices = price_map(price_cache, candidate)
     dates = pd.to_datetime(candidate["rebalance_date"], errors="coerce").dropna()
@@ -3827,8 +3943,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         price_cache,
         pd.Timestamp(dates.min()),
         pd.Timestamp(dates.max()),
-        long_crisis_features=repo_path(args.long_crisis_features),
-        long_crisis_thresholds=repo_path(args.long_crisis_thresholds),
+        long_crisis_features=long_crisis_features,
+        long_crisis_thresholds=long_crisis_thresholds,
     )
     crisis_audit, crisis_window_report, crisis_audit_payload = crisis_state_audit(crisis_states)
     if bool(crisis_audit_payload.get("daily_crisis_state_all_green")) and bool(crisis_audit_payload.get("missing_data_only_trigger")):

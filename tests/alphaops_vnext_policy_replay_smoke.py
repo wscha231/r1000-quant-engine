@@ -254,6 +254,14 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         assert activation["current_holdings_source"] == "alphaops_vnext_policy_target_book"
         assert activation["candidate_source_mode"] == "sec_enriched_candidate_book"
         assert activation["candidate_book"].endswith("candidate_replay_book_sec_enriched.csv")
+        input_manifest = json.loads(
+            (latest / "alphaops_vnext" / "target_generation_input_manifest.json").read_text(encoding="utf-8")
+        )
+        assert input_manifest["candidate_source_mode"] == "sec_enriched_candidate_book"
+        assert input_manifest["candidate_book"]["exists"] is True
+        assert input_manifest["price_cache"]["required_ticker_count"] >= 1
+        assert input_manifest["price_cache"]["missing_price_file_count"] >= 0
+        assert "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED" in input_manifest["env"]
 
         main = pd.read_csv(reports / "operating_main_target_book.csv")
         concentrated = pd.read_csv(reports / "operating_concentrated_target_book.csv")

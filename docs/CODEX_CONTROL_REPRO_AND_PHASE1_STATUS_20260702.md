@@ -62,6 +62,7 @@ Interpretation:
 Tool added:
 
 - `tools/run_target_book_control_repro_audit.py`
+- `outputs/alphaops_vnext/target_generation_input_manifest.json` now records the candidate book, price-cache manifest, required price-file counts, macro/crisis inputs, env flags, code ref, and optional operating append clamp.
 
 Initial reproduction attempts showed:
 
@@ -102,6 +103,20 @@ python tools/run_pr_validation.py --only alphaops_vnext_policy_replay_smoke --on
 
 All passed.
 
+Artifact contract update:
+
+- `full_rebuild_manual.yml` now uploads/preserves the vNext input manifest and small diagnostic files:
+  - `target_generation_input_manifest.json`
+  - `pit_evidence_audit.csv`
+  - `lane_exposure_by_month.csv`
+  - `regime_capacity_overlay_audit.csv`
+  - `*_block.json`
+  - `main_fast_crash_hedge*.{json,csv}`
+  - `lane_feature_mapping.json`
+  - `crisis_hysteresis_config.json`
+- `rejected_by_reason.csv` is included in the official broker-ledger artifact for post-run diagnosis.
+- `lane_scores_history.csv` remains excluded from normal artifacts because it is very large.
+
 ## Remaining Root Cause
 
 The fullrun artifact does not currently preserve a complete target-generation input snapshot.
@@ -129,8 +144,6 @@ Until target-book control reproduction is exact or near-exact:
 
 P0 - Artifact Input Snapshot Contract:
 
-- Persist the exact price-cache files required by official target generation.
-- Persist the exact macro/crisis inputs used by `build_daily_crisis_state`.
 - Persist a target-generation input manifest with:
   - code commit,
   - candidate book path and hash,
@@ -138,6 +151,7 @@ P0 - Artifact Input Snapshot Contract:
   - macro/crisis input paths and hashes,
   - environment flags,
   - operating append date / latest close date.
+- Next hardening option: persist either a compact top-K monthly scored candidate snapshot or the exact price-cache subset needed by target generation. This is not yet implemented because full `lane_scores_history.csv` was about 738MB in the local repro run.
 
 P1 - Control Repro Acceptance:
 
@@ -156,4 +170,3 @@ P2 - Alpha Work After P1:
 - `pit_universe_label_clean=false` remains a production blocker.
 - cash-carry is not production accounting until user-approved contract adoption.
 - no live trading, no production mutation, no proxy 8Y/10Y, no T3/recovery.
-
