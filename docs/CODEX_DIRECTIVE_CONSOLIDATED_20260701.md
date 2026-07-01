@@ -4,6 +4,47 @@
 > code-verified corrections and the first MEASURED cash-carry number. This supersedes the loose parts of
 > `docs/CODEX_MASTER_DIRECTIVE_INTEGRATION_TRACK_20260630.md` for sequencing.
 
+## −1. Next execution design (round 3 — 2026-07-01, after contract closure)
+
+Contract closure is DONE and correct (operating-book canonical, target_price_coverage safety, snapshot-hash
+provenance, target-ticker freshness guard `blocked_stale_price_cache_for_cash_carry`, cash-carry probe
++0.83/+1.39 pp confirming the estimate). No contract gaps remain.
+
+**Key insight — the goal can be proven WITHOUT a 6h fullrun.** cash-carry and bull-floor are BOTH replay-stage
+(they change ledger accounting and target weights, not the scored book / feature_store). Per the measurement
+protocol, replay-stage levers are measured by cheap broker replay on the existing valid-window target books; a
+full rebuild is only needed when scoring/feature_store changes. So the acceptance question — *does cash-carry +
+bull-floor clear Main ≥ 35 / Conc ≥ 50 with MDD ≥ −25 on `broker_ledger_next_close` over the valid_7y window?* —
+is answerable on the recovered 28436307420 target books + a fresh price cache, with NO fullrun. This sidesteps
+the 5h50m cancellation entirely and downgrades the fullrun-completion fix to "needed only for a fresh scored
+book."
+
+**Phase 1 — decide the config (lightweight GitHub broker-replay, NOT a fullrun):**
+1. Rebuild the replay price cache to 2026-06-29 (all non-CASH target-book tickers fresh; the new freshness guard
+   verifies coverage).
+2. Official cash-carry measurement (baseline vs `broker_ledger_next_close_cash_carry`). Confirm Main actually
+   crosses 35% (probe → ~35.1 with thin margin, so the real number matters) and Conc → ~48.9%.
+3. Bull-floor A/B on the cash-carry baseline (concentrated floor sweep 0.85/0.90/0.95, gate-first: keep only
+   `MaxDD ≥ −0.25 AND CAGR ≥ 0.50`, then rank). Overfit guard mandatory: reject if the gain is 2025/LITE-only;
+   require ≥ 2 bull eras + OOS fold; OOS/IS not worse.
+4. Report both sleeves' CAGR/MaxDD/Sharpe AND tier-2 `is_cagr_min` / `oos_is_cagr_ratio` before→after.
+   Prefer running this as a lightweight GitHub workflow (price-cache refresh → measurement → commit results) so
+   the evidence is reproducible on GitHub, not stranded on a local drive.
+
+**Phase 2 — seal official evidence (only if Phase 1 clears):** one GitHub broker-replay artifact with the
+winning cash-carry + bull-floor config → official_metrics, valid_7y window, contracts green, hedge fires. The 6h
+fullrun (with the completion/timeout fix) is only required later for a fresh from-scratch scored book.
+
+**Phase 3 — honest ceiling:** clearing the headline 35/50 targets is a real milestone but NOT production —
+`strengthened_pass=false` (weak IS CAGR, high OOS/IS) and `pit_universe_label_clean=false` remain separate,
+long-horizon blockers. State this explicitly on any "targets achieved" claim.
+
+**If Conc still < 50 after cash-carry + bull-floor:** run the hysteresis/stickiness counterfactual A/B (is the
+current-holding policy so sticky it caps CAGR by never rotating into fresh top-scored names?) before touching
+selection features. Do not assume — measure (OOS gains came from holding winners, so looser rotation may hurt).
+
+---
+
 ## 0. Verified current state (important — read before acting)
 
 Two things shipped since the last report; the system is further along than "nothing changed" suggests:
