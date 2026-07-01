@@ -28,6 +28,15 @@ from tools.run_weekly_evaluation import load_price_series, price_on_or_before
 
 
 DEFAULT_OUTPUT_DIR = "outputs/account_ledger_preview"
+MAX_REASONABLE_PRICE_STALE_DAYS = 5
+TARGET_SNAPSHOT_COLUMNS = [
+    "target_book_source",
+    "target_snapshot_hash",
+    "target_snapshot_source_path",
+    "target_snapshot_generated_at",
+    "target_snapshot_semantics",
+    "target_snapshot_portfolio",
+]
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -86,22 +95,23 @@ def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str 
     d["ticker"] = d["ticker"].map(normalize_ticker)
     d["target_weight"] = pd.to_numeric(d[weight_col], errors="coerce").fillna(0.0)
     d = d[(d["ticker"] != "") & (d["target_weight"] > 1e-12)].copy()
-    keep = ["ticker", "target_weight"] + [
+    passthrough = [
         col
-        for col in ["Name", "sector", "portfolio_sleeve_label", "portfolio_selection_path", "raw_score"]
+        for col in [
+            "Name",
+            "sector",
+            "portfolio_sleeve_label",
+            "portfolio_selection_path",
+            "raw_score",
+            *TARGET_SNAPSHOT_COLUMNS,
+        ]
         if col in d.columns
     ]
+    keep = ["ticker", "target_weight"] + passthrough
     out = d[keep].copy()
-    out = out.groupby("ticker", as_index=False).agg(
-        {
-            "target_weight": "sum",
-            **({"Name": "last"} if "Name" in out.columns else {}),
-            **({"sector": "last"} if "sector" in out.columns else {}),
-            **({"portfolio_sleeve_label": "last"} if "portfolio_sleeve_label" in out.columns else {}),
-            **({"portfolio_selection_path": "last"} if "portfolio_selection_path" in out.columns else {}),
-            **({"raw_score": "last"} if "raw_score" in out.columns else {}),
-        }
-    )
+    aggregations: dict[str, str] = {"target_weight": "sum"}
+    aggregations.update({col: "last" for col in passthrough})
+    out = out.groupby("ticker", as_index=False).agg(aggregations)
     return out.sort_values("target_weight", ascending=False).reset_index(drop=True)
 
 
@@ -226,6 +236,7 @@ def build_target_price_coverage(
     target: pd.DataFrame,
     price_cache: Path,
     as_of_date: pd.Timestamp,
+    max_stale_days: int = MAX_REASONABLE_PRICE_STALE_DAYS,
 ) -> pd.DataFrame:
     """Report target price coverage without confusing target-only buys with holdings.
 
@@ -253,8 +264,11 @@ def build_target_price_coverage(
                 "reference_price_date",
                 "price_source",
                 "price_status",
+                "price_lag_days",
+                "max_stale_days",
                 "stale_price",
                 "missing_price_reason",
+                *TARGET_SNAPSHOT_COLUMNS,
             ]
         )
     for row in target.to_dict("records"):
@@ -279,10 +293,28 @@ def build_target_price_coverage(
                 raw_dt = pd.to_datetime(current_row.get("price_date"), errors="coerce")
                 price_dt = pd.Timestamp(raw_dt).normalize() if pd.notna(raw_dt) else None
                 source = "positions_current_fallback"
-        ok = price is not None and float(price) > 0 and price_dt is not None
-        stale = False
-        if ok:
-            stale = int((pd.Timestamp(as_of_date).normalize() - pd.Timestamp(price_dt).normalize()).days) < 0
+        price_float = safe_float(price, np.nan)
+        price_valid = np.isfinite(price_float) and price_float > 0
+        date_valid = price_dt is not None and pd.notna(price_dt)
+        price_lag_days = np.nan
+        if date_valid:
+            price_lag_days = int((pd.Timestamp(as_of_date).normalize() - pd.Timestamp(price_dt).normalize()).days)
+        if not date_valid:
+            price_status = "missing_price"
+            missing_reason = "no_price_on_or_before_as_of_date"
+        elif not price_valid:
+            price_status = "invalid_price"
+            missing_reason = "invalid_reference_price"
+        elif price_lag_days < 0:
+            price_status = "future_dated_price"
+            missing_reason = "reference_price_after_as_of_date"
+        elif price_lag_days > int(max_stale_days):
+            price_status = "stale_price"
+            missing_reason = "reference_price_older_than_max_stale_days"
+        else:
+            price_status = "ok"
+            missing_reason = ""
+        metadata = {col: row.get(col, "") for col in TARGET_SNAPSHOT_COLUMNS if col in row}
         rows.append(
             {
                 "portfolio": portfolio_kind,
@@ -291,12 +323,15 @@ def build_target_price_coverage(
                 "current_weight": float(current_weight),
                 "current_position_exists": bool(current_position_exists),
                 "target_only_new_buy": bool(target_weight > 1e-12 and not current_position_exists and ticker not in CASH_TICKERS),
-                "reference_price": float(price) if ok else np.nan,
-                "reference_price_date": pd.Timestamp(price_dt).date().isoformat() if ok else "",
-                "price_source": source if ok else "",
-                "price_status": "ok" if ok else "missing_price",
-                "stale_price": bool(stale),
-                "missing_price_reason": "" if ok else "no_price_on_or_before_as_of_date",
+                "reference_price": float(price_float) if price_valid else np.nan,
+                "reference_price_date": pd.Timestamp(price_dt).date().isoformat() if date_valid else "",
+                "price_source": source if price_valid and date_valid else "",
+                "price_status": price_status,
+                "price_lag_days": int(price_lag_days) if pd.notna(price_lag_days) else np.nan,
+                "max_stale_days": int(max_stale_days),
+                "stale_price": bool(price_status == "stale_price"),
+                "missing_price_reason": missing_reason,
+                **metadata,
             }
         )
     return pd.DataFrame(rows)
@@ -327,6 +362,11 @@ def build_orders(
     }
     rows: list[dict[str, Any]] = []
     fee_rate = float(cost_bps) / 10000.0
+    target_meta = {
+        str(row.ticker): {col: getattr(row, col, "") for col in TARGET_SNAPSHOT_COLUMNS if hasattr(row, col)}
+        for row in target.itertuples(index=False)
+        if str(row.ticker).upper() not in CASH_TICKERS
+    }
     for ticker in sorted(set(current_map) | set(target_map)):
         cur = current_map.get(ticker)
         target_weight = float(target_map.get(ticker, 0.0))
@@ -348,27 +388,27 @@ def build_orders(
         gross = desired_qty * price
         fee = gross * fee_rate
         limit_px = price * (1.0 + limit_margin_pct / 100.0) if side == "BUY" else price * (1.0 - limit_margin_pct / 100.0)
-        rows.append(
-            {
-                "ticker": ticker,
-                "side": side,
-                "quantity": float(desired_qty),
-                "reference_price": float(price),
-                "limit_price": float(limit_px),
-                "gross_value_usd": float(gross),
-                "estimated_fee_usd": float(fee),
-                "cash_impact_usd": float(-(gross + fee) if side == "BUY" else gross - fee),
-                "current_shares": current_shares,
-                "current_weight": float(current_value / max(equity, 1e-12)),
-                "target_weight": target_weight,
-                "target_value_usd": float(target_value),
-                "current_value_usd": float(current_value),
-                "trade_value_delta_usd": float(diff_value),
-                "order_type": "limit",
-                "time_in_force": "day",
-                "reason": "target_rebalance",
-            }
-        )
+        order_row = {
+            "ticker": ticker,
+            "side": side,
+            "quantity": float(desired_qty),
+            "reference_price": float(price),
+            "limit_price": float(limit_px),
+            "gross_value_usd": float(gross),
+            "estimated_fee_usd": float(fee),
+            "cash_impact_usd": float(-(gross + fee) if side == "BUY" else gross - fee),
+            "current_shares": current_shares,
+            "current_weight": float(current_value / max(equity, 1e-12)),
+            "target_weight": target_weight,
+            "target_value_usd": float(target_value),
+            "current_value_usd": float(current_value),
+            "trade_value_delta_usd": float(diff_value),
+            "order_type": "limit",
+            "time_in_force": "day",
+            "reason": "target_rebalance",
+        }
+        order_row.update(target_meta.get(ticker, {}))
+        rows.append(order_row)
     orders = pd.DataFrame(rows)
     if orders.empty:
         return orders
@@ -585,6 +625,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         target=target,
         price_cache=price_cache,
         as_of_date=as_of,
+        max_stale_days=int(getattr(args, "max_stale_days", MAX_REASONABLE_PRICE_STALE_DAYS)),
     )
     orders = build_orders(
         current=current,
@@ -637,6 +678,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         target_cash_weight = 0.0
     if abs(target_cash_weight) < 1e-9:
         target_cash_weight = 0.0
+    target_snapshot_hashes = sorted(
+        str(v)
+        for v in target.get("target_snapshot_hash", pd.Series(dtype=str)).dropna().astype(str).unique()
+        if str(v).strip()
+    ) if not target.empty else []
+    target_snapshot_semantics = sorted(
+        str(v)
+        for v in target.get("target_snapshot_semantics", pd.Series(dtype=str)).dropna().astype(str).unique()
+        if str(v).strip()
+    ) if not target.empty else []
+    target_snapshot_source_paths = sorted(
+        str(v)
+        for v in target.get("target_snapshot_source_path", pd.Series(dtype=str)).dropna().astype(str).unique()
+        if str(v).strip()
+    ) if not target.empty else []
     payload = {
         "status": "completed",
         "schema_version": "account-ledger-preview-v1",
@@ -670,6 +726,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "ready_order_count": int((orders.get("status", pd.Series(dtype=str)) == "ready").sum()) if not orders.empty else 0,
         "blocked_order_count": int(orders.get("status", pd.Series(dtype=str)).astype(str).str.startswith("blocked").sum()) if not orders.empty else 0,
         "order_batch_id": manifest_payload["order_batch_id"],
+        "target_snapshot_hashes": target_snapshot_hashes,
+        "target_snapshot_semantics": target_snapshot_semantics,
+        "target_snapshot_source_paths": target_snapshot_source_paths,
     }
     (output_dir / "preview_metrics.json").write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     (output_dir / "preview_report.md").write_text(render_report(payload), encoding="utf-8")
@@ -688,6 +747,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--limit-margin-pct", type=float, default=0.25)
     parser.add_argument("--min-trade-usd", type=float, default=25.0)
+    parser.add_argument("--max-stale-days", type=int, default=MAX_REASONABLE_PRICE_STALE_DAYS)
     parser.add_argument("--fractional-shares", action="store_true")
     return parser.parse_args()
 

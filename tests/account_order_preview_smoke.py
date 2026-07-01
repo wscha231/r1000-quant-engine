@@ -53,8 +53,20 @@ def test_order_preview_builds_sell_first_orders() -> None:
         target = root / "target.csv"
         pd.DataFrame(
             [
-                {"ticker": "AAA", "weight": 0.30},
-                {"ticker": "BBB", "weight": 0.60},
+                {
+                    "ticker": "AAA",
+                    "weight": 0.30,
+                    "target_snapshot_hash": "abc123",
+                    "target_snapshot_semantics": "alphaops_vnext_operating_target",
+                    "target_snapshot_source_path": "reports/operating_main_target_book.csv",
+                },
+                {
+                    "ticker": "BBB",
+                    "weight": 0.60,
+                    "target_snapshot_hash": "abc123",
+                    "target_snapshot_semantics": "alphaops_vnext_operating_target",
+                    "target_snapshot_source_path": "reports/operating_main_target_book.csv",
+                },
             ]
         ).to_csv(target, index=False)
         args = Args()
@@ -80,6 +92,8 @@ def test_order_preview_builds_sell_first_orders() -> None:
         assert (orders["quantity"] % 1 == 0).all()
         assert "client_order_id" in orders.columns
         assert "idempotency_key" in orders.columns
+        assert "target_snapshot_hash" in orders.columns
+        assert set(orders["target_snapshot_hash"].dropna().astype(str)) == {"abc123"}
         assert orders["client_order_id"].is_unique
         assert (out / "positions_current.csv").exists()
         assert (out / "target_price_coverage.csv").exists()
@@ -90,7 +104,13 @@ def test_order_preview_builds_sell_first_orders() -> None:
         assert bool(bbb["target_only_new_buy"]) is True
         assert bbb["price_status"] == "ok"
         assert float(bbb["reference_price"]) == 50.0
+        assert bbb["target_snapshot_hash"] == "abc123"
+        target_out = pd.read_csv(out / "target_weights.csv")
+        assert "target_snapshot_hash" in target_out.columns
+        assert set(target_out["target_snapshot_hash"].dropna().astype(str)) == {"abc123"}
         assert "projected_cash_weight" in payload
+        assert payload["target_snapshot_hashes"] == ["abc123"]
+        assert payload["target_snapshot_semantics"] == ["alphaops_vnext_operating_target"]
         assert "target_cash_weight" in payload
         assert abs(payload["target_cash_weight"] - 0.10) < 1e-9
         projected = pd.read_csv(out / "projected_positions_after_orders.csv")

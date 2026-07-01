@@ -271,3 +271,50 @@ Interpretation:
 - The no-op guard passed because actual cash interest accrued was positive.
 - A final cash-carry measurement should be repeated only when a fresh, full price cache aligned to the official run is available.
 - No production promotion follows from this; cash-carry is research-only until explicitly accepted.
+
+## 12. 2026-07-01 Contract Closure Follow-Up
+
+Codex then implemented the remaining high-priority contract closure items before any new fullrun:
+
+- Preserved target snapshot metadata through account preview:
+  - `target_snapshot_hash`
+  - `target_snapshot_source_path`
+  - `target_snapshot_generated_at`
+  - `target_snapshot_semantics`
+  - `target_snapshot_portfolio`
+- Added `tools/verify_user_current_preview_contract.py`.
+  - Blocks when user_current and account preview targets differ by ticker, weight, hash, or semantics.
+- Strengthened `target_price_coverage.csv`.
+  - Adds `price_lag_days` and `max_stale_days`.
+  - Emits `missing_price`, `invalid_price`, `future_dated_price`, or `stale_price` rather than treating old prices as ok.
+  - Safety audit blocks all non-ok target price statuses.
+- Strengthened `tools/run_cash_carry_measurement.py`.
+  - Blocks official measurement if the price cache does not cover the official run end date.
+  - Blocks official measurement if the rate cache does not cover the replay window.
+  - Passes IS/OOS/OOS2 windows into both baseline and cash-carry broker replays.
+  - Reports IS/OOS cash-carry deltas and OOS/IS ratios.
+
+Validation:
+
+- `py_compile` passed for modified tools.
+- `tools/run_pr_validation.py` passed for:
+  - `account_order_preview_smoke`
+  - `user_current_preview_contract_smoke`
+  - `live_trading_safety_audit_smoke`
+  - `cash_carry_measurement_smoke`
+  - `cash_rate_materialization_smoke`
+  - `broker_cash_carry_smoke`
+
+Important proof:
+
+- Re-running the cash-carry measurement with the older 2026-06-22 price cache now blocks as intended:
+  - `status=blocked`
+  - `reason=blocked_stale_price_cache_for_cash_carry`
+  - `required_end_date=2026-06-29`
+  - `price_cache_max_date=2026-06-22`
+
+Interpretation:
+
+- The earlier cash-carry result remains useful as a directional probe.
+- The tooling now prevents that older-cache probe from being mistaken for official aligned evidence.
+- A new fullrun is still not required before official aligned cash-carry measurement.

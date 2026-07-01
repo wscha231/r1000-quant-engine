@@ -284,7 +284,14 @@ def audit_account_preview(
             else:
                 covered_tickers = set(coverage["ticker"].astype(str).str.upper())
                 missing_coverage = sorted(target_tickers - covered_tickers)
-                bad = coverage[~coverage["price_status"].astype(str).str.lower().eq("ok")].copy()
+                status = coverage["price_status"].astype(str).str.lower()
+                bad_mask = ~status.eq("ok")
+                if "stale_price" in coverage.columns:
+                    bad_mask |= coverage["stale_price"].astype(str).str.lower().isin({"true", "1", "yes"})
+                if "price_lag_days" in coverage.columns:
+                    lag = pd.to_numeric(coverage["price_lag_days"], errors="coerce")
+                    bad_mask |= lag.lt(0).fillna(False) | lag.gt(max_stale_days).fillna(False)
+                bad = coverage[bad_mask].copy()
                 if missing_coverage:
                     issue(
                         issues,
@@ -302,7 +309,10 @@ def audit_account_preview(
                         "target tickers have missing or invalid reference prices",
                         target_price_coverage_path,
                         {
-                            "examples": bad[["ticker", "price_status"]].head(20).to_dict("records"),
+                            "examples": bad[
+                                [col for col in ["ticker", "price_status", "price_lag_days", "max_stale_days", "missing_price_reason"] if col in bad.columns]
+                            ].head(20).to_dict("records"),
+                            "max_stale_days": max_stale_days,
                         },
                     )
         elif not positions.empty and "ticker" in positions.columns:

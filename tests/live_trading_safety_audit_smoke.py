@@ -80,7 +80,14 @@ def _write_preview(root: Path, portfolio: str) -> None:
     ).to_csv(out / "orders_preview.csv", index=False)
 
 
-def _write_preview_with_target_only_coverage(root: Path, portfolio: str, *, bbb_status: str = "ok") -> None:
+def _write_preview_with_target_only_coverage(
+    root: Path,
+    portfolio: str,
+    *,
+    bbb_status: str = "ok",
+    bbb_price_date: str = "2026-01-10",
+    bbb_price_lag_days: int = 0,
+) -> None:
     out = root / "account_ledger_preview" / portfolio
     out.mkdir(parents=True)
     (out / "preview_metrics.json").write_text(
@@ -132,11 +139,13 @@ def _write_preview_with_target_only_coverage(root: Path, portfolio: str, *, bbb_
                 "current_weight": 0.0,
                 "current_position_exists": False,
                 "target_only_new_buy": True,
-                "reference_price": 50.0 if bbb_status == "ok" else "",
-                "reference_price_date": "2026-01-10" if bbb_status == "ok" else "",
-                "price_source": "price_cache" if bbb_status == "ok" else "",
+                "reference_price": 50.0 if bbb_status != "missing_price" else "",
+                "reference_price_date": bbb_price_date if bbb_status != "missing_price" else "",
+                "price_source": "price_cache" if bbb_status != "missing_price" else "",
                 "price_status": bbb_status,
-                "stale_price": False,
+                "price_lag_days": bbb_price_lag_days if bbb_status != "missing_price" else "",
+                "max_stale_days": 5,
+                "stale_price": bbb_status == "stale_price",
                 "missing_price_reason": "" if bbb_status == "ok" else "no_price_on_or_before_as_of_date",
             },
         ]
@@ -190,6 +199,31 @@ def test_target_only_new_buy_without_price_coverage_blocks() -> None:
         assert any(row["check_id"] == "main_target_price_missing" for row in payload["issues"])
 
 
+def test_target_only_new_buy_stale_or_future_price_blocks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10}, {"ticker": "BBB", "weight": 0.20}]).to_csv(root / "portfolio_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10}, {"ticker": "BBB", "weight": 0.20}]).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
+        _write_preview_with_target_only_coverage(
+            root,
+            "main",
+            bbb_status="stale_price",
+            bbb_price_date="2026-01-01",
+            bbb_price_lag_days=9,
+        )
+        _write_preview_with_target_only_coverage(
+            root,
+            "concentrated",
+            bbb_status="future_dated_price",
+            bbb_price_date="2026-01-11",
+            bbb_price_lag_days=-1,
+        )
+        payload = run(_args(root))
+        assert payload["status"] == "blocked"
+        assert any(row["check_id"] == "main_target_price_missing" for row in payload["issues"])
+        assert any(row["check_id"] == "concentrated_target_price_missing" for row in payload["issues"])
+
+
 def test_actionable_export_hygiene_strips_forward_columns() -> None:
     frame = pd.DataFrame(
         [
@@ -217,6 +251,7 @@ def main() -> int:
     test_live_trading_safety_blocks_forward_columns()
     test_target_only_new_buy_with_price_coverage_passes()
     test_target_only_new_buy_without_price_coverage_blocks()
+    test_target_only_new_buy_stale_or_future_price_blocks()
     test_actionable_export_hygiene_strips_forward_columns()
     print("live_trading_safety_audit_smoke: PASS")
     return 0
