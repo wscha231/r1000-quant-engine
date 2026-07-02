@@ -140,6 +140,38 @@ Adopt later, after W1 and W2.
 
 The OOS-heavy right-tail remains the real robustness wall.
 
+### W7 - Forward Service Readiness
+
+Adopt now as a separate service track.
+
+The user-facing service question is different from the backtest question. The
+current holdings are process outputs, not a guarantee that historical CAGR/MDD
+will continue. A public site needs a freeze-date forward paper ledger,
+expectation bands, alpha-decay alarms, immutable snapshot hashes, data-license
+review, and regulatory/disclosure review.
+
+Implemented seed:
+
+```text
+docs/CODEX_FORWARD_SERVICE_READINESS_20260702.md
+tools/run_forward_service_snapshot.py
+tests/forward_service_snapshot_smoke.py
+outputs/forward_service_28436307420/
+```
+
+Real artifact result:
+
+```text
+snapshot_hash = 2469d365757124daf4dd1f0184e6406983dd9bac5a4c886d984f352c53a237f8
+freeze_date = 2026-06-29
+public_display_allowed = false
+production_activation_allowed = false
+```
+
+This is not an alpha lever and does not justify a fullrun. Its value is starting
+the forward record now so future service claims can be audited against what was
+shown before the returns happened.
+
 ## Concrete Next Plan
 
 1. Ask Fable 5 the packet in `docs/CODEX_FABLE5_REVIEW_PACKET_20260702.md`, now updated with this corrected W1 interpretation.
@@ -149,6 +181,8 @@ The OOS-heavy right-tail remains the real robustness wall.
    - produce a deterministic control-repro failure table.
 3. In parallel, prepare W3 rotation/replacement-quality audit, but do not turn it into a hook until W1's control reproduction problem is understood.
 4. Keep W2 PIT membership as the production-critical data track.
+5. Start W7 forward paper ledger tracking from the hash-stamped snapshot, but
+   keep website/public display blocked until readiness gates clear.
 
 ## Bottom Line
 

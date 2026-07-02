@@ -207,6 +207,42 @@ Possible root causes still to test:
 - missing macro/crisis inputs in local artifact snapshot
 - residual CatBoost thread nondeterminism in some environments
 
+### Forward-Service Addendum
+
+The user also asked whether the current holdings can be shown to people on a
+website and whether those holdings can keep moving toward the CAGR/MDD target.
+Codex's interpretation:
+
+```text
+The target is a property of the process, not of the current holdings.
+Current holdings are the latest simulated broker-ledger output, not a promise
+that those names will deliver the historical CAGR.
+```
+
+Therefore Codex added a W7 service-readiness layer:
+
+```text
+docs/CODEX_FORWARD_SERVICE_READINESS_20260702.md
+tools/run_forward_service_snapshot.py
+tests/forward_service_snapshot_smoke.py
+```
+
+Real artifact application to run `28436307420` produced:
+
+```text
+snapshot_hash = 2469d365757124daf4dd1f0184e6406983dd9bac5a4c886d984f352c53a237f8
+freeze_date = 2026-06-29
+public_display_allowed = false
+production_activation_allowed = false
+pit_universe_label_clean = false
+holding_row_count = 20
+```
+
+The snapshot is intentionally review-only. It can seed a live forward paper
+ledger, but it cannot be used as public marketing until expectation bands,
+alpha-decay alarms, data-license review, regulatory/disclosure review, and PIT
+membership cleanup are complete.
+
 ## Questions For Fable 5
 
 Please answer gate-first, with no broad brainstorming.
@@ -225,6 +261,9 @@ Please answer gate-first, with no broad brainstorming.
    - Option B: PIT EPS/guidance feed and AI bucket cleanup.
    - Option C: one default-OFF replacement-quality hook using fixed official-book evidence first.
 8. Does Fable 5 agree that W1 should be root-cause control reproduction rather than a seed-only patch, given the existing `cfg.random_seed` wiring?
+9. Does Fable 5 agree that W7 forward-service tracking should start now as a
+   paper ledger, while keeping website/public display blocked until the service
+   readiness gates clear?
 
 ## Expected Output Format
 
