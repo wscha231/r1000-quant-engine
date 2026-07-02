@@ -1041,6 +1041,7 @@ def replay(
     cash_rows: list[dict[str, Any]] = []
     target_vs_actual_rows: list[dict[str, Any]] = []
     replay_end_skipped_rebalance_count = 0
+    replay_end_skipped_signal_dates: list[str] = []
 
     for signal_dt in sorted(periods.keys()):
         target = targets[targets["rebalance_date"].eq(signal_dt)].copy()
@@ -1065,6 +1066,7 @@ def replay(
             fill_dt = min(fill_dt_by_ticker.values())
         if requested_replay_end_ts is not None and fill_dt > requested_replay_end_ts:
             replay_end_skipped_rebalance_count += 1
+            replay_end_skipped_signal_dates.append(signal_dt.date().isoformat())
             continue
         if carry_enabled:
             accrue_cash_interest(
@@ -1220,6 +1222,7 @@ def replay(
             "actual_equity_curve_end_date": actual_equity_curve_end_text,
             "replay_end_date_clamped": bool(clamp_state.get("replay_end_date_clamped", False)),
             "replay_end_skipped_rebalance_count": int(replay_end_skipped_rebalance_count),
+            "replay_end_skipped_signal_dates": replay_end_skipped_signal_dates,
             "replay_end_filtered_target_row_count": int(replay_end_filtered_target_row_count),
             "replay_end_filtered_target_date_count": int(replay_end_filtered_target_date_count),
             "official_baseline_end_date": official_baseline_end_text,
@@ -1265,6 +1268,7 @@ def replay(
             "actual_equity_curve_end_date": actual_equity_curve_end_text,
             "replay_end_date_clamped": bool(clamp_state.get("replay_end_date_clamped", False)),
             "replay_end_skipped_rebalance_count": int(replay_end_skipped_rebalance_count),
+            "replay_end_skipped_signal_dates": replay_end_skipped_signal_dates,
             "replay_end_filtered_target_row_count": int(replay_end_filtered_target_row_count),
             "replay_end_filtered_target_date_count": int(replay_end_filtered_target_date_count),
             "official_baseline_end_date": official_baseline_end_text,

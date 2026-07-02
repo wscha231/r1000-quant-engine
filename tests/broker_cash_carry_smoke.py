@@ -201,10 +201,12 @@ def test_replay_end_date_skips_next_close_rebalance_after_window() -> None:
         assert metrics["actual_equity_curve_end_date"] == "2026-01-06"
         assert metrics["end_date_matches_official"] is True
         assert metrics["replay_end_skipped_rebalance_count"] == 1
+        assert metrics["replay_end_skipped_signal_dates"] == ["2026-01-06"]
         curve = pd.read_csv(out / "equity_curve.csv")
         assert curve["date"].max() == "2026-01-06"
         trades = pd.read_csv(out / "trades.csv")
         assert "2026-01-06" not in set(trades.get("signal_date", pd.Series(dtype=str)).astype(str))
+        assert "2026-01-07" not in set(trades.get("date", pd.Series(dtype=str)).astype(str))
 
 
 def test_replay_end_date_filters_future_target_rows() -> None:
