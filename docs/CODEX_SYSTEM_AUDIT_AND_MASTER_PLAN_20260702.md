@@ -139,6 +139,27 @@ Bisection order (cheapest discriminator first):
 - Proxy-10Y IS extension (doc exists) + era-robust ship gates; success = OOS/IS ratio falls toward ≤3.0 and
   IS CAGR clears floors. This — not the last 1.17pp — is what makes the numbers production-quality.
 
+### W7 — Forward-service readiness [new layer — backtest→future pivot]
+Everything above validates the PAST. A public website showing current holdings needs a FORWARD layer:
+1. **Live forward-tracking ledger:** paper ledger from a declared freeze date — daily NAV, monthly
+   rebalances as the system actually emits them, vs SPY total return. This forward record (not the backtest)
+   is the service's only honest credential. Start it NOW so history accumulates.
+2. **Expectation bands, not point targets:** block-bootstrap monthly returns → 12/36-month percentile cones.
+   The site shows "current position vs band," never "50% expected." Honest central forward expectation is
+   IS-CAGR (~23–25%), not the OOS-heavy headline; 35/50 is the favorable-regime upper band.
+3. **Alpha-decay & regime alarms + kill-switch criteria:** rolling 12m excess vs band floor, drawdown-budget
+   tracker (Conc has only ~1.2pp MDD headroom; 5 names, SNDK ~39% — one earnings miss moves pp), predefined
+   "stop trusting this" rules published with the service.
+4. **Automation hardening becomes mandatory:** the weekly `schedule:` crash (empty inputs, previously
+   deferred) and W5 fullrun completion are service-critical — no reliable auto-refresh, no service.
+5. **Immutable published-snapshot audit:** hash + timestamp everything shown (target_snapshot_hash already
+   exists — reuse). Forward performance claims must be verifiable against what was actually displayed.
+6. **Data licensing:** yfinance ToS is a problem for a commercial service; review sourcing before launch.
+7. **Labeling discipline:** `pit_universe_label_clean=false` backtest numbers may NOT be marketed as
+   performance; simulation/research-only disclaimers; check KR advisory regulations (유사투자자문).
+8. Foundation already laid: the user_current contract outputs (01_current_holdings, 02_target_weights,
+   snapshot hash, review_only flags) are the website's read-only API surface.
+
 ### Standing rules
 - Fullrun ONLY when: a replay-stage candidate passes gate on fixed-official-book control AND W5 done AND user
   greenlights. Falsified levers stay closed. AI taxonomy = diagnostics only. Every lever: env-gated default
