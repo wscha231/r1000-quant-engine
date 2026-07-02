@@ -36,6 +36,16 @@ The tool reads broker-ledger artifacts only. It does not regenerate target books
 change weights, dispatch workflows, alter production gates, or create trade
 orders.
 
+Every snapshot and holdings row must carry:
+
+- `backtest_metrics_are_simulated=true`
+- `forward_expectation_basis="is_cagr_band_not_headline"`
+- `cagr_display_policy="historical_cagr_is_simulated_backtest_not_forward_expectation"`
+
+This is a data-contract guard, not only a UI guard. If public display is ever
+enabled, downstream code must still see that historical CAGR is simulated
+backtest context and not a forward return promise.
+
 ## Display Rules
 
 Until all blockers clear, a website can only use the snapshot in an internal or

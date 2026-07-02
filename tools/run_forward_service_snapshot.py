@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_DIR = "outputs/forward_service"
 PORTFOLIOS = ("main", "concentrated")
 SCHEMA_VERSION = "forward-service-snapshot-v1"
+FORWARD_EXPECTATION_BASIS = "is_cagr_band_not_headline"
+CAGR_DISPLAY_POLICY = "historical_cagr_is_simulated_backtest_not_forward_expectation"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -101,6 +103,9 @@ def portfolio_metric(official_metrics: dict[str, Any], portfolio: str, state: di
     state_metrics = state.get("metrics") or {}
     return {
         "metric_mode": official_metrics.get("official_metric_mode") or state_metrics.get("metric_mode", ""),
+        "backtest_metrics_are_simulated": True,
+        "forward_expectation_basis": FORWARD_EXPECTATION_BASIS,
+        "cagr_display_policy": CAGR_DISPLAY_POLICY,
         "cagr": official.get("cagr", state_metrics.get("cagr")),
         "max_dd": official.get("max_dd", state_metrics.get("max_dd")),
         "sharpe": official.get("sharpe", state_metrics.get("sharpe")),
@@ -148,6 +153,8 @@ def load_portfolio(outputs_dir: Path, portfolio: str, official_metrics: dict[str
                 "price": safe_float(pos.get("price")),
                 "source": "broker_ledger_simulated",
                 "display_status": "review_only",
+                "backtest_metrics_are_simulated": True,
+                "forward_expectation_basis": FORWARD_EXPECTATION_BASIS,
             }
         )
     if cash_weight > 0 and not has_cash:
@@ -162,6 +169,8 @@ def load_portfolio(outputs_dir: Path, portfolio: str, official_metrics: dict[str
                 "price": "",
                 "source": "broker_ledger_simulated",
                 "display_status": "review_only",
+                "backtest_metrics_are_simulated": True,
+                "forward_expectation_basis": FORWARD_EXPECTATION_BASIS,
             }
         )
 
@@ -260,6 +269,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "public_display_allowed": False,
         "production_activation_allowed": bool(production_allowed),
         "pit_universe_label_clean": bool(pit_clean),
+        "backtest_metrics_are_simulated": True,
+        "forward_expectation_basis": FORWARD_EXPECTATION_BASIS,
+        "cagr_display_policy": CAGR_DISPLAY_POLICY,
         "cash_carry_accounting_status": cash_carry_mode,
         "metric_modes": metric_modes,
         "portfolios": portfolios,
@@ -268,6 +280,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "not_investment_advice": True,
             "historical_simulation_not_future_guarantee": True,
             "current_holdings_are_process_output_not_cagr_promise": True,
+            "backtest_metrics_are_simulated": True,
+            "forward_expectation_basis": FORWARD_EXPECTATION_BASIS,
+            "cagr_display_policy": CAGR_DISPLAY_POLICY,
         },
     }
     snapshot_hash = stable_hash({"snapshot": base_snapshot, "holdings": holdings})
@@ -312,6 +327,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "price",
         "source",
         "display_status",
+        "backtest_metrics_are_simulated",
+        "forward_expectation_basis",
     ]
     ledger_rows = [
         {

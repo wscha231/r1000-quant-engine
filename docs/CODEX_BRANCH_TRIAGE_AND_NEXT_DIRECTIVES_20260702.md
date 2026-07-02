@@ -1,4 +1,4 @@
-# Branch Triage And Next Directives - 2026-07-02
+﻿# Branch Triage And Next Directives - 2026-07-02
 
 ## Purpose
 
@@ -45,7 +45,7 @@ Generated from run `28436307420`:
 
 ```text
 freeze_date = 2026-06-29
-snapshot_hash = 2469d365757124daf4dd1f0184e6406983dd9bac5a4c886d984f352c53a237f8
+snapshot_hash = 788dffa178daf31e97853b6f9927dec6809fb44efabcf6e6cf834d568b85337b
 public_display_allowed = false
 production_activation_allowed = false
 pit_universe_label_clean = false
@@ -74,20 +74,30 @@ Recent important PR state from GitHub:
 - #214 merged: research-only cash-carry accounting.
 - #215 merged: require hedge/benchmark price freshness.
 - #216 merged: collect required price tickers upstream.
-- #217 open draft: Claude consolidated directive. Useful historically, but now
-  partly superseded by the July 2 W1/W7 documents.
+- #217 open draft: Claude consolidated directive. Treat as a merge candidate
+  for planning history, not as superseded code. If merged, mark the newer W1/W7
+  directives as the active execution layer.
 - #212 open draft: integration target hooks. Keep as research reference only;
   do not merge as production.
-- #211 open draft: Main fast-crash hedge hook. User currently prefers long-only
-  / no-hedge unless reopened.
+- #211 open draft: Main fast-crash hedge hook. This creates a governance
+  contradiction: the latest official run used fast-crash hedge behavior, while
+  the user has also expressed long-only/no-hedge preference. Resolve before
+  quoting Main MDD as a long-only baseline.
 - #209/#208 open drafts: Concentrated cash-funded early-entry hook/harness.
-  These are the main surviving Concentrated CAGR research path from the older
-  integration branch, but must be re-evaluated after W1 control reproduction.
+  Relabel as `unproven_adjacent_to_falsified_cash_deployment`, not as a
+  surviving path. Bull-floor proved cash is load-bearing defense; #208/#209
+  consume cash and need isolated fixed-book/broker proof after W1.
 - #206 open draft: hedge overlay harness. Keep as opt-in backlog only.
 - #201 open draft: Main MDD negative-evidence ledger. Mergeable as a research
-  closeout if body remains aligned with current governance.
+  closeout if body is updated to mention the hedge-on vs long-only governance
+  conflict.
 - #199 open draft: AI Capex research screens. Useful as data/diagnostic
   infrastructure, not a policy hook.
+- #166 and #170 are open, non-draft, and not mergeable. They predate the
+  current fixed-book/OOS-IS/control-repro discipline. Classify as
+  `blocked_needs_rebase_or_review`.
+- #197 is docs-only but touches target contracts. Keep blocked until W0
+  governance decides cash-carry and MDD contract language.
 - #194/#195/#196 open drafts: whipsaw audit / reject reports. Useful evidence;
   do not let them restart broad hold-duration variants.
 - #106-#118 and similar June 17 stacked evidence PRs are likely superseded or
@@ -127,19 +137,38 @@ outputs/branch_triage_20260702/report.md
 
 For every open PR, classify:
 
+- `pr_number`
+- `title`
+- `branch`
+- `state`
+- `draft`
+- `mergeability`
+- `ci_status`
+- `changed_files`
 - `merge_candidate_now`
 - `keep_draft_research_reference`
 - `close_superseded`
 - `close_rejected_negative_evidence_captured`
 - `blocked_needs_rebase_or_review`
+- `blocked_needs_governance_decision`
+- `superseded_by_pr`
+- `related_evidence_doc`
+- `last_measured_artifact`
+- `decision_reason`
+- `required_action_owner`
+- `safe_to_close_after_user_approval`
 
 Minimum classification rules:
 
-- Keep #212, #209, #208 as research references until W1 is resolved.
+- Keep #212 as a research integration reference, not a production path.
+- Keep #209/#208 only as `unproven_adjacent_to_falsified_cash_deployment`
+  references until W1 and isolated proof resolve them.
 - Keep #206 as hedge opt-in backlog, not active work.
-- Prefer merging #201 only as negative evidence if still clean and non-conflicting.
-- Treat #217 as docs-only and potentially superseded by this directive plus W7
-  additions.
+- Prefer merging #201 only as negative evidence if still clean, non-conflicting,
+  and updated for the hedge-vs-long-only governance issue.
+- Treat #217 as a docs merge candidate for historical W0-W7 context.
+- Classify #166/#170 as `blocked_needs_rebase_or_review`.
+- Classify #197 as `blocked_needs_governance_decision`.
 - Mark old June 17 stacked PRs for close/review unless their changes are absent
   from master and still needed.
 
@@ -186,8 +215,12 @@ Acceptance before regenerated selection-side A/B:
 official_only_date_count = 0
 generated_only_date_count = 0
 ticker_mismatch_date_count = 0
-max_weight_delta near zero
+max_weight_delta_abs <= 1e-9 for deterministic/hash-equal reproduction
+or max_weight_delta_abs <= 0.001 only with an explicit floating-path exception
+documented in the report
 ```
+
+Do not write `near zero` in machine-readable acceptance. It invites drift.
 
 ## P2 - W2 PIT Membership Track
 
@@ -248,6 +281,8 @@ Focus on:
 4. Is GPU/CPU CatBoost task-type parity the right first suspect?
 5. Does W7 forward-service snapshot avoid misleading users about future CAGR?
 6. Are any old rejected ideas being accidentally revived by #212/#209/#208?
+7. Is the hedge-ON latest baseline inconsistent with the user's long-only/no
+   hedge preference, and what exact artifact is needed to resolve it?
 
 Do not propose new alpha levers unless they directly follow from a measured
 artifact. Prefer finding no-op, leakage, stale-branch, or measurement-contract
@@ -260,7 +295,7 @@ errors.
 - Phase 2: fixed-book timing/sizing reject.
 - AI Capex: diagnostic only until true PIT EPS/guidance feed.
 - W7 snapshot:
-  - hash `2469d365757124daf4dd1f0184e6406983dd9bac5a4c886d984f352c53a237f8`;
+  - hash `788dffa178daf31e97853b6f9927dec6809fb44efabcf6e6cf834d568b85337b`;
   - `public_display_allowed=false`;
   - `production_activation_allowed=false`.
 
@@ -298,10 +333,13 @@ Decisions needed:
    membership?
 2. Should Concentrated MDD use the canonical `-25%` mission bar or an interim
    operating risk cap such as `-28%` until PIT-clean evidence exists?
-3. What exactly can be shown on a public website today?
-4. What disclosures are required so current holdings are not interpreted as
+3. Does the user want a long-only/no-hedge official policy, or is the
+   fast-crash hedge allowed as part of the Main research baseline? If long-only,
+   require a hedge-OFF baseline replay before quoting Main MDD as long-only.
+4. What exactly can be shown on a public website today?
+5. What disclosures are required so current holdings are not interpreted as
    guaranteed CAGR/MDD?
-5. What minimum forward paper-tracking period should be required before public
+6. What minimum forward paper-tracking period should be required before public
    service claims are made?
 
 ## Facts

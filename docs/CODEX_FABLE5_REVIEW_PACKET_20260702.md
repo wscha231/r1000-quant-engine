@@ -1,4 +1,4 @@
-# Fable 5 Review Packet - AlphaOps vNext - 2026-07-02
+﻿# Fable 5 Review Packet - AlphaOps vNext - 2026-07-02
 
 ## Purpose
 
@@ -230,7 +230,7 @@ tests/forward_service_snapshot_smoke.py
 Real artifact application to run `28436307420` produced:
 
 ```text
-snapshot_hash = 2469d365757124daf4dd1f0184e6406983dd9bac5a4c886d984f352c53a237f8
+snapshot_hash = 788dffa178daf31e97853b6f9927dec6809fb44efabcf6e6cf834d568b85337b
 freeze_date = 2026-06-29
 public_display_allowed = false
 production_activation_allowed = false

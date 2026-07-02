@@ -110,8 +110,14 @@ def test_forward_service_snapshot_is_review_only_and_hashes_holdings() -> None:
 
         assert snapshot["research_only"] is True
         assert snapshot["snapshot_hash"] == payload["snapshot_hash"]
+        assert snapshot["backtest_metrics_are_simulated"] is True
+        assert snapshot["forward_expectation_basis"] == "is_cagr_band_not_headline"
+        assert snapshot["portfolios"][0]["metrics"]["backtest_metrics_are_simulated"] is True
+        assert snapshot["portfolios"][0]["metrics"]["forward_expectation_basis"] == "is_cagr_band_not_headline"
         assert "pit_universe_label_clean_false_blocks_production_promotion" in readiness["blockers"]
         assert {row["ticker"] for row in holdings} == {"AAA", "CASH"}
+        assert {row["backtest_metrics_are_simulated"] for row in holdings} == {"True"}
+        assert {row["forward_expectation_basis"] for row in holdings} == {"is_cagr_band_not_headline"}
         assert {row["portfolio_kind"] for row in seed} == {"main", "concentrated"}
 
 
