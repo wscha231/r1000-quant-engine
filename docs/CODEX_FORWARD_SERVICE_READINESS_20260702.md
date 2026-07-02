@@ -46,6 +46,20 @@ This is a data-contract guard, not only a UI guard. If public display is ever
 enabled, downstream code must still see that historical CAGR is simulated
 backtest context and not a forward return promise.
 
+The snapshot also separates hash semantics:
+
+- `public_snapshot_hash`: hash of the public/review snapshot payload and
+  holdings rows.
+- `broker_state_hash`: hash of broker replay state inputs, including official
+  metrics, `account_state_latest.json`, and `positions_latest.csv` for each
+  sleeve.
+- `target_snapshot_hash`: hash of available target-book/target-vs-actual source
+  files. If no canonical target files are present, the hash is still computed
+  from an empty file list and the file count documents that limitation.
+
+`snapshot_hash` remains only as a backward-compatible alias of
+`public_snapshot_hash`. Forward-ledger rows must carry all three hashes.
+
 ## Display Rules
 
 Until all blockers clear, a website can only use the snapshot in an internal or

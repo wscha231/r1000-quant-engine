@@ -110,15 +110,29 @@ def test_forward_service_snapshot_is_review_only_and_hashes_holdings() -> None:
 
         assert snapshot["research_only"] is True
         assert snapshot["snapshot_hash"] == payload["snapshot_hash"]
+        assert snapshot["snapshot_hash"] == snapshot["public_snapshot_hash"]
+        assert snapshot["snapshot_hash_semantics"] == "alias_of_public_snapshot_hash"
+        assert snapshot["broker_state_hash"] == payload["broker_state_hash"]
+        assert snapshot["target_snapshot_hash"] == payload["target_snapshot_hash"]
+        assert snapshot["hash_inputs"]["broker_state"]["file_count"] == 5
         assert snapshot["backtest_metrics_are_simulated"] is True
         assert snapshot["forward_expectation_basis"] == "is_cagr_band_not_headline"
         assert snapshot["portfolios"][0]["metrics"]["backtest_metrics_are_simulated"] is True
         assert snapshot["portfolios"][0]["metrics"]["forward_expectation_basis"] == "is_cagr_band_not_headline"
         assert "pit_universe_label_clean_false_blocks_production_promotion" in readiness["blockers"]
+        assert readiness["public_snapshot_hash"] == snapshot["public_snapshot_hash"]
+        assert readiness["broker_state_hash"] == snapshot["broker_state_hash"]
+        assert readiness["target_snapshot_hash"] == snapshot["target_snapshot_hash"]
         assert {row["ticker"] for row in holdings} == {"AAA", "CASH"}
         assert {row["backtest_metrics_are_simulated"] for row in holdings} == {"True"}
         assert {row["forward_expectation_basis"] for row in holdings} == {"is_cagr_band_not_headline"}
+        assert {row["public_snapshot_hash"] for row in holdings} == {snapshot["public_snapshot_hash"]}
+        assert {row["target_snapshot_hash"] for row in holdings} == {snapshot["target_snapshot_hash"]}
+        assert {row["broker_state_hash"] for row in holdings} == {snapshot["broker_state_hash"]}
         assert {row["portfolio_kind"] for row in seed} == {"main", "concentrated"}
+        assert {row["public_snapshot_hash"] for row in seed} == {snapshot["public_snapshot_hash"]}
+        assert {row["target_snapshot_hash"] for row in seed} == {snapshot["target_snapshot_hash"]}
+        assert {row["broker_state_hash"] for row in seed} == {snapshot["broker_state_hash"]}
 
 
 def main() -> int:

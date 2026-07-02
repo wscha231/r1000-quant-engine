@@ -162,7 +162,9 @@ outputs/forward_service_28436307420/
 Real artifact result:
 
 ```text
-snapshot_hash = 788dffa178daf31e97853b6f9927dec6809fb44efabcf6e6cf834d568b85337b
+public_snapshot_hash = 5927b865bbc3ac70e134dc09b0bccb3cab72fe756f8a7e1b8cafc3d7b1bd0ae8
+broker_state_hash = 9372228d276622d1f8c5f83e40bc3a779d78c8addad58015f3b040f06587c822
+target_snapshot_hash = eec82fa9f221bf52637a172a29ed5b41a381c7c2d62d4df6ca3e2ccf67648d79
 freeze_date = 2026-06-29
 public_display_allowed = false
 production_activation_allowed = false

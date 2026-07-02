@@ -23,6 +23,7 @@ PORTFOLIOS = ("main", "concentrated")
 SCHEMA_VERSION = "forward-service-snapshot-v1"
 FORWARD_EXPECTATION_BASIS = "is_cagr_band_not_headline"
 CAGR_DISPLAY_POLICY = "historical_cagr_is_simulated_backtest_not_forward_expectation"
+HASH_METHOD = "sha256_canonical_json_and_file_bytes"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -82,6 +83,45 @@ def file_hash(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def file_group_hash(files: list[Path]) -> dict[str, Any]:
+    entries = []
+    for path in sorted(files, key=lambda p: str(p).lower()):
+        entries.append(
+            {
+                "path": str(path),
+                "exists": path.exists(),
+                "sha256": file_hash(path),
+            }
+        )
+    return {
+        "hash_method": HASH_METHOD,
+        "input_files": entries,
+        "sha256": stable_hash(entries),
+        "file_count": len(entries),
+    }
+
+
+def target_snapshot_files(outputs_dir: Path) -> list[Path]:
+    patterns = [
+        "portfolio_reports/*target*.csv",
+        "reports/*target*.csv",
+        "alphaops_vnext/*target*.csv",
+        "market_leader_challenger/*target*.csv",
+        "broker_replay/*/target_vs_actual_weights.csv",
+    ]
+    files: list[Path] = []
+    for pattern in patterns:
+        files.extend(path for path in outputs_dir.glob(pattern) if path.is_file())
+    seen: set[str] = set()
+    out: list[Path] = []
+    for path in files:
+        key = str(path.resolve()).lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return out
 
 
 def resolve_outputs_dir(latest_run: Path) -> Path:
@@ -200,7 +240,9 @@ def build_report(snapshot: dict[str, Any], holdings: list[dict[str, Any]], readi
         "This artifact is a research-only seed for forward tracking. It is not a trade instruction,",
         "not production promotion, and not a promise that current holdings will achieve historical CAGR/MDD targets.",
         "",
-        f"- Snapshot hash: `{snapshot['snapshot_hash']}`",
+        f"- Public snapshot hash: `{snapshot['public_snapshot_hash']}`",
+        f"- Broker state hash: `{snapshot['broker_state_hash']}`",
+        f"- Target snapshot hash: `{snapshot['target_snapshot_hash']}`",
         f"- Freeze date: `{snapshot['freeze_date']}`",
         f"- Public display allowed: `{readiness['public_display_allowed']}`",
         f"- Production activation allowed: `{snapshot['production_activation_allowed']}`",
@@ -259,6 +301,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     production_allowed = pit_clean and all(bool(p["metrics"].get("production_promotion_allowed")) for p in portfolios)
     metric_modes = sorted({str(p["metrics"].get("metric_mode", "")) for p in portfolios})
     cash_carry_mode = "cash_carry" if any("cash_carry" in mode for mode in metric_modes) else "zero_yield_or_unspecified"
+    broker_state_files = [official_metrics_path]
+    for portfolio in PORTFOLIOS:
+        replay_dir = outputs_dir / "broker_replay" / portfolio
+        broker_state_files.extend([replay_dir / "account_state_latest.json", replay_dir / "positions_latest.csv"])
+    broker_state_hash_payload = file_group_hash(broker_state_files)
+    target_hash_payload = file_group_hash(target_snapshot_files(outputs_dir))
+    broker_state_hash = broker_state_hash_payload["sha256"]
+    target_snapshot_hash = target_hash_payload["sha256"]
 
     base_snapshot = {
         "schema_version": SCHEMA_VERSION,
@@ -272,10 +322,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "backtest_metrics_are_simulated": True,
         "forward_expectation_basis": FORWARD_EXPECTATION_BASIS,
         "cagr_display_policy": CAGR_DISPLAY_POLICY,
+        "hash_method": HASH_METHOD,
         "cash_carry_accounting_status": cash_carry_mode,
         "metric_modes": metric_modes,
         "portfolios": portfolios,
         "official_metrics_sha256": file_hash(official_metrics_path),
+        "broker_state_hash": broker_state_hash,
+        "target_snapshot_hash": target_snapshot_hash,
+        "hash_inputs": {
+            "broker_state": broker_state_hash_payload,
+            "target_snapshot": target_hash_payload,
+        },
         "service_notice": {
             "not_investment_advice": True,
             "historical_simulation_not_future_guarantee": True,
@@ -285,8 +342,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "cagr_display_policy": CAGR_DISPLAY_POLICY,
         },
     }
-    snapshot_hash = stable_hash({"snapshot": base_snapshot, "holdings": holdings})
-    snapshot = {**base_snapshot, "snapshot_hash": snapshot_hash}
+    public_snapshot_hash = stable_hash({"snapshot": base_snapshot, "holdings": holdings})
+    snapshot = {
+        **base_snapshot,
+        "public_snapshot_hash": public_snapshot_hash,
+        "snapshot_hash": public_snapshot_hash,
+        "snapshot_hash_semantics": "alias_of_public_snapshot_hash",
+    }
+    for row in holdings:
+        row["public_snapshot_hash"] = public_snapshot_hash
+        row["snapshot_hash"] = public_snapshot_hash
+        row["target_snapshot_hash"] = target_snapshot_hash
+        row["broker_state_hash"] = broker_state_hash
 
     blockers = [
         "live_forward_tracking_record_has_zero_elapsed_days_from_this_snapshot",
@@ -301,7 +368,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         blockers.append("cash_carry_contract_not_active_in_this_snapshot")
     readiness = {
         "schema_version": "forward-service-readiness-v1",
-        "snapshot_hash": snapshot_hash,
+        "snapshot_hash": public_snapshot_hash,
+        "public_snapshot_hash": public_snapshot_hash,
+        "broker_state_hash": broker_state_hash,
+        "target_snapshot_hash": target_snapshot_hash,
+        "hash_method": HASH_METHOD,
         "public_display_allowed": False,
         "production_activation_allowed": bool(production_allowed),
         "forward_ledger_seed_created": True,
@@ -329,13 +400,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "display_status",
         "backtest_metrics_are_simulated",
         "forward_expectation_basis",
+        "public_snapshot_hash",
+        "target_snapshot_hash",
+        "broker_state_hash",
     ]
     ledger_rows = [
         {
             "freeze_date": freeze_date,
             "portfolio_kind": p["portfolio_kind"],
             "starting_nav_usd": p["equity_usd"],
-            "snapshot_hash": snapshot_hash,
+            "snapshot_hash": public_snapshot_hash,
+            "public_snapshot_hash": public_snapshot_hash,
+            "target_snapshot_hash": target_snapshot_hash,
+            "broker_state_hash": broker_state_hash,
             "source_metric_mode": p["metrics"].get("metric_mode", ""),
             "research_only": True,
             "review_only": True,
@@ -349,13 +426,27 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_csv(
         out_dir / "forward_ledger_seed.csv",
         ledger_rows,
-        ["freeze_date", "portfolio_kind", "starting_nav_usd", "snapshot_hash", "source_metric_mode", "research_only", "review_only"],
+        [
+            "freeze_date",
+            "portfolio_kind",
+            "starting_nav_usd",
+            "snapshot_hash",
+            "public_snapshot_hash",
+            "target_snapshot_hash",
+            "broker_state_hash",
+            "source_metric_mode",
+            "research_only",
+            "review_only",
+        ],
     )
     (out_dir / "report.md").write_text(build_report(snapshot, holdings, readiness), encoding="utf-8")
     return {
         "status": "completed",
         "output_dir": str(out_dir),
-        "snapshot_hash": snapshot_hash,
+        "snapshot_hash": public_snapshot_hash,
+        "public_snapshot_hash": public_snapshot_hash,
+        "broker_state_hash": broker_state_hash,
+        "target_snapshot_hash": target_snapshot_hash,
         "freeze_date": freeze_date,
         "portfolio_count": len(portfolios),
         "holding_row_count": len(holdings),
