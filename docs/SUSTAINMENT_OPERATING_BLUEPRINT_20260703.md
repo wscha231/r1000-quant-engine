@@ -61,15 +61,16 @@ in config, not prose.
 
 | Tier | Cadence | Job | Cost | Status |
 |---|---|---|---|---|
-| T1 | daily, after close | data update → daily snapshot → review flags → **Telegram alert on WARNING/EXIT/alarm** → ledger append | minutes | exists except alert-wiring + ledger |
+| T1 | daily, after close | data update → daily snapshot → review flags → **alarm rows written backend-only** (`outputs/alerts/alerts_latest.json` + ledger append; Telegram/push DEFERRED until deployment per user 2026-07-03) | minutes | exists except alert-wiring + ledger |
 | T2 | weekly | weekly evaluation + expectation-band check + alarm evaluator + branch/PR staleness report | ~30 min | **cron BROKEN (empty-input bug) — fix is now service-critical, reverse the deferral** |
 | T3 | monthly (1st trading day) | rebalance fullrun (fast_mode) → target book → **human approval SLA: 2 trading days** → execution decision logged | 3–5 h | exists; needs W5 completion split + SLA |
 | T4 | quarterly | full validation suite, walk-forward re-verify, PIT membership audit, model retrain **challenger vs champion**, queued fixed-book A/Bs | hours | scaffolded (`auto_policy_challenger`, `auto_learning_promote` exist) |
 
 **Review SLA (the fix for "signal existed, nobody acted"):** every EXIT_REVIEW/WARNING and every alarm level ≥1
-must be human-resolved (execute/override, with reason) within 2 trading days; unresolved flags escalate daily
-via Telegram; resolution + lag recorded in the ledger. The June-signal/July-crash episode is the canonical
-counterexample this prevents.
+must be human-resolved (execute/override, with reason) within 2 trading days; unresolved flags escalate daily —
+**backend-only for now**: escalation = a committed `outputs/alerts/UNRESOLVED_*.md` marker the user checks when
+reviewing the repo (Telegram/push channels deferred until deployment); resolution + lag recorded in the ledger.
+The June-signal/July-crash episode is the canonical counterexample this prevents.
 
 ## 4. Continuous improvement loop — how the system upgrades itself without self-harm
 
@@ -104,8 +105,9 @@ Champion/challenger with the discipline we already enforce manually:
 
 ## 6. Sequenced build-out (delta over the W-plan — mostly wiring, not new inventions)
 
-1. **S1 (now, with fullrun #239 in flight):** fix T2 weekly cron (the deferred empty-input bug); wire Telegram
-   alerts to EXIT_REVIEW/WARNING; start ledger append (W7 seed exists).
+1. **S1 (now, with fullrun #239 in flight):** fix T2 weekly cron (the deferred empty-input bug); wire
+   **backend-only alert artifacts** (`outputs/alerts/` JSON + unresolved markers) to EXIT_REVIEW/WARNING —
+   Telegram/push deferred until deployment; start ledger append (W7 seed exists).
 2. **S2:** expectation-band generator (block bootstrap of monthly returns) + alarm evaluator with §2 levels in
    config; drawdown-budget tracker.
 3. **S3:** review-SLA mechanics (flag → notify → resolve-or-escalate → ledger).
