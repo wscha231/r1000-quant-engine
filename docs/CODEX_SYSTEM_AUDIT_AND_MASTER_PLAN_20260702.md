@@ -42,10 +42,18 @@ concentrated right tail is load-bearing CAGR.
   pass the audit, flip the label. This is the ONLY path to production evidence.
 
 ### L3. Scoring / ML (238 features, Ridge+LogReg+CatBoost, walk-forward 126d embargo)
-- 🔴 **NEW FINDING — no `random_state`/seed anywhere in the 27k-line engine** (verified by grep). Unseeded
-  ensemble training + thread nondeterminism is the leading suspect for BOTH open reproducibility problems:
-  vNext target-book non-repro (25 dates ticker mismatch, weight Δ 0.285) AND official Main CAGR run-to-run
-  drift (35.28 → 34.27, ~1pp). **A ±1pp-noisy base makes every "target pass" claim unstable.**
+- ✏️ **CORRECTED (Codex review, verified):** the engine IS seeded — `cfg.random_seed=42` is wired into
+  Ridge/LogReg/CatBoost (`r1000_pipeline.py:9969–10059, 12560`). My earlier "no seed anywhere" claim grepped
+  the wrong file (`r1000_top30_institutional.py`, 0 matches). W1 is therefore a **control-reproduction
+  root-cause investigation, not a seed patch.**
+- 🔴 **Verified environment-nondeterminism suspect #1:** `choose_catboost_task_type()`
+  (`r1000_pipeline.py:9295–9298`) auto-selects **GPU when available, else CPU**. CatBoost GPU training is
+  nondeterministic even with a fixed seed, and GPU-vs-CPU trains different models outright. The official
+  artifact came from a CPU GitHub runner; regeneration happens on local/Colab (GPU-capable). This alone can
+  explain the 25-date ticker mismatch and contributes to Main run-to-run drift (35.28 → 34.27).
+  Other suspects to bisect: input-snapshot drift (candidate source, SEC-enriched vs not, cache freshness,
+  appended dates, macro/crisis inputs), library versions, unstable sort/rank tie-breaking.
+  **A ±1pp-noisy base makes every "target pass" claim unstable.**
 - 🟡 Overfit structure: OOS/IS 3.1–4.9x, weak IS — gains concentrated in the 2024-25 right tail. Longer-IS
   (proxy-10Y track doc exists) and era-robust gates are the structural fixes, gated on L2.
 
@@ -88,13 +96,19 @@ concentrated right tail is load-bearing CAGR.
 2. Target-contract cleanup: `target_contract_status="unresolved_user_decision_required"` (interim −28% vs
    canonical −25% Conc MDD) — pick one, record it.
 
-### W1 — Determinism & reproducibility [Codex, HIGHEST engineering priority]
-Goal: same inputs → identical target book; official metrics stable run-to-run.
-- Seed everything: CatBoost (`random_seed`, `thread_count=1` for repro mode), sklearn (`random_state`), any
-  np.random; add `R1000_DETERMINISTIC=1` mode. Snapshot inputs (universe csv, feature_store hash, cache
-  manifest) into the run record.
-- Acceptance: two back-to-back QUICK runs produce identical `operating_*_target_book.csv` (hash-equal);
-  control-repro audit → 0 mismatch dates; document any irreducible nondeterminism.
+### W1 — Control-reproduction root cause [Codex, HIGHEST engineering priority]
+Goal: same inputs → identical target book; official metrics stable run-to-run. (Seeds already exist — this is
+an investigation, per Codex's correction.)
+Bisection order (cheapest discriminator first):
+1. **Environment parity:** record + compare `task_type` (GPU/CPU), CatBoost/sklearn/numpy versions between the
+   official run and regeneration. Add both to `run_manifest.json`. Repro mode forces `task_type=CPU` (and a
+   pinned `thread_count`) — GPU CatBoost is nondeterministic even when seeded.
+2. **Input snapshot hashing:** hash feature_store, candidate books (SEC-enriched vs not), price/macro cache
+   manifests, appended operating dates — official vs regenerated. Any diff → fix the snapshot path first.
+3. **Same-machine repeatability:** regenerate twice locally back-to-back; if books differ with identical
+   inputs+CPU, hunt residual RNG/threads/unstable tie-breaking (sort/rank/groupby).
+- Acceptance: control-repro audit → 0 official-only / 0 generated-only / 0 ticker-mismatch dates, max weight
+  Δ ≈ 0; a deterministic failure table documenting which layer caused what.
 - Unblocks: all selection-side A/B (L4), trustworthy baselines, Main drift explanation.
 
 ### W2 — PIT universe membership [Codex, long-running parallel — the production path]
