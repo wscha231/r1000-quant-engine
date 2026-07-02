@@ -126,6 +126,28 @@ Interpretation:
 - True vendor EPS/guidance feed is still missing; the screen uses `actual_results_score` fallback for some rows and therefore remains diagnostic.
 - A future hook must compare AI bottleneck + momentum against AI bottleneck + momentum + true EPS/guidance confirmation once the feed exists.
 
+Dedicated bucket/revision audit output:
+
+```text
+outputs/phase2_concentrated_gap/ai_capex_bucket_revision_audit_20260702
+```
+
+| Bucket | Rows | Unique tickers | Avg fwd return audit | Weighted fwd return audit | Positive fwd rate |
+|---|---:|---:|---:|---:|---:|
+| AI_OTHER | 305 | 132 | +2.51% | 1.366 | 51.80% |
+| AI_STORAGE | 38 | 10 | +16.28% | 1.056 | 60.53% |
+| AI_CONNECT | 21 | 2 | +19.80% | 0.714 | 100.00% |
+| AI_COMPUTE | 67 | 17 | +3.70% | 0.349 | 47.76% |
+| AI_GRID | 5 | 2 | +14.94% | 0.116 | 40.00% |
+| AI_POWER | 20 | 7 | -0.43% | 0.029 | 45.00% |
+
+Additional caveat:
+
+- The taxonomy is useful for diagnostics, but not yet a production-grade selection feed.
+- `AI_STORAGE` and `AI_CONNECT` look most relevant to the current Concentrated right tail.
+- `AI_OTHER` still carries large contribution, so "AI only" is not an adequate replacement policy.
+- Some missed-candidate rows are text/taxonomy-derived and must be validated with PIT vendor EPS/guidance data before becoming a live rule.
+
 Surviving direction:
 
 - selection-side quality, but only after target-generation control reproduction is fixed
