@@ -171,6 +171,42 @@ Selection-side regenerated target-book A/B is diagnostic only until control repr
 Fixed official-book transformation A/B is acceptable replay evidence.
 ```
 
+### Claude System Audit Addendum
+
+Claude's latest system audit recommends prioritizing:
+
+```text
+W0 governance -> W1 reproducibility -> W2 PIT universe -> W3 rotation/replacement-quality -> W4 PIT EPS/guidance feed -> W5 fullrun engineering -> W6 longer-IS robustness
+```
+
+Codex agrees with the sequencing, with one correction:
+
+```text
+The claim "no seed anywhere" is not accurate in the current code.
+Major Ridge / LogisticRegression / CatBoost paths already use cfg.random_seed = 42.
+The reproducibility issue is real, but it should be treated as target-book control reproduction root-cause analysis rather than blind seed injection.
+```
+
+Evidence:
+
+```text
+r1000_config.py:1852 random_seed: int = 42
+r1000_pipeline.py:9969 Ridge(... random_state=cfg.random_seed)
+r1000_pipeline.py:9974 LogisticRegression(... random_state=cfg.random_seed)
+r1000_pipeline.py:10014 CatBoostRegressor(... random_seed=cfg.random_seed)
+r1000_pipeline.py:10036 CatBoostClassifier(... random_seed=cfg.random_seed)
+r1000_pipeline.py:10059 CatBoostRanker(... random_seed=cfg.random_seed)
+```
+
+Possible root causes still to test:
+
+- candidate/input snapshot mismatch
+- SEC-enriched vs non-enriched candidate source mismatch
+- appended operating date / cache freshness differences
+- unstable tie-breaking in ranking/sorting
+- missing macro/crisis inputs in local artifact snapshot
+- residual CatBoost thread nondeterminism in some environments
+
 ## Questions For Fable 5
 
 Please answer gate-first, with no broad brainstorming.
@@ -188,6 +224,7 @@ Please answer gate-first, with no broad brainstorming.
    - Option A: target-generation control reproduction root cause.
    - Option B: PIT EPS/guidance feed and AI bucket cleanup.
    - Option C: one default-OFF replacement-quality hook using fixed official-book evidence first.
+8. Does Fable 5 agree that W1 should be root-cause control reproduction rather than a seed-only patch, given the existing `cfg.random_seed` wiring?
 
 ## Expected Output Format
 
