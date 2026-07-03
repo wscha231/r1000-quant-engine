@@ -135,8 +135,70 @@ def test_forward_service_snapshot_is_review_only_and_hashes_holdings() -> None:
         assert {row["broker_state_hash"] for row in seed} == {snapshot["broker_state_hash"]}
 
 
+def test_forward_service_snapshot_hashes_are_idempotent_and_state_sensitive() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        outputs = root / "official" / "outputs"
+        (outputs / "account_evaluation").mkdir(parents=True)
+        _write_portfolio(outputs, "main", 0.35, -0.24, 0.10)
+        _write_portfolio(outputs, "concentrated", 0.49, -0.25, 0.06)
+        (outputs / "account_evaluation" / "official_metrics.json").write_text(
+            json.dumps(
+                {
+                    "official_metric_mode": "broker_ledger_next_close",
+                    "portfolios": {
+                        "main": {"cagr": 0.35, "max_dd": -0.24, "sharpe": 1.2},
+                        "concentrated": {"cagr": 0.49, "max_dd": -0.25, "sharpe": 1.4},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        args1 = Args()
+        args1.latest_run = str(root)
+        args1.output_dir = str(root / "out1")
+        args1.freeze_date = "2026-06-29"
+        first = run(args1)
+        args2 = Args()
+        args2.latest_run = str(root)
+        args2.output_dir = str(root / "out2")
+        args2.freeze_date = "2026-06-29"
+        second = run(args2)
+
+        assert first["public_snapshot_hash"] == second["public_snapshot_hash"]
+        assert first["broker_state_hash"] == second["broker_state_hash"]
+        assert first["target_snapshot_hash"] == second["target_snapshot_hash"]
+
+        positions_path = outputs / "broker_replay" / "main" / "positions_latest.csv"
+        with positions_path.open("a", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=["as_of_date", "ticker", "shares", "price", "market_value_usd", "weight"],
+            )
+            writer.writerow(
+                {
+                    "as_of_date": "2026-06-29",
+                    "ticker": "BBB",
+                    "shares": 1,
+                    "price": 100.0,
+                    "market_value_usd": 100.0,
+                    "weight": 0.1,
+                }
+            )
+        args3 = Args()
+        args3.latest_run = str(root)
+        args3.output_dir = str(root / "out3")
+        args3.freeze_date = "2026-06-29"
+        changed = run(args3)
+        assert changed["broker_state_hash"] != first["broker_state_hash"]
+        assert changed["public_snapshot_hash"] != first["public_snapshot_hash"]
+        assert changed["target_snapshot_hash"] == first["target_snapshot_hash"]
+
+
 def main() -> int:
     test_forward_service_snapshot_is_review_only_and_hashes_holdings()
+    test_forward_service_snapshot_hashes_are_idempotent_and_state_sensitive()
     print("forward_service_snapshot_smoke: PASS")
     return 0
 
