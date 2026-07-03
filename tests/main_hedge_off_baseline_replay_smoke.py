@@ -11,92 +11,57 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_main_hedge_off_baseline_replay import remove_hedge_to_cash, run  # noqa: E402
-from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.run_main_hedge_off_baseline_replay import build_hedge_off_book  # noqa: E402
 
 
-class Args:
-    pass
-
-
-def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2026-01-02") -> None:
-    idx = pd.bdate_range(start=start, periods=len(closes))
-    pd.DataFrame(
-        {
-            "Open": closes,
-            "Close": closes,
-            "Adj Close": closes,
-            "Volume": [1_000_000] * len(closes),
-        },
-        index=idx,
-    ).to_parquet(cache_dir / px_cache_name(ticker))
-
-
-def _book() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50, "target_weight": 0.50},
-            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.30, "target_weight": 0.30},
-            {"rebalance_date": "2026-01-02", "ticker": "SH", "weight": 0.075, "target_weight": 0.075},
-            {"rebalance_date": "2026-01-02", "ticker": "CASH", "weight": 0.125, "target_weight": 0.125},
-            {"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 0.60, "target_weight": 0.60},
-            {"rebalance_date": "2026-01-09", "ticker": "CASH", "weight": 0.40, "target_weight": 0.40},
-        ]
-    )
-
-
-def test_remove_hedge_moves_weight_to_cash() -> None:
-    out, audit, summary = remove_hedge_to_cash(_book(), hedge_ticker="SH", portfolio_kind="main")
-    assert summary["status"] == "completed"
-    assert summary["removed_hedge_rows"] == 1
-    assert summary["hedge_signal_dates"] == 1
-    assert "SH" not in set(out["ticker"])
-    day = out[out["rebalance_date"].eq("2026-01-02")]
-    assert abs(float(day.loc[day["ticker"].eq("CASH"), "weight"].sum()) - 0.20) < 1e-9
-    assert abs(float(day["weight"].sum()) - 1.0) < 1e-9
-    assert int(audit["hedge_rows_removed"].sum()) == 1
-
-
-def test_cli_runs_hedge_on_and_off_replays() -> None:
+def test_build_hedge_off_book_moves_sh_weight_to_cash() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        cache = root / "cache_prices"
-        cache.mkdir()
-        for ticker, closes in {
-            "AAA": [100, 101, 102, 103, 104, 105, 106],
-            "BBB": [50, 51, 52, 53, 54, 55, 56],
-            "SH": [20, 19, 18, 18, 19, 20, 21],
-        }.items():
-            _write_px(cache, ticker, [float(x) for x in closes])
-        target = root / "target_book.csv"
-        _book().to_csv(target, index=False)
-        args = Args()
-        args.target_book = str(target)
-        args.price_cache = str(cache)
-        args.output_dir = str(root / "out")
-        args.official_metrics = ""
-        args.portfolio_kind = "main"
-        args.hedge_ticker = "SH"
-        args.replay_end_date = "2026-01-12"
-        args.official_baseline_end_date = "2026-01-12"
-        args.cash_rate_path = ""
-        args.cash_rate_source = "DGS3MO"
-        args.cost_bps = 25.0
-        args.max_fill_lag_days = 7
-        payload = run(args)
-        assert payload["status"] == "completed", payload
-        assert payload["production_activation_allowed"] is False
-        arms = {(row["arm"], row["cash_carry_mode"]): row for row in payload["arms"]}
-        assert arms[("hedge_on", "none")]["status"] == "completed"
-        assert arms[("hedge_off", "none")]["status"] == "completed"
-        assert arms[("hedge_off", "none")]["delta_cagr_vs_hedge_on"] != ""
-        assert (root / "out" / "hedge_on_vs_off.csv").exists()
-        assert (root / "out" / "hedge_off_target_book.csv").exists()
+        source = root / "target.csv"
+        out = root / "hedge_off.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2020-02-28", "ticker": "AAA", "weight": 0.40, "target_weight": 0.40},
+                {"rebalance_date": "2020-02-28", "ticker": "CASH", "weight": 0.50, "target_weight": 0.50},
+                {"rebalance_date": "2020-02-28", "ticker": "SH", "weight": 0.10, "target_weight": 0.10},
+                {"rebalance_date": "2020-03-31", "ticker": "AAA", "weight": 0.70, "target_weight": 0.70},
+                {"rebalance_date": "2020-03-31", "ticker": "CASH", "weight": 0.30, "target_weight": 0.30},
+            ]
+        ).to_csv(source, index=False)
+        removed, stats = build_hedge_off_book(target_book=source, output_path=out, hedge_ticker="SH")
+        generated = pd.read_csv(out)
+        assert len(removed) == 1
+        assert stats["hedge_rows_removed"] == 1
+        assert stats["hedge_signal_date_count"] == 1
+        assert "SH" not in set(generated["ticker"].astype(str).str.upper())
+        feb = generated[generated["rebalance_date"].eq("2020-02-28")]
+        assert abs(float(feb.loc[feb["ticker"].eq("CASH"), "weight"].iloc[0]) - 0.60) < 1e-12
+        assert abs(float(feb["weight"].sum()) - 1.0) < 1e-12
+        assert abs(float(generated[generated["rebalance_date"].eq("2020-03-31")]["weight"].sum()) - 1.0) < 1e-12
+        assert (out.parent / "removed_hedge_rows.csv").exists()
+
+
+def test_build_hedge_off_book_creates_cash_when_absent() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "target.csv"
+        out = root / "hedge_off.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2020-02-28", "ticker": "AAA", "weight": 0.80, "target_weight": 0.80},
+                {"rebalance_date": "2020-02-28", "ticker": "SH", "weight": 0.20, "target_weight": 0.20},
+            ]
+        ).to_csv(source, index=False)
+        _removed, stats = build_hedge_off_book(target_book=source, output_path=out, hedge_ticker="SH")
+        generated = pd.read_csv(out)
+        assert stats["cash_replacement_policy"] == "move_removed_hedge_weight_to_cash"
+        assert "CASH" in set(generated["ticker"].astype(str).str.upper())
+        assert abs(float(generated["weight"].sum()) - 1.0) < 1e-12
 
 
 def main() -> int:
-    test_remove_hedge_moves_weight_to_cash()
-    test_cli_runs_hedge_on_and_off_replays()
+    test_build_hedge_off_book_moves_sh_weight_to_cash()
+    test_build_hedge_off_book_creates_cash_when_absent()
     print("main_hedge_off_baseline_replay_smoke: PASS")
     return 0
 
