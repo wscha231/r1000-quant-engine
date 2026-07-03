@@ -1,0 +1,88 @@
+{
+  "atr_threshold": 0.1,
+  "benchmark_risk_threshold": 0.7,
+  "blocked_entries_sample": [
+    {
+      "atr14_pct": 0.2045364152468489,
+      "benchmark_risk_score": 2.0,
+      "breakout_setup_quality_score": 0.1713764363290488,
+      "crisis_state": "GREEN",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Chemicals",
+      "market_style_regime_label": "quality_compounder",
+      "primary_lane": "MARKET_LEADER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-03-31",
+      "regime_state": "neutral",
+      "sector": "Materials",
+      "ticker": "SQM",
+      "weight_dropped": 0.056999999999999995
+    },
+    {
+      "atr14_pct": 0.1457104501643251,
+      "benchmark_risk_score": 2.0,
+      "breakout_setup_quality_score": 0.2843982382646812,
+      "crisis_state": "GREEN",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Chemicals",
+      "market_style_regime_label": "quality_compounder",
+      "primary_lane": "MARKET_LEADER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-03-31",
+      "regime_state": "neutral",
+      "sector": "Materials",
+      "ticker": "MOS",
+      "weight_dropped": 0.056999999999999995
+    },
+    {
+      "atr14_pct": 0.1204746079368082,
+      "benchmark_risk_score": 2.0,
+      "breakout_setup_quality_score": 0.3685256851397527,
+      "crisis_state": "GREEN",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Oil Gas & Consumable Fuels",
+      "market_style_regime_label": "quality_compounder",
+      "primary_lane": "MARKET_LEADER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-03-31",
+      "regime_state": "neutral",
+      "sector": "Energy",
+      "ticker": "BKR",
+      "weight_dropped": 0.056999999999999995
+    }
+  ],
+  "blocked_new_entries": 3,
+  "breakout_threshold": 0.4,
+  "cash_rebuilt_explicitly": true,
+  "input_row_count": 507,
+  "min_weight": 0.04,
+  "output_row_count": 504,
+  "portfolio": "concentrated",
+  "production_activation_allowed": true,
+  "research_only": false,
+  "schema_version": "alphaops-vnext-concentrated-green-benchmark-risk-cyclical-new-entry-block-v1",
+  "sectors": [
+    "Energy",
+    "Materials"
+  ],
+  "status": "completed",
+  "stock_rows_removed": 3,
+  "top_blocked_tickers": [
+    {
+      "count": 1,
+      "ticker": "SQM"
+    },
+    {
+      "count": 1,
+      "ticker": "MOS"
+    },
+    {
+      "count": 1,
+      "ticker": "BKR"
+    }
+  ],
+  "weight_dropped_total": 0.17099999999999999
+}

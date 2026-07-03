@@ -1,0 +1,71 @@
+{
+  "candidate_book": {
+    "bytes": 96168514,
+    "exists": true,
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
+    "sha256": "e645fc4821e7cfc347da08a4c7b267c7a1977fa54b74cbef9cf00ffb9941bf4e"
+  },
+  "candidate_rebalance_date_max": "2026-05-29",
+  "candidate_rebalance_date_min": "2019-05-31",
+  "candidate_row_count": 47434,
+  "candidate_source_mode": "explicit",
+  "code": {
+    "github_ref": "refs/heads/codex/integration-fullrun-clean-20260630",
+    "github_sha": "4c54e63035bc0299ef7fe605171b0a9ee14be2de"
+  },
+  "env": {
+    "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED": "",
+    "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED": "",
+    "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED": "",
+    "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED": "",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT": "",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_ALLOW_CRISIS": "",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY": "",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_SIGNAL": "",
+    "R1000_CONC_GROSS_CAP_FLOOR": "",
+    "R1000_CONC_SCORE_SIZING_BLEND": "",
+    "R1000_CONC_SCORE_SIZING_CAP_MODE": "",
+    "R1000_CONC_SCORE_SIZING_RANK_POWER": "",
+    "R1000_CONC_SCORE_SIZING_SIGNAL": "",
+    "R1000_CONC_SCORE_SIZING_SINGLE_CAP": "",
+    "R1000_MAIN_AI_CAPEX_TILT_STRENGTH": "",
+    "R1000_MAIN_FAST_CRASH_HEDGE_BENCHMARK": "",
+    "R1000_MAIN_FAST_CRASH_HEDGE_TICKER": "",
+    "R1000_MAIN_FAST_CRASH_HEDGE_WEIGHT": "",
+    "R1000_MAIN_FAST_CRASH_RISK_BUFFER_WEIGHT": ""
+  },
+  "generated_at_utc": "2026-07-02T23:42:45.938046+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "macro_crisis_inputs": {
+    "long_crisis_features": {
+      "bytes": 1044772,
+      "exists": true,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/macro/long_crisis_daily_features.parquet",
+      "sha256": "c6a2b23f8d50af2a55511ea90a22b432bed91fa36555bf69239a09abd67371d1"
+    },
+    "long_crisis_thresholds": {
+      "bytes": 708,
+      "exists": true,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/long_crisis_learning/best_thresholds.json",
+      "sha256": "e99d952af984db6d02c2925f6885d5697443d4a6e92e46baa1ad6c63d6df44bc"
+    }
+  },
+  "operating_append_end_date": "",
+  "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext",
+  "price_cache": {
+    "existing_price_file_count": 981,
+    "manifest": {
+      "bytes": 1039,
+      "exists": true,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices/replay_price_cache_manifest.json",
+      "sha256": "0ca82b285991d701f8369189f509b176ca79ccbef2b8261c8d86b0c010d01fad"
+    },
+    "missing_price_file_count": 0,
+    "missing_ticker_sample": [],
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+    "required_price_file_count": 981,
+    "required_ticker_count": 981
+  },
+  "research_only": true,
+  "schema_version": "alphaops-vnext-target-generation-input-manifest-v1"
+}

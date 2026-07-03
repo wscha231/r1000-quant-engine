@@ -1,0 +1,201 @@
+{
+  "blocked_entries_sample": [
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Commercial Services",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Industrials",
+      "ticker": "CPRT",
+      "weight_dropped": 0.0969826023778767
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Auto Manufacturers & Parts",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Consumer Discretionary",
+      "ticker": "ORLY",
+      "weight_dropped": 0.0690562161225385
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Software - Infrastructure",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Information Technology",
+      "ticker": "MSFT",
+      "weight_dropped": 0.045552266560069554
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Commercial Services",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Industrials",
+      "ticker": "CTAS",
+      "weight_dropped": 0.0446337118165767
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Semiconductors",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Information Technology",
+      "ticker": "MTSI",
+      "weight_dropped": 0.03919970169237426
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Consumer Finance",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Financials",
+      "ticker": "V",
+      "weight_dropped": 0.03755560092099597
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Biotechnology",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Health Care",
+      "ticker": "REGN",
+      "weight_dropped": 0.035408170918423895
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Internet Content & Information",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Internet",
+      "ticker": "JD",
+      "weight_dropped": 0.03527107719146383
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Semiconductors",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Information Technology",
+      "ticker": "KLAC",
+      "weight_dropped": 0.03442175828118097
+    },
+    {
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Internet Content & Information",
+      "market_style_regime_label": "turnaround_accumulation",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2022-11-30",
+      "regime_state": "neutral",
+      "sector": "Communication",
+      "ticker": "GOOGL",
+      "weight_dropped": 0.029294253677583145
+    }
+  ],
+  "blocked_new_entries": 10,
+  "cash_rebuilt_explicitly": true,
+  "crisis_state": "DEFENSE_REVIEW",
+  "input_row_count": 1316,
+  "lane": "QUALITY_COMPOUNDER",
+  "output_row_count": 1306,
+  "portfolio": "main",
+  "production_activation_allowed": true,
+  "regime_state": "neutral",
+  "research_only": false,
+  "schema_version": "alphaops-vnext-main-defense-review-turnaround-new-entry-block-v1",
+  "status": "completed",
+  "stock_rows_removed": 10,
+  "style_regime": "turnaround_accumulation",
+  "top_blocked_tickers": [
+    {
+      "count": 1,
+      "ticker": "CPRT"
+    },
+    {
+      "count": 1,
+      "ticker": "ORLY"
+    },
+    {
+      "count": 1,
+      "ticker": "MSFT"
+    },
+    {
+      "count": 1,
+      "ticker": "CTAS"
+    },
+    {
+      "count": 1,
+      "ticker": "MTSI"
+    },
+    {
+      "count": 1,
+      "ticker": "V"
+    },
+    {
+      "count": 1,
+      "ticker": "REGN"
+    },
+    {
+      "count": 1,
+      "ticker": "JD"
+    },
+    {
+      "count": 1,
+      "ticker": "KLAC"
+    },
+    {
+      "count": 1,
+      "ticker": "GOOGL"
+    }
+  ],
+  "weight_dropped_total": 0.46737535955908355
+}

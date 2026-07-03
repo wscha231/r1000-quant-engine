@@ -7,7 +7,7 @@
     "data_static_iwb_seed": {
       "exists": true,
       "kind": "file",
-      "modified_utc": "2026-06-29T09:10:11.390923+00:00",
+      "modified_utc": "2026-07-02T19:37:40.784538+00:00",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
       "size_bytes": 62177
     },
@@ -18,9 +18,9 @@
     "previous_healthy_candidate_universe": {
       "exists": true,
       "kind": "file",
-      "modified_utc": "2026-06-29T10:35:15.523896+00:00",
+      "modified_utc": "2026-07-02T21:15:15.595910+00:00",
       "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
-      "size_bytes": 37398
+      "size_bytes": 37387
     },
     "restored_drive_iwb_csv": {
       "exists": false,
@@ -39,11 +39,11 @@
   "previous_healthy_universe_cache": {
     "exists": true,
     "kind": "file",
-    "modified_utc": "2026-06-29T10:35:15.523896+00:00",
+    "modified_utc": "2026-07-02T21:15:15.595910+00:00",
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/feature_store/candidate_universe_latest.parquet",
     "r1000_base_count": 992,
     "row_count": 1118,
-    "size_bytes": 37398,
+    "size_bytes": 37387,
     "ticker_count": 1118
   },
   "restored_drive_iwb": {
@@ -69,7 +69,7 @@
       "data_static": {
         "exists": true,
         "kind": "file",
-        "modified_utc": "2026-06-29T09:10:11.390923+00:00",
+        "modified_utc": "2026-07-02T19:37:40.784538+00:00",
         "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_static/iwb_holdings_seed.csv",
         "size_bytes": 62177
       }

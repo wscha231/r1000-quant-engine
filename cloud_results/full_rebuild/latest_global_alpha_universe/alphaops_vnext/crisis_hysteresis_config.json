@@ -1,0 +1,7 @@
+{
+  "max_crisis_actions_per_month": 4,
+  "minimum_action_gap_days": 3,
+  "shock_crash_immediate_bypass": true,
+  "state_downgrade_confirmation_days": 2,
+  "state_upgrade_reentry_confirmation_days": 3
+}

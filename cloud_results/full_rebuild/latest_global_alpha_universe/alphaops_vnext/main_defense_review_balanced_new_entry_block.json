@@ -1,0 +1,98 @@
+{
+  "blocked_entries_sample": [
+    {
+      "breakout_setup_quality_score": -0.2404301391928164,
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Oil Gas & Consumable Fuels",
+      "market_style_regime_label": "balanced",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2023-04-28",
+      "regime_state": "neutral",
+      "sector": "Energy",
+      "ticker": "AM",
+      "weight_dropped": 0.02831523504072954
+    },
+    {
+      "breakout_setup_quality_score": 0.4693817482350975,
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Hotels Restaurants & Leisure",
+      "market_style_regime_label": "balanced",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2023-04-28",
+      "regime_state": "neutral",
+      "sector": "Consumer Discretionary",
+      "ticker": "CHH",
+      "weight_dropped": 0.02831523504072954
+    },
+    {
+      "breakout_setup_quality_score": 0.1733374080861213,
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Commercial Services",
+      "market_style_regime_label": "balanced",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2023-04-28",
+      "regime_state": "neutral",
+      "sector": "Industrials",
+      "ticker": "EFX",
+      "weight_dropped": 0.02831523504072954
+    },
+    {
+      "breakout_setup_quality_score": -0.0724440434283235,
+      "crisis_state": "DEFENSE_REVIEW",
+      "hold_replace_decision": "new_entry",
+      "holding_state": "NEW",
+      "industry_group": "Metals & Mining",
+      "market_style_regime_label": "balanced",
+      "primary_lane": "QUALITY_COMPOUNDER",
+      "prior_weight": 0.0,
+      "rebalance_date": "2023-04-28",
+      "regime_state": "neutral",
+      "sector": "Materials",
+      "ticker": "STLD",
+      "weight_dropped": 0.02831523504072954
+    }
+  ],
+  "blocked_new_entries": 4,
+  "breakout_threshold": 0.5,
+  "cash_rebuilt_explicitly": true,
+  "crisis_state": "DEFENSE_REVIEW",
+  "input_row_count": 1306,
+  "lane": "QUALITY_COMPOUNDER",
+  "output_row_count": 1302,
+  "portfolio": "main",
+  "production_activation_allowed": true,
+  "regime_state": "neutral",
+  "research_only": false,
+  "schema_version": "alphaops-vnext-main-defense-review-balanced-new-entry-block-v1",
+  "status": "completed",
+  "stock_rows_removed": 4,
+  "style_regime": "balanced",
+  "top_blocked_tickers": [
+    {
+      "count": 1,
+      "ticker": "AM"
+    },
+    {
+      "count": 1,
+      "ticker": "CHH"
+    },
+    {
+      "count": 1,
+      "ticker": "EFX"
+    },
+    {
+      "count": 1,
+      "ticker": "STLD"
+    }
+  ],
+  "weight_dropped_total": 0.11326094016291816
+}

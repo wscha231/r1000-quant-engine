@@ -10,11 +10,11 @@
 
 | Experiment | Status | Source Leak | Source Run | Env | Requires Approval |
 | --- | --- | --- | --- | --- | :---: |
-| conc_continuation_winner_relaxation | queued | concentrated:structural_underinvestment_bull | 28360773460 | PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED=1 | yes |
-| conc_bull_floor_stock_min | queued | concentrated:structural_underinvestment_bull | 28360773460 | PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED=1 | yes |
-| conc_reentry_quality | queued | concentrated:structural_underinvestment_bull | 28360773460 | PHASE_CONCENTRATED_REENTRY_QUALITY_ENABLED=1 | yes |
-| conc_theme_leadership_boost | queued | concentrated:structural_underinvestment_bull | 28360773460 | PHASE_THEME_LEADERSHIP_BOOST_ENABLED=1 | yes |
-| conc_concentration_cap_relaxation | queued | concentrated:structural_underinvestment_bull | 28360773460 | PHASE_CONCENTRATED_CAP_RELAX_ENABLED=1 | yes |
+| conc_continuation_winner_relaxation | queued | concentrated:structural_underinvestment_bull | 28616190134 | PHASE_CONCENTRATED_CONTINUATION_RELAX_ENABLED=1 | yes |
+| conc_bull_floor_stock_min | queued | concentrated:structural_underinvestment_bull | 28616190134 | PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED=1 | yes |
+| conc_reentry_quality | queued | concentrated:structural_underinvestment_bull | 28616190134 | PHASE_CONCENTRATED_REENTRY_QUALITY_ENABLED=1 | yes |
+| conc_theme_leadership_boost | queued | concentrated:structural_underinvestment_bull | 28616190134 | PHASE_THEME_LEADERSHIP_BOOST_ENABLED=1 | yes |
+| conc_concentration_cap_relaxation | queued | concentrated:structural_underinvestment_bull | 28616190134 | PHASE_CONCENTRATED_CAP_RELAX_ENABLED=1 | yes |
 
 ## Dispatch Artifacts
 
@@ -27,4 +27,3 @@
 | Task | Portfolio | Failure | Dispatch Mode | Next Action |
 | --- | --- | --- | --- | --- |
 | concentrated_oos_lottery_era_name_review | concentrated | oos_is_cagr_ratio_above_lock | manual_review_no_workflow_dispatch | Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion. |
-| main_oos_lottery_era_name_review | main | oos_is_cagr_ratio_above_lock | manual_review_no_workflow_dispatch | Compare IS/OOS top-name contribution and era buckets; require a new 8-year rebuild plus A/B verifier before promotion. |

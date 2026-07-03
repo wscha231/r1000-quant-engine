@@ -1,0 +1,248 @@
+{
+  "concentrated": {
+    "blocked_entries_sample": [
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "RGLD",
+        "weight_dropped": 0.056999999999999995
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "STLD",
+        "weight_dropped": 0.045427007688656984
+      }
+    ],
+    "blocked_new_entries": 2,
+    "cash_rebuilt_explicitly": true,
+    "industry_terms": [
+      "metals",
+      "mining"
+    ],
+    "input_row_count": 509,
+    "lanes": [
+      "MARKET_LEADER"
+    ],
+    "output_row_count": 507,
+    "portfolio": "concentrated",
+    "production_activation_allowed": true,
+    "research_only": false,
+    "schema_version": "alphaops-vnext-neutral-metals-new-entry-block-v1",
+    "sector": "Materials",
+    "status": "completed",
+    "stock_rows_removed": 2,
+    "style_regime": "quality_compounder",
+    "target_regimes": [
+      "neutral"
+    ],
+    "top_blocked_tickers": [
+      {
+        "count": 1,
+        "ticker": "RGLD"
+      },
+      {
+        "count": 1,
+        "ticker": "STLD"
+      }
+    ],
+    "weight_dropped_total": 0.10242700768865698
+  },
+  "main": {
+    "blocked_entries_sample": [
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2019-08-30",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "RGLD",
+        "weight_dropped": 0.06133333333333334
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2019-08-30",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "AEM",
+        "weight_dropped": 0.04
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2021-11-30",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "MP",
+        "weight_dropped": 0.033723480264418695
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "FCX",
+        "weight_dropped": 0.01
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "RGLD",
+        "weight_dropped": 0.01
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "SCCO",
+        "weight_dropped": 0.01
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2022-03-31",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "STLD",
+        "weight_dropped": 0.01
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2024-04-30",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "SCCO",
+        "weight_dropped": 0.04251621954906511
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2026-01-30",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "RGLD",
+        "weight_dropped": 0.07235096012885608
+      },
+      {
+        "hold_replace_decision": "new_entry",
+        "holding_state": "NEW",
+        "industry_group": "Metals & Mining",
+        "market_style_regime_label": "quality_compounder",
+        "primary_lane": "MARKET_LEADER",
+        "prior_weight": 0.0,
+        "rebalance_date": "2026-02-27",
+        "regime_state": "neutral",
+        "sector": "Materials",
+        "ticker": "SCCO",
+        "weight_dropped": 0.1099722490010851
+      }
+    ],
+    "blocked_new_entries": 10,
+    "cash_rebuilt_explicitly": true,
+    "industry_terms": [
+      "metals",
+      "mining"
+    ],
+    "input_row_count": 1326,
+    "lanes": [
+      "MARKET_LEADER"
+    ],
+    "output_row_count": 1316,
+    "portfolio": "main",
+    "production_activation_allowed": true,
+    "research_only": false,
+    "schema_version": "alphaops-vnext-neutral-metals-new-entry-block-v1",
+    "sector": "Materials",
+    "status": "completed",
+    "stock_rows_removed": 10,
+    "style_regime": "quality_compounder",
+    "target_regimes": [
+      "neutral"
+    ],
+    "top_blocked_tickers": [
+      {
+        "count": 3,
+        "ticker": "RGLD"
+      },
+      {
+        "count": 3,
+        "ticker": "SCCO"
+      },
+      {
+        "count": 1,
+        "ticker": "AEM"
+      },
+      {
+        "count": 1,
+        "ticker": "MP"
+      },
+      {
+        "count": 1,
+        "ticker": "FCX"
+      },
+      {
+        "count": 1,
+        "ticker": "STLD"
+      }
+    ],
+    "weight_dropped_total": 0.3998962422767583
+  }
+}

@@ -1,0 +1,7 @@
+portfolio,ticker,target_weight,current_weight,current_position_exists,target_only_new_buy,reference_price,reference_price_date,price_source,price_status,price_lag_days,max_stale_days,stale_price,missing_price_reason
+,MU,0.3,0.28501602486494265,True,False,957.0700073242188,2026-07-02,price_cache,ok,0,5,False,
+,SNDK,0.2784319159906224,0.2788946870705314,True,False,1712.0,2026-07-02,price_cache,ok,0,5,False,
+,CASH,0.1675438877170625,0.0,False,False,1.0,2026-07-02,cash_par,ok,0,5,False,
+,AMD,0.1028509028588668,0.10593563758775108,True,False,511.4363098144531,2026-07-02,price_cache,ok,0,5,False,
+,UMC,0.08,0.08757378663945378,True,False,24.354999542236328,2026-07-02,price_cache,ok,0,5,False,
+,WDC,0.0711732934334482,0.07197694742898172,True,False,536.510009765625,2026-07-02,price_cache,ok,0,5,False,

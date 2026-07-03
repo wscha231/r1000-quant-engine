@@ -1,0 +1,81 @@
+{
+  "emerging_risk_fields": [
+    "cash_runway_quarters",
+    "dilution_4q",
+    "shares_yoy",
+    "sbc_to_revenue",
+    "capex_to_revenue",
+    "debt_refinancing_risk",
+    "gross_margin_direction",
+    "revenue_acceleration",
+    "backlog_or_contract_signal"
+  ],
+  "lanes": {
+    "CRISIS_BENEFICIARY": [
+      "defensive_rotation_score",
+      "portfolio_defensive_rotation_action_score",
+      "macro_regime_fit_score",
+      "low_beta_score",
+      "balance_sheet_score"
+    ],
+    "CYCLICAL_RECOVERY": [
+      "rs_sector_3m",
+      "rs_industry_12m",
+      "industry_group_strength_score",
+      "earnings_inflection_score",
+      "valuation_recovery_score",
+      "inventory_cycle_recovery_score"
+    ],
+    "EMERGING_TENBAGGER": [
+      "theme_phase_multiplier_primary",
+      "theme_phase_multiplier_max",
+      "portfolio_early_scout_engine_score",
+      "portfolio_monster_early_score",
+      "portfolio_future_winner_engine_score",
+      "rs_benchmark_3m",
+      "rs_acceleration_score",
+      "dollar_vol_20d",
+      "sec_form4_cluster_buy_score",
+      "sec_13f_smart_money_score",
+      "etf_theme_leadership_score"
+    ],
+    "MARKET_LEADER": [
+      "rs_benchmark_1w",
+      "rs_spy_1w",
+      "rs_qqq_1w",
+      "rs_benchmark_3m",
+      "rs_benchmark_6m",
+      "rs_semis_1m",
+      "rs_semis_3m",
+      "relative_strength_composite",
+      "industry_group_strength_score",
+      "oneil_leadership_score",
+      "sub_industry_rs_score",
+      "portfolio_future_winner_engine_score"
+    ],
+    "QUALITY_COMPOUNDER": [
+      "sector_adjusted_quality_score",
+      "capital_efficiency_score",
+      "long_hold_compounder_score",
+      "fundamental_reliability_score",
+      "quality_growth_score",
+      "fcf_margin",
+      "rule_of_40"
+    ],
+    "TOP7_MANAGER_DISCOVERY": [
+      "top7_discovery_score",
+      "top_manager_discovery_score",
+      "sec_13f_smart_money_score",
+      "sec_13f_new_position_score",
+      "post_disclosure_alpha_score",
+      "issuer_float_impact_score"
+    ]
+  },
+  "rules": {
+    "financial_quality_strict_only_for": "QUALITY_COMPOUNDER",
+    "negative_fcf_for_emerging": "risk_cap_not_hard_reject",
+    "top7_13f": "universe_expansion_and_confidence_only_not_standalone_buy",
+    "valuation": "positive_support_only_missing_is_neutral"
+  },
+  "schema_version": "lane-feature-mapping-v1"
+}
