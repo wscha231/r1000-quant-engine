@@ -263,6 +263,31 @@ CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND = DEFAULT_CONCENTRATED_SCORE_SIZING_BLE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = DEFAULT_CONCENTRATED_SCORE_SIZING_RANK_POWER
 CONCENTRATED_SCORE_SIZING_REWEIGHT_CAP_MODE = DEFAULT_CONCENTRATED_SCORE_SIZING_CAP_MODE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP = DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP
+CONCENTRATED_REPLACEMENT_QUALITY_RANK_MAX = 15
+CONCENTRATED_REPLACEMENT_QUALITY_REVENUE_GROWTH_MIN = 0.10
+CONCENTRATED_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE = 1
+CONCENTRATED_REPLACEMENT_QUALITY_SCORE_COLUMNS = [
+    "relative_strength_composite",
+    "oneil_leadership_score",
+    "rs_acceleration_score",
+    "industry_group_strength_score",
+    "etf_theme_leadership_score",
+    "theme_leadership_score",
+    "score",
+    "score_total",
+    "concentrated_score",
+]
+CONCENTRATED_REPLACEMENT_QUALITY_REVENUE_COLUMNS = [
+    "revenue_growth",
+    "sales_growth_yoy",
+    "revenue_growth_yoy",
+    "revenue_growth_final",
+]
+CONCENTRATED_REPLACEMENT_QUALITY_REJECTION_REASONS = {
+    "hold_replace_threshold_not_met",
+    "leadership_persistence_hold_threshold_not_met",
+    "concentrated_emerging_or_top7_seat_cap",
+}
 AI_CAPEX_MOMENTUM_TILT_STRENGTH = 0.15
 MAIN_FAST_CRASH_HEDGE_TICKER = "SH"
 MAIN_FAST_CRASH_HEDGE_BENCHMARK = "SPY"
@@ -606,6 +631,48 @@ def apply_concentrated_leader_gate_annotations(month: pd.DataFrame, portfolio_ki
     return d
 
 
+def add_concentrated_replacement_quality_features(frame: pd.DataFrame) -> pd.DataFrame:
+    """Add PIT-only features used by the default-OFF replacement-quality hook.
+
+    The feature recipe mirrors the stock-selection audit's ex-ante leader rank,
+    but it is computed directly from the decision-date candidate rows. It does
+    not read missed-leader artifacts or any forward-return labels.
+    """
+    if frame.empty:
+        return frame
+    d = frame.copy()
+    if "revenue_growth" not in d.columns:
+        revenue = pd.Series(float("nan"), index=d.index, dtype=float)
+        for col in CONCENTRATED_REPLACEMENT_QUALITY_REVENUE_COLUMNS:
+            if col not in d.columns:
+                continue
+            values = pd.to_numeric(d[col], errors="coerce")
+            revenue = revenue.where(revenue.notna(), values)
+        d["revenue_growth"] = revenue.fillna(0.0)
+
+    rank_pieces: list[pd.Series] = []
+    for col in CONCENTRATED_REPLACEMENT_QUALITY_SCORE_COLUMNS:
+        if col not in d.columns:
+            continue
+        values = pd.to_numeric(d[col], errors="coerce")
+        if values.notna().sum() <= 1:
+            continue
+        rank_pieces.append(values.rank(pct=True, ascending=True).fillna(0.0))
+    if rank_pieces:
+        d["replacement_quality_leader_score_ex_ante"] = pd.concat(rank_pieces, axis=1).mean(axis=1).fillna(0.0)
+        d["leader_rank_ex_ante"] = (
+            d["replacement_quality_leader_score_ex_ante"].rank(ascending=False, method="min").astype(int)
+        )
+        d["replacement_quality_leader_rank_components"] = ",".join(
+            col for col in CONCENTRATED_REPLACEMENT_QUALITY_SCORE_COLUMNS if col in d.columns
+        )
+    else:
+        d["replacement_quality_leader_score_ex_ante"] = 0.0
+        d["leader_rank_ex_ante"] = len(d) + 1
+        d["replacement_quality_leader_rank_components"] = ""
+    return d
+
+
 def score_month(month: pd.DataFrame) -> pd.DataFrame:
     d = score_candidate_lanes(month.copy())
     if "sector_leadership_score" not in d.columns:
@@ -624,6 +691,7 @@ def score_month(month: pd.DataFrame) -> pd.DataFrame:
     if "leader_tier" not in d.columns:
         d["leader_tier"] = d.apply(classify_leader_tier, axis=1)
     d["negative_fcf_risk_cap"] = numeric(d, "emerging_tenbagger_risk_cap", 1.0)
+    d = add_concentrated_replacement_quality_features(d)
     return d
 
 
@@ -675,6 +743,28 @@ def concentrated_score_sizing_single_cap() -> float:
     raw = os.environ.get("R1000_CONC_SCORE_SIZING_SINGLE_CAP", "")
     value = safe_float(raw, CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP)
     return float(max(0.0, value))
+
+
+def concentrated_replacement_quality_enabled() -> bool:
+    return bool(phase_is_enabled("concentrated_replacement_quality", default=False))
+
+
+def concentrated_replacement_quality_rank_max() -> int:
+    raw = os.environ.get("R1000_CONC_REPLACEMENT_QUALITY_RANK_MAX", "")
+    value = int(max(1, safe_float(raw, CONCENTRATED_REPLACEMENT_QUALITY_RANK_MAX)))
+    return value
+
+
+def concentrated_replacement_quality_revenue_growth_min() -> float:
+    raw = os.environ.get("R1000_CONC_REPLACEMENT_QUALITY_MIN_REVENUE_GROWTH", "")
+    value = safe_float(raw, CONCENTRATED_REPLACEMENT_QUALITY_REVENUE_GROWTH_MIN)
+    return float(max(-1.0, value))
+
+
+def concentrated_replacement_quality_max_swaps_per_date() -> int:
+    raw = os.environ.get("R1000_CONC_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE", "")
+    value = int(max(0, safe_float(raw, CONCENTRATED_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE)))
+    return value
 
 
 def ai_capex_momentum_tilt_enabled() -> bool:
@@ -2178,6 +2268,178 @@ def apply_concentrated_score_sizing_reweight(
     return out
 
 
+def apply_concentrated_replacement_quality_swap(
+    weighted: list[dict[str, Any]],
+    month_records: list[dict[str, Any]],
+    portfolio_kind: str,
+    month_rejections: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Default-OFF Concentrated slot swap for high-quality missed leaders.
+
+    This is the policy-path implementation of the P4 fixed-book
+    counterfactual's strongest rule: leader_rank_ex_ante <= 15 and
+    revenue_growth >= 10%. It keeps stock gross and cash unchanged by replacing
+    at most one existing non-cash slot with the candidate at the donor slot's
+    weight. The hook is research-only until broker replay validates it.
+    """
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    if not concentrated_replacement_quality_enabled():
+        return weighted
+
+    rank_max = concentrated_replacement_quality_rank_max()
+    revenue_min = concentrated_replacement_quality_revenue_growth_min()
+    max_swaps = concentrated_replacement_quality_max_swaps_per_date()
+    out = [dict(row) for row in weighted]
+    stock_gross_before = float(sum(safe_float(row.get("weight")) for row in out))
+    cash_before = max(0.0, 1.0 - stock_gross_before)
+    rule_label = f"rank_top{rank_max}_and_revenue_ge{int(round(revenue_min * 100))}"
+    for row in out:
+        row["concentrated_replacement_quality_enabled"] = True
+        row["concentrated_replacement_quality_applied"] = False
+        row["concentrated_replacement_quality_status"] = "existing_position_unchanged"
+        row["concentrated_replacement_quality_rule"] = rule_label
+        row["concentrated_replacement_quality_rank_max"] = rank_max
+        row["concentrated_replacement_quality_revenue_growth_min"] = revenue_min
+        row["concentrated_replacement_quality_cash_before"] = cash_before
+        row["concentrated_replacement_quality_stock_gross_before"] = stock_gross_before
+    if max_swaps <= 0:
+        for row in out:
+            row["concentrated_replacement_quality_status"] = "blocked_zero_max_swaps"
+        return out
+
+    held = {clean_ticker(row.get("ticker")) for row in out if clean_ticker(row.get("ticker")) not in CASH_TICKERS}
+    emerging_count = sum(
+        1 for row in out if str(row.get("primary_lane") or "") in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"}
+    )
+    eligible_rejection_by_ticker: dict[str, dict[str, Any]] = {}
+    for rej in month_rejections or []:
+        ticker = clean_ticker(rej.get("ticker"))
+        reason = str(rej.get("rejection_reason") or "")
+        if ticker and reason in CONCENTRATED_REPLACEMENT_QUALITY_REJECTION_REASONS:
+            eligible_rejection_by_ticker[ticker] = dict(rej)
+    if not eligible_rejection_by_ticker:
+        for row in out:
+            row["concentrated_replacement_quality_status"] = "blocked_no_cap_replacement_miss"
+        return out
+
+    candidates: list[dict[str, Any]] = []
+    for rec in month_records:
+        ticker = clean_ticker(rec.get("ticker"))
+        if not ticker or ticker in CASH_TICKERS or ticker in held:
+            continue
+        rejection = eligible_rejection_by_ticker.get(ticker)
+        if not rejection:
+            continue
+        rank_value = safe_float(rec.get("leader_rank_ex_ante"), float("inf"))
+        revenue_growth = safe_float(rec.get("revenue_growth"), float("-inf"))
+        if rank_value > rank_max or revenue_growth < revenue_min:
+            continue
+        ok, _reason = allowed_candidate(rec, portfolio_kind, emerging_count, is_new_buy=True)
+        if not ok:
+            continue
+        candidate = dict(rec)
+        candidate["_replacement_quality_rejection_reason"] = str(rejection.get("rejection_reason") or "")
+        candidate["_replacement_quality_rejection_weakest"] = clean_ticker(rejection.get("replacement_test_weakest_ticker"))
+        candidate["_replacement_quality_sort_key"] = (
+            safe_float(candidate.get("leader_rank_ex_ante"), float("inf")),
+            -safe_float(candidate.get("rs_spy_3m"), safe_float(candidate.get("rs_benchmark_3m"))),
+            -safe_float(candidate.get("revenue_growth")),
+            -safe_float(candidate.get("liquidity_score")),
+            ticker,
+        )
+        candidates.append(candidate)
+    if not candidates:
+        for row in out:
+            row["concentrated_replacement_quality_status"] = "blocked_no_eligible_candidate"
+        return out
+
+    donor_indices = [
+        idx for idx, row in enumerate(out) if clean_ticker(row.get("ticker")) and clean_ticker(row.get("ticker")) not in CASH_TICKERS
+    ]
+    if not donor_indices:
+        for row in out:
+            row["concentrated_replacement_quality_status"] = "blocked_no_donor"
+        return out
+
+    candidates.sort(key=lambda row: row["_replacement_quality_sort_key"])
+    swaps = 0
+    used_candidates: set[str] = set()
+    while swaps < max_swaps and candidates and donor_indices:
+        donor_idx = min(
+            donor_indices,
+            key=lambda idx: (
+                safe_float(out[idx].get("alphaops_vnext_score")),
+                safe_float(out[idx].get("weight")),
+                clean_ticker(out[idx].get("ticker")),
+            ),
+        )
+        donor = out[donor_idx]
+        chosen = None
+        for candidate in candidates:
+            ticker = clean_ticker(candidate.get("ticker"))
+            if ticker and ticker not in used_candidates:
+                chosen = candidate
+                break
+        if chosen is None:
+            break
+        donor_ticker = clean_ticker(donor.get("ticker"))
+        chosen_ticker = clean_ticker(chosen.get("ticker"))
+        weight = safe_float(donor.get("weight"), safe_float(donor.get("target_weight")))
+        entry = dict(chosen)
+        entry.pop("_replacement_quality_sort_key", None)
+        rejection_reason = str(entry.pop("_replacement_quality_rejection_reason", "") or "")
+        rejection_weakest = clean_ticker(entry.pop("_replacement_quality_rejection_weakest", ""))
+        entry["ticker"] = chosen_ticker
+        entry["weight"] = weight
+        entry["target_weight"] = weight
+        entry["holding_state"] = "NEW"
+        entry["holding_state_reason"] = "concentrated_replacement_quality_candidate"
+        entry["hold_replace_decision"] = "concentrated_replacement_quality_swap"
+        entry["prior_weight"] = 0.0
+        entry["concentrated_replacement_quality_enabled"] = True
+        entry["concentrated_replacement_quality_applied"] = True
+        entry["concentrated_replacement_quality_status"] = "applied"
+        entry["concentrated_replacement_quality_rule"] = rule_label
+        entry["concentrated_replacement_quality_rank_max"] = rank_max
+        entry["concentrated_replacement_quality_revenue_growth_min"] = revenue_min
+        entry["concentrated_replacement_quality_removed_ticker"] = donor_ticker
+        entry["concentrated_replacement_quality_added_ticker"] = chosen_ticker
+        entry["concentrated_replacement_quality_source_rejection_reason"] = rejection_reason
+        entry["concentrated_replacement_quality_rejection_weakest_ticker"] = rejection_weakest
+        entry["concentrated_replacement_quality_replacement_weight"] = weight
+        entry["concentrated_replacement_quality_leader_rank_ex_ante"] = safe_float(chosen.get("leader_rank_ex_ante"))
+        entry["concentrated_replacement_quality_revenue_growth"] = safe_float(chosen.get("revenue_growth"))
+        entry["concentrated_replacement_quality_rs_spy_3m"] = safe_float(
+            chosen.get("rs_spy_3m"), safe_float(chosen.get("rs_benchmark_3m"))
+        )
+        entry["concentrated_replacement_quality_cash_before"] = cash_before
+        entry["concentrated_replacement_quality_stock_gross_before"] = stock_gross_before
+        entry["selection_reason"] = (
+            str(chosen.get("selection_reason") or chosen.get("primary_lane") or "alphaops_vnext_score")
+            + f"|concentrated_replacement_quality_swap:{rule_label}:replaced_{donor_ticker}"
+        )
+        out[donor_idx] = entry
+        donor_indices.remove(donor_idx)
+        used_candidates.add(chosen_ticker)
+        held.add(chosen_ticker)
+        swaps += 1
+
+    stock_gross_after = float(sum(safe_float(row.get("weight")) for row in out))
+    cash_after = max(0.0, 1.0 - stock_gross_after)
+    for row in out:
+        row["concentrated_replacement_quality_swap_count"] = swaps
+        row["concentrated_replacement_quality_cash_after"] = cash_after
+        row["concentrated_replacement_quality_stock_gross_after"] = stock_gross_after
+        row["concentrated_replacement_quality_cash_preserved"] = abs(cash_after - cash_before) <= 1e-9
+        row["concentrated_replacement_quality_stock_gross_preserved"] = (
+            abs(stock_gross_after - stock_gross_before) <= 1e-9
+        )
+        if swaps <= 0:
+            row["concentrated_replacement_quality_status"] = "blocked_no_swap"
+    return out
+
+
 def apply_main_ai_capex_momentum_tilt(
     weighted: list[dict[str, Any]],
     portfolio_kind: str,
@@ -2402,6 +2664,7 @@ def build_variant_book(
         month_records = month.to_dict("records")
         lane_rows.extend([{**rec, "rebalance_date": dt.date().isoformat()} for rec in month_records])
         by_ticker = {clean_ticker(rec.get("ticker")): rec for rec in month_records}
+        month_reject_start = len(rejects)
         selected: list[dict[str, Any]] = []
         selected_tickers: set[str] = set()
         emerging_count = 0
@@ -2544,6 +2807,12 @@ def build_variant_book(
         weighted = apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_ai_capex_momentum_tilt(weighted, portfolio_kind)
         weighted = apply_concentrated_score_sizing_reweight(weighted, portfolio_kind)
+        weighted = apply_concentrated_replacement_quality_swap(
+            weighted,
+            month_records,
+            portfolio_kind,
+            rejects[month_reject_start:],
+        )
         weighted = apply_concentrated_cashfunded_early_entry(weighted, month_records, portfolio_kind)
         prev = {
             clean_ticker(row.get("ticker")): row
@@ -2628,6 +2897,7 @@ def latest_book_date(book: pd.DataFrame) -> pd.Timestamp | None:
 TARGET_GENERATION_ENV_KEYS = [
     "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED",
     "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED",
+    "PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED",
     "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED",
     "PHASE_REGIME_CAPACITY_BULL_FLOOR_ENABLED",
     "R1000_CONC_GROSS_CAP_FLOOR",
@@ -2636,6 +2906,9 @@ TARGET_GENERATION_ENV_KEYS = [
     "R1000_CONC_SCORE_SIZING_RANK_POWER",
     "R1000_CONC_SCORE_SIZING_CAP_MODE",
     "R1000_CONC_SCORE_SIZING_SINGLE_CAP",
+    "R1000_CONC_REPLACEMENT_QUALITY_RANK_MAX",
+    "R1000_CONC_REPLACEMENT_QUALITY_MIN_REVENUE_GROWTH",
+    "R1000_CONC_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE",
     "R1000_MAIN_AI_CAPEX_TILT_STRENGTH",
     "R1000_MAIN_FAST_CRASH_HEDGE_TICKER",
     "R1000_MAIN_FAST_CRASH_HEDGE_BENCHMARK",

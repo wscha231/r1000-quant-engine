@@ -25,6 +25,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap,
     apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_concentrated_high_vol_weak_timing_new_entry_cap,
+    apply_concentrated_replacement_quality_swap,
     apply_concentrated_score_sizing_reweight,
     apply_concentrated_unconfirmed_high_vol_new_entry_cap,
     apply_concentrated_unconfirmed_quality_bull_new_entry_cap,
@@ -261,6 +262,7 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         assert input_manifest["candidate_book"]["exists"] is True
         assert input_manifest["price_cache"]["required_ticker_count"] >= 1
         assert input_manifest["price_cache"]["missing_price_file_count"] >= 0
+        assert "PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED" in input_manifest["env"]
         assert "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED" in input_manifest["env"]
 
         main = pd.read_csv(reports / "operating_main_target_book.csv")
@@ -502,6 +504,148 @@ def test_concentrated_score_sizing_reweight_constant_signal_noop() -> None:
     assert out == selected
 
 
+def test_concentrated_replacement_quality_default_off_preserves_book() -> None:
+    _clear_concentrated_replacement_quality_env()
+    selected = [
+        {"ticker": "LOW", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 1.0},
+        {"ticker": "KEEP", "weight": 0.30, "target_weight": 0.30, "alphaops_vnext_score": 3.0},
+    ]
+    candidates = [
+        {
+            "ticker": "WIN",
+            "leader_rank_ex_ante": 4,
+            "revenue_growth": 0.12,
+            "rs_spy_3m": 0.30,
+            "alphaops_vnext_score": 4.0,
+            "primary_lane": "MARKET_LEADER",
+            "dual_leader_gate": True,
+            "crisis_new_buy_allowed": True,
+        }
+    ]
+
+    out = apply_concentrated_replacement_quality_swap(selected, candidates, "concentrated")
+
+    assert out == selected
+
+
+def test_concentrated_replacement_quality_swaps_one_slot_and_preserves_cash() -> None:
+    _clear_concentrated_replacement_quality_env()
+    os.environ["PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED"] = "1"
+    try:
+        selected = [
+            {"ticker": "LOW", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 1.0},
+            {"ticker": "KEEP", "weight": 0.30, "target_weight": 0.30, "alphaops_vnext_score": 3.0},
+        ]
+        candidates = [
+            {
+                "ticker": "WIN",
+                "leader_rank_ex_ante": 4,
+                "revenue_growth": 0.12,
+                "rs_spy_3m": 0.31,
+                "rs_benchmark_3m": 0.31,
+                "liquidity_score": 10.0,
+                "alphaops_vnext_score": 4.0,
+                "primary_lane": "MARKET_LEADER",
+                "dual_leader_gate": True,
+                "crisis_new_buy_allowed": True,
+                "selection_reason": "test_candidate",
+            },
+            {
+                "ticker": "LOWREV",
+                "leader_rank_ex_ante": 2,
+                "revenue_growth": 0.02,
+                "rs_spy_3m": 0.40,
+                "alphaops_vnext_score": 5.0,
+                "primary_lane": "MARKET_LEADER",
+                "dual_leader_gate": True,
+                "crisis_new_buy_allowed": True,
+            },
+        ]
+        rejections = [{"ticker": "WIN", "rejection_reason": "hold_replace_threshold_not_met"}]
+        out = apply_concentrated_replacement_quality_swap(selected, candidates, "concentrated", rejections)
+    finally:
+        _clear_concentrated_replacement_quality_env()
+
+    by_ticker = {row["ticker"]: row for row in out}
+    assert set(by_ticker) == {"WIN", "KEEP"}
+    assert by_ticker["WIN"]["weight"] == 0.20
+    assert by_ticker["WIN"]["target_weight"] == 0.20
+    assert by_ticker["KEEP"]["weight"] == 0.30
+    assert by_ticker["WIN"]["concentrated_replacement_quality_status"] == "applied"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_removed_ticker"] == "LOW"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_added_ticker"] == "WIN"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_source_rejection_reason"] == "hold_replace_threshold_not_met"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_cash_preserved"] is True
+    assert by_ticker["WIN"]["concentrated_replacement_quality_stock_gross_preserved"] is True
+    assert by_ticker["WIN"]["concentrated_replacement_quality_swap_count"] == 1
+    assert round(sum(float(row["weight"]) for row in out), 10) == 0.50
+
+
+def test_concentrated_replacement_quality_blocks_weak_or_ineligible_candidates() -> None:
+    _clear_concentrated_replacement_quality_env()
+    os.environ["PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED"] = "1"
+    try:
+        selected = [
+            {"ticker": "LOW", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 1.0},
+            {"ticker": "KEEP", "weight": 0.30, "target_weight": 0.30, "alphaops_vnext_score": 3.0},
+        ]
+        candidates = [
+            {
+                "ticker": "LOWREV",
+                "leader_rank_ex_ante": 3,
+                "revenue_growth": 0.03,
+                "rs_spy_3m": 0.30,
+                "alphaops_vnext_score": 5.0,
+                "primary_lane": "MARKET_LEADER",
+                "dual_leader_gate": True,
+                "crisis_new_buy_allowed": True,
+            },
+            {
+                "ticker": "NOTDUAL",
+                "leader_rank_ex_ante": 2,
+                "revenue_growth": 0.20,
+                "rs_spy_3m": 0.40,
+                "alphaops_vnext_score": 6.0,
+                "primary_lane": "MARKET_LEADER",
+                "dual_leader_gate": False,
+                "crisis_new_buy_allowed": True,
+            },
+        ]
+        rejections = [
+            {"ticker": "LOWREV", "rejection_reason": "hold_replace_threshold_not_met"},
+            {"ticker": "NOTDUAL", "rejection_reason": "hold_replace_threshold_not_met"},
+        ]
+        out = apply_concentrated_replacement_quality_swap(selected, candidates, "concentrated", rejections)
+    finally:
+        _clear_concentrated_replacement_quality_env()
+
+    assert {row["ticker"] for row in out} == {"LOW", "KEEP"}
+    assert all(row["concentrated_replacement_quality_status"] == "blocked_no_eligible_candidate" for row in out)
+
+
+def test_concentrated_replacement_quality_main_portfolio_noop() -> None:
+    _clear_concentrated_replacement_quality_env()
+    os.environ["PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED"] = "1"
+    try:
+        selected = [{"ticker": "LOW", "weight": 0.20, "target_weight": 0.20, "alphaops_vnext_score": 1.0}]
+        candidates = [
+            {
+                "ticker": "WIN",
+                "leader_rank_ex_ante": 1,
+                "revenue_growth": 0.20,
+                "rs_spy_3m": 0.30,
+                "alphaops_vnext_score": 5.0,
+                "primary_lane": "MARKET_LEADER",
+                "dual_leader_gate": True,
+            }
+        ]
+        out = apply_concentrated_replacement_quality_swap(selected, candidates, "main")
+    finally:
+        _clear_concentrated_replacement_quality_env()
+
+    assert out == selected
+
+
 def _clear_leadership_persistence_env() -> None:
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED", None)
     os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER", None)
@@ -518,6 +662,13 @@ def _clear_concentrated_score_sizing_env() -> None:
     os.environ.pop("R1000_CONC_SCORE_SIZING_RANK_POWER", None)
     os.environ.pop("R1000_CONC_SCORE_SIZING_CAP_MODE", None)
     os.environ.pop("R1000_CONC_SCORE_SIZING_SINGLE_CAP", None)
+
+
+def _clear_concentrated_replacement_quality_env() -> None:
+    os.environ.pop("PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED", None)
+    os.environ.pop("R1000_CONC_REPLACEMENT_QUALITY_RANK_MAX", None)
+    os.environ.pop("R1000_CONC_REPLACEMENT_QUALITY_MIN_REVENUE_GROWTH", None)
+    os.environ.pop("R1000_CONC_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE", None)
 
 
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
@@ -3050,6 +3201,10 @@ if __name__ == "__main__":
     test_concentrated_score_sizing_reweight_main_portfolio_noop()
     test_concentrated_score_sizing_reweight_cap30_env_preserves_gross_without_breach()
     test_concentrated_score_sizing_reweight_constant_signal_noop()
+    test_concentrated_replacement_quality_default_off_preserves_book()
+    test_concentrated_replacement_quality_swaps_one_slot_and_preserves_cash()
+    test_concentrated_replacement_quality_blocks_weak_or_ineligible_candidates()
+    test_concentrated_replacement_quality_main_portfolio_noop()
     test_shakeout_guard_prod_default_off_preserves_trim()
     test_shakeout_guard_prod_env_suppresses_transient_trim_only()
     test_score_month_populates_shakeout_guard_inputs_from_enriched_candidate_rows()
