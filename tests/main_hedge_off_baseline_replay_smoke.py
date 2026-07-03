@@ -11,7 +11,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_main_hedge_off_baseline_replay import build_hedge_off_book  # noqa: E402
+from tools.run_main_hedge_off_baseline_replay import (  # noqa: E402
+    build_hedge_off_book,
+    concentration_metrics,
+)
 
 
 def test_build_hedge_off_book_moves_sh_weight_to_cash() -> None:
@@ -59,9 +62,37 @@ def test_build_hedge_off_book_creates_cash_when_absent() -> None:
         assert abs(float(generated["weight"].sum()) - 1.0) < 1e-12
 
 
+def test_concentration_metrics_excludes_cash_and_hedge() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pd.DataFrame(
+            [
+                {"date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
+                {"date": "2026-01-02", "ticker": "BBB", "weight": 0.25},
+                {"date": "2026-01-02", "ticker": "CASH", "weight": 0.25},
+                {"date": "2026-01-03", "ticker": "AAA", "weight": 0.40},
+                {"date": "2026-01-03", "ticker": "CCC", "weight": 0.30},
+                {"date": "2026-01-03", "ticker": "SH", "weight": 0.10},
+                {"date": "2026-01-03", "ticker": "CASH", "weight": 0.20},
+            ]
+        ).to_csv(root / "holdings_daily.csv", index=False)
+
+        metrics = concentration_metrics(root, exclude_tickers={"SH"})
+        expected_latest_hhi = (0.40 / 0.70) ** 2 + (0.30 / 0.70) ** 2
+        assert metrics["concentration_status"] == "completed"
+        assert metrics["latest_top_ticker"] == "AAA"
+        assert abs(metrics["latest_stock_hhi"] - expected_latest_hhi) < 1e-12
+        assert abs(metrics["latest_top1_weight"] - 0.40) < 1e-12
+        assert abs(metrics["latest_top3_weight"] - 0.70) < 1e-12
+        assert abs(metrics["latest_stock_gross_weight"] - 0.70) < 1e-12
+        assert abs(metrics["latest_cash_or_uninvested_weight"] - 0.30) < 1e-12
+        assert metrics["latest_position_count"] == 2
+
+
 def main() -> int:
     test_build_hedge_off_book_moves_sh_weight_to_cash()
     test_build_hedge_off_book_creates_cash_when_absent()
+    test_concentration_metrics_excludes_cash_and_hedge()
     print("main_hedge_off_baseline_replay_smoke: PASS")
     return 0
 

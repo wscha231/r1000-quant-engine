@@ -102,6 +102,104 @@ def bool_text(value: Any) -> str:
     return "true" if bool(value) else "false"
 
 
+def concentration_metrics(
+    replay_dir: Path,
+    *,
+    exclude_tickers: set[str] | None = None,
+) -> dict[str, Any]:
+    """Summarize long-book concentration from a broker replay holdings file."""
+
+    holdings_path = replay_dir / "holdings_daily.csv"
+    exclude = {item.upper().strip() for item in (exclude_tickers or set())}
+    exclude.update({"CASH", "__CASH__"})
+    empty = {
+        "concentration_status": "missing_holdings",
+        "avg_stock_hhi": 0.0,
+        "max_stock_hhi": 0.0,
+        "latest_stock_hhi": 0.0,
+        "avg_top1_weight": 0.0,
+        "max_top1_weight": 0.0,
+        "latest_top1_weight": 0.0,
+        "avg_top3_weight": 0.0,
+        "max_top3_weight": 0.0,
+        "latest_top3_weight": 0.0,
+        "avg_top5_weight": 0.0,
+        "max_top5_weight": 0.0,
+        "latest_top5_weight": 0.0,
+        "avg_position_count": 0.0,
+        "min_position_count": 0,
+        "latest_position_count": 0,
+        "latest_top_ticker": "",
+        "latest_stock_gross_weight": 0.0,
+        "latest_cash_or_uninvested_weight": 0.0,
+    }
+    if not holdings_path.exists():
+        return empty
+    raw = pd.read_csv(holdings_path)
+    required = {"date", "ticker", "weight"}
+    if raw.empty or not required.issubset(raw.columns):
+        return empty
+
+    frame = raw.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame = frame.dropna(subset=["date"])
+    frame["ticker"] = frame["ticker"].astype(str).str.upper().str.strip()
+    frame["weight"] = pd.to_numeric(frame["weight"], errors="coerce").fillna(0.0)
+    frame = frame.loc[(frame["weight"] > 0.0) & ~frame["ticker"].isin(exclude)].copy()
+    if frame.empty:
+        return {**empty, "concentration_status": "empty_after_filters"}
+
+    daily_rows: list[dict[str, Any]] = []
+    for date_value, group in frame.groupby("date", sort=True):
+        weights = sorted((float(x) for x in group["weight"].tolist() if float(x) > 0.0), reverse=True)
+        if not weights:
+            continue
+        stock_gross = float(sum(weights))
+        norm = [weight / stock_gross for weight in weights] if stock_gross > 0.0 else []
+        top_row = group.sort_values("weight", ascending=False).iloc[0]
+        daily_rows.append(
+            {
+                "date": date_value.strftime("%Y-%m-%d"),
+                "stock_gross_weight": stock_gross,
+                "stock_hhi": float(sum(weight * weight for weight in norm)),
+                "top1_weight": float(sum(weights[:1])),
+                "top3_weight": float(sum(weights[:3])),
+                "top5_weight": float(sum(weights[:5])),
+                "position_count": int(len(weights)),
+                "top_ticker": str(top_row["ticker"]),
+                "top_ticker_weight": float(top_row["weight"]),
+                "cash_or_uninvested_weight": float(max(0.0, 1.0 - stock_gross)),
+            }
+        )
+    if not daily_rows:
+        return {**empty, "concentration_status": "empty_daily_rows"}
+
+    daily = pd.DataFrame(daily_rows)
+    latest = daily.sort_values("date").iloc[-1]
+    return {
+        "concentration_status": "completed",
+        "avg_stock_hhi": float(daily["stock_hhi"].mean()),
+        "max_stock_hhi": float(daily["stock_hhi"].max()),
+        "latest_stock_hhi": float(latest["stock_hhi"]),
+        "avg_top1_weight": float(daily["top1_weight"].mean()),
+        "max_top1_weight": float(daily["top1_weight"].max()),
+        "latest_top1_weight": float(latest["top1_weight"]),
+        "avg_top3_weight": float(daily["top3_weight"].mean()),
+        "max_top3_weight": float(daily["top3_weight"].max()),
+        "latest_top3_weight": float(latest["top3_weight"]),
+        "avg_top5_weight": float(daily["top5_weight"].mean()),
+        "max_top5_weight": float(daily["top5_weight"].max()),
+        "latest_top5_weight": float(latest["top5_weight"]),
+        "avg_position_count": float(daily["position_count"].mean()),
+        "min_position_count": int(daily["position_count"].min()),
+        "latest_position_count": int(latest["position_count"]),
+        "latest_top_ticker": str(latest["top_ticker"]),
+        "latest_top_ticker_weight": float(latest["top_ticker_weight"]),
+        "latest_stock_gross_weight": float(latest["stock_gross_weight"]),
+        "latest_cash_or_uninvested_weight": float(latest["cash_or_uninvested_weight"]),
+    }
+
+
 def build_hedge_off_book(
     *,
     target_book: Path,
@@ -185,8 +283,12 @@ def build_hedge_off_book(
     return removed, stats
 
 
-def metric_row(label: str, metrics: dict[str, Any]) -> dict[str, Any]:
-    return {
+def metric_row(
+    label: str,
+    metrics: dict[str, Any],
+    concentration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    row = {
         "arm": label,
         "status": metrics.get("status", "completed" if "cagr" in metrics else ""),
         "metric_mode": metrics.get("metric_mode", ""),
@@ -204,6 +306,9 @@ def metric_row(label: str, metrics: dict[str, Any]) -> dict[str, Any]:
         "end_date_matches_official": metrics.get("end_date_matches_official", ""),
         "cash_interest_accrued_usd": safe_float(metrics.get("cash_interest_accrued_usd")),
     }
+    if concentration:
+        row.update(concentration)
+    return row
 
 
 def run_replay(
@@ -257,6 +362,30 @@ def render_report(summary: dict[str, Any], rows: list[dict[str, Any]]) -> str:
         lines.append(
             f"| {row['arm']} | {row['cagr']:.2%} | {row['max_dd']:.2%} | "
             f"{row['sharpe']:.3f} | {row['ending_capital_usd']:.2f} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Concentration",
+            "",
+            "Concentration excludes CASH and the hedge ticker from stock-book HHI. "
+            "Top weights are raw account weights, so residual cash remains visible through stock gross.",
+            "",
+            "| Arm | Latest top | Latest top1 | Latest top3 | Latest top5 | Latest stock HHI | Latest positions | Latest stock gross |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in rows:
+        if row.get("concentration_status") != "completed":
+            continue
+        lines.append(
+            f"| {row['arm']} | {row.get('latest_top_ticker', '')} | "
+            f"{row.get('latest_top1_weight', 0.0):.2%} | "
+            f"{row.get('latest_top3_weight', 0.0):.2%} | "
+            f"{row.get('latest_top5_weight', 0.0):.2%} | "
+            f"{row.get('latest_stock_hhi', 0.0):.4f} | "
+            f"{int(row.get('latest_position_count', 0))} | "
+            f"{row.get('latest_stock_gross_weight', 0.0):.2%} |"
         )
     lines.extend(
         [
@@ -331,14 +460,36 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         starting_capital=args.starting_capital,
     )
 
+    concentration_exclude = {args.hedge_ticker}
+    concentration_by_arm = {
+        "hedge_on_zero_replay": concentration_metrics(
+            output_dir / "hedge_on_zero_yield_replay",
+            exclude_tickers=concentration_exclude,
+        ),
+        "hedge_on_cash_carry_replay": concentration_metrics(
+            output_dir / "hedge_on_cash_carry_replay",
+            exclude_tickers=concentration_exclude,
+        ),
+        "hedge_off_zero_yield": concentration_metrics(
+            output_dir / "hedge_off_zero_yield_replay",
+            exclude_tickers=concentration_exclude,
+        ),
+        "hedge_off_cash_carry": concentration_metrics(
+            output_dir / "hedge_off_cash_carry_replay",
+            exclude_tickers=concentration_exclude,
+        ),
+    }
     rows = [
         metric_row("official_hedge_on_zero", official_main),
-        metric_row("hedge_on_zero_replay", hedge_on_zero),
-        metric_row("hedge_on_cash_carry_replay", hedge_on_cash),
-        metric_row("hedge_off_zero_yield", hedge_off_zero),
-        metric_row("hedge_off_cash_carry", hedge_off_cash),
+        metric_row("hedge_on_zero_replay", hedge_on_zero, concentration_by_arm["hedge_on_zero_replay"]),
+        metric_row("hedge_on_cash_carry_replay", hedge_on_cash, concentration_by_arm["hedge_on_cash_carry_replay"]),
+        metric_row("hedge_off_zero_yield", hedge_off_zero, concentration_by_arm["hedge_off_zero_yield"]),
+        metric_row("hedge_off_cash_carry", hedge_off_cash, concentration_by_arm["hedge_off_cash_carry"]),
     ]
     pd.DataFrame(rows).to_csv(output_dir / "hedge_on_vs_off.csv", index=False)
+    pd.DataFrame(
+        [{"arm": arm, **values} for arm, values in concentration_by_arm.items()]
+    ).to_csv(output_dir / "concentration.csv", index=False)
 
     official_cagr = safe_float(official_main.get("cagr"))
     official_mdd = safe_float(official_main.get("max_dd", official_main.get("max_drawdown")))
@@ -385,6 +536,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "delta_max_dd": off_cash_mdd - safe_float(hedge_on_cash.get("max_dd", hedge_on_cash.get("max_drawdown"))),
         "official_vs_control_cagr_delta": on_replay_cagr - official_cagr,
         "official_vs_control_max_dd_delta": on_replay_mdd - official_mdd,
+        "concentration_by_arm": concentration_by_arm,
+        "hedge_off_cash_carry_latest_top_ticker": concentration_by_arm["hedge_off_cash_carry"].get("latest_top_ticker", ""),
+        "hedge_off_cash_carry_latest_top1_weight": concentration_by_arm["hedge_off_cash_carry"].get("latest_top1_weight", 0.0),
+        "hedge_off_cash_carry_latest_top3_weight": concentration_by_arm["hedge_off_cash_carry"].get("latest_top3_weight", 0.0),
+        "hedge_off_cash_carry_latest_top5_weight": concentration_by_arm["hedge_off_cash_carry"].get("latest_top5_weight", 0.0),
+        "hedge_off_cash_carry_latest_stock_hhi": concentration_by_arm["hedge_off_cash_carry"].get("latest_stock_hhi", 0.0),
+        "hedge_off_cash_carry_latest_position_count": concentration_by_arm["hedge_off_cash_carry"].get("latest_position_count", 0),
+        "hedge_off_cash_carry_latest_stock_gross_weight": concentration_by_arm["hedge_off_cash_carry"].get("latest_stock_gross_weight", 0.0),
         "end_date_matches_official": bool(end_date_ok),
         "valid_replays": bool(valid_replays),
         "quote_long_only_allowed": bool(valid_replays and end_date_ok),

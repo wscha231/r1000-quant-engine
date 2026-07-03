@@ -59,6 +59,26 @@ Removed hedge rows:
 | Hedge-OFF zero-yield | 34.1780% | -24.0846% | 1.241 | 799,734.92 |
 | Hedge-OFF cash-carry | 34.9962% | -24.0026% | 1.264 | 834,868.09 |
 
+## Concentration
+
+The replay now measures concentration directly from broker `holdings_daily.csv`.
+The stock-book HHI excludes CASH and the removed SH hedge ticker. Top weights
+are raw account weights, so cash remains visible through stock gross.
+
+| Arm | Latest top | Latest top1 | Latest top3 | Latest top5 | Latest stock HHI | Latest positions | Latest stock gross |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Hedge-on zero-yield replay | SNDK | 16.59% | 41.40% | 59.42% | 0.1199 | 13 | 84.34% |
+| Hedge-on cash-carry replay | SNDK | 16.36% | 41.22% | 59.25% | 0.1194 | 13 | 84.19% |
+| Hedge-OFF zero-yield | SNDK | 16.41% | 41.31% | 59.30% | 0.1196 | 13 | 84.26% |
+| Hedge-OFF cash-carry | SNDK | 16.45% | 41.32% | 59.32% | 0.1194 | 13 | 84.38% |
+
+Interpretation:
+
+- Removing SH does not create a hidden Main concentration problem.
+- Latest Main top1 remains about `16.45%`; top5 is about `59.32%`.
+- Hedge-OFF and hedge-on concentration are effectively the same.
+- The P1 issue is the strict `0.0038pp` CAGR shortfall, not concentration.
+
 Control reproduction:
 
 - CAGR delta vs official: `+0.000365pp`
