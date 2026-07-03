@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_concentrated_cap_replacement_broker_counterfactual import run  # noqa: E402
+from tools.run_concentrated_cap_replacement_broker_counterfactual import (  # noqa: E402
+    portfolio_concentration_delta,
+    portfolio_concentration_metrics,
+    run,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -161,8 +165,46 @@ def test_counterfactual_swaps_existing_slots_without_cash_reduction() -> None:
         assert "Forward returns remain audit labels only" in (root / "out" / "report.md").read_text(encoding="utf-8")
 
 
+def test_portfolio_concentration_metrics_from_holdings_daily() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        challenger = root / "challenger"
+        baseline.mkdir()
+        challenger.mkdir()
+        pd.DataFrame(
+            [
+                {"date": "2026-01-02", "ticker": "AAA", "weight": 0.35},
+                {"date": "2026-01-02", "ticker": "BBB", "weight": 0.25},
+                {"date": "2026-01-02", "ticker": "CASH", "weight": 0.40},
+                {"date": "2026-01-03", "ticker": "AAA", "weight": 0.40},
+                {"date": "2026-01-03", "ticker": "BBB", "weight": 0.20},
+                {"date": "2026-01-03", "ticker": "CASH", "weight": 0.40},
+            ]
+        ).to_csv(baseline / "holdings_daily.csv", index=False)
+        pd.DataFrame(
+            [
+                {"date": "2026-01-03", "ticker": "CCC", "weight": 0.46},
+                {"date": "2026-01-03", "ticker": "BBB", "weight": 0.20},
+                {"date": "2026-01-03", "ticker": "CASH", "weight": 0.34},
+            ]
+        ).to_csv(challenger / "holdings_daily.csv", index=False)
+
+        base = portfolio_concentration_metrics(baseline)
+        chal = portfolio_concentration_metrics(challenger)
+        delta = portfolio_concentration_delta(base, chal)
+        expected_hhi = (0.46 / 0.66) ** 2 + (0.20 / 0.66) ** 2
+        assert chal["status"] == "completed"
+        assert chal["latest_top_ticker"] == "CCC"
+        assert abs(chal["latest_stock_hhi"] - expected_hhi) < 1e-12
+        assert abs(delta["latest_top1_delta"] - 0.06) < 1e-12
+        assert delta["latest_top_ticker_changed"] is True
+        assert delta["portfolio_concentration_warning"] is True
+
+
 def main() -> int:
     test_counterfactual_swaps_existing_slots_without_cash_reduction()
+    test_portfolio_concentration_metrics_from_holdings_daily()
     print("concentrated_cap_replacement_broker_counterfactual_smoke: PASS")
     return 0
 

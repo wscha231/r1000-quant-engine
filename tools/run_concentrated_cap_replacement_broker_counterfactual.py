@@ -248,6 +248,121 @@ def exposure_by_date(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def portfolio_concentration_metrics(replay_dir: Path) -> dict[str, Any]:
+    """Summarize broker-held stock concentration from holdings_daily.csv."""
+
+    holdings_path = replay_dir / "holdings_daily.csv"
+    empty = {
+        "status": "missing_holdings",
+        "avg_stock_hhi": 0.0,
+        "max_stock_hhi": 0.0,
+        "latest_stock_hhi": 0.0,
+        "avg_top1_weight": 0.0,
+        "max_top1_weight": 0.0,
+        "latest_top1_weight": 0.0,
+        "avg_top3_weight": 0.0,
+        "max_top3_weight": 0.0,
+        "latest_top3_weight": 0.0,
+        "avg_top5_weight": 0.0,
+        "max_top5_weight": 0.0,
+        "latest_top5_weight": 0.0,
+        "avg_position_count": 0.0,
+        "min_position_count": 0,
+        "latest_position_count": 0,
+        "latest_top_ticker": "",
+        "latest_top_ticker_weight": 0.0,
+        "latest_stock_gross_weight": 0.0,
+        "latest_cash_or_uninvested_weight": 0.0,
+    }
+    if not holdings_path.exists():
+        return empty
+    raw = pd.read_csv(holdings_path)
+    if raw.empty or not {"date", "ticker", "weight"}.issubset(raw.columns):
+        return empty
+
+    frame = raw.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame = frame.dropna(subset=["date"])
+    frame["ticker"] = frame["ticker"].map(normalize_ticker)
+    frame["weight"] = pd.to_numeric(frame["weight"], errors="coerce").fillna(0.0)
+    frame = frame.loc[(frame["weight"] > 0.0) & ~frame["ticker"].isin(CASH_TICKERS)].copy()
+    if frame.empty:
+        return {**empty, "status": "empty_after_filters"}
+
+    rows: list[dict[str, Any]] = []
+    for dt, day in frame.groupby("date", sort=True):
+        weights = sorted((float(x) for x in day["weight"].tolist() if float(x) > 0.0), reverse=True)
+        if not weights:
+            continue
+        stock_gross = float(sum(weights))
+        normalized = [weight / stock_gross for weight in weights] if stock_gross > 0.0 else []
+        top = day.sort_values("weight", ascending=False).iloc[0]
+        rows.append(
+            {
+                "date": pd.Timestamp(dt).strftime("%Y-%m-%d"),
+                "stock_gross_weight": stock_gross,
+                "stock_hhi": float(sum(weight * weight for weight in normalized)),
+                "top1_weight": float(sum(weights[:1])),
+                "top3_weight": float(sum(weights[:3])),
+                "top5_weight": float(sum(weights[:5])),
+                "position_count": int(len(weights)),
+                "top_ticker": str(top["ticker"]),
+                "top_ticker_weight": float(top["weight"]),
+                "cash_or_uninvested_weight": float(max(0.0, 1.0 - stock_gross)),
+            }
+        )
+    if not rows:
+        return {**empty, "status": "empty_daily_rows"}
+    daily = pd.DataFrame(rows)
+    latest = daily.sort_values("date").iloc[-1]
+    return {
+        "status": "completed",
+        "avg_stock_hhi": float(daily["stock_hhi"].mean()),
+        "max_stock_hhi": float(daily["stock_hhi"].max()),
+        "latest_stock_hhi": float(latest["stock_hhi"]),
+        "avg_top1_weight": float(daily["top1_weight"].mean()),
+        "max_top1_weight": float(daily["top1_weight"].max()),
+        "latest_top1_weight": float(latest["top1_weight"]),
+        "avg_top3_weight": float(daily["top3_weight"].mean()),
+        "max_top3_weight": float(daily["top3_weight"].max()),
+        "latest_top3_weight": float(latest["top3_weight"]),
+        "avg_top5_weight": float(daily["top5_weight"].mean()),
+        "max_top5_weight": float(daily["top5_weight"].max()),
+        "latest_top5_weight": float(latest["top5_weight"]),
+        "avg_position_count": float(daily["position_count"].mean()),
+        "min_position_count": int(daily["position_count"].min()),
+        "latest_position_count": int(latest["position_count"]),
+        "latest_top_ticker": str(latest["top_ticker"]),
+        "latest_top_ticker_weight": float(latest["top_ticker_weight"]),
+        "latest_stock_gross_weight": float(latest["stock_gross_weight"]),
+        "latest_cash_or_uninvested_weight": float(latest["cash_or_uninvested_weight"]),
+    }
+
+
+def portfolio_concentration_delta(
+    baseline: dict[str, Any],
+    challenger: dict[str, Any],
+) -> dict[str, Any]:
+    deltas = {
+        "latest_top1_delta": safe_float(challenger.get("latest_top1_weight")) - safe_float(baseline.get("latest_top1_weight")),
+        "latest_top3_delta": safe_float(challenger.get("latest_top3_weight")) - safe_float(baseline.get("latest_top3_weight")),
+        "latest_top5_delta": safe_float(challenger.get("latest_top5_weight")) - safe_float(baseline.get("latest_top5_weight")),
+        "latest_stock_hhi_delta": safe_float(challenger.get("latest_stock_hhi")) - safe_float(baseline.get("latest_stock_hhi")),
+        "latest_stock_gross_delta": safe_float(challenger.get("latest_stock_gross_weight")) - safe_float(baseline.get("latest_stock_gross_weight")),
+        "latest_position_count_delta": safe_float(challenger.get("latest_position_count")) - safe_float(baseline.get("latest_position_count")),
+        "latest_top_ticker_changed": bool(
+            str(challenger.get("latest_top_ticker") or "") != str(baseline.get("latest_top_ticker") or "")
+        ),
+    }
+    warning = bool(
+        deltas["latest_top1_delta"] > 0.05
+        or deltas["latest_top3_delta"] > 0.10
+        or deltas["latest_stock_hhi_delta"] > 0.05
+        or safe_float(challenger.get("latest_top1_weight")) > 0.50
+    )
+    return {**deltas, "portfolio_concentration_warning": warning}
+
+
 def build_counterfactual_book(
     *,
     base_book: pd.DataFrame,
@@ -412,6 +527,8 @@ def window_deltas(baseline: dict[str, Any], challenger: dict[str, Any]) -> dict[
 
 
 def flatten_arm_row(arm: dict[str, Any]) -> dict[str, Any]:
+    portfolio_conc = arm.get("portfolio_concentration") or {}
+    portfolio_delta = arm.get("portfolio_concentration_delta") or {}
     row = {
         "rule": arm.get("rule"),
         "status": arm.get("status"),
@@ -423,6 +540,18 @@ def flatten_arm_row(arm: dict[str, Any]) -> dict[str, Any]:
         "top_added_ticker_share": (arm.get("concentration") or {}).get("top_added_ticker_share"),
         "top_era": (arm.get("concentration") or {}).get("top_era"),
         "top_era_share": (arm.get("concentration") or {}).get("top_era_share"),
+        "latest_top_ticker": portfolio_conc.get("latest_top_ticker"),
+        "latest_top1_weight": portfolio_conc.get("latest_top1_weight"),
+        "latest_top3_weight": portfolio_conc.get("latest_top3_weight"),
+        "latest_top5_weight": portfolio_conc.get("latest_top5_weight"),
+        "latest_stock_hhi": portfolio_conc.get("latest_stock_hhi"),
+        "latest_position_count": portfolio_conc.get("latest_position_count"),
+        "latest_stock_gross_weight": portfolio_conc.get("latest_stock_gross_weight"),
+        "latest_top1_delta": portfolio_delta.get("latest_top1_delta"),
+        "latest_top3_delta": portfolio_delta.get("latest_top3_delta"),
+        "latest_top5_delta": portfolio_delta.get("latest_top5_delta"),
+        "latest_stock_hhi_delta": portfolio_delta.get("latest_stock_hhi_delta"),
+        "portfolio_concentration_warning": portfolio_delta.get("portfolio_concentration_warning"),
     }
     for label, delta in (arm.get("metric_deltas") or {}).items():
         if isinstance(delta, dict):
@@ -478,6 +607,28 @@ def render_report(payload: dict[str, Any]) -> str:
         )
     lines += [
         "",
+        "## Portfolio Concentration",
+        "",
+        "This table is measured from broker `holdings_daily.csv`. CASH is excluded from stock-book HHI, while top weights are raw account weights.",
+        "",
+        "| rule | latest top | top1 | top3 | top5 | stock HHI | stock gross | top1 delta | HHI delta | warning |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for arm in payload.get("arms", []):
+        conc = arm.get("portfolio_concentration") or {}
+        delta = arm.get("portfolio_concentration_delta") or {}
+        if conc.get("status") != "completed":
+            continue
+        warning = "concentrated" if delta.get("portfolio_concentration_warning") else ""
+        lines.append(
+            f"| {arm.get('rule')} | {conc.get('latest_top_ticker', '')} | "
+            f"{pct(conc.get('latest_top1_weight'))} | {pct(conc.get('latest_top3_weight'))} | "
+            f"{pct(conc.get('latest_top5_weight'))} | {safe_float(conc.get('latest_stock_hhi')):.4f} | "
+            f"{pct(conc.get('latest_stock_gross_weight'))} | {pct(delta.get('latest_top1_delta'))} | "
+            f"{safe_float(delta.get('latest_stock_hhi_delta')):.4f} | {warning} |"
+        )
+    lines += [
+        "",
         "## Interpretation Guardrails",
         "",
         "- This is not a production hook and does not mutate operating books.",
@@ -502,6 +653,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     base_book = pd.read_csv(target_book)
     missed = prepare_missed(missed_path)
     baseline_metrics = read_json(baseline_metrics_path)
+    baseline_replay_dir = baseline_metrics_path.parent
+    baseline_portfolio_concentration = portfolio_concentration_metrics(baseline_replay_dir)
     replay_end_date = args.replay_end_date or baseline_metrics.get("end_date") or ""
     cash_carry_config = resolve_cash_carry_config(
         mode=args.cash_carry_mode,
@@ -551,6 +704,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 official_baseline_end_date=baseline_metrics.get("end_date") or replay_end_date or None,
                 cash_carry_config=cash_carry_config,
             )
+        challenger_portfolio_concentration = portfolio_concentration_metrics(arm_dir / "broker_replay")
+        challenger_portfolio_concentration_delta = portfolio_concentration_delta(
+            baseline_portfolio_concentration,
+            challenger_portfolio_concentration,
+        )
         arm = {
             "rule": rule,
             "status": broker_metrics.get("status"),
@@ -559,6 +717,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "broker_metrics": str(arm_dir / "broker_replay" / "metrics.json"),
             "metric_deltas": window_deltas(baseline_metrics, broker_metrics),
             "concentration": concentration(swaps),
+            "portfolio_concentration": challenger_portfolio_concentration,
+            "portfolio_concentration_delta": challenger_portfolio_concentration_delta,
             "forward_return_is_audit_label_only": True,
             "forward_labels_used_for_ranking": False,
             "production_activation_allowed": False,
@@ -579,6 +739,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "missed_leaders": str(missed_path),
         "price_cache": str(price_cache),
         "baseline_metrics": str(baseline_metrics_path),
+        "baseline_replay_dir": str(baseline_replay_dir),
+        "baseline_portfolio_concentration": baseline_portfolio_concentration,
         "baseline_metric_mode": str(baseline_metrics.get("metric_mode") or ""),
         "baseline_cash_carry_mode": baseline_carry_mode,
         "baseline_cash_carry_comparable": bool(baseline_cash_carry_comparable),
