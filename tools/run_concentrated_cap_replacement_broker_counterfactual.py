@@ -342,6 +342,12 @@ def portfolio_concentration_metrics(replay_dir: Path) -> dict[str, Any]:
 def portfolio_concentration_delta(
     baseline: dict[str, Any],
     challenger: dict[str, Any],
+    *,
+    top1_delta_warning: float = 0.05,
+    top3_delta_warning: float = 0.10,
+    hhi_delta_warning: float = 0.05,
+    absolute_top1_warning: float = 0.40,
+    absolute_top1_block: float = 0.45,
 ) -> dict[str, Any]:
     deltas = {
         "latest_top1_delta": safe_float(challenger.get("latest_top1_weight")) - safe_float(baseline.get("latest_top1_weight")),
@@ -354,13 +360,33 @@ def portfolio_concentration_delta(
             str(challenger.get("latest_top_ticker") or "") != str(baseline.get("latest_top_ticker") or "")
         ),
     }
-    warning = bool(
-        deltas["latest_top1_delta"] > 0.05
-        or deltas["latest_top3_delta"] > 0.10
-        or deltas["latest_stock_hhi_delta"] > 0.05
-        or safe_float(challenger.get("latest_top1_weight")) > 0.50
-    )
-    return {**deltas, "portfolio_concentration_warning": warning}
+    latest_top1 = safe_float(challenger.get("latest_top1_weight"))
+    warning_reasons: list[str] = []
+    if deltas["latest_top1_delta"] > top1_delta_warning:
+        warning_reasons.append("top1_delta")
+    if deltas["latest_top3_delta"] > top3_delta_warning:
+        warning_reasons.append("top3_delta")
+    if deltas["latest_stock_hhi_delta"] > hhi_delta_warning:
+        warning_reasons.append("hhi_delta")
+    if latest_top1 > absolute_top1_warning:
+        warning_reasons.append("absolute_top1_warning")
+    block_reasons: list[str] = []
+    if latest_top1 > absolute_top1_block:
+        block_reasons.append("absolute_top1_block")
+    return {
+        **deltas,
+        "portfolio_concentration_warning": bool(warning_reasons),
+        "portfolio_concentration_warning_reasons": warning_reasons,
+        "portfolio_concentration_block": bool(block_reasons),
+        "portfolio_concentration_block_reasons": block_reasons,
+        "concentration_thresholds": {
+            "top1_delta_warning": top1_delta_warning,
+            "top3_delta_warning": top3_delta_warning,
+            "hhi_delta_warning": hhi_delta_warning,
+            "absolute_top1_warning": absolute_top1_warning,
+            "absolute_top1_block": absolute_top1_block,
+        },
+    }
 
 
 def build_counterfactual_book(
@@ -552,6 +578,9 @@ def flatten_arm_row(arm: dict[str, Any]) -> dict[str, Any]:
         "latest_top5_delta": portfolio_delta.get("latest_top5_delta"),
         "latest_stock_hhi_delta": portfolio_delta.get("latest_stock_hhi_delta"),
         "portfolio_concentration_warning": portfolio_delta.get("portfolio_concentration_warning"),
+        "portfolio_concentration_block": portfolio_delta.get("portfolio_concentration_block"),
+        "portfolio_concentration_warning_reasons": ",".join(portfolio_delta.get("portfolio_concentration_warning_reasons") or []),
+        "portfolio_concentration_block_reasons": ",".join(portfolio_delta.get("portfolio_concentration_block_reasons") or []),
     }
     for label, delta in (arm.get("metric_deltas") or {}).items():
         if isinstance(delta, dict):
@@ -611,21 +640,22 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         "This table is measured from broker `holdings_daily.csv`. CASH is excluded from stock-book HHI, while top weights are raw account weights.",
         "",
-        "| rule | latest top | top1 | top3 | top5 | stock HHI | stock gross | top1 delta | HHI delta | warning |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| rule | latest top | top1 | top3 | top5 | stock HHI | stock gross | top1 delta | HHI delta | warning | block |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for arm in payload.get("arms", []):
         conc = arm.get("portfolio_concentration") or {}
         delta = arm.get("portfolio_concentration_delta") or {}
         if conc.get("status") != "completed":
             continue
-        warning = "concentrated" if delta.get("portfolio_concentration_warning") else ""
+        warning = ",".join(delta.get("portfolio_concentration_warning_reasons") or []) if delta.get("portfolio_concentration_warning") else ""
+        block = ",".join(delta.get("portfolio_concentration_block_reasons") or []) if delta.get("portfolio_concentration_block") else ""
         lines.append(
             f"| {arm.get('rule')} | {conc.get('latest_top_ticker', '')} | "
             f"{pct(conc.get('latest_top1_weight'))} | {pct(conc.get('latest_top3_weight'))} | "
             f"{pct(conc.get('latest_top5_weight'))} | {safe_float(conc.get('latest_stock_hhi')):.4f} | "
             f"{pct(conc.get('latest_stock_gross_weight'))} | {pct(delta.get('latest_top1_delta'))} | "
-            f"{safe_float(delta.get('latest_stock_hhi_delta')):.4f} | {warning} |"
+            f"{safe_float(delta.get('latest_stock_hhi_delta')):.4f} | {warning} | {block} |"
         )
     lines += [
         "",
@@ -708,6 +738,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         challenger_portfolio_concentration_delta = portfolio_concentration_delta(
             baseline_portfolio_concentration,
             challenger_portfolio_concentration,
+            top1_delta_warning=float(getattr(args, "concentration_top1_delta_warning", 0.05)),
+            top3_delta_warning=float(getattr(args, "concentration_top3_delta_warning", 0.10)),
+            hhi_delta_warning=float(getattr(args, "concentration_hhi_delta_warning", 0.05)),
+            absolute_top1_warning=float(getattr(args, "concentration_absolute_top1_warning", 0.40)),
+            absolute_top1_block=float(getattr(args, "concentration_absolute_top1_block", 0.45)),
         )
         arm = {
             "rule": rule,
@@ -763,6 +798,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "forward_return_is_audit_label_only": True,
         "forward_labels_used_for_ranking": False,
         "pit_filter_columns": list(PIT_RULE_COLUMNS),
+        "concentration_guard_config": {
+            "top1_delta_warning": float(getattr(args, "concentration_top1_delta_warning", 0.05)),
+            "top3_delta_warning": float(getattr(args, "concentration_top3_delta_warning", 0.10)),
+            "hhi_delta_warning": float(getattr(args, "concentration_hhi_delta_warning", 0.05)),
+            "absolute_top1_warning": float(getattr(args, "concentration_absolute_top1_warning", 0.40)),
+            "absolute_top1_block": float(getattr(args, "concentration_absolute_top1_block", 0.45)),
+            "bucket_delta_warning": float(getattr(args, "concentration_bucket_delta_warning", 0.10)),
+            "bucket_guard_status": "pending_bucket_mapping",
+        },
         "arms": arms,
         "arm_metrics_csv": str(output_dir / "arm_metrics.csv"),
         "report_md": str(output_dir / "report.md"),
@@ -798,6 +842,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cash-rate-lag-days", type=int, default=None)
     parser.add_argument("--cash-carry-haircut-bps", type=float, default=None)
     parser.add_argument("--cash-carry-day-count", type=int, default=None)
+    parser.add_argument("--concentration-top1-delta-warning", type=float, default=0.05)
+    parser.add_argument("--concentration-top3-delta-warning", type=float, default=0.10)
+    parser.add_argument("--concentration-hhi-delta-warning", type=float, default=0.05)
+    parser.add_argument("--concentration-absolute-top1-warning", type=float, default=0.40)
+    parser.add_argument("--concentration-absolute-top1-block", type=float, default=0.45)
+    parser.add_argument("--concentration-bucket-delta-warning", type=float, default=0.10)
     return parser.parse_args()
 
 

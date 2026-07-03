@@ -200,6 +200,9 @@ def test_portfolio_concentration_metrics_from_holdings_daily() -> None:
         assert abs(delta["latest_top1_delta"] - 0.06) < 1e-12
         assert delta["latest_top_ticker_changed"] is True
         assert delta["portfolio_concentration_warning"] is True
+        assert "absolute_top1_warning" in delta["portfolio_concentration_warning_reasons"]
+        assert delta["portfolio_concentration_block"] is True
+        assert "absolute_top1_block" in delta["portfolio_concentration_block_reasons"]
 
 
 def main() -> int:

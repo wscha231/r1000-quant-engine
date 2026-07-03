@@ -161,7 +161,12 @@ def load_hook_swaps(path: Path) -> pd.DataFrame:
     return out
 
 
-def swap_diff(fixed: pd.DataFrame, hook: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+def swap_diff(
+    fixed: pd.DataFrame,
+    hook: pd.DataFrame,
+    *,
+    swap_count_tolerance_pct: float = 0.10,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     fixed_cols = [
         "swap_key",
         "rebalance_date",
@@ -200,9 +205,16 @@ def swap_diff(fixed: pd.DataFrame, hook: pd.DataFrame) -> tuple[pd.DataFrame, di
     both = int((merged["diff_status"] == "both").sum())
     hook_count = int(len(hook))
     fixed_count = int(len(fixed))
+    swap_count_delta = int(hook_count - fixed_count)
+    swap_count_delta_pct = float(abs(swap_count_delta) / fixed_count) if fixed_count else (0.0 if hook_count == 0 else 1.0)
+    hook_count_within_tolerance = bool(fixed_count > 0 and swap_count_delta_pct <= swap_count_tolerance_pct)
     stats = {
         "fixed_swap_count": fixed_count,
         "hook_swap_count": hook_count,
+        "swap_count_delta": swap_count_delta,
+        "swap_count_delta_pct_abs": swap_count_delta_pct,
+        "swap_count_tolerance_pct": float(swap_count_tolerance_pct),
+        "hook_count_within_tolerance": hook_count_within_tolerance,
         "overlap_count": both,
         "fixed_only_count": fixed_only,
         "hook_only_count": hook_only,
@@ -252,6 +264,7 @@ def render_report(summary: dict[str, Any]) -> str:
         "",
         f"- fixed swaps: `{swaps['fixed_swap_count']}`",
         f"- hook swaps: `{swaps['hook_swap_count']}`",
+        f"- hook count within tolerance: `{swaps['hook_count_within_tolerance']}` (`{swaps['swap_count_delta_pct_abs']:.2%}` abs delta, tolerance `{swaps['swap_count_tolerance_pct']:.2%}`)",
         f"- overlap: `{swaps['overlap_count']}`",
         f"- fixed only: `{swaps['fixed_only_count']}`",
         f"- hook only: `{swaps['hook_only_count']}`",
@@ -306,7 +319,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     fixed = load_fixed_swaps(fixed_swaps_path)
     hook = load_hook_swaps(hook_path)
-    diff, diff_stats = swap_diff(fixed, hook)
+    diff, diff_stats = swap_diff(
+        fixed,
+        hook,
+        swap_count_tolerance_pct=float(args.swap_count_tolerance_pct),
+    )
     diff.to_csv(output_dir / "swap_diff.csv", index=False)
     fixed.to_csv(output_dir / "fixed_swaps_normalized.csv", index=False)
     hook.to_csv(output_dir / "hook_swaps_normalized.csv", index=False)
@@ -317,6 +334,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         blockers.append("control_not_reproduced")
     if diff_stats["hook_broader_than_fixed"]:
         blockers.append("hook_broader_than_fixed_counterfactual")
+    if not diff_stats["hook_count_within_tolerance"]:
+        blockers.append("hook_swap_count_outside_tolerance")
     if diff_stats["hook_swap_count"] <= 0:
         blockers.append("hook_no_applied_swaps")
     status = "blocked" if blockers else "ready_for_broker_ab"
@@ -362,6 +381,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--portfolio", default="concentrated")
     parser.add_argument("--cagr-tolerance", type=float, default=0.0025)
     parser.add_argument("--ending-capital-tolerance-pct", type=float, default=0.01)
+    parser.add_argument("--swap-count-tolerance-pct", type=float, default=0.10)
     return parser.parse_args()
 
 

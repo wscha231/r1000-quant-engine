@@ -119,6 +119,13 @@ This is a meaningful diagnostic candidate:
 - It does not create a new latest single-name concentration problem.
 - It does not rely on a single added ticker.
 - It is still research-only and PIT-clean production remains blocked.
+- Round-2 concentration gates are now stricter and machine-readable:
+  - top1 delta > +5pp: warning
+  - top3 delta > +10pp: warning
+  - stock HHI delta > +0.05: warning
+  - absolute top1 > 40%: warning
+  - absolute top1 > 45%: block
+  - bucket delta > +10pp: reserved config, pending bucket mapping
 
 However, it is **not yet a fullrun candidate**.
 
@@ -142,6 +149,10 @@ However, it is **not yet a fullrun candidate**.
    - max one swap per date
    - no broad cash/gross change
 
+   The readiness audit now also requires hook swap-count parity within +/-10%
+   of the fixed-book counterfactual. A hook that is a subset but materially
+   under-fires is not accepted as equivalent.
+
 2. **W1 target-book reproducibility**
 
    Regenerated selection-side books remain diagnostic until W1 control
@@ -155,7 +166,19 @@ However, it is **not yet a fullrun candidate**.
    adjacent cells are not all equally strong. Before policy work, the rule must
    be frozen and treated as a hypothesis, not as an optimized production rule.
 
-4. **Production blocker**
+4. **Latest official cash-carry level**
+
+   A 2026-07-03 attempt to run `run_cash_carry_measurement.py` on the #239
+   official book was blocked by stale price-cache coverage for many official
+   target-book tickers. The DGS3MO rate cache was refreshed to 2026-07-01
+   (`available_from` 2026-07-02), but the available replay price cache still
+   contains many official target tickers only through 2026-06-30. Therefore the
+   latest-book 51.22% level remains an internally aligned harness result until
+   a complete #239 official-book cash-carry measurement reproduces the control.
+   The reference-book 50.04% result remains the cleaner level claim because its
+   control equals the official cash-carry baseline.
+
+5. **Production blocker**
 
    `pit_universe_label_clean=false` remains a standing production blocker.
 
@@ -171,9 +194,12 @@ Use this narrow packet rather than asking for broad strategy:
    - top1 delta warning > +5pp
    - top3 delta warning > +10pp
    - HHI delta warning > +0.05
-   - absolute top1 warning > 50%
+   - absolute top1 warning > 40%
+   - absolute top1 block > 45%
+   - bucket delta warning > +10pp once bucket mapping is wired
 4. Should the hook acceptance require exact event-log inclusion:
-   every hook swap must be present in the fixed-book counterfactual swap set?
+   every hook swap must be present in the fixed-book counterfactual swap set,
+   and total hook swap count must be within +/-10% of fixed-book swaps?
 5. If accepted for implementation, should the first hook be limited to
    `rank_top15_and_revenue_ge10` only, with all other arms rejected?
 

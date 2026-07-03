@@ -100,11 +100,13 @@ def test_readiness_audit_blocks_broad_hook_and_bad_control() -> None:
                 portfolio="concentrated",
                 cagr_tolerance=0.0025,
                 ending_capital_tolerance_pct=0.01,
+                swap_count_tolerance_pct=0.10,
             )
         )
         assert payload["status"] == "blocked"
         assert "control_not_reproduced" in payload["blockers"]
         assert "hook_broader_than_fixed_counterfactual" in payload["blockers"]
+        assert "hook_swap_count_outside_tolerance" in payload["blockers"]
         assert payload["swap_diff"]["overlap_count"] == 1
         assert payload["swap_diff"]["hook_only_count"] == 1
         assert (root / "out" / "swap_diff.csv").exists()
@@ -180,17 +182,107 @@ def test_readiness_audit_passes_aligned_case() -> None:
                 portfolio="concentrated",
                 cagr_tolerance=0.0025,
                 ending_capital_tolerance_pct=0.01,
+                swap_count_tolerance_pct=0.10,
             )
         )
         assert payload["status"] == "ready_for_broker_ab"
         assert payload["blockers"] == []
         assert payload["control_reproduction"]["control_reproduced"] is True
         assert payload["swap_diff"]["hook_is_subset_of_fixed"] is True
+        assert payload["swap_diff"]["hook_count_within_tolerance"] is True
+
+
+def test_readiness_audit_blocks_underfiring_subset() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        official = root / "official.json"
+        baseline = root / "baseline.json"
+        summary = root / "summary.json"
+        fixed = root / "fixed.csv"
+        hook = root / "hook.csv"
+        years = 7.0
+        official_end = 100000.0 * (1.45**years)
+        _write_json(
+            official,
+            {
+                "portfolios": {
+                    "concentrated": {
+                        "cagr": 0.45,
+                        "max_dd": -0.23,
+                        "starting_capital_usd": 100000.0,
+                        "ending_capital_usd": official_end,
+                        "years": years,
+                    }
+                }
+            },
+        )
+        _write_json(
+            baseline,
+            {
+                "metric_mode": "broker_ledger_next_close_cash_carry",
+                "cagr": 0.45,
+                "max_dd": -0.23,
+                "starting_capital_usd": 100000.0,
+                "ending_capital_usd": official_end,
+                "years": years,
+                "cash_interest_accrued_usd": 0.0,
+            },
+        )
+        _write_json(summary, {"baseline_metrics": str(baseline)})
+        fixed_rows = [
+            {
+                "rule": "rank_top15_and_revenue_ge10",
+                "rebalance_date": "2026-01-31",
+                "added_ticker": "WIN1",
+                "removed_ticker": "OLD1",
+                "replacement_weight": 0.2,
+            },
+            {
+                "rule": "rank_top15_and_revenue_ge10",
+                "rebalance_date": "2026-02-28",
+                "added_ticker": "WIN2",
+                "removed_ticker": "OLD2",
+                "replacement_weight": 0.2,
+            },
+        ]
+        pd.DataFrame(fixed_rows).to_csv(fixed, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-31",
+                    "ticker": "WIN1",
+                    "concentrated_replacement_quality_applied": True,
+                    "concentrated_replacement_quality_added_ticker": "WIN1",
+                    "concentrated_replacement_quality_removed_ticker": "OLD1",
+                }
+            ]
+        ).to_csv(hook, index=False)
+        payload = run(
+            argparse.Namespace(
+                official_metrics=str(official),
+                counterfactual_summary=str(summary),
+                hook_target_book=str(hook),
+                fixed_swaps=str(fixed),
+                baseline_metrics="",
+                output_dir=str(root / "out"),
+                run_label="underfire",
+                portfolio="concentrated",
+                cagr_tolerance=0.0025,
+                ending_capital_tolerance_pct=0.01,
+                swap_count_tolerance_pct=0.10,
+            )
+        )
+        assert payload["status"] == "blocked"
+        assert "hook_swap_count_outside_tolerance" in payload["blockers"]
+        assert "hook_broader_than_fixed_counterfactual" not in payload["blockers"]
+        assert payload["swap_diff"]["hook_is_subset_of_fixed"] is True
+        assert payload["swap_diff"]["hook_count_within_tolerance"] is False
 
 
 def main() -> int:
     test_readiness_audit_blocks_broad_hook_and_bad_control()
     test_readiness_audit_passes_aligned_case()
+    test_readiness_audit_blocks_underfiring_subset()
     print("replacement_quality_readiness_audit_smoke: PASS")
     return 0
 
