@@ -14,6 +14,8 @@ broker A/B acceptance, or fullrun. It is not.
 
 Status: `blocked`
 
+Classification: `diagnostic_candidate / blocked_by_W1`
+
 Do not run a fullrun. Do not treat the current hook as accepted. Do not promote
 to production.
 
