@@ -127,11 +127,18 @@ However, it is **not yet a fullrun candidate**.
 1. **Policy hook breadth mismatch**
 
    The current hook path has previously fired much more broadly than this
-   counterfactual. The next implementation must event-match the counterfactual:
+   counterfactual. Code inspection shows the hook now requires the rejected
+   ticker to be present in policy-path `month_rejections`, but that event set is
+   still not the same as the fixed-book `missed_leaders_audit` event set used by
+   this counterfactual. The next implementation must event-match the
+   counterfactual source, not merely any policy-path rejection:
 
    - same month
    - same cap/replacement rejection class
    - rejected ticker itself must satisfy the PIT rule
+   - rejection source must be traceable to the fixed-book missed-leader event
+     definition, or the hook/counterfactual event sets must be reconciled by a
+     readiness audit
    - max one swap per date
    - no broad cash/gross change
 
