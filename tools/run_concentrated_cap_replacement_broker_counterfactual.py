@@ -348,6 +348,8 @@ def portfolio_concentration_delta(
     hhi_delta_warning: float = 0.05,
     absolute_top1_warning: float = 0.40,
     absolute_top1_block: float = 0.45,
+    absolute_top3_warning: float = 0.85,
+    absolute_top3_severe_warning: float = 0.90,
 ) -> dict[str, Any]:
     deltas = {
         "latest_top1_delta": safe_float(challenger.get("latest_top1_weight")) - safe_float(baseline.get("latest_top1_weight")),
@@ -361,7 +363,9 @@ def portfolio_concentration_delta(
         ),
     }
     latest_top1 = safe_float(challenger.get("latest_top1_weight"))
+    latest_top3 = safe_float(challenger.get("latest_top3_weight"))
     warning_reasons: list[str] = []
+    severe_warning_reasons: list[str] = []
     if deltas["latest_top1_delta"] > top1_delta_warning:
         warning_reasons.append("top1_delta")
     if deltas["latest_top3_delta"] > top3_delta_warning:
@@ -370,6 +374,10 @@ def portfolio_concentration_delta(
         warning_reasons.append("hhi_delta")
     if latest_top1 > absolute_top1_warning:
         warning_reasons.append("absolute_top1_warning")
+    if latest_top3 > absolute_top3_warning:
+        warning_reasons.append("absolute_top3_warning")
+    if latest_top3 > absolute_top3_severe_warning:
+        severe_warning_reasons.append("absolute_top3_severe_warning")
     block_reasons: list[str] = []
     if latest_top1 > absolute_top1_block:
         block_reasons.append("absolute_top1_block")
@@ -377,6 +385,8 @@ def portfolio_concentration_delta(
         **deltas,
         "portfolio_concentration_warning": bool(warning_reasons),
         "portfolio_concentration_warning_reasons": warning_reasons,
+        "portfolio_concentration_severe_warning": bool(severe_warning_reasons),
+        "portfolio_concentration_severe_warning_reasons": severe_warning_reasons,
         "portfolio_concentration_block": bool(block_reasons),
         "portfolio_concentration_block_reasons": block_reasons,
         "concentration_thresholds": {
@@ -385,6 +395,8 @@ def portfolio_concentration_delta(
             "hhi_delta_warning": hhi_delta_warning,
             "absolute_top1_warning": absolute_top1_warning,
             "absolute_top1_block": absolute_top1_block,
+            "absolute_top3_warning": absolute_top3_warning,
+            "absolute_top3_severe_warning": absolute_top3_severe_warning,
         },
     }
 
@@ -494,7 +506,15 @@ def build_counterfactual_book(
     return result, swap_df, diagnostics
 
 
-def concentration(swaps: pd.DataFrame) -> dict[str, Any]:
+def concentration(
+    swaps: pd.DataFrame,
+    *,
+    top_added_ticker_warning: float = 0.35,
+    top_added_ticker_block: float = 0.50,
+    top_era_warning: float = 0.65,
+    top_era_block: float = 0.70,
+    top_year_block: float = 0.70,
+) -> dict[str, Any]:
     if swaps.empty:
         return {
             "swap_count": 0,
@@ -503,17 +523,39 @@ def concentration(swaps: pd.DataFrame) -> dict[str, Any]:
             "top_added_ticker_share": 0.0,
             "top_era": "",
             "top_era_share": 0.0,
+            "top_year": "",
+            "top_year_share": 0.0,
             "ticker_counts": {},
             "era_counts": {},
+            "year_counts": {},
             "concentration_warning": False,
+            "concentration_warning_reasons": [],
+            "concentration_block": False,
+            "concentration_block_reasons": [],
         }
     ticker_counts = Counter(swaps["added_ticker"].astype(str))
     era_counts = Counter(swaps["era"].astype(str))
+    years = pd.to_datetime(swaps["rebalance_date"], errors="coerce").dt.year.astype("Int64").astype(str)
+    year_counts = Counter(years[~years.eq("<NA>")])
     top_ticker, top_ticker_count = ticker_counts.most_common(1)[0]
     top_era, top_era_count = era_counts.most_common(1)[0]
+    top_year, top_year_count = year_counts.most_common(1)[0] if year_counts else ("", 0)
     n = len(swaps)
     top_ticker_share = top_ticker_count / n
     top_era_share = top_era_count / n
+    top_year_share = top_year_count / n if n else 0.0
+    warning_reasons: list[str] = []
+    block_reasons: list[str] = []
+    if top_ticker_share > top_added_ticker_warning:
+        warning_reasons.append("top_added_ticker_share")
+    if top_era_share > top_era_warning:
+        warning_reasons.append("top_era_share")
+    if top_ticker_share > top_added_ticker_block:
+        block_reasons.append("top_added_ticker_share")
+    if top_era_share > top_era_block:
+        block_reasons.append("top_era_share")
+    if top_year_share > top_year_block:
+        block_reasons.append("top_year_share")
     return {
         "swap_count": int(n),
         "unique_added_ticker_count": int(len(ticker_counts)),
@@ -521,9 +563,22 @@ def concentration(swaps: pd.DataFrame) -> dict[str, Any]:
         "top_added_ticker_share": float(top_ticker_share),
         "top_era": top_era,
         "top_era_share": float(top_era_share),
+        "top_year": top_year,
+        "top_year_share": float(top_year_share),
         "ticker_counts": dict(ticker_counts.most_common(12)),
         "era_counts": dict(era_counts.most_common()),
-        "concentration_warning": bool(top_ticker_share > 0.35 or top_era_share > 0.65),
+        "year_counts": dict(year_counts.most_common()),
+        "concentration_warning": bool(warning_reasons),
+        "concentration_warning_reasons": warning_reasons,
+        "concentration_block": bool(block_reasons),
+        "concentration_block_reasons": block_reasons,
+        "concentration_thresholds": {
+            "top_added_ticker_warning": top_added_ticker_warning,
+            "top_added_ticker_block": top_added_ticker_block,
+            "top_era_warning": top_era_warning,
+            "top_era_block": top_era_block,
+            "top_year_block": top_year_block,
+        },
     }
 
 
@@ -566,6 +621,12 @@ def flatten_arm_row(arm: dict[str, Any]) -> dict[str, Any]:
         "top_added_ticker_share": (arm.get("concentration") or {}).get("top_added_ticker_share"),
         "top_era": (arm.get("concentration") or {}).get("top_era"),
         "top_era_share": (arm.get("concentration") or {}).get("top_era_share"),
+        "top_year": (arm.get("concentration") or {}).get("top_year"),
+        "top_year_share": (arm.get("concentration") or {}).get("top_year_share"),
+        "gain_concentration_warning": (arm.get("concentration") or {}).get("concentration_warning"),
+        "gain_concentration_block": (arm.get("concentration") or {}).get("concentration_block"),
+        "gain_concentration_warning_reasons": ",".join((arm.get("concentration") or {}).get("concentration_warning_reasons") or []),
+        "gain_concentration_block_reasons": ",".join((arm.get("concentration") or {}).get("concentration_block_reasons") or []),
         "latest_top_ticker": portfolio_conc.get("latest_top_ticker"),
         "latest_top1_weight": portfolio_conc.get("latest_top1_weight"),
         "latest_top3_weight": portfolio_conc.get("latest_top3_weight"),
@@ -580,6 +641,8 @@ def flatten_arm_row(arm: dict[str, Any]) -> dict[str, Any]:
         "portfolio_concentration_warning": portfolio_delta.get("portfolio_concentration_warning"),
         "portfolio_concentration_block": portfolio_delta.get("portfolio_concentration_block"),
         "portfolio_concentration_warning_reasons": ",".join(portfolio_delta.get("portfolio_concentration_warning_reasons") or []),
+        "portfolio_concentration_severe_warning": portfolio_delta.get("portfolio_concentration_severe_warning"),
+        "portfolio_concentration_severe_warning_reasons": ",".join(portfolio_delta.get("portfolio_concentration_severe_warning_reasons") or []),
         "portfolio_concentration_block_reasons": ",".join(portfolio_delta.get("portfolio_concentration_block_reasons") or []),
     }
     for label, delta in (arm.get("metric_deltas") or {}).items():
@@ -619,8 +682,8 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         "## Broker-Ledger Deltas",
         "",
-        "| rule | swaps | full CAGR delta | full MDD delta | IS CAGR delta | OOS CAGR delta | top ticker share | top era share | warning |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| rule | swaps | full CAGR delta | full MDD delta | IS CAGR delta | OOS CAGR delta | top ticker share | top era share | top year share | warning | block |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for arm in payload.get("arms", []):
         deltas = arm.get("metric_deltas") or {}
@@ -628,11 +691,13 @@ def render_report(payload: dict[str, Any]) -> str:
         is_ = deltas.get("is") or {}
         oos = deltas.get("oos") or {}
         conc = arm.get("concentration") or {}
-        warning = "concentrated" if conc.get("concentration_warning") else ""
+        warning = ",".join(conc.get("concentration_warning_reasons") or []) if conc.get("concentration_warning") else ""
+        block = ",".join(conc.get("concentration_block_reasons") or []) if conc.get("concentration_block") else ""
         lines.append(
             f"| {arm.get('rule')} | {arm.get('swap_count')} | {pct(full.get('delta_cagr'))} | "
             f"{pct(full.get('delta_max_dd'))} | {pct(is_.get('delta_cagr'))} | {pct(oos.get('delta_cagr'))} | "
-            f"{pct(conc.get('top_added_ticker_share'))} | {pct(conc.get('top_era_share'))} | {warning} |"
+            f"{pct(conc.get('top_added_ticker_share'))} | {pct(conc.get('top_era_share'))} | "
+            f"{pct(conc.get('top_year_share'))} | {warning} | {block} |"
         )
     lines += [
         "",
@@ -648,7 +713,9 @@ def render_report(payload: dict[str, Any]) -> str:
         delta = arm.get("portfolio_concentration_delta") or {}
         if conc.get("status") != "completed":
             continue
-        warning = ",".join(delta.get("portfolio_concentration_warning_reasons") or []) if delta.get("portfolio_concentration_warning") else ""
+        warning_reasons = list(delta.get("portfolio_concentration_warning_reasons") or [])
+        warning_reasons.extend(delta.get("portfolio_concentration_severe_warning_reasons") or [])
+        warning = ",".join(warning_reasons) if warning_reasons else ""
         block = ",".join(delta.get("portfolio_concentration_block_reasons") or []) if delta.get("portfolio_concentration_block") else ""
         lines.append(
             f"| {arm.get('rule')} | {conc.get('latest_top_ticker', '')} | "
@@ -743,6 +810,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             hhi_delta_warning=float(getattr(args, "concentration_hhi_delta_warning", 0.05)),
             absolute_top1_warning=float(getattr(args, "concentration_absolute_top1_warning", 0.40)),
             absolute_top1_block=float(getattr(args, "concentration_absolute_top1_block", 0.45)),
+            absolute_top3_warning=float(getattr(args, "concentration_absolute_top3_warning", 0.85)),
+            absolute_top3_severe_warning=float(getattr(args, "concentration_absolute_top3_severe_warning", 0.90)),
         )
         arm = {
             "rule": rule,
@@ -751,7 +820,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "swaps_csv": str(swaps_path),
             "broker_metrics": str(arm_dir / "broker_replay" / "metrics.json"),
             "metric_deltas": window_deltas(baseline_metrics, broker_metrics),
-            "concentration": concentration(swaps),
+            "concentration": concentration(
+                swaps,
+                top_added_ticker_warning=float(getattr(args, "gain_top_added_ticker_warning", 0.35)),
+                top_added_ticker_block=float(getattr(args, "gain_top_added_ticker_block", 0.50)),
+                top_era_warning=float(getattr(args, "gain_top_era_warning", 0.65)),
+                top_era_block=float(getattr(args, "gain_top_era_block", 0.70)),
+                top_year_block=float(getattr(args, "gain_top_year_block", 0.70)),
+            ),
             "portfolio_concentration": challenger_portfolio_concentration,
             "portfolio_concentration_delta": challenger_portfolio_concentration_delta,
             "forward_return_is_audit_label_only": True,
@@ -804,8 +880,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "hhi_delta_warning": float(getattr(args, "concentration_hhi_delta_warning", 0.05)),
             "absolute_top1_warning": float(getattr(args, "concentration_absolute_top1_warning", 0.40)),
             "absolute_top1_block": float(getattr(args, "concentration_absolute_top1_block", 0.45)),
+            "absolute_top3_warning": float(getattr(args, "concentration_absolute_top3_warning", 0.85)),
+            "absolute_top3_severe_warning": float(getattr(args, "concentration_absolute_top3_severe_warning", 0.90)),
             "bucket_delta_warning": float(getattr(args, "concentration_bucket_delta_warning", 0.10)),
             "bucket_guard_status": "pending_bucket_mapping",
+        },
+        "gain_concentration_guard_config": {
+            "top_added_ticker_warning": float(getattr(args, "gain_top_added_ticker_warning", 0.35)),
+            "top_added_ticker_block": float(getattr(args, "gain_top_added_ticker_block", 0.50)),
+            "top_era_warning": float(getattr(args, "gain_top_era_warning", 0.65)),
+            "top_era_block": float(getattr(args, "gain_top_era_block", 0.70)),
+            "top_year_block": float(getattr(args, "gain_top_year_block", 0.70)),
         },
         "arms": arms,
         "arm_metrics_csv": str(output_dir / "arm_metrics.csv"),
@@ -847,7 +932,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concentration-hhi-delta-warning", type=float, default=0.05)
     parser.add_argument("--concentration-absolute-top1-warning", type=float, default=0.40)
     parser.add_argument("--concentration-absolute-top1-block", type=float, default=0.45)
+    parser.add_argument("--concentration-absolute-top3-warning", type=float, default=0.85)
+    parser.add_argument("--concentration-absolute-top3-severe-warning", type=float, default=0.90)
     parser.add_argument("--concentration-bucket-delta-warning", type=float, default=0.10)
+    parser.add_argument("--gain-top-added-ticker-warning", type=float, default=0.35)
+    parser.add_argument("--gain-top-added-ticker-block", type=float, default=0.50)
+    parser.add_argument("--gain-top-era-warning", type=float, default=0.65)
+    parser.add_argument("--gain-top-era-block", type=float, default=0.70)
+    parser.add_argument("--gain-top-year-block", type=float, default=0.70)
     return parser.parse_args()
 
 

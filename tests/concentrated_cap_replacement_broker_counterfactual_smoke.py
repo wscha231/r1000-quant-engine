@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_concentrated_cap_replacement_broker_counterfactual import (  # noqa: E402
+    concentration,
     portfolio_concentration_delta,
     portfolio_concentration_metrics,
     run,
@@ -205,9 +206,37 @@ def test_portfolio_concentration_metrics_from_holdings_daily() -> None:
         assert "absolute_top1_block" in delta["portfolio_concentration_block_reasons"]
 
 
+def test_concentration_guard_absolute_top3_and_gain_concentration() -> None:
+    delta = portfolio_concentration_delta(
+        {"latest_top1_weight": 0.30, "latest_top3_weight": 0.70, "latest_stock_hhi": 0.20},
+        {"latest_top1_weight": 0.35, "latest_top3_weight": 0.91, "latest_stock_hhi": 0.22},
+    )
+    assert delta["portfolio_concentration_warning"] is True
+    assert "absolute_top3_warning" in delta["portfolio_concentration_warning_reasons"]
+    assert delta["portfolio_concentration_severe_warning"] is True
+    assert "absolute_top3_severe_warning" in delta["portfolio_concentration_severe_warning_reasons"]
+
+    swaps = pd.DataFrame(
+        [
+            {"rebalance_date": "2024-01-31", "era": "2023-2024", "added_ticker": "AAA"},
+            {"rebalance_date": "2024-02-29", "era": "2023-2024", "added_ticker": "AAA"},
+            {"rebalance_date": "2024-03-31", "era": "2023-2024", "added_ticker": "AAA"},
+            {"rebalance_date": "2024-04-30", "era": "2023-2024", "added_ticker": "BBB"},
+            {"rebalance_date": "2025-01-31", "era": "2025-2026", "added_ticker": "CCC"},
+        ]
+    )
+    gain = concentration(swaps)
+    assert gain["concentration_warning"] is True
+    assert "top_added_ticker_share" in gain["concentration_warning_reasons"]
+    assert gain["concentration_block"] is True
+    assert "top_added_ticker_share" in gain["concentration_block_reasons"]
+    assert "top_era_share" in gain["concentration_block_reasons"]
+
+
 def main() -> int:
     test_counterfactual_swaps_existing_slots_without_cash_reduction()
     test_portfolio_concentration_metrics_from_holdings_daily()
+    test_concentration_guard_absolute_top3_and_gain_concentration()
     print("concentrated_cap_replacement_broker_counterfactual_smoke: PASS")
     return 0
 

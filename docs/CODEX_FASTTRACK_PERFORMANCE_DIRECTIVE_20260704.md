@@ -46,7 +46,9 @@ Emit the adjacent-cell grid (rank 10/15/20 × revenue 5/10/15) from EXISTING out
 - Pass → A4. Cliff → downgrade to diagnostic, go Track C.
 
 **A4. Concentration guards to config**: top1 Δ>+5pp warn, top3 Δ>+10pp warn, HHI Δ>+0.05 warn, **absolute top1
->40% warn / >45% block**, **top-bucket Δ>+10pp warn** (cluster crash lesson). Wire into the hook + smoke.
+>40% warn / >45% block**, **absolute top3 >85% warn / >90% severe-warn**, gain concentration
+top-added-ticker >35% warn / >50% block, top-era or top-year >70% block, **top-bucket Δ>+10pp warn**
+(cluster crash lesson). Wire into the hook + smoke.
 
 **A5. DONE(A) =** default-OFF hook, event-matched, fixed-book-accepted (gates A1–A4), documented. This becomes
 the Conc fullrun payload. **Do NOT dispatch a fullrun** — that is the end-of-week human decision.

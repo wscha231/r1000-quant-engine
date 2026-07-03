@@ -125,6 +125,12 @@ This is a meaningful diagnostic candidate:
   - stock HHI delta > +0.05: warning
   - absolute top1 > 40%: warning
   - absolute top1 > 45%: block
+  - absolute top3 > 85%: warning
+  - absolute top3 > 90%: severe warning
+  - top added ticker share > 35%: warning
+  - top added ticker share > 50%: block
+  - top era share > 70%: block
+  - top year share > 70%: block
   - bucket delta > +10pp: reserved config, pending bucket mapping
 
 However, it is **not yet a fullrun candidate**.
@@ -196,6 +202,10 @@ Use this narrow packet rather than asking for broad strategy:
    - HHI delta warning > +0.05
    - absolute top1 warning > 40%
    - absolute top1 block > 45%
+   - absolute top3 warning > 85%
+   - absolute top3 severe warning > 90%
+   - top added ticker share warning > 35%, block > 50%
+   - top era/year share block > 70%
    - bucket delta warning > +10pp once bucket mapping is wired
 4. Should the hook acceptance require exact event-log inclusion:
    every hook swap must be present in the fixed-book counterfactual swap set,
