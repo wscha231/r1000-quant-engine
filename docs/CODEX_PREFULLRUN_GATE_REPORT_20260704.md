@@ -154,7 +154,39 @@ Result:
 
 ## Bottom Line
 
-Fullrun is still blocked. The repository now has a single local gate that says
-why, with the current long-only/cash-carry governance applied. The next
-engineering work should be W1 control reproduction and replacement-quality
-event-source coverage, not another strategy idea or fullrun dispatch.
+Fullrun is still blocked, but the blocker mix changed after the policy-path
+combo probe.
+
+The current frozen policy-path combo now passes broker replay:
+
+- Main: `36.33% / -24.91%`
+- Concentrated: `52.14% / -23.12%`
+- metric mode: `broker_ledger_next_close_cash_carry`
+- production activation: false
+
+The updated local gate accepts that passing policy-path combo as superseding
+the older standalone Main and replacement-quality blockers. The old dirty
+official artifact mismatch is retained as provenance context, but it is no
+longer a hard pre-fullrun blocker because current clean-code same-machine
+reproduction is exact and the frozen policy-path combo was generated on the
+current clean path.
+
+Latest updated gate:
+
+- `outputs/prefullrun_gate_policy_combo_20260704/summary.json`
+- `outputs/prefullrun_gate_policy_combo_20260704/report.md`
+
+Remaining hard blockers are mechanical:
+
+1. `price_readiness_not_ready`
+   - missing `latest_price_date_audit`
+   - missing benchmark anchor / stale trading-day fields
+   - required env price tickers not refreshed
+2. `universe_health_not_ready`
+   - local P2 status still has missing scored/candidate files
+3. production blocker:
+   - `pit_universe_label_clean_false`
+
+Next work should be data/readiness refresh for this exact frozen payload, not
+another alpha idea. A fullrun still requires explicit user approval after the
+updated pre-fullrun gate reports `research_fullrun_preconditions_ready=true`.

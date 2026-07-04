@@ -138,18 +138,45 @@ Interpretation:
 
 ## Updated Fullrun Gate
 
-Improved, but still blocked.
+Improved materially, but still blocked pending readiness.
 
 Reasons:
 
 1. price readiness is missing/stale locally;
 2. old dirty official artifact is not exact-reproducible under current clean code;
-3. fixed-book candidates now pass both sleeves, but policy-path reproduction is
-   not yet proven;
+3. policy-path reproduction now has a passing research candidate, but it has not
+   gone through the formal pre-fullrun readiness gate;
 4. regenerated selection-side A/B remains diagnostic until W1 control
    reproduction is resolved;
 5. earnings/guidance feed is still `DATA_INSUFFICIENT`;
 6. universe health is still invalid / PIT-clean is false.
+
+## Policy-Path Combo Candidate
+
+The fixed-book candidates were mapped into default-off policy-path hooks and
+measured with broker replay:
+
+- output: `outputs/policy_path_combo_probe_20260704_final_candidate/`
+- report: `docs/CODEX_POLICY_PATH_COMBO_CANDIDATE_20260704.md`
+
+Frozen payload:
+
+- Main post-selection topN filter: `topN=14`
+- Main AI Capex momentum tilt: `0.20`
+- Concentrated event-matched replacement-quality
+- Concentrated cash-funded early entry: `5.8%`, minimum breakout quality `0.50`
+
+Result:
+
+| Portfolio | CAGR | MaxDD | Sharpe | Verdict |
+|---|---:|---:|---:|---|
+| Main | 36.33% | -24.91% | 1.312 | pass |
+| Concentrated | 52.14% | -23.12% | 1.583 | pass |
+
+This is the first current clean-code policy-path replay candidate in this
+track where both sleeves clear their research targets under cash-carry
+accounting. It is still not production evidence and does not by itself justify
+production promotion.
 
 ## Next Engineering Order
 
@@ -157,11 +184,12 @@ Reasons:
    candidate.
 2. Keep `entry_w5p8` frozen as the cash-funded early-entry candidate when
    paired with replacement-quality; do not use it alone as a policy candidate.
-3. Map fixed-book transformations to policy-path hooks and verify applied
-   counts / target-book deltas before any fullrun.
-4. Refresh price readiness only after the policy-path hooks reproduce the
-   fixed-book candidate behavior.
-5. Create one clean official control artifact only after the above is true.
+3. Freeze the policy-path combo payload in
+   `CODEX_POLICY_PATH_COMBO_CANDIDATE_20260704.md`.
+4. Refresh price/data readiness and rerun the pre-fullrun gate against that
+   exact payload.
+5. Dispatch at most one clean fullrun only if the readiness gate passes and the
+   user explicitly approves.
 
 ## Claude/GPT Pro Routing
 

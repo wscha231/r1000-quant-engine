@@ -44,6 +44,7 @@ def ready_payload() -> dict:
             "hedge_off_cash_carry_max_dd": -0.24,
             "end_date_matches_official": True,
         },
+        "policy_combo": {"_missing": True},
         "earnings_coverage": {
             "status": "RESEARCH_READY",
             "research_ready": True,
@@ -69,6 +70,7 @@ def call(payload: dict, **kwargs) -> dict:
         control_repro=payload["control_repro"],
         replacement_readiness=payload["replacement_readiness"],
         main_hedge_off=payload["main_hedge_off"],
+        policy_combo=payload["policy_combo"],
         earnings_coverage=payload["earnings_coverage"],
         universe_status=payload["universe_status"],
         **kwargs,
@@ -123,10 +125,55 @@ def test_universe_invalid_blocks_research_and_pit_blocks_production() -> None:
     assert payload["production_blockers"] == ["pit_universe_label_clean_false"]
 
 
+def test_policy_combo_pass_supersedes_dirty_control_main_and_replacement_blockers() -> None:
+    source = ready_payload()
+    source["control_repro"]["acceptance"]["passes_required_gate"] = False
+    source["control_repro"]["acceptance"]["ticker_mismatch_date_count"] = {"main": 52, "concentrated": 56}
+    source["control_repro"]["acceptance"]["max_weight_delta_abs"] = {"main": 0.49, "concentrated": 0.30}
+    source["control_repro"]["same_machine_double_reproduction"] = {
+        "main": {"exact_control_reproduced": True},
+        "concentrated": {"exact_control_reproduced": True},
+    }
+    source["replacement_readiness"]["status"] = "blocked"
+    source["replacement_readiness"]["fullrun_allowed"] = False
+    source["replacement_readiness"]["blockers"] = ["hook_swap_count_outside_tolerance"]
+    source["main_hedge_off"]["main_cash_carry_target_pass"] = False
+    source["main_hedge_off"]["hedge_off_cash_carry_cagr"] = 0.3499
+    source["policy_combo"] = {
+        "status": "loaded_from_broker_metric_dir",
+        "path": "outputs/policy_path_combo_probe_20260704_final_candidate",
+        "main": {
+            "metric_mode": "broker_ledger_next_close_cash_carry",
+            "cagr": 0.363,
+            "max_dd": -0.249,
+            "years": 7.07,
+            "end_date_matches_official": True,
+            "production_activation_allowed": False,
+        },
+        "concentrated": {
+            "metric_mode": "broker_ledger_next_close_cash_carry",
+            "cagr": 0.521,
+            "max_dd": -0.231,
+            "years": 7.07,
+            "end_date_matches_official": True,
+            "production_activation_allowed": False,
+        },
+    }
+
+    payload = call(source)
+
+    assert "target_book_control_repro_not_exact" not in payload["blockers"]
+    assert "replacement_quality_not_fullrun_ready" not in payload["blockers"]
+    assert "main_long_only_cash_carry_target_not_met" not in payload["blockers"]
+    assert payload["checks"]["policy_path_combo"]["research_pass"] is True
+    assert payload["checks"]["target_book_control_repro"]["official_dirty_mismatch_non_blocking"] is True
+
+
 if __name__ == "__main__":
     test_all_research_gates_pass_but_dispatch_still_needs_user()
     test_w1_exact_control_failure_blocks()
     test_replacement_quality_blockers_block()
     test_earnings_required_gate_blocks_only_when_required()
     test_universe_invalid_blocks_research_and_pit_blocks_production()
+    test_policy_combo_pass_supersedes_dirty_control_main_and_replacement_blockers()
     print("alphaops_prefullrun_gate_smoke: PASS")

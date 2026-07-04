@@ -16,6 +16,8 @@ if str(ROOT) not in sys.path:
 
 from tools.run_alphaops_vnext_policy_replay import (
     DEFAULT_CONCENTRATED_TARGET_N,
+    DEFAULT_MAIN_TARGET_N,
+    MAIN_VARIANTS,
     apply_concentrated_defense_neutral_quality_new_entry_cap,
     apply_concentrated_green_benchmark_risk_cyclical_new_entry_block,
     apply_concentrated_hold_decay_trim,
@@ -41,6 +43,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_defense_review_turnaround_new_entry_block,
     apply_main_high_volatility_new_entry_cap,
     apply_main_neutral_regime_churn_filter,
+    apply_main_post_selection_topn_filter,
     apply_main_quality_bull_low_confirm_new_entry_cap,
     apply_main_quality_hold_weak_timing_trim,
     apply_main_watch_unconfirmed_market_leader_new_entry_cap,
@@ -382,6 +385,44 @@ def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
 
 def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
     assert DEFAULT_CONCENTRATED_TARGET_N == 5
+    assert DEFAULT_MAIN_TARGET_N == 15
+    assert 14 in MAIN_VARIANTS
+
+
+def test_main_post_selection_topn_filter_default_off_preserves_book() -> None:
+    _clear_main_post_selection_topn_env()
+    selected = [
+        {"ticker": "AAA", "weight": 0.10, "target_weight": 0.10, "alphaops_vnext_score": 3.0},
+        {"ticker": "BBB", "weight": 0.08, "target_weight": 0.08, "alphaops_vnext_score": 2.0},
+        {"ticker": "CCC", "weight": 0.04, "target_weight": 0.04, "alphaops_vnext_score": 1.0},
+    ]
+
+    out = apply_main_post_selection_topn_filter(selected, "main")
+
+    assert out == selected
+
+
+def test_main_post_selection_topn_filter_drops_lowest_weight_to_implicit_cash() -> None:
+    _clear_main_post_selection_topn_env()
+    os.environ["PHASE_MAIN_POST_SELECTION_TOPN_FILTER_ENABLED"] = "1"
+    os.environ["R1000_MAIN_POST_SELECTION_TOP_N"] = "2"
+    try:
+        selected = [
+            {"ticker": "AAA", "weight": 0.10, "target_weight": 0.10, "alphaops_vnext_score": 3.0},
+            {"ticker": "BBB", "weight": 0.08, "target_weight": 0.08, "alphaops_vnext_score": 2.0},
+            {"ticker": "CCC", "weight": 0.04, "target_weight": 0.04, "alphaops_vnext_score": 4.0},
+        ]
+
+        out = apply_main_post_selection_topn_filter(selected, "main")
+    finally:
+        _clear_main_post_selection_topn_env()
+
+    assert [row["ticker"] for row in out] == ["AAA", "BBB"]
+    assert round(sum(float(row["weight"]) for row in out), 10) == 0.18
+    assert all(row["main_post_selection_topn_filter_applied"] is True for row in out)
+    assert all(row["main_post_selection_topn_target_n"] == 2 for row in out)
+    assert set(row["main_post_selection_topn_dropped_tickers"] for row in out) == {"CCC"}
+    assert set(round(float(row["main_post_selection_topn_dropped_weight"]), 10) for row in out) == {0.04}
 
 
 def test_concentrated_score_sizing_reweight_default_off_preserves_weights() -> None:
@@ -828,6 +869,11 @@ def _clear_leadership_persistence_env() -> None:
 
 def _clear_shakeout_guard_env() -> None:
     os.environ.pop("PHASE_SHAKEOUT_GUARD_PROD_ENABLED", None)
+
+
+def _clear_main_post_selection_topn_env() -> None:
+    os.environ.pop("PHASE_MAIN_POST_SELECTION_TOPN_FILTER_ENABLED", None)
+    os.environ.pop("R1000_MAIN_POST_SELECTION_TOP_N", None)
 
 
 def _clear_concentrated_score_sizing_env() -> None:

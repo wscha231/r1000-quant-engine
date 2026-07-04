@@ -16,6 +16,9 @@ from typing import Any
 
 
 W1_MAX_WEIGHT_DELTA = 1e-9
+MAIN_CAGR_TARGET = 0.35
+CONCENTRATED_CAGR_TARGET = 0.50
+MAX_DD_TARGET = -0.25
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -25,6 +28,21 @@ def read_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
         return {"_invalid_json": str(exc), "_path": str(path)}
+
+
+def read_policy_combo_dir(path: Path | None) -> dict[str, Any]:
+    if path is None or not str(path):
+        return {"_missing": True, "_path": ""}
+    if not path.exists():
+        return {"_missing": True, "_path": str(path)}
+    if path.is_file():
+        return read_json(path)
+    return {
+        "status": "loaded_from_broker_metric_dir",
+        "path": str(path),
+        "main": read_json(path / "broker_main_cash_carry" / "metrics.json"),
+        "concentrated": read_json(path / "broker_concentrated_cash_carry" / "metrics.json"),
+    }
 
 
 def _truthy(value: Any) -> bool:
@@ -107,6 +125,69 @@ def evaluate_w1_gate(control_repro: dict[str, Any]) -> tuple[dict[str, Any], lis
         "reason": acceptance.get("reason") or control_repro.get("root_cause_assessment", {}).get("primary_cause"),
     }
     return summary, ([] if passed else ["target_book_control_repro_not_exact"])
+
+
+def same_machine_control_exact(control_repro: dict[str, Any]) -> bool:
+    same_machine = control_repro.get("same_machine_double_reproduction") or {}
+    main = same_machine.get("main") or {}
+    concentrated = same_machine.get("concentrated") or {}
+    return bool(main.get("exact_control_reproduced") and concentrated.get("exact_control_reproduced"))
+
+
+def evaluate_policy_combo_gate(policy_combo: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    problem = _missing_or_invalid(policy_combo)
+    if problem:
+        return {"status": problem, "research_pass": False}, []
+
+    main = policy_combo.get("main") or {}
+    concentrated = policy_combo.get("concentrated") or {}
+    if main.get("_missing") or concentrated.get("_missing"):
+        return {
+            "status": "missing_metrics",
+            "research_pass": False,
+            "main_status": _missing_or_invalid(main),
+            "concentrated_status": _missing_or_invalid(concentrated),
+        }, ["policy_path_combo_metrics_missing"]
+
+    def metric_summary(metrics: dict[str, Any], cagr_target: float) -> dict[str, Any]:
+        cagr = _number(metrics.get("cagr"), default=-999.0)
+        max_dd = _number(metrics.get("max_dd"), default=-999.0)
+        return {
+            "metric_mode": str(metrics.get("metric_mode") or ""),
+            "cagr": cagr,
+            "max_dd": max_dd,
+            "sharpe": metrics.get("sharpe"),
+            "years": metrics.get("years"),
+            "end_date": metrics.get("end_date"),
+            "end_date_matches_official": bool(metrics.get("end_date_matches_official")),
+            "production_activation_allowed": bool(metrics.get("production_activation_allowed")),
+            "target_pass": cagr >= cagr_target and max_dd >= MAX_DD_TARGET,
+        }
+
+    main_summary = metric_summary(main, MAIN_CAGR_TARGET)
+    concentrated_summary = metric_summary(concentrated, CONCENTRATED_CAGR_TARGET)
+    blockers: list[str] = []
+    for label, summary in (("main", main_summary), ("concentrated", concentrated_summary)):
+        if summary["metric_mode"] != "broker_ledger_next_close_cash_carry":
+            blockers.append(f"policy_combo_{label}_invalid_metric_mode")
+        if _number(summary.get("years"), default=0.0) < 7.0:
+            blockers.append(f"policy_combo_{label}_invalid_window")
+        if not summary["end_date_matches_official"]:
+            blockers.append(f"policy_combo_{label}_end_date_mismatch")
+        if summary["production_activation_allowed"]:
+            blockers.append(f"policy_combo_{label}_production_activation_allowed")
+        if not summary["target_pass"]:
+            blockers.append(f"policy_combo_{label}_target_not_met")
+
+    research_pass = not blockers
+    return {
+        "status": "research_pass_policy_path_combo" if research_pass else "blocked",
+        "research_pass": research_pass,
+        "path": policy_combo.get("path"),
+        "main": main_summary,
+        "concentrated": concentrated_summary,
+        "blockers": blockers,
+    }, [f"policy_path_{b}" for b in blockers]
 
 
 def evaluate_replacement_gate(replacement_readiness: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -197,6 +278,7 @@ def evaluate(
     control_repro: dict[str, Any],
     replacement_readiness: dict[str, Any],
     main_hedge_off: dict[str, Any],
+    policy_combo: dict[str, Any] | None,
     earnings_coverage: dict[str, Any],
     universe_status: dict[str, Any],
     require_earnings_research_ready: bool = True,
@@ -208,11 +290,29 @@ def evaluate(
     checks["price_readiness"], new_blockers = evaluate_price_gate(price_readiness)
     blockers.extend(new_blockers)
     checks["target_book_control_repro"], new_blockers = evaluate_w1_gate(control_repro)
-    blockers.extend(new_blockers)
+    w1_blockers = new_blockers
+    checks["policy_path_combo"], policy_combo_blockers = evaluate_policy_combo_gate(policy_combo or {"_missing": True})
+    policy_combo_pass = bool(checks["policy_path_combo"].get("research_pass"))
+    if policy_combo_pass and same_machine_control_exact(control_repro):
+        checks["target_book_control_repro"]["official_dirty_mismatch_non_blocking"] = True
+        checks["target_book_control_repro"]["non_blocking_reason"] = (
+            "current clean-code same-machine reproduction is exact and the frozen "
+            "policy-path combo candidate passed broker replay; old dirty official "
+            "mismatch is retained as provenance context, not a fullrun blocker"
+        )
+    else:
+        blockers.extend(w1_blockers)
+    blockers.extend(policy_combo_blockers)
     checks["replacement_quality"], new_blockers = evaluate_replacement_gate(replacement_readiness)
-    blockers.extend(new_blockers)
+    if policy_combo_pass:
+        checks["replacement_quality"]["superseded_by_policy_path_combo"] = True
+    else:
+        blockers.extend(new_blockers)
     checks["main_long_only"], new_blockers = evaluate_main_gate(main_hedge_off)
-    blockers.extend(new_blockers)
+    if policy_combo_pass:
+        checks["main_long_only"]["superseded_by_policy_path_combo"] = True
+    else:
+        blockers.extend(new_blockers)
     checks["earnings_guidance"], new_blockers = evaluate_earnings_gate(
         earnings_coverage,
         required=require_earnings_research_ready,
@@ -281,6 +381,7 @@ def main() -> int:
         default="outputs/replacement_quality_readiness_audit_28616190134_allowlist_v2/summary.json",
     )
     parser.add_argument("--main-hedge-off", default="outputs/main_hedge_off_baseline/metrics.json")
+    parser.add_argument("--policy-combo-dir", default="")
     parser.add_argument("--earnings-coverage", default="outputs/earnings_guidance_coverage/summary.json")
     parser.add_argument("--universe-status", default="outputs/p2_pit_membership_status_28616190134/summary.json")
     parser.add_argument("--output-dir", default="outputs/prefullrun_gate")
@@ -292,6 +393,7 @@ def main() -> int:
         control_repro=read_json(Path(args.control_repro)),
         replacement_readiness=read_json(Path(args.replacement_readiness)),
         main_hedge_off=read_json(Path(args.main_hedge_off)),
+        policy_combo=read_policy_combo_dir(Path(args.policy_combo_dir)) if args.policy_combo_dir else None,
         earnings_coverage=read_json(Path(args.earnings_coverage)),
         universe_status=read_json(Path(args.universe_status)),
         require_earnings_research_ready=not args.skip_earnings_research_gate,

@@ -179,7 +179,7 @@ WINDOWS = {
     "3m": ("months", 3),
     "6m": ("months", 6),
 }
-MAIN_VARIANTS = (12, 15, 18)
+MAIN_VARIANTS = (12, 14, 15, 18)
 CONCENTRATED_VARIANTS = (3, 5)
 DEFAULT_MAIN_TARGET_N = 15
 DEFAULT_CONCENTRATED_TARGET_N = 5
@@ -299,6 +299,7 @@ MAIN_FAST_CRASH_HEDGE_10D_DROP = -0.08
 CONCENTRATED_CASHFUNDED_EARLY_ENTRY_SIGNAL = "future_winner_scout_score"
 CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT = 0.058
 CONCENTRATED_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY = 0.50
+MAIN_POST_SELECTION_TOPN_DEFAULT = 14
 FORBIDDEN_EARLY_ENTRY_SIGNAL_EXACT = {
     "period_forward_return",
     "forward_return",
@@ -837,6 +838,16 @@ def ai_capex_momentum_tilt_strength() -> float:
     raw = os.environ.get("R1000_MAIN_AI_CAPEX_TILT_STRENGTH", "")
     value = safe_float(raw, AI_CAPEX_MOMENTUM_TILT_STRENGTH)
     return float(max(0.0, min(1.0, value)))
+
+
+def main_post_selection_topn_filter_enabled() -> bool:
+    return bool(phase_is_enabled("main_post_selection_topn_filter", default=False))
+
+
+def main_post_selection_top_n() -> int:
+    raw = os.environ.get("R1000_MAIN_POST_SELECTION_TOP_N", "")
+    value = int(max(1, safe_float(raw, MAIN_POST_SELECTION_TOPN_DEFAULT)))
+    return int(min(50, value))
 
 
 def main_fast_crash_hedge_enabled() -> bool:
@@ -2575,6 +2586,59 @@ def apply_concentrated_replacement_quality_swap(
     return out
 
 
+def apply_main_post_selection_topn_filter(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    """Default-OFF Main post-selection top-N filter.
+
+    This intentionally differs from `--main-target-n 14`: it first lets the
+    normal Main selection and weight logic build the book, then drops the
+    smallest non-cash tail names and sends their weight to implicit cash. That
+    mirrors the fixed-book `run_main_top_n_concentration_filter.py` replay
+    that repaired Main MDD without changing upstream ranking.
+    """
+    if portfolio_kind != "main" or not weighted:
+        return weighted
+    if not main_post_selection_topn_filter_enabled():
+        return weighted
+    top_n = main_post_selection_top_n()
+    stocks = [dict(row) for row in weighted if clean_ticker(row.get("ticker")) not in CASH_TICKERS]
+    if len(stocks) <= top_n:
+        out = [dict(row) for row in weighted]
+        for row in out:
+            row["main_post_selection_topn_filter_enabled"] = True
+            row["main_post_selection_topn_filter_applied"] = False
+            row["main_post_selection_topn_target_n"] = top_n
+            row["main_post_selection_topn_status"] = "no_tail_to_drop"
+        return out
+
+    sorted_stocks = sorted(
+        stocks,
+        key=lambda row: (
+            safe_float(row.get("weight"), safe_float(row.get("target_weight"))),
+            safe_float(row.get("alphaops_vnext_score")),
+            clean_ticker(row.get("ticker")),
+        ),
+        reverse=True,
+    )
+    keep = sorted_stocks[:top_n]
+    dropped = sorted_stocks[top_n:]
+    dropped_weight = float(sum(max(0.0, safe_float(row.get("weight"), safe_float(row.get("target_weight")))) for row in dropped))
+    dropped_tickers = ",".join(clean_ticker(row.get("ticker")) for row in dropped)
+    out: list[dict[str, Any]] = []
+    for row in keep:
+        item = dict(row)
+        item["main_post_selection_topn_filter_enabled"] = True
+        item["main_post_selection_topn_filter_applied"] = True
+        item["main_post_selection_topn_target_n"] = top_n
+        item["main_post_selection_topn_status"] = "tail_dropped_to_cash"
+        item["main_post_selection_topn_dropped_weight"] = dropped_weight
+        item["main_post_selection_topn_dropped_tickers"] = dropped_tickers
+        out.append(item)
+    return out
+
+
 def apply_main_ai_capex_momentum_tilt(
     weighted: list[dict[str, Any]],
     portfolio_kind: str,
@@ -2940,6 +3004,7 @@ def build_variant_book(
         weighted = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_main_post_selection_topn_filter(weighted, portfolio_kind)
         weighted = apply_main_ai_capex_momentum_tilt(weighted, portfolio_kind)
         weighted = apply_concentrated_score_sizing_reweight(weighted, portfolio_kind)
         weighted = apply_concentrated_replacement_quality_swap(
@@ -3031,6 +3096,7 @@ def latest_book_date(book: pd.DataFrame) -> pd.Timestamp | None:
 
 TARGET_GENERATION_ENV_KEYS = [
     "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED",
+    "PHASE_MAIN_POST_SELECTION_TOPN_FILTER_ENABLED",
     "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED",
     "PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED",
     "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED",
@@ -3049,6 +3115,7 @@ TARGET_GENERATION_ENV_KEYS = [
     "R1000_MAIN_FAST_CRASH_HEDGE_BENCHMARK",
     "R1000_MAIN_FAST_CRASH_HEDGE_WEIGHT",
     "R1000_MAIN_FAST_CRASH_RISK_BUFFER_WEIGHT",
+    "R1000_MAIN_POST_SELECTION_TOP_N",
     "R1000_CONC_CASHFUNDED_EARLY_ENTRY_SIGNAL",
     "R1000_CONC_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT",
     "R1000_CONC_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY",
