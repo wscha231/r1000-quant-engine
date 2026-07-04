@@ -67,20 +67,72 @@ Sizing conclusion: cap-safe fixed-book sizing does not solve the Concentrated ga
 
 ## Remaining Gap
 
-This still misses:
+At this point replacement-quality alone still misses:
 
 - CAGR target by about `1.25pp`
 - MaxDD target by about `0.08pp`
 
-The remaining Concentrated task is not "more AI tilt"; it is either:
+The remaining Concentrated task is not "more AI tilt" or generic selected-name sizing. It is a narrow, cash-funded early-entry source measured on fixed books.
 
-1. improve replacement timing/quality without increasing concentration or cash usage,
-2. find a tiny MDD-neutral CAGR source orthogonal to replacement-quality, or
-3. run a narrow MDD repair that does not erase the replacement-quality CAGR gain.
-4. revalidate cash-funded early-entry only if it can be measured on clean-control inputs or isolated from dirty target-book generation.
+## Test 4 - Fixed-Book Cash-Funded Early Entry
+
+- Tool: `tools/run_fixed_book_cashfunded_early_entry_ab.py`
+- Candidate source: `outputs/target_book_control_repro_root_cause/repro_a/lane_scores_history.csv`
+- Candidate variant: `concentrated_N5`
+- Signal: `future_winner_scout_score`
+- Selection uses PIT columns only; forward labels remain audit-only.
+- Entry is non-sticky and funded only from existing cash.
+- No target regeneration, no fullrun, no production mutation.
+
+### Official Book Ablation
+
+- Target book: `outputs/phase1_replay_goal_test/official_book_bull_floor_broker_ab/floor_0p0/target_book.csv`
+- Output: `outputs/clean_control_concentrated_official_cashfunded_early_entry_ab_v2/`
+
+| arm | CAGR | MaxDD | Sharpe | dCAGR pp | dMDD pp | applied | verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| official baseline | 48.83% | -23.79% | 1.445 | +0.00 | +0.00 | 0 | `baseline` |
+| entry_w3p0 | 49.62% | -24.66% | 1.455 | +0.79 | -0.87 | 43 | `partial` |
+| entry_w5p8 | 50.15% | -25.48% | 1.461 | +1.32 | -1.69 | 43 | `reject_mdd_still_below_target` |
+| entry_w3p0_breakout70 | 48.80% | -23.79% | 1.442 | -0.04 | +0.01 | 9 | `reject_no_cagr_edge` |
+| entry_w5p8_breakout70 | 48.75% | -23.80% | 1.440 | -0.09 | -0.00 | 9 | `reject_no_cagr_edge` |
+
+Early entry alone is not a policy candidate. It can push official-book CAGR above 50, but it breaks the MaxDD gate.
+
+### Replacement-Quality Book Combination
+
+- Target book: `outputs/clean_control_replacement_counterfactual/concentrated_cash_carry_full_missed/rank_top15_and_revenue_ge10/target_book.csv`
+- Output: `outputs/clean_control_concentrated_replacement_cashfunded_early_entry_ab/`
+
+| arm | CAGR | MaxDD | Sharpe | dCAGR pp | dMDD pp | applied | verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| replacement-quality baseline | 48.75% | -25.08% | 1.467 | +0.00 | +0.00 | 0 | `baseline` |
+| entry_w3p0 | 49.98% | -23.53% | 1.484 | +1.23 | +1.55 | 43 | `partial` |
+| entry_w5p8 | 51.04% | -23.93% | 1.498 | +2.29 | +1.15 | 43 | `research_pass_policy_candidate` |
+| entry_w3p0_breakout70 | 49.18% | -24.80% | 1.474 | +0.43 | +0.28 | 9 | `partial` |
+| entry_w5p8_breakout70 | 49.60% | -24.53% | 1.481 | +0.86 | +0.55 | 9 | `partial` |
+
+The surviving combination is:
+
+1. event-matched replacement-quality,
+2. cash-carry research accounting,
+3. non-sticky cash-funded early entry at `5.8%`,
+4. clean replay-end clamp at `2026-06-29`.
+
+This is the first fixed-book Concentrated combination in this track to exceed both targets:
+
+- Concentrated CAGR target: `51.04% >= 50%`
+- Concentrated MaxDD target: `-23.93% >= -25%`
+
+Distribution sanity:
+
+- Applied dates: `43`
+- Top ticker by count: `NVDA`, `3` applied dates
+- Applied-year distribution: `2019:5`, `2020:7`, `2021:11`, `2023:5`, `2024:9`, `2025:5`, `2026:1`
+- Not a one-ticker or one-era result by simple count concentration.
 
 ## Current Verdict
 
-`concentrated_ai_capex_and_sizing_rejected`
+`concentrated_combination_replay_pass_candidate`
 
-Do not retry this exact AI Capex tilt or generic fixed-book sizing on Concentrated unless there is a new PIT evidence feed or a materially different hypothesis. The next viable path is still event-matched replacement-quality, plus a separate, narrowly measured source for the remaining CAGR/MDD gap.
+Do not retry this exact AI Capex tilt or generic fixed-book sizing on Concentrated unless there is a new PIT evidence feed or a materially different hypothesis. The viable Concentrated path is now the narrow combination of event-matched replacement-quality plus cash-funded early entry. This still remains research-only until the policy-path hooks reproduce the fixed-book transformation and the normal fullrun gates are satisfied.

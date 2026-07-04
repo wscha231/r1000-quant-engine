@@ -88,42 +88,89 @@ Interpretation:
 - It does not justify a fullrun yet.
 - It should remain a candidate component, not a standalone acceptance claim.
 
+## Main Fixed-Book Candidate
+
+Main now has a separate fixed-book research pass candidate:
+
+- Base repair: `top14` concentration boundary
+- Add-on: AI bottleneck momentum tilt15
+- Output: `outputs/clean_control_main_top14_ai_capex_tilt/main/`
+
+| Arm | CAGR | MaxDD | Sharpe | Verdict |
+|---|---:|---:|---:|---|
+| top14 baseline | 34.77% | -24.86% | 1.274 | `baseline` |
+| top14 + AI bottleneck momentum tilt15 | 35.36% | -24.76% | 1.283 | `research_pass_policy_candidate` |
+| top14 + AI bottleneck momentum + earnings tilt15 | 34.84% | -24.77% | 1.274 | `research_edge_too_small` |
+
+Interpretation:
+
+- Main has a fixed-book research candidate under the cash-carry accounting
+  contract.
+- This is still not production evidence.
+- The `top14` boundary must be reproduced by policy-path or explicitly
+  implemented as a default-off research lever before fullrun acceptance.
+
+## Concentrated Fixed-Book Combination Candidate
+
+Concentrated now has a fixed-book combination candidate:
+
+- Component 1: event-matched replacement-quality
+- Component 2: non-sticky cash-funded early entry, `entry_w5p8`
+- Output: `outputs/clean_control_concentrated_replacement_cashfunded_early_entry_ab/`
+
+| Arm | CAGR | MaxDD | Sharpe | Applied | Verdict |
+|---|---:|---:|---:|---:|---|
+| replacement-quality baseline | 48.75% | -25.08% | 1.467 | 0 | `baseline` |
+| replacement-quality + entry_w3p0 | 49.98% | -23.53% | 1.484 | 43 | `partial` |
+| replacement-quality + entry_w5p8 | 51.04% | -23.93% | 1.498 | 43 | `research_pass_policy_candidate` |
+| replacement-quality + entry_w3p0_breakout70 | 49.18% | -24.80% | 1.474 | 9 | `partial` |
+| replacement-quality + entry_w5p8_breakout70 | 49.60% | -24.53% | 1.481 | 9 | `partial` |
+
+Interpretation:
+
+- Early entry alone is not safe: official-book `entry_w5p8` reaches 50.15%
+  CAGR but worsens MaxDD to -25.48%.
+- The pass requires the combined replacement-quality + cash-funded early-entry
+  structure.
+- Simple count sanity check does not show one-ticker or one-era dependence:
+  `43` applied dates, top ticker by count `NVDA` with `3`, and applied dates
+  spread across `2019`, `2020`, `2021`, `2023`, `2024`, `2025`, and `2026`.
+
 ## Updated Fullrun Gate
 
-Still blocked.
+Improved, but still blocked.
 
 Reasons:
 
 1. price readiness is missing/stale locally;
 2. old dirty official artifact is not exact-reproducible under current clean code;
-3. current clean control fails mission gates;
-4. replacement-quality improves Concentrated but does not reach 50% / -25%;
-5. Main clean control fails MDD;
-6. earnings/guidance feed is still `DATA_INSUFFICIENT`;
-7. universe health is still invalid / PIT-clean is false.
+3. fixed-book candidates now pass both sleeves, but policy-path reproduction is
+   not yet proven;
+4. regenerated selection-side A/B remains diagnostic until W1 control
+   reproduction is resolved;
+5. earnings/guidance feed is still `DATA_INSUFFICIENT`;
+6. universe health is still invalid / PIT-clean is false.
 
 ## Next Engineering Order
 
 1. Keep `rank_top15_and_revenue_ge10` frozen as the replacement-quality
-   candidate, but do not promote it alone.
-2. Solve Main MDD on the clean control book, or formally record that current
-   long-only clean code needs another risk component.
-3. Find the remaining Concentrated +1.25pp to +2.7pp without gross-floor or
-   broad cash reduction.
-4. Refresh price readiness only after a candidate combination can plausibly
-   pass.
+   candidate.
+2. Keep `entry_w5p8` frozen as the cash-funded early-entry candidate when
+   paired with replacement-quality; do not use it alone as a policy candidate.
+3. Map fixed-book transformations to policy-path hooks and verify applied
+   counts / target-book deltas before any fullrun.
+4. Refresh price readiness only after the policy-path hooks reproduce the
+   fixed-book candidate behavior.
 5. Create one clean official control artifact only after the above is true.
 
 ## Claude/GPT Pro Routing
 
 No immediate review is required. If a review is requested, send this question:
 
-> On current clean-control broker replay, Main cash-carry is 36.06% / -25.81%,
-> Concentrated cash-carry is 47.30% / -25.06%, and frozen replacement-quality
-> improves Concentrated to 48.75% / -25.08% without concentration or cash/gross
-> violations. Do you agree that fullrun remains blocked, and that the next work
-> should be a small clean-control combination search for Main MDD and the
-> remaining Concentrated CAGR gap, rather than another review of the already
-> falsified dirty official artifact?
+> On current clean-control broker replay, fixed-book Main top14 + AI bottleneck
+> momentum reaches 35.36% / -24.76%, and fixed-book Concentrated
+> replacement-quality + cash-funded early entry reaches 51.04% / -23.93%.
+> Do you agree that the next step is policy-path reproduction and data
+> readiness, not more fixed-book alpha search or a premature fullrun?
 
 Expected answer should be yes unless a new blocker is identified.
