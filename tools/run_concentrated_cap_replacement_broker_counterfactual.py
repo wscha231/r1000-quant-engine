@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Research-only fixed-book broker counterfactual for missed Concentrated leaders.
+"""Research-only fixed-book broker counterfactual for missed cap/replacement leaders.
 
 The challenger swaps a PIT-filtered cap/replacement missed leader into an
 existing non-cash Concentrated slot at the donor slot's weight. Cash weight and
@@ -122,7 +122,7 @@ def parse_arms(text: str) -> list[str]:
     return out
 
 
-def prepare_missed(path: Path) -> pd.DataFrame:
+def prepare_missed(path: Path, portfolio_kind: str = "concentrated") -> pd.DataFrame:
     frame = pd.read_csv(path)
     out = frame.copy()
     for col in (*PIT_RULE_COLUMNS, *FORWARD_LABEL_COLUMNS, "liquidity_score"):
@@ -133,8 +133,9 @@ def prepare_missed(path: Path) -> pd.DataFrame:
             out[col] = ""
     out["ticker"] = out["ticker"].map(normalize_ticker)
     out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce").dt.date.astype(str)
+    portfolio_key = str(portfolio_kind or "concentrated").strip().lower()
     valid = (
-        out["portfolio"].astype(str).eq("concentrated")
+        out["portfolio"].astype(str).str.lower().eq(portfolio_key)
         & out["rejection_reason"].astype(str).eq("cap_or_replacement")
         & out["ticker"].ne("")
         & falsy_series(out, "used_forward_return_in_ranking", True)
@@ -663,10 +664,12 @@ def pct(value: Any) -> str:
 
 
 def render_report(payload: dict[str, Any]) -> str:
+    portfolio_kind = payload.get("portfolio_kind") or "concentrated"
     lines = [
-        "# Concentrated Cap/Replacement Broker Counterfactual",
+        f"# {str(portfolio_kind).title()} Cap/Replacement Broker Counterfactual",
         "",
         f"- status: `{payload.get('status')}`",
+        f"- portfolio kind: `{portfolio_kind}`",
         f"- source doc: `{payload.get('source_doc')}`",
         f"- target book: `{payload.get('target_book')}`",
         f"- missed leaders: `{payload.get('missed_leaders')}`",
@@ -741,6 +744,9 @@ def render_report(payload: dict[str, Any]) -> str:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    portfolio_kind = str(getattr(args, "portfolio_kind", "concentrated") or "concentrated").strip().lower()
+    if portfolio_kind not in {"main", "concentrated"}:
+        raise ValueError(f"unsupported portfolio_kind: {portfolio_kind}")
     target_book = repo_path(args.target_book)
     missed_path = repo_path(args.missed_leaders)
     price_cache = repo_path(args.price_cache)
@@ -748,7 +754,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     source_doc = repo_path(args.source_doc)
 
     base_book = pd.read_csv(target_book)
-    missed = prepare_missed(missed_path)
+    missed = prepare_missed(missed_path, portfolio_kind=portfolio_kind)
     baseline_metrics = read_json(baseline_metrics_path)
     baseline_replay_dir = baseline_metrics_path.parent
     baseline_portfolio_concentration = portfolio_concentration_metrics(baseline_replay_dir)
@@ -785,13 +791,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 target_book=challenger_book_path,
                 price_cache=price_cache,
                 output_dir=arm_dir / "broker_replay",
-                portfolio_kind="concentrated",
+                portfolio_kind=portfolio_kind,
                 starting_capital=float(args.starting_capital),
                 fill_mode="next_close",
                 cost_bps=float(args.cost_bps),
                 integer_shares=not bool(args.fractional_shares),
                 max_fill_lag_days=int(args.max_fill_lag_days),
-                disable_concentrated_champion_filter=True,
+                disable_concentrated_champion_filter=portfolio_kind == "concentrated",
                 max_reasonable_weight_sum=float(args.max_reasonable_weight_sum),
                 oos_start=args.oos_start or None,
                 oos_end=args.oos_end or None,
@@ -842,9 +848,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     flat = pd.DataFrame([flatten_arm_row(arm) for arm in arms])
     flat.to_csv(output_dir / "arm_metrics.csv", index=False)
     payload = {
-        "schema_version": "concentrated-cap-replacement-broker-counterfactual-v1",
+        "schema_version": "cap-replacement-broker-counterfactual-v2",
         "status": "completed",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "portfolio_kind": portfolio_kind,
         "source_doc": str(source_doc),
         "target_book": str(target_book),
         "missed_leaders": str(missed_path),
@@ -904,6 +911,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-book", required=True)
+    parser.add_argument("--portfolio-kind", choices=["main", "concentrated"], default="concentrated")
     parser.add_argument("--missed-leaders", required=True)
     parser.add_argument("--price-cache", required=True)
     parser.add_argument("--baseline-metrics", required=True)

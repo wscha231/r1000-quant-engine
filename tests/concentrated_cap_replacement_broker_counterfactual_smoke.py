@@ -166,6 +166,114 @@ def test_counterfactual_swaps_existing_slots_without_cash_reduction() -> None:
         assert "Forward returns remain audit labels only" in (root / "out" / "report.md").read_text(encoding="utf-8")
 
 
+def test_counterfactual_supports_main_portfolio_kind() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir()
+        for ticker, closes in {
+            "AAA": [100.0] * 80,
+            "BBB": [100.0] * 80,
+            "CCC": [100.0 + i * 0.7 for i in range(80)],
+        }.items():
+            _write_px(cache, ticker, closes)
+
+        target = root / "main_target_book.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.40, "target_weight": 0.40, "alphaops_vnext_score": 1.0, "production_policy": "alphaops_vnext_production"},
+                {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.30, "target_weight": 0.30, "alphaops_vnext_score": 0.1, "production_policy": "alphaops_vnext_production"},
+                {"rebalance_date": "2026-01-02", "ticker": "CASH", "weight": 0.30, "target_weight": 0.30, "production_policy": "alphaops_vnext_production"},
+                {"rebalance_date": "2026-02-02", "ticker": "AAA", "weight": 0.40, "target_weight": 0.40, "alphaops_vnext_score": 1.0, "production_policy": "alphaops_vnext_production"},
+                {"rebalance_date": "2026-02-02", "ticker": "BBB", "weight": 0.30, "target_weight": 0.30, "alphaops_vnext_score": 0.1, "production_policy": "alphaops_vnext_production"},
+                {"rebalance_date": "2026-02-02", "ticker": "CASH", "weight": 0.30, "target_weight": 0.30, "production_policy": "alphaops_vnext_production"},
+            ]
+        ).to_csv(target, index=False)
+
+        missed = root / "missed_leaders_audit.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "portfolio": "main",
+                    "rejection_reason": "cap_or_replacement",
+                    "ticker": "CCC",
+                    "leader_rank_ex_ante": 5,
+                    "rs_spy_3m": 0.31,
+                    "revenue_growth": 0.11,
+                    "historical_valid": True,
+                    "ex_ante_source_valid": True,
+                    "missed_leader_historical_audit_allowed": True,
+                    "used_forward_return_in_ranking": False,
+                    "forward_126d_excess": 0.3,
+                    "sector": "Technology",
+                }
+            ]
+        ).to_csv(missed, index=False)
+
+        baseline = root / "baseline_metrics.json"
+        baseline.write_text(
+            json.dumps(
+                {
+                    "status": "completed",
+                    "end_date": "2026-03-31",
+                    "cagr": 0.12,
+                    "max_dd": -0.18,
+                    "sharpe": 0.7,
+                    "windows": {
+                        "full": {"status": "completed", "cagr": 0.12, "max_dd": -0.18, "sharpe": 0.7},
+                        "is": {"status": "completed", "cagr": 0.06, "max_dd": -0.10, "sharpe": 0.5},
+                        "oos": {"status": "completed", "cagr": 0.09, "max_dd": -0.12, "sharpe": 0.6},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        args = argparse.Namespace(
+            target_book=str(target),
+            portfolio_kind="main",
+            missed_leaders=str(missed),
+            price_cache=str(cache),
+            baseline_metrics=str(baseline),
+            source_doc=str(root / "source.md"),
+            output_dir=str(root / "out"),
+            arms="rank_top15_and_revenue_ge10",
+            max_swaps_per_date=1,
+            starting_capital=10000.0,
+            cost_bps=25.0,
+            fractional_shares=False,
+            max_fill_lag_days=7,
+            max_reasonable_weight_sum=1.05,
+            replay_end_date="2026-03-31",
+            oos_start="2026-02-01",
+            oos_end="",
+            oos2_start="",
+            oos2_end="",
+            cash_carry_mode="none",
+            cash_rate_source=None,
+            cash_rate_path=None,
+            cash_rate_lag_days=None,
+            cash_carry_haircut_bps=None,
+            cash_carry_day_count=None,
+        )
+        payload = run(args)
+        assert payload["status"] == "completed", payload
+        assert payload["portfolio_kind"] == "main"
+        assert payload["production_activation_allowed"] is False
+        arms = {arm["rule"]: arm for arm in payload["arms"]}
+        arm = arms["rank_top15_and_revenue_ge10"]
+        assert arm["status"] == "completed", arm
+        assert arm["swap_count"] == 1
+        assert arm["cash_weight_max_abs_delta"] == 0.0
+        assert arm["broad_cash_reduction"] is False
+        assert arm["forward_labels_used_for_ranking"] is False
+        challenger = pd.read_csv(root / "out" / "rank_top15_and_revenue_ge10" / "target_book.csv")
+        cash = challenger[challenger["ticker"].eq("CASH")].groupby("rebalance_date")["weight"].sum()
+        assert (cash == 0.30).all()
+        assert "Main Cap/Replacement Broker Counterfactual" in (root / "out" / "report.md").read_text(encoding="utf-8")
+
+
 def test_portfolio_concentration_metrics_from_holdings_daily() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -235,6 +343,7 @@ def test_concentration_guard_absolute_top3_and_gain_concentration() -> None:
 
 def main() -> int:
     test_counterfactual_swaps_existing_slots_without_cash_reduction()
+    test_counterfactual_supports_main_portfolio_kind()
     test_portfolio_concentration_metrics_from_holdings_daily()
     test_concentration_guard_absolute_top3_and_gain_concentration()
     print("concentrated_cap_replacement_broker_counterfactual_smoke: PASS")

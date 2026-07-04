@@ -83,14 +83,15 @@ zeroed, `--replay-end-date 2026-06-29`, zero-yield + cash-carry.
 - If hedge-off Main MDD ≥ −25: long-only Main baseline is quotable → B2. If it breaches −25:
   `governance_reopen_required` → packet (this is one of the few true human questions).
 
-**B2. Main missed-leader counterfactual** — run the EXISTING P4 harness
-(`run_concentrated_cap_replacement_broker_counterfactual.py`, generalized `--portfolio main`) on the Main book,
-both #238 and #239, cash-carry aligned, crash-inclusive end for #239. Main has its own cap/replacement
-rejections; the tool already exists — this is the cheapest untested CAGR lever for the sleeve that now fails.
+**B2. Main missed-leader counterfactual** — status: **REJECTED on latest #239/286 book**. The existing P4
+harness was generalized to `--portfolio-kind main` and run on the Main book with cash-carry aligned,
+crash-inclusive end `2026-07-02`.
 - GATE B2: any arm with ΔCAGR ≥ +0.5pp AND MDD ≥ −25 AND concentration-neutral AND multi-era (top era <60%,
   top name <50% of delta) AND IS delta ≥ 0.
-- Pass → freeze that single rule, same A1-style event matching, add to the fullrun payload. Fail → packet
-  (Main CAGR then depends on B1 + cash-carry + rotation Track C).
+- Result: all seven arms had negative full ΔCAGR (`-0.66pp` to `-1.96pp`) and did not repair MDD.
+  See `docs/CODEX_B2_MAIN_MISSED_LEADER_COUNTERFACTUAL_20260704.md`.
+- Therefore: do **not** build a Main missed-leader policy hook and do **not** add any Main rule from B2 to
+  the fullrun payload. Main now depends on B1 governance, cash-carry, and rotation Track C.
 
 ## Track C — Rotation stickiness: the live-crash counterfactual (next real alpha question)
 
