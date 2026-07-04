@@ -61,9 +61,48 @@ def test_revision_signals_require_available_from_and_filter_future() -> None:
     assert latest["positive_guidance_flag"] == 1
     assert latest["sector_eps_revision_breadth"] >= 0
     assert summary["input_history_depth_ticker_count"] == 1
+    assert summary["coverage_eligible_history_depth_ticker_count"] == 1
     assert summary["nonzero_revision_ticker_count"] == 1
+    assert summary["coverage_eligible_nonzero_revision_ticker_count"] == 1
     assert summary["directional_guidance_ticker_count"] == 1
+    assert summary["coverage_eligible_directional_guidance_ticker_count"] == 1
     assert summary["regime_nowcast_coverage_ready"] is False
+
+
+def test_actual_snapshot_builds_but_does_not_mark_regime_ready() -> None:
+    rows = []
+    for idx in range(5):
+        ticker = f"A{idx}"
+        rows.append(
+            {
+                "ticker": ticker,
+                "available_from": "2026-01-02",
+                "estimate_date": "2026-01-01",
+                "eps_estimate": 1.0,
+                "guidance_direction": "positive",
+                "source_type": "sec_actual_snapshot",
+            }
+        )
+        rows.append(
+            {
+                "ticker": ticker,
+                "available_from": "2026-04-02",
+                "estimate_date": "2026-04-01",
+                "eps_estimate": 1.2,
+                "guidance_direction": "positive",
+                "source_type": "sec_actual_snapshot",
+            }
+        )
+    out, summary = build_signals(pd.DataFrame(rows), as_of=pd.Timestamp("2026-06-30"))
+    assert not out.empty
+    assert summary["input_history_depth_ticker_count"] == 5, summary
+    assert summary["coverage_eligible_history_depth_ticker_count"] == 0, summary
+    assert summary["nonzero_revision_ticker_count"] == 5, summary
+    assert summary["coverage_eligible_nonzero_revision_ticker_count"] == 0, summary
+    assert summary["directional_guidance_ticker_count"] == 5, summary
+    assert summary["coverage_eligible_directional_guidance_ticker_count"] == 0, summary
+    assert summary["regime_nowcast_coverage_ready"] is False, summary
+    assert out["source_type_coverage_eligible"].astype(bool).sum() == 0
 
 
 def test_cli_writes_parquet() -> None:
@@ -136,6 +175,7 @@ def test_cli_blocks_header_only_feed() -> None:
 
 if __name__ == "__main__":
     test_revision_signals_require_available_from_and_filter_future()
+    test_actual_snapshot_builds_but_does_not_mark_regime_ready()
     test_cli_writes_parquet()
     test_cli_blocks_header_only_feed()
     print("earnings_revision_signals_smoke: PASS")

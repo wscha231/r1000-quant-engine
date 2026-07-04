@@ -85,7 +85,45 @@ def test_validate_flags_regime_ready_with_enough_history() -> None:
     payload = validate_feed(pd.DataFrame(rows), as_of=pd.Timestamp("2026-07-01"))
     assert payload["status"] in {"completed", "warning"}, payload
     assert payload["history_depth_ticker_count"] == 5, payload
+    assert payload["coverage_eligible_history_depth_ticker_count"] == 5, payload
     assert payload["regime_nowcast_coverage_ready"] is True, payload
+
+
+def test_actual_snapshot_does_not_count_for_regime_coverage() -> None:
+    rows = []
+    for idx in range(5):
+        ticker = f"A{idx}"
+        rows.append(
+            {
+                "ticker": ticker,
+                "fiscal_period": "2026Q1",
+                "estimate_date": "2026-04-01",
+                "available_from": "2026-04-02",
+                "eps_estimate": 1.0,
+                "guidance_direction": "positive",
+                "source": "sec_companyfacts",
+                "source_type": "sec_actual_snapshot",
+            }
+        )
+        rows.append(
+            {
+                "ticker": ticker,
+                "fiscal_period": "2026Q2",
+                "estimate_date": "2026-07-01",
+                "available_from": "2026-07-02",
+                "eps_estimate": 1.2,
+                "guidance_direction": "positive",
+                "source": "sec_companyfacts",
+                "source_type": "sec_actual_snapshot",
+            }
+        )
+    payload = validate_feed(pd.DataFrame(rows), as_of=pd.Timestamp("2026-07-03"))
+    assert payload["history_depth_ticker_count"] == 5, payload
+    assert payload["coverage_eligible_history_depth_ticker_count"] == 0, payload
+    assert payload["coverage_eligible_directional_guidance_row_count"] == 0, payload
+    assert payload["actual_only_source_rows"] == 10, payload
+    assert payload["regime_nowcast_coverage_ready"] is False, payload
+    assert "actual_only_sources_do_not_count_for_regime_nowcast" in payload["reason"], payload
 
 
 def test_cli_writes_missing_input_summary() -> None:
@@ -116,6 +154,7 @@ def main_smoke() -> int:
     test_validate_good_feed_and_future_warning()
     test_validate_blocks_missing_available_from()
     test_validate_flags_regime_ready_with_enough_history()
+    test_actual_snapshot_does_not_count_for_regime_coverage()
     test_cli_writes_missing_input_summary()
     print("earnings_revision_feed_contract_smoke: PASS")
     return 0

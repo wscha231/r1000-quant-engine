@@ -92,6 +92,12 @@ CONTEXT_SIGNALS = [
 ]
 
 SUPPORTED_STATES = ["BULL", "LATE_CYCLE", "CORRECTION", "BEAR", "RECOVERY", "DATA_INSUFFICIENT"]
+COVERAGE_ELIGIBLE_EARNINGS_SOURCE_TYPES = {
+    "historical_revision",
+    "vendor_estimate_revision",
+    "company_guidance",
+    "manual_research_import",
+}
 
 REQUIRED_REVIEW_ACTION = {
     "BULL": "normal_momentum_process_review",
@@ -431,6 +437,16 @@ def earnings_guidance_warning_rows(earnings_signals: Path, as_of_date: str) -> l
     d["available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()
     as_of_ts = pd.Timestamp(as_of_date).normalize()
     d = d[d["available_from"].notna() & (d["available_from"] <= as_of_ts)].copy()
+    if d.empty:
+        return []
+    if "source_type_coverage_eligible" in d.columns:
+        coverage_mask = d["source_type_coverage_eligible"].astype(str).str.lower().isin({"1", "true", "yes"})
+        d = d[coverage_mask].copy()
+    elif "source_type" in d.columns:
+        source_types = d["source_type"].astype(str).str.lower().str.strip()
+        d = d[source_types.isin(COVERAGE_ELIGIBLE_EARNINGS_SOURCE_TYPES)].copy()
+    else:
+        return []
     if d.empty:
         return []
     if "ticker" in d.columns:

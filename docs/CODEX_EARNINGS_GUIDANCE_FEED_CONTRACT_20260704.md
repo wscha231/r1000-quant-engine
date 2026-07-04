@@ -91,13 +91,26 @@ enough for 7Y policy acceptance, control reproduction, or production evidence.
 For R1 service coverage, the feed must contain enough revision/guidance
 evidence to avoid turning a placeholder CSV into a false `covered` signal.
 
+Only these `source_type` values count toward R1 earnings/guidance coverage:
+
+- `historical_revision`
+- `vendor_estimate_revision`
+- `company_guidance`
+- `manual_research_import`
+
+`sec_actual_snapshot` and `current_snapshot` rows are allowed for inventory and
+diagnostics, but they are actual/current context, not true analyst revision or
+guidance history. They must not make `regime_nowcast_coverage_ready=true`.
+
 ## Regime Coverage Guard
 
 The feed is considered usable for the R1 earnings/guidance critical group only
 when at least one of these is true:
 
-- at least 5 tickers have 2 or more dated numeric estimate observations, or
-- at least 5 rows carry directional guidance (`positive`/`negative` family).
+- at least 5 tickers have 2 or more dated numeric estimate observations from
+  coverage-eligible source types, or
+- at least 5 rows carry directional guidance (`positive`/`negative` family)
+  from coverage-eligible source types.
 
 Neutral-only, zero-only, header-only, or valuation-only files remain valid
 inputs for diagnostics but must not count as R1 earnings/guidance coverage.
@@ -142,8 +155,8 @@ feed is missing:
 
 - Missing input: `data_raw/events/earnings_revisions.csv`
 - R1 therefore still reports missing `earnings_guidance` coverage on real data.
-- Header-only or neutral-only CSV files are intentionally blocked/ignored for
-  R1 coverage.
+- Header-only, neutral-only, actual-only, or current-snapshot-only CSV files are
+  intentionally blocked/ignored for R1 coverage.
 
 Do not use fallback `actual_results_score` as a substitute for this feed in R1.
 Fallbacks can remain diagnostic in other screens, but not in the service-facing
