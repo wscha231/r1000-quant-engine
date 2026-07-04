@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +28,7 @@ def _raw() -> pd.DataFrame:
                 "revenue_estimate": 100.0,
                 "margin_estimate": 0.20,
                 "guidance_direction": "neutral",
+                "source_type": "historical_revision",
             },
             {
                 "ticker": "AAA",
@@ -38,6 +40,7 @@ def _raw() -> pd.DataFrame:
                 "revenue_estimate": 120.0,
                 "margin_estimate": 0.23,
                 "guidance_direction": "positive",
+                "source_type": "historical_revision",
             },
             {
                 "ticker": "LATE",
@@ -57,6 +60,10 @@ def test_revision_signals_require_available_from_and_filter_future() -> None:
     assert latest["eps_revision_13w"] > 0
     assert latest["positive_guidance_flag"] == 1
     assert latest["sector_eps_revision_breadth"] >= 0
+    assert summary["input_history_depth_ticker_count"] == 1
+    assert summary["nonzero_revision_ticker_count"] == 1
+    assert summary["directional_guidance_ticker_count"] == 1
+    assert summary["regime_nowcast_coverage_ready"] is False
 
 
 def test_cli_writes_parquet() -> None:
@@ -86,7 +93,49 @@ def test_cli_writes_parquet() -> None:
         assert summary.exists()
 
 
+def test_cli_blocks_header_only_feed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        raw = root / "earnings_revisions.csv"
+        out = root / "signals.parquet"
+        summary = root / "summary.json"
+        pd.DataFrame(
+            columns=[
+                "ticker",
+                "fiscal_period",
+                "estimate_date",
+                "available_from",
+                "eps_estimate",
+                "revenue_estimate",
+                "guidance_direction",
+                "source",
+                "source_type",
+            ]
+        ).to_csv(raw, index=False)
+        old_argv = sys.argv[:]
+        try:
+            sys.argv = [
+                "build_earnings_revision_signals.py",
+                "--input",
+                str(raw),
+                "--output",
+                str(out),
+                "--summary",
+                str(summary),
+                "--as-of",
+                "2026-06-30",
+            ]
+            assert main() == 2
+        finally:
+            sys.argv = old_argv
+        payload = json.loads(summary.read_text(encoding="utf-8"))
+        assert payload["status"] == "blocked", payload
+        assert payload["reason"] == "no_output_rows", payload
+        assert not out.exists()
+
+
 if __name__ == "__main__":
     test_revision_signals_require_available_from_and_filter_future()
     test_cli_writes_parquet()
+    test_cli_blocks_header_only_feed()
     print("earnings_revision_signals_smoke: PASS")

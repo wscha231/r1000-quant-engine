@@ -79,6 +79,7 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
             d[col] = pd.NA
         d[col] = pd.to_numeric(d[col], errors="coerce")
     d["guidance_direction"] = d.get("guidance_direction", pd.Series(index=d.index, dtype=str)).fillna("")
+    d["source_type"] = d.get("source_type", pd.Series(index=d.index, dtype=str)).fillna("")
     d["guidance_score_raw"] = d["guidance_direction"].map(normalize_guidance)
     invalid_available_from = int(d["available_from"].isna().sum())
     future_available_from = int((d["available_from"] > as_of).sum()) if as_of is not None else 0
@@ -86,6 +87,13 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
     if as_of is not None:
         d = d[d["available_from"] <= as_of]
     d = d.sort_values(["ticker", "available_from", "estimate_date"]).reset_index(drop=True)
+    input_history_depth_ticker_count = 0
+    if not d.empty:
+        evidence_mask = pd.Series(False, index=d.index)
+        for col in ["eps_estimate", "revenue_estimate", "margin_estimate"]:
+            evidence_mask = evidence_mask | d[col].notna()
+        depth = d[evidence_mask].groupby("ticker")["available_from"].nunique()
+        input_history_depth_ticker_count = int((depth >= 2).sum())
     rows: list[dict[str, Any]] = []
     for _, group in d.groupby("ticker", sort=False):
         group = group.reset_index(drop=True)
@@ -118,6 +126,16 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
             )
             rows.append(out)
     out = pd.DataFrame(rows)
+    nonzero_revision_ticker_count = 0
+    directional_guidance_ticker_count = 0
+    if not out.empty:
+        revision_mask = pd.Series(False, index=out.index)
+        for col in ["eps_revision_4w", "eps_revision_13w", "eps_revision_26w", "revenue_revision_13w", "margin_revision_score"]:
+            if col in out.columns:
+                revision_mask = revision_mask | (pd.to_numeric(out[col], errors="coerce").fillna(0.0).abs() > 1e-12)
+        nonzero_revision_ticker_count = int(out.loc[revision_mask, "ticker"].nunique()) if "ticker" in out.columns else 0
+        guidance_mask = pd.to_numeric(out.get("guidance_score_raw", 0), errors="coerce").fillna(0.0).abs() > 0.0
+        directional_guidance_ticker_count = int(out.loc[guidance_mask, "ticker"].nunique()) if "ticker" in out.columns else 0
     if not out.empty and "sector" in out.columns:
         sector_keys = ["available_from", "sector"]
         sector = out.groupby(sector_keys).agg(
@@ -136,6 +154,10 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
         "future_available_from_rows_filtered": future_available_from,
         "available_from_required": True,
         "missing_evidence_policy": "neutral",
+        "input_history_depth_ticker_count": input_history_depth_ticker_count,
+        "nonzero_revision_ticker_count": nonzero_revision_ticker_count,
+        "directional_guidance_ticker_count": directional_guidance_ticker_count,
+        "regime_nowcast_coverage_ready": bool(nonzero_revision_ticker_count >= 5 or directional_guidance_ticker_count >= 5),
     }
     return out, summary
 
@@ -184,6 +206,8 @@ def main() -> int:
         **summary,
     }
     if out.empty:
+        payload["status"] = "blocked"
+        payload["reason"] = payload.get("reason") or "no_output_rows"
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 2

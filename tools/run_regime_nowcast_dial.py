@@ -446,8 +446,20 @@ def earnings_guidance_warning_rows(earnings_signals: Path, as_of_date: str) -> l
     if not eps_cols and "sector_eps_revision_breadth" not in d.columns and "sector_positive_guidance_ratio" not in d.columns:
         return []
     eps_positive_mask = pd.Series(False, index=d.index)
+    revision_observed_mask = pd.Series(False, index=d.index)
     for col in eps_cols:
-        eps_positive_mask = eps_positive_mask | (pd.to_numeric(d[col], errors="coerce").fillna(0.0) > 0.0)
+        numeric_col = pd.to_numeric(d[col], errors="coerce").fillna(0.0)
+        eps_positive_mask = eps_positive_mask | (numeric_col > 0.0)
+        revision_observed_mask = revision_observed_mask | (numeric_col.abs() > 1e-12)
+    guidance_observed_mask = pd.Series(False, index=d.index)
+    if "positive_guidance_flag" in d.columns:
+        guidance_observed_mask = guidance_observed_mask | (pd.to_numeric(d["positive_guidance_flag"], errors="coerce").fillna(0.0) > 0.0)
+    if "negative_guidance_flag" in d.columns:
+        guidance_observed_mask = guidance_observed_mask | (pd.to_numeric(d["negative_guidance_flag"], errors="coerce").fillna(0.0) > 0.0)
+    revision_observed_count = int(revision_observed_mask.sum())
+    guidance_observed_count = int(guidance_observed_mask.sum())
+    if revision_observed_count < 5 and guidance_observed_count < 5:
+        return []
     if "sector_eps_revision_breadth" in d.columns:
         sector_breadth = float(pd.to_numeric(d["sector_eps_revision_breadth"], errors="coerce").dropna().mean())
         eps_breadth = max(float(eps_positive_mask.mean()), sector_breadth)
@@ -478,6 +490,8 @@ def earnings_guidance_warning_rows(earnings_signals: Path, as_of_date: str) -> l
             "source": "earnings_revision_signals",
             "source_observation_date": latest_obs,
             "earnings_signal_row_count": row_count,
+            "earnings_revision_observed_count": revision_observed_count,
+            "earnings_guidance_observed_count": guidance_observed_count,
             "eps_revision_positive_ratio": eps_breadth,
         },
         {
@@ -490,6 +504,8 @@ def earnings_guidance_warning_rows(earnings_signals: Path, as_of_date: str) -> l
             "source": "earnings_revision_signals",
             "source_observation_date": latest_obs,
             "earnings_signal_row_count": row_count,
+            "earnings_revision_observed_count": revision_observed_count,
+            "earnings_guidance_observed_count": guidance_observed_count,
             "positive_guidance_ratio": positive_guidance_ratio,
             "negative_guidance_ratio": negative_guidance_ratio,
         },

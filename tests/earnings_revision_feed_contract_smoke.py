@@ -27,6 +27,7 @@ def test_validate_good_feed_and_future_warning() -> None:
                 "revenue_estimate": 120.0,
                 "guidance_direction": "positive",
                 "source": "vendor_export",
+                "source_type": "vendor_estimate_revision",
             },
             {
                 "ticker": "BBB",
@@ -36,6 +37,7 @@ def test_validate_good_feed_and_future_warning() -> None:
                 "eps_estimate": 9.99,
                 "guidance_direction": "negative",
                 "source": "vendor_export",
+                "source_type": "vendor_estimate_revision",
             },
         ]
     )
@@ -45,12 +47,45 @@ def test_validate_good_feed_and_future_warning() -> None:
     assert "future_available_from_rows_will_be_filtered_by_builder" in payload["reason"], payload
     assert payload["production_activation_allowed"] is False
     assert payload["forward_return_columns_allowed"] is False
+    assert payload["regime_nowcast_coverage_ready"] is False
 
 
 def test_validate_blocks_missing_available_from() -> None:
     payload = validate_feed(pd.DataFrame([{"ticker": "AAA", "eps_estimate": 1.0}]), as_of=pd.Timestamp("2026-07-01"))
     assert payload["status"] == "blocked", payload
     assert payload["reason"] == "missing_required_columns", payload
+
+
+def test_validate_flags_regime_ready_with_enough_history() -> None:
+    rows = []
+    for idx in range(5):
+        ticker = f"T{idx}"
+        rows.append(
+            {
+                "ticker": ticker,
+                "fiscal_period": "2026Q2",
+                "estimate_date": "2026-01-01",
+                "available_from": "2026-01-02",
+                "eps_estimate": 1.0,
+                "source": "vendor_export",
+                "source_type": "historical_revision",
+            }
+        )
+        rows.append(
+            {
+                "ticker": ticker,
+                "fiscal_period": "2026Q2",
+                "estimate_date": "2026-04-01",
+                "available_from": "2026-04-02",
+                "eps_estimate": 1.2,
+                "source": "vendor_export",
+                "source_type": "historical_revision",
+            }
+        )
+    payload = validate_feed(pd.DataFrame(rows), as_of=pd.Timestamp("2026-07-01"))
+    assert payload["status"] in {"completed", "warning"}, payload
+    assert payload["history_depth_ticker_count"] == 5, payload
+    assert payload["regime_nowcast_coverage_ready"] is True, payload
 
 
 def test_cli_writes_missing_input_summary() -> None:
@@ -80,6 +115,7 @@ def test_cli_writes_missing_input_summary() -> None:
 def main_smoke() -> int:
     test_validate_good_feed_and_future_warning()
     test_validate_blocks_missing_available_from()
+    test_validate_flags_regime_ready_with_enough_history()
     test_cli_writes_missing_input_summary()
     print("earnings_revision_feed_contract_smoke: PASS")
     return 0

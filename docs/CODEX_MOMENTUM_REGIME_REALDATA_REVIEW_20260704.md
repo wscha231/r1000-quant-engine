@@ -128,14 +128,20 @@ Inputs:
   - Template header exists at
     `docs/templates/earnings_revisions_template.csv`.
   - Contract validator exists at `tools/validate_earnings_revision_feed.py`.
+  - Local ignored raw CSV path was created from the template at
+    `data_raw/events/earnings_revisions.csv`.
+  - The CSV is header-only; no vendor/manual PIT evidence rows have been
+    provided.
   - `tools/build_earnings_revision_signals.py --as-of 2026-07-01` emitted
-    `status=blocked`, `reason=missing_input`.
+    `status=blocked`, `reason=no_output_rows`.
   - `tools/validate_earnings_revision_feed.py --as-of 2026-07-01` emitted
-    `status=blocked`, `reason=missing_input`.
-  - Missing input path:
-    `data_raw/events/earnings_revisions.csv`
-  - Therefore `data_pit/events/earnings_revision_signals.parquet` does not
-    exist yet in this local run.
+    `status=blocked`, `reason=no_nonempty_evidence_columns`.
+  - The feed is not R1 coverage-ready:
+    `history_depth_ticker_count=0`,
+    `directional_guidance_row_count=0`,
+    `regime_nowcast_coverage_ready=false`.
+  - Therefore no usable `data_pit/events/earnings_revision_signals.parquet`
+    exists yet in this local run.
 
 Materialization command shape:
 
@@ -276,7 +282,9 @@ the actual PIT earnings/guidance input file, not code plumbing.
 The next engineering task is not a trading rule:
 
 1. Provide or materialize `data_raw/events/earnings_revisions.csv` with
-   `available_from` for every row, then run `build_earnings_revision_signals.py`.
+   `available_from` for every row, at least 5 tickers with revision history or
+   at least 5 directional guidance rows, then run
+   `build_earnings_revision_signals.py`.
 2. Optionally replace SPY realized-volatility proxy with an explicit VIX/VIX3M
    feed when available.
 3. Keep breadth and AI bucket RS sourced from price cache unless a broader

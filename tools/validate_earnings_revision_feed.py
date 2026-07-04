@@ -32,6 +32,7 @@ RECOMMENDED_COLUMNS = [
     "revenue_estimate",
     "guidance_direction",
     "source",
+    "source_type",
 ]
 EVIDENCE_COLUMNS = [
     "eps_estimate",
@@ -39,6 +40,14 @@ EVIDENCE_COLUMNS = [
     "margin_estimate",
     "guidance_direction",
     "forward_pe",
+]
+ALLOWED_SOURCE_TYPES = [
+    "historical_revision",
+    "vendor_estimate_revision",
+    "company_guidance",
+    "sec_actual_snapshot",
+    "current_snapshot",
+    "manual_research_import",
 ]
 
 
@@ -78,6 +87,7 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
         "columns": columns,
         "required_columns": REQUIRED_COLUMNS,
         "recommended_columns": RECOMMENDED_COLUMNS,
+        "allowed_source_types": ALLOWED_SOURCE_TYPES,
         "missing_required_columns": missing_required,
         "missing_recommended_columns": missing_recommended,
         "evidence_columns_present": evidence_columns_present,
@@ -112,6 +122,30 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
     guidance_values = []
     if "guidance_direction" in frame.columns:
         guidance_values = sorted(set(frame["guidance_direction"].astype("string").fillna("").str.lower().str.strip()) - {""})
+    source_types = []
+    unknown_source_type_rows = 0
+    if "source_type" in frame.columns:
+        source_type_values = frame["source_type"].astype("string").fillna("").str.lower().str.strip()
+        source_types = sorted(set(source_type_values) - {""})
+        unknown_source_type_rows = int((source_type_values.ne("") & ~source_type_values.isin(ALLOWED_SOURCE_TYPES)).sum())
+    revision_evidence_cols = [col for col in ["eps_estimate", "revenue_estimate", "margin_estimate"] if col in frame.columns]
+    history_depth_ticker_count = 0
+    if revision_evidence_cols:
+        tmp = pd.DataFrame({"ticker": tickers, "available_from": available_from})
+        has_numeric_evidence = pd.Series(False, index=frame.index)
+        for col in revision_evidence_cols:
+            has_numeric_evidence = has_numeric_evidence | pd.to_numeric(frame[col], errors="coerce").notna()
+        tmp = tmp[has_numeric_evidence & tmp["ticker"].ne("") & tmp["available_from"].notna()]
+        if not tmp.empty:
+            depth = tmp.groupby("ticker")["available_from"].nunique()
+            history_depth_ticker_count = int((depth >= 2).sum())
+    directional_guidance_row_count = 0
+    if "guidance_direction" in frame.columns:
+        directional_guidance_row_count = int(
+            frame["guidance_direction"].astype("string").fillna("").str.lower().str.strip().isin(
+                ["positive", "raise", "raised", "up", "beat", "above", "negative", "cut", "lower", "lowered", "down", "miss", "below"]
+            ).sum()
+        )
     payload.update(
         {
             "ticker_count": int(tickers[tickers.ne("")].nunique()),
@@ -122,6 +156,11 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
             "min_available_from": available_from.min().date().isoformat() if available_from.notna().any() else None,
             "max_available_from": available_from.max().date().isoformat() if available_from.notna().any() else None,
             "guidance_values": guidance_values,
+            "source_types": source_types,
+            "unknown_source_type_rows": unknown_source_type_rows,
+            "history_depth_ticker_count": history_depth_ticker_count,
+            "directional_guidance_row_count": directional_guidance_row_count,
+            "regime_nowcast_coverage_ready": bool(history_depth_ticker_count >= 5 or directional_guidance_row_count >= 5),
         }
     )
     blockers: list[str] = []
@@ -132,12 +171,16 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
         blockers.append("invalid_available_from_rows")
     if not evidence_columns_present:
         blockers.append("no_nonempty_evidence_columns")
+    if unknown_source_type_rows:
+        blockers.append("unknown_source_type_rows")
     if duplicate_key_count:
         warnings.append("duplicate_feed_keys")
     if future_available_from:
         warnings.append("future_available_from_rows_will_be_filtered_by_builder")
     if missing_recommended:
         warnings.append("missing_recommended_columns")
+    if history_depth_ticker_count < 5 and directional_guidance_row_count < 5:
+        warnings.append("insufficient_history_or_directional_guidance_for_regime_nowcast")
     if blockers:
         payload.update({"status": "blocked", "reason": ",".join(blockers)})
     elif warnings:

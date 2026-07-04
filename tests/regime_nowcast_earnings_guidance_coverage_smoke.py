@@ -66,10 +66,62 @@ def test_earnings_signals_add_guidance_coverage_and_filter_future() -> None:
         signal_panel = pd.read_csv(root / "out" / "signal_panel.csv")
         earned = signal_panel[signal_panel["source"].eq("earnings_revision_signals")]
         assert int(earned["earnings_signal_row_count"].max()) == 5
+        assert int(earned["earnings_revision_observed_count"].max()) >= 5
+
+
+def test_zero_only_earnings_signals_do_not_count_as_coverage() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        panel = root / "signals.csv"
+        earnings = root / "earnings_revision_signals.parquet"
+        rows = [
+            {
+                "ticker": f"T{idx}",
+                "available_from": "2026-06-01",
+                "eps_revision_13w": 0.0,
+                "positive_guidance_flag": 0,
+                "negative_guidance_flag": 0,
+                "sector_eps_revision_breadth": 0.0,
+            }
+            for idx in range(8)
+        ]
+        pd.DataFrame(rows).to_parquet(earnings, index=False)
+        pd.DataFrame(
+            [
+                {"date": "2026-07-01", "signal_name": "spy_below_200dma", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "qqq_below_200dma", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "qqq_spy_rs_negative_1m_3m", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "vix_spike_or_above_25", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "universe_above_200dma_below_40pct", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "ai_capex_bucket_rs_breakdown", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "hy_oas_widening_threshold", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "yield_curve_inversion_or_steepening_warning", "warning_triggered": False, "covered": True},
+                {"date": "2026-07-01", "signal_name": "sahm_unemployment_momentum_warning", "warning_triggered": False, "covered": True},
+            ]
+        ).to_csv(panel, index=False)
+
+        payload = run(
+            argparse.Namespace(
+                signal_panel=str(panel),
+                price_cache=str(root / "cache_prices"),
+                macro_cache=str(root / "cache_macro"),
+                earnings_signals=str(earnings),
+                as_of_date="2026-07-01",
+                output_dir=str(root / "out_zero"),
+                coverage_mode="service",
+                allow_state_override=False,
+            )
+        )
+
+        assert payload["critical_group_coverage"]["earnings_guidance"] is False, payload
+        assert "earnings_guidance" in payload["missing_critical_groups"], payload
+        signal_panel = pd.read_csv(root / "out_zero" / "signal_panel.csv")
+        assert not signal_panel["source"].eq("earnings_revision_signals").any()
 
 
 def main() -> int:
     test_earnings_signals_add_guidance_coverage_and_filter_future()
+    test_zero_only_earnings_signals_do_not_count_as_coverage()
     print("regime_nowcast_earnings_guidance_coverage_smoke: PASS")
     return 0
 
