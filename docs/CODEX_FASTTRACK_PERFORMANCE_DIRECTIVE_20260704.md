@@ -161,3 +161,46 @@ from the falsified per-name vol_adjusted_weight). Both books, cash-carry, crash-
 
 Ordering: M1/M2 are pure audits (can run in E-tier background). M3/M4 enter the A–D queue only when a slot
 frees. Results go into the weekly packet like everything else.
+
+---
+
+## Track R — Regime chameleon: bear-dial + conditional offense tilt (2026-07-04 addendum; research tier)
+
+Academic basis: momentum premium is conditional on market state (Cooper-Gutierrez-Hameed 2004 — positive after
+UP markets, negative after DOWN); momentum crashes cluster in high-vol post-bear rebounds (Daniel-Moskowitz).
+Our system already has the DEFENSIVE chameleon (regime states → cash, measured working in 2022 and the July
+crash). What is missing is the OFFENSE switch: we keep scoring pure momentum in bear/correction states, while
+contrarian components already exist as shipped features (`value_inflection_score`,
+`cashflow_inflection_under_loss_score`, `fundamental_turnaround_acceleration_score`, `h1_oversold_value_score`).
+**Framing law: the dial is a NOWCAST classifier of the current state — never a forecast. No binary switching —
+gradual tilts only (binary switching = measured whipsaw death). No shorting.**
+
+**R1. Composite bear-dial (telemetry only).** Build `outputs/regime_dial/dial_by_day.csv` from EXISTING inputs:
+(1) 10y−3m curve (DGS10−DGS3MO), (2) HY OAS widening vs trailing low, (3) %-above-MA200 breadth,
+(4) VIX level percentile, (5) defensive-sector RS (staples/utilities vs SPY), (6) Sahm/unemployment trend,
+(7) SPY 200dma slope & position, (8) distribution-day count, (9) new-highs−new-lows. Composite = weighted vote →
+states {BULL, LATE_CYCLE, CORRECTION, BEAR, RECOVERY}. Validate as a CLASSIFIER against 2020-03, 2022, 2024-08,
+2025-06: report lead/lag vs equity-curve troughs and the false-positive count over the full 83 months.
+- No gate — telemetry. Feeds the W7 alarm evaluator regardless of R2/R3 outcomes.
+
+**R2. State-conditional IC audit (does contrarian actually work in our bear states?).** Using the existing
+feature store + audit labels: IC of momentum features vs turnaround/oversold-value features BY dial state.
+- DECISION RULE: proceed to R3 only if there is a genuine crossover (turnaround-family IC > momentum-family IC
+  in CORRECTION/BEAR/RECOVERY states with n≥ some minimum months). If momentum IC stays superior in all states →
+  close: "our momentum + cash defense is already the right chameleon"; negative-evidence note.
+
+**R3 (only if R2 triggers). ONE gradual tilt rule, fixed-book:** shift sleeve/score weight toward the
+turnaround/value-inflection family when dial ∈ {CORRECTION, BEAR}, back to momentum in {BULL, RECOVERY-confirmed}
+— capped tilt (e.g., ≤30% of scoring weight), hysteresis on state transitions (2-month confirmation) to kill
+whipsaw, cash policy UNCHANGED (defense already works). Standard gates + explicit whipsaw cost accounting +
+the small-sample caveat (only ~3 bear episodes in window → research-only until W6 long-IS).
+
+**R4. Recovery re-entry = breadth thrust** (shares machinery with M3): dial RECOVERY confirmation via
+breadth-thrust (e.g., %>MA50 crossing threshold) accelerates redeployment of defensive cash. Measured under M3's
+decision rule — do not build twice.
+
+Bans (measured/literature): no bear FORECASTING claims (nowcast only) · no all-in/all-out switching · no short
+side · no loser-buying without the inflection/quality confirmation the Phase-1 features encode · dial thresholds
+frozen before measurement (no post-hoc fitting to the 3 known bears).
+Ordering: R1 belongs to E-tier background (pure telemetry, feeds W7 alarms). R2 is a cheap audit. R3/R4 enter
+the A–D queue only on R2's trigger and open slots.
