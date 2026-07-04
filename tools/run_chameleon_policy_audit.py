@@ -40,20 +40,27 @@ ACTION_MAP: dict[str, list[tuple[str, str]]] = {
         ("no_new_discretionary_entries", "No new discretionary entries from this layer."),
         ("position_shock_review", "Trigger position shock review."),
         ("trim_to_cap_review", "Trigger trim-to-cap review when concentration exceeds configured limits."),
-        ("cash_tbill_reserve_destination", "Destination for reviewed risk reduction is cash or T-bill reserve."),
+        (
+            "review_defensive_reserve_allocation",
+            "Review defensive reserve allocation; cash/T-bill-equivalent reserve is a label, not a trade instruction.",
+        ),
         ("no_contrarian_buying", "No contrarian buying."),
     ],
     "BEAR": [
         ("strategy_allocation_review", "Trigger strategy-allocation review."),
         ("no_contrarian_entry", "No contrarian entry."),
         ("capital_preservation", "Preserve capital."),
-        ("cash_tbill_or_approved_fallback", "Destination is cash, T-bill reserve, or separately approved portfolio fallback."),
+        (
+            "cash_tbill_equivalent_reserve_label",
+            "Use cash/T-bill-equivalent reserve label for review only; do not create a buy/sell instruction.",
+        ),
     ],
     "RECOVERY": [
         ("staged_reentry_candidates_only", "Permit only staged re-entry candidates from R4."),
         ("trend_breadth_confirmation_required", "Full risk-on restoration requires trend and breadth confirmation."),
     ],
     "DATA_INSUFFICIENT": [
+        ("data_review_required", "DATA_REVIEW_REQUIRED: no allocation guidance until signal coverage is refreshed."),
         ("no_current_regime_claim", "Do not claim a current regime without refreshed signal coverage."),
         ("expand_r1_coverage", "Refresh or expand R1 inputs before linking alerts or automation."),
     ],
@@ -111,6 +118,10 @@ def base_action_rows(state: str, regime_meta: dict[str, Any]) -> list[dict[str, 
                 "live_trading_allowed": False,
                 "bear_warning_score": regime_meta.get("bear_warning_score"),
                 "confidence": regime_meta.get("confidence"),
+                "review_only": True,
+                "public_display_allowed": False,
+                "backtest_metrics_are_simulated": True,
+                "current_holdings_are_not_forward_promise": True,
             }
         )
     return rows
@@ -166,6 +177,10 @@ def shock_action_rows(shock_panel: Path, state: str, regime_meta: dict[str, Any]
                 "live_trading_allowed": False,
                 "bear_warning_score": regime_meta.get("bear_warning_score"),
                 "confidence": regime_meta.get("confidence"),
+                "review_only": True,
+                "public_display_allowed": False,
+                "backtest_metrics_are_simulated": True,
+                "current_holdings_are_not_forward_promise": True,
             }
         )
     return rows
@@ -198,6 +213,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "executable_order_allowed": False,
         "production_policy_mutation_allowed": False,
         "live_trading_allowed": False,
+        "public_display_allowed": False,
+        "review_only": True,
+        "backtest_metrics_are_simulated": True,
+        "current_holdings_are_not_forward_promise": True,
+        "historical_metrics_forward_promise_allowed": False,
+        "data_insufficient_no_allocation_guidance": bool(state == "DATA_INSUFFICIENT"),
         "w7_alert_feed_allowed": True,
         "automation_connection_requires_existing_outputs": True,
         "automation_connection_allowed_without_separate_w7_work": False,

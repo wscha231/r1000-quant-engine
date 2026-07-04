@@ -18,8 +18,22 @@ if str(REPO_ROOT) not in sys.path:
 from tools.research_audit_utils import first_existing, read_csv, repo_path, spearman, write_json  # noqa: E402
 
 DEFAULT_OUTPUT_DIR = "outputs/rs_horizon_ic_audit"
-RS_FEATURES = ["rs_spy_1w", "rs_spy_1m", "rs_spy_3m", "rs_spy_6m", "rs_spy_12m"]
+RS_FEATURES = [
+    "rs_spy_1w",
+    "rs_spy_1m",
+    "rs_spy_3m",
+    "rs_spy_6m",
+    "rs_spy_12m",
+    "rs_qqq_1m",
+    "rs_qqq_3m",
+    "rs_qqq_6m",
+    "rs_industry_3m",
+    "rs_sector_3m",
+    "rs_theme_3m",
+    "ai_bucket_rs_3m",
+]
 FORWARD_LABELS = ["forward_63d_excess", "forward_126d_excess", "period_forward_return"]
+ROW_TYPE_COLUMNS = ["decision_row_type", "row_type", "candidate_context", "event_type", "source_event_type"]
 
 
 def load_inputs(paths: list[Path]) -> pd.DataFrame:
@@ -34,6 +48,16 @@ def load_inputs(paths: list[Path]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def attach_row_type(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    row_type_col = first_existing(out, ROW_TYPE_COLUMNS)
+    if row_type_col:
+        out["_row_type"] = out[row_type_col].astype(str).str.strip().str.lower().replace({"": "unknown"})
+    else:
+        out["_row_type"] = "unknown"
+    return out
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -43,6 +67,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     by_portfolio: list[dict[str, Any]] = []
     if not frame.empty and label_col:
+        frame = attach_row_type(frame)
         if "portfolio" not in frame.columns:
             frame["portfolio"] = frame["portfolio_kind"] if "portfolio_kind" in frame.columns else "unknown"
         for feature in RS_FEATURES:
@@ -72,10 +97,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         "forward_label": label_col,
                     }
                 )
+            for row_type, group in frame.groupby("_row_type", dropna=False):
+                g = group[[feature, label_col]].dropna()
+                by_portfolio.append(
+                    {
+                        "portfolio": f"row_type:{row_type}",
+                        "horizon": feature,
+                        "status": "completed" if len(g) >= int(args.min_samples) else "insufficient_sample",
+                        "sample_count": int(len(g)),
+                        "ic": spearman(g[feature], g[label_col]),
+                        "forward_label": label_col,
+                    }
+                )
     horizon_df = pd.DataFrame(rows)
     portfolio_df = pd.DataFrame(by_portfolio)
     horizon_df.to_csv(output_dir / "ic_by_horizon.csv", index=False)
     portfolio_df.to_csv(output_dir / "ic_by_portfolio.csv", index=False)
+    row_type_df = portfolio_df[portfolio_df["portfolio"].astype(str).str.startswith("row_type:")].copy() if not portfolio_df.empty else pd.DataFrame()
+    row_type_df.to_csv(output_dir / "ic_by_row_type.csv", index=False)
     completed = horizon_df[horizon_df.get("status", pd.Series(dtype=str)).eq("completed")] if not horizon_df.empty else pd.DataFrame()
     short_bad = bool(
         not completed.empty
@@ -97,6 +136,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "research_only": True,
         "production_activation_allowed": False,
         "policy_hook_allowed": False,
+        "canonical_input_rule": "fixed_official_rows_preferred_until_w1_control_reproduction_passes",
+        "regenerated_target_book_acceptance_allowed": False,
+        "row_type_splits_supported": True,
     }
     write_json(output_dir / "summary.json", payload)
     lines = [

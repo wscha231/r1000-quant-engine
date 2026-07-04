@@ -148,6 +148,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "research_only": True,
         "production_activation_allowed": False,
         "selection_or_weight_change_allowed": False,
+        "canonical_input_rule": "fixed_official_books_preferred_until_w1_control_reproduction_passes",
+        "regenerated_target_book_acceptance_allowed": False,
         "outputs": {
             "factor_returns_csv": str(output_dir / "factor_returns.csv"),
             "regression_table_csv": str(output_dir / "regression_table.csv"),

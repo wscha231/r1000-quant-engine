@@ -39,6 +39,21 @@ WARNING_SIGNALS = [
     "ai_capex_bucket_rs_breakdown",
 ]
 
+CRITICAL_GROUPS: dict[str, list[str]] = {
+    "trend": ["spy_below_200dma", "qqq_below_200dma", "qqq_spy_rs_negative_1m_3m"],
+    "volatility_stress": ["vix_spike_or_above_25", "rate_volatility_stress"],
+    "credit_liquidity": [
+        "hy_oas_widening_threshold",
+        "yield_curve_inversion_or_steepening_warning",
+        "dxy_liquidity_financial_conditions_stress",
+    ],
+    "breadth": ["universe_above_200dma_below_40pct", "new_high_new_low_breadth"],
+    "earnings_guidance": ["eps_revision_breadth_negative", "positive_guidance_ratio_deteriorating"],
+    "ai_bucket_rs": ["ai_capex_bucket_rs_breakdown"],
+}
+
+SERVICE_REQUIRED_GROUPS = ["trend", "volatility_stress", "breadth"]
+
 CONTEXT_SIGNALS = [
     "yield_curve_10y_3m",
     "hy_oas_widening",
@@ -248,6 +263,33 @@ def state_from_warning_score(score: int, covered_signal_count: int) -> str:
     return "BEAR"
 
 
+def critical_group_coverage(covered_names: set[str]) -> tuple[dict[str, bool], list[str]]:
+    coverage = {
+        group: any(signal in covered_names for signal in signals)
+        for group, signals in CRITICAL_GROUPS.items()
+    }
+    missing = sorted([group for group, covered in coverage.items() if not covered])
+    return coverage, missing
+
+
+def data_insufficient_reason(covered_names: set[str], coverage_mode: str) -> str:
+    group_coverage, missing_groups = critical_group_coverage(covered_names)
+    covered_count = len(covered_names)
+    covered_group_count = sum(1 for covered in group_coverage.values() if covered)
+    mode = str(coverage_mode or "internal").strip().lower()
+    if covered_count < 6:
+        return "covered_signals_lt_6"
+    if mode in {"service", "public"}:
+        if covered_count < 8:
+            return "covered_signals_lt_8_for_service"
+        if covered_group_count < 4:
+            return "critical_group_coverage_lt_4"
+        missing_required = [group for group in SERVICE_REQUIRED_GROUPS if group in missing_groups]
+        if missing_required:
+            return "missing_required_critical_group:" + ",".join(missing_required)
+    return ""
+
+
 def state_override(group: pd.DataFrame) -> str:
     for col in ["state_override", "regime_state", "current_state"]:
         if col not in group.columns:
@@ -259,18 +301,33 @@ def state_override(group: pd.DataFrame) -> str:
     return ""
 
 
-def build_state_history(panel: pd.DataFrame, allow_state_override: bool = False) -> pd.DataFrame:
+def build_state_history(
+    panel: pd.DataFrame,
+    allow_state_override: bool = False,
+    coverage_mode: str = "internal",
+) -> pd.DataFrame:
     state_rows: list[dict[str, Any]] = []
     for dt, group in panel.groupby("date", dropna=False):
         warning_group = group[group["signal_name"].isin(WARNING_SIGNALS)]
         covered = warning_group[warning_group["covered"]]
         covered_names = sorted(set(covered["signal_name"].astype(str)))
+        covered_name_set = set(covered_names)
+        all_covered_names = set(group[group["covered"]]["signal_name"].astype(str))
         triggered = covered[covered["warning_triggered"]]
         triggered_names = sorted(set(triggered["signal_name"].astype(str)))
         missing_names = sorted(set(WARNING_SIGNALS) - set(covered_names))
         score = min(12, len(triggered_names))
         confidence = len(covered_names) / len(WARNING_SIGNALS)
-        state = state_from_warning_score(score, len(covered_names))
+        group_coverage, missing_critical_groups = critical_group_coverage(all_covered_names)
+        insufficient_reason = data_insufficient_reason(covered_name_set, coverage_mode)
+        if not insufficient_reason and str(coverage_mode or "internal").strip().lower() in {"service", "public"}:
+            covered_group_count = sum(1 for covered_group in group_coverage.values() if covered_group)
+            missing_required = [group_name for group_name in SERVICE_REQUIRED_GROUPS if group_name in missing_critical_groups]
+            if covered_group_count < 4:
+                insufficient_reason = "critical_group_coverage_lt_4"
+            elif missing_required:
+                insufficient_reason = "missing_required_critical_group:" + ",".join(missing_required)
+        state = "DATA_INSUFFICIENT" if insufficient_reason else state_from_warning_score(score, len(covered_names))
         override = state_override(group) if allow_state_override else ""
         if state != "DATA_INSUFFICIENT" and override:
             state = override
@@ -285,11 +342,18 @@ def build_state_history(panel: pd.DataFrame, allow_state_override: bool = False)
                 "confidence": confidence,
                 "covered_signal_count": int(len(covered_names)),
                 "expected_signal_count": int(len(WARNING_SIGNALS)),
+                "coverage_mode": str(coverage_mode or "internal").strip().lower(),
+                "critical_group_coverage_count": int(sum(1 for covered in group_coverage.values() if covered)),
+                "critical_group_expected_count": int(len(CRITICAL_GROUPS)),
+                "critical_group_coverage": json.dumps(group_coverage, sort_keys=True),
+                "missing_critical_groups": ";".join(missing_critical_groups),
+                "data_insufficient_reason": insufficient_reason,
                 "triggered_signals": ";".join(triggered_names),
                 "missing_signals": ";".join(missing_names),
                 "required_review_action": REQUIRED_REVIEW_ACTION[state],
                 "state_override_allowed": bool(allow_state_override),
                 "state_override_applied": bool(override),
+                "state_computed_from_data": True,
                 "production_activation_allowed": False,
                 "policy_hook_allowed": False,
             }
@@ -302,8 +366,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     as_of = args.as_of_date or pd.Timestamp.utcnow().date().isoformat()
     panel = load_signal_panel(repo_path(args.signal_panel) if args.signal_panel else Path(), repo_path(args.price_cache), as_of)
-    state = build_state_history(panel, allow_state_override=bool(getattr(args, "allow_state_override", False)))
+    state = build_state_history(
+        panel,
+        allow_state_override=bool(getattr(args, "allow_state_override", False)),
+        coverage_mode=str(getattr(args, "coverage_mode", "internal") or "internal"),
+    )
     panel.to_csv(output_dir / "signal_panel.csv", index=False)
+    panel.to_csv(output_dir / "indicator_rows.csv", index=False)
     state.to_csv(output_dir / "state_history.csv", index=False)
     latest = state.iloc[-1].to_dict() if not state.empty else {}
     current_state = str(latest.get("state", "DATA_INSUFFICIENT"))
@@ -317,6 +386,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "bear_warning_label": latest.get("bear_warning_label"),
         "risk_score": latest.get("risk_score"),
         "signal_coverage": latest.get("signal_coverage"),
+        "coverage_mode": latest.get("coverage_mode", getattr(args, "coverage_mode", "internal")),
+        "critical_group_coverage_count": latest.get("critical_group_coverage_count"),
+        "critical_group_expected_count": latest.get("critical_group_expected_count"),
+        "critical_group_coverage": json.loads(latest.get("critical_group_coverage", "{}"))
+        if latest.get("critical_group_coverage")
+        else {},
+        "missing_critical_groups": str(latest.get("missing_critical_groups", "")).split(";")
+        if latest.get("missing_critical_groups")
+        else [],
+        "data_insufficient_reason": latest.get("data_insufficient_reason", ""),
         "covered_signal_count": latest.get("covered_signal_count"),
         "expected_signal_count": latest.get("expected_signal_count"),
         "triggered_signals": str(latest.get("triggered_signals", "")).split(";") if latest.get("triggered_signals") else [],
@@ -324,8 +403,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "confidence": latest.get("confidence"),
         "required_review_action": latest.get("required_review_action", REQUIRED_REVIEW_ACTION["DATA_INSUFFICIENT"]),
         "missing_signals_are_neutral": True,
+        "state_computed_from_data": True,
         "state_override_allowed": bool(getattr(args, "allow_state_override", False)),
+        "state_override_used": bool(latest.get("state_override_applied", False)),
+        "allow_state_override": bool(getattr(args, "allow_state_override", False)),
         "market_timing_claim_allowed": False,
+        "public_display_allowed": False,
+        "review_only": True,
+        "backtest_metrics_are_simulated": True,
+        "current_holdings_are_not_forward_promise": True,
+        "historical_metrics_forward_promise_allowed": False,
         "research_only": True,
         "production_activation_allowed": False,
         "policy_hook_allowed": False,
@@ -340,9 +427,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         f"- current state: `{payload['current_state']}`",
         f"- bear warning score: `{payload['bear_warning_score']}`",
         f"- signal coverage: `{payload['signal_coverage']}`",
+        f"- critical group coverage: `{payload['critical_group_coverage_count']}/{payload['critical_group_expected_count']}`",
         f"- confidence: `{payload['confidence']}`",
+        f"- data insufficient reason: `{payload['data_insufficient_reason']}`",
         f"- required review action: `{payload['required_review_action']}`",
         "- market-timing claim allowed: `false`",
+        "- public display allowed: `false`",
         "- policy hook allowed: `false`",
         "- live trading allowed: `false`",
         "",
@@ -365,6 +455,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--as-of-date", default="")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--coverage-mode", choices=["internal", "service", "public"], default="internal")
     parser.add_argument(
         "--allow-state-override",
         action="store_true",

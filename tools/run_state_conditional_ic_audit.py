@@ -80,9 +80,47 @@ def family_score(frame: pd.DataFrame, cols: list[str]) -> pd.Series:
     return pd.concat(ranked, axis=1).mean(axis=1)
 
 
+def era_count(dates: pd.Series) -> int:
+    parsed = pd.to_datetime(dates, errors="coerce")
+    return int(parsed.dropna().dt.year.nunique())
+
+
+def month_count(dates: pd.Series) -> int:
+    parsed = pd.to_datetime(dates, errors="coerce")
+    return int(parsed.dropna().dt.to_period("M").nunique())
+
+
+def fold_ic_metrics(d: pd.DataFrame, score_col: str, label_col: str, oos_start: str) -> dict[str, Any]:
+    if not oos_start:
+        return {"is_ic": None, "oos_ic": None, "oos_noncollapse": False, "ic_sign_stable_across_folds": False}
+    split = pd.Timestamp(oos_start)
+    dated = d.copy()
+    dated["_date"] = pd.to_datetime(dated["rebalance_date"], errors="coerce")
+    is_part = dated[dated["_date"] < split]
+    oos_part = dated[dated["_date"] >= split]
+    is_ic = spearman(is_part[score_col], is_part[label_col]) if len(is_part) >= 3 else None
+    oos_ic = spearman(oos_part[score_col], oos_part[label_col]) if len(oos_part) >= 3 else None
+    if is_ic is None or oos_ic is None:
+        stable = False
+        noncollapse = False
+    else:
+        stable = (is_ic >= 0 and oos_ic >= 0) or (is_ic <= 0 and oos_ic <= 0)
+        noncollapse = bool(oos_ic >= -0.02)
+    return {
+        "is_ic": is_ic,
+        "oos_ic": oos_ic,
+        "oos_noncollapse": bool(noncollapse),
+        "ic_sign_stable_across_folds": bool(stable),
+    }
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    r3_min_samples = int(getattr(args, "r3_min_samples", 60))
+    r3_min_eras = int(getattr(args, "r3_min_eras", 2))
+    r3_min_state_months = int(getattr(args, "r3_min_state_months", 6))
+    oos_start = str(getattr(args, "oos_start", "") or "")
     inputs = [repo_path(path) for path in args.inputs]
     frame = load_inputs(inputs)
     states = read_csv(repo_path(args.state_history))
@@ -96,13 +134,33 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             for family in FEATURE_FAMILIES:
                 score_col = f"{family}_score"
                 d = group[[score_col, label_col]].dropna()
+                if "rebalance_date" in group.columns:
+                    dated = group[[score_col, label_col, "rebalance_date"]].dropna(subset=[score_col, label_col])
+                else:
+                    dated = d.copy()
+                    dated["rebalance_date"] = pd.NaT
+                fold_metrics = fold_ic_metrics(dated, score_col, label_col, oos_start)
+                e_count = era_count(dated["rebalance_date"])
+                m_count = month_count(dated["rebalance_date"])
+                completed = len(d) >= int(args.min_samples)
+                r3_row_eligible = (
+                    len(d) >= r3_min_samples
+                    and e_count >= r3_min_eras
+                    and m_count >= r3_min_state_months
+                    and bool(fold_metrics["oos_noncollapse"])
+                    and bool(fold_metrics["ic_sign_stable_across_folds"])
+                )
                 rows.append(
                     {
                         "state": state,
                         "feature_family": family,
-                        "status": "completed" if len(d) >= int(args.min_samples) else "insufficient_sample",
+                        "status": "completed" if completed else "insufficient_sample",
                         "sample_count": int(len(d)),
+                        "era_count": e_count,
+                        "state_month_count": m_count,
                         "ic": spearman(d[score_col], d[label_col]),
+                        **fold_metrics,
+                        "r3_row_eligible": bool(r3_row_eligible),
                         "forward_label": label_col,
                         "forward_return_is_audit_label_only": True,
                     }
@@ -111,7 +169,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     table.to_csv(output_dir / "ic_by_state_and_feature_family.csv", index=False)
     proceed = False
     if not table.empty:
-        eligible = table[table["status"].eq("completed")].copy()
+        eligible = table[table["r3_row_eligible"].eq(True)].copy()
         pivot = eligible.pivot_table(index="state", columns="feature_family", values="ic", aggfunc="mean")
         for state in ["CORRECTION", "BEAR", "RECOVERY"]:
             if state in pivot.index:
@@ -128,6 +186,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "state_history": str(repo_path(args.state_history)),
         "forward_label": label_col,
         "proceed_to_r3_gate_pass": bool(proceed),
+        "r3_authorized": bool(proceed),
+        "r3_min_samples": r3_min_samples,
+        "r3_min_eras": r3_min_eras,
+        "r3_min_state_months": r3_min_state_months,
+        "oos_start": oos_start,
         "forward_return_is_audit_label_only": True,
         "forward_labels_used_for_ranking": False,
         "research_only": True,
@@ -158,6 +221,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--min-samples", type=int, default=20)
     parser.add_argument("--material-ic-gap", type=float, default=0.05)
+    parser.add_argument("--r3-min-samples", type=int, default=60)
+    parser.add_argument("--r3-min-eras", type=int, default=2)
+    parser.add_argument("--r3-min-state-months", type=int, default=6)
+    parser.add_argument("--oos-start", default="")
     return parser.parse_args()
 
 
