@@ -23,13 +23,9 @@ if str(REPO_ROOT) not in sys.path:
 from tools.alphaops_required_price_tickers import parse_env_payload, required_price_tickers_for_env
 
 
-DEFAULT_REF = "codex/integration-main-conc-target-hooks-20260629"
+DEFAULT_REF = "codex/integration-fullrun-clean-20260630"
 DEFAULT_REPO = "wscha231/r1000-quant-engine"
-DEFAULT_ENV = {
-    "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED": "1",
-    "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED": "1",
-    "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED": "1",
-}
+DEFAULT_ENV: dict[str, str] = {}
 MAX_AUDIT_AGE_DAYS = 2
 
 

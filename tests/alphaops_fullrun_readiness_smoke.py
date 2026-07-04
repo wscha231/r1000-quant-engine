@@ -23,19 +23,18 @@ def test_ready_price_audit_emits_fullrun_command() -> None:
             "latest_cached_bar_date": "2026-06-29",
             "benchmark_anchor_date": "2026-06-29",
             "audit_date": "2026-06-29",
-            "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29", "SH": "2026-06-29"},
+            "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29"},
         },
         today=pd.Timestamp("2026-06-29"),
     )
     assert payload["fullrun_ready"] is True
     assert payload["status"] == "ready"
     assert payload["next_action"] == "dispatch_full_rebuild_manual"
-    assert "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED" in payload["fullrun_command"]
-    assert "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED" in payload["fullrun_command"]
-    assert "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED" in payload["fullrun_command"]
+    assert "PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED" not in payload["fullrun_command"]
+    assert "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED" not in payload["fullrun_command"]
     assert "$envJsonForGh = $envJson -replace" in payload["fullrun_command"]
     assert "experiment_env_json=$envJsonForGh" in payload["fullrun_command"]
-    assert payload["required_price_tickers"] == ["QQQ", "SH", "SPY"]
+    assert payload["required_price_tickers"] == ["QQQ", "SPY"]
     assert payload["production_promotion_allowed"] is False
 
 
@@ -83,6 +82,7 @@ def test_missing_hedge_price_blocks_fullrun_when_hedge_env_enabled() -> None:
             "audit_date": "2026-06-29",
             "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29"},
         },
+        env_payload={"PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED": "1"},
         today=pd.Timestamp("2026-06-29"),
     )
     assert payload["fullrun_ready"] is False
@@ -101,7 +101,7 @@ def test_non_required_missing_ticker_does_not_block_fullrun() -> None:
             "latest_cached_bar_date": "2026-06-29",
             "audit_date": "2026-06-29",
             "missing_tickers": ["PAGS"],
-            "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29", "SH": "2026-06-29"},
+            "per_ticker": {"SPY": "2026-06-29", "QQQ": "2026-06-29"},
         },
         today=pd.Timestamp("2026-06-29"),
     )

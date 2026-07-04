@@ -85,6 +85,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/alphaops_operating_cadence_status_smoke.py", []),
     ("tests/alphaops_required_price_tickers_smoke.py", []),
     ("tests/alphaops_fullrun_readiness_smoke.py", []),
+    ("tests/alphaops_prefullrun_gate_smoke.py", []),
     ("tests/fullrun_goal_verifier_wiring_smoke.py", []),
     ("tests/weekly_cron_input_defaults_smoke.py", []),
     ("tests/free_data_daily_price_audit_wiring_smoke.py", []),
