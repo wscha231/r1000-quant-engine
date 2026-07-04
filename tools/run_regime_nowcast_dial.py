@@ -154,6 +154,53 @@ def _read_cached_price_file(path: Path, as_of_date: str) -> pd.DataFrame:
     return out.dropna(subset=["close"])
 
 
+def _read_macro_series(macro_cache: Path, name: str, series_id: str) -> pd.Series:
+    if not macro_cache or not macro_cache.exists():
+        return pd.Series(dtype=float)
+    key = str(name).strip().lower()
+    sid = str(series_id).strip().upper()
+    candidates = [
+        macro_cache / f"fred_{key}_{sid}.parquet",
+        macro_cache / f"fred_{key}_{sid}.csv",
+        macro_cache / f"fred_{sid.lower()}_{sid}.parquet",
+        macro_cache / f"fred_{sid.lower()}_{sid}.csv",
+    ]
+    frame = pd.DataFrame()
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            frame = pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
+        except Exception:
+            frame = pd.DataFrame()
+        if not frame.empty:
+            break
+    if frame.empty:
+        return pd.Series(dtype=float)
+    frame = frame.copy()
+    if "date" in frame.columns:
+        idx = pd.to_datetime(frame["date"], errors="coerce")
+        value_col = "value" if "value" in frame.columns else next((col for col in frame.columns if col != "date"), "")
+    else:
+        idx = pd.to_datetime(frame.index, errors="coerce")
+        value_col = "value" if "value" in frame.columns else (frame.columns[0] if len(frame.columns) else "")
+    if not value_col:
+        return pd.Series(dtype=float)
+    values = pd.to_numeric(frame[value_col].replace(".", pd.NA), errors="coerce")
+    series = pd.Series(values.to_numpy(), index=idx).dropna()
+    series = series[series.index.notna()].sort_index()
+    return series[~series.index.duplicated(keep="last")]
+
+
+def _macro_until(series: pd.Series, as_of_date: str) -> pd.Series:
+    if series.empty:
+        return series
+    out = series.sort_index()
+    if as_of_date:
+        out = out[out.index <= pd.Timestamp(as_of_date)]
+    return out.dropna()
+
+
 def _ma200_warning(price_cache: Path, ticker: str, signal_name: str, as_of_date: str) -> dict[str, Any] | None:
     series = _series_until(price_cache, ticker, as_of_date)
     if len(series) < 200:
@@ -280,6 +327,91 @@ def _ai_capex_bucket_rs_warning(price_cache: Path, as_of_date: str) -> dict[str,
     }
 
 
+def macro_cache_warning_rows(macro_cache: Path, as_of_date: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    hy_oas = _macro_until(_read_macro_series(macro_cache, "hy_oas", "BAMLH0A0HYM2"), as_of_date)
+    if len(hy_oas) >= 22:
+        latest = safe_float(hy_oas.iloc[-1])
+        change_21d = latest - safe_float(hy_oas.iloc[-22])
+        triggered = latest >= 5.0 or change_21d >= 0.75
+        rows.append(
+            {
+                "date": as_of_date,
+                "signal_name": "hy_oas_widening_threshold",
+                "value": latest,
+                "covered": True,
+                "warning_triggered": triggered,
+                "risk_score": 1.0 if triggered else 0.0,
+                "source": "macro_cache_fred_hy_oas",
+                "source_observation_date": pd.Timestamp(hy_oas.index[-1]).date().isoformat(),
+                "hy_oas_level": latest,
+                "hy_oas_change_21d": change_21d,
+            }
+        )
+
+    dgs10 = _macro_until(_read_macro_series(macro_cache, "dgs10", "DGS10"), as_of_date)
+    dgs3mo = _macro_until(_read_macro_series(macro_cache, "dgs3mo", "DGS3MO"), as_of_date)
+    if not dgs10.empty and not dgs3mo.empty:
+        aligned = pd.concat([dgs10.rename("dgs10"), dgs3mo.rename("dgs3mo")], axis=1).sort_index().ffill().dropna()
+        if len(aligned) >= 22:
+            spread = safe_float(aligned["dgs10"].iloc[-1]) - safe_float(aligned["dgs3mo"].iloc[-1])
+            spread_21d_ago = safe_float(aligned["dgs10"].iloc[-22]) - safe_float(aligned["dgs3mo"].iloc[-22])
+            steepening_from_inversion = spread_21d_ago < 0.0 and spread - spread_21d_ago >= 0.50
+            triggered = spread < 0.0 or steepening_from_inversion
+            rows.append(
+                {
+                    "date": as_of_date,
+                    "signal_name": "yield_curve_inversion_or_steepening_warning",
+                    "value": spread,
+                    "covered": True,
+                    "warning_triggered": triggered,
+                    "risk_score": 1.0 if triggered else 0.0,
+                    "source": "macro_cache_fred_dgs10_dgs3mo",
+                    "source_observation_date": pd.Timestamp(aligned.index[-1]).date().isoformat(),
+                    "yield_curve_10y_3m_spread": spread,
+                    "yield_curve_10y_3m_spread_change_21d": spread - spread_21d_ago,
+                }
+            )
+
+    sahm = _macro_until(_read_macro_series(macro_cache, "sahm", "SAHMREALTIME"), as_of_date)
+    if not sahm.empty:
+        latest = safe_float(sahm.iloc[-1])
+        rows.append(
+            {
+                "date": as_of_date,
+                "signal_name": "sahm_unemployment_momentum_warning",
+                "value": latest,
+                "covered": True,
+                "warning_triggered": latest >= 0.50,
+                "risk_score": 1.0 if latest >= 0.50 else 0.0,
+                "source": "macro_cache_fred_sahm",
+                "source_observation_date": pd.Timestamp(sahm.index[-1]).date().isoformat(),
+                "sahm_realtime": latest,
+            }
+        )
+    else:
+        unrate = _macro_until(_read_macro_series(macro_cache, "unrate", "UNRATE"), as_of_date)
+        if len(unrate) >= 4:
+            latest = safe_float(unrate.iloc[-1])
+            change_3m = latest - safe_float(unrate.iloc[-4])
+            triggered = change_3m >= 0.30
+            rows.append(
+                {
+                    "date": as_of_date,
+                    "signal_name": "sahm_unemployment_momentum_warning",
+                    "value": change_3m,
+                    "covered": True,
+                    "warning_triggered": triggered,
+                    "risk_score": 1.0 if triggered else 0.0,
+                    "source": "macro_cache_fred_unrate_proxy",
+                    "source_observation_date": pd.Timestamp(unrate.index[-1]).date().isoformat(),
+                    "unrate_level": latest,
+                    "unrate_change_3m": change_3m,
+                }
+            )
+    return rows
+
+
 def price_cache_warning_rows(price_cache: Path, as_of_date: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for ticker, signal_name in [("SPY", "spy_below_200dma"), ("QQQ", "qqq_below_200dma")]:
@@ -395,10 +527,16 @@ def complete_warning_signals(panel: pd.DataFrame, as_of_date: str) -> pd.DataFra
     return normalize_signal_panel(panel, as_of_date)
 
 
-def load_signal_panel(signal_panel: Path, price_cache: Path, as_of_date: str) -> pd.DataFrame:
+def load_signal_panel(signal_panel: Path, price_cache: Path, macro_cache: Path, as_of_date: str) -> pd.DataFrame:
     panel = read_csv(signal_panel) if signal_panel else pd.DataFrame()
     if panel.empty:
-        panel = pd.DataFrame(price_cache_warning_rows(price_cache, as_of_date))
+        rows = price_cache_warning_rows(price_cache, as_of_date)
+        rows.extend(macro_cache_warning_rows(macro_cache, as_of_date))
+        panel = pd.DataFrame(rows)
+    elif macro_cache:
+        macro_rows = macro_cache_warning_rows(macro_cache, as_of_date)
+        if macro_rows:
+            panel = pd.concat([panel, pd.DataFrame(macro_rows)], ignore_index=True, sort=False)
     return complete_warning_signals(panel, as_of_date)
 
 
@@ -528,7 +666,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     as_of = args.as_of_date or pd.Timestamp.utcnow().date().isoformat()
-    panel = load_signal_panel(repo_path(args.signal_panel) if args.signal_panel else Path(), repo_path(args.price_cache), as_of)
+    macro_cache_arg = str(getattr(args, "macro_cache", "") or "").strip()
+    panel = load_signal_panel(
+        repo_path(args.signal_panel) if args.signal_panel else Path(),
+        repo_path(args.price_cache),
+        repo_path(macro_cache_arg) if macro_cache_arg else Path(),
+        as_of,
+    )
     state = build_state_history(
         panel,
         allow_state_override=bool(getattr(args, "allow_state_override", False)),
@@ -616,6 +760,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--signal-panel", default="")
     parser.add_argument("--price-cache", default="cache_prices")
+    parser.add_argument("--macro-cache", default="cache_macro")
     parser.add_argument("--as-of-date", default="")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--coverage-mode", choices=["internal", "service", "public"], default="internal")

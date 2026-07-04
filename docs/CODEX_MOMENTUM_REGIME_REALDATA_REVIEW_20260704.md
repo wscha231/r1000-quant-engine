@@ -23,6 +23,10 @@ Additional local hardening performed after the midcheck:
   - SPY realized-volatility stress proxy.
   - Cached-universe breadth above MA200.
   - AI capex basket relative strength vs QQQ.
+- R1 macro-cache-derived credit/liquidity coverage for:
+  - HY OAS widening.
+  - 10Y minus 3M yield-curve inversion/steepening warning.
+  - Sahm realtime unemployment momentum.
 - R1 service/public state override remains disabled unless explicitly allowed.
 - R1 output now includes:
   - `state_computed_from_data`
@@ -54,6 +58,7 @@ C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\
   --only regime_nowcast_dial_smoke `
   --only regime_nowcast_data_insufficient_critical_group_smoke `
   --only regime_nowcast_price_cache_coverage_smoke `
+  --only regime_nowcast_macro_cache_coverage_smoke `
   --only chameleon_policy_audit_smoke `
   --only chameleon_policy_no_orders_smoke `
   --only chameleon_policy_data_insufficient_no_allocation_smoke `
@@ -64,7 +69,7 @@ C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\
 
 Result:
 
-- 11/11 PASS.
+- 12/12 PASS.
 
 ## Real-Data R1 Run
 
@@ -73,6 +78,7 @@ Command:
 ```powershell
 C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -B tools\run_regime_nowcast_dial.py `
   --price-cache outputs\p4_cap_replacement_broker_counterfactual_28616190134\cache_prices `
+  --macro-cache cache_macro `
   --as-of-date 2026-07-01 `
   --coverage-mode service `
   --output-dir outputs\regime_nowcast_dial_realdata_service
@@ -86,6 +92,24 @@ Inputs:
 - Actual cached ticker count: `160`
 - Required tickers in that cache include `SPY`, `QQQ`, `AMD`, `MU`, `SNDK`,
   `WDC`, `CIEN`, `LITE`, `BE`, `GLW`, `UMC`, and `AMAT`.
+- Macro cache was materialized from FRED graph CSV for:
+  - `DGS10`: latest `2026-07-01`, value `4.48`
+  - `BAMLH0A0HYM2`: latest `2026-07-01`, value `2.74`
+  - `SAHMREALTIME`: latest `2026-06-01`, value `0.07`
+  - `UNRATE`: latest `2026-06-01`, value `4.2`
+  - `VIXCLS`: latest `2026-07-01`, value `16.59`
+
+Materialization command shape:
+
+```powershell
+foreach ($s in @('dgs10','hy_oas','sahm','unrate','vix')) {
+  C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -B tools\materialize_cash_rate_series.py `
+    --rate-source $s `
+    --output-cache cache_macro `
+    --summary "outputs\regime_macro_materialization_$s\summary.json" `
+    --force
+}
+```
 
 Output paths:
 
@@ -99,14 +123,14 @@ Result:
 
 | field | value |
 |---|---:|
-| status | `data_insufficient` |
-| current_state | `DATA_INSUFFICIENT` |
+| status | `completed` |
+| current_state | `BULL` |
 | bear_warning_score | `0` |
 | bear_warning_label | `risk_on` |
-| covered_signal_count | `6 / 12` |
-| signal_coverage | `0.50` |
-| critical_group_coverage | `4 / 6` |
-| data_insufficient_reason | `covered_signals_lt_8_for_service` |
+| covered_signal_count | `9 / 12` |
+| signal_coverage | `0.75` |
+| critical_group_coverage | `5 / 6` |
+| data_insufficient_reason | empty |
 | triggered_signals | `[]` |
 | market_timing_claim_allowed | `false` |
 | public_display_allowed | `false` |
@@ -119,30 +143,27 @@ Covered groups:
 - `volatility_stress`: true, via SPY realized-volatility proxy
 - `breadth`: true, via fresh price-cache parquet files without ticker mapping
 - `ai_bucket_rs`: true, via AI capex basket RS vs QQQ
+- `credit_liquidity`: true, via FRED macro cache
 
 Missing critical groups:
 
-- `credit_liquidity`
 - `earnings_guidance`
 
 Missing warning signals:
 
 - `eps_revision_breadth_negative`
-- `hy_oas_widening_threshold`
 - `positive_guidance_ratio_deteriorating`
-- `sahm_unemployment_momentum_warning`
 - `soxx_smh_rs_negative_vs_qqq`
-- `yield_curve_inversion_or_steepening_warning`
 
 Interpretation:
 
-- The local price cache now covers enough for a research/internal state
-  calculation, but service mode still correctly blocks any market-state claim.
-- The service-mode block is now narrower and more informative: the missing
-  pieces are credit/liquidity and earnings/guidance, not price-cache plumbing.
-- `bear_warning_score=0` should not be displayed as a market call while
-  `current_state=DATA_INSUFFICIENT`.
-- No current-regime claim should be made from this run.
+- R1 can now compute a service-mode state from local price and macro caches.
+- The computed state is `BULL`, with zero triggered bear-warning signals.
+- This is still review-only: `market_timing_claim_allowed=false`,
+  `public_display_allowed=false`, `policy_hook_allowed=false`, and
+  `live_trading_allowed=false`.
+- Missing earnings/guidance coverage should be disclosed. The `BULL` label must
+  not be promoted to public/production use without governance review.
 
 ## Internal R1 Run
 
@@ -152,14 +173,13 @@ The same input in `coverage_mode=internal` now computes:
 |---|---:|
 | status | `completed` |
 | current_state | `BULL` |
-| covered_signal_count | `6 / 12` |
-| critical_group_coverage | `4 / 6` |
+| covered_signal_count | `9 / 12` |
+| critical_group_coverage | `5 / 6` |
 | public_display_allowed | `false` |
 | policy_hook_allowed | `false` |
 
-This internal state is useful for diagnostics only. It is not sufficient for a
-service-facing regime label because service mode requires at least 8 warning
-signals and still lacks credit/liquidity plus earnings/guidance coverage.
+The internal and service computations now agree. Both remain review-only and
+non-trading.
 
 ## Real-Data R1b Run
 
@@ -182,55 +202,57 @@ Result:
 | field | value |
 |---|---:|
 | status | `completed` |
-| current_state | `DATA_INSUFFICIENT` |
+| current_state | `BULL` |
 | recommended_action_count | `3` |
 | all_actions_review_only | `true` |
 | executable_order_allowed | `false` |
 | production_policy_mutation_allowed | `false` |
 | live_trading_allowed | `false` |
 | public_display_allowed | `false` |
-| data_insufficient_no_allocation_guidance | `true` |
+| data_insufficient_no_allocation_guidance | `false` |
 
 Recommended action labels:
 
-- `data_review_required`
-- `no_current_regime_claim`
-- `expand_r1_coverage`
+- `normal_monthly_alphaops_target_process`
+- `passed_replacement_quality_candidates`
+- `cash_carry_accounting`
 
 Interpretation:
 
 - R1b behaved correctly.
-- It did not produce allocation guidance.
-- It did not say to buy T-bills, sell stocks, or time the market.
-- It only asks for data coverage review.
+- It did not produce executable orders.
+- It did not mutate production policy.
+- It stayed review-only despite the `BULL` state.
 
 ## What This Means
 
-The M/R framework is wired safely enough for review-only diagnostics, and the
-local price cache now supplies the price-derived critical groups. The current
-local data is still not sufficient to make a service-facing regime claim.
+The M/R framework is wired safely enough for review-only diagnostics, and local
+price plus macro caches now supply enough coverage for a computed service-mode
+state. The remaining open question is governance: whether a review-only `BULL`
+label may be shown internally or service-side while earnings/guidance coverage is
+still missing.
 
-The next engineering task remains data coverage, not a trading rule:
+The next engineering task is not a trading rule:
 
-1. Add credit/liquidity coverage (HY OAS and yield-curve local macro cache).
-2. Add earnings/guidance coverage only after W4 PIT feed exists.
-3. Optionally replace SPY realized-volatility proxy with an explicit VIX/VIX3M
+1. Add earnings/guidance coverage only after W4 PIT feed exists.
+2. Optionally replace SPY realized-volatility proxy with an explicit VIX/VIX3M
    feed when available.
-4. Keep breadth and AI bucket RS sourced from price cache unless a broader
+3. Keep breadth and AI bucket RS sourced from price cache unless a broader
    universe breadth feed is added. The current breadth source is a cached-file
    breadth proxy, not an official R1000 membership breadth series.
+4. Decide service/public wording for a computed-but-review-only market regime.
 
 ## Questions for GPT Pro
 
 Use GPT Pro for governance and service-facing wording.
 
-1. Given this first real-data run produced `DATA_INSUFFICIENT`, should the public
-   layer hide regime completely, or show a neutral "market risk review pending"
+1. Given service mode now computes `BULL` with 9/12 signal coverage but missing
+   earnings/guidance, should the public layer still hide regime completely?
+2. If shown internally, should the label be `BULL`, `risk-on review`, or
+   `market risk normal - review only`?
+3. Should service mode require earnings/guidance coverage specifically, or is
+   9/12 plus credit/liquidity coverage sufficient for a review-only regime
    label?
-2. Is `bear_warning_score=0` too dangerous to store/display when coverage is
-   6/12 and state is still `DATA_INSUFFICIENT`?
-3. Should service mode require credit/liquidity coverage specifically, beyond
-   the current 8-of-12 signal count plus 4-of-6 critical-group rule?
 4. Is the wording "cash/T-bill-equivalent reserve label" safe enough, or should
    all T-bill references be removed until production accounting is decided?
 5. Should the first public dashboard show only:
@@ -243,8 +265,8 @@ Use GPT Pro for governance and service-facing wording.
 
 Use Claude for code/path red-team.
 
-1. Does the R1 service-mode `DATA_INSUFFICIENT` logic correctly prevent false
-   market-state claims?
+1. Does the R1 macro-cache as-of handling correctly map slower Sahm/UNRATE
+   observations to the nowcast date while preserving `source_observation_date`?
 2. Should `state_override` remain as a research-only CLI option, or be removed
    entirely?
 3. Does R1b fully prevent allocation guidance when R1 is `DATA_INSUFFICIENT`?
@@ -255,10 +277,8 @@ Use Claude for code/path red-team.
    - data insufficient no allocation guidance
    - state override ignored by default
    - R2 era gate
-5. Which remaining coverage source should be added first:
-   - credit/liquidity
-   - earnings/guidance
-   - explicit VIX/VIX3M, replacing the current SPY realized-volatility proxy
+5. Are the HY OAS, 10Y-3M, and Sahm thresholds reasonable as review-only
+   nowcast inputs, or should they be calibration-only until a longer validation?
 
 ## Recommended Next Step
 
@@ -268,9 +288,7 @@ Do not send M/R to production or public display.
 
 Next Codex task should be:
 
-1. Materialize credit/liquidity signals from existing macro sources if available
-   (`HY OAS`, `10Y-3M`, Sahm/unemployment momentum).
-2. Keep earnings/guidance missing until a PIT W4 feed exists.
-3. Re-run R1 service mode.
-4. Only if R1 leaves `DATA_INSUFFICIENT`, send the actual computed state and
-   R1b actions for external review.
+1. Send this packet to GPT Pro for service-facing wording/governance.
+2. Send this packet to Claude for code/path red-team of macro as-of handling.
+3. Keep earnings/guidance missing until a PIT W4 feed exists.
+4. Do not connect R1/R1b to production hooks or fullrun.
