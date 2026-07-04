@@ -104,6 +104,10 @@ def test_harness_writes_summary_with_fake_broker() -> None:
 
     def fake_broker(**kwargs):
         arm = Path(kwargs["output_dir"]).parent.name
+        assert kwargs["cash_carry_mode"] == "risk_free_rate"
+        assert kwargs["cash_rate_path"].endswith("rates.parquet")
+        assert kwargs["replay_end_date"] == "2026-06-29"
+        assert kwargs["official_baseline_end_date"] == "2026-06-29"
         cagr = {
             "baseline": 0.4624,
             "ai_bottleneck_momentum_tilt15": 0.4700,
@@ -111,7 +115,7 @@ def test_harness_writes_summary_with_fake_broker() -> None:
         }[arm]
         return {
             "status": "completed",
-            "metric_mode": "broker_ledger_next_close",
+            "metric_mode": "broker_ledger_next_close_cash_carry",
             "cagr": cagr,
             "max_dd": -0.2582,
             "sharpe": 1.4,
@@ -147,6 +151,14 @@ def test_harness_writes_summary_with_fake_broker() -> None:
                     max_fill_lag_days=7,
                     starting_capital=100000.0,
                     single_cap=0.30,
+                    cash_carry_mode="risk_free_rate",
+                    cash_rate_source="DGS3MO",
+                    cash_rate_path=str(root / "rates.parquet"),
+                    cash_rate_lag_days=1,
+                    cash_carry_haircut_bps=50.0,
+                    cash_carry_day_count=365,
+                    replay_end_date="2026-06-29",
+                    official_baseline_end_date="2026-06-29",
                 )
             )
         finally:

@@ -306,6 +306,14 @@ def run_broker_replay(
     cost_bps: float,
     max_fill_lag_days: int,
     starting_capital: float,
+    cash_carry_mode: str,
+    cash_rate_path: str,
+    cash_rate_source: str,
+    cash_rate_lag_days: int,
+    cash_carry_haircut_bps: float,
+    cash_carry_day_count: int,
+    replay_end_date: str,
+    official_baseline_end_date: str,
 ) -> dict[str, Any]:
     cmd = [
         sys.executable,
@@ -327,6 +335,22 @@ def run_broker_replay(
         "--starting-capital",
         str(starting_capital),
     ]
+    if cash_carry_mode:
+        cmd.extend(["--cash-carry-mode", cash_carry_mode])
+    if cash_rate_path:
+        cmd.extend(["--cash-rate-path", str(repo_path(cash_rate_path))])
+    if cash_rate_source:
+        cmd.extend(["--cash-rate-source", cash_rate_source])
+    if cash_rate_lag_days is not None:
+        cmd.extend(["--cash-rate-lag-days", str(cash_rate_lag_days)])
+    if cash_carry_haircut_bps is not None:
+        cmd.extend(["--cash-carry-haircut-bps", str(cash_carry_haircut_bps)])
+    if cash_carry_day_count is not None:
+        cmd.extend(["--cash-carry-day-count", str(cash_carry_day_count)])
+    if replay_end_date:
+        cmd.extend(["--replay-end-date", replay_end_date])
+    if official_baseline_end_date:
+        cmd.extend(["--official-baseline-end-date", official_baseline_end_date])
     if portfolio_kind == "concentrated":
         cmd.append("--disable-concentrated-champion-filter")
     subprocess.run(cmd, cwd=REPO_ROOT, check=True)
@@ -406,7 +430,7 @@ def add_deltas(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def classify(row: dict[str, Any], baseline: dict[str, Any]) -> str:
     if row["arm"] == "baseline":
         return "baseline"
-    if row.get("metric_mode") != "broker_ledger_next_close":
+    if row.get("metric_mode") not in {"broker_ledger_next_close", "broker_ledger_next_close_cash_carry"}:
         return "blocked_invalid_metric_mode"
     if abs(safe_float(row.get("years")) - safe_float(baseline.get("years"))) > 0.03:
         return "blocked_window_mismatch"
@@ -429,13 +453,15 @@ def classify(row: dict[str, Any], baseline: dict[str, Any]) -> str:
 
 
 def render_report(rows: list[dict[str, Any]], *, target_book: Path, price_cache: Path, portfolio_kind: str) -> str:
+    metric_modes = sorted({str(row.get("metric_mode", "")) for row in rows if row.get("metric_mode")})
+    metric_source = ", ".join(metric_modes) if metric_modes else "unknown"
     lines = [
         "# AI Capex Tilt Broker A/B",
         "",
         f"- portfolio: `{portfolio_kind}`",
         f"- target book: `{target_book}`",
         f"- price cache: `{price_cache}`",
-        "- metric source: broker_ledger_next_close",
+        f"- metric source: `{metric_source}`",
         "- selected tickers preserved; cash is intended to remain unchanged",
         "- production promotion: blocked unless PIT universe evidence is clean",
         "",
@@ -492,6 +518,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             cost_bps=float(args.cost_bps),
             max_fill_lag_days=int(args.max_fill_lag_days),
             starting_capital=float(args.starting_capital),
+            cash_carry_mode=str(args.cash_carry_mode),
+            cash_rate_path=str(args.cash_rate_path),
+            cash_rate_source=str(args.cash_rate_source),
+            cash_rate_lag_days=int(args.cash_rate_lag_days),
+            cash_carry_haircut_bps=float(args.cash_carry_haircut_bps),
+            cash_carry_day_count=int(args.cash_carry_day_count),
+            replay_end_date=str(args.replay_end_date),
+            official_baseline_end_date=str(args.official_baseline_end_date),
         )
         rows.append(arm_metric_row(arm, metrics, date_telemetry, arm_book_path))
 
@@ -510,6 +544,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "target_book": str(target_book),
         "price_cache": str(price_cache),
         "earnings_signal_path": str(repo_path(args.earnings_signals)) if args.earnings_signals else None,
+        "cash_carry_mode": str(args.cash_carry_mode),
+        "cash_rate_path": str(repo_path(args.cash_rate_path)) if args.cash_rate_path else "",
+        "cash_rate_source": str(args.cash_rate_source),
+        "cash_rate_lag_days": int(args.cash_rate_lag_days),
+        "cash_carry_haircut_bps": float(args.cash_carry_haircut_bps),
+        "cash_carry_day_count": int(args.cash_carry_day_count),
+        "replay_end_date": str(args.replay_end_date),
+        "official_baseline_end_date": str(args.official_baseline_end_date),
         **signal_meta,
         "arms": rows,
         "policy_candidates": [row for row in rows if row.get("ab_verdict") == "research_pass_policy_candidate"],
@@ -533,6 +575,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--starting-capital", type=float, default=100000.0)
     parser.add_argument("--single-cap", type=float, default=0.30)
+    parser.add_argument("--cash-carry-mode", choices=["none", "risk_free_rate"], default="none")
+    parser.add_argument("--cash-rate-source", default="DGS3MO")
+    parser.add_argument("--cash-rate-path", default="")
+    parser.add_argument("--cash-rate-lag-days", type=int, default=1)
+    parser.add_argument("--cash-carry-haircut-bps", type=float, default=50.0)
+    parser.add_argument("--cash-carry-day-count", type=int, default=365)
+    parser.add_argument("--replay-end-date", default="")
+    parser.add_argument("--official-baseline-end-date", default="")
     return parser.parse_args()
 
 
