@@ -1,7 +1,7 @@
 {
-  "run_timestamp_utc": "2026-07-03T23:47:59.202142+00:00",
+  "run_timestamp_utc": "2026-07-04T08:51:54.426223+00:00",
   "run_status": "no_new_trading_session",
-  "schedule_as_of": "2026-07-03",
+  "schedule_as_of": "2026-07-04",
   "target_trading_day": "2026-07-02",
   "data_as_of": "2026-07-02",
   "latest_scored_rebalance_date": "2026-06-24",
