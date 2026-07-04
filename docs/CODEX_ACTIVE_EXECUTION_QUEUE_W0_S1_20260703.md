@@ -113,6 +113,18 @@ alerts remain backend-only.
 Fix the weekly evaluation cron so missing inputs produce a structured blocked
 summary instead of a silent crash.
 
+2026-07-04 implementation note:
+
+- `full_rebuild_manual.yml` scheduled runs now normalize empty `inputs.*`
+  values inside the shell step:
+  - `UNIVERSE_MODE=${UNIVERSE_MODE:-global_alpha_universe}`
+  - `BACKTEST_YEARS=${BACKTEST_YEARS:-7}`
+  - `LEADER_RESCUE_MODE=${LEADER_RESCUE_MODE:-latest_only}`
+  - `REQUESTED_SKIP_COLLECTOR=${INPUT_SKIP_COLLECTOR:-true}`
+  - `FAST_MODE_FLAG=${INPUT_FAST_MODE:-true}`
+- `tests/weekly_cron_input_defaults_smoke.py` guards against reintroducing
+  `--fast-mode ""` or direct `inputs.skip_collector` shell checks.
+
 Required output field:
 
 - `weekly_evaluation_status`

@@ -466,6 +466,8 @@ jobs:
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
           BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
           LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
+          INPUT_SKIP_COLLECTOR: ${{ inputs.skip_collector || 'true' }}
+          INPUT_FAST_MODE: ${{ inputs.fast_mode || 'true' }}
           PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
           PHASE_PHASE11_MULTIBAGGER_ENABLED: ${{ inputs.phase11_multibagger_enabled && '1' || '0' }}
           PHASE11_EPISODES_PATH: ${{ inputs.phase11_episodes_source == 'v2' && 'research/multibagger_episodes_v2.csv' || 'research/multibagger_episodes.csv' }}
@@ -473,7 +475,12 @@ jobs:
           set -e
           set -o pipefail   # ← critical: catch python failures through tee pipe
           mkdir -p outputs/full_rebuild_logs
-          LOG="outputs/full_rebuild_logs/$(date +%Y%m%d_%H%M%S)_${{ inputs.universe_mode }}.log"
+          UNIVERSE_MODE="${UNIVERSE_MODE:-global_alpha_universe}"
+          BACKTEST_YEARS="${BACKTEST_YEARS:-7}"
+          LEADER_RESCUE_MODE="${LEADER_RESCUE_MODE:-latest_only}"
+          REQUESTED_SKIP_COLLECTOR="${INPUT_SKIP_COLLECTOR:-true}"
+          FAST_MODE_FLAG="${INPUT_FAST_MODE:-true}"
+          LOG="outputs/full_rebuild_logs/$(date +%Y%m%d_%H%M%S)_${UNIVERSE_MODE}.log"
 
           # Auto-detect: skip_collector=true is unsafe on FIRST run (no cache).
           # Check for collector cache markers; if absent, force collector run
@@ -506,7 +513,7 @@ jobs:
             CACHE_PRESENT="yes"
           fi
 
-          if [ "${{ inputs.skip_collector }}" = "true" ]; then
+          if [ "$REQUESTED_SKIP_COLLECTOR" = "true" ]; then
             if [ "$CACHE_PRESENT" = "yes" ]; then
               SKIP_COLLECTOR="--no-collector"
               echo "[skip_collector] cache present, skipping data collection"
@@ -519,12 +526,10 @@ jobs:
           # fast_mode: true = 5 backtests + 6m retrain (~2-3h total, fits in 6h GHA limit)
           # fast_mode: false = full walk-forward (~5-6h, may TIMEOUT on first cloud run)
           # Previous run (24950857695) was cancelled at 7h+ — fast_mode now exposed.
-          FAST_MODE_FLAG="${{ inputs.fast_mode }}"
-
           echo "=========================================="
           echo "FULL REBUILD START"
           echo "  universe_mode:    $UNIVERSE_MODE"
-          echo "  skip_collector:   ${{ inputs.skip_collector }} (effective: $([ -n "$SKIP_COLLECTOR" ] && echo SKIP || echo RUN))"
+          echo "  skip_collector:   $REQUESTED_SKIP_COLLECTOR (effective: $([ -n "$SKIP_COLLECTOR" ] && echo SKIP || echo RUN))"
           echo "  cache_present:    $CACHE_PRESENT"
           echo "  fast_mode:        $FAST_MODE_FLAG"
           echo "  backtest_years:   $BACKTEST_YEARS"
