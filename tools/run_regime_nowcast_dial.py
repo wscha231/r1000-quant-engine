@@ -201,6 +201,17 @@ def _macro_until(series: pd.Series, as_of_date: str) -> pd.Series:
     return out.dropna()
 
 
+def _read_table(path: Path) -> pd.DataFrame:
+    if not path or not path.exists():
+        return pd.DataFrame()
+    try:
+        if path.suffix.lower() == ".parquet":
+            return pd.read_parquet(path)
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
 def _ma200_warning(price_cache: Path, ticker: str, signal_name: str, as_of_date: str) -> dict[str, Any] | None:
     series = _series_until(price_cache, ticker, as_of_date)
     if len(series) < 200:
@@ -412,6 +423,79 @@ def macro_cache_warning_rows(macro_cache: Path, as_of_date: str) -> list[dict[st
     return rows
 
 
+def earnings_guidance_warning_rows(earnings_signals: Path, as_of_date: str) -> list[dict[str, Any]]:
+    d = _read_table(earnings_signals)
+    if d.empty or "available_from" not in d.columns:
+        return []
+    d = d.copy()
+    d["available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()
+    as_of_ts = pd.Timestamp(as_of_date).normalize()
+    d = d[d["available_from"].notna() & (d["available_from"] <= as_of_ts)].copy()
+    if d.empty:
+        return []
+    if "ticker" in d.columns:
+        d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+        d = d[d["ticker"].ne("")]
+        d = d.sort_values(["ticker", "available_from"]).drop_duplicates("ticker", keep="last")
+    else:
+        d = d.sort_values("available_from")
+    row_count = int(len(d))
+    if row_count < 5:
+        return []
+    eps_cols = [col for col in ["eps_revision_13w", "revenue_revision_13w"] if col in d.columns]
+    if not eps_cols and "sector_eps_revision_breadth" not in d.columns and "sector_positive_guidance_ratio" not in d.columns:
+        return []
+    eps_positive_mask = pd.Series(False, index=d.index)
+    for col in eps_cols:
+        eps_positive_mask = eps_positive_mask | (pd.to_numeric(d[col], errors="coerce").fillna(0.0) > 0.0)
+    if "sector_eps_revision_breadth" in d.columns:
+        sector_breadth = float(pd.to_numeric(d["sector_eps_revision_breadth"], errors="coerce").dropna().mean())
+        eps_breadth = max(float(eps_positive_mask.mean()), sector_breadth)
+    else:
+        eps_breadth = float(eps_positive_mask.mean())
+    positive_guidance_ratio = (
+        float((pd.to_numeric(d["positive_guidance_flag"], errors="coerce").fillna(0.0) > 0.0).mean())
+        if "positive_guidance_flag" in d.columns
+        else 0.0
+    )
+    negative_guidance_ratio = (
+        float((pd.to_numeric(d["negative_guidance_flag"], errors="coerce").fillna(0.0) > 0.0).mean())
+        if "negative_guidance_flag" in d.columns
+        else 0.0
+    )
+    if "sector_positive_guidance_ratio" in d.columns:
+        sector_guidance = float(pd.to_numeric(d["sector_positive_guidance_ratio"], errors="coerce").dropna().mean())
+        positive_guidance_ratio = max(positive_guidance_ratio, sector_guidance)
+    latest_obs = d["available_from"].max().date().isoformat()
+    return [
+        {
+            "date": as_of_date,
+            "signal_name": "eps_revision_breadth_negative",
+            "value": eps_breadth,
+            "covered": True,
+            "warning_triggered": eps_breadth < 0.40,
+            "risk_score": 1.0 if eps_breadth < 0.40 else 0.0,
+            "source": "earnings_revision_signals",
+            "source_observation_date": latest_obs,
+            "earnings_signal_row_count": row_count,
+            "eps_revision_positive_ratio": eps_breadth,
+        },
+        {
+            "date": as_of_date,
+            "signal_name": "positive_guidance_ratio_deteriorating",
+            "value": positive_guidance_ratio - negative_guidance_ratio,
+            "covered": True,
+            "warning_triggered": positive_guidance_ratio < negative_guidance_ratio,
+            "risk_score": 1.0 if positive_guidance_ratio < negative_guidance_ratio else 0.0,
+            "source": "earnings_revision_signals",
+            "source_observation_date": latest_obs,
+            "earnings_signal_row_count": row_count,
+            "positive_guidance_ratio": positive_guidance_ratio,
+            "negative_guidance_ratio": negative_guidance_ratio,
+        },
+    ]
+
+
 def price_cache_warning_rows(price_cache: Path, as_of_date: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for ticker, signal_name in [("SPY", "spy_below_200dma"), ("QQQ", "qqq_below_200dma")]:
@@ -527,16 +611,27 @@ def complete_warning_signals(panel: pd.DataFrame, as_of_date: str) -> pd.DataFra
     return normalize_signal_panel(panel, as_of_date)
 
 
-def load_signal_panel(signal_panel: Path, price_cache: Path, macro_cache: Path, as_of_date: str) -> pd.DataFrame:
+def load_signal_panel(
+    signal_panel: Path,
+    price_cache: Path,
+    macro_cache: Path,
+    earnings_signals: Path,
+    as_of_date: str,
+) -> pd.DataFrame:
     panel = read_csv(signal_panel) if signal_panel else pd.DataFrame()
     if panel.empty:
         rows = price_cache_warning_rows(price_cache, as_of_date)
         rows.extend(macro_cache_warning_rows(macro_cache, as_of_date))
+        rows.extend(earnings_guidance_warning_rows(earnings_signals, as_of_date))
         panel = pd.DataFrame(rows)
-    elif macro_cache:
-        macro_rows = macro_cache_warning_rows(macro_cache, as_of_date)
-        if macro_rows:
-            panel = pd.concat([panel, pd.DataFrame(macro_rows)], ignore_index=True, sort=False)
+    else:
+        extra_rows: list[dict[str, Any]] = []
+        if macro_cache:
+            extra_rows.extend(macro_cache_warning_rows(macro_cache, as_of_date))
+        if earnings_signals:
+            extra_rows.extend(earnings_guidance_warning_rows(earnings_signals, as_of_date))
+        if extra_rows:
+            panel = pd.concat([panel, pd.DataFrame(extra_rows)], ignore_index=True, sort=False)
     return complete_warning_signals(panel, as_of_date)
 
 
@@ -667,10 +762,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     as_of = args.as_of_date or pd.Timestamp.utcnow().date().isoformat()
     macro_cache_arg = str(getattr(args, "macro_cache", "") or "").strip()
+    earnings_signals_arg = str(getattr(args, "earnings_signals", "") or "").strip()
     panel = load_signal_panel(
         repo_path(args.signal_panel) if args.signal_panel else Path(),
         repo_path(args.price_cache),
         repo_path(macro_cache_arg) if macro_cache_arg else Path(),
+        repo_path(earnings_signals_arg) if earnings_signals_arg else Path(),
         as_of,
     )
     state = build_state_history(
@@ -761,6 +858,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--signal-panel", default="")
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--macro-cache", default="cache_macro")
+    parser.add_argument("--earnings-signals", default="data_pit/events/earnings_revision_signals.parquet")
     parser.add_argument("--as-of-date", default="")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--coverage-mode", choices=["internal", "service", "public"], default="internal")

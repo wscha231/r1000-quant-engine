@@ -27,6 +27,11 @@ Additional local hardening performed after the midcheck:
   - HY OAS widening.
   - 10Y minus 3M yield-curve inversion/steepening warning.
   - Sahm realtime unemployment momentum.
+- R1 earnings/guidance coverage hook:
+  - Reads `data_pit/events/earnings_revision_signals.parquet` when present.
+  - Uses only rows with `available_from <= as_of_date`.
+  - Emits `eps_revision_breadth_negative` and
+    `positive_guidance_ratio_deteriorating`.
 - R1 service/public state override remains disabled unless explicitly allowed.
 - R1 output now includes:
   - `state_computed_from_data`
@@ -59,6 +64,7 @@ C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\
   --only regime_nowcast_data_insufficient_critical_group_smoke `
   --only regime_nowcast_price_cache_coverage_smoke `
   --only regime_nowcast_macro_cache_coverage_smoke `
+  --only regime_nowcast_earnings_guidance_coverage_smoke `
   --only chameleon_policy_audit_smoke `
   --only chameleon_policy_no_orders_smoke `
   --only chameleon_policy_data_insufficient_no_allocation_smoke `
@@ -69,7 +75,7 @@ C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\
 
 Result:
 
-- 12/12 PASS.
+- 13/13 PASS.
 
 ## Real-Data R1 Run
 
@@ -79,6 +85,7 @@ Command:
 C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -B tools\run_regime_nowcast_dial.py `
   --price-cache outputs\p4_cap_replacement_broker_counterfactual_28616190134\cache_prices `
   --macro-cache cache_macro `
+  --earnings-signals data_pit\events\earnings_revision_signals.parquet `
   --as-of-date 2026-07-01 `
   --coverage-mode service `
   --output-dir outputs\regime_nowcast_dial_realdata_service
@@ -98,6 +105,13 @@ Inputs:
   - `SAHMREALTIME`: latest `2026-06-01`, value `0.07`
   - `UNRATE`: latest `2026-06-01`, value `4.2`
   - `VIXCLS`: latest `2026-07-01`, value `16.59`
+- Earnings/guidance feed status:
+  - `tools/build_earnings_revision_signals.py --as-of 2026-07-01` emitted
+    `status=blocked`, `reason=missing_input`.
+  - Missing input path:
+    `data_raw/events/earnings_revisions.csv`
+  - Therefore `data_pit/events/earnings_revision_signals.parquet` does not
+    exist yet in this local run.
 
 Materialization command shape:
 
@@ -232,9 +246,13 @@ state. The remaining open question is governance: whether a review-only `BULL`
 label may be shown internally or service-side while earnings/guidance coverage is
 still missing.
 
+The W4 connector path is now implemented and smoke-tested. What is missing is
+the actual PIT earnings/guidance input file, not code plumbing.
+
 The next engineering task is not a trading rule:
 
-1. Add earnings/guidance coverage only after W4 PIT feed exists.
+1. Provide or materialize `data_raw/events/earnings_revisions.csv` with
+   `available_from` for every row, then run `build_earnings_revision_signals.py`.
 2. Optionally replace SPY realized-volatility proxy with an explicit VIX/VIX3M
    feed when available.
 3. Keep breadth and AI bucket RS sourced from price cache unless a broader
@@ -246,8 +264,9 @@ The next engineering task is not a trading rule:
 
 Use GPT Pro for governance and service-facing wording.
 
-1. Given service mode now computes `BULL` with 9/12 signal coverage but missing
-   earnings/guidance, should the public layer still hide regime completely?
+1. Given service mode now computes `BULL` with 9/12 signal coverage and W4
+   plumbing is ready but the actual earnings/guidance feed is missing, should
+   the public layer still hide regime completely?
 2. If shown internally, should the label be `BULL`, `risk-on review`, or
    `market risk normal - review only`?
 3. Should service mode require earnings/guidance coverage specifically, or is
@@ -273,6 +292,8 @@ Use Claude for code/path red-team.
 4. Are the new smokes sufficient:
    - critical group data insufficiency
    - price-cache-derived volatility/breadth/AI coverage
+   - macro-cache-derived credit/liquidity coverage
+   - earnings/guidance PIT `available_from` filter
    - no executable orders
    - data insufficient no allocation guidance
    - state override ignored by default
@@ -290,5 +311,6 @@ Next Codex task should be:
 
 1. Send this packet to GPT Pro for service-facing wording/governance.
 2. Send this packet to Claude for code/path red-team of macro as-of handling.
-3. Keep earnings/guidance missing until a PIT W4 feed exists.
+3. Provide or materialize the W4 PIT earnings/guidance feed before treating
+   earnings/guidance as covered.
 4. Do not connect R1/R1b to production hooks or fullrun.
