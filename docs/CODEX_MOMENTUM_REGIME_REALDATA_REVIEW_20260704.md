@@ -32,6 +32,10 @@ Additional local hardening performed after the midcheck:
   - Uses only rows with `available_from <= as_of_date`.
   - Emits `eps_revision_breadth_negative` and
     `positive_guidance_ratio_deteriorating`.
+- W4 raw feed contract:
+  - `docs/CODEX_EARNINGS_GUIDANCE_FEED_CONTRACT_20260704.md`
+  - `docs/templates/earnings_revisions_template.csv`
+  - `tools/validate_earnings_revision_feed.py`
 - R1 service/public state override remains disabled unless explicitly allowed.
 - R1 output now includes:
   - `state_computed_from_data`
@@ -77,6 +81,19 @@ Result:
 
 - 13/13 PASS.
 
+Additional W4 contract validation:
+
+```powershell
+C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -B tools\run_pr_validation.py `
+  --only earnings_revision_feed_contract_smoke `
+  --only earnings_revision_signals_smoke `
+  --only regime_nowcast_earnings_guidance_coverage_smoke
+```
+
+Result:
+
+- 3/3 PASS.
+
 ## Real-Data R1 Run
 
 Command:
@@ -106,7 +123,14 @@ Inputs:
   - `UNRATE`: latest `2026-06-01`, value `4.2`
   - `VIXCLS`: latest `2026-07-01`, value `16.59`
 - Earnings/guidance feed status:
+  - Raw feed contract exists at
+    `docs/CODEX_EARNINGS_GUIDANCE_FEED_CONTRACT_20260704.md`.
+  - Template header exists at
+    `docs/templates/earnings_revisions_template.csv`.
+  - Contract validator exists at `tools/validate_earnings_revision_feed.py`.
   - `tools/build_earnings_revision_signals.py --as-of 2026-07-01` emitted
+    `status=blocked`, `reason=missing_input`.
+  - `tools/validate_earnings_revision_feed.py --as-of 2026-07-01` emitted
     `status=blocked`, `reason=missing_input`.
   - Missing input path:
     `data_raw/events/earnings_revisions.csv`
