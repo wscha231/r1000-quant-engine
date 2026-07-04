@@ -20,14 +20,34 @@ def test_earnings_signals_add_guidance_coverage_and_filter_future() -> None:
         root = Path(tmp)
         panel = root / "signals.csv"
         earnings = root / "earnings_revision_signals.parquet"
-        rows = [
-            {"ticker": "AAA", "available_from": "2026-06-01", "eps_revision_13w": 0.10, "positive_guidance_flag": 1, "negative_guidance_flag": 0, "sector_eps_revision_breadth": 0.80, "source_type": "vendor_estimate_revision"},
-            {"ticker": "BBB", "available_from": "2026-06-01", "eps_revision_13w": 0.05, "positive_guidance_flag": 1, "negative_guidance_flag": 0, "sector_eps_revision_breadth": 0.80, "source_type": "vendor_estimate_revision"},
-            {"ticker": "CCC", "available_from": "2026-06-01", "eps_revision_13w": 0.02, "positive_guidance_flag": 0, "negative_guidance_flag": 0, "sector_eps_revision_breadth": 0.80, "source_type": "vendor_estimate_revision"},
-            {"ticker": "DDD", "available_from": "2026-06-01", "eps_revision_13w": -0.01, "positive_guidance_flag": 0, "negative_guidance_flag": 0, "sector_eps_revision_breadth": 0.80, "source_type": "vendor_estimate_revision"},
-            {"ticker": "EEE", "available_from": "2026-06-01", "eps_revision_13w": 0.08, "positive_guidance_flag": 1, "negative_guidance_flag": 0, "sector_eps_revision_breadth": 0.80, "source_type": "vendor_estimate_revision"},
-            {"ticker": "FUTURE", "available_from": "2026-12-01", "eps_revision_13w": -1.00, "positive_guidance_flag": 0, "negative_guidance_flag": 1, "sector_eps_revision_breadth": 0.0, "source_type": "vendor_estimate_revision"},
-        ]
+        rows = []
+        for idx in range(10):
+            ticker = f"T{idx:02d}"
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "available_from": "2026-05-01",
+                    "eps_estimate": 1.0,
+                    "eps_revision_13w": 0.0,
+                    "positive_guidance_flag": 0,
+                    "negative_guidance_flag": 0,
+                    "sector_eps_revision_breadth": 0.80,
+                    "source_type": "vendor_estimate_revision",
+                }
+            )
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "available_from": "2026-06-15",
+                    "eps_estimate": 1.1 + idx * 0.01,
+                    "eps_revision_13w": 0.04 + idx * 0.001,
+                    "positive_guidance_flag": 1 if idx < 6 else 0,
+                    "negative_guidance_flag": 0,
+                    "sector_eps_revision_breadth": 0.80,
+                    "source_type": "vendor_estimate_revision",
+                }
+            )
+        rows.append({"ticker": "FUTURE", "available_from": "2026-12-01", "eps_revision_13w": -1.00, "positive_guidance_flag": 0, "negative_guidance_flag": 1, "sector_eps_revision_breadth": 0.0, "source_type": "vendor_estimate_revision"})
         pd.DataFrame(rows).to_parquet(earnings, index=False)
         pd.DataFrame(
             [
@@ -65,8 +85,8 @@ def test_earnings_signals_add_guidance_coverage_and_filter_future() -> None:
         assert payload["public_display_allowed"] is False
         signal_panel = pd.read_csv(root / "out" / "signal_panel.csv")
         earned = signal_panel[signal_panel["source"].eq("earnings_revision_signals")]
-        assert int(earned["earnings_signal_row_count"].max()) == 5
-        assert int(earned["earnings_revision_observed_count"].max()) >= 5
+        assert int(earned["earnings_signal_row_count"].max()) == 10
+        assert int(earned["earnings_revision_observed_count"].max()) >= 10
 
 
 def test_zero_only_earnings_signals_do_not_count_as_coverage() -> None:

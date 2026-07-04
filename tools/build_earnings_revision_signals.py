@@ -16,6 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.check_earnings_guidance_coverage import coverage_summary_from_frame  # noqa: E402
+
 SCHEMA_VERSION = "earnings-revision-signals-v1"
 DEFAULT_INPUT = "data_raw/events/earnings_revisions.csv"
 DEFAULT_OUTPUT = "data_pit/events/earnings_revision_signals.parquet"
@@ -165,6 +167,13 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
     else:
         out["sector_eps_revision_breadth"] = 0.0
         out["sector_positive_guidance_ratio"] = 0.0
+    coverage = coverage_summary_from_frame(out, as_of=as_of) if not out.empty else {
+        "plumbing_ready": False,
+        "research_ready": False,
+        "service_ready": False,
+        "policy_ready": False,
+        "status": "DATA_INSUFFICIENT",
+    }
     summary = {
         "status": "completed",
         "input_rows": int(len(raw)),
@@ -180,10 +189,12 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
         "directional_guidance_ticker_count": directional_guidance_ticker_count,
         "coverage_eligible_directional_guidance_ticker_count": coverage_eligible_directional_guidance_ticker_count,
         "coverage_eligible_source_types": sorted(COVERAGE_ELIGIBLE_SOURCE_TYPES),
-        "regime_nowcast_coverage_ready": bool(
-            coverage_eligible_nonzero_revision_ticker_count >= 5
-            or coverage_eligible_directional_guidance_ticker_count >= 5
-        ),
+        "earnings_guidance_plumbing_ready": bool(coverage.get("plumbing_ready", False)),
+        "earnings_guidance_research_ready": bool(coverage.get("research_ready", False)),
+        "earnings_guidance_service_ready": bool(coverage.get("service_ready", False)),
+        "earnings_guidance_policy_ready": bool(coverage.get("policy_ready", False)),
+        "earnings_guidance_coverage_status": coverage.get("status", "DATA_INSUFFICIENT"),
+        "regime_nowcast_coverage_ready": bool(coverage.get("research_ready", False)),
     }
     return out, summary
 

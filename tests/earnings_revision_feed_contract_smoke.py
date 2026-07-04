@@ -58,14 +58,14 @@ def test_validate_blocks_missing_available_from() -> None:
 
 def test_validate_flags_regime_ready_with_enough_history() -> None:
     rows = []
-    for idx in range(5):
+    for idx in range(10):
         ticker = f"T{idx}"
         rows.append(
             {
                 "ticker": ticker,
                 "fiscal_period": "2026Q2",
-                "estimate_date": "2026-01-01",
-                "available_from": "2026-01-02",
+                "estimate_date": "2026-06-01",
+                "available_from": "2026-06-02",
                 "eps_estimate": 1.0,
                 "source": "vendor_export",
                 "source_type": "historical_revision",
@@ -75,8 +75,8 @@ def test_validate_flags_regime_ready_with_enough_history() -> None:
             {
                 "ticker": ticker,
                 "fiscal_period": "2026Q2",
-                "estimate_date": "2026-04-01",
-                "available_from": "2026-04-02",
+                "estimate_date": "2026-06-20",
+                "available_from": "2026-06-21",
                 "eps_estimate": 1.2,
                 "source": "vendor_export",
                 "source_type": "historical_revision",
@@ -84,8 +84,10 @@ def test_validate_flags_regime_ready_with_enough_history() -> None:
         )
     payload = validate_feed(pd.DataFrame(rows), as_of=pd.Timestamp("2026-07-01"))
     assert payload["status"] in {"completed", "warning"}, payload
-    assert payload["history_depth_ticker_count"] == 5, payload
-    assert payload["coverage_eligible_history_depth_ticker_count"] == 5, payload
+    assert payload["history_depth_ticker_count"] == 10, payload
+    assert payload["coverage_eligible_history_depth_ticker_count"] == 10, payload
+    assert payload["earnings_guidance_plumbing_ready"] is True, payload
+    assert payload["earnings_guidance_research_ready"] is True, payload
     assert payload["regime_nowcast_coverage_ready"] is True, payload
 
 

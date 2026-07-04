@@ -10,6 +10,7 @@ The feed is consumed by:
 
 - `tools/validate_earnings_revision_feed.py`
 - `tools/build_earnings_revision_signals.py`
+- `tools/check_earnings_guidance_coverage.py`
 - `tools/run_regime_nowcast_dial.py --earnings-signals`
 
 ## Required Raw File
@@ -104,13 +105,24 @@ guidance history. They must not make `regime_nowcast_coverage_ready=true`.
 
 ## Regime Coverage Guard
 
+The old smoke-level threshold of 5 rows/tickers is only `plumbing_ready`.
 The feed is considered usable for the R1 earnings/guidance critical group only
-when at least one of these is true:
+when `research_ready=true` from `tools/check_earnings_guidance_coverage.py`.
 
-- at least 5 tickers have 2 or more dated numeric estimate observations from
-  coverage-eligible source types, or
-- at least 5 rows carry directional guidance (`positive`/`negative` family)
-  from coverage-eligible source types.
+Plumbing is ready when at least one of these is true:
+
+- at least 5 coverage-eligible rows exist, or
+- at least 5 coverage-eligible tickers exist.
+
+These only prove wiring. They are not service or research coverage.
+
+Research is ready only when at least one of these stronger conditions is true:
+
+- at least 10 coverage-eligible tickers have 2 or more dated estimate
+  observations, observation span is at least 14 days, and data recency is at
+  most 30 days; or
+- at least 10 directional guidance rows cover at least 5 tickers, with data
+  recency at most 30 days.
 
 Neutral-only, zero-only, header-only, or valuation-only files remain valid
 inputs for diagnostics but must not count as R1 earnings/guidance coverage.

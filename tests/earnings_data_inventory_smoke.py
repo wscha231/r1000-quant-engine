@@ -76,6 +76,11 @@ def test_inventory_separates_actuals_proxy_and_empty_true_feed() -> None:
         assert payload["actuals_managed"] is True, payload
         assert payload["proxy_scores_present"] is True, payload
         assert payload["true_revision_guidance_ready"] is False, payload
+        labels = payload["service_label_contract"]
+        assert labels["actuals_confirmed"]["revision_confirmed"] is False, labels
+        assert labels["analyst_revision_confirmed"]["revision_confirmed"] is True, labels
+        assert labels["company_guidance_confirmed"]["guidance_confirmed"] is True, labels
+        assert labels["proxy_score_diagnostic_only"]["revision_confirmed"] is False, labels
         assert payload["raw_feed"]["status"] == "blocked", payload
         assert payload["raw_feed"]["reason"] == "no_nonempty_evidence_columns", payload
         candidate_summary = payload["candidate_books"][0]

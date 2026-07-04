@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.research_audit_utils import read_csv, repo_path, safe_float, write_json  # noqa: E402
+from tools.check_earnings_guidance_coverage import coverage_summary_from_frame  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 DEFAULT_OUTPUT_DIR = "outputs/regime_nowcast_dial"
@@ -439,14 +440,17 @@ def earnings_guidance_warning_rows(earnings_signals: Path, as_of_date: str) -> l
     d = d[d["available_from"].notna() & (d["available_from"] <= as_of_ts)].copy()
     if d.empty:
         return []
+    coverage = coverage_summary_from_frame(d, as_of=as_of_ts)
+    if not coverage.get("research_ready"):
+        return []
     if "source_type_coverage_eligible" in d.columns:
         coverage_mask = d["source_type_coverage_eligible"].astype(str).str.lower().isin({"1", "true", "yes"})
-        d = d[coverage_mask].copy()
     elif "source_type" in d.columns:
         source_types = d["source_type"].astype(str).str.lower().str.strip()
-        d = d[source_types.isin(COVERAGE_ELIGIBLE_EARNINGS_SOURCE_TYPES)].copy()
+        coverage_mask = source_types.isin(COVERAGE_ELIGIBLE_EARNINGS_SOURCE_TYPES)
     else:
-        return []
+        coverage_mask = pd.Series(False, index=d.index)
+    d = d[coverage_mask].copy()
     if d.empty:
         return []
     if "ticker" in d.columns:

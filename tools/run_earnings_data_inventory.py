@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.validate_earnings_revision_feed import validate_feed  # noqa: E402
+from tools.check_earnings_guidance_coverage import coverage_summary_from_frame  # noqa: E402
 
 SCHEMA_VERSION = "earnings-data-inventory-v1"
 DEFAULT_OUTPUT_DIR = "outputs/earnings_data_inventory"
@@ -62,6 +63,39 @@ TRUE_REVISION_COLUMNS = [
     "negative_guidance_flag",
     "guidance_vs_consensus_score",
 ]
+
+SERVICE_LABELS = {
+    "actuals_confirmed": {
+        "display_label": "Reported actuals confirmed",
+        "description": "Backward-looking SEC actuals. This does not imply analyst estimate revision.",
+        "revision_confirmed": False,
+        "guidance_confirmed": False,
+    },
+    "analyst_revision_confirmed": {
+        "display_label": "PIT analyst estimate revision confirmed",
+        "description": "Forward estimate revision from a dated, coverage-eligible source.",
+        "revision_confirmed": True,
+        "guidance_confirmed": False,
+    },
+    "company_guidance_confirmed": {
+        "display_label": "Company guidance direction confirmed",
+        "description": "Company guidance direction from a dated, coverage-eligible source.",
+        "revision_confirmed": False,
+        "guidance_confirmed": True,
+    },
+    "proxy_score_diagnostic_only": {
+        "display_label": "Internal diagnostic proxy",
+        "description": "Internal proxy score. Not a substitute for analyst revision or guidance.",
+        "revision_confirmed": False,
+        "guidance_confirmed": False,
+    },
+    "data_insufficient": {
+        "display_label": "Insufficient PIT revision/guidance data",
+        "description": "Do not use as earnings confirmation.",
+        "revision_confirmed": False,
+        "guidance_confirmed": False,
+    },
+}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -212,6 +246,7 @@ def summarize_pit_signals(path: Path, as_of: pd.Timestamp | None) -> dict[str, A
             eligible_guidance_mask = eligible_guidance_mask | (pd.to_numeric(eligible[col], errors="coerce").fillna(0.0) > 0.0)
     eligible_revision_tickers = int(eligible.loc[eligible_revision_mask, "ticker"].nunique()) if "ticker" in eligible.columns else 0
     eligible_guidance_tickers = int(eligible.loc[eligible_guidance_mask, "ticker"].nunique()) if "ticker" in eligible.columns else 0
+    coverage = coverage_summary_from_frame(frame, as_of=as_of)
     return {
         "layer": "pit_true_revision_guidance_signals",
         "status": "available" if len(frame) else "empty",
@@ -222,9 +257,14 @@ def summarize_pit_signals(path: Path, as_of: pd.Timestamp | None) -> dict[str, A
         "nonzero_counts": nonzero,
         "coverage_eligible_revision_ticker_count": eligible_revision_tickers,
         "coverage_eligible_guidance_ticker_count": eligible_guidance_tickers,
+        "earnings_guidance_plumbing_ready": bool(coverage.get("plumbing_ready", False)),
+        "earnings_guidance_research_ready": bool(coverage.get("research_ready", False)),
+        "earnings_guidance_service_ready": bool(coverage.get("service_ready", False)),
+        "earnings_guidance_policy_ready": bool(coverage.get("policy_ready", False)),
+        "earnings_guidance_coverage_status": coverage.get("status", "DATA_INSUFFICIENT"),
         "min_available_from": available_from.min().date().isoformat() if len(available_from) and available_from.notna().any() else None,
         "max_available_from": available_from.max().date().isoformat() if len(available_from) and available_from.notna().any() else None,
-        "regime_nowcast_coverage_ready": bool(eligible_revision_tickers >= 5 or eligible_guidance_tickers >= 5),
+        "regime_nowcast_coverage_ready": bool(coverage.get("research_ready", False)),
     }
 
 
@@ -288,8 +328,17 @@ def write_report(path: Path, summary: dict[str, Any]) -> None:
             "- Candidate-book scores such as `actual_results_score` and `eps_revision_score` are internal/proxy fields unless a true feed is joined.",
             "- `sec_actual_snapshot` and `current_snapshot` source types are allowed for inventory, but they do not count toward R1 earnings/guidance coverage.",
             "- A true revision/guidance layer requires dated PIT rows with coverage-eligible source types and `available_from <= decision_date`.",
+            "",
+            "## Service Labels",
+            "",
+            "| Label | Meaning | Revision Confirmed | Guidance Confirmed |",
+            "|---|---|---:|---:|",
         ]
     )
+    for key, value in summary["service_label_contract"].items():
+        lines.append(
+            f"| `{key}` | {value['description']} | {value['revision_confirmed']} | {value['guidance_confirmed']} |"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -329,6 +378,7 @@ def main() -> int:
         "true_revision_guidance_ready": bool(
             raw.get("regime_nowcast_coverage_ready") or pit.get("regime_nowcast_coverage_ready")
         ),
+        "service_label_contract": SERVICE_LABELS,
     }
     write_json(output_dir / "summary.json", summary)
     write_layers_csv(output_dir / "earnings_data_layers.csv", summary)

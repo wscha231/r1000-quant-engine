@@ -20,6 +20,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.check_earnings_guidance_coverage import coverage_summary_from_frame  # noqa: E402
+
 DEFAULT_INPUT = "data_raw/events/earnings_revisions.csv"
 DEFAULT_SUMMARY = "outputs/earnings_revision_feed_contract/summary.json"
 SCHEMA_VERSION = "earnings-revision-feed-contract-v1"
@@ -162,6 +164,7 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
         )
         directional_guidance_row_count = int(guidance_direction_mask.sum())
         coverage_eligible_directional_guidance_row_count = int((guidance_direction_mask & coverage_eligible_source_mask).sum())
+    coverage = coverage_summary_from_frame(frame, as_of=as_of)
     payload.update(
         {
             "ticker_count": int(tickers[tickers.ne("")].nunique()),
@@ -181,10 +184,12 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
             "coverage_eligible_history_depth_ticker_count": coverage_eligible_history_depth_ticker_count,
             "directional_guidance_row_count": directional_guidance_row_count,
             "coverage_eligible_directional_guidance_row_count": coverage_eligible_directional_guidance_row_count,
-            "regime_nowcast_coverage_ready": bool(
-                coverage_eligible_history_depth_ticker_count >= 5
-                or coverage_eligible_directional_guidance_row_count >= 5
-            ),
+            "earnings_guidance_plumbing_ready": bool(coverage.get("plumbing_ready", False)),
+            "earnings_guidance_research_ready": bool(coverage.get("research_ready", False)),
+            "earnings_guidance_service_ready": bool(coverage.get("service_ready", False)),
+            "earnings_guidance_policy_ready": bool(coverage.get("policy_ready", False)),
+            "earnings_guidance_coverage_status": coverage.get("status", "DATA_INSUFFICIENT"),
+            "regime_nowcast_coverage_ready": bool(coverage.get("research_ready", False)),
         }
     )
     blockers: list[str] = []
@@ -205,7 +210,7 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
         warnings.append("missing_recommended_columns")
     if actual_only_source_rows and not coverage_eligible_source_mask.any():
         warnings.append("actual_only_sources_do_not_count_for_regime_nowcast")
-    if coverage_eligible_history_depth_ticker_count < 5 and coverage_eligible_directional_guidance_row_count < 5:
+    if not coverage.get("research_ready", False):
         warnings.append("insufficient_history_or_directional_guidance_for_regime_nowcast")
     if blockers:
         payload.update({"status": "blocked", "reason": ",".join(blockers)})
