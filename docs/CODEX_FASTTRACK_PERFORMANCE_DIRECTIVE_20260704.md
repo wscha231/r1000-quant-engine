@@ -114,3 +114,50 @@ run that can claim the full mission headline (research; production still gated b
 No falsified-lever revival · no rule re-optimization after freeze · no regenerated-book acceptance before W1 ·
 no fullrun without the weekly-packet human go · no production/public claims (`pit_clean=false`) · forward
 returns audit-only · all hooks default-OFF, applied-count proof, review-only actions.
+
+---
+
+## Track M — Momentum-identity research audits (2026-07-04 addendum; background tier, after A–D slots free)
+
+Context: the system is, academically, a **concentrated long-only cross-sectional momentum + trend + industry-
+momentum portfolio with fundamental confirmation and regime-managed cash** (Jegadeesh-Titman / Moskowitz-
+Grinblatt / George-Hwang / Barroso-Santa-Clara lineage). The momentum literature's known failure modes map onto
+us asymmetrically: the classic momentum CRASH (short-side loser rally, WML −73% in 2009) is structurally muted
+because we are long-only; the long-only variant's real weakness is **post-trough re-entry lag** (cash watches
+the V-rebound). These audits measure our actual exposure before touching any policy. **Audits only — any
+resulting rule goes through the standard fixed-book gate chain. Do NOT import: short side, full 12-1 rebalance,
+vol-scaling UP, 1-month-reversal entries, tight stops (all conflict with our falsification record).**
+
+**M1. Momentum-beta decomposition** — build an internal 12-1 momentum factor from our own price cache (top-
+minus-bottom decile of the R1000 universe, monthly), regress the strategy's monthly excess returns on
+{MKT, internal-UMD}; report alpha vs momentum-beta share for Main and Concentrated.
+- Purpose: quantify how much of our edge is generic momentum premium vs implementation alpha (selection,
+  concentration, risk ladder). Feeds honest expectation bands (W7) and a `momentum_factor_neutral_excess`
+  health metric in the forward ledger.
+- No gate — informational. If momentum-beta explains >80%, our differentiation claim shifts to risk-managed
+  implementation (state this in service disclosures).
+
+**M2. Horizon IC audit** — IC (rank corr with 63d/126d forward audit labels) of each RS horizon feature
+(1w/1m/3m/6m/12m, plus 12-1 echo) on the existing feature store. Flag any ENTRY-side positive weight on 1w/1m
+horizons (academic short-term reversal territory; note our 1w-RS WARNING is an EXIT trigger — different, fine).
+- DECISION RULE: if 1w/1m entry-side IC ≤ 0 while carrying positive scoring weight → one backlog candidate:
+  demote those horizons at entry (feature-weight change ⇒ FULL-rebuild-class, so backlog until a fullrun is
+  scheduled anyway; bundle then).
+
+**M3. Post-trough re-entry lag audit (long-only momentum's #1 weakness)** — for 2020-03, 2022-10, 2024-08 and
+the 2025 window: months from portfolio-equity trough to full re-investment; CAGR foregone in the first 63d/126d
+post-trough vs (a) SPY and (b) hold-through counterfactual. Reuse `crisis_reentry_replay` machinery.
+- DECISION RULE: if total foregone ≥ 1pp CAGR across episodes → authorize ONE narrow re-entry rule test
+  (breadth-thrust style: e.g., % of universe above MA50 crossing a threshold accelerates redeploy), fixed-book,
+  standard gates. Else → close with a negative-evidence note ("cash re-entry lag is cheap insurance").
+
+**M4. Asymmetric volatility brake (the surviving half of vol-managed momentum)** — fixed-book test: scale
+STOCK gross down (floor 60%) when realized 20d portfolio vol exceeds a high percentile of its own history;
+NEVER scale up (this is what separates it from the falsified bull-floor) and portfolio-level only (separates it
+from the falsified per-name vol_adjusted_weight). Both books, cash-carry, crash-inclusive.
+- GATE: ΔMDD ≥ +1pp (better) AND ΔCAGR ≥ −0.5pp AND OOS holds AND fires in ≥2 stress eras. Pass → default-OFF
+  hook candidate for the risk ladder. Fail → momentum vol-management is closed for this book (negative
+  evidence; our regime-cash already captures it).
+
+Ordering: M1/M2 are pure audits (can run in E-tier background). M3/M4 enter the A–D queue only when a slot
+frees. Results go into the weekly packet like everything else.
