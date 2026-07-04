@@ -235,6 +235,8 @@ Candidate signals:
 8. Distribution-day count.
 9. New-high minus new-low breadth, if available.
 10. Earnings revision breadth, only after W4 PIT feed exists.
+11. Rate volatility / MOVE-style stress, only if available.
+12. DXY / liquidity / financial-conditions stress, only if available.
 
 Coverage rules:
 
@@ -242,6 +244,33 @@ Coverage rules:
 - Missing signals are neutral, not false pass.
 - Do not invent VIX3M term-structure if not collected.
 - Do not claim an earnings-revision signal before PIT feed exists.
+- If fewer than six signals are available, emit `DATA_INSUFFICIENT` and do not
+  classify a regime.
+
+Bear warning score:
+
+- Emit a 0-12 `bear_warning_score`.
+- Candidate point signals:
+  1. SPY below 200dma.
+  2. QQQ below 200dma.
+  3. QQQ/SPY RS negative over 1m and 3m.
+  4. SOXX or SMH RS negative versus QQQ.
+  5. Percent of universe above 200dma < 40%.
+  6. VIX > 25 or VIX 10d spike > 50%.
+  7. HY OAS widening above a frozen threshold.
+  8. Yield-curve inversion or recessionary steepening warning.
+  9. Sahm / unemployment momentum warning.
+  10. EPS revision breadth negative, only when PIT feed exists.
+  11. Positive-guidance ratio deteriorating, only when PIT feed exists.
+  12. AI Capex bucket RS breakdown.
+- Interpretation:
+  - 0-2: risk-on.
+  - 3-4: watch.
+  - 5-6: correction defensive.
+  - 7-8: bear warning.
+  - 9+: capital preservation.
+- Output `triggered_signals`, `missing_signals`, `confidence`, and
+  `required_review_action`.
 
 States:
 
@@ -250,6 +279,7 @@ States:
 - CORRECTION
 - BEAR
 - RECOVERY
+- DATA_INSUFFICIENT
 
 Outputs:
 
@@ -263,6 +293,53 @@ Gate:
 - Informational only.
 - Feed W7 backend alerts and reports.
 - No scoring change from R1 alone.
+
+### R1b. Review-Only Chameleon Policy Audit
+
+Goal:
+Translate the R1 regime state into review-only operating guidance without
+changing any target book, order file, or production policy.
+
+Outputs:
+
+- `outputs/chameleon_policy_audit/summary.json`
+- `outputs/chameleon_policy_audit/recommended_actions.csv`
+- `outputs/chameleon_policy_audit/report.md`
+
+Action map:
+
+- BULL / risk-on:
+  - Allow the normal monthly AlphaOps target process.
+  - Allow separately passed replacement-quality research candidates.
+  - Maintain cash-carry accounting.
+- LATE_CYCLE:
+  - Keep leader momentum active.
+  - Require earnings, guidance, or revenue confirmation for new entries where
+    PIT evidence exists.
+  - Raise single-name and cluster concentration warnings.
+  - Do not revive broad gross-floor.
+- CORRECTION:
+  - No new discretionary entries from this layer.
+  - Trigger position shock review.
+  - Trigger trim-to-cap review if single-name or bucket concentration exceeds
+    configured limits.
+  - Destination for risk reduction is cash / T-bill reserve.
+  - No contrarian buying.
+- BEAR:
+  - Trigger strategy-allocation review.
+  - No contrarian entry.
+  - Preserve capital.
+  - Destination for risk reduction is cash / T-bill reserve or a separately
+    approved portfolio-level fallback.
+- RECOVERY:
+  - Permit only staged re-entry candidates from R4.
+  - Full risk-on restoration requires trend and breadth confirmation.
+
+Rules:
+
+- Every row must be `REVIEW_ONLY`.
+- This audit cannot produce executable orders.
+- It can feed W7 alerts but not live trading.
 
 ### R2. State-Conditional IC Audit
 
@@ -338,6 +415,36 @@ Rules:
 - No all-in switch.
 - No full gross-floor revival.
 - Cash defense in stress remains load-bearing.
+- This is not falling-knife buying. It is staged re-entry after stress peaks.
+- Eligible names should be prior AlphaOps leaders or thesis-intact candidates
+  with PIT evidence of improving RS, no company-specific thesis damage, and
+  confirmed breadth / VIX / credit recovery.
+- Suggested staged re-entry sleeve is capped at 10-15% until broker evidence
+  proves otherwise.
+
+## Intramonth Shock Guard Coordination
+
+This document does not authorize automatic intramonth sells. It does authorize
+review-only coordination with an intramonth shock guard if one exists or is
+later built.
+
+Candidate review triggers:
+
+- One-day position return <= -12%.
+- Three-day position return <= -18%.
+- Gap down <= -10% with volume z-score > 2.
+- Current position weight > 25%.
+- MA50 and MA200 both failed.
+- 3m RS < 0.
+
+Outputs should be labels only:
+
+- WATCH.
+- SHOCK_REVIEW.
+- TRIM_TO_CAP_REVIEW.
+- EXIT_REVIEW.
+
+No automatic sell is allowed from these labels.
 
 ## Current Market Discussion Rule
 
@@ -357,8 +464,15 @@ Immediate backlog additions:
 
 1. Create M1/M2/R1/R2 tool stubs and smoke tests only when the current
    Concentrated replacement-quality track is parked or done.
-2. Add R1 output to W7 backend alerting after it exists.
-3. Defer M3/M4/R3/R4 until audit gates are satisfied.
+2. Add R1 and R1b output to W7 backend alerting after they exist.
+3. Keep EPS/guidance feed work as a W4 dependency; do not let missing EPS data
+   block R1, and do not create an EPS-based policy hook before PIT audit passes.
+4. Add daily/weekly automation only after the review-only outputs exist:
+   - daily: price update, R1 scorecard, shock audit, R1b policy audit, forward
+     ledger append, `outputs/alerts/alerts_latest.json`.
+   - weekly: expectation band, alpha-decay alarm, regime trend, PR hygiene,
+     unresolved-review marker.
+5. Defer M3/M4/R3/R4 until audit gates are satisfied.
 
 Suggested future tools:
 
@@ -367,7 +481,10 @@ Suggested future tools:
 - `tools/run_reentry_lag_audit.py`
 - `tools/run_asymmetric_vol_brake_ab.py`
 - `tools/run_regime_nowcast_dial.py`
+- `tools/run_chameleon_policy_audit.py`
 - `tools/run_state_conditional_ic_audit.py`
+- `tools/run_contrarian_reentry_screen.py`
+- `tools/run_chameleon_regime_overlay_broker_ab.py`
 
 Suggested smokes:
 
@@ -375,7 +492,10 @@ Suggested smokes:
 - `tests/rs_horizon_ic_audit_smoke.py`
 - `tests/reentry_lag_audit_smoke.py`
 - `tests/regime_nowcast_dial_smoke.py`
+- `tests/chameleon_policy_audit_smoke.py`
 - `tests/state_conditional_ic_audit_smoke.py`
+- `tests/contrarian_reentry_screen_smoke.py`
+- `tests/chameleon_regime_overlay_broker_ab_smoke.py`
 
 ## Review Packet Format
 
@@ -394,4 +514,3 @@ When M/R outputs exist, send a single packet to external review:
 
 Do not ask Claude/GPT Pro for another abstract opinion until at least M1/M2/R1
 or R2 produces concrete outputs.
-
