@@ -199,6 +199,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/rotation_latency_counterfactual_smoke.py", []),
     ("tests/regime_nowcast_dial_smoke.py", []),
     ("tests/regime_nowcast_data_insufficient_critical_group_smoke.py", []),
+    ("tests/regime_nowcast_price_cache_coverage_smoke.py", []),
     ("tests/chameleon_policy_audit_smoke.py", []),
     ("tests/chameleon_policy_no_orders_smoke.py", []),
     ("tests/chameleon_policy_data_insufficient_no_allocation_smoke.py", []),

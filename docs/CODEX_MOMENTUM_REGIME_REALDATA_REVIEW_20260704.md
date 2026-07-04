@@ -19,6 +19,10 @@ Recent relevant commits:
 Additional local hardening performed after the midcheck:
 
 - R1 critical-group coverage and service/public `DATA_INSUFFICIENT` logic.
+- R1 price-cache-derived coverage for:
+  - SPY realized-volatility stress proxy.
+  - Cached-universe breadth above MA200.
+  - AI capex basket relative strength vs QQQ.
 - R1 service/public state override remains disabled unless explicitly allowed.
 - R1 output now includes:
   - `state_computed_from_data`
@@ -49,6 +53,7 @@ C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\
   --only rs_horizon_ic_audit_smoke `
   --only regime_nowcast_dial_smoke `
   --only regime_nowcast_data_insufficient_critical_group_smoke `
+  --only regime_nowcast_price_cache_coverage_smoke `
   --only chameleon_policy_audit_smoke `
   --only chameleon_policy_no_orders_smoke `
   --only chameleon_policy_data_insufficient_no_allocation_smoke `
@@ -59,7 +64,7 @@ C:\codex-shadow\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\
 
 Result:
 
-- 10/10 PASS.
+- 11/11 PASS.
 
 ## Real-Data R1 Run
 
@@ -78,7 +83,9 @@ Inputs:
 - Price cache:
   `outputs\p4_cap_replacement_broker_counterfactual_28616190134\cache_prices`
 - Manifest end: `2026-07-01`
-- Required tickers in that cache include `SPY` and `QQQ`.
+- Actual cached ticker count: `160`
+- Required tickers in that cache include `SPY`, `QQQ`, `AMD`, `MU`, `SNDK`,
+  `WDC`, `CIEN`, `LITE`, `BE`, `GLW`, `UMC`, and `AMAT`.
 
 Output paths:
 
@@ -96,10 +103,10 @@ Result:
 | current_state | `DATA_INSUFFICIENT` |
 | bear_warning_score | `0` |
 | bear_warning_label | `risk_on` |
-| covered_signal_count | `3 / 12` |
-| signal_coverage | `0.25` |
-| critical_group_coverage | `1 / 6` |
-| data_insufficient_reason | `covered_signals_lt_6` |
+| covered_signal_count | `6 / 12` |
+| signal_coverage | `0.50` |
+| critical_group_coverage | `4 / 6` |
+| data_insufficient_reason | `covered_signals_lt_8_for_service` |
 | triggered_signals | `[]` |
 | market_timing_claim_allowed | `false` |
 | public_display_allowed | `false` |
@@ -109,34 +116,50 @@ Result:
 Covered groups:
 
 - `trend`: true
+- `volatility_stress`: true, via SPY realized-volatility proxy
+- `breadth`: true, via fresh price-cache parquet files without ticker mapping
+- `ai_bucket_rs`: true, via AI capex basket RS vs QQQ
 
 Missing critical groups:
 
-- `ai_bucket_rs`
-- `breadth`
 - `credit_liquidity`
 - `earnings_guidance`
-- `volatility_stress`
 
 Missing warning signals:
 
-- `ai_capex_bucket_rs_breakdown`
 - `eps_revision_breadth_negative`
 - `hy_oas_widening_threshold`
 - `positive_guidance_ratio_deteriorating`
 - `sahm_unemployment_momentum_warning`
 - `soxx_smh_rs_negative_vs_qqq`
-- `universe_above_200dma_below_40pct`
-- `vix_spike_or_above_25`
 - `yield_curve_inversion_or_steepening_warning`
 
 Interpretation:
 
-- This is not a bullish market call.
-- The score is low because most signals are missing, not because the full
-  scorecard is risk-on.
-- The correct state is `DATA_INSUFFICIENT`.
+- The local price cache now covers enough for a research/internal state
+  calculation, but service mode still correctly blocks any market-state claim.
+- The service-mode block is now narrower and more informative: the missing
+  pieces are credit/liquidity and earnings/guidance, not price-cache plumbing.
+- `bear_warning_score=0` should not be displayed as a market call while
+  `current_state=DATA_INSUFFICIENT`.
 - No current-regime claim should be made from this run.
+
+## Internal R1 Run
+
+The same input in `coverage_mode=internal` now computes:
+
+| field | value |
+|---|---:|
+| status | `completed` |
+| current_state | `BULL` |
+| covered_signal_count | `6 / 12` |
+| critical_group_coverage | `4 / 6` |
+| public_display_allowed | `false` |
+| policy_hook_allowed | `false` |
+
+This internal state is useful for diagnostics only. It is not sufficient for a
+service-facing regime label because service mode requires at least 8 warning
+signals and still lacks credit/liquidity plus earnings/guidance coverage.
 
 ## Real-Data R1b Run
 
@@ -183,16 +206,19 @@ Interpretation:
 
 ## What This Means
 
-The M/R framework is wired safely enough for review-only diagnostics, but the
-current local data is not sufficient to make a regime claim.
+The M/R framework is wired safely enough for review-only diagnostics, and the
+local price cache now supplies the price-derived critical groups. The current
+local data is still not sufficient to make a service-facing regime claim.
 
-The next engineering task is data coverage, not a trading rule:
+The next engineering task remains data coverage, not a trading rule:
 
-1. Add or materialize volatility/stress coverage (`VIX` or a proxy).
-2. Add breadth coverage (% above MA50/MA200, new highs/new lows).
-3. Add credit/liquidity coverage (HY OAS or local macro cache path).
-4. Add AI bucket RS coverage.
-5. Add earnings/guidance coverage only after W4 PIT feed exists.
+1. Add credit/liquidity coverage (HY OAS and yield-curve local macro cache).
+2. Add earnings/guidance coverage only after W4 PIT feed exists.
+3. Optionally replace SPY realized-volatility proxy with an explicit VIX/VIX3M
+   feed when available.
+4. Keep breadth and AI bucket RS sourced from price cache unless a broader
+   universe breadth feed is added. The current breadth source is a cached-file
+   breadth proxy, not an official R1000 membership breadth series.
 
 ## Questions for GPT Pro
 
@@ -202,9 +228,9 @@ Use GPT Pro for governance and service-facing wording.
    layer hide regime completely, or show a neutral "market risk review pending"
    label?
 2. Is `bear_warning_score=0` too dangerous to store/display when coverage is
-   only 3/12 and state is `DATA_INSUFFICIENT`?
-3. Should service mode require all of trend, volatility, breadth, and credit
-   coverage, rather than the current 4-of-6 critical-group rule?
+   6/12 and state is still `DATA_INSUFFICIENT`?
+3. Should service mode require credit/liquidity coverage specifically, beyond
+   the current 8-of-12 signal count plus 4-of-6 critical-group rule?
 4. Is the wording "cash/T-bill-equivalent reserve label" safe enough, or should
    all T-bill references be removed until production accounting is decided?
 5. Should the first public dashboard show only:
@@ -224,15 +250,15 @@ Use Claude for code/path red-team.
 3. Does R1b fully prevent allocation guidance when R1 is `DATA_INSUFFICIENT`?
 4. Are the new smokes sufficient:
    - critical group data insufficiency
+   - price-cache-derived volatility/breadth/AI coverage
    - no executable orders
    - data insufficient no allocation guidance
    - state override ignored by default
    - R2 era gate
-5. Which coverage source should be added first:
-   - VIX/stress
-   - breadth
+5. Which remaining coverage source should be added first:
    - credit/liquidity
-   - AI bucket RS
+   - earnings/guidance
+   - explicit VIX/VIX3M, replacing the current SPY realized-volatility proxy
 
 ## Recommended Next Step
 
@@ -242,9 +268,9 @@ Do not send M/R to production or public display.
 
 Next Codex task should be:
 
-1. Add R1 signal coverage plumbing for existing local sources, starting with
-   breadth and VIX/stress if available.
-2. Re-run R1 service mode.
-3. Only if R1 leaves `DATA_INSUFFICIENT`, send the actual computed state and
+1. Materialize credit/liquidity signals from existing macro sources if available
+   (`HY OAS`, `10Y-3M`, Sahm/unemployment momentum).
+2. Keep earnings/guidance missing until a PIT W4 feed exists.
+3. Re-run R1 service mode.
+4. Only if R1 leaves `DATA_INSUFFICIENT`, send the actual computed state and
    R1b actions for external review.
-

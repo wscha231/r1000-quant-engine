@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -53,6 +54,27 @@ CRITICAL_GROUPS: dict[str, list[str]] = {
 }
 
 SERVICE_REQUIRED_GROUPS = ["trend", "volatility_stress", "breadth"]
+
+AI_CAPEX_RS_TICKERS = [
+    "AMD",
+    "AMAT",
+    "AVGO",
+    "BE",
+    "CIEN",
+    "GEV",
+    "GLW",
+    "KLAC",
+    "LITE",
+    "LRCX",
+    "MU",
+    "NVDA",
+    "PWR",
+    "SNDK",
+    "TLN",
+    "UMC",
+    "VRT",
+    "WDC",
+]
 
 CONTEXT_SIGNALS = [
     "yield_curve_10y_3m",
@@ -110,6 +132,28 @@ def _return_over(series: pd.DataFrame, days: int) -> float | None:
     return end / start - 1.0
 
 
+def _read_cached_price_file(path: Path, as_of_date: str) -> pd.DataFrame:
+    try:
+        px = pd.read_parquet(path)
+    except Exception:
+        return pd.DataFrame()
+    if px.empty:
+        return pd.DataFrame()
+    px = px.copy()
+    px.index = pd.to_datetime(px.index, errors="coerce").tz_localize(None)
+    px = px[px.index.notna()].sort_index()
+    if as_of_date:
+        px = px[px.index <= pd.Timestamp(as_of_date)]
+    if isinstance(px.columns, pd.MultiIndex):
+        px.columns = px.columns.get_level_values(0)
+    close_col = "Adj Close" if "Adj Close" in px.columns else "Close"
+    if close_col not in px.columns:
+        return pd.DataFrame()
+    out = pd.DataFrame(index=px.index)
+    out["close"] = pd.to_numeric(px[close_col], errors="coerce")
+    return out.dropna(subset=["close"])
+
+
 def _ma200_warning(price_cache: Path, ticker: str, signal_name: str, as_of_date: str) -> dict[str, Any] | None:
     series = _series_until(price_cache, ticker, as_of_date)
     if len(series) < 200:
@@ -126,6 +170,113 @@ def _ma200_warning(price_cache: Path, ticker: str, signal_name: str, as_of_date:
         "warning_triggered": close < ma200,
         "risk_score": 1.0 if close < ma200 else 0.0,
         "source": f"{ticker}_price_cache",
+    }
+
+
+def _spy_realized_vol_warning(price_cache: Path, as_of_date: str) -> dict[str, Any] | None:
+    spy = _series_until(price_cache, "SPY", as_of_date)
+    if len(spy) < 64:
+        return None
+    returns = spy["close"].pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+    if len(returns) < 63:
+        return None
+    vol20 = float(returns.tail(20).std(ddof=0) * np.sqrt(252.0))
+    vol63 = float(returns.tail(63).std(ddof=0) * np.sqrt(252.0))
+    vol_ratio = vol20 / vol63 if vol63 > 1e-12 else 0.0
+    triggered = vol20 >= 0.25 or vol_ratio >= 1.5
+    return {
+        "date": pd.Timestamp(spy.index[-1]).date().isoformat(),
+        "signal_name": "vix_spike_or_above_25",
+        "value": vol20,
+        "covered": True,
+        "warning_triggered": triggered,
+        "risk_score": 1.0 if triggered else 0.0,
+        "source": "spy_realized_vol_proxy",
+        "realized_vol_20d": vol20,
+        "realized_vol_63d": vol63,
+        "realized_vol_20d_to_63d": vol_ratio,
+    }
+
+
+def _cached_universe_breadth_warning(price_cache: Path, as_of_date: str) -> dict[str, Any] | None:
+    if not price_cache.exists():
+        return None
+    as_of_ts = pd.Timestamp(as_of_date)
+    total = 0
+    above_200 = 0
+    latest_dates: list[pd.Timestamp] = []
+    for path in price_cache.glob("*.parquet"):
+        px = _read_cached_price_file(path, as_of_date)
+        if len(px) < 200:
+            continue
+        latest = pd.Timestamp(px.index[-1])
+        if latest < as_of_ts - pd.Timedelta(days=7):
+            continue
+        close = safe_float(px["close"].iloc[-1])
+        ma200 = safe_float(px["close"].tail(200).mean())
+        if close <= 0 or ma200 <= 0:
+            continue
+        total += 1
+        above_200 += int(close >= ma200)
+        latest_dates.append(latest)
+    if total < 30:
+        return None
+    pct_above = above_200 / total
+    return {
+        "date": as_of_date,
+        "signal_name": "universe_above_200dma_below_40pct",
+        "value": pct_above,
+        "covered": True,
+        "warning_triggered": pct_above < 0.40,
+        "risk_score": 1.0 if pct_above < 0.40 else 0.0,
+        "source": "price_cache_all_cached_tickers",
+        "source_scope": "price_cache_files_without_ticker_mapping",
+        "breadth_ticker_count": total,
+        "breadth_above_200dma_count": above_200,
+        "breadth_latest_date_min": min(latest_dates).date().isoformat() if latest_dates else "",
+        "breadth_latest_date_max": max(latest_dates).date().isoformat() if latest_dates else "",
+    }
+
+
+def _ai_capex_bucket_rs_warning(price_cache: Path, as_of_date: str) -> dict[str, Any] | None:
+    qqq = _series_until(price_cache, "QQQ", as_of_date)
+    if len(qqq) < 64:
+        return None
+    qqq_1m = _return_over(qqq, 21)
+    qqq_3m = _return_over(qqq, 63)
+    if qqq_1m is None or qqq_3m is None:
+        return None
+    basket_1m: list[float] = []
+    basket_3m: list[float] = []
+    available: list[str] = []
+    for ticker in AI_CAPEX_RS_TICKERS:
+        series = _series_until(price_cache, ticker, as_of_date)
+        if len(series) < 64:
+            continue
+        ret_1m = _return_over(series, 21)
+        ret_3m = _return_over(series, 63)
+        if ret_1m is None or ret_3m is None:
+            continue
+        basket_1m.append(float(ret_1m))
+        basket_3m.append(float(ret_3m))
+        available.append(ticker)
+    if len(available) < 3:
+        return None
+    rs_1m = float(np.mean(basket_1m)) - float(qqq_1m)
+    rs_3m = float(np.mean(basket_3m)) - float(qqq_3m)
+    triggered = rs_1m < 0.0 and rs_3m < 0.0
+    return {
+        "date": pd.Timestamp(qqq.index[-1]).date().isoformat(),
+        "signal_name": "ai_capex_bucket_rs_breakdown",
+        "value": min(rs_1m, rs_3m),
+        "covered": True,
+        "warning_triggered": triggered,
+        "risk_score": 1.0 if triggered else 0.0,
+        "source": "price_cache_ai_capex_basket_vs_qqq",
+        "ai_capex_available_ticker_count": len(available),
+        "ai_capex_available_tickers": ",".join(available),
+        "ai_capex_rs_1m": rs_1m,
+        "ai_capex_rs_3m": rs_3m,
     }
 
 
@@ -177,6 +328,18 @@ def price_cache_warning_rows(price_cache: Path, as_of_date: str) -> list[dict[st
                     "source": "price_cache",
                 }
             )
+
+    vol_row = _spy_realized_vol_warning(price_cache, as_of_date)
+    if vol_row is not None:
+        rows.append(vol_row)
+
+    breadth_row = _cached_universe_breadth_warning(price_cache, as_of_date)
+    if breadth_row is not None:
+        rows.append(breadth_row)
+
+    ai_rs_row = _ai_capex_bucket_rs_warning(price_cache, as_of_date)
+    if ai_rs_row is not None:
+        rows.append(ai_rs_row)
     return rows
 
 
