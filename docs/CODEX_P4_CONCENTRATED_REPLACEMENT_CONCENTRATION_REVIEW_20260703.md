@@ -222,3 +222,72 @@ Next engineering step:
 Build a default-OFF **event-matched** hook only if the external red-team agrees
 that W1 can remain parallel. Otherwise, finish W1 first and keep this as a
 fixed-book diagnostic candidate.
+
+## 2026-07-04 Event-Match Gate Update
+
+Implemented:
+
+- `tools/run_replacement_quality_event_reconciliation.py`
+- `tools/run_event_matched_replacement_quality_broker_ab.py`
+
+Validation:
+
+- `tests/replacement_quality_event_reconciliation_smoke.py`
+- `tests/event_matched_replacement_quality_broker_ab_smoke.py`
+
+### Event Reconciliation, Latest 286 Hook Probe
+
+Command output:
+
+`outputs/concentrated_replacement_quality_event_reconciliation_286`
+
+Result:
+
+| Metric | Value |
+|---|---:|
+| Fixed-book events | 17 |
+| Hook events | 71 |
+| Exact matches | 1 |
+| Same ticker/month but different source | 12 |
+| Policy-only hook events | 58 |
+| Fixed-book-only events | 16 |
+| Hook count delta | 317.65% |
+
+Blockers:
+
+- `hook_swaps_not_subset_of_fixed_book_counterfactual`
+- `hook_swap_count_outside_tolerance`
+
+PIT audit found no future `available_from` or forward-label ranking use in the
+available rows, but the current artifact does not carry explicit
+`available_from` columns for these event fields, so it records the warning
+`no_available_from_columns_observed`.
+
+Interpretation:
+
+The current policy-path hook is still too broad. It must not be accepted or
+fullrun-tested. The event source must be narrowed until hook swaps are a subset
+of fixed-book counterfactual swaps and total hook count is within +/-10%.
+
+### Event-Matched Fixed-Book Broker A/B
+
+The new A/B tool applies the fixed swap list directly to the official target
+book. It does not use regenerated selection logic.
+
+| Book | Baseline | Event-matched result | Full CAGR delta | MaxDD delta | Applied |
+|---|---:|---:|---:|---:|---:|
+| Latest 286, 2026-07-02 | 49.34% / -23.02% | 51.22% / -23.02% | +1.887pp | ~0.000pp | 17/17 |
+| Reference 284, 2026-06-29 | 48.83% / -23.79% | 50.04% / -23.78% | +1.211pp | +0.009pp | 19/19 |
+
+Outputs:
+
+- `outputs/event_matched_replacement_quality_broker_ab_28616190134`
+- `outputs/event_matched_replacement_quality_broker_ab_28436307420`
+
+Interpretation:
+
+The fixed-event candidate remains economically real and cross-book positive.
+The blocker is not the fixed-book A/B; it is the current hook event source. The
+next implementation step is therefore **not another screen**. It is to make the
+default-OFF hook consume an event-matched source equivalent to the fixed-book
+swap set, then rerun event reconciliation.
