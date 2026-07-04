@@ -291,3 +291,81 @@ The blocker is not the fixed-book A/B; it is the current hook event source. The
 next implementation step is therefore **not another screen**. It is to make the
 default-OFF hook consume an event-matched source equivalent to the fixed-book
 swap set, then rerun event reconciliation.
+
+## 2026-07-04 Hook Event-Allowlist Implementation
+
+Implemented in `tools/run_alphaops_vnext_policy_replay.py`:
+
+- New optional env: `R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST`.
+- When set, the default-OFF replacement-quality hook only admits fixed-event
+  allowlist rows keyed by `(rebalance_date, added_ticker, removed_ticker)`.
+- The hook must use the allowlist `removed_ticker` as the donor. It no longer
+  chooses an arbitrary weakest existing slot in allowlist mode.
+- The loader ignores any forward-return columns in the allowlist file; those
+  remain audit labels only.
+- Added telemetry:
+  - `concentrated_replacement_quality_event_source`
+  - `concentrated_replacement_quality_event_allowlist_path`
+  - `concentrated_replacement_quality_event_match_status`
+  - `concentrated_replacement_quality_event_removed_ticker`
+
+Validation:
+
+- `tests/alphaops_vnext_policy_replay_smoke.py` now verifies that allowlist
+  mode forces the fixed-event donor and blocks when that donor is not in the
+  current book.
+- PR validation passed for:
+  - `alphaops_vnext_policy_replay_smoke`
+  - `replacement_quality_event_reconciliation_smoke`
+  - `event_matched_replacement_quality_broker_ab_smoke`
+
+Remaining acceptance gate:
+
+Rerun the hook probe with
+`R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST` pointing to the fixed-event
+swap list, then rerun event reconciliation. The hook remains **not accepted**
+until its swap set is a subset of the fixed-book counterfactual and total hook
+count is within +/-10%.
+
+### Allowlist Probe Result
+
+Reran the latest 286 hook probe with:
+
+`R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST=outputs/event_matched_replacement_quality_broker_ab_28616190134/event_matched_swaps.csv`
+
+Output:
+
+- Hook probe:
+  `outputs/replacement_quality_hook_probe_286_allowlist_v2`
+- Reconciliation:
+  `outputs/concentrated_replacement_quality_event_reconciliation_286_allowlist_v2`
+
+Result:
+
+| Metric | Prior broad hook | Allowlist v2 |
+|---|---:|---:|
+| Fixed-book events | 17 | 17 |
+| Hook events | 71 | 12 |
+| Exact matches | 1 | 12 |
+| Policy-only hook events | 58 | 0 |
+| Fixed-book-only events | 16 | 5 |
+| Hook subset of fixed | false | true |
+| Count delta | 317.65% | 29.41% |
+
+Interpretation:
+
+The over-fire blocker is fixed: every hook swap is now a fixed-book event. The
+remaining blocker is under-fire. All 5 missing events are
+`blocked_event_donor_not_in_book`, meaning the generated policy book does not
+contain the fixed-book donor ticker for that month:
+
+- 2021-06-30 `NDAQ` replacing `ROKU`
+- 2024-05-31 `GOOGL` replacing `THC`
+- 2025-08-29 `LRCX` replacing `TLN`
+- 2025-09-30 `LRCX` replacing `TLN`
+- 2025-10-31 `LRCX` replacing `ALAB`
+
+This should not be "fixed" by choosing a different donor, because that would no
+longer match the validated fixed-book counterfactual. The next blocker is W1
+target-book reproduction / official-book event source, not another selection
+screen.

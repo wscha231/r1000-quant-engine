@@ -34,6 +34,17 @@ Emit `outputs/replacement_hook_equivalence/{hook_swaps.csv,counterfactual_swaps.
 - GATE A1: hook swap set ⊆ counterfactual swap set (validation window), count parity ±10%.
 - Pass → A2. Fail → diff.csv names the divergent condition; fix and rerun once; still fail → packet.
 
+Implementation note: the policy hook now supports
+`R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST=<fixed_swaps.csv>`. When set, it must only admit
+allowlisted `(rebalance_date, added_ticker, removed_ticker)` events and must force the donor to the
+allowlist `removed_ticker`. This is the only hook mode eligible for A1 acceptance; the older
+policy-month-rejection source remains diagnostic/backward-compatible only.
+
+Latest status: allowlist mode removed the over-fire blocker (`policy-only hook events = 0`) but still
+under-fires (`12/17`, count delta 29.41%) because five fixed-book donor tickers are not present in the
+generated policy book. Do not choose alternate donors. Continue via W1/official-book event-source
+reproduction, or keep this as fixed-book evidence only.
+
 **A2. Level reconciliation (kills the last measurement doubt).** Run `run_cash_carry_measurement` on the #239
 (28616190134) book → official cash-carry level. Compare to the harness control (49.34).
 - GATE A2: |harness_control − official_cash_carry| ≤ 0.3pp with a one-line cause note for any residual.

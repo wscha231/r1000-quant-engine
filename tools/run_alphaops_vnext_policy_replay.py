@@ -17,6 +17,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -765,6 +766,67 @@ def concentrated_replacement_quality_max_swaps_per_date() -> int:
     raw = os.environ.get("R1000_CONC_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE", "")
     value = int(max(0, safe_float(raw, CONCENTRATED_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE)))
     return value
+
+
+def concentrated_replacement_quality_event_allowlist_path() -> str:
+    return os.environ.get("R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST", "").strip()
+
+
+def _repo_relative_path(path_text: str) -> Path:
+    path = Path(path_text)
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+@lru_cache(maxsize=8)
+def load_concentrated_replacement_quality_event_allowlist(path_text: str) -> dict[str, dict[str, dict[str, Any]]]:
+    """Load fixed-book replacement events keyed by date and added ticker.
+
+    The file is expected to be produced by the fixed-book counterfactual /
+    event-matched A/B path and to contain at least rebalance_date,
+    added_ticker, and removed_ticker. Forward-return columns may exist in the
+    file, but this loader intentionally ignores them.
+    """
+    if not path_text:
+        return {}
+    path = _repo_relative_path(path_text)
+    if not path.exists():
+        return {}
+    try:
+        frame = pd.read_csv(path)
+    except Exception:
+        return {}
+    required = {"rebalance_date", "added_ticker", "removed_ticker"}
+    if not required.issubset(set(frame.columns)):
+        return {}
+
+    events: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in frame.to_dict("records"):
+        dt = date_text(row.get("rebalance_date"))
+        added = clean_ticker(row.get("added_ticker"))
+        removed = clean_ticker(row.get("removed_ticker"))
+        if not dt or not added or not removed:
+            continue
+        events.setdefault(dt, {})[added] = {
+            "rebalance_date": dt,
+            "added_ticker": added,
+            "removed_ticker": removed,
+            "rule": str(row.get("rule") or row.get("arm") or ""),
+            "replacement_weight": safe_float(row.get("replacement_weight"), float("nan")),
+        }
+    return events
+
+
+def replacement_quality_rebalance_date(
+    weighted: list[dict[str, Any]],
+    month_records: list[dict[str, Any]],
+    month_rejections: list[dict[str, Any]] | None,
+) -> str:
+    for rows in (weighted, month_records, month_rejections or []):
+        for row in rows:
+            dt = date_text(row.get("rebalance_date"))
+            if dt:
+                return dt
+    return ""
 
 
 def ai_capex_momentum_tilt_enabled() -> bool:
@@ -2294,6 +2356,20 @@ def apply_concentrated_replacement_quality_swap(
     stock_gross_before = float(sum(safe_float(row.get("weight")) for row in out))
     cash_before = max(0.0, 1.0 - stock_gross_before)
     rule_label = f"rank_top{rank_max}_and_revenue_ge{int(round(revenue_min * 100))}"
+    rebalance_date = replacement_quality_rebalance_date(out, month_records, month_rejections)
+    allowlist_path = concentrated_replacement_quality_event_allowlist_path()
+    allowlist_events_for_date: dict[str, dict[str, Any]] = {}
+    allowlist_source = "policy_month_rejections"
+    allowlist_status = "not_configured"
+    if allowlist_path:
+        allowlist_source = "fixed_event_allowlist"
+        resolved_allowlist_path = _repo_relative_path(allowlist_path)
+        if not resolved_allowlist_path.exists():
+            allowlist_status = "blocked_event_allowlist_missing"
+        else:
+            allowlist_events = load_concentrated_replacement_quality_event_allowlist(allowlist_path)
+            allowlist_events_for_date = allowlist_events.get(rebalance_date, {}) if rebalance_date else {}
+            allowlist_status = "loaded" if allowlist_events_for_date else "blocked_no_event_allowlist_for_date"
     for row in out:
         row["concentrated_replacement_quality_enabled"] = True
         row["concentrated_replacement_quality_applied"] = False
@@ -2303,9 +2379,17 @@ def apply_concentrated_replacement_quality_swap(
         row["concentrated_replacement_quality_revenue_growth_min"] = revenue_min
         row["concentrated_replacement_quality_cash_before"] = cash_before
         row["concentrated_replacement_quality_stock_gross_before"] = stock_gross_before
+        row["concentrated_replacement_quality_event_source"] = allowlist_source
+        row["concentrated_replacement_quality_event_allowlist_path"] = allowlist_path
+        row["concentrated_replacement_quality_event_rebalance_date"] = rebalance_date
+        row["concentrated_replacement_quality_event_match_status"] = allowlist_status
     if max_swaps <= 0:
         for row in out:
             row["concentrated_replacement_quality_status"] = "blocked_zero_max_swaps"
+        return out
+    if allowlist_path and not allowlist_events_for_date:
+        for row in out:
+            row["concentrated_replacement_quality_status"] = allowlist_status
         return out
 
     held = {clean_ticker(row.get("ticker")) for row in out if clean_ticker(row.get("ticker")) not in CASH_TICKERS}
@@ -2313,34 +2397,60 @@ def apply_concentrated_replacement_quality_swap(
         1 for row in out if str(row.get("primary_lane") or "") in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"}
     )
     eligible_rejection_by_ticker: dict[str, dict[str, Any]] = {}
-    for rej in month_rejections or []:
-        ticker = clean_ticker(rej.get("ticker"))
-        reason = str(rej.get("rejection_reason") or "")
-        if ticker and reason in CONCENTRATED_REPLACEMENT_QUALITY_REJECTION_REASONS:
-            eligible_rejection_by_ticker[ticker] = dict(rej)
+    if allowlist_path:
+        eligible_rejection_by_ticker = {
+            ticker: {
+                "ticker": ticker,
+                "rejection_reason": "fixed_event_allowlist",
+                "replacement_test_weakest_ticker": event.get("removed_ticker"),
+                "_event_allowlist": event,
+            }
+            for ticker, event in allowlist_events_for_date.items()
+        }
+    else:
+        for rej in month_rejections or []:
+            ticker = clean_ticker(rej.get("ticker"))
+            reason = str(rej.get("rejection_reason") or "")
+            if ticker and reason in CONCENTRATED_REPLACEMENT_QUALITY_REJECTION_REASONS:
+                eligible_rejection_by_ticker[ticker] = dict(rej)
     if not eligible_rejection_by_ticker:
         for row in out:
             row["concentrated_replacement_quality_status"] = "blocked_no_cap_replacement_miss"
         return out
 
     candidates: list[dict[str, Any]] = []
+    candidate_block_reasons: list[str] = []
     for rec in month_records:
         ticker = clean_ticker(rec.get("ticker"))
-        if not ticker or ticker in CASH_TICKERS or ticker in held:
+        if not ticker or ticker in CASH_TICKERS:
+            continue
+        if ticker in held and not (allowlist_path and ticker in allowlist_events_for_date):
             continue
         rejection = eligible_rejection_by_ticker.get(ticker)
         if not rejection:
             continue
+        event_allowlist = rejection.get("_event_allowlist") if isinstance(rejection, dict) else None
+        forced_donor = clean_ticker(event_allowlist.get("removed_ticker")) if isinstance(event_allowlist, dict) else ""
+        if allowlist_path and forced_donor and forced_donor not in held:
+            candidate_block_reasons.append("blocked_event_donor_not_in_book")
+            continue
         rank_value = safe_float(rec.get("leader_rank_ex_ante"), float("inf"))
         revenue_growth = safe_float(rec.get("revenue_growth"), float("-inf"))
         if rank_value > rank_max or revenue_growth < revenue_min:
+            if allowlist_path:
+                candidate_block_reasons.append("blocked_event_candidate_failed_rule")
             continue
         ok, _reason = allowed_candidate(rec, portfolio_kind, emerging_count, is_new_buy=True)
         if not ok:
+            if allowlist_path:
+                candidate_block_reasons.append("blocked_event_candidate_failed_policy_guard")
             continue
         candidate = dict(rec)
         candidate["_replacement_quality_rejection_reason"] = str(rejection.get("rejection_reason") or "")
         candidate["_replacement_quality_rejection_weakest"] = clean_ticker(rejection.get("replacement_test_weakest_ticker"))
+        candidate["_replacement_quality_forced_donor"] = forced_donor
+        candidate["_replacement_quality_event_match_status"] = "exact_match" if allowlist_path else "policy_month_rejection"
+        candidate["_replacement_quality_event_rule"] = str(event_allowlist.get("rule") or "") if isinstance(event_allowlist, dict) else ""
         candidate["_replacement_quality_sort_key"] = (
             safe_float(candidate.get("leader_rank_ex_ante"), float("inf")),
             -safe_float(candidate.get("rs_spy_3m"), safe_float(candidate.get("rs_benchmark_3m"))),
@@ -2351,7 +2461,13 @@ def apply_concentrated_replacement_quality_swap(
         candidates.append(candidate)
     if not candidates:
         for row in out:
-            row["concentrated_replacement_quality_status"] = "blocked_no_eligible_candidate"
+            row["concentrated_replacement_quality_status"] = (
+                candidate_block_reasons[0] if candidate_block_reasons else "blocked_no_eligible_candidate"
+            )
+            if allowlist_path:
+                row["concentrated_replacement_quality_event_match_status"] = row[
+                    "concentrated_replacement_quality_status"
+                ]
         return out
 
     donor_indices = [
@@ -2366,28 +2482,41 @@ def apply_concentrated_replacement_quality_swap(
     swaps = 0
     used_candidates: set[str] = set()
     while swaps < max_swaps and candidates and donor_indices:
-        donor_idx = min(
-            donor_indices,
-            key=lambda idx: (
-                safe_float(out[idx].get("alphaops_vnext_score")),
-                safe_float(out[idx].get("weight")),
-                clean_ticker(out[idx].get("ticker")),
-            ),
-        )
-        donor = out[donor_idx]
         chosen = None
+        donor_idx = None
         for candidate in candidates:
             ticker = clean_ticker(candidate.get("ticker"))
-            if ticker and ticker not in used_candidates:
+            if not ticker or ticker in used_candidates:
+                continue
+            forced_donor = clean_ticker(candidate.get("_replacement_quality_forced_donor"))
+            if forced_donor:
+                matches = [idx for idx in donor_indices if clean_ticker(out[idx].get("ticker")) == forced_donor]
+                if not matches:
+                    continue
+                donor_idx = matches[0]
+            else:
+                donor_idx = min(
+                    donor_indices,
+                    key=lambda idx: (
+                        safe_float(out[idx].get("alphaops_vnext_score")),
+                        safe_float(out[idx].get("weight")),
+                        clean_ticker(out[idx].get("ticker")),
+                    ),
+                )
+            if donor_idx is not None:
                 chosen = candidate
                 break
-        if chosen is None:
+        if chosen is None or donor_idx is None:
             break
+        donor = out[donor_idx]
         donor_ticker = clean_ticker(donor.get("ticker"))
         chosen_ticker = clean_ticker(chosen.get("ticker"))
         weight = safe_float(donor.get("weight"), safe_float(donor.get("target_weight")))
         entry = dict(chosen)
         entry.pop("_replacement_quality_sort_key", None)
+        forced_donor = clean_ticker(entry.pop("_replacement_quality_forced_donor", ""))
+        event_match_status = str(entry.pop("_replacement_quality_event_match_status", "") or "")
+        event_rule = str(entry.pop("_replacement_quality_event_rule", "") or "")
         rejection_reason = str(entry.pop("_replacement_quality_rejection_reason", "") or "")
         rejection_weakest = clean_ticker(entry.pop("_replacement_quality_rejection_weakest", ""))
         entry["ticker"] = chosen_ticker
@@ -2405,6 +2534,12 @@ def apply_concentrated_replacement_quality_swap(
         entry["concentrated_replacement_quality_revenue_growth_min"] = revenue_min
         entry["concentrated_replacement_quality_removed_ticker"] = donor_ticker
         entry["concentrated_replacement_quality_added_ticker"] = chosen_ticker
+        entry["concentrated_replacement_quality_event_source"] = allowlist_source
+        entry["concentrated_replacement_quality_event_allowlist_path"] = allowlist_path
+        entry["concentrated_replacement_quality_event_rebalance_date"] = rebalance_date
+        entry["concentrated_replacement_quality_event_match_status"] = event_match_status or "policy_month_rejection"
+        entry["concentrated_replacement_quality_event_rule"] = event_rule
+        entry["concentrated_replacement_quality_event_removed_ticker"] = forced_donor
         entry["concentrated_replacement_quality_source_rejection_reason"] = rejection_reason
         entry["concentrated_replacement_quality_rejection_weakest_ticker"] = rejection_weakest
         entry["concentrated_replacement_quality_replacement_weight"] = weight

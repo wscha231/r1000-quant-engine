@@ -581,6 +581,181 @@ def test_concentrated_replacement_quality_swaps_one_slot_and_preserves_cash() ->
     assert round(sum(float(row["weight"]) for row in out), 10) == 0.50
 
 
+def test_concentrated_replacement_quality_allowlist_forces_fixed_event_donor() -> None:
+    _clear_concentrated_replacement_quality_env()
+    with tempfile.TemporaryDirectory() as tmp:
+        allowlist = Path(tmp) / "fixed_swaps.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-02-28",
+                    "added_ticker": "WIN",
+                    "removed_ticker": "OLD",
+                    "replacement_weight": 0.20,
+                    "rule": "rank_top15_and_revenue_ge10",
+                }
+            ]
+        ).to_csv(allowlist, index=False)
+        os.environ["PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED"] = "1"
+        os.environ["R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST"] = str(allowlist)
+        try:
+            selected = [
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "OLD",
+                    "weight": 0.20,
+                    "target_weight": 0.20,
+                    "alphaops_vnext_score": 5.0,
+                },
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "WEAK",
+                    "weight": 0.30,
+                    "target_weight": 0.30,
+                    "alphaops_vnext_score": 1.0,
+                },
+            ]
+            candidates = [
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "WIN",
+                    "leader_rank_ex_ante": 4,
+                    "revenue_growth": 0.12,
+                    "rs_spy_3m": 0.31,
+                    "rs_benchmark_3m": 0.31,
+                    "liquidity_score": 10.0,
+                    "alphaops_vnext_score": 4.0,
+                    "primary_lane": "MARKET_LEADER",
+                    "dual_leader_gate": True,
+                    "crisis_new_buy_allowed": True,
+                },
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "EXTRA",
+                    "leader_rank_ex_ante": 1,
+                    "revenue_growth": 0.50,
+                    "rs_spy_3m": 0.60,
+                    "rs_benchmark_3m": 0.60,
+                    "liquidity_score": 12.0,
+                    "alphaops_vnext_score": 7.0,
+                    "primary_lane": "MARKET_LEADER",
+                    "dual_leader_gate": True,
+                    "crisis_new_buy_allowed": True,
+                },
+            ]
+            rejections = [
+                {"rebalance_date": "2026-02-28", "ticker": "WIN", "rejection_reason": "hold_replace_threshold_not_met"},
+                {"rebalance_date": "2026-02-28", "ticker": "EXTRA", "rejection_reason": "hold_replace_threshold_not_met"},
+            ]
+            out = apply_concentrated_replacement_quality_swap(selected, candidates, "concentrated", rejections)
+        finally:
+            _clear_concentrated_replacement_quality_env()
+
+    by_ticker = {row["ticker"]: row for row in out}
+    assert set(by_ticker) == {"WIN", "WEAK"}
+    assert by_ticker["WIN"]["weight"] == 0.20
+    assert by_ticker["WEAK"]["weight"] == 0.30
+    assert by_ticker["WIN"]["concentrated_replacement_quality_removed_ticker"] == "OLD"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_event_source"] == "fixed_event_allowlist"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_event_match_status"] == "exact_match"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_event_removed_ticker"] == "OLD"
+    assert by_ticker["WIN"]["concentrated_replacement_quality_stock_gross_preserved"] is True
+    assert by_ticker["WIN"]["concentrated_replacement_quality_cash_preserved"] is True
+
+
+def test_concentrated_replacement_quality_allowlist_blocks_missing_donor() -> None:
+    _clear_concentrated_replacement_quality_env()
+    with tempfile.TemporaryDirectory() as tmp:
+        allowlist = Path(tmp) / "fixed_swaps.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-02-28",
+                    "added_ticker": "WIN",
+                    "removed_ticker": "MISSING",
+                    "replacement_weight": 0.20,
+                    "rule": "rank_top15_and_revenue_ge10",
+                }
+            ]
+        ).to_csv(allowlist, index=False)
+        os.environ["PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED"] = "1"
+        os.environ["R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST"] = str(allowlist)
+        try:
+            selected = [
+                {"rebalance_date": "2026-02-28", "ticker": "OLD", "weight": 0.20, "target_weight": 0.20},
+                {"rebalance_date": "2026-02-28", "ticker": "KEEP", "weight": 0.30, "target_weight": 0.30},
+            ]
+            candidates = [
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "WIN",
+                    "leader_rank_ex_ante": 4,
+                    "revenue_growth": 0.12,
+                    "rs_spy_3m": 0.31,
+                    "alphaops_vnext_score": 4.0,
+                    "primary_lane": "MARKET_LEADER",
+                    "dual_leader_gate": True,
+                    "crisis_new_buy_allowed": True,
+                }
+            ]
+            out = apply_concentrated_replacement_quality_swap(selected, candidates, "concentrated", [])
+        finally:
+            _clear_concentrated_replacement_quality_env()
+
+    assert {row["ticker"] for row in out} == {"OLD", "KEEP"}
+    assert all(row["concentrated_replacement_quality_status"] == "blocked_event_donor_not_in_book" for row in out)
+    assert all(
+        row["concentrated_replacement_quality_event_match_status"] == "blocked_event_donor_not_in_book" for row in out
+    )
+
+
+def test_concentrated_replacement_quality_allowlist_can_add_already_held_winner() -> None:
+    _clear_concentrated_replacement_quality_env()
+    with tempfile.TemporaryDirectory() as tmp:
+        allowlist = Path(tmp) / "fixed_swaps.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-02-28",
+                    "added_ticker": "WIN",
+                    "removed_ticker": "DONOR",
+                    "replacement_weight": 0.20,
+                    "rule": "rank_top15_and_revenue_ge10",
+                }
+            ]
+        ).to_csv(allowlist, index=False)
+        os.environ["PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED"] = "1"
+        os.environ["R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST"] = str(allowlist)
+        try:
+            selected = [
+                {"rebalance_date": "2026-02-28", "ticker": "WIN", "weight": 0.30, "target_weight": 0.30},
+                {"rebalance_date": "2026-02-28", "ticker": "DONOR", "weight": 0.20, "target_weight": 0.20},
+            ]
+            candidates = [
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "WIN",
+                    "leader_rank_ex_ante": 4,
+                    "revenue_growth": 0.12,
+                    "rs_spy_3m": 0.31,
+                    "alphaops_vnext_score": 4.0,
+                    "primary_lane": "MARKET_LEADER",
+                    "dual_leader_gate": True,
+                    "crisis_new_buy_allowed": True,
+                }
+            ]
+            out = apply_concentrated_replacement_quality_swap(selected, candidates, "concentrated", [])
+        finally:
+            _clear_concentrated_replacement_quality_env()
+
+    assert [row["ticker"] for row in out].count("WIN") == 2
+    assert "DONOR" not in {row["ticker"] for row in out}
+    applied = [row for row in out if row.get("concentrated_replacement_quality_applied")]
+    assert len(applied) == 1
+    assert applied[0]["concentrated_replacement_quality_removed_ticker"] == "DONOR"
+    assert applied[0]["concentrated_replacement_quality_event_match_status"] == "exact_match"
+
+
 def test_concentrated_replacement_quality_blocks_weak_or_ineligible_candidates() -> None:
     _clear_concentrated_replacement_quality_env()
     os.environ["PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED"] = "1"
@@ -669,6 +844,7 @@ def _clear_concentrated_replacement_quality_env() -> None:
     os.environ.pop("R1000_CONC_REPLACEMENT_QUALITY_RANK_MAX", None)
     os.environ.pop("R1000_CONC_REPLACEMENT_QUALITY_MIN_REVENUE_GROWTH", None)
     os.environ.pop("R1000_CONC_REPLACEMENT_QUALITY_MAX_SWAPS_PER_DATE", None)
+    os.environ.pop("R1000_CONC_REPLACEMENT_QUALITY_EVENT_ALLOWLIST", None)
 
 
 def _healthy_prior_leader_row(**overrides: object) -> dict[str, object]:
@@ -3203,6 +3379,9 @@ if __name__ == "__main__":
     test_concentrated_score_sizing_reweight_constant_signal_noop()
     test_concentrated_replacement_quality_default_off_preserves_book()
     test_concentrated_replacement_quality_swaps_one_slot_and_preserves_cash()
+    test_concentrated_replacement_quality_allowlist_forces_fixed_event_donor()
+    test_concentrated_replacement_quality_allowlist_blocks_missing_donor()
+    test_concentrated_replacement_quality_allowlist_can_add_already_held_winner()
     test_concentrated_replacement_quality_blocks_weak_or_ineligible_candidates()
     test_concentrated_replacement_quality_main_portfolio_noop()
     test_shakeout_guard_prod_default_off_preserves_trim()
