@@ -45,6 +45,17 @@ under-fires (`12/17`, count delta 29.41%) because five fixed-book donor tickers 
 generated policy book. Do not choose alternate donors. Continue via W1/official-book event-source
 reproduction, or keep this as fixed-book evidence only.
 
+W1 donor audit confirms the five missing events are all
+`generated_book_missing_fixed_donor`: the added candidate exists and the donor exists in the fixed official
+book, but the donor is absent from the generated policy book and the exact policy rejection event is absent.
+Therefore the next automatic step is not another alpha screen; it is either target-book control reproduction
+or an official-book event-source path for this research hook.
+
+Existing W1 root-cause evidence already points to provenance drift: same-machine double reproduction is exact,
+but official-vs-generated control fails because the official artifact came from dirty commit `2f83cc8` while the
+current reproduction is clean `4c54e630+`. Treat regenerated selection-side evidence as diagnostic until a clean
+official control artifact is produced or the dirty worktree is reconstructed.
+
 **A2. Level reconciliation (kills the last measurement doubt).** Run `run_cash_carry_measurement` on the #239
 (28616190134) book → official cash-carry level. Compare to the harness control (49.34).
 - GATE A2: |harness_control − official_cash_carry| ≤ 0.3pp with a one-line cause note for any residual.

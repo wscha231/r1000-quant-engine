@@ -369,3 +369,42 @@ This should not be "fixed" by choosing a different donor, because that would no
 longer match the validated fixed-book counterfactual. The next blocker is W1
 target-book reproduction / official-book event source, not another selection
 screen.
+
+### W1 Donor-Missing Audit
+
+Implemented:
+
+- `tools/run_replacement_quality_donor_missing_audit.py`
+- `tests/replacement_quality_donor_missing_audit_smoke.py`
+
+Latest run:
+
+- Output: `outputs/replacement_quality_donor_missing_audit_286_allowlist_v2`
+- Runtime after normalization fix: about 40 seconds on the latest 286 inputs.
+
+Result:
+
+| Classification | Count |
+|---|---:|
+| `exact_match` | 12 |
+| `generated_book_missing_fixed_donor` | 5 |
+
+The audit confirms the remaining five under-fired fixed events are not missing
+because the candidate disappears. Each added ticker is present in the candidate
+book, and each removed ticker is present in the fixed official book. The blocker
+is that the generated policy book does not contain the fixed-book donor, and the
+generated policy rejection log does not carry the exact fixed event:
+
+| Date | Add | Fixed donor | Finding |
+|---|---|---|---|
+| 2021-06-30 | `NDAQ` | `ROKU` | donor in fixed book, absent from generated book |
+| 2024-05-31 | `GOOGL` | `THC` | donor in fixed book, absent from generated book |
+| 2025-08-29 | `LRCX` | `TLN` | donor in fixed book, absent from generated book |
+| 2025-09-30 | `LRCX` | `TLN` | donor in fixed book, absent from generated book |
+| 2025-10-31 | `LRCX` | `ALAB` | donor in fixed book, absent from generated book |
+
+Conclusion:
+
+The remaining blocker is W1 control reproduction / official-book event source.
+Do not broaden the hook and do not substitute alternate donors. The economically
+validated object is still the fixed-book event set.
