@@ -55,6 +55,25 @@ def test_old_audit_blocks_fullrun_even_if_status_ok() -> None:
     assert payload["fullrun_command"] == ""
 
 
+def test_weekend_gap_does_not_stale_fresh_market_audit() -> None:
+    payload = evaluate(
+        {
+            "status": "ok",
+            "stale_price_review": False,
+            "stale_trading_days": 1,
+            "stale_trading_days_threshold": 2,
+            "latest_cached_bar_date": "2026-07-02",
+            "benchmark_anchor_date": "2026-07-02",
+            "audit_date": "2026-07-02",
+            "per_ticker": {"SPY": "2026-07-02", "QQQ": "2026-07-02"},
+        },
+        today=pd.Timestamp("2026-07-05"),
+    )
+    assert payload["fullrun_ready"] is True
+    assert payload["price_audit"]["audit_record_age_days"] == 1
+    assert "audit_record_stale" not in payload["blockers"]
+
+
 def test_future_dated_price_blocks_fullrun() -> None:
     payload = evaluate(
         {
@@ -133,6 +152,7 @@ def test_custom_required_hedge_ticker_blocks_if_missing() -> None:
 if __name__ == "__main__":
     test_ready_price_audit_emits_fullrun_command()
     test_old_audit_blocks_fullrun_even_if_status_ok()
+    test_weekend_gap_does_not_stale_fresh_market_audit()
     test_future_dated_price_blocks_fullrun()
     test_missing_hedge_price_blocks_fullrun_when_hedge_env_enabled()
     test_non_required_missing_ticker_does_not_block_fullrun()

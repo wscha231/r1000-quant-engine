@@ -52,7 +52,11 @@ def audit_age_days(audit: dict[str, Any], *, today: pd.Timestamp | None = None) 
     if audit_date is None:
         return None
     current = today.normalize() if today is not None else pd.Timestamp(datetime.now(timezone.utc).date())
-    return max(0, int((current.normalize() - audit_date).days))
+    current = current.normalize()
+    if audit_date >= current:
+        return 0
+    days = pd.bdate_range(audit_date + pd.Timedelta("1D"), current)
+    return int(len(days))
 
 
 def future_dated_prices(audit: dict[str, Any]) -> list[dict[str, str]]:
