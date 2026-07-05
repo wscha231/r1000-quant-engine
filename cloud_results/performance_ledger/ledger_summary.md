@@ -1,12 +1,12 @@
 # Performance Ledger IS-CAGR Trajectory
 
-- Overall trend this run: **REGRESSING**
+- Overall trend this run: **IMPROVING**
 - Dominant open leak (recommended next focus): `concentrated:structural_underinvestment_bull`
 
 ## Main
-- IS-CAGR `20.56%` | state **REGRESSING** | delta prev `-2.72pp` | best `25.36%`
+- IS-CAGR `22.03%` | state **IMPROVING** | delta prev `+1.47pp` | best `25.36%`
 ## Concentrated
-- IS-CAGR `22.90%` | state **REGRESSING** | delta prev `-1.94pp` | best `24.84%`
+- IS-CAGR `26.47%` | state **IMPROVING** | delta prev `+3.56pp` | best `24.84%`  NEW BEST
 
 ## Last 12 runs
 
@@ -21,3 +21,4 @@
 | 28074476465 | 9b23a01 | 20.27% | 33.15% | 21.69% | 46.24% | no |
 | 28360773460 | efa2473 | 23.28% | 35.28% | 24.84% | 46.66% | no |
 | 28616190134 | 4c54e63 | 20.56% | 30.61% | 22.90% | 44.53% | no |
+| 28725350727 | 15176b5 | 22.03% | 32.94% | 26.47% | 46.99% | no |

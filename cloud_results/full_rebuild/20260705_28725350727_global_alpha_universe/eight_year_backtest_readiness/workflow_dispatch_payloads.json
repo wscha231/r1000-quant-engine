@@ -1,0 +1,55 @@
+[
+  {
+    "inputs": {
+      "latest_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+      "max_price_tickers": "0",
+      "price_mode": "target_books",
+      "run_proxy_replay": "true",
+      "sec_companyfacts": "true",
+      "sync_to_gdrive": "true"
+    },
+    "plan_id": "bootstrap_free_data_for_eight_year_window",
+    "production_mutation_allowed": false,
+    "reason": "8-year price cache is not ready; restore/extend target-book price history first.",
+    "ref": "codex/integration-fullrun-clean-20260630",
+    "requires_user_approval": true,
+    "source_blockers": [
+      "8-year price cache/manifest is not ready for proxy replay",
+      "monthly target books do not cover the requested 8-year window",
+      "broker-ledger official replay does not yet cover the requested 8-year window"
+    ],
+    "source_latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+    "source_status": "not_ready",
+    "workflow_id": "free_data_lake_bootstrap.yml"
+  },
+  {
+    "depends_on_plan_ids": [
+      "bootstrap_free_data_for_eight_year_window"
+    ],
+    "inputs": {
+      "artifact_profile": "minimal",
+      "backtest_years": "8",
+      "cache_key_suffix": "official-eight_year-window",
+      "experiment_env_json": "",
+      "fast_mode": "true",
+      "gdrive_sync_mode": "minimal",
+      "portfolio_policy": "alphaops_vnext_production",
+      "sidecar_profile": "operating_minimal",
+      "skip_collector": "false",
+      "universe_mode": "global_alpha_universe"
+    },
+    "plan_id": "full_rebuild_eight_year_official_window",
+    "production_mutation_allowed": false,
+    "reason": "Run the official 8-year broker-ledger rebuild after data readiness is available.",
+    "ref": "codex/integration-fullrun-clean-20260630",
+    "requires_user_approval": true,
+    "source_blockers": [
+      "8-year price cache/manifest is not ready for proxy replay",
+      "monthly target books do not cover the requested 8-year window",
+      "broker-ledger official replay does not yet cover the requested 8-year window"
+    ],
+    "source_latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+    "source_status": "not_ready",
+    "workflow_id": "full_rebuild_manual.yml"
+  }
+]
