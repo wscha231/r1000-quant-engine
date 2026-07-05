@@ -9293,6 +9293,13 @@ def resolve_optional_catboost() -> dict[str, Any]:
 
 
 def choose_catboost_task_type() -> str:
+    override = str(os.environ.get("R1000_CATBOOST_TASK_TYPE", "") or "").strip().upper()
+    if override in {"CPU", "GPU"}:
+        return override
+    # Default to CPU for reproducible regenerated target books. Use
+    # R1000_CATBOOST_TASK_TYPE=AUTO only for explicit performance experiments.
+    if override != "AUTO":
+        return "CPU"
     try:
         from catboost.utils import get_gpu_device_count  # type: ignore
         return "GPU" if int(get_gpu_device_count()) > 0 else "CPU"

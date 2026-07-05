@@ -20,12 +20,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.alphaops_governance import (
+    FROZEN_POLICY_PAYLOAD,
+    frozen_payload_binding_fields,
+    research_production_gate_fields,
+    xnys_trading_day_count_between,
+)
 from tools.alphaops_required_price_tickers import parse_env_payload, required_price_tickers_for_env
 
 
 DEFAULT_REF = "codex/integration-fullrun-clean-20260630"
 DEFAULT_REPO = "wscha231/r1000-quant-engine"
-DEFAULT_ENV: dict[str, str] = {}
+DEFAULT_ENV: dict[str, str] = FROZEN_POLICY_PAYLOAD.copy()
 MAX_AUDIT_AGE_DAYS = 2
 
 
@@ -55,8 +61,20 @@ def audit_age_days(audit: dict[str, Any], *, today: pd.Timestamp | None = None) 
     current = current.normalize()
     if audit_date >= current:
         return 0
-    days = pd.bdate_range(audit_date + pd.Timedelta("1D"), current)
-    return int(len(days))
+    days, _source = xnys_trading_day_count_between(audit_date, current)
+    return int(days)
+
+
+def audit_age_calendar_source(audit: dict[str, Any], *, today: pd.Timestamp | None = None) -> str:
+    audit_date = parse_date(audit.get("audit_date"))
+    if audit_date is None:
+        return "none"
+    current = today.normalize() if today is not None else pd.Timestamp(datetime.now(timezone.utc).date())
+    current = current.normalize()
+    if audit_date >= current:
+        return "none"
+    _days, source = xnys_trading_day_count_between(audit_date, current)
+    return source
 
 
 def future_dated_prices(audit: dict[str, Any]) -> list[dict[str, str]]:
@@ -136,6 +154,9 @@ def evaluate(
     resolved_env_payload = DEFAULT_ENV.copy()
     if env_payload:
         resolved_env_payload.update({str(k): str(v) for k, v in env_payload.items()})
+    payload_binding = frozen_payload_binding_fields(resolved_env_payload)
+    if not payload_binding["frozen_payload_match"]:
+        blockers.append("frozen_policy_payload_mismatch")
     required_tickers = required_price_tickers_for_env(resolved_env_payload)
     status = str(audit.get("status") or "missing")
     if not audit:
@@ -174,6 +195,11 @@ def evaluate(
 
     fullrun_ready = not blockers
     command = build_fullrun_command(repo=repo, ref=ref, env_payload=resolved_env_payload, skip_collector=True)
+    governance = research_production_gate_fields(
+        pit_universe_label_clean=False,
+        research_evidence_valid=fullrun_ready,
+        research_fullrun_preconditions_ready=fullrun_ready,
+    )
     return {
         "schema_version": "alphaops-fullrun-readiness-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -184,24 +210,28 @@ def evaluate(
             "status": status,
             "audit_date": audit.get("audit_date"),
             "audit_record_age_days": age,
+            "audit_record_age_calendar": "XNYS",
+            "audit_record_age_calendar_source": audit_age_calendar_source(audit, today=today),
             "max_audit_age_days": int(max_audit_age_days),
             "latest_cached_bar_date": audit.get("latest_cached_bar_date"),
             "benchmark_anchor_date": audit.get("benchmark_anchor_date"),
             "stale_trading_days": audit.get("stale_trading_days"),
             "stale_trading_days_threshold": audit.get("stale_trading_days_threshold", 2),
+            "stale_trading_days_calendar": audit.get("stale_trading_days_calendar") or audit.get("calendar") or "",
+            "stale_trading_days_calendar_source": audit.get("stale_trading_days_calendar_source") or "",
             "future_dated_prices": future,
             "missing_tickers": audit.get("missing_tickers") or [],
         },
         "required_experiment_env": resolved_env_payload,
+        "policy_payload_binding": payload_binding,
         "required_price_ticker_source": "experiment_env",
         "required_price_tickers": required_tickers,
         "missing_required_price_tickers": missing_required,
         "stale_required_price_tickers": stale_required,
         "next_action": "dispatch_full_rebuild_manual" if fullrun_ready else "rerun_free_data_daily_update_or_fix_freshness",
         "fullrun_command": command if fullrun_ready else "",
-        "production_promotion_allowed": False,
-        "production_blocker": "pit_universe_label_clean_false_until_membership_audit_passes",
         "non_mutating": True,
+        **governance,
     }
 
 
@@ -220,12 +250,20 @@ def render_report(payload: dict[str, Any]) -> str:
         "status",
         "audit_date",
         "audit_record_age_days",
+        "audit_record_age_calendar",
         "max_audit_age_days",
         "benchmark_anchor_date",
         "latest_cached_bar_date",
         "stale_trading_days",
     ):
         lines.append(f"- {key}: `{price.get(key)}`")
+    lines.append("")
+    binding = payload.get("policy_payload_binding") or {}
+    lines.append("## Frozen Payload")
+    lines.append("")
+    lines.append(f"- frozen_payload_match: `{str(binding.get('frozen_payload_match')).lower()}`")
+    lines.append(f"- frozen_policy_payload_hash: `{binding.get('frozen_policy_payload_hash')}`")
+    lines.append(f"- dispatch_payload_hash: `{binding.get('dispatch_payload_hash')}`")
     lines.append("")
     if payload.get("fullrun_command"):
         lines.append("## Fullrun Command")

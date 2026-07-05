@@ -5,7 +5,7 @@ The 26491652391 baseline review found the broker-ledger replay ended on
 2026-05-22 while the run date was 2026-05-27 — a silent 3-trading-day gap that
 made "latest" metrics look current when they were stale. This audit makes that
 gap loud: it scans the replay price cache for benchmark + target-book tickers,
-finds the most recent cached bar, counts business days between that bar and the
+finds the most recent cached bar, counts XNYS trading days between that bar and the
 audit date, and raises a ``STALE_PRICE_REVIEW`` flag when the gap exceeds the
 threshold (default 2 trading days).
 
@@ -21,9 +21,8 @@ Output: outputs/latest_price_date_audit.json
     ...
   }
 
-Note: business-day counting uses pandas bdate_range (weekdays). US market
-holidays can overstate the gap by one day; the threshold check is therefore
-conservative (it can flag one day early, never late).
+Trading-day counting uses the XNYS calendar when pandas_market_calendars is
+available, with a local NYSE-holiday fallback for isolated smoke contexts.
 """
 from __future__ import annotations
 
@@ -40,6 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.alphaops_governance import xnys_trading_day_count_between  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
@@ -99,11 +99,18 @@ def latest_bar_date(price_cache: Path, ticker: str) -> pd.Timestamp | None:
 
 
 def stale_trading_days_between(latest_bar: pd.Timestamp, audit_date: pd.Timestamp) -> int:
-    """Business days strictly after latest_bar, up to and including audit_date."""
+    """XNYS trading days strictly after latest_bar, up to and including audit_date."""
     if latest_bar >= audit_date:
         return 0
-    days = pd.bdate_range(latest_bar + pd.Timedelta(days=1), audit_date)
-    return int(len(days))
+    days, _source = xnys_trading_day_count_between(latest_bar, audit_date)
+    return int(days)
+
+
+def stale_trading_days_calendar_source(latest_bar: pd.Timestamp, audit_date: pd.Timestamp) -> str:
+    if latest_bar >= audit_date:
+        return "none"
+    _days, source = xnys_trading_day_count_between(latest_bar, audit_date)
+    return source
 
 
 def run_audit(
@@ -148,6 +155,7 @@ def run_audit(
     # legitimate reasons (halts, delists), but SPY/QQQ must be current.
     anchor = max(benchmark_dates) if benchmark_dates else overall_latest
     stale_days = stale_trading_days_between(anchor, audit_date)
+    stale_source = stale_trading_days_calendar_source(anchor, audit_date)
     flagged = stale_days > int(stale_threshold)
     return {
         "status": "STALE_PRICE_REVIEW" if flagged else "ok",
@@ -157,12 +165,14 @@ def run_audit(
         "latest_cached_bar_date": overall_latest.date().isoformat(),
         "benchmark_anchor_date": anchor.date().isoformat(),
         "audit_date": audit_date.date().isoformat(),
+        "stale_trading_days_calendar": "XNYS",
+        "stale_trading_days_calendar_source": stale_source,
         "per_ticker": per_ticker,
         "missing_tickers": missing,
         "audited_ticker_count": len(tickers),
         "extra_tickers": parse_ticker_list(extra_tickers),
         "price_cache": str(price_cache),
-        "bday_note": "weekday counting; US holidays may overstate by <=1 day (conservative)",
+        "bday_note": "XNYS trading-day counting; fallback excludes standard NYSE holidays but not unscheduled closures",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
     }

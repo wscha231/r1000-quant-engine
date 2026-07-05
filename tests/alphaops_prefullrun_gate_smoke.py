@@ -18,6 +18,7 @@ def ready_payload() -> dict:
             "fullrun_ready": True,
             "blockers": [],
             "required_price_tickers": ["QQQ", "SPY"],
+            "policy_payload_binding": {"frozen_payload_match": True, "dispatch_payload_hash": "abc"},
         },
         "control_repro": {
             "status": "completed",
@@ -85,6 +86,12 @@ def test_all_research_gates_pass_but_dispatch_still_needs_user() -> None:
     assert payload["dispatch_requires_explicit_user_approval"] is True
     assert payload["production_promotion_allowed"] is False
     assert payload["production_blockers"] == ["pit_universe_label_clean_false"]
+    assert payload["research_evidence_valid"] is True
+    assert payload["production_evidence_valid"] is False
+    assert payload["public_display_allowed"] is False
+    assert payload["live_trading_enabled"] is False
+    assert payload["result_label"] == "production_blocked_research_pass"
+    assert payload["policy_payload_binding"]["frozen_payload_match"] is True
 
 
 def test_w1_exact_control_failure_blocks() -> None:

@@ -1,0 +1,45 @@
+{
+  "schema_version": "run287-w1-determinism-v1",
+  "status": "completed",
+  "run_id": "28725350727",
+  "research_only": true,
+  "fullrun_dispatched": false,
+  "production_mutation_allowed": false,
+  "production_output_mode": "shadow_only",
+  "catboost_task_type": "CPU",
+  "payload_source": "docs/CODEX_POLICY_PATH_COMBO_CANDIDATE_20260704.payload.json",
+  "candidate_book": "outputs/run_28725350727_official_broker_artifact/outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
+  "price_cache": "outputs/run287_price_cache_latest/cache_prices",
+  "price_cache_boundary": "local cache is deterministic but smaller than the original run287 runner cache",
+  "crisis_features": "outputs/run_28725350727_official_broker_artifact/outputs/crisis_signals/daily_features.parquet",
+  "crisis_thresholds": "outputs/run_28725350727_official_broker_artifact/outputs/long_crisis_learning/best_thresholds.json",
+  "repro_a": "outputs/run287_w1_determinism_exact/repro_a",
+  "repro_b": "outputs/run287_w1_determinism_exact/repro_b",
+  "repro_a_status": "completed",
+  "repro_b_status": "completed",
+  "crisis_overlay_status": "applied",
+  "latest_rebalance_date": "2026-07-02",
+  "portfolios": {
+    "main": {
+      "official_only_date_count": 0,
+      "generated_only_date_count": 0,
+      "ticker_mismatch_date_count": 0,
+      "max_weight_delta_abs": 0.0,
+      "total_abs_weight_delta": 0.0,
+      "exact_control_reproduced": true,
+      "target_book_sha256": "690e637c31d6df47f9cf1485525a01bfd89f60f857290aa7736832ed69a12259"
+    },
+    "concentrated": {
+      "official_only_date_count": 0,
+      "generated_only_date_count": 0,
+      "ticker_mismatch_date_count": 0,
+      "max_weight_delta_abs": 0.0,
+      "total_abs_weight_delta": 0.0,
+      "exact_control_reproduced": true,
+      "target_book_sha256": "989fd7d59615e697a61f5a3965c205867dae6ee54ca42357bd2174da27fb3f13"
+    }
+  },
+  "passes_local_w1_double_run_gate": true,
+  "official_artifact_parity_proven": false,
+  "official_artifact_parity_blocker": "original runner cache had broader candidate price coverage than the restored local cache"
+}

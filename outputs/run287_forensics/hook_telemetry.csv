@@ -1,0 +1,14 @@
+portfolio,column,non_null_count,true_like_count,unique_values
+main,main_post_selection_topn_filter_enabled,1121,1121,True
+main,main_post_selection_topn_filter_applied,1121,1109,False|True
+main,main_post_selection_topn_target_n,1121,0,14.0
+main,main_ai_capex_momentum_tilt_enabled,1062,1062,True
+main,main_ai_capex_momentum_tilt_applied,1062,343,False|True
+main,main_ai_capex_momentum_tilt_strength,1062,0,0.2
+concentrated,concentrated_replacement_quality_enabled,424,424,True
+concentrated,concentrated_replacement_quality_applied,424,51,False|True
+concentrated,concentrated_replacement_quality_status,424,0,applied|blocked_no_cap_replacement_miss|blocked_no_eligible_candidate|existing_position_unchanged
+concentrated,concentrated_cashfunded_early_entry_enabled,468,468,True
+concentrated,concentrated_cashfunded_early_entry_applied,468,44,False|True
+concentrated,concentrated_cashfunded_early_entry_add_weight,468,0,0.058
+concentrated,concentrated_cashfunded_early_entry_min_breakout_quality,468,0,0.5

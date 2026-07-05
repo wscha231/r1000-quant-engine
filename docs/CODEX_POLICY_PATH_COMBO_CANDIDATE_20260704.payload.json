@@ -1,0 +1,23 @@
+{
+  "governance": {
+    "cash_carry_research_only": true,
+    "frozen_replay_reproduction_required": false,
+    "metric_mode_research_baseline": "broker_ledger_next_close_cash_carry",
+    "production_promotion_allowed": false,
+    "production_blocker": "pit_universe_label_clean_false_until_membership_audit_passes",
+    "zero_yield_side_by_side_reference": "broker_ledger_next_close"
+  },
+  "payload": {
+    "PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED": "1",
+    "PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED": "1",
+    "PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED": "1",
+    "PHASE_MAIN_POST_SELECTION_TOPN_FILTER_ENABLED": "1",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT": "0.058",
+    "R1000_CONC_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY": "0.50",
+    "R1000_MAIN_AI_CAPEX_TILT_STRENGTH": "0.20",
+    "R1000_MAIN_POST_SELECTION_TOP_N": "14"
+  },
+  "policy_id": "clean_control_policy_path_combo_20260704",
+  "schema_version": "alphaops-frozen-policy-payload-v1",
+  "source_doc": "docs/CODEX_POLICY_PATH_COMBO_CANDIDATE_20260704.md"
+}

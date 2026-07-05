@@ -1,0 +1,1240 @@
+{
+  "cash_carry_exact_replay": {
+    "cash_rate_cache_exists": true,
+    "cash_rate_cache_path": "cache_macro\\fred_dgs3mo_DGS3MO.parquet",
+    "cash_rate_cache_sha256": "d5f8c9bf116a918500107361c971e4de78ddf7835070511745c47a343b693490",
+    "cash_rate_source": "DGS3MO",
+    "contract": {
+      "day_count": "ACT/365",
+      "haircut_bps": 50,
+      "lag": "1BD",
+      "mode": "broker_ledger_next_close_cash_carry",
+      "rate": "DGS3MO"
+    },
+    "price_cache_exists": true,
+    "price_cache_file_count_ex_manifest": 498,
+    "price_cache_manifest_exists": true,
+    "price_cache_path": "outputs\\run287_price_cache_latest\\cache_prices",
+    "reason": "",
+    "status": "ready_for_exact_replay"
+  },
+  "decision_label": "alpha_candidate_rejected_on_generated_book",
+  "frozen_candidate_cash_carry_metrics": {
+    "concentrated": {
+      "actual_equity_curve_end_date": "2026-06-29",
+      "avg_cash_weight": 0.4258768604166778,
+      "cagr": 0.5214290157485728,
+      "end_date": "2026-06-29",
+      "ending_capital_usd": 1944733.2214316642,
+      "max_dd": -0.2312431785512058,
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "replay_end_date_clamped": true,
+      "sharpe": 1.583155821411956,
+      "start_date": "2019-06-03",
+      "starting_capital_usd": 100000.0,
+      "status": "completed",
+      "trade_count": 684
+    },
+    "main": {
+      "actual_equity_curve_end_date": "2026-06-29",
+      "avg_cash_weight": 0.2930911087894291,
+      "cagr": 0.36325297843259374,
+      "end_date": "2026-06-29",
+      "ending_capital_usd": 894760.9163207969,
+      "max_dd": -0.2490819441152674,
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "replay_end_date_clamped": true,
+      "sharpe": 1.3121349030848901,
+      "start_date": "2019-06-03",
+      "starting_capital_usd": 100000.0,
+      "status": "completed",
+      "trade_count": 1573
+    }
+  },
+  "hook_telemetry": {
+    "note": "Applied counts prove hooks were present, but do not prove contribution without a hook-off replay.",
+    "portfolios": {
+      "concentrated": {
+        "concentrated_cashfunded_early_entry_add_weight": {
+          "non_null_count": 468,
+          "true_like_count": 0,
+          "value_counts": {
+            "0.058": 468
+          }
+        },
+        "concentrated_cashfunded_early_entry_applied": {
+          "non_null_count": 468,
+          "true_like_count": 44,
+          "value_counts": {
+            "False": 424,
+            "True": 44
+          }
+        },
+        "concentrated_cashfunded_early_entry_enabled": {
+          "non_null_count": 468,
+          "true_like_count": 468,
+          "value_counts": {
+            "True": 468
+          }
+        },
+        "concentrated_cashfunded_early_entry_min_breakout_quality": {
+          "non_null_count": 468,
+          "true_like_count": 0,
+          "value_counts": {
+            "0.5": 468
+          }
+        },
+        "concentrated_replacement_quality_applied": {
+          "non_null_count": 424,
+          "true_like_count": 51,
+          "value_counts": {
+            "False": 373,
+            "True": 51
+          }
+        },
+        "concentrated_replacement_quality_enabled": {
+          "non_null_count": 424,
+          "true_like_count": 424,
+          "value_counts": {
+            "True": 424
+          }
+        },
+        "concentrated_replacement_quality_status": {
+          "non_null_count": 424,
+          "true_like_count": 0,
+          "value_counts": {
+            "applied": 51,
+            "blocked_no_cap_replacement_miss": 6,
+            "blocked_no_eligible_candidate": 164,
+            "existing_position_unchanged": 203
+          }
+        },
+        "target_book": "outputs\\run_28725350727_user_operating_artifact\\outputs\\alphaops_vnext\\official_concentrated_target_book.csv"
+      },
+      "main": {
+        "main_ai_capex_momentum_tilt_applied": {
+          "non_null_count": 1062,
+          "true_like_count": 343,
+          "value_counts": {
+            "False": 719,
+            "True": 343
+          }
+        },
+        "main_ai_capex_momentum_tilt_enabled": {
+          "non_null_count": 1062,
+          "true_like_count": 1062,
+          "value_counts": {
+            "True": 1062
+          }
+        },
+        "main_ai_capex_momentum_tilt_strength": {
+          "non_null_count": 1062,
+          "true_like_count": 0,
+          "value_counts": {
+            "0.2": 1062
+          }
+        },
+        "main_post_selection_topn_filter_applied": {
+          "non_null_count": 1121,
+          "true_like_count": 1109,
+          "value_counts": {
+            "False": 12,
+            "True": 1109
+          }
+        },
+        "main_post_selection_topn_filter_enabled": {
+          "non_null_count": 1121,
+          "true_like_count": 1121,
+          "value_counts": {
+            "True": 1121
+          }
+        },
+        "main_post_selection_topn_target_n": {
+          "non_null_count": 1121,
+          "true_like_count": 0,
+          "value_counts": {
+            "14.0": 1121
+          }
+        },
+        "target_book": "outputs\\run_28725350727_user_operating_artifact\\outputs\\alphaops_vnext\\official_main_target_book.csv"
+      }
+    },
+    "status": "telemetry_only_pending_counterfactual"
+  },
+  "live_trading_enabled": false,
+  "metric_sidecar": {
+    "arms": {
+      "generated_book_cash_carry": {
+        "all_targets_pass": false,
+        "portfolios": {
+          "concentrated": {
+            "arm": "generated_book_cash_carry",
+            "avg_cash_weight": 0.41049961091841974,
+            "cagr": 0.48405282381071246,
+            "cash_interest_accrued_usd": 26480.134921309153,
+            "end_date": "2026-07-02",
+            "ending_capital_usd": 1636347.5411313293,
+            "live_trading_enabled": false,
+            "max_dd": -0.22955203584248118,
+            "metric_mode": "broker_ledger_next_close_cash_carry",
+            "metrics_path": "outputs\\run287_metric_sidecar\\generated_book_cash_carry\\concentrated\\metrics.json",
+            "portfolio": "concentrated",
+            "production_evidence_valid": false,
+            "production_promotion_allowed": false,
+            "public_display_allowed": false,
+            "sharpe": 1.4875164756773855,
+            "start_date": "2019-06-03",
+            "status": "completed",
+            "target_book_source": "generated_book_latest_replay",
+            "target_pass": false
+          },
+          "main": {
+            "arm": "generated_book_cash_carry",
+            "avg_cash_weight": 0.2935881289342374,
+            "cagr": 0.3380570601271662,
+            "cash_interest_accrued_usd": 13650.81505368507,
+            "end_date": "2026-07-02",
+            "ending_capital_usd": 786051.1293153978,
+            "live_trading_enabled": false,
+            "max_dd": -0.25361933512789125,
+            "metric_mode": "broker_ledger_next_close_cash_carry",
+            "metrics_path": "outputs\\run287_metric_sidecar\\generated_book_cash_carry\\main\\metrics.json",
+            "portfolio": "main",
+            "production_evidence_valid": false,
+            "production_promotion_allowed": false,
+            "public_display_allowed": false,
+            "sharpe": 1.262090497381186,
+            "start_date": "2019-06-03",
+            "status": "completed",
+            "target_book_source": "generated_book_latest_replay",
+            "target_pass": false
+          }
+        },
+        "status": "completed"
+      },
+      "generated_book_zero_yield": {
+        "all_targets_pass": false,
+        "portfolios": {
+          "concentrated": {
+            "arm": "generated_book_zero_yield",
+            "avg_cash_weight": 0.41031429155456056,
+            "cagr": 0.470016069512182,
+            "cash_interest_accrued_usd": null,
+            "end_date": "2026-07-02",
+            "ending_capital_usd": 1529868.4400708075,
+            "live_trading_enabled": false,
+            "max_dd": -0.23221642590645364,
+            "metric_mode": "broker_ledger_next_close",
+            "metrics_path": "outputs\\run287_metric_sidecar\\generated_book_zero_yield\\concentrated\\metrics.json",
+            "portfolio": "concentrated",
+            "production_evidence_valid": false,
+            "production_promotion_allowed": false,
+            "public_display_allowed": false,
+            "sharpe": 1.454822339342857,
+            "start_date": "2019-06-03",
+            "status": "completed",
+            "target_book_source": "generated_book_latest_replay",
+            "target_pass": false
+          },
+          "main": {
+            "arm": "generated_book_zero_yield",
+            "avg_cash_weight": 0.2934185380359638,
+            "cagr": 0.3294036271548193,
+            "cash_interest_accrued_usd": null,
+            "end_date": "2026-07-02",
+            "ending_capital_usd": 750759.3004592421,
+            "live_trading_enabled": false,
+            "max_dd": -0.256526842052752,
+            "metric_mode": "broker_ledger_next_close",
+            "metrics_path": "outputs\\run287_metric_sidecar\\generated_book_zero_yield\\main\\metrics.json",
+            "portfolio": "main",
+            "production_evidence_valid": false,
+            "production_promotion_allowed": false,
+            "public_display_allowed": false,
+            "sharpe": 1.2368251517302977,
+            "start_date": "2019-06-03",
+            "status": "completed",
+            "target_book_source": "generated_book_latest_replay",
+            "target_pass": false
+          }
+        },
+        "status": "completed"
+      },
+      "official_run287_zero_yield": {
+        "all_targets_pass": false,
+        "portfolios": {
+          "concentrated": {
+            "arm": "official_run287_zero_yield",
+            "avg_cash_weight": 0.4103536165414282,
+            "cagr": 0.46988319326463657,
+            "cash_interest_accrued_usd": null,
+            "end_date": "2026-07-02",
+            "ending_capital_usd": 1528889.6302563588,
+            "live_trading_enabled": false,
+            "max_dd": -0.23222939116159713,
+            "metric_mode": "broker_ledger_next_close",
+            "metrics_path": "outputs\\run_28725350727_user_operating_artifact\\outputs\\broker_replay\\concentrated\\metrics.json",
+            "portfolio": "concentrated",
+            "production_evidence_valid": false,
+            "production_promotion_allowed": false,
+            "public_display_allowed": false,
+            "sharpe": 1.454733358301226,
+            "start_date": "2019-06-03",
+            "status": "completed",
+            "target_book_source": "official_run287_artifact",
+            "target_pass": false
+          },
+          "main": {
+            "arm": "official_run287_zero_yield",
+            "avg_cash_weight": 0.293400029333965,
+            "cagr": 0.32939264206293095,
+            "cash_interest_accrued_usd": null,
+            "end_date": "2026-07-02",
+            "ending_capital_usd": 750715.3791839257,
+            "live_trading_enabled": false,
+            "max_dd": -0.2565269024185842,
+            "metric_mode": "broker_ledger_next_close",
+            "metrics_path": "outputs\\run_28725350727_user_operating_artifact\\outputs\\broker_replay\\main\\metrics.json",
+            "portfolio": "main",
+            "production_evidence_valid": false,
+            "production_promotion_allowed": false,
+            "public_display_allowed": false,
+            "sharpe": 1.2367560856453923,
+            "start_date": "2019-06-03",
+            "status": "completed",
+            "target_book_source": "official_run287_artifact",
+            "target_pass": false
+          }
+        },
+        "status": "completed"
+      }
+    },
+    "latest_generated_book_cash_carry_pass": false,
+    "sidecar_root": "outputs\\run287_metric_sidecar",
+    "status": "completed"
+  },
+  "new_fullrun_dispatched": false,
+  "next_action": "write_negative_evidence_and_prioritize_w1_window_book_drift_before_new_alpha",
+  "official_account_evaluation": {
+    "official_metric_mode": "broker_ledger_next_close",
+    "portfolios": {
+      "concentrated": {
+        "avg_cash_weight": 0.4103536165414282,
+        "broker_ledger_actual_trading_days": 1784,
+        "broker_ledger_calendar_trading_days": 1784,
+        "broker_ledger_observed_equity_days": 1781,
+        "broker_ledger_trading_days_estimate": 1784,
+        "broker_ledger_window_gate": {
+          "actual_trading_days": 1784,
+          "broker_start_date": "2019-06-03",
+          "broker_start_evaluation_drift_days": 0,
+          "broker_starts_before_official_start": false,
+          "calendar_trading_day_count": 1784,
+          "data_readiness": {
+            "known_gaps_count": 0,
+            "ready_for_fullrun": true,
+            "ready_for_policy_replay": true,
+            "status": "warn"
+          },
+          "end_date": "2026-07-02",
+          "equity_curve_observed_day_count": 1781,
+          "equity_curve_window": {
+            "calendar_trading_day_count": 1784,
+            "end_date": "2026-07-02",
+            "equity_curve_observed_day_count": 1781,
+            "exists": true,
+            "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/equity_curve.csv",
+            "start_date": "2019-06-03",
+            "trading_day_count": 1784
+          },
+          "estimated_trading_days": 1784,
+          "evaluation_start_date": "2019-06-03",
+          "evidence_window_label": "research_7y",
+          "max_broker_start_evaluation_drift_days": 35,
+          "min_trading_days": 1764,
+          "min_years": 7.0,
+          "official_backtest_start_date": "2019-06-03",
+          "official_backtest_window_years": 7.0,
+          "official_start_proxy_grace_days": 35,
+          "official_window_tolerance_years": 0.05,
+          "pit_universe_label_clean": false,
+          "production_promotion_allowed": false,
+          "proxy_8y_10y_evidence_blocked": true,
+          "proxy_window_blocker_reason": "pit_universe_label_missing",
+          "reasons": [],
+          "research_acceptable": true,
+          "research_window_tolerance_floor_trading_days": 1738,
+          "research_window_tolerance_floor_years": 6.9,
+          "start_date": "2019-06-03",
+          "status": "ok",
+          "trading_days_estimate": 1784,
+          "valid": true,
+          "window_classification": "valid_7y",
+          "years": 7.080082135523614
+        },
+        "broker_start_evaluation_drift_days": 0,
+        "broker_trade_count": 724,
+        "cagr": 0.46988319326463657,
+        "cagr_gap_pp": 3.0117,
+        "cagr_target": 0.5,
+        "canonical_cagr_target": 0.5,
+        "canonical_max_dd_target": -0.25,
+        "data_readiness_policy_replay_ready": true,
+        "data_readiness_status": "warn",
+        "end_date": "2026-07-02",
+        "ending_capital_usd": 1528889.6302563588,
+        "evaluation_start_date": "2019-06-03",
+        "evidence_window_label": "research_7y",
+        "gross_traded_usd": 24072542.436145306,
+        "is_cagr": 0.2646707932012553,
+        "is_mdd": -0.21064326185476112,
+        "journal_avg_holding_days": 47.363028953229396,
+        "journal_avg_realized_return": 0.10341205051962872,
+        "journal_profit_factor": 3.744159065812263,
+        "journal_status": "completed",
+        "journal_trade_count": 449,
+        "journal_win_rate": 0.5879732739420935,
+        "latest_cash_usd": 258055.64914673963,
+        "latest_cash_weight": 0.16878631657896048,
+        "latest_equity_usd": 1528889.6302563588,
+        "latest_position_count": 5,
+        "legacy_cagr": 0.5362383574355736,
+        "legacy_max_dd": -0.23103703270085751,
+        "legacy_metric_mode": "weight_level_research_comparison",
+        "legacy_sharpe": 1.6891558544985115,
+        "max_dd": -0.23222939116159713,
+        "max_dd_gap_pp": 0.0,
+        "max_dd_target": -0.28,
+        "official_metric_mode": "broker_ledger_next_close",
+        "official_source": "broker_replay/concentrated/metrics.json",
+        "oos_cagr": 1.1613940273613825,
+        "order_preview_blocked_count": 0,
+        "order_preview_buy_count": 1,
+        "order_preview_count": 5,
+        "order_preview_sell_count": 4,
+        "order_preview_status": "completed",
+        "pit_universe_label_clean": false,
+        "portfolio": "concentrated",
+        "production_promotion_allowed": false,
+        "recent_mdd": -0.23222939116159713,
+        "sharpe": 1.454733358301226,
+        "start_date": "2019-06-03",
+        "starting_capital_usd": 100000.0,
+        "status": "completed",
+        "strengthened_pass": false,
+        "target_contract": {
+          "active_gate": {
+            "cagr": 0.5,
+            "max_dd": -0.28
+          },
+          "canonical_mission": {
+            "cagr": 0.5,
+            "max_dd": -0.25
+          },
+          "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+          "status": "unresolved_user_decision_required",
+          "target_type": "interim_operating_gate"
+        },
+        "target_contract_status": "unresolved_user_decision_required",
+        "target_pass": false,
+        "target_type": "interim_operating_gate",
+        "tier2_failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max"
+        ],
+        "tier2_gates": {
+          "checks": {
+            "avg_cash_weight_max": {
+              "pass": true,
+              "threshold": 0.55,
+              "value": 0.4103536165414282
+            },
+            "is_cagr_min": {
+              "pass": false,
+              "threshold": 0.3,
+              "value": 0.2646707932012553
+            },
+            "max_dd_recent_3y_min": {
+              "pass": true,
+              "threshold": -0.25,
+              "value": -0.23222939116159713
+            },
+            "oos_is_cagr_ratio_max": {
+              "pass": false,
+              "threshold": 3.0,
+              "value": 4.38807022608747
+            },
+            "sharpe_min": {
+              "pass": true,
+              "threshold": 1.4,
+              "value": 1.454733358301226
+            }
+          },
+          "failing": [
+            "is_cagr_min",
+            "oos_is_cagr_ratio_max"
+          ],
+          "is_cagr": 0.2646707932012553,
+          "is_mdd": -0.21064326185476112,
+          "oos_cagr": 1.1613940273613825,
+          "passing": false,
+          "recent_mdd": -0.23222939116159713
+        },
+        "total_fees_usd": 60181.35609036326,
+        "total_return": 14.288896302563588,
+        "valid_for_production": true,
+        "verdict_status": "ok",
+        "years": 7.080082135523614
+      },
+      "main": {
+        "avg_cash_weight": 0.293400029333965,
+        "broker_ledger_actual_trading_days": 1784,
+        "broker_ledger_calendar_trading_days": 1784,
+        "broker_ledger_observed_equity_days": 1781,
+        "broker_ledger_trading_days_estimate": 1784,
+        "broker_ledger_window_gate": {
+          "actual_trading_days": 1784,
+          "broker_start_date": "2019-06-03",
+          "broker_start_evaluation_drift_days": 0,
+          "broker_starts_before_official_start": false,
+          "calendar_trading_day_count": 1784,
+          "data_readiness": {
+            "known_gaps_count": 0,
+            "ready_for_fullrun": true,
+            "ready_for_policy_replay": true,
+            "status": "warn"
+          },
+          "end_date": "2026-07-02",
+          "equity_curve_observed_day_count": 1781,
+          "equity_curve_window": {
+            "calendar_trading_day_count": 1784,
+            "end_date": "2026-07-02",
+            "equity_curve_observed_day_count": 1781,
+            "exists": true,
+            "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main/equity_curve.csv",
+            "start_date": "2019-06-03",
+            "trading_day_count": 1784
+          },
+          "estimated_trading_days": 1784,
+          "evaluation_start_date": "2019-06-03",
+          "evidence_window_label": "research_7y",
+          "max_broker_start_evaluation_drift_days": 35,
+          "min_trading_days": 1764,
+          "min_years": 7.0,
+          "official_backtest_start_date": "2019-06-03",
+          "official_backtest_window_years": 7.0,
+          "official_start_proxy_grace_days": 35,
+          "official_window_tolerance_years": 0.05,
+          "pit_universe_label_clean": false,
+          "production_promotion_allowed": false,
+          "proxy_8y_10y_evidence_blocked": true,
+          "proxy_window_blocker_reason": "pit_universe_label_missing",
+          "reasons": [],
+          "research_acceptable": true,
+          "research_window_tolerance_floor_trading_days": 1738,
+          "research_window_tolerance_floor_years": 6.9,
+          "start_date": "2019-06-03",
+          "status": "ok",
+          "trading_days_estimate": 1784,
+          "valid": true,
+          "window_classification": "valid_7y",
+          "years": 7.080082135523614
+        },
+        "broker_start_evaluation_drift_days": 0,
+        "broker_trade_count": 1612,
+        "cagr": 0.32939264206293095,
+        "cagr_gap_pp": 0.0,
+        "cagr_target": 0.3,
+        "canonical_cagr_target": 0.35,
+        "canonical_max_dd_target": -0.25,
+        "data_readiness_policy_replay_ready": true,
+        "data_readiness_status": "warn",
+        "end_date": "2026-07-02",
+        "ending_capital_usd": 750715.3791839257,
+        "evaluation_start_date": "2019-06-03",
+        "evidence_window_label": "research_7y",
+        "gross_traded_usd": 16691872.673544407,
+        "is_cagr": 0.22032684461908558,
+        "is_mdd": -0.2565269024185842,
+        "journal_avg_holding_days": 57.248359887535145,
+        "journal_avg_realized_return": 0.11967696952609112,
+        "journal_profit_factor": 4.011849415371158,
+        "journal_status": "completed",
+        "journal_trade_count": 1067,
+        "journal_win_rate": 0.5838800374882849,
+        "latest_cash_usd": 82783.71734157948,
+        "latest_cash_weight": 0.11027310700837184,
+        "latest_equity_usd": 750715.3791839257,
+        "latest_position_count": 14,
+        "legacy_cagr": 0.3380735179564074,
+        "legacy_max_dd": -0.15337848951733246,
+        "legacy_metric_mode": "weight_level_research_comparison",
+        "legacy_sharpe": 1.8737487044942487,
+        "max_dd": -0.2565269024185842,
+        "max_dd_gap_pp": 0.6527,
+        "max_dd_target": -0.25,
+        "official_metric_mode": "broker_ledger_next_close",
+        "official_source": "broker_replay/main/metrics.json",
+        "oos_cagr": 0.6617417778361729,
+        "order_preview_blocked_count": 0,
+        "order_preview_buy_count": 6,
+        "order_preview_count": 13,
+        "order_preview_sell_count": 7,
+        "order_preview_status": "completed",
+        "pit_universe_label_clean": false,
+        "portfolio": "main",
+        "production_promotion_allowed": false,
+        "recent_mdd": -0.20701961888552012,
+        "sharpe": 1.2367560856453923,
+        "start_date": "2019-06-03",
+        "starting_capital_usd": 100000.0,
+        "status": "completed",
+        "strengthened_pass": false,
+        "target_contract": {
+          "active_gate": {
+            "cagr": 0.3,
+            "max_dd": -0.25
+          },
+          "canonical_mission": {
+            "cagr": 0.35,
+            "max_dd": -0.25
+          },
+          "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+          "status": "unresolved_user_decision_required",
+          "target_type": "interim_operating_gate"
+        },
+        "target_contract_status": "unresolved_user_decision_required",
+        "target_pass": false,
+        "target_type": "interim_operating_gate",
+        "tier2_failing": [
+          "is_cagr_min",
+          "oos_is_cagr_ratio_max"
+        ],
+        "tier2_gates": {
+          "checks": {
+            "avg_cash_weight_max": {
+              "pass": true,
+              "threshold": 0.55,
+              "value": 0.293400029333965
+            },
+            "is_cagr_min": {
+              "pass": false,
+              "threshold": 0.25,
+              "value": 0.22032684461908558
+            },
+            "max_dd_recent_3y_min": {
+              "pass": true,
+              "threshold": -0.25,
+              "value": -0.20701961888552012
+            },
+            "oos_is_cagr_ratio_max": {
+              "pass": false,
+              "threshold": 3.0,
+              "value": 3.0034550668586584
+            },
+            "sharpe_min": {
+              "pass": true,
+              "threshold": 1.2,
+              "value": 1.2367560856453923
+            }
+          },
+          "failing": [
+            "is_cagr_min",
+            "oos_is_cagr_ratio_max"
+          ],
+          "is_cagr": 0.22032684461908558,
+          "is_mdd": -0.2565269024185842,
+          "oos_cagr": 0.6617417778361729,
+          "passing": false,
+          "recent_mdd": -0.20701961888552012
+        },
+        "total_fees_usd": 41729.68168386102,
+        "total_return": 6.507153791839257,
+        "valid_for_production": true,
+        "verdict_status": "ok",
+        "years": 7.080082135523614
+      }
+    },
+    "production_promotion_allowed": false,
+    "production_target_pass": false,
+    "schema_version": "account-evaluation-v1",
+    "strengthened_pass": false,
+    "target_contract": {
+      "active_gate": {
+        "concentrated": {
+          "cagr": 0.5,
+          "max_dd": -0.28
+        },
+        "main": {
+          "cagr": 0.3,
+          "max_dd": -0.25
+        }
+      },
+      "active_target_type": "interim_operating_gate",
+      "canonical_mission": {
+        "concentrated": {
+          "cagr": 0.5,
+          "max_dd": -0.25
+        },
+        "main": {
+          "cagr": 0.35,
+          "max_dd": -0.25
+        }
+      },
+      "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+      "status": "unresolved_user_decision_required"
+    },
+    "target_contract_status": "unresolved_user_decision_required",
+    "target_type": "interim_operating_gate"
+  },
+  "official_run287_zero_yield_metrics": {
+    "concentrated": {
+      "actual_equity_curve_end_date": "2026-07-02",
+      "avg_cash_weight": 0.4103536165414282,
+      "cagr": 0.46988319326463657,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 1528889.6302563588,
+      "max_dd": -0.23222939116159713,
+      "metric_mode": "broker_ledger_next_close",
+      "replay_end_date_clamped": false,
+      "sharpe": 1.454733358301226,
+      "start_date": "2019-06-03",
+      "starting_capital_usd": 100000.0,
+      "status": "completed",
+      "trade_count": 724
+    },
+    "main": {
+      "actual_equity_curve_end_date": "2026-07-02",
+      "avg_cash_weight": 0.293400029333965,
+      "cagr": 0.32939264206293095,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 750715.3791839257,
+      "max_dd": -0.2565269024185842,
+      "metric_mode": "broker_ledger_next_close",
+      "replay_end_date_clamped": false,
+      "sharpe": 1.2367560856453923,
+      "start_date": "2019-06-03",
+      "starting_capital_usd": 100000.0,
+      "status": "completed",
+      "trade_count": 1612
+    }
+  },
+  "pit_universe_label_clean": false,
+  "production_blocker": "pit_universe_label_clean_false",
+  "production_promotion_allowed": false,
+  "public_display_allowed": false,
+  "run_id": "28725350727",
+  "schema_version": "run287-forensics-v1",
+  "status": "completed",
+  "target_book_drift": {
+    "concentrated": {
+      "average_l1_weight_diff": 0.13113091952064598,
+      "average_ticker_overlap": 0.8235544217687075,
+      "common_date_count": 84,
+      "frozen_book_sha256": "02d6583eddfc0126859fcea7d64d62620e5ce313a4767f4a507f2390919d284c",
+      "frozen_only_date_count": 1,
+      "frozen_target_book": "outputs\\policy_path_combo_probe_20260704_final_candidate\\official_concentrated_target_book.csv",
+      "generated_book_sha256": "3fa0f6fa0aa41aa3ec830f476dae5e94882527a7f520531b80390bfbddb26a78",
+      "generated_only_date_count": 2,
+      "generated_target_book": "outputs\\run_28725350727_user_operating_artifact\\outputs\\alphaops_vnext\\official_concentrated_target_book.csv",
+      "max_l1_weight_diff": 0.8544313846387789,
+      "min_ticker_overlap": 0.0,
+      "proxy_delta_return_sum": -0.10683388263080137,
+      "top_drift_months": [
+        {
+          "added_ticker_count": 2,
+          "added_weight": 0.1120999999999999,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.2178602094783291,
+          "frozen_ticker_count": 5,
+          "generated_ticker_count": 6,
+          "l1_weight_diff": 0.37246423868333417,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.1038726317669756,
+          "rebalance_date": "2019-07-31",
+          "ticker_overlap_jaccard": 0.5714285714285714
+        },
+        {
+          "added_ticker_count": 2,
+          "added_weight": 0.0922424998453287,
+          "dropped_ticker_count": 2,
+          "dropped_weight": 0.1778909375857496,
+          "frozen_ticker_count": 6,
+          "generated_ticker_count": 6,
+          "l1_weight_diff": 0.8544313846387789,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.0798581835126641,
+          "rebalance_date": "2024-10-31",
+          "ticker_overlap_jaccard": 0.5
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.1379373840614554,
+          "dropped_ticker_count": 2,
+          "dropped_weight": 0.2707318973208014,
+          "frozen_ticker_count": 6,
+          "generated_ticker_count": 5,
+          "l1_weight_diff": 0.5272576096287015,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.05579128225498302,
+          "rebalance_date": "2024-02-29",
+          "ticker_overlap_jaccard": 0.5714285714285714
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.176897149090447,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.1527109513562247,
+          "frozen_ticker_count": 5,
+          "generated_ticker_count": 5,
+          "l1_weight_diff": 0.41146374579801215,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.04372002429943639,
+          "rebalance_date": "2024-11-29",
+          "ticker_overlap_jaccard": 0.6666666666666666
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.0521181576841639,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.0426655544692922,
+          "frozen_ticker_count": 6,
+          "generated_ticker_count": 6,
+          "l1_weight_diff": 0.11211350315738883,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.03321826311506661,
+          "rebalance_date": "2026-01-30",
+          "ticker_overlap_jaccard": 0.7142857142857143
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.1063399382028439,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.08,
+          "frozen_ticker_count": 6,
+          "generated_ticker_count": 6,
+          "l1_weight_diff": 0.27391587863380795,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.022363879429861504,
+          "rebalance_date": "2021-10-29",
+          "ticker_overlap_jaccard": 0.7142857142857143
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.0987554651484675,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.1139999999999999,
+          "frozen_ticker_count": 5,
+          "generated_ticker_count": 5,
+          "l1_weight_diff": 0.4536665039526775,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.021258432067794472,
+          "rebalance_date": "2022-11-30",
+          "ticker_overlap_jaccard": 0.6666666666666666
+        },
+        {
+          "added_ticker_count": 2,
+          "added_weight": 0.1733059174735285,
+          "dropped_ticker_count": 2,
+          "dropped_weight": 0.1927689666338689,
+          "frozen_ticker_count": 6,
+          "generated_ticker_count": 6,
+          "l1_weight_diff": 0.36607488410739736,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.013109230867688546,
+          "rebalance_date": "2021-02-26",
+          "ticker_overlap_jaccard": 0.5
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.1230994555633436,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.1280895643195554,
+          "frozen_ticker_count": 6,
+          "generated_ticker_count": 6,
+          "l1_weight_diff": 0.4537791286391112,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.009998711890517552,
+          "rebalance_date": "2025-05-30",
+          "ticker_overlap_jaccard": 0.7142857142857143
+        },
+        {
+          "added_ticker_count": 0,
+          "added_weight": 0.0,
+          "dropped_ticker_count": 0,
+          "dropped_weight": 0.0,
+          "frozen_ticker_count": 5,
+          "generated_ticker_count": 5,
+          "l1_weight_diff": 0.027621783458357016,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.0084975953823825,
+          "rebalance_date": "2019-12-31",
+          "ticker_overlap_jaccard": 1.0
+        }
+      ],
+      "top_negative_tickers": [
+        {
+          "abs_delta_weight": 0.2271807061406281,
+          "changed_dates": 2,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.09794354179441611,
+          "ticker": "ROKU"
+        },
+        {
+          "abs_delta_weight": 0.2006794357894274,
+          "changed_dates": 2,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.043892731451817484,
+          "ticker": "UAL"
+        },
+        {
+          "abs_delta_weight": 0.3018376255820262,
+          "changed_dates": 6,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.041365865383574195,
+          "ticker": "PLTR"
+        },
+        {
+          "abs_delta_weight": 0.2156318973208014,
+          "changed_dates": 1,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.028881969265259065,
+          "ticker": "SMCI"
+        },
+        {
+          "abs_delta_weight": 0.09709164962994013,
+          "changed_dates": 5,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.028186457745073064,
+          "ticker": "LITE"
+        },
+        {
+          "abs_delta_weight": 0.18966637739552478,
+          "changed_dates": 2,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.01950350072663571,
+          "ticker": "VST"
+        },
+        {
+          "abs_delta_weight": 0.076,
+          "changed_dates": 1,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.018390946531658504,
+          "ticker": "RKLB"
+        },
+        {
+          "abs_delta_weight": 0.1063399382028439,
+          "changed_dates": 1,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.01807330948431291,
+          "ticker": "PCTY"
+        },
+        {
+          "abs_delta_weight": 0.11694249303878299,
+          "changed_dates": 7,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.017304502826546473,
+          "ticker": "CIEN"
+        },
+        {
+          "abs_delta_weight": 0.5008796153630691,
+          "changed_dates": 5,
+          "portfolio": "concentrated",
+          "proxy_delta_return": -0.015496739507445977,
+          "ticker": "LVS"
+        }
+      ]
+    },
+    "main": {
+      "average_l1_weight_diff": 0.11768602723635677,
+      "average_ticker_overlap": 0.8600404011643509,
+      "common_date_count": 84,
+      "frozen_book_sha256": "f4f5e1b2e877db46f93e7e09727efadd4c91cbe9bbefdd86f400e6fce7b8626b",
+      "frozen_only_date_count": 1,
+      "frozen_target_book": "outputs\\policy_path_combo_probe_20260704_final_candidate\\official_main_target_book.csv",
+      "generated_book_sha256": "3e863068e118af3f832b9490defc38baa9f4b0718e024e2870f44bd27a979f22",
+      "generated_only_date_count": 2,
+      "generated_target_book": "outputs\\run_28725350727_user_operating_artifact\\outputs\\alphaops_vnext\\official_main_target_book.csv",
+      "max_l1_weight_diff": 0.5270004837892874,
+      "min_ticker_overlap": 0.42857142857142855,
+      "proxy_delta_return_sum": -0.042808666309813184,
+      "top_drift_months": [
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.0486211846479298,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.0486211846479298,
+          "frozen_ticker_count": 14,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.0972423692958596,
+          "portfolio": "main",
+          "proxy_delta_return": -0.03046283856084788,
+          "rebalance_date": "2020-07-31",
+          "ticker_overlap_jaccard": 0.8666666666666667
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.0787915763623319,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.0375844067721271,
+          "frozen_ticker_count": 9,
+          "generated_ticker_count": 9,
+          "l1_weight_diff": 0.23340610143281904,
+          "portfolio": "main",
+          "proxy_delta_return": -0.023461408475852645,
+          "rebalance_date": "2024-10-31",
+          "ticker_overlap_jaccard": 0.8
+        },
+        {
+          "added_ticker_count": 3,
+          "added_weight": 0.119034021264629,
+          "dropped_ticker_count": 2,
+          "dropped_weight": 0.071634177294288,
+          "frozen_ticker_count": 13,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.30891636741184214,
+          "portfolio": "main",
+          "proxy_delta_return": -0.017763007178931003,
+          "rebalance_date": "2020-05-29",
+          "ticker_overlap_jaccard": 0.6875
+        },
+        {
+          "added_ticker_count": 4,
+          "added_weight": 0.1776075417474948,
+          "dropped_ticker_count": 2,
+          "dropped_weight": 0.06313995112632781,
+          "frozen_ticker_count": 12,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.3087646967917958,
+          "portfolio": "main",
+          "proxy_delta_return": -0.016695809498813732,
+          "rebalance_date": "2024-05-31",
+          "ticker_overlap_jaccard": 0.625
+        },
+        {
+          "added_ticker_count": 3,
+          "added_weight": 0.191783546979885,
+          "dropped_ticker_count": 3,
+          "dropped_weight": 0.22824720567781331,
+          "frozen_ticker_count": 14,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.5270004837892874,
+          "portfolio": "main",
+          "proxy_delta_return": -0.014590814400465654,
+          "rebalance_date": "2021-06-30",
+          "ticker_overlap_jaccard": 0.6470588235294118
+        },
+        {
+          "added_ticker_count": 0,
+          "added_weight": 0.0,
+          "dropped_ticker_count": 0,
+          "dropped_weight": 0.0,
+          "frozen_ticker_count": 13,
+          "generated_ticker_count": 13,
+          "l1_weight_diff": 0.0717192568553695,
+          "portfolio": "main",
+          "proxy_delta_return": -0.013015414202067872,
+          "rebalance_date": "2026-01-30",
+          "ticker_overlap_jaccard": 1.0
+        },
+        {
+          "added_ticker_count": 3,
+          "added_weight": 0.0651006901270258,
+          "dropped_ticker_count": 3,
+          "dropped_weight": 0.17537466297303742,
+          "frozen_ticker_count": 14,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.3441095802216453,
+          "portfolio": "main",
+          "proxy_delta_return": -0.010120497607465789,
+          "rebalance_date": "2023-05-31",
+          "ticker_overlap_jaccard": 0.6470588235294118
+        },
+        {
+          "added_ticker_count": 1,
+          "added_weight": 0.0318466036076843,
+          "dropped_ticker_count": 1,
+          "dropped_weight": 0.0829018853995929,
+          "frozen_ticker_count": 14,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.1866284754401756,
+          "portfolio": "main",
+          "proxy_delta_return": -0.009808389620567142,
+          "rebalance_date": "2022-07-29",
+          "ticker_overlap_jaccard": 0.8666666666666667
+        },
+        {
+          "added_ticker_count": 4,
+          "added_weight": 0.0632066955293574,
+          "dropped_ticker_count": 4,
+          "dropped_weight": 0.1166724951688442,
+          "frozen_ticker_count": 14,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.2538368953073873,
+          "portfolio": "main",
+          "proxy_delta_return": -0.009321648508563209,
+          "rebalance_date": "2022-08-31",
+          "ticker_overlap_jaccard": 0.5555555555555556
+        },
+        {
+          "added_ticker_count": 0,
+          "added_weight": 0.0,
+          "dropped_ticker_count": 0,
+          "dropped_weight": 0.0,
+          "frozen_ticker_count": 14,
+          "generated_ticker_count": 14,
+          "l1_weight_diff": 0.1829410929231213,
+          "portfolio": "main",
+          "proxy_delta_return": -0.008745628303325455,
+          "rebalance_date": "2025-10-31",
+          "ticker_overlap_jaccard": 1.0
+        }
+      ],
+      "top_negative_tickers": [
+        {
+          "abs_delta_weight": 0.2525895726461635,
+          "changed_dates": 4,
+          "portfolio": "main",
+          "proxy_delta_return": -0.02452568465357301,
+          "ticker": "CXT"
+        },
+        {
+          "abs_delta_weight": 0.363224446683845,
+          "changed_dates": 5,
+          "portfolio": "main",
+          "proxy_delta_return": -0.023464717099776405,
+          "ticker": "ZM"
+        },
+        {
+          "abs_delta_weight": 0.0640531750078803,
+          "changed_dates": 3,
+          "portfolio": "main",
+          "proxy_delta_return": -0.01487588592889571,
+          "ticker": "BEAM"
+        },
+        {
+          "abs_delta_weight": 0.3230048640627162,
+          "changed_dates": 9,
+          "portfolio": "main",
+          "proxy_delta_return": -0.014249767597882733,
+          "ticker": "LNG"
+        },
+        {
+          "abs_delta_weight": 0.0665812202321562,
+          "changed_dates": 6,
+          "portfolio": "main",
+          "proxy_delta_return": -0.012217726839766423,
+          "ticker": "COHR"
+        },
+        {
+          "abs_delta_weight": 0.049977865866061406,
+          "changed_dates": 3,
+          "portfolio": "main",
+          "proxy_delta_return": -0.01090024021559971,
+          "ticker": "UAL"
+        },
+        {
+          "abs_delta_weight": 0.0653336703897135,
+          "changed_dates": 14,
+          "portfolio": "main",
+          "proxy_delta_return": -0.009891251619611787,
+          "ticker": "LITE"
+        },
+        {
+          "abs_delta_weight": 0.09372944211643412,
+          "changed_dates": 8,
+          "portfolio": "main",
+          "proxy_delta_return": -0.009056050847981886,
+          "ticker": "NRG"
+        },
+        {
+          "abs_delta_weight": 0.1316868724925514,
+          "changed_dates": 2,
+          "portfolio": "main",
+          "proxy_delta_return": -0.009045435760033976,
+          "ticker": "FLNC"
+        },
+        {
+          "abs_delta_weight": 0.06279437514521422,
+          "changed_dates": 4,
+          "portfolio": "main",
+          "proxy_delta_return": -0.00802463735910628,
+          "ticker": "EXP"
+        }
+      ]
+    }
+  },
+  "threshold_tuning_performed": false,
+  "window_attribution": {
+    "concentrated": {
+      "actual_end": {
+        "avg_cash_weight": 0.4103536165414282,
+        "cagr": 0.46988319326463657,
+        "end_date": "2026-07-02",
+        "ending_capital_usd": 1528889.6302563588,
+        "max_dd": -0.23222939116159724,
+        "metric_mode": "broker_ledger_next_close",
+        "sharpe": 1.454733358301225,
+        "start_date": "2019-06-03",
+        "starting_capital_usd": 100000.0,
+        "status": "completed",
+        "trade_count": 724
+      },
+      "clamp_end": {
+        "avg_cash_weight": 0.4107808095692915,
+        "cagr": 0.49230792864720696,
+        "end_date": "2026-06-29",
+        "ending_capital_usd": 1696305.5578839222,
+        "max_dd": -0.23222939116159724,
+        "metric_mode": "broker_ledger_next_close",
+        "sharpe": 1.5185472009402625,
+        "start_date": "2019-06-03",
+        "starting_capital_usd": 100000.0,
+        "status": "completed",
+        "trade_count": 724
+      },
+      "delta_actual_minus_clamp": {
+        "cagr": -0.022424735382570393,
+        "cagr_pp": -2.2424735382570393,
+        "ending_capital_pct": -0.09869444030850705,
+        "ending_capital_usd": -167415.92762756348
+      },
+      "official_metrics_reproduced": true
+    },
+    "main": {
+      "actual_end": {
+        "avg_cash_weight": 0.2934000293339649,
+        "cagr": 0.32939264206293095,
+        "end_date": "2026-07-02",
+        "ending_capital_usd": 750715.3791839257,
+        "max_dd": -0.2565269024185842,
+        "metric_mode": "broker_ledger_next_close",
+        "sharpe": 1.2367560856453905,
+        "start_date": "2019-06-03",
+        "starting_capital_usd": 100000.0,
+        "status": "completed",
+        "trade_count": 1612
+      },
+      "clamp_end": {
+        "avg_cash_weight": 0.2937201406316689,
+        "cagr": 0.34697324101939064,
+        "end_date": "2026-06-29",
+        "ending_capital_usd": 821882.2903930321,
+        "max_dd": -0.2565269024185842,
+        "metric_mode": "broker_ledger_next_close",
+        "sharpe": 1.2967538168866786,
+        "start_date": "2019-06-03",
+        "starting_capital_usd": 100000.0,
+        "status": "completed",
+        "trade_count": 1612
+      },
+      "delta_actual_minus_clamp": {
+        "cagr": -0.017580598956459692,
+        "cagr_pp": -1.7580598956459692,
+        "ending_capital_pct": -0.08659015048867125,
+        "ending_capital_usd": -71166.91120910645
+      },
+      "official_metrics_reproduced": true
+    }
+  }
+}

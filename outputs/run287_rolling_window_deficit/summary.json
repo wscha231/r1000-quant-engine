@@ -1,0 +1,218 @@
+{
+  "artifacts": {
+    "end_date_metrics": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_rolling_window_deficit\\end_date_metrics.csv",
+    "report": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_rolling_window_deficit\\report.md",
+    "summary": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_rolling_window_deficit\\summary.json"
+  },
+  "fullrun_dispatched": false,
+  "lookback_windows": [
+    20,
+    63,
+    126,
+    252
+  ],
+  "metric_mode": "broker_ledger_next_close_cash_carry",
+  "min_trading_days": 252,
+  "portfolios": {
+    "concentrated": {
+      "actual_endpoint": {
+        "cagr": 0.48405282381071246,
+        "cagr_gap_to_target": -0.015947176189287537,
+        "ending_capital_usd": 1636347.5411313293,
+        "endpoint_date": "2026-07-02",
+        "is_actual_end": true,
+        "max_dd": -0.22955203584248118,
+        "max_dd_gap_to_target": 0.020447964157518816,
+        "portfolio": "concentrated",
+        "sharpe": 1.4875164756824204,
+        "target_pass": false,
+        "trading_days": 1781,
+        "years": 7.080082135523614
+      },
+      "delta_actual_minus_pre_shock": {
+        "actual_endpoint": "2026-07-02",
+        "cagr_delta": -0.02266202464871081,
+        "cagr_delta_pp": -2.266202464871081,
+        "ending_capital_delta_pct": -0.09871274422879373,
+        "ending_capital_delta_usd": -179219.61645723833,
+        "max_dd_delta": 0.0,
+        "pre_shock_endpoint": "2026-06-29"
+      },
+      "endpoint_count": 1530,
+      "equity_curve": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_metric_sidecar\\generated_book_cash_carry\\concentrated\\equity_curve.csv",
+      "lookbacks": {
+        "last_126_endpoints": {
+          "actual_cagr_percentile": 0.753968253968254,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 126,
+          "median_cagr": 0.4740083226107913,
+          "median_max_dd": -0.22955203584248118,
+          "target_pass_rate": 0.05555555555555555,
+          "worst_cagr": 0.40692110285351,
+          "worst_cagr_endpoint": "2025-12-31",
+          "worst_max_dd": -0.22955203584248118,
+          "worst_max_dd_endpoint": "2025-12-31"
+        },
+        "last_20_endpoints": {
+          "actual_cagr_percentile": 0.25,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 20,
+          "median_cagr": 0.4978843783638527,
+          "median_max_dd": -0.22955203584248118,
+          "target_pass_rate": 0.35,
+          "worst_cagr": 0.469719807752492,
+          "worst_cagr_endpoint": "2026-06-05",
+          "worst_max_dd": -0.22955203584248118,
+          "worst_max_dd_endpoint": "2026-06-04"
+        },
+        "last_252_endpoints": {
+          "actual_cagr_percentile": 0.876984126984127,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 252,
+          "median_cagr": 0.41530304199306456,
+          "median_max_dd": -0.22955203584248118,
+          "target_pass_rate": 0.027777777777777776,
+          "worst_cagr": 0.2690716505365347,
+          "worst_cagr_endpoint": "2025-07-02",
+          "worst_max_dd": -0.22955203584248118,
+          "worst_max_dd_endpoint": "2025-07-02"
+        },
+        "last_63_endpoints": {
+          "actual_cagr_percentile": 0.5079365079365079,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 63,
+          "median_cagr": 0.48405282381071246,
+          "median_max_dd": -0.22955203584248118,
+          "target_pass_rate": 0.1111111111111111,
+          "worst_cagr": 0.469719807752492,
+          "worst_cagr_endpoint": "2026-06-05",
+          "worst_max_dd": -0.22955203584248118,
+          "worst_max_dd_endpoint": "2026-04-02"
+        }
+      },
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "metrics": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_metric_sidecar\\generated_book_cash_carry\\concentrated\\metrics.json",
+      "portfolio": "concentrated",
+      "pre_shock_endpoint": {
+        "cagr": 0.5067148484594233,
+        "cagr_gap_to_target": 0.006714848459423273,
+        "ending_capital_usd": 1815567.1575885676,
+        "endpoint_date": "2026-06-29",
+        "max_dd": -0.22955203584248118,
+        "max_dd_gap_to_target": 0.020447964157518816,
+        "portfolio": "concentrated",
+        "sharpe": 1.551760408149486,
+        "target_pass": true,
+        "trading_days": 1778,
+        "years": 7.0718685831622174
+      },
+      "target": {
+        "cagr": 0.5,
+        "max_dd": -0.25
+      }
+    },
+    "main": {
+      "actual_endpoint": {
+        "cagr": 0.3380570601271662,
+        "cagr_gap_to_target": -0.011942939872833791,
+        "ending_capital_usd": 786051.1293153978,
+        "endpoint_date": "2026-07-02",
+        "is_actual_end": true,
+        "max_dd": -0.25361933512789125,
+        "max_dd_gap_to_target": -0.0036193351278912544,
+        "portfolio": "main",
+        "sharpe": 1.262090497386076,
+        "target_pass": false,
+        "trading_days": 1781,
+        "years": 7.080082135523614
+      },
+      "delta_actual_minus_pre_shock": {
+        "actual_endpoint": "2026-07-02",
+        "cagr_delta": -0.017683138576118473,
+        "cagr_delta_pp": -1.7683138576118473,
+        "ending_capital_delta_pct": -0.08648402517070553,
+        "ending_capital_delta_usd": -74416.7234359287,
+        "max_dd_delta": 0.0,
+        "pre_shock_endpoint": "2026-06-29"
+      },
+      "endpoint_count": 1530,
+      "equity_curve": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_metric_sidecar\\generated_book_cash_carry\\main\\equity_curve.csv",
+      "lookbacks": {
+        "last_126_endpoints": {
+          "actual_cagr_percentile": 0.753968253968254,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 126,
+          "median_cagr": 0.3185621314203638,
+          "median_max_dd": -0.25361933512789125,
+          "target_pass_rate": 0.0,
+          "worst_cagr": 0.2724296784607807,
+          "worst_cagr_endpoint": "2025-12-31",
+          "worst_max_dd": -0.25361933512789125,
+          "worst_max_dd_endpoint": "2025-12-31"
+        },
+        "last_20_endpoints": {
+          "actual_cagr_percentile": 0.1,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 20,
+          "median_cagr": 0.35173392552215565,
+          "median_max_dd": -0.25361933512789125,
+          "target_pass_rate": 0.0,
+          "worst_cagr": 0.3329513648352018,
+          "worst_cagr_endpoint": "2026-06-10",
+          "worst_max_dd": -0.25361933512789125,
+          "worst_max_dd_endpoint": "2026-06-04"
+        },
+        "last_252_endpoints": {
+          "actual_cagr_percentile": 0.876984126984127,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 252,
+          "median_cagr": 0.27582152650160463,
+          "median_max_dd": -0.25361933512789125,
+          "target_pass_rate": 0.0,
+          "worst_cagr": 0.21805511889772822,
+          "worst_cagr_endpoint": "2025-07-02",
+          "worst_max_dd": -0.25361933512789125,
+          "worst_max_dd_endpoint": "2025-07-02"
+        },
+        "last_63_endpoints": {
+          "actual_cagr_percentile": 0.5079365079365079,
+          "actual_max_dd_percentile": 1.0,
+          "endpoint_count": 63,
+          "median_cagr": 0.3380570601271662,
+          "median_max_dd": -0.25361933512789125,
+          "target_pass_rate": 0.0,
+          "worst_cagr": 0.3119342766511033,
+          "worst_cagr_endpoint": "2026-04-06",
+          "worst_max_dd": -0.25361933512789125,
+          "worst_max_dd_endpoint": "2026-04-02"
+        }
+      },
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "metrics": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_metric_sidecar\\generated_book_cash_carry\\main\\metrics.json",
+      "portfolio": "main",
+      "pre_shock_endpoint": {
+        "cagr": 0.35574019870328466,
+        "cagr_gap_to_target": 0.005740198703284682,
+        "ending_capital_usd": 860467.8527513265,
+        "endpoint_date": "2026-06-29",
+        "max_dd": -0.25361933512789125,
+        "max_dd_gap_to_target": -0.0036193351278912544,
+        "portfolio": "main",
+        "sharpe": 1.3222647114047474,
+        "target_pass": false,
+        "trading_days": 1778,
+        "years": 7.0718685831622174
+      },
+      "target": {
+        "cagr": 0.35,
+        "max_dd": -0.25
+      }
+    }
+  },
+  "production_mutation_allowed": false,
+  "research_only": true,
+  "root": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_metric_sidecar\\generated_book_cash_carry",
+  "schema_version": "run287-rolling-window-deficit-v1",
+  "status": "completed",
+  "threshold_tuning_performed": false
+}

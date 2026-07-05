@@ -1,0 +1,37 @@
+{
+  "artifacts": {
+    "drawdown_contributors": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_exit_latency\\drawdown_contributors.csv",
+    "position_latency": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_exit_latency\\position_latency.csv",
+    "report": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_exit_latency\\report.md",
+    "summary": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_exit_latency\\summary.json"
+  },
+  "diagnosis": "hard_signals_found_but_latency_or_post_signal_loss_not_material",
+  "direct_losing_month_edit_allowed": false,
+  "fullrun_dispatched": false,
+  "hard_signal_count": 12,
+  "latency_candidate_present": false,
+  "lookback_days": 63,
+  "main_root": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_metric_sidecar\\generated_book_cash_carry\\main",
+  "material_latency_count": 0,
+  "material_loss_threshold_usd": -257.936222963144,
+  "max_drawdown_window": {
+    "max_dd": -0.25361933512789125,
+    "peak_date": "2021-11-19",
+    "peak_equity_usd": 257936.222963144,
+    "trough_date": "2022-09-26",
+    "trough_equity_usd": 192518.6095898319
+  },
+  "metric_mode": "broker_ledger_next_close_cash_carry",
+  "next_action": "record_negative_latency_evidence; do_not_tune_losing_months",
+  "portfolio": "main",
+  "production_mutation_allowed": false,
+  "research_only": true,
+  "schema_version": "run287-exit-latency-audit-v1",
+  "status": "completed",
+  "target_book": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run_28725350727_user_operating_artifact\\outputs\\reports\\operating_main_target_book.csv",
+  "target_weight_column": "target_weight",
+  "threshold_tuning_performed": false,
+  "top_n": 12,
+  "total_negative_loss_after_first_signal_pct_of_peak_equity": -0.06822939073316764,
+  "total_negative_loss_after_first_signal_usd": -17598.8313407898
+}

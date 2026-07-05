@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from tools.alphaops_governance import research_production_gate_fields
+
 
 W1_MAX_WEIGHT_DELTA = 1e-9
 MAIN_CAGR_TARGET = 0.35
@@ -98,6 +100,7 @@ def evaluate_price_gate(price_readiness: dict[str, Any]) -> tuple[dict[str, Any]
         "blockers": price_readiness.get("blockers") or [],
         "required_price_tickers": price_readiness.get("required_price_tickers") or [],
         "required_experiment_env": price_readiness.get("required_experiment_env") or {},
+        "policy_payload_binding": price_readiness.get("policy_payload_binding") or {},
     }, blockers
 
 
@@ -325,7 +328,12 @@ def evaluate(
     unique_blockers = sorted(dict.fromkeys(blockers))
     unique_production_blockers = sorted(dict.fromkeys(production_blockers))
     preconditions_ready = not unique_blockers
-    return {
+    governance = research_production_gate_fields(
+        pit_universe_label_clean=not bool(unique_production_blockers),
+        research_evidence_valid=preconditions_ready,
+        research_fullrun_preconditions_ready=preconditions_ready,
+    )
+    payload = {
         "schema_version": "alphaops-prefullrun-gate-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "ready_for_user_approval" if preconditions_ready else "blocked",
@@ -340,8 +348,11 @@ def evaluate(
         "claude_question_required": False,
         "claude_question": "",
         "non_mutating": True,
-        "live_trading_enabled": False,
+        "policy_payload_binding": checks.get("price_readiness", {}).get("policy_payload_binding") or {},
+        **governance,
     }
+    payload["production_blockers"] = unique_production_blockers
+    return payload
 
 
 def render_report(payload: dict[str, Any]) -> str:
@@ -350,8 +361,15 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.append(f"- research_fullrun_preconditions_ready: `{str(payload.get('research_fullrun_preconditions_ready')).lower()}`")
     lines.append(f"- fullrun_dispatch_allowed: `{str(payload.get('fullrun_dispatch_allowed')).lower()}`")
     lines.append(f"- next_action: `{payload.get('next_action')}`")
+    lines.append(f"- result_label: `{payload.get('result_label')}`")
+    lines.append(f"- public_display_allowed: `{str(payload.get('public_display_allowed')).lower()}`")
+    lines.append(f"- live_trading_enabled: `{str(payload.get('live_trading_enabled')).lower()}`")
     lines.append(f"- blockers: `{', '.join(payload.get('blockers') or []) or 'none'}`")
     lines.append(f"- production_blockers: `{', '.join(payload.get('production_blockers') or []) or 'none'}`")
+    binding = payload.get("policy_payload_binding") or {}
+    if binding:
+        lines.append(f"- frozen_payload_match: `{str(binding.get('frozen_payload_match')).lower()}`")
+        lines.append(f"- dispatch_payload_hash: `{binding.get('dispatch_payload_hash')}`")
     lines.append("")
     lines.append("## Check Summary")
     lines.append("")
