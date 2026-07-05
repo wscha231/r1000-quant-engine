@@ -1,0 +1,64 @@
+{
+  "artifacts": {
+    "membership_delta": "outputs/run287_survivorship/membership_delta.csv",
+    "report": "outputs/run287_survivorship/report.md",
+    "summary": "outputs/run287_survivorship/summary.json"
+  },
+  "book_root": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext",
+  "candidate_book": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/reports/candidate_replay_book.csv",
+  "fullrun_dispatched": false,
+  "label": "proxy",
+  "method": "first_price_date_stricter_arm_on_committed_candidate_and_target_books",
+  "official_metrics": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/account_evaluation/official_metrics.json",
+  "pit_universe_label_clean": false,
+  "portfolios": {
+    "concentrated": {
+      "current_proxy_cagr": 0.4840528238107124,
+      "current_proxy_max_dd": -0.2295520358424811,
+      "current_proxy_selected_rows": 415,
+      "current_proxy_selected_weight_sum": 44.99819876608545,
+      "deflated_cagr_lower_bound": 0.4840528238107124,
+      "late_inclusion_dropped_weight_sum": 0.0,
+      "late_inclusion_violation_rows": 0,
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "metric_source": "generated_book_cash_carry_sidecar",
+      "portfolio": "concentrated",
+      "survivorship_inflation_estimate_cagr_pp": 0.0,
+      "survivorship_inflation_estimate_max_dd_pp": 0.0,
+      "target_gap_after_measurable_bound_pp": 1.5947176189287617,
+      "target_gap_current_proxy_pp": 1.5947176189287617,
+      "unknown_first_price_date_rows": 0
+    },
+    "main": {
+      "current_proxy_cagr": 0.3380570601271662,
+      "current_proxy_max_dd": -0.2536193351278912,
+      "current_proxy_selected_rows": 1016,
+      "current_proxy_selected_weight_sum": 54.886257868877436,
+      "deflated_cagr_lower_bound": 0.3380570601271662,
+      "late_inclusion_dropped_weight_sum": 0.0,
+      "late_inclusion_violation_rows": 0,
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "metric_source": "generated_book_cash_carry_sidecar",
+      "portfolio": "main",
+      "survivorship_inflation_estimate_cagr_pp": 0.0,
+      "survivorship_inflation_estimate_max_dd_pp": 0.0,
+      "target_gap_after_measurable_bound_pp": 1.1942939872833804,
+      "target_gap_current_proxy_pp": 1.1942939872833804,
+      "unknown_first_price_date_rows": 0
+    }
+  },
+  "production_promotion_allowed": false,
+  "research_only": true,
+  "schema_version": "run287-survivorship-bound-v1",
+  "sidecar_arm_metrics": "outputs/run287_forensics/metric_sidecar_arm_metrics.csv",
+  "status": "completed",
+  "survivorship_inflation_estimate": {
+    "cagr_pp_lower_bound": 0.0,
+    "label": "proxy",
+    "method": "first_price_date_late_inclusion_only",
+    "unmeasured_component": "delisted_exclusion"
+  },
+  "survivorship_inflation_estimate_cagr_pp": 0.0,
+  "threshold_tuning_performed": false,
+  "unmeasured_component": "delisted_exclusion"
+}

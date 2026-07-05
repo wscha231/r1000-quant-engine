@@ -1,0 +1,69 @@
+{
+  "artifacts": {
+    "book_parity": "outputs/run287_parity/book_parity.csv",
+    "missing_bars": "outputs/run287_parity/missing_bars.csv",
+    "report": "outputs/run287_parity/report.md",
+    "summary": "outputs/run287_parity/summary.json"
+  },
+  "book_audit": {
+    "book_parity_blocked": false,
+    "book_parity_exact": false,
+    "portfolios": [
+      {
+        "average_l1_weight_diff": 0.35795627249249223,
+        "common_date_count": 86,
+        "local_only_date_count": 0,
+        "local_rows": 1203,
+        "max_l1_weight_diff": 0.8412396993567169,
+        "max_weight_delta_abs": 0.1402969539262207,
+        "portfolio": "main",
+        "runner_only_date_count": 0,
+        "runner_rows": 1207,
+        "status": "parity_gap",
+        "ticker_mismatch_date_count": 84
+      },
+      {
+        "average_l1_weight_diff": 0.38246842101223966,
+        "common_date_count": 86,
+        "local_only_date_count": 0,
+        "local_rows": 543,
+        "max_l1_weight_diff": 1.1399999999999997,
+        "max_weight_delta_abs": 0.4105397874842518,
+        "portfolio": "concentrated",
+        "runner_only_date_count": 0,
+        "runner_rows": 545,
+        "status": "parity_gap",
+        "ticker_mismatch_date_count": 72
+      }
+    ]
+  },
+  "cache_audit": {
+    "local_manifest_exists": true,
+    "local_manifest_status": "completed",
+    "local_manifest_ticker_count": 498,
+    "local_missing_price_file_count": 492,
+    "local_present_price_file_count": 489,
+    "local_price_cache": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_price_cache_latest\\cache_prices",
+    "local_price_cache_exists": true,
+    "local_required_ticker_count_from_candidate_and_books": 981,
+    "runner_existing_price_file_count": 981,
+    "runner_missing_price_file_count": 0,
+    "runner_price_cache_manifest_sha256": "fdcf36399cb75225423ce71a92e9cc36e580482015c8bf07718d02376acb4a18",
+    "runner_required_price_file_count": 981,
+    "runner_required_ticker_count": 981
+  },
+  "candidate_book": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/reports/candidate_replay_book.csv",
+  "fullrun_dispatched": false,
+  "local_book_root": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_w1_determinism_exact\\repro_a",
+  "local_price_cache": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_price_cache_latest\\cache_prices",
+  "market_data_downloaded": false,
+  "research_only": true,
+  "runner_book_root": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext",
+  "runner_manifest": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext/target_generation_input_manifest.json",
+  "runner_parity_reason": "local_cache_or_book_differs_from_runner_manifest",
+  "runner_parity_status": "parity_documented_gap",
+  "schema_version": "run287-runner-parity-v1",
+  "status": "completed",
+  "target_book_regenerated": false,
+  "threshold_tuning_performed": false
+}
