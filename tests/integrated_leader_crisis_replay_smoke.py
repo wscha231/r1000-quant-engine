@@ -68,17 +68,19 @@ def test_champion_filter_disable_keeps_book() -> None:
 
 
 def test_stale_trading_days_counting() -> None:
-    # Fri 2026-05-22 bar vs Wed 2026-05-27 audit = Mon+Tue+Wed = 3 business days.
-    days = lpa.stale_trading_days_between(pd.Timestamp("2026-05-22"), pd.Timestamp("2026-05-27"))
+    # Fri 2026-05-15 bar vs Wed 2026-05-20 audit = Mon+Tue+Wed = 3 trading days.
+    days = lpa.stale_trading_days_between(pd.Timestamp("2026-05-15"), pd.Timestamp("2026-05-20"))
     assert days == 3, days
-    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-27"), pd.Timestamp("2026-05-27")) == 0
-    # Fri bar -> Mon audit = 1 business day (weekend skipped).
-    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-22"), pd.Timestamp("2026-05-25")) == 1
+    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-20"), pd.Timestamp("2026-05-20")) == 0
+    # Fri bar -> Mon audit = 1 trading day (weekend skipped).
+    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-15"), pd.Timestamp("2026-05-18")) == 1
+    # Memorial Day 2026 is not an XNYS trading day.
+    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-22"), pd.Timestamp("2026-05-27")) == 2
     print("PASS test_stale_trading_days_counting")
 
 
 def test_price_audit_flag(monkeypatched_dates: dict[str, str] | None = None) -> None:
-    dates = {"SPY": "2026-05-22", "QQQ": "2026-05-22", "AAA": "2026-05-27"}
+    dates = {"SPY": "2026-05-15", "QQQ": "2026-05-15", "AAA": "2026-05-20"}
 
     def fake_loader(price_cache, ticker):
         iso = dates.get(str(ticker).upper())
@@ -93,20 +95,20 @@ def test_price_audit_flag(monkeypatched_dates: dict[str, str] | None = None) -> 
         stale = lpa.run_audit(
             price_cache=Path("/nonexistent"),
             latest_run=Path("/nonexistent"),
-            audit_date=pd.Timestamp("2026-05-27"),
+            audit_date=pd.Timestamp("2026-05-20"),
             stale_threshold=2,
             max_book_tickers=0,
         )
-        # Benchmark anchor is SPY/QQQ 05-22 (3 bdays stale) even though AAA is fresh.
+        # Benchmark anchor is SPY/QQQ 05-15 (3 trading days stale) even though AAA is fresh.
         assert stale["status"] == "STALE_PRICE_REVIEW", stale["status"]
         assert stale["stale_trading_days"] == 3, stale["stale_trading_days"]
         assert stale["stale_price_review"] is True
 
-        dates["SPY"] = "2026-05-27"
+        dates["SPY"] = "2026-05-20"
         fresh = lpa.run_audit(
             price_cache=Path("/nonexistent"),
             latest_run=Path("/nonexistent"),
-            audit_date=pd.Timestamp("2026-05-27"),
+            audit_date=pd.Timestamp("2026-05-20"),
             stale_threshold=2,
             max_book_tickers=0,
         )
