@@ -51,6 +51,31 @@ Interpretation:
 - Therefore there is no decision-time source ready for a Concentrated alpha
   hook.
 
+## Additional W4 earnings inventory
+
+Artifact package:
+
+- `outputs/run287_w4_earnings_inventory/summary.json`
+- `outputs/run287_w4_earnings_inventory/earnings_data_layers.csv`
+- `outputs/run287_w4_earnings_inventory/report.md`
+
+Result:
+
+- `true_revision_guidance_ready=false`
+- `production_activation_allowed=false`
+- `candidate_book_actuals_and_proxy_scores=available`
+- `raw_true_revision_guidance_feed=missing`
+- `pit_true_revision_guidance_signals=missing`
+
+Interpretation:
+
+- The run287 candidate book contains historical actual/proxy fields such as
+  `actual_results_score`, `eps_revision_score`, and fundamental actuals.
+- Those fields are diagnostic and are not a substitute for a dated PIT analyst
+  revision or company guidance feed.
+- This reinforces the R4 block: there is no valid decision-time source from
+  which to design a new Concentrated alpha hook.
+
 ## Next Gate
 
 A source can move to OOS screening only after one of these is true:

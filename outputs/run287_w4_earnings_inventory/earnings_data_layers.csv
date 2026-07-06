@@ -1,0 +1,5 @@
+layer,status,path,row_count,ticker_count,regime_nowcast_coverage_ready,description
+sec_companyfacts_actuals,missing,H:\codex\r1000_run287_r1r2_20260706\data_raw\free\sec\companyfacts.zip,,,,SEC companyfacts actual financial statements are unavailable.
+raw_true_revision_guidance_feed,missing,H:\codex\r1000_run287_r1r2_20260706\data_raw\events\earnings_revisions.csv,,,False,
+pit_true_revision_guidance_signals,missing,H:\codex\r1000_run287_r1r2_20260706\data_pit\events\earnings_revision_signals.parquet,,,False,
+candidate_book_actuals_and_proxy_scores,available,H:\codex\r1000_run287_r1r2_20260706\cloud_results\full_rebuild\20260705_28725350727_global_alpha_universe\reports\candidate_replay_book.csv,47435,981,False,"candidate actual/proxy fields are diagnostic inputs, not vendor guidance history."
