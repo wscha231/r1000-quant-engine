@@ -1,0 +1,71 @@
+{
+  "artifacts": {
+    "book_gap_by_date": "outputs/run287_book_fidelity_residual/book_gap_by_date.csv",
+    "manifest_diff": "outputs/run287_book_fidelity_residual/manifest_diff.csv",
+    "report": "outputs/run287_book_fidelity_residual/report.md",
+    "summary": "outputs/run287_book_fidelity_residual/summary.json",
+    "ticker_gap": "outputs/run287_book_fidelity_residual/ticker_gap.csv"
+  },
+  "book_audit": {
+    "book_parity_exact": false,
+    "portfolios": [
+      {
+        "average_l1_weight_diff": 0.16591065306440242,
+        "common_date_count": 86,
+        "local_book": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_w1_full_candidate_cache_repro\\official_main_target_book.csv",
+        "local_book_sha256": "ec04d63b3a5a9919ad1da2db61e7b38794e677f26885988b2175751ccbf0aa65",
+        "local_rows": 1221,
+        "max_l1_weight_diff": 0.41497114582542216,
+        "max_weight_delta_abs": 0.1565297563193941,
+        "portfolio": "main",
+        "runner_book": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext/official_main_target_book.csv",
+        "runner_book_sha256": "4fc5f894b0f2fdfd3fd47c823f896a6611ab1febf02067b4e30791af9855df21",
+        "runner_rows": 1207,
+        "status": "parity_gap",
+        "ticker_mismatch_date_count": 70
+      },
+      {
+        "average_l1_weight_diff": 0.0170911441294158,
+        "common_date_count": 86,
+        "local_book": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_w1_full_candidate_cache_repro\\official_concentrated_target_book.csv",
+        "local_book_sha256": "362f8a816aa281030f300d228fd8f6567b156847cd3852795a2b8c183d6e43f7",
+        "local_rows": 544,
+        "max_l1_weight_diff": 0.915536662001788,
+        "max_weight_delta_abs": 0.431168331000894,
+        "portfolio": "concentrated",
+        "runner_book": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext/official_concentrated_target_book.csv",
+        "runner_book_sha256": "d1636f84e19f235329f0639bacbd09ffc5156d0b84d605eed578108ad71f4452",
+        "runner_rows": 545,
+        "status": "parity_gap",
+        "ticker_mismatch_date_count": 1
+      }
+    ]
+  },
+  "cache_coverage_status": "cache_coverage_complete",
+  "cache_manifest_sha_matches_runner": false,
+  "env_mismatch_count": 0,
+  "fullrun_dispatched": false,
+  "local_book_root": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_w1_full_candidate_cache_repro",
+  "local_manifest": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_w1_full_candidate_cache_repro\\target_generation_input_manifest.json",
+  "manifest_mismatch_count": 5,
+  "market_data_downloaded": false,
+  "parity_summary": "outputs/run287_parity/summary.json",
+  "production_promotion_allowed": false,
+  "research_only": true,
+  "residual_gap_classification": "book_generation_gap",
+  "residual_source_candidates": [
+    "price_cache_manifest_sha_mismatch",
+    "code_provenance_missing_or_mismatch",
+    "macro_input_sha_mismatch",
+    "operating_append_end_date_mismatch",
+    "book_generation_gap"
+  ],
+  "runner_book_root": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext",
+  "runner_fidelity_status": "residual_documented",
+  "runner_manifest": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext/target_generation_input_manifest.json",
+  "runner_parity_status": "parity_documented_gap",
+  "schema_version": "run287-book-fidelity-residual-v1",
+  "status": "completed",
+  "target_book_regenerated": false,
+  "threshold_tuning_performed": false
+}
