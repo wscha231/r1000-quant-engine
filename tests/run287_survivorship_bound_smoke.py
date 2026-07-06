@@ -105,6 +105,9 @@ def main() -> int:
         assert payload["fullrun_dispatched"] is False
         assert payload["label"] == "proxy"
         assert payload["unmeasured_component"] == "delisted_exclusion"
+        assert payload["survivorship_dominant_component"] == "delisted_exclusion"
+        assert payload["survivorship_dominant_component_measured"] is False
+        assert payload["survivorship_zero_bound_quote_allowed"] is False
         assert payload["portfolios"]["main"]["metric_mode"] == "broker_ledger_next_close_cash_carry"
         assert payload["portfolios"]["main"]["late_inclusion_violation_rows"] == 1
         assert payload["survivorship_inflation_estimate_cagr_pp"] > 0.0

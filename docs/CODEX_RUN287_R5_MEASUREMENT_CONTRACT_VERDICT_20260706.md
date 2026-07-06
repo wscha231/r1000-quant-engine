@@ -21,10 +21,15 @@ Contract changes:
   `survivorship_unmeasured_component` are required caveat fields.
 - Forward-label screens are explicitly audit-only and require OOS
   re-validation before any candidate promotion.
+- `runner_parity_status=missing` or non-`parity_exact` now blocks
+  acceptance-style labels even when numeric metrics pass.
+- Missing survivorship caveat fields now block acceptance-style labels.
 
 Emitter changes:
 
 - `tools/alphaops_governance.py` now standardizes R1/R2 caveat fields.
+- `tools/alphaops_governance.py` now emits measurement-contract acceptance
+  blockers for missing or non-exact caveats.
 - `tools/run287_forensics.py` emits those fields at top-level summary scope.
 - `tools/run287_forensics.py` emits those fields into metric sidecar summaries
   and tabular performance rows.
@@ -42,6 +47,8 @@ Current caveats carried forward:
 - `survivorship_inflation_estimate.label=proxy`
 - `survivorship_inflation_estimate_cagr_pp=0.0`
 - `survivorship_unmeasured_component=delisted_exclusion`
+- `measurement_contract_acceptance_allowed=false`
+- `measurement_contract_acceptance_blockers=runner_parity_not_exact`
 
 ## Interpretation
 

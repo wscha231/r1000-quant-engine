@@ -1,4 +1,5 @@
 {
+  "acceptance_style_label_blocked": true,
   "cash_carry_exact_replay": {
     "cash_rate_cache_exists": true,
     "cash_rate_cache_path": "cache_macro\\fred_dgs3mo_DGS3MO.parquet",
@@ -162,6 +163,10 @@
     "status": "telemetry_only_pending_counterfactual"
   },
   "live_trading_enabled": false,
+  "measurement_contract_acceptance_allowed": false,
+  "measurement_contract_acceptance_blockers": [
+    "runner_parity_not_exact"
+  ],
   "metric_sidecar": {
     "arms": {
       "generated_book_cash_carry": {
@@ -757,6 +762,7 @@
   "production_blocker": "pit_universe_label_clean_false",
   "production_promotion_allowed": false,
   "public_display_allowed": false,
+  "result_label": "alpha_candidate_rejected_on_generated_book",
   "run_id": "28725350727",
   "runner_parity_reason": "local_cache_or_book_differs_from_runner_manifest",
   "runner_parity_status": "parity_documented_gap",

@@ -29,6 +29,7 @@ or threshold sweep was performed.
 
 - proxy_joint_gate_pass: `false`
 - candidate_allowed: `false`
+- mdd_benefit_test_underpowered_reason: `proxy_dd_never_reaches_minus25`
 - eras_inside_minus_25_count_cash_carry: `3`
 - proxy zero-yield CAGR delta vs official: `8.98pp`
 - proxy cash-carry CAGR delta vs official: `9.03pp`
@@ -38,3 +39,9 @@ broker-ledger acceptance evidence. This proxy does not reproduce the
 official broker-ledger substrate, so it is directional only. If a
 proxy ever passes, it still requires runner-parity broker replay
 before becoming a candidate.
+
+The cluster-cap idea is rejected because the CAGR cost is too high and
+the proxy substrate does not reproduce official broker-ledger metrics.
+This does not prove the cap has no MDD benefit: when proxy drawdowns
+never reach the -25% target boundary, the MDD-benefit test is
+under-powered until runner-parity broker replay is available.

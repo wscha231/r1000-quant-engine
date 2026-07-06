@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_latest_price_date_audit import stale_trading_days_between  # noqa: E402
+from tools.run_latest_price_date_audit import (  # noqa: E402
+    stale_trading_days_between,
+    stale_trading_days_calendar_source,
+)
 from tools.verify_alphaops_fullrun_readiness import evaluate  # noqa: E402
 
 
@@ -97,6 +100,10 @@ def test_good_friday_gap_uses_xnys_calendar_not_weekdays() -> None:
     )
     assert payload["fullrun_ready"] is True
     assert payload["price_audit"]["audit_record_age_days"] == 2
+    assert payload["price_audit"]["audit_record_age_calendar_source"] in {
+        "pandas_market_calendars_xnys",
+        "pandas_fallback_xnys_holidays",
+    }
     assert "audit_record_stale" not in payload["blockers"]
 
 
@@ -117,6 +124,10 @@ def test_thanksgiving_gap_uses_xnys_calendar_not_weekdays() -> None:
     )
     assert payload["fullrun_ready"] is True
     assert payload["price_audit"]["audit_record_age_days"] == 2
+    assert payload["price_audit"]["audit_record_age_calendar_source"] in {
+        "pandas_market_calendars_xnys",
+        "pandas_fallback_xnys_holidays",
+    }
     assert "audit_record_stale" not in payload["blockers"]
 
 
@@ -144,6 +155,14 @@ def test_price_audit_stale_days_uses_xnys_holidays() -> None:
     assert stale_trading_days_between(pd.Timestamp("2026-07-02"), pd.Timestamp("2026-07-06")) == 1
     assert stale_trading_days_between(pd.Timestamp("2026-04-01"), pd.Timestamp("2026-04-06")) == 2
     assert stale_trading_days_between(pd.Timestamp("2026-11-25"), pd.Timestamp("2026-11-30")) == 2
+    assert stale_trading_days_calendar_source(pd.Timestamp("2026-04-01"), pd.Timestamp("2026-04-06")) in {
+        "pandas_market_calendars_xnys",
+        "pandas_fallback_xnys_holidays",
+    }
+    assert stale_trading_days_calendar_source(pd.Timestamp("2026-11-25"), pd.Timestamp("2026-11-30")) in {
+        "pandas_market_calendars_xnys",
+        "pandas_fallback_xnys_holidays",
+    }
 
 
 def test_future_dated_price_blocks_fullrun() -> None:

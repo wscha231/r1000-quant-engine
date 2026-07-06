@@ -165,6 +165,7 @@
   "fullrun_dispatched": false,
   "market_data_downloaded": false,
   "max_freed_weight": 0.41757522544742526,
+  "mdd_benefit_test_underpowered_reason": "proxy_dd_never_reaches_minus25",
   "metric_sidecar": "outputs/run287_forensics/metric_sidecar_arm_metrics.csv",
   "new_alpha_hook_added": false,
   "parity_summary": "outputs/run287_parity/summary.json",
@@ -176,6 +177,7 @@
     "zero_yield_max_dd_delta_pp": 10.115217437719725
   },
   "proxy_joint_gate_pass": false,
+  "proxy_mdd_reaches_minus25": false,
   "proxy_substrate_status": "not_official_reproduction_directional_only",
   "research_only": true,
   "runner_parity_status": "parity_documented_gap",

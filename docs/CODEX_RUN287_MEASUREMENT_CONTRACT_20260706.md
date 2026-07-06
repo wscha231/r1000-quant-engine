@@ -146,6 +146,17 @@ R1/R2 caveats are mandatory on every latest-basis performance package:
 These caveats must be carried into forensics `summary.json`, metric sidecar
 `summary.json`, and tabular performance outputs.
 
+Acceptance-style labels are blocked unless the caveat contract is clean:
+
+- `runner_parity_status` must be present and `parity_exact`
+- `survivorship_inflation_estimate` must be present
+- `survivorship_inflation_label` must not be `missing`
+- `survivorship_unmeasured_component` must not be `missing`
+
+The current package has
+`measurement_contract_acceptance_allowed=false` because
+`runner_parity_status=parity_documented_gap`.
+
 The latest-basis replay price cache has been rebuilt under
 `outputs/run287_price_cache_latest/cache_prices`. Its manifest reports:
 
@@ -174,6 +185,14 @@ This means the latest generated-book drop is not a cash-carry-only measurement
 mismatch. Do not tune thresholds from this run. Write negative evidence and
 prioritize W1 determinism, window attribution, and target-book drift before any
 new alpha work.
+
+Survivorship framing:
+
+- `survivorship_inflation_estimate_cagr_pp=0.0` is only the measured
+  first-price-date late-inclusion slice.
+- `survivorship_dominant_component_measured=false`.
+- `delisted_exclusion` remains the dominant unmeasured component, so the `0.0`
+  slice must not be quoted as a clean-survivorship estimate.
 
 Interpretation correction:
 
@@ -208,6 +227,26 @@ Boundary: this proves same-input local determinism on the restored run287
 substrate. It does not prove official artifact parity because the local
 candidate-generation price cache is still smaller than the original run287
 runner cache.
+
+Required framing:
+
+- `runner_fidelity_status=not_established`
+- `determinism_does_not_imply_runner_fidelity=true`
+- `regeneration_attribution_blocked_until_runner_parity=true`
+
+Do not describe W1 as solved without that boundary. The W1 double-run proves
+same-input local determinism only; it does not prove that the deterministic
+local regenerated book is faithful to the original runner book while the local
+cache remains smaller than the original run287 runner cache.
+
+R3 cluster-cap framing:
+
+- The cluster-cap lever is rejected because the CAGR cost is too high and the
+  proxy substrate does not reproduce official broker-ledger metrics.
+- `mdd_benefit_test_underpowered_reason=proxy_dd_never_reaches_minus25`.
+- This does not prove cluster caps have no MDD benefit; the proxy drawdowns
+  never reached the `-25%` target boundary, so true MDD-benefit testing remains
+  blocked until runner-parity broker replay exists.
 
 ## Rolling Deficit Status
 

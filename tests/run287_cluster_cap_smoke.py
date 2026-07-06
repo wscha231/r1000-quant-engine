@@ -108,6 +108,8 @@ def main() -> int:
         assert payload["fullrun_dispatched"] is False
         assert payload["runner_parity_status"] == "parity_documented_gap"
         assert payload["candidate_allowed"] is False
+        assert "proxy_mdd_reaches_minus25" in payload
+        assert "mdd_benefit_test_underpowered_reason" in payload
         assert payload["max_freed_weight"] > 0.0
         exposure = pd.read_csv(root / "out" / "cluster_exposure_by_date.csv")
         capped_it = exposure[exposure["cluster"].eq("Information Technology")]

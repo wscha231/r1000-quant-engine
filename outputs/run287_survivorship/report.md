@@ -2,6 +2,11 @@
 
 Status: `completed`
 
+Dominant survivorship component remains unmeasured:
+`delisted_exclusion`. The reported CAGR pp value is only the measured
+late-inclusion slice and must not be quoted as a clean-survivorship
+estimate.
+
 Research-only R2 audit. This is a one-sided proxy lower bound. It does
 not recover delisted-name exclusion and does not make PIT membership clean.
 
@@ -18,5 +23,7 @@ not recover delisted-name exclusion and does not make PIT membership clean.
   from first-price-date late-inclusion only.
 - `unmeasured_component=delisted_exclusion`: free-tier artifacts cannot
   reconstruct deleted historical R1000 members or full ticker lifecycles.
+- `survivorship_dominant_component_measured=false`: do not interpret a
+  zero late-inclusion slice as a clean PIT universe.
 - Label remains `proxy`; `pit_universe_label_clean=false` and production
   promotion remains blocked.

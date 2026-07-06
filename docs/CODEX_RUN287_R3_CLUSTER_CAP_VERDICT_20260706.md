@@ -70,6 +70,7 @@ Key evidence:
 - Cash-carry implied annual yield used by the proxy: `2.2171%`
 - Eras inside `-25%` in zero-yield proxy: `3`
 - Eras inside `-25%` in cash-carry proxy: `3`
+- MDD benefit test under-powered reason: `proxy_dd_never_reaches_minus25`
 - Proxy zero-yield CAGR delta versus official broker sidecar: `+8.98pp`
 - Proxy cash-carry CAGR delta versus official broker sidecar: `+9.03pp`
 
@@ -81,6 +82,9 @@ Interpretation:
   both zero-yield and cash-carry to pass.
 - The proxy substrate materially overstates the official broker-ledger sidecar,
   so this is directional evidence only, not official broker acceptance evidence.
+- This does not prove cluster caps have no MDD benefit. The proxy drawdowns
+  never reach the `-25%` target boundary, so the MDD-benefit test is
+  under-powered until runner-parity broker replay is available.
 
 ## Decision
 
@@ -89,6 +93,7 @@ Interpretation:
 The aggregate sector cluster cap is rejected as a run287 candidate because it
 fails the joint gate on the zero-yield arm and because the available
 counterfactual substrate does not reproduce official broker-ledger metrics.
+It is not rejected as proof that MDD benefit is impossible.
 
 Do not add a cluster-cap hook. Do not tune the cap. Do not dispatch a fullrun
 for this R3 idea. The result should be treated as negative evidence for the

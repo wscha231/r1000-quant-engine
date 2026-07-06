@@ -198,6 +198,29 @@ def measurement_contract_caveat_fields(
     }
 
 
+def measurement_contract_acceptance_blockers(caveats: dict[str, Any]) -> list[str]:
+    """Return blockers that prevent acceptance-style labels for run287 metrics."""
+    blockers: list[str] = []
+    parity_status = str(caveats.get("runner_parity_status") or "missing")
+    if parity_status == "missing":
+        blockers.append("runner_parity_status_missing")
+    elif parity_status != "parity_exact":
+        blockers.append("runner_parity_not_exact")
+
+    survival_label = str(caveats.get("survivorship_inflation_label") or "missing")
+    survival_component = str(caveats.get("survivorship_unmeasured_component") or "missing")
+    estimate = caveats.get("survivorship_inflation_estimate")
+    if survival_label == "missing":
+        blockers.append("survivorship_inflation_label_missing")
+    if survival_component == "missing":
+        blockers.append("survivorship_unmeasured_component_missing")
+    if not isinstance(estimate, dict):
+        blockers.append("survivorship_inflation_estimate_missing")
+    if caveats.get("survivorship_inflation_estimate_cagr_pp") is None:
+        blockers.append("survivorship_inflation_estimate_cagr_pp_missing")
+    return blockers
+
+
 def _normalize_date(value: Any) -> Any | None:
     import pandas as pd
 

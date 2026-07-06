@@ -75,9 +75,11 @@ Interpretation:
 
 - The measurable first-price-date late-inclusion lower bound is `0.0pp` for
   both sleeves on the committed run287 candidate and target books.
-- This does not prove survivorship inflation is zero. The unmeasured component
-  remains `delisted_exclusion`, which cannot be reconstructed from the free-tier
-  current-constituents proxy artifacts.
+- `survivorship_dominant_component_measured=false`. The `0.0pp` value is only
+  the measured late-inclusion slice; it must not be quoted as a
+  clean-survivorship estimate.
+- The dominant unmeasured component remains `delisted_exclusion`, which cannot
+  be reconstructed from the free-tier current-constituents proxy artifacts.
 - `pit_universe_label_clean=false` remains a hard production blocker.
 - Production promotion remains `false`; the valid label remains research-only
   proxy evidence.

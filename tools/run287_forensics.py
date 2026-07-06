@@ -23,7 +23,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_broker_ledger_replay import calc_metrics  # noqa: E402
-from tools.alphaops_governance import measurement_contract_caveat_fields  # noqa: E402
+from tools.alphaops_governance import (  # noqa: E402
+    measurement_contract_acceptance_blockers,
+    measurement_contract_caveat_fields,
+)
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -53,6 +56,12 @@ HOOK_COLUMNS = {
         "concentrated_cashfunded_early_entry_add_weight",
         "concentrated_cashfunded_early_entry_min_breakout_quality",
     ],
+}
+ACCEPTANCE_STYLE_LABELS = {
+    "measurement_mismatch_only",
+    "production_blocked_research_pass",
+    "ready_for_human_review",
+    "research_7y_fullrun_pass",
 }
 
 
@@ -584,12 +593,15 @@ def build_report(payload: dict[str, Any]) -> str:
         f"- `public_display_allowed`: `{payload['public_display_allowed']}`",
         f"- `live_trading_enabled`: `{payload['live_trading_enabled']}`",
         f"- `decision_label`: `{payload['decision_label']}`",
+        f"- `result_label`: `{payload.get('result_label', payload['decision_label'])}`",
         f"- `runner_parity_status`: `{payload.get('runner_parity_status', 'missing')}`",
         "- `survivorship_inflation_estimate_cagr_pp`: `{}`".format(
             payload.get("survivorship_inflation_estimate_cagr_pp")
         ),
         f"- `survivorship_inflation_label`: `{payload.get('survivorship_inflation_label', 'missing')}`",
         f"- `survivorship_unmeasured_component`: `{payload.get('survivorship_unmeasured_component', 'missing')}`",
+        f"- `measurement_contract_acceptance_allowed`: `{payload.get('measurement_contract_acceptance_allowed')}`",
+        f"- `measurement_contract_acceptance_blockers`: `{','.join(payload.get('measurement_contract_acceptance_blockers', []))}`",
         "",
         "## Cash-Carry Replay Status",
         "",
@@ -717,6 +729,9 @@ def run(
         "cash_carry_exact_replay": cash_carry_status(price_cache, macro_cache),
         **contract_caveats,
     }
+    acceptance_blockers = measurement_contract_acceptance_blockers(contract_caveats)
+    payload["measurement_contract_acceptance_blockers"] = acceptance_blockers
+    payload["measurement_contract_acceptance_allowed"] = not acceptance_blockers
     payload["window_attribution"] = build_window_attribution(run_root, output_dir, official_window_end, actual_window_end)
     payload["target_book_drift"] = compare_books(frozen_root, run_root, output_dir)
     payload["hook_telemetry"] = summarize_hook_telemetry(run_root, output_dir)
@@ -731,12 +746,19 @@ def run(
             if payload["cash_carry_exact_replay"]["status"] != "ready_for_exact_replay"
             else "run_exact_generated_book_cash_carry_sidecar_without_dispatch"
         )
+    elif payload["metric_sidecar"].get("latest_generated_book_cash_carry_pass") and acceptance_blockers:
+        payload["decision_label"] = "blocked_measurement_contract_caveat"
+        payload["next_action"] = "restore_runner_parity_and_resolve_survivorship_caveats_before_acceptance_label"
     elif payload["metric_sidecar"].get("latest_generated_book_cash_carry_pass"):
         payload["decision_label"] = "measurement_mismatch_only"
         payload["next_action"] = "update_fullrun_to_emit_cash_carry_sidecar_as_research_metric"
     else:
         payload["decision_label"] = "alpha_candidate_rejected_on_generated_book"
         payload["next_action"] = "write_negative_evidence_and_prioritize_w1_window_book_drift_before_new_alpha"
+    payload["result_label"] = payload["decision_label"]
+    payload["acceptance_style_label_blocked"] = (
+        bool(acceptance_blockers) and payload["result_label"] not in ACCEPTANCE_STYLE_LABELS
+    )
     write_json(output_dir / "summary.json", payload)
     (output_dir / "report.md").write_text(build_report(payload), encoding="utf-8")
     return payload

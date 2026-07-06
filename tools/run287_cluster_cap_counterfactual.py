@@ -365,6 +365,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
             f"- proxy_joint_gate_pass: `{str(payload['proxy_joint_gate_pass']).lower()}`",
             f"- candidate_allowed: `{str(payload['candidate_allowed']).lower()}`",
+            f"- mdd_benefit_test_underpowered_reason: `{payload['mdd_benefit_test_underpowered_reason']}`",
             f"- eras_inside_minus_25_count_cash_carry: `{payload['eras_inside_minus_25_count_cash_carry']}`",
             f"- proxy zero-yield CAGR delta vs official: `{payload['proxy_calibration_vs_official']['zero_yield_cagr_delta_pp']:.2f}pp`",
             f"- proxy cash-carry CAGR delta vs official: `{payload['proxy_calibration_vs_official']['cash_carry_cagr_delta_pp']:.2f}pp`",
@@ -374,6 +375,12 @@ def render_report(payload: dict[str, Any]) -> str:
             "official broker-ledger substrate, so it is directional only. If a",
             "proxy ever passes, it still requires runner-parity broker replay",
             "before becoming a candidate.",
+            "",
+            "The cluster-cap idea is rejected because the CAGR cost is too high and",
+            "the proxy substrate does not reproduce official broker-ledger metrics.",
+            "This does not prove the cap has no MDD benefit: when proxy drawdowns",
+            "never reach the -25% target boundary, the MDD-benefit test is",
+            "under-powered until runner-parity broker replay is available.",
             "",
         ]
     )
@@ -429,6 +436,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         and eras_inside_cash >= 2
         and eras_inside_zero >= 2
     )
+    proxy_mdd_values = [
+        safe_float(base_zero.get("max_dd")),
+        safe_float(cap_zero.get("max_dd")),
+        safe_float(base_cash.get("max_dd")),
+        safe_float(cap_cash.get("max_dd")),
+    ]
+    proxy_mdd_reaches_minus25 = any(value <= -0.25 for value in proxy_mdd_values)
+    mdd_benefit_test_underpowered_reason = "" if proxy_mdd_reaches_minus25 else "proxy_dd_never_reaches_minus25"
     runner_parity_status = str(parity.get("runner_parity_status") or "missing")
     candidate_allowed = bool(
         proxy_joint_gate_pass
@@ -483,6 +498,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "cash_carry_proxy_source": "generated_book_cash_carry_vs_zero_yield_sidecar_implied_flat_yield",
         "proxy_substrate_status": proxy_substrate_status,
         "proxy_calibration_vs_official": proxy_calibration,
+        "proxy_mdd_reaches_minus25": proxy_mdd_reaches_minus25,
+        "mdd_benefit_test_underpowered_reason": mdd_benefit_test_underpowered_reason,
         "eras_cash_carry": cash_eras,
         "eras_zero_yield": zero_eras,
         "eras_inside_minus_25_count_cash_carry": eras_inside_cash,

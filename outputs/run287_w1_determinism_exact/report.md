@@ -36,5 +36,10 @@ This proves same-input local determinism on the restored run287 substrate. It
 does not prove official artifact parity because the local candidate-generation
 price cache is smaller than the original run287 runner cache.
 
-Use this result to unblock local deterministic attribution, but keep official
-runner parity as a separate cache/provenance issue.
+`runner_fidelity_status=not_established`.
+
+Determinism does not imply runner fidelity. The local regenerated book is
+deterministic, but it is not proven faithful to the original runner book while
+the local cache remains smaller than the original run287 runner cache. Treat
+regeneration-based attribution and hook design as blocked until runner-parity
+cache restoration is complete.

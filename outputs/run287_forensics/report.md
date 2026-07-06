@@ -9,10 +9,13 @@ This package is research-only. It does not dispatch another fullrun, tune thresh
 - `public_display_allowed`: `False`
 - `live_trading_enabled`: `False`
 - `decision_label`: `alpha_candidate_rejected_on_generated_book`
+- `result_label`: `alpha_candidate_rejected_on_generated_book`
 - `runner_parity_status`: `parity_documented_gap`
 - `survivorship_inflation_estimate_cagr_pp`: `0.0`
 - `survivorship_inflation_label`: `proxy`
 - `survivorship_unmeasured_component`: `delisted_exclusion`
+- `measurement_contract_acceptance_allowed`: `False`
+- `measurement_contract_acceptance_blockers`: `runner_parity_not_exact`
 
 ## Cash-Carry Replay Status
 

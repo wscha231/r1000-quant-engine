@@ -52,6 +52,8 @@
   "schema_version": "run287-survivorship-bound-v1",
   "sidecar_arm_metrics": "outputs/run287_forensics/metric_sidecar_arm_metrics.csv",
   "status": "completed",
+  "survivorship_dominant_component": "delisted_exclusion",
+  "survivorship_dominant_component_measured": false,
   "survivorship_inflation_estimate": {
     "cagr_pp_lower_bound": 0.0,
     "label": "proxy",
@@ -59,6 +61,8 @@
     "unmeasured_component": "delisted_exclusion"
   },
   "survivorship_inflation_estimate_cagr_pp": 0.0,
+  "survivorship_measured_slice": "first_price_date_late_inclusion_only",
+  "survivorship_zero_bound_quote_allowed": false,
   "threshold_tuning_performed": false,
   "unmeasured_component": "delisted_exclusion"
 }

@@ -107,6 +107,11 @@ def test_price_audit_flag(monkeypatched_dates: dict[str, str] | None = None) -> 
         # though AAA is fresh.
         assert stale["status"] == "STALE_PRICE_REVIEW", stale["status"]
         assert stale["stale_trading_days"] == 3, stale["stale_trading_days"]
+        assert stale["stale_trading_days_calendar"] == "XNYS"
+        assert stale["stale_trading_days_calendar_source"] in {
+            "pandas_market_calendars_xnys",
+            "pandas_fallback_xnys_holidays",
+        }
         assert stale["stale_price_review"] is True
 
         dates["SPY"] = "2026-05-27"
