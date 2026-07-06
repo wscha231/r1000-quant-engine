@@ -1,0 +1,6 @@
+source,exists,status,research_ready,decision_time_usable,row_count,ticker_count
+earnings_guidance,False,DATA_INSUFFICIENT,False,False,0,0
+form4_transactions,False,missing,False,False,0,0
+institutional_13f_holdings,False,missing,False,False,0,0
+sec_ownership_signals,False,missing,False,False,0,0
+etf_thematic_signals,False,missing,False,False,0,0

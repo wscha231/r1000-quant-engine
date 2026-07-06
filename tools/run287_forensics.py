@@ -23,6 +23,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_broker_ledger_replay import calc_metrics  # noqa: E402
+from tools.alphaops_governance import (  # noqa: E402
+    measurement_contract_acceptance_blockers,
+    measurement_contract_caveat_fields,
+)
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -31,6 +35,8 @@ DEFAULT_FROZEN_ROOT = "outputs/policy_path_combo_probe_20260704_final_candidate"
 DEFAULT_OUTPUT_DIR = "outputs/run287_forensics"
 DEFAULT_PRICE_CACHE = "outputs/run287_price_cache_latest/cache_prices"
 DEFAULT_METRIC_SIDECAR_ROOT = "outputs/run287_metric_sidecar"
+DEFAULT_PARITY_SUMMARY = "outputs/run287_parity/summary.json"
+DEFAULT_SURVIVORSHIP_SUMMARY = "outputs/run287_survivorship/summary.json"
 
 HOOK_COLUMNS = {
     "main": [
@@ -50,6 +56,12 @@ HOOK_COLUMNS = {
         "concentrated_cashfunded_early_entry_add_weight",
         "concentrated_cashfunded_early_entry_min_breakout_quality",
     ],
+}
+ACCEPTANCE_STYLE_LABELS = {
+    "measurement_mismatch_only",
+    "production_blocked_research_pass",
+    "ready_for_human_review",
+    "research_7y_fullrun_pass",
 }
 
 
@@ -175,7 +187,13 @@ def metric_target_pass(metrics: dict[str, Any], portfolio: str) -> bool:
     return cagr >= target_cagr and max_dd >= -0.25
 
 
-def build_metric_sidecar_summary(run_root: Path, sidecar_root: Path, output_dir: Path) -> dict[str, Any]:
+def build_metric_sidecar_summary(
+    run_root: Path,
+    sidecar_root: Path,
+    output_dir: Path,
+    contract_caveats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    contract_caveats = contract_caveats or {}
     arms = [
         ("official_run287_zero_yield", "official_run287_artifact", None),
         ("generated_book_zero_yield", "generated_book_latest_replay", "generated_book_zero_yield"),
@@ -216,6 +234,14 @@ def build_metric_sidecar_summary(run_root: Path, sidecar_root: Path, output_dir:
                 "production_evidence_valid": False,
                 "public_display_allowed": False,
                 "live_trading_enabled": False,
+                "runner_parity_status": contract_caveats.get("runner_parity_status", "missing"),
+                "survivorship_inflation_estimate_cagr_pp": contract_caveats.get(
+                    "survivorship_inflation_estimate_cagr_pp"
+                ),
+                "survivorship_inflation_label": contract_caveats.get("survivorship_inflation_label", "missing"),
+                "survivorship_unmeasured_component": contract_caveats.get(
+                    "survivorship_unmeasured_component", "missing"
+                ),
             }
             rows.append(row)
             arm_portfolios[portfolio] = row
@@ -236,6 +262,13 @@ def build_metric_sidecar_summary(run_root: Path, sidecar_root: Path, output_dir:
         "latest_generated_book_cash_carry_pass": bool(
             by_arm.get("generated_book_cash_carry", {}).get("all_targets_pass")
         ),
+        "runner_parity_status": contract_caveats.get("runner_parity_status", "missing"),
+        "survivorship_inflation_estimate": contract_caveats.get("survivorship_inflation_estimate", {}),
+        "survivorship_inflation_estimate_cagr_pp": contract_caveats.get(
+            "survivorship_inflation_estimate_cagr_pp"
+        ),
+        "survivorship_inflation_label": contract_caveats.get("survivorship_inflation_label", "missing"),
+        "survivorship_unmeasured_component": contract_caveats.get("survivorship_unmeasured_component", "missing"),
     }
     write_json(sidecar_root / "summary.json", summary)
     (sidecar_root / "report.md").write_text(render_metric_sidecar_report(summary), encoding="utf-8")
@@ -560,6 +593,15 @@ def build_report(payload: dict[str, Any]) -> str:
         f"- `public_display_allowed`: `{payload['public_display_allowed']}`",
         f"- `live_trading_enabled`: `{payload['live_trading_enabled']}`",
         f"- `decision_label`: `{payload['decision_label']}`",
+        f"- `result_label`: `{payload.get('result_label', payload['decision_label'])}`",
+        f"- `runner_parity_status`: `{payload.get('runner_parity_status', 'missing')}`",
+        "- `survivorship_inflation_estimate_cagr_pp`: `{}`".format(
+            payload.get("survivorship_inflation_estimate_cagr_pp")
+        ),
+        f"- `survivorship_inflation_label`: `{payload.get('survivorship_inflation_label', 'missing')}`",
+        f"- `survivorship_unmeasured_component`: `{payload.get('survivorship_unmeasured_component', 'missing')}`",
+        f"- `measurement_contract_acceptance_allowed`: `{payload.get('measurement_contract_acceptance_allowed')}`",
+        f"- `measurement_contract_acceptance_blockers`: `{','.join(payload.get('measurement_contract_acceptance_blockers', []))}`",
         "",
         "## Cash-Carry Replay Status",
         "",
@@ -641,6 +683,7 @@ def build_report(payload: dict[str, Any]) -> str:
             "- Regenerated-book results must be compared on the same metric mode and replay end date.",
             "- Exact cash-carry replay is blocked until the price cache is present; it is not approximated here.",
             "- Date/month/ticker attribution is diagnostic only. It must not be used to hand-edit losing months.",
+            "- Forward-label screens are audit labels only. Any rule sourced from them needs OOS validation before promotion.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -655,6 +698,8 @@ def run(
     price_cache: Path,
     macro_cache: Path,
     metric_sidecar_root: Path,
+    parity_summary: Path,
+    survivorship_summary: Path,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     official_account = read_json(run_root / "account_evaluation" / "official_metrics.json")
@@ -663,6 +708,10 @@ def run(
         portfolio: metric_subset(read_json(frozen_cash_carry_metrics_path(frozen_root, portfolio)))
         for portfolio in PORTFOLIOS
     }
+    contract_caveats = measurement_contract_caveat_fields(
+        parity_summary_path=parity_summary,
+        survivorship_summary_path=survivorship_summary,
+    )
     payload: dict[str, Any] = {
         "schema_version": "run287-forensics-v1",
         "run_id": "28725350727",
@@ -678,11 +727,15 @@ def run(
         "official_run287_zero_yield_metrics": official_metrics,
         "frozen_candidate_cash_carry_metrics": frozen_metrics,
         "cash_carry_exact_replay": cash_carry_status(price_cache, macro_cache),
+        **contract_caveats,
     }
+    acceptance_blockers = measurement_contract_acceptance_blockers(contract_caveats)
+    payload["measurement_contract_acceptance_blockers"] = acceptance_blockers
+    payload["measurement_contract_acceptance_allowed"] = not acceptance_blockers
     payload["window_attribution"] = build_window_attribution(run_root, output_dir, official_window_end, actual_window_end)
     payload["target_book_drift"] = compare_books(frozen_root, run_root, output_dir)
     payload["hook_telemetry"] = summarize_hook_telemetry(run_root, output_dir)
-    payload["metric_sidecar"] = build_metric_sidecar_summary(run_root, metric_sidecar_root, output_dir)
+    payload["metric_sidecar"] = build_metric_sidecar_summary(run_root, metric_sidecar_root, output_dir, contract_caveats)
     if not all(payload["window_attribution"][p]["official_metrics_reproduced"] for p in PORTFOLIOS):
         payload["decision_label"] = "blocked_unreproducible"
         payload["next_action"] = "fix_zero_yield_reproduction_before_strategy_work"
@@ -693,12 +746,19 @@ def run(
             if payload["cash_carry_exact_replay"]["status"] != "ready_for_exact_replay"
             else "run_exact_generated_book_cash_carry_sidecar_without_dispatch"
         )
+    elif payload["metric_sidecar"].get("latest_generated_book_cash_carry_pass") and acceptance_blockers:
+        payload["decision_label"] = "blocked_measurement_contract_caveat"
+        payload["next_action"] = "restore_runner_parity_and_resolve_survivorship_caveats_before_acceptance_label"
     elif payload["metric_sidecar"].get("latest_generated_book_cash_carry_pass"):
         payload["decision_label"] = "measurement_mismatch_only"
         payload["next_action"] = "update_fullrun_to_emit_cash_carry_sidecar_as_research_metric"
     else:
         payload["decision_label"] = "alpha_candidate_rejected_on_generated_book"
         payload["next_action"] = "write_negative_evidence_and_prioritize_w1_window_book_drift_before_new_alpha"
+    payload["result_label"] = payload["decision_label"]
+    payload["acceptance_style_label_blocked"] = (
+        bool(acceptance_blockers) and payload["result_label"] not in ACCEPTANCE_STYLE_LABELS
+    )
     write_json(output_dir / "summary.json", payload)
     (output_dir / "report.md").write_text(build_report(payload), encoding="utf-8")
     return payload
@@ -714,6 +774,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-cache", default=DEFAULT_PRICE_CACHE)
     parser.add_argument("--macro-cache", default="cache_macro")
     parser.add_argument("--metric-sidecar-root", default=DEFAULT_METRIC_SIDECAR_ROOT)
+    parser.add_argument("--parity-summary", default=DEFAULT_PARITY_SUMMARY)
+    parser.add_argument("--survivorship-summary", default=DEFAULT_SURVIVORSHIP_SUMMARY)
     return parser.parse_args()
 
 
@@ -728,6 +790,8 @@ def main() -> int:
         price_cache=repo_path(args.price_cache),
         macro_cache=repo_path(args.macro_cache),
         metric_sidecar_root=repo_path(args.metric_sidecar_root),
+        parity_summary=repo_path(args.parity_summary),
+        survivorship_summary=repo_path(args.survivorship_summary),
     )
     print(json.dumps({"status": payload["status"], "decision_label": payload["decision_label"]}, sort_keys=True))
     return 0

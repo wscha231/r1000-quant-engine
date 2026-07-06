@@ -1,0 +1,189 @@
+{
+  "arm_metrics": [
+    {
+      "arm": "official_generated_zero_yield",
+      "avg_cash_weight": 0.2934185380359638,
+      "cagr": 0.3294036271548193,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 750759.3004592421,
+      "max_dd": -0.256526842052752,
+      "metric_mode": "broker_ledger_next_close",
+      "portfolio": "main",
+      "production_promotion_allowed": false,
+      "proxy_metric": false,
+      "start_date": "2019-06-03",
+      "status": "completed",
+      "target_book_source": "run287_sidecar",
+      "target_pass": false
+    },
+    {
+      "arm": "official_generated_cash_carry",
+      "avg_cash_weight": 0.2935881289342374,
+      "cagr": 0.3380570601271662,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 786051.1293153978,
+      "max_dd": -0.2536193351278912,
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "portfolio": "main",
+      "production_promotion_allowed": false,
+      "proxy_metric": false,
+      "start_date": "2019-06-03",
+      "status": "completed",
+      "target_book_source": "run287_sidecar",
+      "target_pass": false
+    },
+    {
+      "arm": "baseline_proxy_zero_yield",
+      "avg_cash_weight": 0.29309247815007244,
+      "cagr": 0.4192247913424829,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 1196144.8828395596,
+      "max_dd": -0.15537466767555475,
+      "metric_mode": "proxy_monthly_target_book_zero_yield",
+      "portfolio": "main",
+      "production_promotion_allowed": false,
+      "proxy_metric": true,
+      "start_date": "2019-05-31",
+      "status": "completed",
+      "target_book_source": "run287_generated_book",
+      "target_pass": true
+    },
+    {
+      "arm": "cluster_cap_proxy_zero_yield",
+      "avg_cash_weight": 0.3661422576863222,
+      "cagr": 0.34140944958238983,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 802033.7574220819,
+      "max_dd": -0.1475990272309906,
+      "metric_mode": "proxy_monthly_target_book_zero_yield",
+      "portfolio": "main",
+      "production_promotion_allowed": false,
+      "proxy_metric": true,
+      "start_date": "2019-05-31",
+      "status": "completed",
+      "target_book_source": "r3_cluster_cap_book",
+      "target_pass": false
+    },
+    {
+      "arm": "baseline_proxy_cash_carry",
+      "avg_cash_weight": 0.29309247815007244,
+      "cagr": 0.428314530037764,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 1251518.4555684323,
+      "max_dd": -0.15412622542960586,
+      "metric_mode": "proxy_monthly_target_book_cash_carry_implied",
+      "portfolio": "main",
+      "production_promotion_allowed": false,
+      "proxy_metric": true,
+      "start_date": "2019-05-31",
+      "status": "completed",
+      "target_book_source": "run287_generated_book",
+      "target_pass": true
+    },
+    {
+      "arm": "cluster_cap_proxy_cash_carry",
+      "avg_cash_weight": 0.3661422576863222,
+      "cagr": 0.3521564484424373,
+      "end_date": "2026-07-02",
+      "ending_capital_usd": 848706.8739333978,
+      "max_dd": -0.14618324871379174,
+      "metric_mode": "proxy_monthly_target_book_cash_carry_implied",
+      "portfolio": "main",
+      "production_promotion_allowed": false,
+      "proxy_metric": true,
+      "start_date": "2019-05-31",
+      "status": "completed",
+      "target_book_source": "r3_cluster_cap_book",
+      "target_pass": true
+    }
+  ],
+  "artifacts": {
+    "arm_metrics": "outputs/run287_cluster_cap/arm_metrics.csv",
+    "capped_main_target_book": "outputs/run287_cluster_cap/capped_main_target_book.csv",
+    "cluster_exposure_by_date": "outputs/run287_cluster_cap/cluster_exposure_by_date.csv",
+    "proxy_cash_carry_equity_curve": "outputs/run287_cluster_cap/proxy_cash_carry_equity_curve.csv",
+    "proxy_zero_yield_equity_curve": "outputs/run287_cluster_cap/proxy_zero_yield_equity_curve.csv",
+    "report": "outputs/run287_cluster_cap/report.md",
+    "summary": "outputs/run287_cluster_cap/summary.json"
+  },
+  "candidate_allowed": false,
+  "capped_cluster_date_count": 46,
+  "cash_carry_implied_annual_yield": 0.022171398279503058,
+  "cash_carry_proxy_source": "generated_book_cash_carry_vs_zero_yield_sidecar_implied_flat_yield",
+  "cluster_cap": 0.3,
+  "cluster_column": "sector",
+  "decision_label": "cluster_cap_rejected_proxy_joint_gate_failed",
+  "direct_losing_month_edit_allowed": false,
+  "eras_cash_carry": {
+    "covid_2020": {
+      "end": "2020-05-31",
+      "inside_minus_25": true,
+      "max_dd": 0.0,
+      "observation_count": 4,
+      "start": "2020-02-19"
+    },
+    "late_2024_ai_power_rotation": {
+      "end": "2024-11-30",
+      "inside_minus_25": true,
+      "max_dd": -0.04537244630399084,
+      "observation_count": 5,
+      "start": "2024-07-01"
+    },
+    "structural_2022_bear": {
+      "end": "2022-09-26",
+      "inside_minus_25": true,
+      "max_dd": -0.07336753343619717,
+      "observation_count": 10,
+      "start": "2021-11-19"
+    }
+  },
+  "eras_inside_minus_25_count_cash_carry": 3,
+  "eras_inside_minus_25_count_zero_yield": 3,
+  "eras_zero_yield": {
+    "covid_2020": {
+      "end": "2020-05-31",
+      "inside_minus_25": true,
+      "max_dd": 0.0,
+      "observation_count": 4,
+      "start": "2020-02-19"
+    },
+    "late_2024_ai_power_rotation": {
+      "end": "2024-11-30",
+      "inside_minus_25": true,
+      "max_dd": -0.0459431561920326,
+      "observation_count": 5,
+      "start": "2024-07-01"
+    },
+    "structural_2022_bear": {
+      "end": "2022-09-26",
+      "inside_minus_25": true,
+      "max_dd": -0.08055785717505892,
+      "observation_count": 10,
+      "start": "2021-11-19"
+    }
+  },
+  "fullrun_dispatched": false,
+  "market_data_downloaded": false,
+  "max_freed_weight": 0.41757522544742526,
+  "mdd_benefit_test_underpowered_reason": "proxy_dd_never_reaches_minus25",
+  "metric_sidecar": "outputs/run287_forensics/metric_sidecar_arm_metrics.csv",
+  "new_alpha_hook_added": false,
+  "parity_summary": "outputs/run287_parity/summary.json",
+  "production_promotion_allowed": false,
+  "proxy_calibration_vs_official": {
+    "cash_carry_cagr_delta_pp": 9.02574699105978,
+    "cash_carry_max_dd_delta_pp": 9.949310969828534,
+    "zero_yield_cagr_delta_pp": 8.982116418766362,
+    "zero_yield_max_dd_delta_pp": 10.115217437719725
+  },
+  "proxy_joint_gate_pass": false,
+  "proxy_mdd_reaches_minus25": false,
+  "proxy_substrate_status": "not_official_reproduction_directional_only",
+  "research_only": true,
+  "runner_parity_status": "parity_documented_gap",
+  "schema_version": "run287-cluster-cap-counterfactual-v1",
+  "status": "completed",
+  "target_book": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext/official_main_target_book.csv",
+  "target_book_regenerated": false,
+  "threshold_tuning_performed": false
+}

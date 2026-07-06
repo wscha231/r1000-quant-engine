@@ -9,6 +9,13 @@ This package is research-only. It does not dispatch another fullrun, tune thresh
 - `public_display_allowed`: `False`
 - `live_trading_enabled`: `False`
 - `decision_label`: `alpha_candidate_rejected_on_generated_book`
+- `result_label`: `alpha_candidate_rejected_on_generated_book`
+- `runner_parity_status`: `parity_documented_gap`
+- `survivorship_inflation_estimate_cagr_pp`: `0.0`
+- `survivorship_inflation_label`: `proxy`
+- `survivorship_unmeasured_component`: `delisted_exclusion`
+- `measurement_contract_acceptance_allowed`: `False`
+- `measurement_contract_acceptance_blockers`: `runner_parity_not_exact`
 
 ## Cash-Carry Replay Status
 
@@ -48,3 +55,4 @@ The 2026-06-29 clamp is attribution-only. It is not a current pass label.
 - Regenerated-book results must be compared on the same metric mode and replay end date.
 - Exact cash-carry replay is blocked until the price cache is present; it is not approximated here.
 - Date/month/ticker attribution is diagnostic only. It must not be used to hand-edit losing months.
+- Forward-label screens are audit labels only. Any rule sourced from them needs OOS validation before promotion.

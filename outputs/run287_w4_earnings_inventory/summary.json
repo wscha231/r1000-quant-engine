@@ -1,0 +1,109 @@
+{
+  "actuals_managed": true,
+  "candidate_books": [
+    {
+      "actual_financial_columns_present": [
+        "revenues_ttm",
+        "gross_profit_ttm",
+        "op_income_ttm",
+        "net_income_ttm",
+        "ocf_ttm",
+        "capex_ttm",
+        "sales_growth_yoy",
+        "eps_growth_yoy",
+        "op_income_growth_yoy",
+        "revenue_growth_final"
+      ],
+      "actual_financial_nonzero_counts": {
+        "capex_ttm": 22276,
+        "eps_growth_yoy": 7555,
+        "gross_profit_ttm": 21382,
+        "net_income_ttm": 28502,
+        "ocf_ttm": 26900,
+        "op_income_growth_yoy": 2446,
+        "op_income_ttm": 27050,
+        "revenue_growth_final": 0,
+        "revenues_ttm": 27454,
+        "sales_growth_yoy": 16410
+      },
+      "contains_true_revision_guidance_feed": false,
+      "interpretation": "candidate actual/proxy fields are diagnostic inputs, not vendor guidance history.",
+      "path": "H:\\codex\\r1000_run287_r1r2_20260706\\cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\reports\\candidate_replay_book.csv",
+      "proxy_score_columns_present": [
+        "actual_results_score",
+        "eps_revision_score",
+        "revision_score",
+        "eps_revision_proxy",
+        "ni_loss_narrowing_4q"
+      ],
+      "proxy_score_nonzero_counts": {
+        "actual_results_score": 47408,
+        "eps_revision_proxy": 0,
+        "eps_revision_score": 8282,
+        "ni_loss_narrowing_4q": 69,
+        "revision_score": 0
+      },
+      "row_count": 47435,
+      "status": "available",
+      "ticker_count": 981
+    }
+  ],
+  "generated_at_utc": "2026-07-06T13:02:11Z",
+  "live_trading_allowed": false,
+  "pit_signals": {
+    "layer": "pit_true_revision_guidance_signals",
+    "path": "H:\\codex\\r1000_run287_r1r2_20260706\\data_pit\\events\\earnings_revision_signals.parquet",
+    "regime_nowcast_coverage_ready": false,
+    "status": "missing"
+  },
+  "production_activation_allowed": false,
+  "proxy_scores_present": true,
+  "raw_feed": {
+    "layer": "raw_true_revision_guidance_feed",
+    "path": "H:\\codex\\r1000_run287_r1r2_20260706\\data_raw\\events\\earnings_revisions.csv",
+    "regime_nowcast_coverage_ready": false,
+    "status": "missing"
+  },
+  "research_only": true,
+  "schema_version": "earnings-data-inventory-v1",
+  "sec_companyfacts": {
+    "description": "SEC companyfacts actual financial statements are unavailable.",
+    "layer": "sec_companyfacts_actuals",
+    "path": "H:\\codex\\r1000_run287_r1r2_20260706\\data_raw\\free\\sec\\companyfacts.zip",
+    "status": "missing"
+  },
+  "selection_or_weighting_mutation": false,
+  "service_label_contract": {
+    "actuals_confirmed": {
+      "description": "Backward-looking SEC actuals. This does not imply analyst estimate revision.",
+      "display_label": "Reported actuals confirmed",
+      "guidance_confirmed": false,
+      "revision_confirmed": false
+    },
+    "analyst_revision_confirmed": {
+      "description": "Forward estimate revision from a dated, coverage-eligible source.",
+      "display_label": "PIT analyst estimate revision confirmed",
+      "guidance_confirmed": false,
+      "revision_confirmed": true
+    },
+    "company_guidance_confirmed": {
+      "description": "Company guidance direction from a dated, coverage-eligible source.",
+      "display_label": "Company guidance direction confirmed",
+      "guidance_confirmed": true,
+      "revision_confirmed": false
+    },
+    "data_insufficient": {
+      "description": "Do not use as earnings confirmation.",
+      "display_label": "Insufficient PIT revision/guidance data",
+      "guidance_confirmed": false,
+      "revision_confirmed": false
+    },
+    "proxy_score_diagnostic_only": {
+      "description": "Internal proxy score. Not a substitute for analyst revision or guidance.",
+      "display_label": "Internal diagnostic proxy",
+      "guidance_confirmed": false,
+      "revision_confirmed": false
+    }
+  },
+  "true_revision_guidance_ready": false
+}

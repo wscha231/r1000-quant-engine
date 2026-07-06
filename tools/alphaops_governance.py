@@ -143,6 +143,84 @@ def research_production_gate_fields(
     return out
 
 
+def _safe_read_json(path: str | Path) -> dict[str, Any]:
+    p = Path(path)
+    if not p.is_absolute():
+        p = REPO_ROOT / p
+    if not p.exists():
+        return {}
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"status": "missing_or_invalid", "reason": str(exc)}
+    return raw if isinstance(raw, dict) else {"status": "missing_or_invalid", "reason": "json_root_not_object"}
+
+
+def _repo_display_path(path: str | Path) -> str:
+    p = Path(path)
+    if not p.is_absolute():
+        p = REPO_ROOT / p
+    try:
+        return str(p.resolve().relative_to(REPO_ROOT.resolve()))
+    except ValueError:
+        return str(p)
+
+
+def measurement_contract_caveat_fields(
+    *,
+    parity_summary_path: str | Path,
+    survivorship_summary_path: str | Path,
+) -> dict[str, Any]:
+    """Return required run287 measurement caveats from R1/R2 summaries."""
+    parity = _safe_read_json(parity_summary_path)
+    survivorship = _safe_read_json(survivorship_summary_path)
+    estimate = survivorship.get("survivorship_inflation_estimate")
+    if not isinstance(estimate, dict):
+        estimate = {
+            "cagr_pp_lower_bound": survivorship.get("survivorship_inflation_estimate_cagr_pp"),
+            "label": survivorship.get("label", "missing"),
+            "method": survivorship.get("method", "missing"),
+            "unmeasured_component": survivorship.get("unmeasured_component", "missing"),
+        }
+    return {
+        "runner_parity_status": parity.get("runner_parity_status", "missing"),
+        "runner_parity_reason": parity.get("runner_parity_reason", ""),
+        "runner_parity_summary_path": _repo_display_path(parity_summary_path),
+        "survivorship_inflation_estimate": estimate,
+        "survivorship_inflation_estimate_cagr_pp": survivorship.get(
+            "survivorship_inflation_estimate_cagr_pp", estimate.get("cagr_pp_lower_bound")
+        ),
+        "survivorship_inflation_label": survivorship.get("label", estimate.get("label", "missing")),
+        "survivorship_unmeasured_component": survivorship.get(
+            "unmeasured_component", estimate.get("unmeasured_component", "missing")
+        ),
+        "survivorship_summary_path": _repo_display_path(survivorship_summary_path),
+    }
+
+
+def measurement_contract_acceptance_blockers(caveats: dict[str, Any]) -> list[str]:
+    """Return blockers that prevent acceptance-style labels for run287 metrics."""
+    blockers: list[str] = []
+    parity_status = str(caveats.get("runner_parity_status") or "missing")
+    if parity_status == "missing":
+        blockers.append("runner_parity_status_missing")
+    elif parity_status != "parity_exact":
+        blockers.append("runner_parity_not_exact")
+
+    survival_label = str(caveats.get("survivorship_inflation_label") or "missing")
+    survival_component = str(caveats.get("survivorship_unmeasured_component") or "missing")
+    estimate = caveats.get("survivorship_inflation_estimate")
+    if survival_label == "missing":
+        blockers.append("survivorship_inflation_label_missing")
+    if survival_component == "missing":
+        blockers.append("survivorship_unmeasured_component_missing")
+    if not isinstance(estimate, dict):
+        blockers.append("survivorship_inflation_estimate_missing")
+    if caveats.get("survivorship_inflation_estimate_cagr_pp") is None:
+        blockers.append("survivorship_inflation_estimate_cagr_pp_missing")
+    return blockers
+
+
 def _normalize_date(value: Any) -> Any | None:
     import pandas as pd
 

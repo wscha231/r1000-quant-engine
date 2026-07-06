@@ -151,9 +151,35 @@ def main() -> int:
         frozen_root = root / "frozen"
         out = root / "out"
         sidecar = root / "metric_sidecar"
+        parity = root / "parity" / "summary.json"
+        survivorship = root / "survivorship" / "summary.json"
         macro_cache = root / "cache_macro"
         macro_cache.mkdir(parents=True)
         (macro_cache / "fred_dgs3mo_DGS3MO.parquet").write_text("fake rate cache", encoding="utf-8")
+        write_json(
+            parity,
+            {
+                "status": "completed",
+                "runner_parity_status": "parity_documented_gap",
+                "runner_parity_reason": "fixture_gap",
+            },
+        )
+        write_json(
+            survivorship,
+            {
+                "status": "completed",
+                "label": "proxy",
+                "method": "fixture_late_inclusion_only",
+                "unmeasured_component": "delisted_exclusion",
+                "survivorship_inflation_estimate_cagr_pp": 1.25,
+                "survivorship_inflation_estimate": {
+                    "cagr_pp_lower_bound": 1.25,
+                    "label": "proxy",
+                    "method": "fixture_late_inclusion_only",
+                    "unmeasured_component": "delisted_exclusion",
+                },
+            },
+        )
         write_json(
             run_root / "account_evaluation" / "official_metrics.json",
             {
@@ -182,10 +208,27 @@ def main() -> int:
             price_cache=root / "missing_cache_prices",
             macro_cache=macro_cache,
             metric_sidecar_root=sidecar,
+            parity_summary=parity,
+            survivorship_summary=survivorship,
         )
 
         assert payload["new_fullrun_dispatched"] is False
         assert payload["production_promotion_allowed"] is False
+        assert payload["runner_parity_status"] == "parity_documented_gap"
+        assert payload["measurement_contract_acceptance_allowed"] is False
+        assert "runner_parity_not_exact" in payload["measurement_contract_acceptance_blockers"]
+        assert payload["result_label"] == payload["decision_label"]
+        assert payload["result_label"] not in {
+            "measurement_mismatch_only",
+            "production_blocked_research_pass",
+            "ready_for_human_review",
+            "research_7y_fullrun_pass",
+        }
+        assert payload["survivorship_inflation_estimate_cagr_pp"] == 1.25
+        assert payload["survivorship_inflation_estimate"]["label"] == "proxy"
+        assert payload["survivorship_unmeasured_component"] == "delisted_exclusion"
+        assert payload["survivorship_inflation_label"] != "missing"
+        assert payload["survivorship_unmeasured_component"] != "missing"
         assert payload["cash_carry_exact_replay"]["status"] == "blocked_missing_price_cache"
         assert payload["window_attribution"]["main"]["official_metrics_reproduced"] is True
         assert payload["window_attribution"]["main"]["delta_actual_minus_clamp"]["cagr_pp"] < 0.0
@@ -194,7 +237,15 @@ def main() -> int:
         assert payload["hook_telemetry"]["status"] == "telemetry_only_pending_counterfactual"
         assert payload["metric_sidecar"]["status"] == "completed"
         assert payload["metric_sidecar"]["latest_generated_book_cash_carry_pass"] is False
+        assert payload["metric_sidecar"]["runner_parity_status"] == "parity_documented_gap"
+        assert payload["metric_sidecar"]["survivorship_inflation_estimate"]["label"] == "proxy"
         assert payload["decision_label"] == "alpha_candidate_rejected_on_generated_book"
+        sidecar_rows = pd.read_csv(out / "metric_sidecar_arm_metrics.csv")
+        assert "runner_parity_status" in sidecar_rows.columns
+        assert "survivorship_inflation_estimate_cagr_pp" in sidecar_rows.columns
+        assert set(sidecar_rows["runner_parity_status"]) == {"parity_documented_gap"}
+        assert "missing" not in set(sidecar_rows["survivorship_inflation_label"].astype(str))
+        assert "missing" not in set(sidecar_rows["survivorship_unmeasured_component"].astype(str))
         assert (out / "summary.json").exists()
         assert (out / "report.md").exists()
         assert (out / "metric_sidecar_arm_metrics.csv").exists()
@@ -205,6 +256,34 @@ def main() -> int:
         assert (out / "date_level_drift.csv").exists()
         assert (out / "ticker_level_drift.csv").exists()
         assert (out / "hook_telemetry.csv").exists()
+
+        for portfolio, cagr in [("main", 0.36), ("concentrated", 0.51)]:
+            path = sidecar / "generated_book_cash_carry" / portfolio / "metrics.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["cagr"] = cagr
+            data["max_dd"] = -0.24
+            write_json(path, data)
+        blocked_payload = run(
+            run_root=run_root,
+            frozen_root=frozen_root,
+            output_dir=root / "out_blocked_acceptance",
+            official_window_end="2026-06-29",
+            actual_window_end="2026-07-02",
+            price_cache=root / "missing_cache_prices",
+            macro_cache=macro_cache,
+            metric_sidecar_root=sidecar,
+            parity_summary=parity,
+            survivorship_summary=survivorship,
+        )
+        assert blocked_payload["metric_sidecar"]["latest_generated_book_cash_carry_pass"] is True
+        assert blocked_payload["decision_label"] == "blocked_measurement_contract_caveat"
+        assert "runner_parity_not_exact" in blocked_payload["measurement_contract_acceptance_blockers"]
+        assert blocked_payload["result_label"] not in {
+            "measurement_mismatch_only",
+            "production_blocked_research_pass",
+            "ready_for_human_review",
+            "research_7y_fullrun_pass",
+        }
 
     print("run287_forensics_smoke: PASS")
     return 0

@@ -1,0 +1,150 @@
+{
+  "alternate_sources": {
+    "etf_thematic_signals": {
+      "decision_time_usable": false,
+      "exists": false,
+      "max_available_from": null,
+      "min_available_from": null,
+      "missing_available_from": null,
+      "path": "data_pit\\etf_holdings\\etf_thematic_signals.parquet",
+      "row_count": 0,
+      "status": "missing",
+      "ticker_count": 0
+    },
+    "form4_transactions": {
+      "decision_time_usable": false,
+      "exists": false,
+      "max_available_from": null,
+      "min_available_from": null,
+      "missing_available_from": null,
+      "path": "data_pit\\sec\\form4_transactions.parquet",
+      "row_count": 0,
+      "status": "missing",
+      "ticker_count": 0
+    },
+    "institutional_13f_holdings": {
+      "decision_time_usable": false,
+      "exists": false,
+      "max_available_from": null,
+      "min_available_from": null,
+      "missing_available_from": null,
+      "path": "data_pit\\sec\\institutional_13f_holdings.parquet",
+      "row_count": 0,
+      "status": "missing",
+      "ticker_count": 0
+    },
+    "sec_ownership_signals": {
+      "decision_time_usable": false,
+      "exists": false,
+      "max_available_from": null,
+      "min_available_from": null,
+      "missing_available_from": null,
+      "path": "data_pit\\sec\\sec_ownership_signals.parquet",
+      "row_count": 0,
+      "status": "missing",
+      "ticker_count": 0
+    }
+  },
+  "artifacts": {
+    "report": "outputs\\run287_r4_conc_alpha_source\\report.md",
+    "source_readiness": "outputs\\run287_r4_conc_alpha_source\\source_readiness.csv",
+    "summary": "outputs\\run287_r4_conc_alpha_source\\summary.json"
+  },
+  "as_of": "2026-07-02",
+  "candidate_allowed": false,
+  "candidate_book": "cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\reports\\candidate_replay_book.csv",
+  "candidate_source_ready": false,
+  "decision_label": "blocked_missing_w4_decision_time_source",
+  "earnings_guidance": {
+    "coverage": {
+      "actuals_context_available": false,
+      "bucket_coverage_count": 0,
+      "coverage_eligible_rows": 0,
+      "coverage_eligible_source_types": [
+        "company_guidance",
+        "historical_revision",
+        "manual_research_import",
+        "vendor_estimate_revision"
+      ],
+      "coverage_eligible_tickers": 0,
+      "current_holdings_coverage": {
+        "bucket_count": 0,
+        "coverage_weight": 0.0,
+        "covered_ticker_count": 0,
+        "status": "not_supplied"
+      },
+      "data_recency_days": null,
+      "directional_guidance_rows": 0,
+      "directional_guidance_tickers": 0,
+      "earnings_guidance_group_status": "DATA_INSUFFICIENT",
+      "future_available_from_rows": 0,
+      "guidance_research_ready": false,
+      "history_depth_ticker_count": 0,
+      "input_rows": 0,
+      "invalid_available_from_rows": 0,
+      "non_coverage_source_types": [
+        "actual_results_score",
+        "current_snapshot",
+        "earnings_call_keyword",
+        "eps_revision_score_proxy",
+        "internal_proxy_score",
+        "sec_actual_snapshot"
+      ],
+      "observation_span_days": 0,
+      "plumbing_ready": false,
+      "policy_ready": false,
+      "production_activation_allowed": false,
+      "proxy_context_available": false,
+      "research_only": true,
+      "research_ready": false,
+      "revision_history_research_ready": false,
+      "schema_version": "earnings-guidance-coverage-v1",
+      "service_ready": false,
+      "source_type_counts": {},
+      "status": "DATA_INSUFFICIENT",
+      "target_book_coverage": {
+        "bucket_count": 0,
+        "coverage_weight": 0.0,
+        "covered_ticker_count": 0,
+        "path": "H:\\codex\\r1000_run287_r1r2_20260706\\cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\alphaops_vnext\\official_concentrated_target_book.csv",
+        "row_count": 545,
+        "status": "available"
+      },
+      "top50_candidate_coverage": {
+        "bucket_count": 0,
+        "coverage_weight": 0.0,
+        "covered_ticker_count": 0,
+        "path": "H:\\codex\\r1000_run287_r1r2_20260706\\cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\reports\\candidate_replay_book.csv",
+        "row_count": 50,
+        "status": "available"
+      }
+    },
+    "input_used": "data_pit\\events\\earnings_revision_signals.parquet",
+    "policy_ready": false,
+    "raw_feed_exists": false,
+    "raw_feed_path": "data_raw\\events\\earnings_revisions.csv",
+    "research_ready": false,
+    "service_ready": false,
+    "signals_exists": false,
+    "signals_path": "data_pit\\events\\earnings_revision_signals.parquet",
+    "status": "DATA_INSUFFICIENT"
+  },
+  "forward_returns_used_for_ranking": false,
+  "fullrun_dispatched": false,
+  "hook_allowed": false,
+  "live_trading_enabled": false,
+  "market_data_downloaded": false,
+  "new_alpha_hook_added": false,
+  "next_action_requires_oos_source_screen": true,
+  "portfolio": "concentrated",
+  "production_promotion_allowed": false,
+  "rank_rs_revenue_variants_allowed": false,
+  "research_only": true,
+  "run_id": "28725350727",
+  "schema_version": "run287-r4-conc-alpha-source-readiness-v1",
+  "status": "completed",
+  "target_book": "cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\alphaops_vnext\\official_concentrated_target_book.csv",
+  "target_book_regenerated": false,
+  "threshold_tuning_performed": false,
+  "user_decision": "open_w4_decision_time_source"
+}
