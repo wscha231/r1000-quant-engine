@@ -1,0 +1,35 @@
+{
+  "approximate_reproduction_available": true,
+  "artifacts": {
+    "input_availability": "outputs/run287_same_artifact_repro_preflight/input_availability.csv",
+    "report": "outputs/run287_same_artifact_repro_preflight/report.md",
+    "summary": "outputs/run287_same_artifact_repro_preflight/summary.json"
+  },
+  "blockers": [
+    "runner_price_file_artifacts_missing",
+    "runner_long_crisis_features_missing_or_mismatch"
+  ],
+  "exact_reproduction_ready": false,
+  "expected_price_file_count": 981,
+  "fullrun_dispatched": false,
+  "local_full_candidate_cache": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run287_price_cache_full_candidate\\cache_prices",
+  "local_full_candidate_price_file_count": 990,
+  "market_data_downloaded": false,
+  "new_alpha_hook_added": false,
+  "official_artifact_price_file_count": 0,
+  "official_artifact_root": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run_28725350727_official_broker_artifact",
+  "production_promotion_allowed": false,
+  "required_missing_or_mismatch": [
+    "runner_long_crisis_features_expected_path"
+  ],
+  "research_only": true,
+  "runner_code_commit_available": true,
+  "runner_code_ref": "refs/heads/codex/integration-fullrun-clean-20260630",
+  "runner_code_sha": "15176b588d5bb0792bce1df6367758d795a8a33a",
+  "runner_fidelity_status": "same_artifact_repro_blocked",
+  "runner_manifest": "cloud_results/full_rebuild/20260705_28725350727_global_alpha_universe/alphaops_vnext/target_generation_input_manifest.json",
+  "schema_version": "run287-same-artifact-repro-preflight-v1",
+  "status": "blocked_exact_reproduction",
+  "target_book_regenerated": false,
+  "threshold_tuning_performed": false
+}
