@@ -174,6 +174,8 @@ def test_operating_minimal_artifact_is_phase_g_replay_ready() -> None:
         "outputs/reports/candidate_replay_book.csv",
         "outputs/reports/dataset_coverage_audit.*",
         "cache_prices/replay_price_cache_manifest.json",
+        "outputs/target_generation_substrate/summary.json",
+        "outputs/target_generation_substrate/report.md",
         "outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
         "outputs/sec_enriched_candidate_replay/summary.json",
         "outputs/sec_enriched_candidate_replay/report.md",
@@ -206,12 +208,14 @@ def test_official_artifact_keeps_market_leader_replay_source() -> None:
         "name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}",
         "outputs/reports/candidate_replay_book.csv",
         "cache_prices/replay_price_cache_manifest.json",
+        "outputs/target_generation_substrate/",
         "outputs/sec_enriched_candidate_replay/",
         "outputs/integrated_theme_leader_crisis_replay/",
         "outputs/strategy_logic_ledger/",
         "outputs/patch_application_manifest.json",
         "outputs/replay_integrity/patch_application_manifest.json",
         'cp outputs/reports/candidate_replay_book.csv "$DEST/reports/"',
+        "tools/archive_target_generation_substrate.py",
     ]:
         assert token in text, token
 
