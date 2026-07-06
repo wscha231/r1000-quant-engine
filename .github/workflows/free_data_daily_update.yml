@@ -167,7 +167,7 @@ jobs:
           SEC_MAX_AGE_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.sec_max_age_days || '3' }}
         run: |
           set -euo pipefail
-          EXPERIMENT_ENV_JSON='{"PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED":"1","PHASE_MAIN_FAST_CRASH_HEDGE_ENABLED":"1","PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED":"1"}'
+          EXPERIMENT_ENV_JSON='{"PHASE_AI_CAPEX_MOMENTUM_TILT_ENABLED":"1","PHASE_CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ENABLED":"1","PHASE_CONCENTRATED_REPLACEMENT_QUALITY_ENABLED":"1","PHASE_MAIN_POST_SELECTION_TOPN_FILTER_ENABLED":"1","R1000_CONC_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT":"0.058","R1000_CONC_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY":"0.50","R1000_MAIN_AI_CAPEX_TILT_STRENGTH":"0.20","R1000_MAIN_POST_SELECTION_TOP_N":"14"}'
           REQUIRED_PRICE_TICKERS="$(python tools/print_required_price_tickers.py --experiment-env-json "$EXPERIMENT_ENV_JSON" --output-format csv)"
           echo "[required-price-tickers] $REQUIRED_PRICE_TICKERS"
           # Engine validation writes the recurring CAGR / Sharpe / MaxDD report.
@@ -187,7 +187,7 @@ jobs:
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_main.log || true
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true
           python tools/run_latest_price_date_audit.py --latest-run "$LATEST" --price-cache cache_prices --output outputs/latest_price_date_audit.json --max-book-tickers 80 --extra-tickers "$REQUIRED_PRICE_TICKERS" 2>&1 | tee outputs/full_rebuild_logs/latest_price_date_audit.log || true
-          python tools/verify_alphaops_fullrun_readiness.py --price-audit outputs/latest_price_date_audit.json --output-dir outputs/fullrun_readiness --ref "${GITHUB_REF_NAME:-codex/integration-main-conc-target-hooks-20260629}" --experiment-env-json "$EXPERIMENT_ENV_JSON" 2>&1 | tee outputs/full_rebuild_logs/fullrun_readiness.log || true
+          python tools/verify_alphaops_fullrun_readiness.py --price-audit outputs/latest_price_date_audit.json --output-dir outputs/fullrun_readiness --ref "${GITHUB_REF_NAME:-codex/integration-fullrun-clean-20260630}" --experiment-env-json "$EXPERIMENT_ENV_JSON" 2>&1 | tee outputs/full_rebuild_logs/fullrun_readiness.log || true
           python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
           python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
 
