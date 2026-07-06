@@ -25,23 +25,35 @@ Key evidence:
 - Runner required ticker count: `981`
 - Runner existing price file count: `981`
 - Runner missing price file count: `0`
-- Local manifest ticker count: `498`
-- Local present price file count: `489`
-- Local missing price file count versus runner/candidate requirement: `492`
+- Local manifest ticker count: `983`
+- Local present price file count: `981`
+- Local missing price file count versus runner/candidate requirement: `0`
+- Cache coverage status: `cache_coverage_complete`
+- Runner fidelity status: `residual_documented`
+- Residual gap classification: `book_generation_gap`
 - Runner price-cache manifest sha256:
   `fdcf36399cb75225423ce71a92e9cc36e580482015c8bf07718d02376acb4a18`
+- Local price-cache manifest sha256:
+  `1328919074a8ad2ad1916003860ca747183f58f2263bf9af13ebe673810f536a`
+- `cache_manifest_sha_matches_runner=false`; local coverage is complete, but
+  byte-identical runner cache provenance is not established from the published
+  artifacts.
 
 Target-book parity is not exact:
 
 | Portfolio | Common dates | Ticker mismatch dates | Max weight delta | Avg L1 diff | Max L1 diff |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| main | 86 | 84 | 0.1402969539 | 0.3579562725 | 0.8412396994 |
-| concentrated | 86 | 72 | 0.4105397875 | 0.3824684210 | 1.1400000000 |
+| main | 86 | 70 | 0.1565297563 | 0.1659106531 | 0.4149711458 |
+| concentrated | 86 | 1 | 0.4311683310 | 0.0170911441 | 0.9155366620 |
 
 Interpretation:
 
-- Local same-input determinism evidence remains useful, but local artifacts are
-  not runner-parity artifacts.
+- The original 498-cache gap is no longer the dominant explanation after using
+  `outputs/run287_price_cache_full_candidate/cache_prices`.
+- Local cache coverage now reaches the runner/candidate 981-ticker requirement,
+  but target-book parity is still not exact.
+- The remaining blocker is book-generation fidelity, not missing local price
+  files.
 - Any R3 exposure-cap or subsequent attribution work must either restore the
   exact runner cache/book substrate or explicitly carry
   `runner_parity_status=parity_documented_gap`.

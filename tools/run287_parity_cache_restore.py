@@ -9,6 +9,7 @@ local cache/book substrate and emits an explicit runner_parity_status.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -63,6 +64,16 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
+def sha256_file(path: Path) -> str:
+    if not path.exists():
+        return ""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def required_tickers(candidate_book: Path, runner_book_root: Path) -> list[str]:
     tickers: set[str] = set()
     if candidate_book.exists():
@@ -113,22 +124,32 @@ def audit_cache(candidate_book: Path, runner_book_root: Path, local_price_cache:
             }
         )
     missing = [row for row in rows if not row["local_file_exists"]]
-    local_manifest = read_json(local_price_cache / "replay_price_cache_manifest.json")
+    local_manifest_path = local_price_cache / "replay_price_cache_manifest.json"
+    local_manifest = read_json(local_manifest_path)
     runner_manifest_price = manifest.get("price_cache") if isinstance(manifest.get("price_cache"), dict) else {}
+    runner_manifest_sha = (runner_manifest_price.get("manifest") or {}).get("sha256", "")
+    local_manifest_sha = sha256_file(local_manifest_path)
+    runner_required = int(runner_manifest_price.get("required_ticker_count") or len(tickers))
+    local_present = len(rows) - len(missing)
+    cache_coverage_complete = local_cache_exists and len(missing) == 0 and local_present >= runner_required
     summary = {
-        "runner_required_ticker_count": int(runner_manifest_price.get("required_ticker_count") or len(tickers)),
+        "runner_required_ticker_count": runner_required,
         "runner_required_price_file_count": int(runner_manifest_price.get("required_price_file_count") or len(tickers)),
         "runner_existing_price_file_count": int(runner_manifest_price.get("existing_price_file_count") or 0),
         "runner_missing_price_file_count": int(runner_manifest_price.get("missing_price_file_count") or 0),
-        "runner_price_cache_manifest_sha256": (runner_manifest_price.get("manifest") or {}).get("sha256", ""),
+        "runner_price_cache_manifest_sha256": runner_manifest_sha,
         "local_price_cache": str(local_price_cache),
         "local_price_cache_exists": local_cache_exists,
-        "local_manifest_exists": (local_price_cache / "replay_price_cache_manifest.json").exists(),
+        "local_manifest_exists": local_manifest_path.exists(),
         "local_manifest_status": local_manifest.get("status", ""),
+        "local_price_cache_manifest_sha256": local_manifest_sha,
+        "cache_manifest_sha_matches_runner": bool(runner_manifest_sha and local_manifest_sha and runner_manifest_sha == local_manifest_sha),
         "local_manifest_ticker_count": int(local_manifest.get("ticker_count") or local_manifest.get("actual_cached_ticker_count") or 0),
         "local_required_ticker_count_from_candidate_and_books": len(tickers),
         "local_missing_price_file_count": len(missing),
-        "local_present_price_file_count": len(rows) - len(missing),
+        "local_present_price_file_count": local_present,
+        "cache_coverage_complete": cache_coverage_complete,
+        "cache_coverage_status": "cache_coverage_complete" if cache_coverage_complete else "cache_coverage_gap",
     }
     return summary, pd.DataFrame(rows)
 
@@ -245,6 +266,13 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- local_manifest_ticker_count: `{cache['local_manifest_ticker_count']}`",
         f"- local_present_price_file_count: `{cache['local_present_price_file_count']}`",
         f"- local_missing_price_file_count: `{cache['local_missing_price_file_count']}`",
+        f"- cache_coverage_status: `{cache.get('cache_coverage_status', '')}`",
+        f"- cache_manifest_sha_matches_runner: `{cache.get('cache_manifest_sha_matches_runner', False)}`",
+        "",
+        "## Runner Fidelity",
+        "",
+        f"- runner_fidelity_status: `{payload.get('runner_fidelity_status', '')}`",
+        f"- residual_gap_classification: `{payload.get('residual_gap_classification', '')}`",
         "",
         "## Book Parity",
         "",
@@ -259,7 +287,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 common=int(row["common_date_count"]),
                 mismatch=int(row["ticker_mismatch_date_count"]),
                 max_delta=safe_float(row["max_weight_delta_abs"]),
-                avg_l1=safe_float(row["average_l1_weight_diff"]),
+                avg_l1=safe_float(row.get("average_l1_weight_diff")),
             )
         )
     lines.extend(
@@ -285,15 +313,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     cache_summary, missing_bars = audit_cache(candidate_book, runner_book_root, local_price_cache, manifest)
     cache_summary["local_price_cache"] = path_ref(local_price_cache)
     book_summary, book_frame = audit_books(runner_book_root, local_book_root)
+    cache_coverage_complete = bool(cache_summary["cache_coverage_complete"])
     if not cache_summary["local_price_cache_exists"] or book_summary["book_parity_blocked"]:
         status = "blocked"
         reason = "local_cache_or_book_missing"
-    elif cache_summary["local_missing_price_file_count"] == 0 and book_summary["book_parity_exact"]:
+        runner_fidelity_status = "not_established"
+        residual_gap_classification = "blocked_missing_cache_or_book"
+    elif cache_coverage_complete and book_summary["book_parity_exact"]:
         status = "parity_exact"
         reason = "cache_and_book_match_runner_manifest"
+        runner_fidelity_status = "established"
+        residual_gap_classification = "none"
     else:
         status = "parity_documented_gap"
-        reason = "local_cache_or_book_differs_from_runner_manifest"
+        reason = "local_cache_coverage_complete_but_book_differs" if cache_coverage_complete else "local_cache_or_book_differs_from_runner_manifest"
+        runner_fidelity_status = "residual_documented" if cache_coverage_complete else "not_established"
+        residual_gap_classification = "book_generation_gap" if cache_coverage_complete else "cache_coverage_gap"
 
     missing_bars.to_csv(output_dir / "missing_bars.csv", index=False)
     book_frame.to_csv(output_dir / "book_parity.csv", index=False)
@@ -302,6 +337,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "status": "completed",
         "runner_parity_status": status,
         "runner_parity_reason": reason,
+        "runner_fidelity_status": runner_fidelity_status,
+        "residual_gap_classification": residual_gap_classification,
         "research_only": True,
         "fullrun_dispatched": False,
         "market_data_downloaded": False,

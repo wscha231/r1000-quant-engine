@@ -166,6 +166,20 @@ The latest-basis replay price cache has been rebuilt under
 - `end=2026-07-02`
 - `manifest_end_source=actual_cached_bars`
 
+R1 cache-parity follow-up found a broader local full-candidate cache under
+`outputs/run287_price_cache_full_candidate/cache_prices`:
+
+- `local_manifest_ticker_count=983`
+- `local_present_price_file_count=981`
+- `local_missing_price_file_count=0`
+- `cache_coverage_status=cache_coverage_complete`
+- `cache_manifest_sha_matches_runner=false`
+
+This closes the earlier local coverage gap but does not establish full runner
+fidelity. The remaining R1 blocker is now
+`residual_gap_classification=book_generation_gap`: the regenerated local target
+books still differ from the official runner target books.
+
 Exact generated-book cash-carry replay has been run locally under
 `outputs/run287_metric_sidecar/generated_book_cash_carry`.
 
@@ -223,10 +237,11 @@ Double-run audit result:
 | Main | 0 | 0 | 0 | 0.0 | true |
 | Concentrated | 0 | 0 | 0 | 0.0 | true |
 
-Boundary: this proves same-input local determinism on the restored run287
-substrate. It does not prove official artifact parity because the local
-candidate-generation price cache is still smaller than the original run287
-runner cache.
+Boundary: this proves same-input local determinism for the specific W1
+double-run artifact. It does not prove official artifact parity. The original
+W1 double-run used the 498-ticker latest cache; the R1 full-candidate cache now
+reaches 981 required tickers, but the regenerated local books still do not match
+the official runner books exactly.
 
 Required framing:
 
@@ -236,8 +251,9 @@ Required framing:
 
 Do not describe W1 as solved without that boundary. The W1 double-run proves
 same-input local determinism only; it does not prove that the deterministic
-local regenerated book is faithful to the original runner book while the local
-cache remains smaller than the original run287 runner cache.
+local regenerated book is faithful to the original runner book. After the
+full-candidate cache follow-up, the live blocker is residual book-generation
+fidelity, not missing local price files.
 
 R3 cluster-cap framing:
 
