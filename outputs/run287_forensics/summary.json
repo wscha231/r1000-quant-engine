@@ -182,9 +182,13 @@
             "production_evidence_valid": false,
             "production_promotion_allowed": false,
             "public_display_allowed": false,
+            "runner_parity_status": "parity_documented_gap",
             "sharpe": 1.4875164756773855,
             "start_date": "2019-06-03",
             "status": "completed",
+            "survivorship_inflation_estimate_cagr_pp": 0.0,
+            "survivorship_inflation_label": "proxy",
+            "survivorship_unmeasured_component": "delisted_exclusion",
             "target_book_source": "generated_book_latest_replay",
             "target_pass": false
           },
@@ -203,9 +207,13 @@
             "production_evidence_valid": false,
             "production_promotion_allowed": false,
             "public_display_allowed": false,
+            "runner_parity_status": "parity_documented_gap",
             "sharpe": 1.262090497381186,
             "start_date": "2019-06-03",
             "status": "completed",
+            "survivorship_inflation_estimate_cagr_pp": 0.0,
+            "survivorship_inflation_label": "proxy",
+            "survivorship_unmeasured_component": "delisted_exclusion",
             "target_book_source": "generated_book_latest_replay",
             "target_pass": false
           }
@@ -230,9 +238,13 @@
             "production_evidence_valid": false,
             "production_promotion_allowed": false,
             "public_display_allowed": false,
+            "runner_parity_status": "parity_documented_gap",
             "sharpe": 1.454822339342857,
             "start_date": "2019-06-03",
             "status": "completed",
+            "survivorship_inflation_estimate_cagr_pp": 0.0,
+            "survivorship_inflation_label": "proxy",
+            "survivorship_unmeasured_component": "delisted_exclusion",
             "target_book_source": "generated_book_latest_replay",
             "target_pass": false
           },
@@ -251,9 +263,13 @@
             "production_evidence_valid": false,
             "production_promotion_allowed": false,
             "public_display_allowed": false,
+            "runner_parity_status": "parity_documented_gap",
             "sharpe": 1.2368251517302977,
             "start_date": "2019-06-03",
             "status": "completed",
+            "survivorship_inflation_estimate_cagr_pp": 0.0,
+            "survivorship_inflation_label": "proxy",
+            "survivorship_unmeasured_component": "delisted_exclusion",
             "target_book_source": "generated_book_latest_replay",
             "target_pass": false
           }
@@ -278,9 +294,13 @@
             "production_evidence_valid": false,
             "production_promotion_allowed": false,
             "public_display_allowed": false,
+            "runner_parity_status": "parity_documented_gap",
             "sharpe": 1.454733358301226,
             "start_date": "2019-06-03",
             "status": "completed",
+            "survivorship_inflation_estimate_cagr_pp": 0.0,
+            "survivorship_inflation_label": "proxy",
+            "survivorship_unmeasured_component": "delisted_exclusion",
             "target_book_source": "official_run287_artifact",
             "target_pass": false
           },
@@ -299,9 +319,13 @@
             "production_evidence_valid": false,
             "production_promotion_allowed": false,
             "public_display_allowed": false,
+            "runner_parity_status": "parity_documented_gap",
             "sharpe": 1.2367560856453923,
             "start_date": "2019-06-03",
             "status": "completed",
+            "survivorship_inflation_estimate_cagr_pp": 0.0,
+            "survivorship_inflation_label": "proxy",
+            "survivorship_unmeasured_component": "delisted_exclusion",
             "target_book_source": "official_run287_artifact",
             "target_pass": false
           }
@@ -310,8 +334,18 @@
       }
     },
     "latest_generated_book_cash_carry_pass": false,
+    "runner_parity_status": "parity_documented_gap",
     "sidecar_root": "outputs\\run287_metric_sidecar",
-    "status": "completed"
+    "status": "completed",
+    "survivorship_inflation_estimate": {
+      "cagr_pp_lower_bound": 0.0,
+      "label": "proxy",
+      "method": "first_price_date_late_inclusion_only",
+      "unmeasured_component": "delisted_exclusion"
+    },
+    "survivorship_inflation_estimate_cagr_pp": 0.0,
+    "survivorship_inflation_label": "proxy",
+    "survivorship_unmeasured_component": "delisted_exclusion"
   },
   "new_fullrun_dispatched": false,
   "next_action": "write_negative_evidence_and_prioritize_w1_window_book_drift_before_new_alpha",
@@ -724,8 +758,21 @@
   "production_promotion_allowed": false,
   "public_display_allowed": false,
   "run_id": "28725350727",
+  "runner_parity_reason": "local_cache_or_book_differs_from_runner_manifest",
+  "runner_parity_status": "parity_documented_gap",
+  "runner_parity_summary_path": "outputs/run287_parity/summary.json",
   "schema_version": "run287-forensics-v1",
   "status": "completed",
+  "survivorship_inflation_estimate": {
+    "cagr_pp_lower_bound": 0.0,
+    "label": "proxy",
+    "method": "first_price_date_late_inclusion_only",
+    "unmeasured_component": "delisted_exclusion"
+  },
+  "survivorship_inflation_estimate_cagr_pp": 0.0,
+  "survivorship_inflation_label": "proxy",
+  "survivorship_summary_path": "outputs/run287_survivorship/summary.json",
+  "survivorship_unmeasured_component": "delisted_exclusion",
   "target_book_drift": {
     "concentrated": {
       "average_l1_weight_diff": 0.13113091952064598,

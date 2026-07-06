@@ -32,6 +32,10 @@ Every performance table must declare:
 - `production_promotion_allowed`
 - `public_display_allowed`
 - `live_trading_enabled`
+- `runner_parity_status`
+- `survivorship_inflation_estimate`
+- `survivorship_inflation_label`
+- `survivorship_unmeasured_component`
 
 ## Metric Contract
 
@@ -97,6 +101,18 @@ Allowed:
 - proposing a single ex-ante rule only after the attribution report identifies
   a general, decision-time observable failure mode
 
+## Forward-Label OOS Gate
+
+Forward returns may identify audit opportunities, but they are not live ranking
+inputs and they do not promote a rule.
+
+Any opportunity discovered from a forward-label screen must be converted into a
+decision-time observable rule and re-validated out-of-sample before it can move
+past research review. The concentrated candidate-1 case is the worked example:
+the audit screen showed missed leaders with positive forward excess return, but
+the ex-ante rank/RS/revenue capture rule delivered only `+0.01pp` and was
+rejected. The screen was useful diagnosis; the rule was not a candidate.
+
 ## Decision Labels
 
 Allowed labels:
@@ -120,6 +136,15 @@ Forbidden labels:
 ## Current Local Status
 
 The first local package is `outputs/run287_forensics`.
+
+R1/R2 caveats are mandatory on every latest-basis performance package:
+
+- `runner_parity_status=parity_documented_gap`
+- `survivorship_inflation_estimate.label=proxy`
+- `survivorship_unmeasured_component=delisted_exclusion`
+
+These caveats must be carried into forensics `summary.json`, metric sidecar
+`summary.json`, and tabular performance outputs.
 
 The latest-basis replay price cache has been rebuilt under
 `outputs/run287_price_cache_latest/cache_prices`. Its manifest reports:
