@@ -68,17 +68,19 @@ def test_champion_filter_disable_keeps_book() -> None:
 
 
 def test_stale_trading_days_counting() -> None:
-    # Fri 2026-05-22 bar vs Wed 2026-05-27 audit = Mon+Tue+Wed = 3 business days.
+    # Mon 2026-05-25 was Memorial Day, so XNYS trading-day freshness must not
+    # count it as a stale trading day.
     days = lpa.stale_trading_days_between(pd.Timestamp("2026-05-22"), pd.Timestamp("2026-05-27"))
-    assert days == 3, days
+    assert days == 2, days
+    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-21"), pd.Timestamp("2026-05-27")) == 3
     assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-27"), pd.Timestamp("2026-05-27")) == 0
-    # Fri bar -> Mon audit = 1 business day (weekend skipped).
-    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-22"), pd.Timestamp("2026-05-25")) == 1
+    # Fri bar -> Tue audit = 1 trading day (weekend and Memorial Day skipped).
+    assert lpa.stale_trading_days_between(pd.Timestamp("2026-05-22"), pd.Timestamp("2026-05-26")) == 1
     print("PASS test_stale_trading_days_counting")
 
 
 def test_price_audit_flag(monkeypatched_dates: dict[str, str] | None = None) -> None:
-    dates = {"SPY": "2026-05-22", "QQQ": "2026-05-22", "AAA": "2026-05-27"}
+    dates = {"SPY": "2026-05-21", "QQQ": "2026-05-21", "AAA": "2026-05-27"}
 
     def fake_loader(price_cache, ticker):
         iso = dates.get(str(ticker).upper())
@@ -97,7 +99,8 @@ def test_price_audit_flag(monkeypatched_dates: dict[str, str] | None = None) -> 
             stale_threshold=2,
             max_book_tickers=0,
         )
-        # Benchmark anchor is SPY/QQQ 05-22 (3 bdays stale) even though AAA is fresh.
+        # Benchmark anchor is SPY/QQQ 05-21 (3 XNYS trading days stale) even
+        # though AAA is fresh.
         assert stale["status"] == "STALE_PRICE_REVIEW", stale["status"]
         assert stale["stale_trading_days"] == 3, stale["stale_trading_days"]
         assert stale["stale_price_review"] is True
