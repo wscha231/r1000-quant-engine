@@ -635,6 +635,15 @@ jobs:
             --warn-only etf,sec_v1_evidence,smart_money,13f,top_manager \
             --no-fail 2>&1 | tee outputs/full_rebuild_logs/coverage_gate.log || true
 
+      - name: Archive target-generation substrate (repro only)
+        if: always()
+        run: |
+          python tools/archive_target_generation_substrate.py \
+            --latest-run outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/target_generation_substrate \
+            2>&1 | tee outputs/full_rebuild_logs/target_generation_substrate.log || true
+
       - name: Upload artifact (user operating minimal)
         if: always()
         uses: actions/upload-artifact@v4
@@ -723,6 +732,8 @@ jobs:
             outputs/reports/candidate_replay_book.csv
             outputs/reports/dataset_coverage_audit.*
             cache_prices/replay_price_cache_manifest.json
+            outputs/target_generation_substrate/summary.json
+            outputs/target_generation_substrate/report.md
             outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
@@ -750,6 +761,7 @@ jobs:
             outputs/full_rebuild_logs/crisis_paper_order_bridge.log
             outputs/full_rebuild_logs/decision_cadence_review.log
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+            outputs/full_rebuild_logs/target_generation_substrate.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
             outputs/full_rebuild_logs/metric_hygiene_report.log
             outputs/full_rebuild_logs/stock_selection_quality_audit.log
@@ -832,6 +844,7 @@ jobs:
             outputs/replay_integrity/patch_application_manifest.json
             outputs/reports/candidate_replay_book.csv
             cache_prices/replay_price_cache_manifest.json
+            outputs/target_generation_substrate/
             outputs/baseline_lock/
             outputs/market_leader_challenger/
             outputs/integrated_leader_crisis_replay/
@@ -915,6 +928,7 @@ jobs:
             outputs/reports/sleeve_returns_by_month.csv
             outputs/reports/candidate_replay_book.csv
             cache_prices/replay_price_cache_manifest.json
+            outputs/target_generation_substrate/
             outputs/sec_enriched_candidate_replay/
             outputs/reports/leader_drop_diagnostics_*.csv
             outputs/reports/leader_drop_diagnostics_summary.json
