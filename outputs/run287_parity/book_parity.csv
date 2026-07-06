@@ -1,3 +1,3 @@
 portfolio,status,runner_rows,local_rows,common_date_count,runner_only_date_count,local_only_date_count,ticker_mismatch_date_count,max_weight_delta_abs,average_l1_weight_diff,max_l1_weight_diff
-main,parity_gap,1207,1203,86,0,0,84,0.1402969539262207,0.35795627249249223,0.8412396993567169
-concentrated,parity_gap,545,543,86,0,0,72,0.4105397874842518,0.38246842101223966,1.1399999999999997
+main,parity_gap,1207,1221,86,0,0,70,0.1565297563193941,0.1659106530644024,0.41497114582542216
+concentrated,parity_gap,545,544,86,0,0,1,0.431168331000894,0.017091144129415797,0.915536662001788
