@@ -180,6 +180,13 @@ fidelity. The remaining R1 blocker is now
 `residual_gap_classification=book_generation_gap`: the regenerated local target
 books still differ from the official runner target books.
 
+The follow-up residual audit is recorded in
+`docs/CODEX_RUN287_BOOK_FIDELITY_RESIDUAL_VERDICT_20260707.md` and
+`outputs/run287_book_fidelity_residual/`. It narrows the live source candidates
+to code provenance, price-cache manifest sha, macro/crisis feature sha,
+`operating_append_end_date`, and residual book-generation gap. The frozen policy
+env keys match (`env_mismatch_count=0`).
+
 Exact generated-book cash-carry replay has been run locally under
 `outputs/run287_metric_sidecar/generated_book_cash_carry`.
 
