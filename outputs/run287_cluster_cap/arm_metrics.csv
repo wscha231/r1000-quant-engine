@@ -1,0 +1,7 @@
+arm,portfolio,status,metric_mode,target_book_source,start_date,end_date,cagr,max_dd,avg_cash_weight,ending_capital_usd,target_pass,proxy_metric,production_promotion_allowed
+official_generated_zero_yield,main,completed,broker_ledger_next_close,run287_sidecar,2019-06-03,2026-07-02,0.3294036271548193,-0.256526842052752,0.2934185380359638,750759.3004592421,False,False,False
+official_generated_cash_carry,main,completed,broker_ledger_next_close_cash_carry,run287_sidecar,2019-06-03,2026-07-02,0.3380570601271662,-0.2536193351278912,0.2935881289342374,786051.1293153978,False,False,False
+baseline_proxy_zero_yield,main,completed,proxy_monthly_target_book_zero_yield,run287_generated_book,2019-05-31,2026-07-02,0.4192247913424829,-0.15537466767555475,0.29309247815007244,1196144.8828395596,True,True,False
+cluster_cap_proxy_zero_yield,main,completed,proxy_monthly_target_book_zero_yield,r3_cluster_cap_book,2019-05-31,2026-07-02,0.34140944958238983,-0.1475990272309906,0.3661422576863222,802033.7574220819,False,True,False
+baseline_proxy_cash_carry,main,completed,proxy_monthly_target_book_cash_carry_implied,run287_generated_book,2019-05-31,2026-07-02,0.428314530037764,-0.15412622542960586,0.29309247815007244,1251518.4555684323,True,True,False
+cluster_cap_proxy_cash_carry,main,completed,proxy_monthly_target_book_cash_carry_implied,r3_cluster_cap_book,2019-05-31,2026-07-02,0.3521564484424373,-0.14618324871379174,0.3661422576863222,848706.8739333978,True,True,False

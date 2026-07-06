@@ -75,6 +75,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_exit_latency_audit_smoke.py", []),
     ("tests/run287_parity_cache_restore_smoke.py", []),
     ("tests/run287_survivorship_bound_smoke.py", []),
+    ("tests/run287_cluster_cap_smoke.py", []),
     ("tests/candidate_lanes_smoke.py", []),
     ("tests/market_leader_engine_smoke.py", []),
     ("tests/market_leader_challenger_smoke.py", []),
