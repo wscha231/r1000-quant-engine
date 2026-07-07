@@ -1,0 +1,46 @@
+{
+  "schema_version": "run287-retroactive-parity-closeout-v1",
+  "status": "closed_blocked_missing_artifact_payload",
+  "research_only": true,
+  "fullrun_dispatched": false,
+  "market_data_downloaded": false,
+  "target_book_regenerated": false,
+  "new_alpha_hook_added": false,
+  "threshold_tuning_performed": false,
+  "production_promotion_allowed": false,
+  "production_activation_allowed": false,
+  "source_run_id": "28725350727",
+  "source_run_head_sha": "15176b588d5bb0792bce1df6367758d795a8a33a",
+  "exact_reproduction_ready": false,
+  "approximate_reproduction_available": true,
+  "runner_fidelity_status": "same_artifact_repro_blocked",
+  "expected_price_file_count": 981,
+  "official_artifact_price_file_count": 0,
+  "local_full_candidate_price_file_count": 990,
+  "blockers": [
+    "runner_price_file_artifacts_missing",
+    "runner_long_crisis_features_missing_or_mismatch"
+  ],
+  "available_matching_inputs": [
+    "runner_manifest",
+    "candidate_book",
+    "official_price_cache_manifest",
+    "long_crisis_thresholds"
+  ],
+  "missing_or_mismatched_inputs": [
+    "runner_price_files",
+    "runner_long_crisis_features_expected_path",
+    "packaged_post_vnext_crisis_features",
+    "local_full_candidate_price_manifest"
+  ],
+  "decision": "run287_retroactive_exact_parity_blocked_by_missing_artifact_payload",
+  "regenerated_book_acceptance_allowed": false,
+  "regenerated_book_diagnostic_allowed": true,
+  "future_unblock": "use_future_official_artifact_with_outputs_target_generation_substrate_bundle",
+  "artifacts": {
+    "preflight_summary": "outputs/run287_same_artifact_repro_preflight/summary.json",
+    "preflight_input_availability": "outputs/run287_same_artifact_repro_preflight/input_availability.csv",
+    "preflight_report": "outputs/run287_same_artifact_repro_preflight/report.md",
+    "closeout_doc": "docs/CODEX_RUN287_RETROACTIVE_PARITY_CLOSEOUT_20260707.md"
+  }
+}
