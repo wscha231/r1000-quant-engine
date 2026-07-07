@@ -30,26 +30,42 @@ DEFAULT_SIGNAL = "profitability_inflection_score"
 DEFAULT_SCORE_QUANTILE = 0.80
 DEFAULT_REPLAY_END_DATE = "2026-07-06"
 CASH_TICKERS = {"CASH", "__CASH__"}
-ARMS: list[dict[str, Any]] = [
-    {
-        "arm": "baseline",
-        "description": "unchanged official target book",
-        "tilt_strength": 0.0,
-        "score_quantile": DEFAULT_SCORE_QUANTILE,
-    },
-    {
-        "arm": "profitability_top_quintile_tilt05",
-        "description": "shift 5% of stock gross toward selected top-quintile profitability-inflection rows",
-        "tilt_strength": 0.05,
-        "score_quantile": DEFAULT_SCORE_QUANTILE,
-    },
-    {
-        "arm": "profitability_top_quintile_tilt10",
-        "description": "shift 10% of stock gross toward selected top-quintile profitability-inflection rows",
-        "tilt_strength": 0.10,
-        "score_quantile": DEFAULT_SCORE_QUANTILE,
-    },
-]
+
+
+def signal_arm_prefix(signal: str) -> str:
+    if signal == DEFAULT_SIGNAL:
+        return "profitability"
+    out = str(signal or "signal").strip().lower()
+    for suffix in ("_score", "_signal"):
+        if out.endswith(suffix):
+            out = out[: -len(suffix)]
+    safe = "".join(ch if ch.isalnum() else "_" for ch in out).strip("_")
+    return safe or "signal"
+
+
+def build_arms(signal: str, score_quantile: float = DEFAULT_SCORE_QUANTILE) -> list[dict[str, Any]]:
+    prefix = signal_arm_prefix(signal)
+    readable = signal.replace("_", " ")
+    return [
+        {
+            "arm": "baseline",
+            "description": "unchanged official target book",
+            "tilt_strength": 0.0,
+            "score_quantile": score_quantile,
+        },
+        {
+            "arm": f"{prefix}_top_quintile_tilt05",
+            "description": f"shift 5% of stock gross toward selected top-quintile {readable} rows",
+            "tilt_strength": 0.05,
+            "score_quantile": score_quantile,
+        },
+        {
+            "arm": f"{prefix}_top_quintile_tilt10",
+            "description": f"shift 10% of stock gross toward selected top-quintile {readable} rows",
+            "tilt_strength": 0.10,
+            "score_quantile": score_quantile,
+        },
+    ]
 
 
 def utc_now() -> str:
@@ -518,7 +534,7 @@ def classify(row: dict[str, Any], baseline: dict[str, Any]) -> str:
 
 def render_report(payload: dict[str, Any], rows: list[dict[str, Any]]) -> str:
     lines = [
-        "# Run287 Profitability Broker A/B",
+        "# Run287 Financial Score Broker A/B",
         "",
         f"- Status: `{payload['status']}`",
         f"- Decision label: `{payload['decision_label']}`",
@@ -576,7 +592,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     book["rebalance_date"] = pd.to_datetime(book["rebalance_date"], errors="coerce").dt.date.astype(str)
 
     rows: list[dict[str, Any]] = []
-    for arm in ARMS:
+    arms = build_arms(args.signal, DEFAULT_SCORE_QUANTILE)
+    for arm in arms:
         arm_dir = output_dir / arm["arm"]
         arm_book, date_telemetry, stock_telemetry = generate_arm_book(
             book,
@@ -630,6 +647,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "price_cache": str(price_cache),
         "signal": args.signal,
         "score_quantile": DEFAULT_SCORE_QUANTILE,
+        "arm_prefix": signal_arm_prefix(args.signal),
         "cash_carry_mode": str(args.cash_carry_mode),
         "cash_rate_path": str(repo_path(args.cash_rate_path)) if args.cash_rate_path else "",
         "cash_rate_source": str(args.cash_rate_source),
