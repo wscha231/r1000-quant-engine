@@ -1,0 +1,230 @@
+{
+  "artifacts": {
+    "enriched_candidate_sample": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_multisource_fusion_screen\\enriched_candidate_sample.csv",
+    "report": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_multisource_fusion_screen\\report.md",
+    "signal_stats": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_multisource_fusion_screen\\signal_stats.csv",
+    "summary": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_multisource_fusion_screen\\summary.json"
+  },
+  "candidate_allowed": false,
+  "decision_label": "multisource_fusion_positive_requires_broker_ab_review",
+  "form4": {
+    "event_rows": 220674,
+    "latest_available_date": "2026-05-19",
+    "negative_event_rows": 55446,
+    "positive_event_rows": 26156,
+    "raw_rows": 220674,
+    "source": "H:\\codex\\alphaops_deep_research_context\\artifacts\\form4_26425151497\\sec-form4-daily-26425151497\\data_pit\\sec\\form4_transactions.parquet",
+    "ticker_count": 1587
+  },
+  "forward_returns_audit_only": true,
+  "fullrun_dispatched": false,
+  "generated_at_utc": "2026-07-07T15:54:44Z",
+  "input": "H:\\codex\\r1000_run287_closeout_20260707\\cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\reports\\candidate_replay_book.csv",
+  "live_trading_enabled": false,
+  "new_alpha_hook_added": false,
+  "next_action_allowed": "default_off_broker_ab_design_review_only",
+  "oos_start": "2024-07-01",
+  "pit_universe_label_clean": false,
+  "positive_signal_count": 7,
+  "positive_signals": [
+    "w4_sec_score",
+    "financial_statement_proxy_score",
+    "macro_regime_score",
+    "all_source_equal_score",
+    "growth_confirmation_score",
+    "drawdown_aware_fusion_score",
+    "three_plus_sleeve_consensus_score"
+  ],
+  "preferred_positive_fusion_signals": [
+    "drawdown_aware_fusion_score",
+    "all_source_equal_score",
+    "growth_confirmation_score"
+  ],
+  "production_activation_allowed": false,
+  "production_promotion_allowed": false,
+  "research_only": true,
+  "row_count": 47435,
+  "same_day_disclosure_policy": "excluded_by_w4_source_screen_no_intraday_rebalance_contract",
+  "schema_version": "run287-multisource-fusion-screen-v1",
+  "score_formula": {
+    "all_source_equal_score": "mean(w4_sec, financial_proxy, technical_momentum, macro_regime, risk_control)",
+    "drawdown_aware_fusion_score": "0.75*growth_confirmation + 0.25*risk_control",
+    "growth_confirmation_score": "0.25*w4 + 0.25*financial + 0.30*technical + 0.20*macro",
+    "three_plus_sleeve_consensus_score": "positive only when at least three sleeves are positive; negative when at least three sleeves are negative"
+  },
+  "sec13f": {
+    "event_rows": 364684,
+    "explicit_exit_events_included": false,
+    "explicit_exit_events_note": "Direct holdings screen captures add/trim/new-like deltas; absent-position exits require full 13F event builder and are not used in this cheap source screen.",
+    "latest_available_date": "2026-05-18",
+    "manager_rank_mapped_count": 0,
+    "manager_universe": "H:\\codex\\r1000_run287_closeout_20260707\\research\\sec_13f_manager_universe_20260519\\managers.csv",
+    "manager_universe_status": "missing_or_empty",
+    "negative_event_rows": 181290,
+    "positive_event_rows": 183394,
+    "raw_rows": 1798508,
+    "source": "H:\\codex\\alphaops_deep_research_context\\artifacts\\sec_13f_26387370997\\sec-13f-quarterly-26387370997\\data_pit\\sec\\institutional_13f_holdings.parquet",
+    "ticker_count": 3213
+  },
+  "signal_summaries": [
+    {
+      "full_high_minus_low": 0.003933851732841985,
+      "full_spearman": 0.008544005761809194,
+      "is_high_minus_low": 0.002679866417051818,
+      "oos_high_minus_low": 0.007161786838338615,
+      "oos_high_quantile_count": 2205,
+      "oos_high_quantile_positive_rate": 0.5414965986394558,
+      "oos_spearman": 0.018035486519840497,
+      "signal": "w4_sec_score",
+      "source_positive": true
+    },
+    {
+      "full_high_minus_low": 0.0044969788436546206,
+      "full_spearman": 0.008887731916180136,
+      "is_high_minus_low": 0.004448047178770993,
+      "oos_high_minus_low": 0.004117756570212365,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5382485289027346,
+      "oos_spearman": 0.005093189701283519,
+      "signal": "financial_statement_proxy_score",
+      "source_positive": true
+    },
+    {
+      "full_high_minus_low": 0.002386328032481101,
+      "full_spearman": 0.0019382586428654941,
+      "is_high_minus_low": -0.0008602771231315011,
+      "oos_high_minus_low": 0.009733163819203375,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5347871235721703,
+      "oos_spearman": 0.02363575539536726,
+      "signal": "technical_momentum_score",
+      "source_positive": false
+    },
+    {
+      "full_high_minus_low": 0.0017822493235618245,
+      "full_spearman": 0.004000373659501393,
+      "is_high_minus_low": 0.0008245890409903107,
+      "oos_high_minus_low": 0.003507196489077014,
+      "oos_high_quantile_count": 2888,
+      "oos_high_quantile_positive_rate": 0.5335872576177285,
+      "oos_spearman": 0.004227205914479642,
+      "signal": "macro_regime_score",
+      "source_positive": true
+    },
+    {
+      "full_high_minus_low": -0.004558775407448753,
+      "full_spearman": 0.0009148068460482448,
+      "is_high_minus_low": -0.0005249265633027658,
+      "oos_high_minus_low": -0.01110753495976739,
+      "oos_high_quantile_count": 2886,
+      "oos_high_quantile_positive_rate": 0.533957033957034,
+      "oos_spearman": -0.00453917454805968,
+      "signal": "risk_control_score",
+      "source_positive": false
+    },
+    {
+      "full_high_minus_low": 0.0013891857417921809,
+      "full_spearman": 0.008480819157333291,
+      "is_high_minus_low": 0.0011533867720160875,
+      "oos_high_minus_low": 0.0017912938882030148,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5275181723779855,
+      "oos_spearman": 0.01640548437011597,
+      "signal": "all_source_equal_score",
+      "source_positive": true
+    },
+    {
+      "full_high_minus_low": 0.004674927600506491,
+      "full_spearman": 0.009989871978211093,
+      "is_high_minus_low": 0.003025088868057628,
+      "oos_high_minus_low": 0.00854231117438867,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5441329179646937,
+      "oos_spearman": 0.023105634239209895,
+      "signal": "growth_confirmation_score",
+      "source_positive": true
+    },
+    {
+      "full_high_minus_low": 0.0013411996242328212,
+      "full_spearman": 0.007556506232418178,
+      "is_high_minus_low": 0.0016061462014904417,
+      "oos_high_minus_low": 0.0007699377192479599,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5233644859813084,
+      "oos_spearman": 0.015919504527879134,
+      "signal": "drawdown_aware_fusion_score",
+      "source_positive": true
+    },
+    {
+      "full_high_minus_low": 0.0013967065974247964,
+      "full_spearman": 0.008873729399258219,
+      "is_high_minus_low": 0.0012770513204667742,
+      "oos_high_minus_low": 0.002354663517620581,
+      "oos_high_quantile_count": 2701,
+      "oos_high_quantile_positive_rate": 0.5309144761199556,
+      "oos_spearman": 0.019121932589657394,
+      "signal": "three_plus_sleeve_consensus_score",
+      "source_positive": true
+    }
+  ],
+  "source_columns_used": {
+    "financial_statement_proxy_score": [
+      "actual_results_score",
+      "selection_confirmation_score",
+      "profitability_inflection_score",
+      "capital_efficiency_score",
+      "sector_adjusted_quality_score",
+      "fundamental_reliability_score",
+      "gross_margins",
+      "operating_margins",
+      "sales_growth_yoy",
+      "eps_growth_yoy",
+      "op_income_growth_yoy",
+      "ocf_growth_yoy",
+      "revenue_growth_final",
+      "rev_growth_accel_4q"
+    ],
+    "macro_regime_score": [
+      "style_row_breakout_fit",
+      "style_row_turnaround_fit",
+      "style_row_compounder_fit",
+      "style_liquidity_tailwind_score",
+      "regime_state_score",
+      "-style_rate_pressure_score",
+      "-style_inflation_pressure_score",
+      "-style_overheat_risk_score"
+    ],
+    "risk_control_score": [
+      "-risk_penalty",
+      "-stage2_overext_penalty",
+      "-overheat_penalty",
+      "-portfolio_risk_entry_block_score",
+      "-atr14_pct",
+      "-live_event_risk_score"
+    ],
+    "technical_momentum_score": [
+      "relative_strength_composite",
+      "rs_acceleration_score",
+      "mom_3m",
+      "mom_6m",
+      "mom_12m",
+      "ml_technical_agreement_score",
+      "trend_template_full",
+      "breakout_setup_quality_score",
+      "volatility_contraction_score",
+      "entry_quality_score",
+      "post_breakout_hold_score",
+      "price_above_ma50",
+      "price_above_ma200",
+      "near_52w_high_pct"
+    ],
+    "w4_sec_score": [
+      "w4_combined_score"
+    ]
+  },
+  "source_screen_only": true,
+  "status": "completed",
+  "threshold_tuning_performed": false,
+  "ticker_count": 981,
+  "used_forward_return_in_ranking": false
+}
