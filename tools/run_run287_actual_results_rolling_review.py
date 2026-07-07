@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Rolling robustness review for run287 Main actual-results tilt10.
+"""Rolling robustness review for run287 actual-results tilts.
 
 This is a cheap, fixed-book broker-ledger review. It reruns only the unchanged
-Main baseline and the default-off `actual_results_score` top-quintile 10% tilt,
-then computes rolling and calendar-window deltas from the resulting equity
-curves. It does not dispatch a fullrun, add a hook, tune thresholds, or mutate
-production state.
+baseline and one default-off `actual_results_score` top-quintile tilt, then
+computes rolling and calendar-window deltas from the resulting equity curves. It
+does not dispatch a fullrun, add a hook, tune thresholds, or mutate production
+state.
 """
 from __future__ import annotations
 
@@ -46,9 +46,13 @@ DEFAULT_OUTPUT_DIR = "outputs/run287_actual_results_rolling_review"
 DEFAULT_PARITY_SUMMARY = "outputs/run287_parity/summary.json"
 DEFAULT_SURVIVORSHIP_SUMMARY = "outputs/run287_survivorship/summary.json"
 SIGNAL = "actual_results_score"
-PORTFOLIO_KIND = "main"
-TARGET_ARM = "actual_results_top_quintile_tilt10"
+DEFAULT_PORTFOLIO_KIND = "main"
+DEFAULT_TARGET_ARM = "actual_results_top_quintile_tilt10"
 DEFAULT_ROLLING_MONTHS = (12, 24, 36)
+
+
+def target_cagr_for_portfolio(portfolio_kind: str) -> float:
+    return 0.50 if str(portfolio_kind).lower() == "concentrated" else 0.35
 
 
 def utc_now() -> str:
@@ -110,7 +114,14 @@ def month_end_dates(equity: pd.DataFrame) -> list[pd.Timestamp]:
     return [pd.Timestamp(value).normalize() for value in month_ends]
 
 
-def metric_delta_row(base: dict[str, Any], arm: dict[str, Any], *, group: str, label: str) -> dict[str, Any]:
+def metric_delta_row(
+    base: dict[str, Any],
+    arm: dict[str, Any],
+    *,
+    group: str,
+    label: str,
+    target_cagr: float,
+) -> dict[str, Any]:
     row = {
         "window_group": group,
         "window": label,
@@ -133,7 +144,7 @@ def metric_delta_row(base: dict[str, Any], arm: dict[str, Any], *, group: str, l
     row["candidate_contract_pass"] = bool(
         arm.get("cagr") is not None
         and arm.get("max_dd") is not None
-        and safe_float(arm.get("cagr")) >= 0.35
+        and safe_float(arm.get("cagr")) >= target_cagr
         and safe_float(arm.get("max_dd")) >= -0.25
     )
     row["delta_positive"] = bool(row["delta_cagr_pp"] is not None and safe_float(row["delta_cagr_pp"]) > 0.0)
@@ -162,6 +173,8 @@ def replace_fixed_rows_with_broker_metrics(
     rows: list[dict[str, Any]],
     baseline_metrics: dict[str, Any],
     candidate_metrics: dict[str, Any],
+    *,
+    target_cagr: float,
 ) -> list[dict[str, Any]]:
     """Use broker metrics for fixed windows; keep equity-curve math for rolling windows."""
     old_fixed = {(row["window_group"], row["window"]): row for row in rows if row["window_group"] == "fixed"}
@@ -180,12 +193,18 @@ def replace_fixed_rows_with_broker_metrics(
             if old is not None:
                 out.append(old)
             continue
-        out.append(metric_delta_row(base, arm, group="fixed", label=label))
+        out.append(metric_delta_row(base, arm, group="fixed", label=label, target_cagr=target_cagr))
     out.extend(row for row in rows if row["window_group"] != "fixed")
     return out
 
 
-def build_window_rows(baseline_eq: pd.DataFrame, candidate_eq: pd.DataFrame, rolling_months: tuple[int, ...]) -> list[dict[str, Any]]:
+def build_window_rows(
+    baseline_eq: pd.DataFrame,
+    candidate_eq: pd.DataFrame,
+    rolling_months: tuple[int, ...],
+    *,
+    target_cagr: float,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     fixed_windows = [
         ("fixed", "full", None, None),
@@ -196,7 +215,7 @@ def build_window_rows(baseline_eq: pd.DataFrame, candidate_eq: pd.DataFrame, rol
     for group, label, start, end in fixed_windows:
         base = calc_window_metrics(baseline_eq, label=label, start=start, end=end)
         arm = calc_window_metrics(candidate_eq, label=label, start=start, end=end)
-        rows.append(metric_delta_row(base, arm, group=group, label=label))
+        rows.append(metric_delta_row(base, arm, group=group, label=label, target_cagr=target_cagr))
 
     for year in range(2020, 2027):
         start = pd.Timestamp(f"{year}-01-01")
@@ -204,7 +223,7 @@ def build_window_rows(baseline_eq: pd.DataFrame, candidate_eq: pd.DataFrame, rol
         base = calc_window_metrics(baseline_eq, label=str(year), start=start, end=end)
         arm = calc_window_metrics(candidate_eq, label=str(year), start=start, end=end)
         if base.get("status") == "completed" and arm.get("status") == "completed":
-            rows.append(metric_delta_row(base, arm, group="calendar_year", label=str(year)))
+            rows.append(metric_delta_row(base, arm, group="calendar_year", label=str(year), target_cagr=target_cagr))
 
     ends = month_end_dates(baseline_eq)
     candidate_end_set = set(month_end_dates(candidate_eq))
@@ -217,7 +236,15 @@ def build_window_rows(baseline_eq: pd.DataFrame, candidate_eq: pd.DataFrame, rol
             arm = calc_window_metrics(candidate_eq, label=f"{months}m_to_{end.date().isoformat()}", start=start, end=end)
             if base.get("years", 0.0) < (months / 12.0) * 0.75 or arm.get("years", 0.0) < (months / 12.0) * 0.75:
                 continue
-            rows.append(metric_delta_row(base, arm, group=f"rolling_{months}m", label=f"{months}m_to_{end.date().isoformat()}"))
+            rows.append(
+                metric_delta_row(
+                    base,
+                    arm,
+                    group=f"rolling_{months}m",
+                    label=f"{months}m_to_{end.date().isoformat()}",
+                    target_cagr=target_cagr,
+                )
+            )
     return rows
 
 
@@ -266,6 +293,8 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Status: `{payload['status']}`",
         f"- Decision label: `{payload['decision_label']}`",
         f"- Candidate arm: `{payload['candidate_arm']}`",
+        f"- Portfolio: `{payload['portfolio_kind']}`",
+        f"- Target CAGR: `{safe_float(payload['target_cagr']):.0%}`",
         f"- Metric mode: `{payload['metric_mode']}`",
         f"- Replay end date: `{payload['replay_end_date']}`",
         f"- Runner parity status: `{payload['runner_parity_status']}`",
@@ -316,7 +345,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
             "## Interpretation",
             "",
-            f"- Full-window result restores the Main headline contract: {safe_float(full.get('candidate_cagr')):.2%} CAGR / {safe_float(full.get('candidate_max_dd')):.2%} MDD.",
+            f"- Full-window contract pass: `{full.get('candidate_contract_pass')}` at {safe_float(full.get('candidate_cagr')):.2%} CAGR / {safe_float(full.get('candidate_max_dd')):.2%} MDD.",
             f"- OOS CAGR delta is {safe_float(oos.get('delta_cagr_pp')):+.2f} pp, so the result is not accepted as a hook/fullrun candidate.",
             f"- Measurement-contract blockers: `{', '.join(payload['measurement_contract_acceptance_blockers']) or 'none'}`.",
             "- This remains default-off research evidence only.",
@@ -330,11 +359,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    target_book = resolve_target_book(latest_run, PORTFOLIO_KIND, args.target_book)
+    portfolio_kind = str(args.portfolio_kind)
+    target_arm = str(args.target_arm)
+    target_cagr = target_cagr_for_portfolio(portfolio_kind)
+    target_book = resolve_target_book(latest_run, portfolio_kind, args.target_book)
     price_cache = repo_path(args.price_cache)
     book = pd.read_csv(target_book, low_memory=False)
     book["rebalance_date"] = pd.to_datetime(book["rebalance_date"], errors="coerce").dt.date.astype(str)
-    arms = [arm for arm in build_arms(SIGNAL) if arm["arm"] in {"baseline", TARGET_ARM}]
+    allowed_arms = {arm["arm"] for arm in build_arms(SIGNAL)}
+    if target_arm not in allowed_arms:
+        raise ValueError(f"target_arm must be one of {sorted(allowed_arms - {'baseline'})}: {target_arm}")
+    arms = [arm for arm in build_arms(SIGNAL) if arm["arm"] in {"baseline", target_arm}]
 
     arm_payloads: dict[str, dict[str, Any]] = {}
     for arm in arms:
@@ -353,7 +388,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             target_book=target_book_path,
             price_cache=price_cache,
             output_dir=arm_dir / "broker",
-            portfolio_kind=PORTFOLIO_KIND,
+            portfolio_kind=portfolio_kind,
             cost_bps=float(args.cost_bps),
             max_fill_lag_days=int(args.max_fill_lag_days),
             starting_capital=float(args.starting_capital),
@@ -374,12 +409,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         }
 
     baseline_eq = load_equity(Path(arm_payloads["baseline"]["equity_curve"]))
-    candidate_eq = load_equity(Path(arm_payloads[TARGET_ARM]["equity_curve"]))
-    window_rows = build_window_rows(baseline_eq, candidate_eq, tuple(int(x) for x in args.rolling_months))
+    candidate_eq = load_equity(Path(arm_payloads[target_arm]["equity_curve"]))
+    window_rows = build_window_rows(
+        baseline_eq,
+        candidate_eq,
+        tuple(int(x) for x in args.rolling_months),
+        target_cagr=target_cagr,
+    )
     window_rows = replace_fixed_rows_with_broker_metrics(
         window_rows,
         arm_payloads["baseline"]["metrics"],
-        arm_payloads[TARGET_ARM]["metrics"],
+        arm_payloads[target_arm]["metrics"],
+        target_cagr=target_cagr,
     )
     window_group_summary = summarize_rows(window_rows)
     decision_label = classify(window_group_summary, window_rows)
@@ -390,7 +431,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     contract_blockers = measurement_contract_acceptance_blockers(contract_caveats)
     measurement_contract_acceptance_allowed = not contract_blockers and decision_label == "robust_research_candidate_requires_review"
     if decision_label.startswith("mixed_"):
-        next_action_allowed = "review_main_tilt10_only_no_hook_no_fullrun"
+        next_action_allowed = "review_actual_results_tilt_only_no_hook_no_fullrun"
     elif decision_label.startswith("reject_"):
         next_action_allowed = "no_action"
     elif contract_blockers:
@@ -404,9 +445,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "decision_label": decision_label,
         "result_label": decision_label,
         "source_run_id": "28725350727",
-        "portfolio_kind": PORTFOLIO_KIND,
+        "portfolio_kind": portfolio_kind,
         "signal": SIGNAL,
-        "candidate_arm": TARGET_ARM,
+        "candidate_arm": target_arm,
+        "target_cagr": target_cagr,
         "target_book": str(target_book),
         "price_cache": str(price_cache),
         "metric_mode": "broker_ledger_next_close_cash_carry",
@@ -442,6 +484,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--target-book", default="")
+    parser.add_argument("--portfolio-kind", choices=["main", "concentrated"], default=DEFAULT_PORTFOLIO_KIND)
+    parser.add_argument("--target-arm", default=DEFAULT_TARGET_ARM)
     parser.add_argument("--price-cache", default="outputs/run287_price_cache_latest/cache_prices")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--cost-bps", type=float, default=25.0)
