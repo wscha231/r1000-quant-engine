@@ -1,0 +1,181 @@
+{
+  "artifacts": {
+    "report": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_financial_proxy_screen\\report.md",
+    "signal_stats": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_financial_proxy_screen\\signal_stats.csv",
+    "summary": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_financial_proxy_screen\\summary.json"
+  },
+  "candidate_allowed": false,
+  "decision_label": "diagnostic_positive_requires_broker_ab_review",
+  "forward_returns_audit_only": true,
+  "fullrun_dispatched": false,
+  "generated_at_utc": "2026-07-07T06:16:48Z",
+  "input": "H:\\codex\\r1000_run287_closeout_20260707\\cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\reports\\candidate_replay_book.csv",
+  "live_trading_enabled": false,
+  "min_oos_high_count": 20,
+  "min_rows": 50,
+  "new_alpha_hook_added": false,
+  "next_action_allowed": "broker_ab_design_review_only",
+  "oos_start": "2024-07-01",
+  "positive_signal_count": 2,
+  "positive_signals": [
+    "actual_results_score",
+    "profitability_inflection_score"
+  ],
+  "production_activation_allowed": false,
+  "production_promotion_allowed": false,
+  "research_only": true,
+  "row_count": 47435,
+  "schema_version": "run287-financial-proxy-screen-v1",
+  "signal_columns_checked": [
+    "actual_results_score",
+    "eps_revision_score",
+    "sales_growth_yoy",
+    "eps_growth_yoy",
+    "op_income_growth_yoy",
+    "ocf_growth_yoy",
+    "gross_margins",
+    "operating_margins",
+    "rev_growth_accel_4q",
+    "capital_efficiency_score",
+    "profitability_inflection_score",
+    "selection_confirmation_score"
+  ],
+  "signal_summaries": [
+    {
+      "candidate_positive": true,
+      "full_high_minus_low": 0.0034099499846103887,
+      "full_spearman": 0.016841657692803144,
+      "is_high_minus_low": 0.0035636910748021583,
+      "oos_high_minus_low": 0.0023535722343947588,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5368639667705088,
+      "oos_spearman": 0.01000544082431877,
+      "signal": "actual_results_score"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": null,
+      "full_spearman": null,
+      "is_high_minus_low": null,
+      "oos_high_minus_low": null,
+      "oos_high_quantile_count": null,
+      "oos_high_quantile_positive_rate": null,
+      "oos_spearman": null,
+      "signal": "eps_revision_score"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": 0.0003647664346485783,
+      "full_spearman": -0.008404647644469155,
+      "is_high_minus_low": -0.0025088533889771284,
+      "oos_high_minus_low": 0.005473332206575974,
+      "oos_high_quantile_count": 2143,
+      "oos_high_quantile_positive_rate": 0.5347643490433971,
+      "oos_spearman": 0.004131909538805643,
+      "signal": "sales_growth_yoy"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": 0.0033216437104868143,
+      "full_spearman": 0.0028260045520953634,
+      "is_high_minus_low": -0.0007828291266708202,
+      "oos_high_minus_low": 0.01297307070400164,
+      "oos_high_quantile_count": 1228,
+      "oos_high_quantile_positive_rate": 0.5765472312703583,
+      "oos_spearman": 0.022372047522029155,
+      "signal": "eps_growth_yoy"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": -0.009333565775868843,
+      "full_spearman": -0.049344183684732014,
+      "is_high_minus_low": -0.013076168321262054,
+      "oos_high_minus_low": 0.003994243808354121,
+      "oos_high_quantile_count": 158,
+      "oos_high_quantile_positive_rate": 0.5126582278481012,
+      "oos_spearman": -0.021606267729490793,
+      "signal": "op_income_growth_yoy"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": -0.0009120438786979299,
+      "full_spearman": -0.01362154002813415,
+      "is_high_minus_low": -0.014251068104885984,
+      "oos_high_minus_low": 0.02579264006497384,
+      "oos_high_quantile_count": 180,
+      "oos_high_quantile_positive_rate": 0.5611111111111111,
+      "oos_spearman": 0.051879271073663524,
+      "signal": "ocf_growth_yoy"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": null,
+      "full_spearman": null,
+      "is_high_minus_low": null,
+      "oos_high_minus_low": null,
+      "oos_high_quantile_count": null,
+      "oos_high_quantile_positive_rate": null,
+      "oos_spearman": null,
+      "signal": "gross_margins"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": null,
+      "full_spearman": null,
+      "is_high_minus_low": null,
+      "oos_high_minus_low": null,
+      "oos_high_quantile_count": null,
+      "oos_high_quantile_positive_rate": null,
+      "oos_spearman": null,
+      "signal": "operating_margins"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": 0.0011196655240365838,
+      "full_spearman": 0.001146410780433731,
+      "is_high_minus_low": -0.0028032790882555666,
+      "oos_high_minus_low": 0.014404719209992043,
+      "oos_high_quantile_count": 224,
+      "oos_high_quantile_positive_rate": 0.5669642857142857,
+      "oos_spearman": 0.015632410391466033,
+      "signal": "rev_growth_accel_4q"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": 0.0021710427148973043,
+      "full_spearman": 0.009546089522039208,
+      "is_high_minus_low": 0.005324602357484947,
+      "oos_high_minus_low": -0.003322300995470571,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5340948425060574,
+      "oos_spearman": -0.008088051212943804,
+      "signal": "capital_efficiency_score"
+    },
+    {
+      "candidate_positive": true,
+      "full_high_minus_low": 0.010434266051128935,
+      "full_spearman": 0.01952945095042904,
+      "is_high_minus_low": 0.005653631986712466,
+      "oos_high_minus_low": 0.020301328405830835,
+      "oos_high_quantile_count": 2889,
+      "oos_high_quantile_positive_rate": 0.5669781931464174,
+      "oos_spearman": 0.039866210419009555,
+      "signal": "profitability_inflection_score"
+    },
+    {
+      "candidate_positive": false,
+      "full_high_minus_low": -0.0014865923802006506,
+      "full_spearman": -0.013097467057091463,
+      "is_high_minus_low": -0.0033355262265674975,
+      "oos_high_minus_low": 0.0022027926087199654,
+      "oos_high_quantile_count": 8212,
+      "oos_high_quantile_positive_rate": 0.534218217243059,
+      "oos_spearman": -0.005102935410889267,
+      "signal": "selection_confirmation_score"
+    }
+  ],
+  "status": "completed",
+  "threshold_tuning_performed": false,
+  "ticker_count": 981,
+  "used_forward_return_in_ranking": false
+}
