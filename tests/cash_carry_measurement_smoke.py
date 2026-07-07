@@ -82,7 +82,14 @@ def test_cash_carry_measurement_blocks_without_rate_cache_and_passes_with_rates(
         assert payload["end_date_matches_official"] is True
         assert payload["deltas"]["main"]["cash_carry_actual_equity_curve_end_date"] == "2026-01-08"
         assert payload["deltas"]["concentrated"]["cash_interest_accrued_usd"] > 0
-        assert (Path(args.output_dir) / "arm_metrics.csv").exists()
+        assert payload["research_only"] is True
+        assert payload["valid_for_production"] is False
+        assert payload["production_promotion_allowed"] is False
+        arm_metrics = pd.read_csv(Path(args.output_dir) / "arm_metrics.csv")
+        assert bool((arm_metrics["research_only"] == True).all())  # noqa: E712
+        assert bool((arm_metrics["valid_for_production"] == False).all())  # noqa: E712
+        assert bool((arm_metrics["production_promotion_allowed"] == False).all())  # noqa: E712
+        assert "raw_engine_valid_for_production" in arm_metrics.columns
 
 
 def test_cash_carry_measurement_blocks_when_target_ticker_cache_is_stale() -> None:

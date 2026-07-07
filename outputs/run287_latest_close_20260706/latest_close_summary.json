@@ -1,0 +1,72 @@
+{
+  "schema_version": "run287-latest-close-reval-v1",
+  "status": "completed",
+  "research_only": true,
+  "valid_for_production": false,
+  "production_promotion_allowed": false,
+  "production_activation_allowed": false,
+  "production_blocker": "research_only_latest_close_revaluation",
+  "fullrun_dispatched": false,
+  "alpha_hook_added": false,
+  "threshold_tuning_performed": false,
+  "source_run_id": "28725350727",
+  "source_target_book": "run287_official_generated_target_books",
+  "requested_replay_end_date": "2026-07-06",
+  "actual_equity_curve_end_date": "2026-07-06",
+  "price_cache_end_date": "2026-07-06",
+  "price_cache_status": "completed",
+  "price_cache_ticker_count": 336,
+  "price_cache_failed_count": 0,
+  "rate_source": "DGS3MO",
+  "rate_data_source": "fred_graph_csv",
+  "rate_max_date": "2026-07-02",
+  "rate_max_available_from": "2026-07-03",
+  "cash_carry_config": {
+    "rate_lag_days": 1,
+    "haircut_bps": 50.0,
+    "day_count": 365
+  },
+  "metrics": {
+    "main_zero_yield": {
+      "metric_mode": "broker_ledger_next_close",
+      "cagr": 0.33381163624338384,
+      "max_dd": -0.25652197608665717,
+      "sharpe": 1.250366472797416,
+      "target_verdict": "fail_cagr_fail_mdd"
+    },
+    "main_cash_carry": {
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "cagr": 0.34248490427249423,
+      "max_dd": -0.25361886246588794,
+      "sharpe": 1.2756315263222913,
+      "target_verdict": "fail_cagr_fail_mdd"
+    },
+    "concentrated_zero_yield": {
+      "metric_mode": "broker_ledger_next_close",
+      "cagr": 0.4725678116430192,
+      "max_dd": -0.23221640827349677,
+      "sharpe": 1.4621225632708028,
+      "target_verdict": "fail_cagr_pass_mdd"
+    },
+    "concentrated_cash_carry": {
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "cagr": 0.4866155651099202,
+      "max_dd": -0.22955201825505345,
+      "sharpe": 1.4948238570140746,
+      "target_verdict": "fail_cagr_pass_mdd"
+    }
+  },
+  "cash_carry_deltas": {
+    "main": {
+      "cagr_delta_pp": 0.8673268029110393,
+      "max_dd_delta_pp": 0.29031136207692265,
+      "cash_interest_accrued_usd": 13682.644425298755
+    },
+    "concentrated": {
+      "cagr_delta_pp": 1.4047753466901014,
+      "max_dd_delta_pp": 0.2664390018443319,
+      "cash_interest_accrued_usd": 26580.445411408935
+    }
+  },
+  "final_diagnosis": "latest_close_cash_carry_does_not_restore_main_or_concentrated_contract"
+}

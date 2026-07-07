@@ -68,8 +68,13 @@ def arm_row(portfolio: str, arm: str, metrics: dict[str, Any]) -> dict[str, Any]
         "avg_cash_weight": metrics.get("avg_cash_weight"),
         "cash_interest_accrued_usd": metrics.get("cash_interest_accrued_usd", 0.0),
         "cash_interest_accrued_pct_starting_capital": metrics.get("cash_interest_accrued_pct_starting_capital", 0.0),
-        "valid_for_production": metrics.get("valid_for_production", False),
-        "research_only": metrics.get("research_only", False),
+        "raw_engine_valid_for_production": metrics.get("valid_for_production", False),
+        "valid_for_production": False,
+        "research_only": True,
+        "production_promotion_allowed": False,
+        "production_blocker": "research_only_cash_carry_measurement",
+        "actual_equity_curve_end_date": metrics.get("actual_equity_curve_end_date"),
+        "end_date_matches_official": metrics.get("end_date_matches_official"),
     }
     windows = metrics.get("windows") if isinstance(metrics.get("windows"), dict) else {}
     for label in ["is", "oos", "oos2"]:
@@ -385,7 +390,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "oos2_end": oos2_end,
         "deltas": deltas,
         "cash_carry_measurement_pass": bool(no_op_pass and end_date_pass),
+        "research_only": True,
+        "valid_for_production": False,
+        "production_promotion_allowed": False,
         "production_activation_allowed": False,
+        "production_blocker": "research_only_cash_carry_measurement",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     report = ["# Cash Carry Measurement", ""]
@@ -395,6 +404,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     report.append(f"- Price cache aligned: `{payload['price_cache_aligned']}` ({payload['price_cache_max_date']} vs required {payload['required_end_date']})")
     report.append(f"- Rate cache aligned: `{payload['rate_cache_aligned']}` ({payload['rate_cache_max_available_from']})")
     report.append(f"- End date matches official: `{payload['end_date_matches_official']}` ({payload['requested_replay_end_date']})")
+    report.append("- Research only: `True`")
+    report.append("- Production promotion allowed: `False`")
+    report.append(f"- Production blocker: `{payload['production_blocker']}`")
+    report.append("")
+    report.append("| Portfolio | Arm | Metric mode | CAGR | MDD | Sharpe | Equity end | Production allowed |")
+    report.append("| --- | --- | --- | ---: | ---: | ---: | --- | --- |")
+    for row in rows:
+        report.append(
+            f"| {row.get('portfolio')} | {row.get('arm')} | {row.get('metric_mode')} | "
+            f"{row.get('cagr')} | {row.get('max_dd')} | {row.get('sharpe')} | "
+            f"{row.get('actual_equity_curve_end_date')} | {row.get('production_promotion_allowed')} |"
+        )
     report.append("")
     report.append("| Portfolio | CAGR delta pp | MDD delta pp | IS CAGR delta pp | OOS CAGR delta pp | Cash interest | No-op guard |")
     report.append("| --- | ---: | ---: | ---: | ---: | ---: | --- |")
