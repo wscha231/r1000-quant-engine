@@ -1,0 +1,89 @@
+{
+  "schema_version": "run287-actual-results-broker-ab-combined-v1",
+  "status": "completed",
+  "decision_label": "actual_results_main_mixed_concentrated_rejected",
+  "source_run_id": "28725350727",
+  "research_only": true,
+  "fullrun_dispatched": false,
+  "new_alpha_hook_added": false,
+  "threshold_tuning_performed": false,
+  "used_forward_return_in_ranking": false,
+  "candidate_allowed": false,
+  "production_promotion_allowed": false,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false,
+  "pit_universe_label_clean": false,
+  "metric_mode": "broker_ledger_next_close_cash_carry",
+  "replay_end_date": "2026-07-06",
+  "official_baseline_end_date": "2026-07-06",
+  "signal": "actual_results_score",
+  "score_quantile": 0.8,
+  "arms": [
+    {
+      "portfolio": "main",
+      "arm": "baseline",
+      "verdict": "baseline",
+      "cagr": 0.34248490427249423,
+      "max_dd": -0.25361886246588794,
+      "delta_cagr_pp": 0.0,
+      "delta_max_dd_pp": 0.0,
+      "target_35_50_25_restored": false
+    },
+    {
+      "portfolio": "main",
+      "arm": "actual_results_top_quintile_tilt05",
+      "verdict": "reject_oos_cagr_worse",
+      "cagr": 0.348841579853985,
+      "max_dd": -0.24929739789001426,
+      "delta_cagr_pp": 0.6356675581490778,
+      "delta_max_dd_pp": 0.4321464575873679,
+      "delta_oos_cagr_pp": -1.973698953394054,
+      "target_35_50_25_restored": false
+    },
+    {
+      "portfolio": "main",
+      "arm": "actual_results_top_quintile_tilt10",
+      "verdict": "reject_oos_cagr_worse",
+      "cagr": 0.3545186545011727,
+      "max_dd": -0.245944278491521,
+      "delta_cagr_pp": 1.2033750228678475,
+      "delta_max_dd_pp": 0.7674583974366933,
+      "delta_oos_cagr_pp": -4.059258321317127,
+      "target_35_50_25_restored": true
+    },
+    {
+      "portfolio": "concentrated",
+      "arm": "baseline",
+      "verdict": "baseline",
+      "cagr": 0.4866155651099202,
+      "max_dd": -0.22955201825505345,
+      "delta_cagr_pp": 0.0,
+      "delta_max_dd_pp": 0.0,
+      "target_35_50_25_restored": false
+    },
+    {
+      "portfolio": "concentrated",
+      "arm": "actual_results_top_quintile_tilt05",
+      "verdict": "reject_oos_cagr_worse",
+      "cagr": 0.48283941140683284,
+      "max_dd": -0.23191972537162808,
+      "delta_cagr_pp": -0.37761537030873704,
+      "delta_max_dd_pp": -0.23677071165746355,
+      "delta_oos_cagr_pp": -4.405384669004819,
+      "target_35_50_25_restored": false
+    },
+    {
+      "portfolio": "concentrated",
+      "arm": "actual_results_top_quintile_tilt10",
+      "verdict": "reject_mdd_worse",
+      "cagr": 0.4781449539550957,
+      "max_dd": -0.23389063906544072,
+      "delta_cagr_pp": -0.8470611154824503,
+      "delta_max_dd_pp": -0.43386208103872725,
+      "delta_oos_cagr_pp": -8.751355022629204,
+      "target_35_50_25_restored": false
+    }
+  ],
+  "final_diagnosis": "actual_results_score_top_quintile_tilt_is_mixed_for_main_and_negative_for_concentrated",
+  "next_action_allowed": "rolling_oos_robustness_review_for_main_tilt10_only_no_hook_no_fullrun"
+}
