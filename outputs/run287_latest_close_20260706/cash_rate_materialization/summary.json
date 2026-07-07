@@ -1,0 +1,17 @@
+{
+  "cache_written": true,
+  "csv_path": "H:\\codex\\r1000_run287_r1r2_20260706\\outputs\\run287_latest_close_20260706\\cache_macro\\fred_dgs3mo_DGS3MO.csv",
+  "data_source": "fred_graph_csv",
+  "generated_at_utc": "2026-07-06T23:51:32.173374+00:00",
+  "latest_rate_pct": 3.82,
+  "max_date": "2026-07-02",
+  "min_date": "1981-09-01",
+  "next_action": "run cash-carry broker replay measurement",
+  "output_path": "H:\\codex\\r1000_run287_r1r2_20260706\\outputs\\run287_latest_close_20260706\\cache_macro\\fred_dgs3mo_DGS3MO.parquet",
+  "parquet_path": "H:\\codex\\r1000_run287_r1r2_20260706\\outputs\\run287_latest_close_20260706\\cache_macro\\fred_dgs3mo_DGS3MO.parquet",
+  "rate_source": "dgs3mo",
+  "row_count": 11208,
+  "schema_version": "cash-rate-materialization-v1",
+  "series_id": "DGS3MO",
+  "status": "completed"
+}
