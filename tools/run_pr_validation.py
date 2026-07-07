@@ -202,6 +202,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_actual_results_rolling_review_smoke.py", []),
     ("tests/run287_w4_external_feed_inventory_smoke.py", []),
     ("tests/run287_w4_form4_13f_source_screen_smoke.py", []),
+    ("tests/run287_multisource_fusion_screen_smoke.py", []),
     ("tests/forward_service_snapshot_smoke.py", []),
     ("tests/forward_service_ledger_smoke.py", []),
     ("tests/forward_expectation_band_smoke.py", []),
