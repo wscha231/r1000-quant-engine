@@ -25,6 +25,8 @@ def test_validate_good_feed_and_future_warning() -> None:
                 "available_from": "2026-06-02",
                 "eps_estimate": 1.25,
                 "revenue_estimate": 120.0,
+                "actual_eps_ttm": 0.90,
+                "actual_revenue_ttm": 100.0,
                 "guidance_direction": "positive",
                 "source": "vendor_export",
                 "source_type": "vendor_estimate_revision",
@@ -47,6 +49,7 @@ def test_validate_good_feed_and_future_warning() -> None:
     assert "future_available_from_rows_will_be_filtered_by_builder" in payload["reason"], payload
     assert payload["production_activation_allowed"] is False
     assert payload["forward_return_columns_allowed"] is False
+    assert payload["actual_comparison_columns_present"] == ["actual_eps_ttm", "actual_revenue_ttm"], payload
     assert payload["regime_nowcast_coverage_ready"] is False
 
 
@@ -150,6 +153,7 @@ def test_cli_writes_missing_input_summary() -> None:
         assert payload["status"] == "blocked", payload
         assert payload["reason"] == "missing_input", payload
         assert payload["available_from_required"] is True
+        assert payload["actual_comparison_columns"] == ["actual_eps_ttm", "actual_revenue_ttm", "actual_margin_ttm"]
 
 
 def main_smoke() -> int:
