@@ -42,6 +42,8 @@ DEFAULT_CASH_RATE_LAG_DAYS = 1
 DEFAULT_CASH_CARRY_HAIRCUT_BPS = 50.0
 DEFAULT_CASH_CARRY_DAY_COUNT = 365
 DEFAULT_CASH_CARRY_CALENDAR_TICKERS = ("SPY", "QQQ")
+DEFAULT_BENCHMARK_TICKER = "SPY"
+BENCHMARK_METRIC_MODE = "etf_adjusted_close_total_return_proxy"
 DEFAULT_CONCENTRATED_CHAMPION_FILTERS = {
     "target_stock_names": "3",
     "weighting_mode": "score_power",
@@ -651,6 +653,8 @@ def calc_metrics(
     date_range: tuple[str, str] | tuple[str, None] | None = None,
     label: str = "full",
     cash_carry_mode: str = CASH_CARRY_MODE_NONE,
+    benchmark_prices: pd.DataFrame | None = None,
+    benchmark_ticker: str = DEFAULT_BENCHMARK_TICKER,
 ) -> dict[str, Any]:
     if equity_curve.empty:
         return {"status": "blocked", "reason": "empty equity curve", "label": label}
@@ -711,7 +715,7 @@ def calc_metrics(
         cash_usd_series = cash_usd_series[in_range]
     base_metric_mode = "broker_ledger_next_close" if str(equity_curve.get("fill_mode", pd.Series([""])).iloc[0]) == "next_close" else "broker_ledger"
     metric_mode = f"{base_metric_mode}_cash_carry" if str(cash_carry_mode).lower() != CASH_CARRY_MODE_NONE else base_metric_mode
-    return {
+    payload = {
         "status": "completed",
         "label": label,
         "date_range": [str(date_range[0]) if date_range and date_range[0] else None,
@@ -737,6 +741,64 @@ def calc_metrics(
         "total_fees_usd": fees,
         "gross_traded_usd": gross_traded,
     }
+    payload.update(
+        benchmark_relative_metrics(
+            benchmark_prices=benchmark_prices,
+            benchmark_ticker=benchmark_ticker,
+            start_date=dates.min(),
+            end_date=dates.max(),
+            strategy_total_return=payload["total_return"],
+            strategy_cagr=cagr,
+        )
+    )
+    return payload
+
+
+def benchmark_relative_metrics(
+    *,
+    benchmark_prices: pd.DataFrame | None,
+    benchmark_ticker: str,
+    start_date: Any,
+    end_date: Any,
+    strategy_total_return: float,
+    strategy_cagr: float,
+) -> dict[str, Any]:
+    ticker = str(benchmark_ticker or "").strip().upper()
+    base = {
+        "benchmark_ticker": ticker,
+        "benchmark_metric_mode": BENCHMARK_METRIC_MODE,
+        "benchmark_status": "unavailable",
+    }
+    if not ticker:
+        base["benchmark_status"] = "disabled"
+        return base
+    if benchmark_prices is None or benchmark_prices.empty or "close" not in benchmark_prices.columns:
+        return base
+    start_ts = pd.to_datetime(start_date, errors="coerce")
+    end_ts = pd.to_datetime(end_date, errors="coerce")
+    if pd.isna(start_ts) or pd.isna(end_ts):
+        return base
+    actual_start, start_px = price_on_or_after(benchmark_prices, start_ts, "close")
+    actual_end, end_px = price_on_or_before(benchmark_prices, end_ts, "close")
+    if actual_start is None or actual_end is None or start_px is None or end_px is None or actual_end <= actual_start:
+        return base
+    years = max((pd.Timestamp(actual_end).normalize() - pd.Timestamp(actual_start).normalize()).days / 365.25, 1e-6)
+    total_return = float(end_px / max(float(start_px), 1e-12) - 1.0)
+    cagr = float((end_px / max(float(start_px), 1e-12)) ** (1.0 / years) - 1.0)
+    base.update(
+        {
+            "benchmark_status": "completed",
+            "benchmark_start_date": pd.Timestamp(actual_start).date().isoformat(),
+            "benchmark_end_date": pd.Timestamp(actual_end).date().isoformat(),
+            "benchmark_start_price": float(start_px),
+            "benchmark_end_price": float(end_px),
+            "benchmark_total_return": total_return,
+            "benchmark_cagr": cagr,
+            "excess_total_return_vs_benchmark": float(strategy_total_return - total_return),
+            "excess_cagr_vs_benchmark": float(strategy_cagr - cagr),
+        }
+    )
+    return base
 
 
 # Stage 0 OOS lock — default windows. R1000_OOS_START / R1000_OOS2_START env
@@ -755,6 +817,8 @@ def calc_metrics_with_oos(
     oos2_start: str | None = None,
     oos2_end: str | None = None,
     cash_carry_mode: str = CASH_CARRY_MODE_NONE,
+    benchmark_prices: pd.DataFrame | None = None,
+    benchmark_ticker: str = DEFAULT_BENCHMARK_TICKER,
 ) -> dict[str, Any]:
     """Compute metrics over the full window plus IS/OOS slices.
 
@@ -762,7 +826,15 @@ def calc_metrics_with_oos(
     final equity_curve date). A second OOS window (oos2) is computed when
     oos2_start is given; it overlaps OOS by design (longer-horizon sanity).
     """
-    full = calc_metrics(equity_curve, trades, starting_capital, label="full", cash_carry_mode=cash_carry_mode)
+    full = calc_metrics(
+        equity_curve,
+        trades,
+        starting_capital,
+        label="full",
+        cash_carry_mode=cash_carry_mode,
+        benchmark_prices=benchmark_prices,
+        benchmark_ticker=benchmark_ticker,
+    )
     splits: dict[str, dict[str, Any]] = {"full": full}
     if oos_start:
         oos_lo = pd.to_datetime(oos_start, errors="coerce")
@@ -771,15 +843,18 @@ def calc_metrics_with_oos(
             splits["is"] = calc_metrics(
                 equity_curve, trades, starting_capital,
                 date_range=(None, is_hi), label="is", cash_carry_mode=cash_carry_mode,
+                benchmark_prices=benchmark_prices, benchmark_ticker=benchmark_ticker,
             )
             splits["oos"] = calc_metrics(
                 equity_curve, trades, starting_capital,
                 date_range=(oos_start, oos_end), label="oos", cash_carry_mode=cash_carry_mode,
+                benchmark_prices=benchmark_prices, benchmark_ticker=benchmark_ticker,
             )
     if oos2_start:
         splits["oos2"] = calc_metrics(
             equity_curve, trades, starting_capital,
             date_range=(oos2_start, oos2_end), label="oos2", cash_carry_mode=cash_carry_mode,
+            benchmark_prices=benchmark_prices, benchmark_ticker=benchmark_ticker,
         )
     return {
         "full": splits.get("full", {}),
@@ -885,6 +960,7 @@ def replay(
     cash_carry_config: CashCarryConfig | None = None,
     replay_end_date: str | None = None,
     official_baseline_end_date: str | None = None,
+    benchmark_ticker: str = DEFAULT_BENCHMARK_TICKER,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
@@ -1002,6 +1078,8 @@ def replay(
     tickers = sorted({str(x).upper() for x in targets["ticker"].unique() if str(x).upper() not in CASH_TICKERS})
     prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
+    benchmark_ticker = str(benchmark_ticker or "").strip().upper()
+    benchmark_prices = load_price_series(price_cache, benchmark_ticker) if benchmark_ticker else pd.DataFrame()
     calendar_prices: dict[str, pd.DataFrame] = {}
     if carry_enabled:
         for ticker in DEFAULT_CASH_CARRY_CALENDAR_TICKERS:
@@ -1239,7 +1317,14 @@ def replay(
     holdings_df = pd.DataFrame(holdings_rows)
     cash_df = pd.DataFrame(cash_rows)
     target_vs_actual_df = pd.DataFrame(target_vs_actual_rows)
-    metrics = calc_metrics(equity_df, trades_df, starting_capital, cash_carry_mode=cash_carry_config.mode)
+    metrics = calc_metrics(
+        equity_df,
+        trades_df,
+        starting_capital,
+        cash_carry_mode=cash_carry_config.mode,
+        benchmark_prices=benchmark_prices,
+        benchmark_ticker=benchmark_ticker,
+    )
     # Stage 0 OOS lock — IS/OOS slices computed alongside the full-window
     # metrics. Top-level fields are preserved so existing consumers
     # (portfolio_system_guard, run_local.py verdict) keep working; the windows
@@ -1250,6 +1335,8 @@ def replay(
             oos_start=oos_start, oos_end=oos_end,
             oos2_start=oos2_start, oos2_end=oos2_end,
             cash_carry_mode=cash_carry_config.mode,
+            benchmark_prices=benchmark_prices,
+            benchmark_ticker=benchmark_ticker,
         )
         metrics["windows"] = windows
     metrics.update(
@@ -1333,6 +1420,12 @@ def replay(
 def render_report(metrics: dict[str, Any]) -> str:
     if metrics.get("status") != "completed":
         return "# Broker Ledger Replay\n\nStatus: blocked\n\nReason: " + str(metrics.get("reason", "unknown")) + "\n"
+    benchmark_lines = [f"- Benchmark: `{metrics.get('benchmark_status', 'unavailable')}`"]
+    if metrics.get("benchmark_status") == "completed":
+        benchmark_lines = [
+            f"- Benchmark ({metrics.get('benchmark_ticker', DEFAULT_BENCHMARK_TICKER)} {metrics.get('benchmark_metric_mode', BENCHMARK_METRIC_MODE)}): {safe_float(metrics.get('benchmark_cagr')):.2%}",
+            f"- Excess CAGR vs benchmark: {safe_float(metrics.get('excess_cagr_vs_benchmark')):+.2%}",
+        ]
     lines = [
             "# Broker Ledger Replay",
             "",
@@ -1344,6 +1437,7 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
             f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
             f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",
+            *benchmark_lines,
             f"- Ending capital: ${safe_float(metrics.get('ending_capital_usd')):,.2f}",
             f"- Trade count: {int(safe_float(metrics.get('trade_count')))}",
             f"- Total fees: ${safe_float(metrics.get('total_fees_usd')):,.2f}",
@@ -1415,6 +1509,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cash-carry-day-count", type=int, default=None, help="Day-count denominator for cash interest; default ACT/365.")
     parser.add_argument("--replay-end-date", default="", help="Optional ISO date that clamps the final replay mark date for apples-to-apples official-window tests.")
     parser.add_argument("--official-baseline-end-date", default="", help="Optional official baseline end date to report alongside replay-end-date.")
+    parser.add_argument(
+        "--benchmark-ticker",
+        default=DEFAULT_BENCHMARK_TICKER,
+        help="ETF benchmark ticker for adjusted-close total-return proxy metrics; empty string disables.",
+    )
     return parser.parse_args()
 
 
@@ -1458,6 +1557,7 @@ def main() -> int:
         oos2_end=args.oos2_end or None,
         replay_end_date=args.replay_end_date or None,
         official_baseline_end_date=args.official_baseline_end_date or args.replay_end_date or None,
+        benchmark_ticker=args.benchmark_ticker,
         cash_carry_config=resolve_cash_carry_config(
             mode=args.cash_carry_mode,
             rate_source=args.cash_rate_source,
