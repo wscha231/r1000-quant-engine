@@ -1,0 +1,5 @@
+source,status,rows,event_rows,ticker_count,latest_available_date,decision_time_contract,repo_visible_payload
+form4_artifact,available_external_artifact,220674,220674.0,1587,2026-05-19,accepted_ts/available_from; same-day disclosures excluded from rebalance day,summary/statistics only; raw parquet not committed
+13f_artifact,available_external_artifact,1798508,364684.0,3213,2026-05-18,"13F available_from/accepted filing lag; direct holdings screen, absent-position exits excluded",summary/statistics only; raw parquet not committed
+true_earnings_guidance_revision_feed,missing,0,0.0,0,,requires PIT available_from rows before use,inventory says data insufficient
+candidate_actual_proxy_scores,available_proxy_diagnostic_only,47435,,981,,diagnostic actual/proxy fields; not true revision/guidance feed,inventory summary only
