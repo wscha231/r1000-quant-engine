@@ -43,29 +43,49 @@ def signal_arm_prefix(signal: str) -> str:
     return safe or "signal"
 
 
-def build_arms(signal: str, score_quantile: float = DEFAULT_SCORE_QUANTILE) -> list[dict[str, Any]]:
+def parse_tilt_strengths(value: str) -> list[float]:
+    out: list[float] = []
+    for token in str(value or "").split(","):
+        text = token.strip()
+        if not text:
+            continue
+        strength = safe_float(text, float("nan"))
+        if not math.isfinite(strength) or strength <= 0:
+            raise ValueError(f"invalid tilt strength: {text}")
+        if strength not in out:
+            out.append(strength)
+    if not out:
+        raise ValueError("at least one positive tilt strength is required")
+    return out
+
+
+def build_arms(
+    signal: str,
+    score_quantile: float = DEFAULT_SCORE_QUANTILE,
+    tilt_strengths: list[float] | None = None,
+) -> list[dict[str, Any]]:
     prefix = signal_arm_prefix(signal)
     readable = signal.replace("_", " ")
-    return [
+    arms = [
         {
             "arm": "baseline",
             "description": "unchanged official target book",
             "tilt_strength": 0.0,
             "score_quantile": score_quantile,
-        },
-        {
-            "arm": f"{prefix}_top_quintile_tilt05",
-            "description": f"shift 5% of stock gross toward selected top-quintile {readable} rows",
-            "tilt_strength": 0.05,
-            "score_quantile": score_quantile,
-        },
-        {
-            "arm": f"{prefix}_top_quintile_tilt10",
-            "description": f"shift 10% of stock gross toward selected top-quintile {readable} rows",
-            "tilt_strength": 0.10,
-            "score_quantile": score_quantile,
-        },
+        }
     ]
+    strengths = tilt_strengths if tilt_strengths is not None else [0.05, 0.10]
+    for strength in strengths:
+        pct = int(round(strength * 100.0))
+        arms.append(
+            {
+                "arm": f"{prefix}_top_quintile_tilt{pct:02d}",
+                "description": f"shift {pct}% of stock gross toward selected top-quintile {readable} rows",
+                "tilt_strength": float(strength),
+                "score_quantile": score_quantile,
+            }
+        )
+    return arms
 
 
 def utc_now() -> str:
@@ -510,7 +530,7 @@ def add_deltas(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def classify(row: dict[str, Any], baseline: dict[str, Any]) -> str:
     if row["arm"] == "baseline":
         return "baseline"
-    if row.get("metric_mode") != "broker_ledger_next_close_cash_carry":
+    if row.get("metric_mode") not in {"broker_ledger_next_close_cash_carry", "broker_ledger_next_close"}:
         return "blocked_invalid_metric_mode"
     if abs(safe_float(row.get("years")) - safe_float(baseline.get("years"))) > 0.03:
         return "blocked_window_mismatch"
@@ -592,7 +612,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     book["rebalance_date"] = pd.to_datetime(book["rebalance_date"], errors="coerce").dt.date.astype(str)
 
     rows: list[dict[str, Any]] = []
-    arms = build_arms(args.signal, DEFAULT_SCORE_QUANTILE)
+    tilt_strengths = parse_tilt_strengths(getattr(args, "tilt_strengths", "0.05,0.10"))
+    arms = build_arms(args.signal, DEFAULT_SCORE_QUANTILE, tilt_strengths)
     for arm in arms:
         arm_dir = output_dir / arm["arm"]
         arm_book, date_telemetry, stock_telemetry = generate_arm_book(
@@ -647,6 +668,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "price_cache": str(price_cache),
         "signal": args.signal,
         "score_quantile": DEFAULT_SCORE_QUANTILE,
+        "tilt_strengths": tilt_strengths,
         "arm_prefix": signal_arm_prefix(args.signal),
         "cash_carry_mode": str(args.cash_carry_mode),
         "cash_rate_path": str(repo_path(args.cash_rate_path)) if args.cash_rate_path else "",
@@ -682,6 +704,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--portfolio-kind", choices=["main", "concentrated"], default="concentrated")
     parser.add_argument("--price-cache", default="outputs/run287_price_cache_latest/cache_prices")
     parser.add_argument("--signal", default=DEFAULT_SIGNAL)
+    parser.add_argument("--tilt-strengths", default="0.05,0.10")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
