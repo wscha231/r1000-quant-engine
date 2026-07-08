@@ -65,6 +65,16 @@ def test_broker_replay_tracks_integer_shares_and_cash() -> None:
         assert metrics["benchmark_metric_mode"] == "etf_adjusted_close_total_return_proxy"
         assert metrics["benchmark_cagr"] > 0.0
         assert "excess_cagr_vs_benchmark" in metrics
+        assert metrics["benchmark_relative_risk_status"] == "completed"
+        assert "benchmark_max_dd" in metrics
+        assert "relative_max_dd_vs_benchmark" in metrics
+        assert "down_capture_vs_benchmark" in metrics
+        assert "beta_adjusted_alpha_annualized" in metrics
+        assert metrics["benchmark_relative_gate_input"] is False
+        assert metrics["benchmark_relative_public_claim_allowed"] is False
+        assert metrics["absolute_mission_status"] == "completed"
+        assert metrics["absolute_mission_pass"] is True
+        assert metrics["benchmark_relative_can_override_absolute_mission"] is False
         assert metrics["valid_for_production"] is True
         assert metrics["ending_capital_usd"] > 10_000.0
         trades = pd.read_csv(out / "trades.csv")

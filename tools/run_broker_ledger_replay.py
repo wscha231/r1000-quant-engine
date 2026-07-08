@@ -44,6 +44,10 @@ DEFAULT_CASH_CARRY_DAY_COUNT = 365
 DEFAULT_CASH_CARRY_CALENDAR_TICKERS = ("SPY", "QQQ")
 DEFAULT_BENCHMARK_TICKER = "SPY"
 BENCHMARK_METRIC_MODE = "etf_adjusted_close_total_return_proxy"
+MISSION_TARGETS = {
+    "main": {"cagr_min": 0.35, "max_dd_floor": -0.25},
+    "concentrated": {"cagr_min": 0.50, "max_dd_floor": -0.25},
+}
 DEFAULT_CONCENTRATED_CHAMPION_FILTERS = {
     "target_stock_names": "3",
     "weighting_mode": "score_power",
@@ -68,6 +72,21 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return out
     except (TypeError, ValueError):
         return default
+
+
+def max_drawdown(values: pd.Series) -> float:
+    vals = pd.to_numeric(values, errors="coerce").dropna()
+    if vals.empty:
+        return 0.0
+    dd = vals / vals.cummax() - 1.0
+    return float(dd.min())
+
+
+def compounded_return(returns: pd.Series) -> float | None:
+    rs = pd.to_numeric(returns, errors="coerce").dropna()
+    if rs.empty:
+        return None
+    return float((1.0 + rs).prod() - 1.0)
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -747,8 +766,11 @@ def calc_metrics(
             benchmark_ticker=benchmark_ticker,
             start_date=dates.min(),
             end_date=dates.max(),
+            strategy_dates=dates,
+            strategy_equity=eq,
             strategy_total_return=payload["total_return"],
             strategy_cagr=cagr,
+            strategy_max_dd=payload["max_dd"],
         )
     )
     return payload
@@ -760,8 +782,11 @@ def benchmark_relative_metrics(
     benchmark_ticker: str,
     start_date: Any,
     end_date: Any,
+    strategy_dates: pd.Series,
+    strategy_equity: pd.Series,
     strategy_total_return: float,
     strategy_cagr: float,
+    strategy_max_dd: float,
 ) -> dict[str, Any]:
     ticker = str(benchmark_ticker or "").strip().upper()
     base = {
@@ -788,6 +813,10 @@ def benchmark_relative_metrics(
     base.update(
         {
             "benchmark_status": "completed",
+            "benchmark_role": "canonical_research_reporting",
+            "benchmark_relative_reporting_only": True,
+            "benchmark_relative_gate_input": False,
+            "benchmark_relative_public_claim_allowed": False,
             "benchmark_start_date": pd.Timestamp(actual_start).date().isoformat(),
             "benchmark_end_date": pd.Timestamp(actual_end).date().isoformat(),
             "benchmark_start_price": float(start_px),
@@ -798,7 +827,127 @@ def benchmark_relative_metrics(
             "excess_cagr_vs_benchmark": float(strategy_cagr - cagr),
         }
     )
+    risk = benchmark_relative_risk_metrics(
+        benchmark_prices=benchmark_prices,
+        start_date=actual_start,
+        end_date=actual_end,
+        strategy_dates=strategy_dates,
+        strategy_equity=strategy_equity,
+        strategy_max_dd=strategy_max_dd,
+    )
+    base.update(risk)
     return base
+
+
+def benchmark_relative_risk_metrics(
+    *,
+    benchmark_prices: pd.DataFrame,
+    start_date: Any,
+    end_date: Any,
+    strategy_dates: pd.Series,
+    strategy_equity: pd.Series,
+    strategy_max_dd: float,
+) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "benchmark_relative_risk_status": "unavailable",
+    }
+    if benchmark_prices.empty or "close" not in benchmark_prices.columns:
+        return base
+    strat = pd.DataFrame(
+        {
+            "date": pd.to_datetime(strategy_dates, errors="coerce"),
+            "strategy_equity": pd.to_numeric(strategy_equity, errors="coerce"),
+        }
+    ).dropna()
+    if strat.empty:
+        return base
+    strat["date"] = strat["date"].dt.normalize()
+    strat = strat.drop_duplicates("date", keep="last").set_index("date").sort_index()
+    bench = benchmark_prices[["close"]].copy()
+    bench.index = pd.to_datetime(bench.index, errors="coerce")
+    bench = bench[bench.index.notna()].copy()
+    bench.index = bench.index.normalize()
+    bench = bench.dropna().sort_index()
+    bench = bench[~bench.index.duplicated(keep="last")]
+    start_ts = pd.Timestamp(start_date).normalize()
+    end_ts = pd.Timestamp(end_date).normalize()
+    bench = bench[(bench.index >= start_ts) & (bench.index <= end_ts)].rename(columns={"close": "benchmark_close"})
+    aligned = strat.join(bench, how="inner").dropna()
+    if len(aligned) < 3:
+        return base
+    strategy_returns = aligned["strategy_equity"].pct_change().dropna()
+    benchmark_returns = aligned["benchmark_close"].pct_change().dropna()
+    common = pd.concat(
+        [strategy_returns.rename("strategy"), benchmark_returns.rename("benchmark")],
+        axis=1,
+        join="inner",
+    ).dropna()
+    if common.empty:
+        return base
+    bench_var = float(common["benchmark"].var(ddof=0))
+    beta = float(common["strategy"].cov(common["benchmark"]) / bench_var) if bench_var > 1e-18 else None
+    excess_returns = common["strategy"] - common["benchmark"]
+    tracking_error = float(excess_returns.std(ddof=0) * math.sqrt(252.0)) if len(excess_returns) > 1 else 0.0
+    info_ratio = float((excess_returns.mean() * 252.0) / (tracking_error + 1e-12)) if tracking_error > 0 else None
+    beta_alpha = None
+    if beta is not None:
+        beta_alpha = float((common["strategy"].mean() - beta * common["benchmark"].mean()) * 252.0)
+    down_mask = common["benchmark"] < 0
+    up_mask = common["benchmark"] > 0
+    down_bench = compounded_return(common.loc[down_mask, "benchmark"])
+    down_strategy = compounded_return(common.loc[down_mask, "strategy"])
+    up_bench = compounded_return(common.loc[up_mask, "benchmark"])
+    up_strategy = compounded_return(common.loc[up_mask, "strategy"])
+    down_capture = (
+        float(down_strategy / down_bench)
+        if down_strategy is not None and down_bench is not None and abs(down_bench) > 1e-12
+        else None
+    )
+    up_capture = (
+        float(up_strategy / up_bench)
+        if up_strategy is not None and up_bench is not None and abs(up_bench) > 1e-12
+        else None
+    )
+    benchmark_dd = max_drawdown(aligned["benchmark_close"])
+    base.update(
+        {
+            "benchmark_relative_risk_status": "completed",
+            "benchmark_aligned_observation_count": int(len(aligned)),
+            "benchmark_return_observation_count": int(len(common)),
+            "benchmark_max_dd": benchmark_dd,
+            "relative_max_dd_vs_benchmark": float(strategy_max_dd - benchmark_dd),
+            "tracking_error_vs_benchmark": tracking_error,
+            "information_ratio_vs_benchmark": info_ratio,
+            "beta_vs_benchmark": beta,
+            "beta_adjusted_alpha_annualized": beta_alpha,
+            "down_capture_vs_benchmark": down_capture,
+            "up_capture_vs_benchmark": up_capture,
+        }
+    )
+    return base
+
+
+def mission_contract_fields(metrics: dict[str, Any], portfolio_kind: str) -> dict[str, Any]:
+    target = MISSION_TARGETS.get(str(portfolio_kind).lower())
+    if not target:
+        return {
+            "absolute_mission_status": "not_configured",
+            "absolute_mission_pass": False,
+            "benchmark_relative_can_override_absolute_mission": False,
+        }
+    cagr = safe_float(metrics.get("cagr"), default=float("nan"))
+    max_dd = safe_float(metrics.get("max_dd"), default=float("nan"))
+    cagr_pass = math.isfinite(cagr) and cagr >= float(target["cagr_min"])
+    max_dd_pass = math.isfinite(max_dd) and max_dd >= float(target["max_dd_floor"])
+    return {
+        "absolute_mission_status": "completed",
+        "absolute_mission_cagr_threshold": float(target["cagr_min"]),
+        "absolute_mission_max_dd_floor": float(target["max_dd_floor"]),
+        "absolute_mission_cagr_pass": bool(cagr_pass),
+        "absolute_mission_max_dd_pass": bool(max_dd_pass),
+        "absolute_mission_pass": bool(cagr_pass and max_dd_pass),
+        "benchmark_relative_can_override_absolute_mission": False,
+    }
 
 
 # Stage 0 OOS lock — default windows. R1000_OOS_START / R1000_OOS2_START env
@@ -1365,6 +1514,14 @@ def replay(
             **weight_diag,
         }
     )
+    metrics.update(mission_contract_fields(metrics, portfolio_kind))
+    metrics.update(
+        {
+            "benchmark_relative_metric_scope": "diagnostic_reporting_only",
+            "benchmark_relative_public_claim_allowed": False,
+            "benchmark_relative_forbidden_label": "benchmark_relative_public_claim",
+        }
+    )
     if carry_enabled:
         metrics.update(
             {
@@ -1426,6 +1583,26 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Benchmark ({metrics.get('benchmark_ticker', DEFAULT_BENCHMARK_TICKER)} {metrics.get('benchmark_metric_mode', BENCHMARK_METRIC_MODE)}): {safe_float(metrics.get('benchmark_cagr')):.2%}",
             f"- Excess CAGR vs benchmark: {safe_float(metrics.get('excess_cagr_vs_benchmark')):+.2%}",
         ]
+        if metrics.get("benchmark_relative_risk_status") == "completed":
+            benchmark_lines.extend(
+                [
+                    f"- Benchmark MaxDD: {safe_float(metrics.get('benchmark_max_dd')):.2%}",
+                    f"- Relative MaxDD vs benchmark: {safe_float(metrics.get('relative_max_dd_vs_benchmark')):+.2%}",
+                    f"- Down capture vs benchmark: {safe_float(metrics.get('down_capture_vs_benchmark')):.2f}",
+                    f"- Beta-adjusted alpha annualized: {safe_float(metrics.get('beta_adjusted_alpha_annualized')):+.2%}",
+                    f"- Information ratio vs benchmark: {safe_float(metrics.get('information_ratio_vs_benchmark')):.3f}",
+                ]
+            )
+        benchmark_lines.append("- Benchmark-relative metrics are diagnostic reporting only and do not override the absolute mission contract.")
+    mission_lines = []
+    if metrics.get("absolute_mission_status") == "completed":
+        mission_lines = [
+            f"- Absolute mission pass: `{str(bool(metrics.get('absolute_mission_pass'))).lower()}`",
+            f"- Absolute CAGR pass: `{str(bool(metrics.get('absolute_mission_cagr_pass'))).lower()}` "
+            f"(threshold {safe_float(metrics.get('absolute_mission_cagr_threshold')):.2%})",
+            f"- Absolute MaxDD pass: `{str(bool(metrics.get('absolute_mission_max_dd_pass'))).lower()}` "
+            f"(floor {safe_float(metrics.get('absolute_mission_max_dd_floor')):.2%})",
+        ]
     lines = [
             "# Broker Ledger Replay",
             "",
@@ -1437,6 +1614,7 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
             f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
             f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",
+            *mission_lines,
             *benchmark_lines,
             f"- Ending capital: ${safe_float(metrics.get('ending_capital_usd')):,.2f}",
             f"- Trade count: {int(safe_float(metrics.get('trade_count')))}",

@@ -129,6 +129,7 @@ def research_production_gate_fields(
             "production_ready",
             "live_trading_ready",
             "public_return_claim",
+            "benchmark_relative_public_claim",
             "official_service_performance",
         ],
         "allowed_research_labels": [
