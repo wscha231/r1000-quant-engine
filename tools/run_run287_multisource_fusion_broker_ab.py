@@ -51,6 +51,10 @@ DEFAULT_PARITY_SUMMARY = "outputs/run287_parity/summary.json"
 DEFAULT_SURVIVORSHIP_SUMMARY = "outputs/run287_survivorship/summary.json"
 DEFAULT_SIGNAL = "growth_confirmation_score"
 JOIN_COLUMNS = [
+    "w4_form4_score",
+    "w4_13f_score",
+    "w4_combined_score",
+    "w4_consensus_score",
     "w4_sec_score",
     "financial_statement_proxy_score",
     "technical_momentum_score",

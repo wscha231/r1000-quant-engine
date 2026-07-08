@@ -1,0 +1,39 @@
+{
+  "available_current_sources": [
+    "SEC Form4",
+    "SEC 13F",
+    "SEC actual financial statement/proxy columns",
+    "target-book evidence columns"
+  ],
+  "blocked_sources": [
+    "true PIT analyst estimate revisions",
+    "true company guidance direction history",
+    "PIT earnings-call keyword feed"
+  ],
+  "earnings_revision_feed_contract": {
+    "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\earnings_revision_feed_contract\\summary.json",
+    "reason": "no_nonempty_evidence_columns",
+    "regime_nowcast_coverage_ready": false,
+    "row_count": 0,
+    "status": "blocked",
+    "true_revision_guidance_ready": null
+  },
+  "earnings_revision_signals_status": {
+    "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\earnings_revision_signals_status\\summary.json",
+    "reason": "no_output_rows",
+    "regime_nowcast_coverage_ready": false,
+    "row_count": 0,
+    "status": "blocked",
+    "true_revision_guidance_ready": null
+  },
+  "run287_w4_earnings_inventory": {
+    "path": "outputs\\run287_w4_earnings_inventory\\summary.json",
+    "reason": null,
+    "regime_nowcast_coverage_ready": null,
+    "row_count": null,
+    "status": null,
+    "true_revision_guidance_ready": false
+  },
+  "true_pit_earnings_revision_guidance_ready": false,
+  "true_pit_earnings_revision_guidance_reason": "no_nonempty_evidence_rows_found_locally"
+}

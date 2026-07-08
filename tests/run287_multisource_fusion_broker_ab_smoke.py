@@ -214,7 +214,7 @@ def test_multisource_fusion_broker_ab_research_only_contract_blocked() -> None:
             args.sec13f_path = str(sec13f)
             args.manager_universe = str(root / "missing_managers.csv")
             args.portfolio_kind = ["main", "concentrated"]
-            args.signals = ["growth_confirmation_score"]
+            args.signals = ["growth_confirmation_score", "w4_consensus_score"]
             args.price_cache = str(root / "cache_prices")
             args.output_dir = str(root / "out")
             args.oos_start = "2024-07-01"
@@ -249,12 +249,14 @@ def test_multisource_fusion_broker_ab_research_only_contract_blocked() -> None:
             assert payload["measurement_contract_acceptance_allowed"] is False
             assert payload["decision_label"] == "broker_ab_positive_but_measurement_contract_blocks_acceptance"
             assert set(payload["portfolios"]) == {"main", "concentrated"}
-            assert payload["signals"] == ["growth_confirmation_score"]
+            assert payload["signals"] == ["growth_confirmation_score", "w4_consensus_score"]
             assert any(row["target_contract_pass"] for row in payload["arm_rows"])
             assert payload["enriched_target_books"]["main"]["asof_prior_score_rows"] == 2
             assert payload["enriched_target_books"]["main"]["missing_fusion_score_non_cash_rows"] == 0
             assert (root / "out" / "enriched_target_books" / "main_target_book.csv").exists()
             assert (root / "out" / "enriched_target_books" / "concentrated_target_book.csv").exists()
+            enriched = pd.read_csv(root / "out" / "enriched_target_books" / "concentrated_target_book.csv")
+            assert "w4_consensus_score" in enriched.columns
             assert (root / "out" / "summary.json").exists()
             assert (root / "out" / "arm_metrics.csv").exists()
             assert (root / "out" / "report.md").exists()
