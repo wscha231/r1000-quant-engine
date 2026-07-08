@@ -27,6 +27,24 @@ def _raw() -> pd.DataFrame:
                 "eps_estimate": 1.00,
                 "revenue_estimate": 100.0,
                 "margin_estimate": 0.20,
+                "actual_eps_ttm": 0.80,
+                "actual_revenue_ttm": 90.0,
+                "actual_margin_ttm": 0.18,
+                "guidance_direction": "neutral",
+                "source_type": "historical_revision",
+            },
+            {
+                "ticker": "AAA",
+                "sector": "Information Technology",
+                "fiscal_period": "2026Q2",
+                "estimate_date": "2026-04-01",
+                "available_from": "2026-04-02",
+                "eps_estimate": 1.15,
+                "revenue_estimate": 112.0,
+                "margin_estimate": 0.22,
+                "actual_eps_ttm": 0.82,
+                "actual_revenue_ttm": 92.0,
+                "actual_margin_ttm": 0.19,
                 "guidance_direction": "neutral",
                 "source_type": "historical_revision",
             },
@@ -39,6 +57,9 @@ def _raw() -> pd.DataFrame:
                 "eps_estimate": 1.25,
                 "revenue_estimate": 120.0,
                 "margin_estimate": 0.23,
+                "actual_eps_ttm": 0.82,
+                "actual_revenue_ttm": 92.0,
+                "actual_margin_ttm": 0.19,
                 "guidance_direction": "positive",
                 "source_type": "historical_revision",
             },
@@ -57,7 +78,13 @@ def test_revision_signals_require_available_from_and_filter_future() -> None:
     out, summary = build_signals(_raw(), as_of=pd.Timestamp("2026-06-30"))
     assert summary["future_available_from_rows_filtered"] == 1
     latest = out[out["ticker"].eq("AAA")].sort_values("available_from").iloc[-1]
+    assert latest["eps_revision_5d"] > 0
+    assert latest["revenue_revision_5d"] > 0
     assert latest["eps_revision_13w"] > 0
+    assert latest["eps_estimate_vs_actual_ttm"] > 0
+    assert latest["revenue_estimate_vs_actual_ttm"] > 0
+    assert latest["margin_estimate_vs_actual_ttm"] > 0
+    assert "eps_revision_accel_5d_vs_20d" in latest.index
     assert latest["positive_guidance_flag"] == 1
     assert latest["sector_eps_revision_breadth"] >= 0
     assert summary["input_history_depth_ticker_count"] == 1
@@ -66,6 +93,8 @@ def test_revision_signals_require_available_from_and_filter_future() -> None:
     assert summary["coverage_eligible_nonzero_revision_ticker_count"] == 1
     assert summary["directional_guidance_ticker_count"] == 1
     assert summary["coverage_eligible_directional_guidance_ticker_count"] == 1
+    assert summary["short_horizon_revision_ticker_count"] == 1
+    assert summary["estimate_vs_actual_gap_ticker_count"] == 1
     assert summary["regime_nowcast_coverage_ready"] is False
 
 

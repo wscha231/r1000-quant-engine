@@ -35,6 +35,12 @@ Recommended columns:
 - `source`
 - `source_type`
 
+Optional actual-comparison columns:
+
+- `actual_eps_ttm`
+- `actual_revenue_ttm`
+- `actual_margin_ttm`
+
 Optional valuation columns:
 
 - `forward_pe`
@@ -52,6 +58,26 @@ Optional valuation columns:
   not influence any signal.
 - No forward returns, future labels, realized alpha, or post-window outcome
   fields may be used.
+- Actual-comparison columns must also be point-in-time. They should represent
+  the latest reported actuals the system could know by `available_from`, not a
+  restated or future fiscal value.
+
+## Signal Fields Built
+
+When enough dated observations are present, the builder emits:
+
+- short-horizon estimate revisions: `eps_revision_1d`, `eps_revision_5d`,
+  `eps_revision_20d`, `eps_revision_63d`, and matching revenue fields
+- legacy revision windows: `eps_revision_4w`, `eps_revision_13w`,
+  `eps_revision_26w`, `revenue_revision_13w`
+- revision acceleration / deceleration: `eps_revision_accel_5d_vs_20d`,
+  `eps_revision_accel_20d_vs_63d`,
+  `revenue_revision_accel_5d_vs_20d`,
+  `revenue_revision_accel_20d_vs_63d`,
+  `eps_down_revision_deceleration_score`,
+  `revenue_down_revision_deceleration_score`
+- current-actual comparison gaps: `eps_estimate_vs_actual_ttm`,
+  `revenue_estimate_vs_actual_ttm`, `margin_estimate_vs_actual_ttm`
 
 ## Guidance Values
 

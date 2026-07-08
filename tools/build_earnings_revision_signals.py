@@ -27,6 +27,9 @@ COVERAGE_ELIGIBLE_SOURCE_TYPES = {
     "company_guidance",
     "manual_research_import",
 }
+ESTIMATE_COLUMNS = ["eps_estimate", "revenue_estimate", "margin_estimate"]
+ACTUAL_COMPARISON_COLUMNS = ["actual_eps_ttm", "actual_revenue_ttm", "actual_margin_ttm"]
+VALUATION_COLUMNS = ["forward_pe", "forward_pe_5y_avg", "forward_pe_10y_avg"]
 
 
 def utc_now() -> str:
@@ -50,6 +53,12 @@ def pct_change(current: float, previous: float) -> float:
     if previous == 0 or pd.isna(previous) or pd.isna(current):
         return 0.0
     return float((current - previous) / abs(previous))
+
+
+def positive_part(value: float) -> float:
+    if pd.isna(value):
+        return 0.0
+    return max(0.0, float(value))
 
 
 def nearest_prior_value(group: pd.DataFrame, row_idx: int, column: str, days: int) -> float:
@@ -82,7 +91,7 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
         d["estimate_date"] = pd.to_datetime(d["estimate_date"], errors="coerce").dt.normalize()
     else:
         d["estimate_date"] = d["available_from"]
-    for col in ["eps_estimate", "revenue_estimate", "margin_estimate", "forward_pe", "forward_pe_5y_avg", "forward_pe_10y_avg"]:
+    for col in ESTIMATE_COLUMNS + ACTUAL_COMPARISON_COLUMNS + VALUATION_COLUMNS:
         if col not in d.columns:
             d[col] = pd.NA
         d[col] = pd.to_numeric(d[col], errors="coerce")
@@ -113,22 +122,72 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
             eps = safe_float(row.get("eps_estimate"), float("nan"))
             rev = safe_float(row.get("revenue_estimate"), float("nan"))
             margin = safe_float(row.get("margin_estimate"), float("nan"))
+            actual_eps_ttm = safe_float(row.get("actual_eps_ttm"), float("nan"))
+            actual_revenue_ttm = safe_float(row.get("actual_revenue_ttm"), float("nan"))
+            actual_margin_ttm = safe_float(row.get("actual_margin_ttm"), float("nan"))
+            prior_eps_1d = nearest_prior_value(group, idx, "eps_estimate", 1)
+            prior_eps_5d = nearest_prior_value(group, idx, "eps_estimate", 5)
+            prior_eps_20d = nearest_prior_value(group, idx, "eps_estimate", 20)
+            prior_eps_63d = nearest_prior_value(group, idx, "eps_estimate", 63)
             prior_eps_4w = nearest_prior_value(group, idx, "eps_estimate", 28)
             prior_eps_13w = nearest_prior_value(group, idx, "eps_estimate", 91)
             prior_eps_26w = nearest_prior_value(group, idx, "eps_estimate", 182)
+            prior_rev_1d = nearest_prior_value(group, idx, "revenue_estimate", 1)
+            prior_rev_5d = nearest_prior_value(group, idx, "revenue_estimate", 5)
+            prior_rev_20d = nearest_prior_value(group, idx, "revenue_estimate", 20)
+            prior_rev_63d = nearest_prior_value(group, idx, "revenue_estimate", 63)
             prior_rev_13w = nearest_prior_value(group, idx, "revenue_estimate", 91)
+            prior_margin_20d = nearest_prior_value(group, idx, "margin_estimate", 20)
+            prior_margin_63d = nearest_prior_value(group, idx, "margin_estimate", 63)
             prior_margin_13w = nearest_prior_value(group, idx, "margin_estimate", 91)
             forward_pe = safe_float(row.get("forward_pe"), float("nan"))
             pe_5y = safe_float(row.get("forward_pe_5y_avg"), float("nan"))
             pe_10y = safe_float(row.get("forward_pe_10y_avg"), float("nan"))
+            eps_revision_1d = pct_change(eps, prior_eps_1d)
+            eps_revision_5d = pct_change(eps, prior_eps_5d)
+            eps_revision_20d = pct_change(eps, prior_eps_20d)
+            eps_revision_63d = pct_change(eps, prior_eps_63d)
+            revenue_revision_1d = pct_change(rev, prior_rev_1d)
+            revenue_revision_5d = pct_change(rev, prior_rev_5d)
+            revenue_revision_20d = pct_change(rev, prior_rev_20d)
+            revenue_revision_63d = pct_change(rev, prior_rev_63d)
+            margin_revision_20d = margin - prior_margin_20d if pd.notna(margin) and pd.notna(prior_margin_20d) else 0.0
+            margin_revision_63d = margin - prior_margin_63d if pd.notna(margin) and pd.notna(prior_margin_63d) else 0.0
+            eps_revision_accel_5d_vs_20d = eps_revision_5d - eps_revision_20d
+            eps_revision_accel_20d_vs_63d = eps_revision_20d - eps_revision_63d
+            revenue_revision_accel_5d_vs_20d = revenue_revision_5d - revenue_revision_20d
+            revenue_revision_accel_20d_vs_63d = revenue_revision_20d - revenue_revision_63d
             out = row.to_dict()
             out.update(
                 {
+                    "eps_revision_1d": eps_revision_1d,
+                    "eps_revision_5d": eps_revision_5d,
+                    "eps_revision_20d": eps_revision_20d,
+                    "eps_revision_63d": eps_revision_63d,
                     "eps_revision_4w": pct_change(eps, prior_eps_4w),
                     "eps_revision_13w": pct_change(eps, prior_eps_13w),
                     "eps_revision_26w": pct_change(eps, prior_eps_26w),
+                    "revenue_revision_1d": revenue_revision_1d,
+                    "revenue_revision_5d": revenue_revision_5d,
+                    "revenue_revision_20d": revenue_revision_20d,
+                    "revenue_revision_63d": revenue_revision_63d,
                     "revenue_revision_13w": pct_change(rev, prior_rev_13w),
+                    "margin_revision_20d": margin_revision_20d,
+                    "margin_revision_63d": margin_revision_63d,
                     "margin_revision_score": margin - prior_margin_13w if pd.notna(margin) and pd.notna(prior_margin_13w) else 0.0,
+                    "eps_revision_accel_5d_vs_20d": eps_revision_accel_5d_vs_20d,
+                    "eps_revision_accel_20d_vs_63d": eps_revision_accel_20d_vs_63d,
+                    "revenue_revision_accel_5d_vs_20d": revenue_revision_accel_5d_vs_20d,
+                    "revenue_revision_accel_20d_vs_63d": revenue_revision_accel_20d_vs_63d,
+                    "eps_down_revision_deceleration_score": positive_part(eps_revision_5d - eps_revision_20d) if eps_revision_20d < 0 else 0.0,
+                    "revenue_down_revision_deceleration_score": (
+                        positive_part(revenue_revision_5d - revenue_revision_20d) if revenue_revision_20d < 0 else 0.0
+                    ),
+                    "eps_estimate_vs_actual_ttm": pct_change(eps, actual_eps_ttm),
+                    "revenue_estimate_vs_actual_ttm": pct_change(rev, actual_revenue_ttm),
+                    "margin_estimate_vs_actual_ttm": (
+                        margin - actual_margin_ttm if pd.notna(margin) and pd.notna(actual_margin_ttm) else 0.0
+                    ),
                     "positive_guidance_flag": int(row.get("guidance_score_raw", 0) > 0),
                     "negative_guidance_flag": int(row.get("guidance_score_raw", 0) < 0),
                     "guidance_vs_consensus_score": int(row.get("guidance_score_raw", 0)),
@@ -142,9 +201,27 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
     coverage_eligible_nonzero_revision_ticker_count = 0
     directional_guidance_ticker_count = 0
     coverage_eligible_directional_guidance_ticker_count = 0
+    short_horizon_revision_ticker_count = 0
+    estimate_vs_actual_gap_ticker_count = 0
     if not out.empty:
         revision_mask = pd.Series(False, index=out.index)
-        for col in ["eps_revision_4w", "eps_revision_13w", "eps_revision_26w", "revenue_revision_13w", "margin_revision_score"]:
+        for col in [
+            "eps_revision_1d",
+            "eps_revision_5d",
+            "eps_revision_20d",
+            "eps_revision_63d",
+            "eps_revision_4w",
+            "eps_revision_13w",
+            "eps_revision_26w",
+            "revenue_revision_1d",
+            "revenue_revision_5d",
+            "revenue_revision_20d",
+            "revenue_revision_63d",
+            "revenue_revision_13w",
+            "margin_revision_20d",
+            "margin_revision_63d",
+            "margin_revision_score",
+        ]:
             if col in out.columns:
                 revision_mask = revision_mask | (pd.to_numeric(out[col], errors="coerce").fillna(0.0).abs() > 1e-12)
         nonzero_revision_ticker_count = int(out.loc[revision_mask, "ticker"].nunique()) if "ticker" in out.columns else 0
@@ -157,6 +234,16 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
         coverage_eligible_directional_guidance_ticker_count = (
             int(out.loc[guidance_mask & eligible_mask, "ticker"].nunique()) if "ticker" in out.columns else 0
         )
+        short_horizon_mask = pd.Series(False, index=out.index)
+        for col in ["eps_revision_1d", "eps_revision_5d", "revenue_revision_1d", "revenue_revision_5d"]:
+            if col in out.columns:
+                short_horizon_mask = short_horizon_mask | (pd.to_numeric(out[col], errors="coerce").fillna(0.0).abs() > 1e-12)
+        short_horizon_revision_ticker_count = int(out.loc[short_horizon_mask, "ticker"].nunique()) if "ticker" in out.columns else 0
+        gap_mask = pd.Series(False, index=out.index)
+        for col in ["eps_estimate_vs_actual_ttm", "revenue_estimate_vs_actual_ttm", "margin_estimate_vs_actual_ttm"]:
+            if col in out.columns:
+                gap_mask = gap_mask | (pd.to_numeric(out[col], errors="coerce").fillna(0.0).abs() > 1e-12)
+        estimate_vs_actual_gap_ticker_count = int(out.loc[gap_mask, "ticker"].nunique()) if "ticker" in out.columns else 0
     if not out.empty and "sector" in out.columns:
         sector_keys = ["available_from", "sector"]
         sector = out.groupby(sector_keys).agg(
@@ -188,6 +275,8 @@ def build_signals(raw: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> tu
         "coverage_eligible_nonzero_revision_ticker_count": coverage_eligible_nonzero_revision_ticker_count,
         "directional_guidance_ticker_count": directional_guidance_ticker_count,
         "coverage_eligible_directional_guidance_ticker_count": coverage_eligible_directional_guidance_ticker_count,
+        "short_horizon_revision_ticker_count": short_horizon_revision_ticker_count,
+        "estimate_vs_actual_gap_ticker_count": estimate_vs_actual_gap_ticker_count,
         "coverage_eligible_source_types": sorted(COVERAGE_ELIGIBLE_SOURCE_TYPES),
         "earnings_guidance_plumbing_ready": bool(coverage.get("plumbing_ready", False)),
         "earnings_guidance_research_ready": bool(coverage.get("research_ready", False)),

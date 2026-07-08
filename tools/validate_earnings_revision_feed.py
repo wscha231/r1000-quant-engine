@@ -43,6 +43,11 @@ EVIDENCE_COLUMNS = [
     "guidance_direction",
     "forward_pe",
 ]
+ACTUAL_COMPARISON_COLUMNS = [
+    "actual_eps_ttm",
+    "actual_revenue_ttm",
+    "actual_margin_ttm",
+]
 ALLOWED_SOURCE_TYPES = [
     "historical_revision",
     "vendor_estimate_revision",
@@ -88,6 +93,7 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
     missing_required = sorted(set(REQUIRED_COLUMNS) - set(columns))
     missing_recommended = sorted(set(RECOMMENDED_COLUMNS) - set(columns))
     evidence_columns_present = [col for col in EVIDENCE_COLUMNS if _has_nonempty_evidence(frame, col)]
+    actual_comparison_columns_present = [col for col in ACTUAL_COMPARISON_COLUMNS if _has_nonempty_evidence(frame, col)]
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "status": "completed",
@@ -100,6 +106,8 @@ def validate_feed(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None) -> 
         "missing_required_columns": missing_required,
         "missing_recommended_columns": missing_recommended,
         "evidence_columns_present": evidence_columns_present,
+        "actual_comparison_columns": ACTUAL_COMPARISON_COLUMNS,
+        "actual_comparison_columns_present": actual_comparison_columns_present,
         "available_from_required": True,
         "forward_return_columns_allowed": False,
         "research_only": True,
@@ -243,6 +251,8 @@ def main() -> int:
             "input": str(input_path),
             "required_columns": REQUIRED_COLUMNS,
             "recommended_columns": RECOMMENDED_COLUMNS,
+            "actual_comparison_columns": ACTUAL_COMPARISON_COLUMNS,
+            "actual_comparison_columns_present": [],
             "available_from_required": True,
             "forward_return_columns_allowed": False,
             "research_only": True,
