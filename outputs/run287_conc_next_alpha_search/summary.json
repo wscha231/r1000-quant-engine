@@ -1,0 +1,239 @@
+{
+  "arm_count": 8,
+  "baseline": {
+    "cagr": 0.48405282381071246,
+    "max_dd": -0.22955203584248118,
+    "metric_mode": "broker_ledger_next_close_cash_carry",
+    "portfolio_kind": "concentrated",
+    "replay_end_date": "2026-07-02",
+    "sharpe": 1.4875164756773855,
+    "target_book_source": "run287_official_fixed_concentrated_book",
+    "target_cagr": 0.5,
+    "target_max_dd_floor": -0.25
+  },
+  "best_full_window_non_candidate": {
+    "ab_verdict": "reject_oos_cagr_worse",
+    "arm": "evidence_fusion_top_quintile_tilt05",
+    "cagr": 0.4878983163108357,
+    "delta_cagr_pp": 0.38454925001232265,
+    "delta_max_dd_pp": 0.6850636641921648,
+    "eligible_events": 129,
+    "max_dd": -0.22270139920055954,
+    "note": "rejected by OOS/OOS2 or full-window CAGR gate",
+    "oos2_delta_cagr_pp": -1.6030184946671522,
+    "oos_delta_cagr_pp": -2.9369664854263178,
+    "sharpe": 1.5139561948749467,
+    "signal": "evidence_fusion_score",
+    "source_group": "target_book_evidence_column",
+    "target_restored": false,
+    "total_abs_weight_delta": 4.600538111834725
+  },
+  "candidate_allowed": false,
+  "data_availability": {
+    "available_current_sources": [
+      "SEC Form4",
+      "SEC 13F",
+      "SEC actual financial statement/proxy columns",
+      "target-book evidence columns"
+    ],
+    "blocked_sources": [
+      "true PIT analyst estimate revisions",
+      "true company guidance direction history",
+      "PIT earnings-call keyword feed"
+    ],
+    "earnings_revision_feed_contract": {
+      "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\earnings_revision_feed_contract\\summary.json",
+      "reason": "no_nonempty_evidence_columns",
+      "regime_nowcast_coverage_ready": false,
+      "row_count": 0,
+      "status": "blocked",
+      "true_revision_guidance_ready": null
+    },
+    "earnings_revision_signals_status": {
+      "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\earnings_revision_signals_status\\summary.json",
+      "reason": "no_output_rows",
+      "regime_nowcast_coverage_ready": false,
+      "row_count": 0,
+      "status": "blocked",
+      "true_revision_guidance_ready": null
+    },
+    "run287_w4_earnings_inventory": {
+      "path": "outputs\\run287_w4_earnings_inventory\\summary.json",
+      "reason": null,
+      "regime_nowcast_coverage_ready": null,
+      "row_count": null,
+      "status": null,
+      "true_revision_guidance_ready": false
+    },
+    "true_pit_earnings_revision_guidance_ready": false,
+    "true_pit_earnings_revision_guidance_reason": "no_nonempty_evidence_rows_found_locally"
+  },
+  "decision_label": "concentrated_next_alpha_search_rejected_current_data",
+  "fullrun_dispatched": false,
+  "generated_at_utc": "2026-07-08T14:01:22Z",
+  "interpretation": [
+    "W4 consensus has no signal on the official concentrated target book, so the A/B is blocked_no_signal.",
+    "Available target-book evidence columns do not restore 50% CAGR and fail OOS/OOS2 gates.",
+    "Current Form4, 13F, SEC actual/proxy, ETF, technical, macro, and fusion routes are exhausted for run287 fixed-book Concentrated improvement.",
+    "The next defensible alpha source is a true PIT analyst revision, company guidance, or earnings-call keyword feed with available_from gating."
+  ],
+  "least_bad_oos2_non_candidate": {
+    "ab_verdict": "reject_oos_cagr_worse",
+    "arm": "sec_combined_evidence_top_quintile_tilt05",
+    "cagr": 0.48710359396668856,
+    "delta_cagr_pp": 0.30507701559761013,
+    "delta_max_dd_pp": 0.13352963147169605,
+    "eligible_events": 129,
+    "max_dd": -0.22821673952776422,
+    "note": "rejected by OOS/OOS2 or full-window CAGR gate",
+    "oos2_delta_cagr_pp": -0.6348537240006946,
+    "oos_delta_cagr_pp": -0.41527965927681265,
+    "sharpe": 1.495363366143373,
+    "signal": "sec_combined_evidence_score",
+    "source_group": "target_book_evidence_column",
+    "target_restored": false,
+    "total_abs_weight_delta": 4.49639719925704
+  },
+  "live_trading_enabled": false,
+  "measurement_contract": {
+    "cash_carry_day_count": 365,
+    "cash_carry_haircut_bps": 50,
+    "cash_rate_lag_days": 1,
+    "cash_rate_source": "DGS3MO",
+    "measurement_acceptance_allowed": false,
+    "metric_mode": "broker_ledger_next_close_cash_carry",
+    "replay_end_date": "2026-07-02",
+    "runner_parity_status": "parity_documented_gap",
+    "source_run": "28725350727",
+    "target_book_source": "run287_official_fixed_concentrated_book"
+  },
+  "new_alpha_hook_added": false,
+  "next_action_allowed": "ingest_true_pit_revision_or_guidance_feed_before_more_concentrated_alpha_hooks",
+  "pit_universe_label_clean": false,
+  "positive_candidate_count": 0,
+  "prior_closed_paths": [
+    {
+      "best_cash_carry_cagr": 0.4821,
+      "best_cash_carry_candidate": "13f_confirmed_candidate",
+      "best_cash_carry_max_dd": -0.2296,
+      "decision_label": "reject_oos2_worse",
+      "path": "docs/CODEX_13F_FIXEDBOOK_AB_RESULT_20260708.md",
+      "reason": "pure 13F passed PIT/source screen but lost full-window CAGR and OOS2 versus baseline"
+    },
+    {
+      "best_cash_carry_cagr": 0.4798,
+      "best_cash_carry_candidate": "actual_results_score_tilt05",
+      "best_cash_carry_max_dd": -0.2319,
+      "decision_label": "financial_proxy_onepass_rejected",
+      "path": "docs/CODEX_RUN287_CONCENTRATED_FINANCIAL_PROXY_AB_RESULT_20260708.md",
+      "reason": "actual/proxy financial signals damaged OOS or MDD; true revision/guidance feed remains absent"
+    },
+    {
+      "best_concentrated_cagr": 0.4752,
+      "best_concentrated_candidate": "growth_confirmation_tilt05",
+      "best_concentrated_max_dd": -0.2288,
+      "decision_label": "growth_confirmation_score_rejected",
+      "path": "docs/CODEX_RUN287_MULTISOURCE_FUSION_BROKER_AB_20260708.md",
+      "reason": "fusion tilt improved drawdown slightly but destroyed Concentrated OOS CAGR"
+    }
+  ],
+  "production_activation_allowed": false,
+  "production_promotion_allowed": false,
+  "research_only": true,
+  "schema_version": "run287-conc-next-alpha-search-v1",
+  "score_availability": {
+    "etf_holdings_score": {
+      "max": 0.0,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 0,
+      "p80": 0.0
+    },
+    "etf_theme_leadership_score": {
+      "max": 0.0,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 0,
+      "p80": 0.0
+    },
+    "evidence_fusion_score": {
+      "max": 0.4080014834686254,
+      "min": 0.0810951219512195,
+      "non_cash_rows": 463,
+      "nonzero_count": 463,
+      "p80": 0.3114456596870809
+    },
+    "evidence_support_score": {
+      "max": 3.0,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 462,
+      "p80": 2.446630519323155
+    },
+    "institutional_evidence_score": {
+      "max": 0.8697142857142858,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 405,
+      "p80": 0.5073769557525412
+    },
+    "sec_combined_evidence_score": {
+      "max": 0.432525,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 409,
+      "p80": 0.2837970311904151
+    },
+    "smart_money_confirmation_score": {
+      "max": 0.2873142857142857,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 405,
+      "p80": 0.1273142857142857
+    },
+    "smart_money_shadow_score": {
+      "max": 0.3276060150375939,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 392,
+      "p80": 0.1253141091336203
+    },
+    "w4_13f_score": {
+      "max": 1.0,
+      "min": -0.9589098939520618,
+      "non_cash_rows": 463,
+      "nonzero_count": 394,
+      "p80": 0.9999999992658712
+    },
+    "w4_combined_score": {
+      "max": 0.4,
+      "min": -0.4474158166576583,
+      "non_cash_rows": 463,
+      "nonzero_count": 394,
+      "p80": 0.3999999986310927
+    },
+    "w4_consensus_score": {
+      "max": 0.0,
+      "min": 0.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 0,
+      "p80": 0.0
+    },
+    "w4_form4_score": {
+      "max": 0.0,
+      "min": -1.0,
+      "non_cash_rows": 463,
+      "nonzero_count": 46,
+      "p80": 0.0
+    },
+    "w4_sec_score": {
+      "max": 0.4,
+      "min": -0.4474158166576583,
+      "non_cash_rows": 463,
+      "nonzero_count": 394,
+      "p80": 0.3999999986310927
+    }
+  },
+  "threshold_tuning_performed": false,
+  "used_forward_return_in_ranking": false
+}
