@@ -1,0 +1,93 @@
+{
+  "artifacts": {
+    "miss_set_candidates": "outputs/run287_conc_alpha_source_packet/miss_set_candidates.csv",
+    "report": "outputs/run287_conc_alpha_source_packet/report.md",
+    "source_inventory": "outputs/run287_conc_alpha_source_packet/source_inventory.csv",
+    "source_screen_original_report": "outputs/run287_w4_form4_13f_source_screen/report.md",
+    "source_screen_original_summary": "outputs/run287_w4_form4_13f_source_screen/summary.json",
+    "source_screen_signal_stats": "outputs/run287_conc_alpha_source_packet/source_screen_signal_stats.csv",
+    "summary": "outputs/run287_conc_alpha_source_packet/summary.json"
+  },
+  "baseline_contract": {
+    "absolute_mission_cagr_threshold": 0.5,
+    "absolute_mission_max_dd_floor": -0.25,
+    "generated_book_cash_carry_cagr": 0.48405282381071246,
+    "generated_book_cash_carry_max_dd": -0.22955203584248118
+  },
+  "earnings_true_revision_guidance_ready": false,
+  "miss_set_summary": {
+    "forward_returns_used_for_ranking": false,
+    "miss_set_mean_forward_return_audit_only": 0.028971205409994684,
+    "miss_set_median_forward_return_audit_only": 0.021537548828856,
+    "miss_set_positive_forward_return_rate_audit_only": 0.5882352941176471,
+    "miss_set_row_count": 51,
+    "miss_set_unique_dates": 51,
+    "miss_set_unique_tickers": 40
+  },
+  "non_negotiables": {
+    "forward_returns_audit_only": true,
+    "fullrun_dispatched": false,
+    "live_trading_enabled": false,
+    "new_alpha_hook_added": false,
+    "production_promotion_allowed": false,
+    "threshold_tuning_performed": false
+  },
+  "portfolio": "concentrated",
+  "purpose": "Make the W4 Form4/13F and miss-set source-screen evidence visible for Claude/GitHub review before any hook or fullrun.",
+  "r4_candidate_source_ready": false,
+  "r4_readiness_decision_label": "blocked_missing_w4_decision_time_source",
+  "recommended_next_action": "Ask Claude to red-team whether w4_13f/combined/consensus signal is clean enough for a default-off fixed-book broker A/B focused on cap_or_replacement miss-set. Do not build a hook yet.",
+  "research_only": true,
+  "run_id": "28725350727",
+  "schema_version": "run287-conc-alpha-source-claude-packet-v1",
+  "source_screen_coverage": {
+    "candidate_rows": 47435,
+    "candidate_tickers": 981,
+    "combined_signal_rows": 34835,
+    "combined_signal_tickers": 744,
+    "form4_signal_rows": 4566,
+    "form4_signal_tickers": 212,
+    "sec13f_signal_rows": 33643,
+    "sec13f_signal_tickers": 689
+  },
+  "source_screen_decision_label": "w4_combined_positive_requires_broker_ab_review",
+  "source_screen_positive_signals": [
+    "w4_13f_score",
+    "w4_combined_score",
+    "w4_consensus_score"
+  ],
+  "status": "completed",
+  "w4_sec_broker_ab_arms": [
+    {
+      "arm": "baseline",
+      "cagr": 0.48405282381071246,
+      "delta_cagr_pp": 0.0,
+      "delta_max_dd_pp": 0.0,
+      "delta_oos_cagr_pp": 0.0,
+      "eligible_events": 0,
+      "max_dd": -0.22955203584248118,
+      "verdict": "baseline"
+    },
+    {
+      "arm": "w4_sec_top_quintile_tilt05",
+      "cagr": 0.49373886585971305,
+      "delta_cagr_pp": 0.9686042049000587,
+      "delta_max_dd_pp": 0.3524876765289453,
+      "delta_oos_cagr_pp": -1.212289253423915,
+      "eligible_events": 131,
+      "max_dd": -0.22602715907719173,
+      "verdict": "reject_oos_cagr_worse"
+    },
+    {
+      "arm": "w4_sec_top_quintile_tilt10",
+      "cagr": 0.4956290053586112,
+      "delta_cagr_pp": 1.1576181547898745,
+      "delta_max_dd_pp": 0.698904816805912,
+      "delta_oos_cagr_pp": -3.0588083364906815,
+      "eligible_events": 131,
+      "max_dd": -0.22256298767442206,
+      "verdict": "reject_oos_cagr_worse"
+    }
+  ],
+  "w4_sec_broker_ab_decision_label": "no_positive_broker_ab_candidate"
+}
