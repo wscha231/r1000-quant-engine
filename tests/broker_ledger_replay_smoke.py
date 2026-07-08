@@ -37,6 +37,7 @@ def test_broker_replay_tracks_integer_shares_and_cash() -> None:
         cache.mkdir()
         _write_px(cache, "AAA", [100.0, 101.0, 110.0, 120.0, 130.0, 140.0, 150.0])
         _write_px(cache, "BBB", [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+        _write_px(cache, "SPY", [100.0, 100.0, 102.0, 103.0, 104.0, 104.0, 105.0])
         target = root / "targets.csv"
         pd.DataFrame(
             [
@@ -59,6 +60,11 @@ def test_broker_replay_tracks_integer_shares_and_cash() -> None:
 
         assert metrics["status"] == "completed"
         assert metrics["metric_mode"] == "broker_ledger_next_close"
+        assert metrics["benchmark_status"] == "completed"
+        assert metrics["benchmark_ticker"] == "SPY"
+        assert metrics["benchmark_metric_mode"] == "etf_adjusted_close_total_return_proxy"
+        assert metrics["benchmark_cagr"] > 0.0
+        assert "excess_cagr_vs_benchmark" in metrics
         assert metrics["valid_for_production"] is True
         assert metrics["ending_capital_usd"] > 10_000.0
         trades = pd.read_csv(out / "trades.csv")
