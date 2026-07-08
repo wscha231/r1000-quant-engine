@@ -312,6 +312,32 @@ PHASE17_REGIME_STATE_COLUMNS = [
     "regime_state_score",
 ]
 
+PHASE18_ESTIMATE_REVISION_COLUMNS = [
+    # Forward-only estimate revision feed. These columns are latest-scoring
+    # inputs only; do not append them to DEFAULT_FEATURES or feature_store.
+    "est_eps_fy1",
+    "est_eps_fy2",
+    "est_rev_fy1",
+    "est_eps_revision_30d",
+    "est_eps_revision_90d",
+    "est_eps_revision_breadth",
+    "est_rev_revision_30d",
+    "est_dispersion",
+    "est_dispersion_change_30d",
+    "earnings_surprise_last",
+    "surprise_streak",
+    "estimate_revision_confirmed",
+    "estimate_revision_replacement_gate_pass",
+    "estimate_revision_future_winner_multiplier",
+]
+
+PHASE_ESTIMATE_REVISION_CONFIRM_ENABLED = os.getenv("PHASE_ESTIMATE_REVISION_CONFIRM_ENABLED", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 PHASE20_THEME_POLICY_COLUMNS = [
     # Research-only theme policy metadata. These columns are surfaced for
     # lifecycle/chameleon replay sidecars, not appended to DEFAULT_FEATURES.
@@ -2782,6 +2808,8 @@ __all__ = [
     "PHASE9_C3_TURNAROUND_COLUMNS",
     "PHASE17_EXPLOSION_COLUMNS",
     "PHASE17_REGIME_STATE_COLUMNS",
+    "PHASE18_ESTIMATE_REVISION_COLUMNS",
+    "PHASE_ESTIMATE_REVISION_CONFIRM_ENABLED",
     "CRISIS_SECTOR_BENEFICIARIES",
     "CORE_FUNDAMENTAL_COLUMNS",
     "MACRO_PRICE_TICKERS",

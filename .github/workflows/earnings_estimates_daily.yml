@@ -1,0 +1,192 @@
+name: Earnings Estimates Daily Archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: 'Comma-separated tickers to archive. Leave default for bounded smoke-size daily archive.'
+        type: string
+        default: 'AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,MSFT,ASML,TSM,ARM,SMH,SOXX'
+      universe_file:
+        description: 'Optional CSV with ticker column. Manual use only for broader archives.'
+        type: string
+        default: ''
+      ticker_limit:
+        description: 'Optional cap after combining tickers/universe file. 0 means no cap.'
+        type: string
+        default: '0'
+      fetch_date:
+        description: 'PIT archive date. Defaults to UTC today.'
+        type: string
+        default: ''
+  schedule:
+    # 09:35 KST Tue-Sat, after most US after-close earnings data is visible.
+    - cron: '35 0 * * 2-6'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: earnings-estimates-daily-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore earnings estimate archive cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data_pit/events/earnings_estimates
+            data_pit/events/earnings_revision_signals.parquet
+          key: earnings-estimates-daily-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            earnings-estimates-daily-${{ runner.os }}-
+
+      - name: Configure rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[gdrive] no auth configured; continuing cache/artifact only"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore earnings estimate archive from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          mkdir -p data_pit/events
+          if rclone lsf "$BASE""data_pit/events/earnings_estimates" >/dev/null 2>&1; then
+            timeout 8m rclone copy "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
+              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          fi
+          if rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
+            timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
+              data_pit/events/earnings_revision_signals.parquet || true
+          fi
+
+      - name: Collect forward-only estimate archive
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,ASML,TSM,ARM,SMH,SOXX' }}
+          UNIVERSE_FILE: ${{ github.event.inputs.universe_file || '' }}
+          TICKER_LIMIT: ${{ github.event.inputs.ticker_limit || '0' }}
+          FETCH_DATE: ${{ github.event.inputs.fetch_date || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/earnings_estimates_daily data_pit/events/earnings_estimates
+          DATE_ARG=()
+          if [ -n "${FETCH_DATE:-}" ]; then
+            DATE_ARG=(--fetch-date "$FETCH_DATE")
+          fi
+          python tools/collect_earnings_estimates_finnhub.py \
+            --tickers "$TICKERS" \
+            --universe-file "$UNIVERSE_FILE" \
+            --ticker-limit "$TICKER_LIMIT" \
+            "${DATE_ARG[@]}" \
+            --snapshot-dir data_pit/events/earnings_estimates \
+            --signals-output data_pit/events/earnings_revision_signals.parquet \
+            --summary outputs/earnings_estimates_daily/summary.json \
+            --sleep-seconds 1.1 \
+            2>&1 | tee outputs/earnings_estimates_daily/collector.log
+
+      - name: Save earnings estimate archive cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data_pit/events/earnings_estimates
+            data_pit/events/earnings_revision_signals.parquet
+          key: earnings-estimates-daily-${{ runner.os }}-${{ github.run_id }}
+
+      - name: Upload earnings estimate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: earnings-estimates-daily-${{ github.run_id }}
+          path: |
+            data_pit/events/earnings_estimates/
+            data_pit/events/earnings_revision_signals.parquet
+            outputs/earnings_estimates_daily/
+          retention-days: 30
+
+      - name: Sync earnings estimate archive to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if [ -d data_pit/events/earnings_estimates ]; then
+            timeout 8m rclone copy data_pit/events/earnings_estimates "$BASE""data_pit/events/earnings_estimates/" \
+              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          fi
+          if [ -s data_pit/events/earnings_revision_signals.parquet ]; then
+            timeout 3m rclone copyto data_pit/events/earnings_revision_signals.parquet \
+              "$BASE""data_pit/events/earnings_revision_signals.parquet" || true
+          fi
+          if [ -d outputs/earnings_estimates_daily ]; then
+            timeout 3m rclone copy outputs/earnings_estimates_daily "$BASE""outputs/earnings_estimates_daily/" \
+              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          fi
