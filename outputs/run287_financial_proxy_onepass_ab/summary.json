@@ -1,0 +1,76 @@
+{
+  "accounting_modes_tested": [
+    "broker_ledger_next_close_cash_carry",
+    "broker_ledger_next_close"
+  ],
+  "arm_metrics_path": "outputs\\run287_financial_proxy_onepass_ab\\arm_metrics.csv",
+  "candidate_allowed": false,
+  "decision_label": "financial_proxy_onepass_rejected",
+  "fullrun_dispatched": false,
+  "generated_at_utc": "2026-07-08T13:10:25Z",
+  "interpretation": "Screen-positive financial proxy signals did not transfer to fixed-book broker-ledger A/B under a single predeclared 5% tilt.",
+  "live_trading_enabled": false,
+  "new_alpha_hook_added": false,
+  "next_action_allowed": "do_not_design_hook_from_these_financial_proxy_ab_results",
+  "official_baseline_end_date": "2026-07-02",
+  "pit_universe_label_clean": false,
+  "portfolio_kind": "concentrated",
+  "positive_arm_count": 0,
+  "positive_arms": [],
+  "production_activation_allowed": false,
+  "production_promotion_allowed": false,
+  "replay_end_date": "2026-07-02",
+  "report_path": "outputs\\run287_financial_proxy_onepass_ab\\report.md",
+  "research_only": true,
+  "schema_version": "run287-financial-proxy-onepass-ab-v1",
+  "score_quantile": 0.8,
+  "signals_tested": [
+    "profitability_inflection_score",
+    "actual_results_score"
+  ],
+  "source_summaries": [
+    {
+      "accounting_mode": "cash_carry",
+      "candidate_allowed": false,
+      "cash_carry_mode": "risk_free_rate",
+      "decision_label": "no_positive_broker_ab_candidate",
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "path": "outputs\\run287_profitability_onepass_ab_cash_carry\\concentrated\\summary.json",
+      "signal": "profitability_inflection_score"
+    },
+    {
+      "accounting_mode": "zero_yield",
+      "candidate_allowed": false,
+      "cash_carry_mode": "none",
+      "decision_label": "no_positive_broker_ab_candidate",
+      "metric_mode": "broker_ledger_next_close",
+      "path": "outputs\\run287_profitability_onepass_ab_zero_yield\\concentrated\\summary.json",
+      "signal": "profitability_inflection_score"
+    },
+    {
+      "accounting_mode": "cash_carry",
+      "candidate_allowed": false,
+      "cash_carry_mode": "risk_free_rate",
+      "decision_label": "no_positive_broker_ab_candidate",
+      "metric_mode": "broker_ledger_next_close_cash_carry",
+      "path": "outputs\\run287_actual_results_onepass_ab_cash_carry\\concentrated\\summary.json",
+      "signal": "actual_results_score"
+    },
+    {
+      "accounting_mode": "zero_yield",
+      "candidate_allowed": false,
+      "cash_carry_mode": "none",
+      "decision_label": "no_positive_broker_ab_candidate",
+      "metric_mode": "broker_ledger_next_close",
+      "path": "outputs\\run287_actual_results_onepass_ab_zero_yield\\concentrated\\summary.json",
+      "signal": "actual_results_score"
+    }
+  ],
+  "status": "completed",
+  "target_book_source": "run287 official concentrated target book",
+  "threshold_tuning_performed": false,
+  "tilt_strengths": [
+    0.05
+  ],
+  "used_forward_return_in_ranking": false
+}

@@ -85,6 +85,7 @@ def test_profitability_broker_ab_research_only_and_preserves_cash() -> None:
             args.portfolio_kind = "concentrated"
             args.price_cache = str(root / "cache_prices")
             args.signal = "profitability_inflection_score"
+            args.tilt_strengths = "0.05,0.10"
             args.output_dir = str(root / "out")
             args.cost_bps = 25.0
             args.max_fill_lag_days = 7
@@ -115,8 +116,22 @@ def test_profitability_broker_ab_research_only_and_preserves_cash() -> None:
         mod.run_broker_replay = original_replay
 
 
+def test_tilt_strength_parser_allows_one_pass_and_blocks_invalid() -> None:
+    assert mod.parse_tilt_strengths("0.05") == [0.05]
+    assert mod.parse_tilt_strengths("0.05, 0.05, 0.10") == [0.05, 0.10]
+    arms = mod.build_arms("profitability_inflection_score", tilt_strengths=[0.05])
+    assert [arm["arm"] for arm in arms] == ["baseline", "profitability_top_quintile_tilt05"]
+    try:
+        mod.parse_tilt_strengths("0")
+    except ValueError as exc:
+        assert "invalid tilt strength" in str(exc)
+    else:
+        raise AssertionError("zero tilt strength should be rejected")
+
+
 def main() -> int:
     test_profitability_broker_ab_research_only_and_preserves_cash()
+    test_tilt_strength_parser_allows_one_pass_and_blocks_invalid()
     print("run287_profitability_broker_ab_smoke: PASS")
     return 0
 
