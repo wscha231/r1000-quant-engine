@@ -1,113 +1,75 @@
 # GitHub Secrets Setup Guide
 
-GitHub Actions workflows need 5 secrets. Register them ONCE via the GitHub web UI.
+GitHub Actions workflows use repository secrets for market data, brokerage
+paper-account access, notifications, and Google Drive sync. Do not put secret
+values in this file, PR bodies, issue comments, artifacts, or handoff notes.
 
-## Steps
+## Setup
 
-1. Go to your GitHub repo page: `https://github.com/<your-username>/<repo-name>`
-2. Click **Settings** (top right of repo header)
-3. Left sidebar: **Secrets and variables** → **Actions**
-4. Click **New repository secret** for each entry below
-5. Paste the value, click **Add secret**
+1. Open the repository on GitHub.
+2. Go to **Settings** -> **Secrets and variables** -> **Actions**.
+3. Add each secret by exact name.
+4. Paste the value only into GitHub's encrypted secret field.
+5. Never commit `.env`, copied keys, screenshots of keys, or vendor messages
+   that echo a key.
 
-## Required Secrets
+## Current Secret Names
 
-Copy each NAME exactly (case-sensitive). Values from `aggressive/.env`:
+| Name | Purpose | Notes |
+|------|---------|-------|
+| `ALPACA_API_KEY` | Alpaca paper-account key | Paper only unless an explicit live gate says otherwise. |
+| `ALPACA_API_SECRET` | Alpaca paper-account secret | Paper only unless an explicit live gate says otherwise. |
+| `FINNHUB_API_KEY` | Finnhub market/earnings endpoints | Current key is not entitled for Finnhub estimate endpoints. |
+| `ALPHAVANTAGE_API_KEY` | Alpha Vantage earnings-estimate fallback | Free tier is rate-limited; forward-only archive use. |
+| `FMP_API_KEY` | Financial Modeling Prep estimate fallback | Free endpoint currently returns usable rows for some tickers. |
+| `FRED_API_KEY` | Macro data | Optional unless a workflow explicitly requires it. |
+| `TELEGRAM_BOT_TOKEN` | Notifications | Optional for local research-only work. |
+| `TELEGRAM_CHAT_ID` | Notifications | Optional for local research-only work. |
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | Google Drive sync | Use only in workflows that sync artifacts. |
+| `RCLONE_CONFIG_GDRIVE` | Google Drive sync | Alternative to service-account JSON. |
+| `GDRIVE_ROOT_FOLDER_ID` | Google Drive root | May be a secret or repository variable. |
 
-| Name | Value | Source |
-|------|-------|--------|
-| `ALPACA_API_KEY` | `PKN6G6BTQVTGFNDB4MNO3UOKDV` | Alpaca Paper dashboard |
-| `ALPACA_API_SECRET` | `CHvYPYy5GzGMJtgYD7SsLrjfCiaJWf4ohr5bom49iaWp` | Alpaca Paper dashboard |
-| `FINNHUB_API_KEY` | `d2s60dhr01qiq7a2q0h0d2s60dhr01qiq7a2q0hg` | Finnhub (Free tier) |
-| `TELEGRAM_BOT_TOKEN` | `8645815408:AAFiFze421PxrcAgwdvPJapn7dvniyJ_C2k` | @BotFather on Telegram |
-| `TELEGRAM_CHAT_ID` | `506878539` | Your Telegram chat ID |
+## Agent Access Contract
 
-After adding all 5, the **Actions** tab will show workflows as runnable.
+Agents must use these secrets through one of two paths:
 
-## Optional Secrets (not required for cloud workflows)
+- GitHub Actions environment variables, for example
+  `${{ secrets.FMP_API_KEY }}` inside a workflow.
+- Local environment variables on the user's machine, provided outside the repo.
 
-| Name | Value | Purpose |
-|------|-------|---------|
-| `FRED_API_KEY` | `dac25101c8dc447c12fa29c8bff99ba3` | Federal Reserve macro data (M2, yields, etc). Used by 정석 engine locally only; cloud workflows don't need it. Add if you plan to also run 정석 pipeline via GHA in the future. |
+Agents must not ask another agent to paste a key into chat or commit a key into
+the repository. If an API response echoes a key, redact it before writing logs,
+summaries, artifacts, or review packets.
 
-Free to register: https://fred.stlouisfed.org/docs/api/api_key.html
+## Verification
 
-## Workflows Installed
+Use `gh secret list --repo wscha231/r1000-quant-engine` to confirm names only.
+This command must never print values.
 
-| Workflow | Schedule (UTC / KST) | Duration | Purpose |
-|----------|----------------------|----------|---------|
-| `daily_review.yml` | 14:00 UTC Mon-Fri / 23:00 KST | ~15-30 min | R1000 scan + Finnhub gates + advisor + Telegram |
-| `finnhub_weekly.yml` | 13:30 UTC Mon / 22:30 KST | ~65-90 min | Full Finnhub metric/insider/earnings refresh |
-| `theme_discovery.yml` | 13:00 UTC Sun / 22:00 KST | ~15-30 min | Phase 18A unsupervised theme discovery |
-
-All 3 can be manually triggered via **Actions** tab → select workflow → **Run workflow**.
-
-## Free Tier Budget
-
-- GitHub Actions free tier: **2000 minutes/month** (private repos) or **unlimited** (public)
-- Our monthly usage estimate:
-  - daily_review: 22 days × 25 min = 550 min/month
-  - finnhub_weekly: 4 runs × 75 min = 300 min/month
-  - theme_discovery: 4 runs × 25 min = 100 min/month
-  - **Total: ~950 min/month** (well under 2000 limit)
-
-## Verifying a Workflow Run
-
-1. Go to **Actions** tab
-2. Click workflow name (e.g. "Daily Review (Scanner + Advisor)")
-3. Click the most recent run
-4. Expand step logs to see output
-5. Check **Artifacts** section (bottom) for result JSON
-6. Check Telegram for digest alert
-
-## Result Persistence
-
-- **Summary JSONs** get auto-committed to `cloud_results/` directory
-  - `cloud_results/daily_review/20260424.json`
-  - `cloud_results/scanner/20260424.json`
-  - `cloud_results/theme_discovery/20260424.json`
-- **Large artifacts** (parquet files) go to workflow artifacts (14-30 day retention)
-- **Consolidated Finnhub parquet** gets committed to `aggressive/state/finnhub/`
-
-Read `cloud_results/*/latest.json` from any device — phone, laptop, another PC.
-
-## Troubleshooting
-
-### Workflow fails with "credentials not set"
-→ Verify each secret is spelled EXACTLY as the table above.
-
-### Workflow timeout
-→ Free tier max job time: 6 hours. Shouldn't hit for our workloads.
-
-### "Permission denied" on git push
-→ Already configured via `permissions: contents: write` in workflow YAML.
-   If still failing, check repo Settings → Actions → General → Workflow permissions:
-   set to "Read and write permissions".
-
-### Rate limited by Finnhub
-→ Free tier: 60 calls/min. Our collector respects this via RateLimiter class.
-   If still hits, the collection simply takes longer (auto-retries).
-
-### Alpaca data fetch fails
-→ Free tier works fine for daily bars. If paper account gets suspended, re-check
-   your credentials (keys may rotate).
-
-## Deleting Test Runs
-
-Workflow runs (including artifacts) can be deleted manually from the **Actions** tab
-if the repo fills up. Consider gitignoring `cloud_results/` if you don't want the
-history in git. Otherwise let it accumulate — tiny files, worth the audit trail.
-
-## One-Time Push Instructions
-
-After committing these workflow files:
+For the forward estimates feed, a safe smoke is:
 
 ```bash
-cd H:\codex\tmp_r1000_quant_engine
-git push origin master
+gh workflow run earnings_estimates_daily.yml \
+  --repo wscha231/r1000-quant-engine \
+  --ref master \
+  -f tickers='AAPL' \
+  -f ticker_limit=1
 ```
 
-Then go to https://github.com/<your-repo>/actions to verify they appear.
+Expected behavior:
 
-First automatic run happens at the next scheduled time. Manual test run via
-web UI is recommended to verify setup.
+- workflow conclusion: `success`
+- `backtest_acceptance_allowed=false`
+- `production_activation_allowed=false`
+- `live_trading_enabled=false`
+- no raw API key appears in logs or artifacts
+
+## Incident Handling
+
+If a key appears in a log, artifact, document, PR, or chat:
+
+1. Delete the affected artifact/run when possible.
+2. Patch redaction before rerunning.
+3. Add an entry to `docs/AGENT_SHARED_LESSONS_LEDGER.md`.
+4. Rotate the key if it may have been exposed outside GitHub's encrypted secret
+   store.
