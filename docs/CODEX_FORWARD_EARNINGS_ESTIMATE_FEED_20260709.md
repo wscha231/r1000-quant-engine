@@ -20,7 +20,9 @@ Implemented:
 - `PHASE18_ESTIMATE_REVISION_COLUMNS`
 - `PHASE_ESTIMATE_REVISION_CONFIRM_ENABLED=false` by default
 - encrypted GitHub secrets for `ALPHAVANTAGE_API_KEY` and `FMP_API_KEY`
-- free-vendor fallback order: Alpha Vantage -> FMP -> Finnhub
+- default free-vendor fallback order: FMP -> Finnhub
+- Alpha Vantage is available by explicit `vendor_order` only after key rotation
+  is confirmed
 - fixture-based collector and feature smokes
 - backtest-neutrality static smoke
 - latest-confirmation default-OFF smoke
@@ -107,8 +109,10 @@ registration path, but Finnhub returned HTTP 403 for `/stock/eps-estimate` and
 valid enough to call Finnhub but is not entitled for the true forward-estimate
 endpoint.
 
-Alpha Vantage and FMP keys are stored as GitHub encrypted repository secrets and
-the collector now tries them before Finnhub. This is still a forward-only
+Alpha Vantage and FMP keys are stored as GitHub encrypted repository secrets.
+After the Alpha Vantage key-exposure incident, the default collector order was
+changed to `fmp,finnhub` so Alpha Vantage is paused until rotation is confirmed.
+This is still a forward-only
 archive; current vendor snapshots are never retrofitted into historical
 backtests.
 

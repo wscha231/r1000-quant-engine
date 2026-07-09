@@ -22,6 +22,8 @@ Known status:
 
 - FMP returned usable forward estimate rows in the final safe smoke.
 - Alpha Vantage is available but free-tier/rate-limit behavior must be expected.
+- Alpha Vantage is paused in the default estimate workflow until the exposed-key
+  rotation checklist is completed.
 - Finnhub's current repo key is not entitled for estimate endpoints.
 - A candidate Finnhub replacement key failed authorization with HTTP 401 and was
   not left installed.
@@ -80,6 +82,9 @@ Expected contract:
 - `backtest_acceptance_allowed=false`
 - `production_activation_allowed=false`
 - `live_trading_enabled=false`
+
+Default vendor order is `fmp,finnhub`. Alpha Vantage should be used only for the
+bounded post-rotation smoke or later explicitly approved listing-lifecycle work.
 
 Archive outputs are persisted through workflow artifacts/cache and optional
 GDrive sync. Do not commit a growing data lake to the repository.

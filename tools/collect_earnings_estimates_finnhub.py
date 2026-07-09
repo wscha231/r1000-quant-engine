@@ -30,6 +30,7 @@ SCHEMA_VERSION = "forward-earnings-estimates-v1"
 DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
 DEFAULT_SUMMARY = "outputs/earnings_estimates_daily/summary.json"
+DEFAULT_VENDOR_ORDER = "fmp,finnhub"
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 ALPHAVANTAGE_BASE = "https://www.alphavantage.co/query"
 FMP_BASE = "https://financialmodelingprep.com"
@@ -78,7 +79,7 @@ def sanitize_error_message(value: Any) -> str:
 
 
 def clean_vendor_order(value: str | None) -> list[str]:
-    raw = value or "alphavantage,fmp,finnhub"
+    raw = value or DEFAULT_VENDOR_ORDER
     out = []
     for item in raw.split(","):
         vendor = item.strip().lower().replace("_", "")
@@ -88,7 +89,7 @@ def clean_vendor_order(value: str | None) -> list[str]:
             vendor = "fmp"
         if vendor in {"finnhub", "alphavantage", "fmp"} and vendor not in out:
             out.append(vendor)
-    return out or ["alphavantage", "fmp", "finnhub"]
+    return out or clean_vendor_order(DEFAULT_VENDOR_ORDER)
 
 
 def first_present(row: dict[str, Any], names: list[str], default: Any = None) -> Any:
@@ -792,7 +793,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-key", default=os.environ.get("FINNHUB_API_KEY", ""))
     parser.add_argument("--alphavantage-api-key", default=os.environ.get("ALPHAVANTAGE_API_KEY", ""))
     parser.add_argument("--fmp-api-key", default=os.environ.get("FMP_API_KEY", ""))
-    parser.add_argument("--vendor-order", default=os.environ.get("ESTIMATE_VENDOR_ORDER", "alphavantage,fmp,finnhub"))
+    parser.add_argument("--vendor-order", default=os.environ.get("ESTIMATE_VENDOR_ORDER", DEFAULT_VENDOR_ORDER))
     parser.add_argument("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR)
     parser.add_argument("--signals-output", default=DEFAULT_SIGNALS)
     parser.add_argument("--summary", default=DEFAULT_SUMMARY)
