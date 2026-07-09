@@ -376,6 +376,8 @@ Expected contract:
     `.github/workflows/earnings_estimates_daily.yml`.
   - Added an archive manifest/index writer so every future estimate archive run
     records file hashes, run metadata, coverage, and storage pointers.
+  - Added scheduled shard rotation so the daily archive keeps a core watchlist
+    fresh while walking the broad 858-ticker universe over time.
 - Result:
   - Broad scans can now be staged from tracked candidate sources such as
     `research/entry_classifier_predictions.csv` rather than only the latest
@@ -395,6 +397,8 @@ Expected contract:
   - Missing vendor coverage is neutral, not a sell/reject signal.
   - Persist snapshot hashes and run ids outside chat so future agents can
     reproduce which data was used.
+  - Rotate broad universe shards gradually; do not dispatch all shards at once
+    on free APIs.
 - Next action:
   - Treat the current free-vendor estimate feed as coverage-blocked for broad
     alpha use unless later shards or a higher-entitlement vendor materially
@@ -410,6 +414,7 @@ Expected contract:
   - `tools/build_earnings_estimate_archive_manifest.py`
   - `tests/forward_estimate_universe_plan_smoke.py`
   - `tests/earnings_estimate_archive_manifest_smoke.py`
+  - `tests/earnings_estimate_workflow_rotation_smoke.py`
   - `docs/CODEX_FORWARD_ESTIMATE_UNIVERSE_SCAN_20260709.md`
 
 ### 2026-07-06 - run287 baseline and measurement discipline

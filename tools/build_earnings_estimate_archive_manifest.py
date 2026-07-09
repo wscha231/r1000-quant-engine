@@ -133,6 +133,8 @@ def build_manifest(
     ref: str,
     workflow: str,
     artifact_name: str,
+    shard_id: str = "",
+    shard_file: str = "",
 ) -> dict[str, Any]:
     snapshot_dir_path = repo_path(snapshot_dir)
     signals_path = repo_path(signals)
@@ -165,6 +167,8 @@ def build_manifest(
         "ref": ref,
         "workflow": workflow,
         "artifact_name": artifact_name,
+        "shard_id": shard_id,
+        "shard_file": shard_file,
         "fetch_date": fetch_date,
         "collector_status": summary_payload.get("status", "missing_summary"),
         "collector_reason": summary_payload.get("reason", ""),
@@ -208,6 +212,8 @@ def build_manifest(
         "ref": ref,
         "workflow": workflow,
         "artifact_name": artifact_name,
+        "shard_id": shard_id,
+        "shard_file": shard_file,
         "fetch_date": fetch_date,
         "collector_status": payload["collector_status"],
         "ticker_count_requested": payload["ticker_count_requested"],
@@ -239,6 +245,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ref", default="")
     parser.add_argument("--workflow", default="earnings_estimates_daily.yml")
     parser.add_argument("--artifact-name", default="")
+    parser.add_argument("--shard-id", default="")
+    parser.add_argument("--shard-file", default="")
     return parser.parse_args()
 
 
@@ -257,6 +265,8 @@ def main() -> int:
         ref=args.ref,
         workflow=args.workflow,
         artifact_name=args.artifact_name,
+        shard_id=args.shard_id,
+        shard_file=args.shard_file,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 1 if payload["text_secret_scan"]["unmasked_secret_pattern_found"] else 0

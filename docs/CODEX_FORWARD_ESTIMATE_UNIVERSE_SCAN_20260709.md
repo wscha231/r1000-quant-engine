@@ -34,6 +34,16 @@ artifact name, file sizes, and SHA-256 hashes for the snapshot/signals/log
 files. The index is restored from cache/GDrive and appended every run so future
 agents can locate and verify old snapshots without relying on chat history.
 
+The scheduled archive rotates through the checked-in broad-universe shard plan.
+Each scheduled run collects:
+
+- the fixed core watchlist, so current high-priority names stay fresh
+- one `outputs/forward_estimate_universe_plan_20260709/shards/shard_*.csv`
+  file, selected by UTC day modulo shard count
+
+This avoids trying to pull all 858 tickers in one run while still building
+coverage across the full candidate universe over time.
+
 Default source:
 
 - `research/entry_classifier_predictions.csv`

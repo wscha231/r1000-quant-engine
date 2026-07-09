@@ -11,6 +11,14 @@ on:
         description: 'Optional CSV with ticker column. Manual use only for broader archives.'
         type: string
         default: ''
+      universe_shard_file:
+        description: 'Optional shard CSV from outputs/forward_estimate_universe_plan_20260709/shards. Overrides universe_file when supplied.'
+        type: string
+        default: ''
+      auto_universe_shard:
+        description: 'Rotate one broad-universe shard from the checked-in plan. Always enabled on schedule.'
+        type: boolean
+        default: false
       ticker_limit:
         description: 'Optional cap after combining tickers/universe file. 0 means no cap.'
         type: string
@@ -122,15 +130,78 @@ jobs:
               data_pit/events/earnings_revision_signals.parquet || true
           fi
 
+      - name: Resolve ticker set and universe shard
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TICKERS: ${{ github.event.inputs.tickers || '' }}
+          INPUT_UNIVERSE_FILE: ${{ github.event.inputs.universe_file || '' }}
+          INPUT_UNIVERSE_SHARD_FILE: ${{ github.event.inputs.universe_shard_file || '' }}
+          INPUT_TICKER_LIMIT: ${{ github.event.inputs.ticker_limit || '0' }}
+          INPUT_AUTO_UNIVERSE_SHARD: ${{ github.event.inputs.auto_universe_shard || 'false' }}
+          DEFAULT_TICKERS: AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,ASML,TSM,ARM,SMH,SOXX
+          SHARD_DIR: outputs/forward_estimate_universe_plan_20260709/shards
+        run: |
+          set -euo pipefail
+          TICKERS="${INPUT_TICKERS:-}"
+          UNIVERSE_FILE="${INPUT_UNIVERSE_FILE:-}"
+          TICKER_LIMIT="${INPUT_TICKER_LIMIT:-0}"
+          SHARD_ID=""
+          SHARD_FILE=""
+
+          if [ -n "${INPUT_UNIVERSE_SHARD_FILE:-}" ]; then
+            UNIVERSE_FILE="${INPUT_UNIVERSE_SHARD_FILE}"
+            SHARD_FILE="${INPUT_UNIVERSE_SHARD_FILE}"
+            SHARD_ID="$(basename "${INPUT_UNIVERSE_SHARD_FILE}" .csv)"
+          fi
+
+          if [ "${EVENT_NAME}" = "schedule" ] || [ "${INPUT_AUTO_UNIVERSE_SHARD}" = "true" ]; then
+            if [ ! -d "${SHARD_DIR}" ]; then
+              echo "::error::missing shard dir ${SHARD_DIR}"
+              exit 2
+            fi
+            SHARD_COUNT="$(find "${SHARD_DIR}" -maxdepth 1 -name 'shard_*.csv' | wc -l | tr -d ' ')"
+            if [ "${SHARD_COUNT}" = "0" ]; then
+              echo "::error::no shard csv files under ${SHARD_DIR}"
+              exit 2
+            fi
+            DAY_INDEX="$(( $(date -u +%s) / 86400 ))"
+            SHARD_INDEX="$(( DAY_INDEX % SHARD_COUNT ))"
+            SHARD_ID="$(printf 'shard_%03d' "${SHARD_INDEX}")"
+            SHARD_FILE="${SHARD_DIR}/${SHARD_ID}.csv"
+            if [ ! -s "${SHARD_FILE}" ]; then
+              echo "::error::resolved shard is empty or missing: ${SHARD_FILE}"
+              exit 2
+            fi
+            UNIVERSE_FILE="${SHARD_FILE}"
+            TICKER_LIMIT="0"
+          fi
+
+          if [ -z "${TICKERS}" ]; then
+            TICKERS="${DEFAULT_TICKERS}"
+          fi
+          if [ "${EVENT_NAME}" = "schedule" ] && [ -z "${SHARD_ID}" ]; then
+            echo "::error::scheduled archive must resolve a broad-universe shard"
+            exit 2
+          fi
+
+          {
+            echo "RESOLVED_TICKERS=${TICKERS}"
+            echo "RESOLVED_UNIVERSE_FILE=${UNIVERSE_FILE}"
+            echo "RESOLVED_TICKER_LIMIT=${TICKER_LIMIT}"
+            echo "RESOLVED_SHARD_ID=${SHARD_ID}"
+            echo "RESOLVED_SHARD_FILE=${SHARD_FILE}"
+          } >> "$GITHUB_ENV"
+          echo "[archive] tickers=${TICKERS}"
+          echo "[archive] universe_file=${UNIVERSE_FILE:-<none>}"
+          echo "[archive] ticker_limit=${TICKER_LIMIT}"
+          echo "[archive] shard_id=${SHARD_ID:-<manual_or_watchlist_only>}"
+
       - name: Collect forward-only estimate archive
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           ESTIMATE_VENDOR_ORDER: ${{ github.event.inputs.vendor_order || 'fmp,finnhub' }}
-          TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,ASML,TSM,ARM,SMH,SOXX' }}
-          UNIVERSE_FILE: ${{ github.event.inputs.universe_file || '' }}
-          TICKER_LIMIT: ${{ github.event.inputs.ticker_limit || '0' }}
           FETCH_DATE: ${{ github.event.inputs.fetch_date || '' }}
         run: |
           set -euo pipefail
@@ -140,9 +211,9 @@ jobs:
             DATE_ARG=(--fetch-date "$FETCH_DATE")
           fi
           python tools/collect_earnings_estimates_finnhub.py \
-            --tickers "$TICKERS" \
-            --universe-file "$UNIVERSE_FILE" \
-            --ticker-limit "$TICKER_LIMIT" \
+            --tickers "${RESOLVED_TICKERS}" \
+            --universe-file "${RESOLVED_UNIVERSE_FILE}" \
+            --ticker-limit "${RESOLVED_TICKER_LIMIT}" \
             "${DATE_ARG[@]}" \
             --snapshot-dir data_pit/events/earnings_estimates \
             --signals-output data_pit/events/earnings_revision_signals.parquet \
@@ -168,7 +239,9 @@ jobs:
             --head-sha "${GITHUB_SHA}" \
             --ref "${GITHUB_REF_NAME}" \
             --workflow "${GITHUB_WORKFLOW}" \
-            --artifact-name "earnings-estimates-daily-${GITHUB_RUN_ID}"
+            --artifact-name "earnings-estimates-daily-${GITHUB_RUN_ID}" \
+            --shard-id "${RESOLVED_SHARD_ID:-}" \
+            --shard-file "${RESOLVED_SHARD_FILE:-}"
 
       - name: Save earnings estimate archive cache
         if: always()
