@@ -82,6 +82,11 @@ def test_vendor_entitlement_errors_are_redacted_and_blocking() -> None:
     av_clean = sanitize_error_message("https://www.alphavantage.co/query?function=EARNINGS_ESTIMATES&symbol=AAPL&apikey=alpha-secret")
     assert "alpha-secret" not in av_clean
     assert "apikey=***" in av_clean
+    av_body_clean = sanitize_error_message(
+        "We have detected your API key as ABC123XYZ and our standard API rate limit is 25 requests per day."
+    )
+    assert "ABC123XYZ" not in av_body_clean
+    assert "API key as ***" in av_body_clean
     errors = [
         {
             "ticker": "AAPL",

@@ -72,6 +72,8 @@ def sanitize_error_message(value: Any) -> str:
     text = str(value)
     text = re.sub(r"([?&]token=)[^&\s]+", r"\1***", text)
     text = re.sub(r"([?&]apikey=)[^&\s]+", r"\1***", text)
+    text = re.sub(r"(?i)(api key as\s+)[A-Za-z0-9._-]+", r"\1***", text)
+    text = re.sub(r"(?i)(api key[:=]\s*)[A-Za-z0-9._-]+", r"\1***", text)
     return text[:240]
 
 
