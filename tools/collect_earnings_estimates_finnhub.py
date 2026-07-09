@@ -10,6 +10,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -30,6 +31,7 @@ DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
 DEFAULT_SUMMARY = "outputs/earnings_estimates_daily/summary.json"
 FINNHUB_BASE = "https://finnhub.io/api/v1"
+ESTIMATE_ENDPOINTS = {"/stock/eps-estimate", "/stock/revenue-estimate"}
 
 
 def utc_now() -> str:
@@ -57,6 +59,16 @@ def pct_change(current: float, previous: float) -> float:
 
 def finite_or_zero(value: float) -> float:
     return float(value) if pd.notna(value) else 0.0
+
+
+def sanitize_error_message(value: Any) -> str:
+    """Remove API tokens from persisted error strings.
+
+    GitHub masks secrets in logs, but artifacts and Google Drive syncs preserve
+    file contents. Never write vendor keys into summary JSON or collector logs.
+    """
+    text = str(value)
+    return re.sub(r"([?&]token=)[^&\s]+", r"\1***", text)[:240]
 
 
 def parse_tickers(values: str | None, universe_file: str | None = None, limit: int = 0) -> list[str]:
@@ -138,6 +150,8 @@ def parse_snapshot_row(
     revenue_payload: Any,
     earnings_payload: Any,
     recommendation_payload: Any,
+    eps_estimate_access: bool = True,
+    revenue_estimate_access: bool = True,
 ) -> dict[str, Any]:
     eps1, eps2 = first_two_estimates(eps_payload)
     rev1 = latest_estimate_record(revenue_payload)
@@ -159,6 +173,10 @@ def parse_snapshot_row(
         "as_of_date": fetch_date.date().isoformat(),
         "available_from": fetch_date.date().isoformat(),
         "fetch_source": "finnhub",
+        "eps_estimate_access": bool(eps_estimate_access),
+        "revenue_estimate_access": bool(revenue_estimate_access),
+        "vendor_estimate_access": bool(eps_estimate_access and revenue_estimate_access),
+        "has_forward_estimate": int(bool(eps1 or rev1)),
         "est_eps_fy1": finite_or_zero(eps_avg),
         "est_eps_fy2": finite_or_zero(safe_float(eps2.get("avg"), float("nan"))),
         "est_rev_fy1": finite_or_zero(safe_float(rev1.get("avg"), float("nan"))),
@@ -357,6 +375,46 @@ def fetch_json(session: requests.Session, endpoint: str, ticker: str, api_key: s
     return response.json()
 
 
+def fetch_json_optional(
+    session: requests.Session,
+    endpoint: str,
+    ticker: str,
+    api_key: str,
+    *,
+    sleep_seconds: float,
+    errors: list[dict[str, Any]],
+) -> Any | None:
+    try:
+        return fetch_json(session, endpoint, ticker, api_key, sleep_seconds=sleep_seconds)
+    except requests.HTTPError as exc:
+        status_code = int(exc.response.status_code) if exc.response is not None else 0
+        errors.append(
+            {
+                "ticker": ticker,
+                "endpoint": endpoint,
+                "status_code": status_code,
+                "vendor_entitlement_blocked": bool(status_code in {401, 403} and endpoint in ESTIMATE_ENDPOINTS),
+                "error": sanitize_error_message(exc),
+            }
+        )
+        return None
+    except Exception as exc:
+        errors.append(
+            {
+                "ticker": ticker,
+                "endpoint": endpoint,
+                "status_code": 0,
+                "vendor_entitlement_blocked": False,
+                "error": sanitize_error_message(exc),
+            }
+        )
+        return None
+
+
+def vendor_estimate_access_from_errors(errors: list[dict[str, Any]]) -> bool:
+    return not any(bool(e.get("vendor_entitlement_blocked")) for e in errors)
+
+
 def collect_live_snapshot(
     tickers: list[str],
     *,
@@ -369,25 +427,33 @@ def collect_live_snapshot(
     errors: list[dict[str, Any]] = []
     session = requests.Session()
     for ticker in tickers:
-        try:
-            eps = fetch_json(session, "/stock/eps-estimate", ticker, api_key, sleep_seconds=sleep_seconds)
-            rev = fetch_json(session, "/stock/revenue-estimate", ticker, api_key, sleep_seconds=sleep_seconds)
-            earnings = fetch_json(session, "/stock/earnings", ticker, api_key, sleep_seconds=sleep_seconds)
-            rec = fetch_json(session, "/stock/recommendation", ticker, api_key, sleep_seconds=sleep_seconds)
+        eps = fetch_json_optional(
+            session, "/stock/eps-estimate", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
+        )
+        rev = fetch_json_optional(
+            session, "/stock/revenue-estimate", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
+        )
+        earnings = fetch_json_optional(
+            session, "/stock/earnings", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
+        )
+        rec = fetch_json_optional(
+            session, "/stock/recommendation", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
+        )
+        if any(payload is not None for payload in [eps, rev, earnings, rec]):
             rows.append(
                 parse_snapshot_row(
                     ticker,
                     fetch_date=fetch_date,
-                    eps_payload=eps,
-                    revenue_payload=rev,
-                    earnings_payload=earnings,
-                    recommendation_payload=rec,
+                    eps_payload=eps or {},
+                    revenue_payload=rev or {},
+                    earnings_payload=earnings or [],
+                    recommendation_payload=rec or [],
+                    eps_estimate_access=eps is not None,
+                    revenue_estimate_access=rev is not None,
                 )
             )
-        except Exception as exc:
-            errors.append({"ticker": ticker, "error": str(exc)[:240]})
-            if max_errors and len(errors) >= max_errors:
-                break
+        if max_errors and len(errors) >= max_errors:
+            break
     return pd.DataFrame(rows), errors
 
 
@@ -471,21 +537,28 @@ def main() -> int:
             sleep_seconds=args.sleep_seconds,
             max_errors=args.max_errors,
         )
+    vendor_estimate_access = vendor_estimate_access_from_errors(errors)
     if snapshot.empty:
+        status = "blocked_vendor_entitlement" if not vendor_estimate_access else "blocked_partial_coverage"
+        reason = "finnhub_estimate_endpoint_forbidden" if not vendor_estimate_access else "no_snapshot_rows"
         payload = {
             "schema_version": SCHEMA_VERSION,
             "generated_at_utc": utc_now(),
-            "status": "blocked_partial_coverage",
-            "reason": "no_snapshot_rows",
+            "status": status,
+            "reason": reason,
             "ticker_count_requested": len(tickers),
             "error_count": len(errors),
             "errors": errors[:10],
+            "vendor_estimate_access": vendor_estimate_access,
+            "backtest_acceptance_allowed": False,
+            "production_activation_allowed": False,
+            "live_trading_enabled": False,
             "research_only": True,
             "forward_only": True,
         }
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
-        return 2
+        return 0 if not vendor_estimate_access else 2
     snapshot_path = snapshot_dir / f"estimates_{fetch_date.strftime('%Y%m%d')}.parquet"
     snapshot.to_parquet(snapshot_path, index=False)
     history = load_snapshot_history(snapshot_dir)
@@ -494,12 +567,23 @@ def main() -> int:
         signals_output.parent.mkdir(parents=True, exist_ok=True)
         signals.to_parquet(signals_output, index=False)
     coverage_ratio = len(snapshot) / max(1, len(tickers))
-    status = "completed" if coverage_ratio >= 0.8 else "blocked_partial_coverage"
+    status = (
+        "completed"
+        if coverage_ratio >= 0.8 and vendor_estimate_access
+        else "blocked_vendor_entitlement"
+        if not vendor_estimate_access
+        else "blocked_partial_coverage"
+    )
+    reason = ""
+    if status == "blocked_vendor_entitlement":
+        reason = "finnhub_estimate_endpoint_forbidden"
+    elif status == "blocked_partial_coverage":
+        reason = "coverage_below_80pct_warn_only"
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
         "status": status,
-        "reason": "" if status == "completed" else "coverage_below_80pct_warn_only",
+        "reason": reason,
         "research_only": True,
         "forward_only": True,
         "backtest_acceptance_allowed": False,
@@ -508,6 +592,8 @@ def main() -> int:
         "ticker_count_requested": len(tickers),
         "snapshot_rows": int(len(snapshot)),
         "coverage_ratio": coverage_ratio,
+        "vendor_estimate_access": vendor_estimate_access,
+        "has_forward_estimate_rows": int(snapshot["has_forward_estimate"].sum()) if "has_forward_estimate" in snapshot.columns else 0,
         "snapshot_path": str(snapshot_path),
         "signals_output": str(signals_output),
         "feature_summary": feature_summary,

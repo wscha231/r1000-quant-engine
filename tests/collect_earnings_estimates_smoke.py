@@ -12,7 +12,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.collect_earnings_estimates_finnhub import main, parse_snapshot_row  # noqa: E402
+from tools.collect_earnings_estimates_finnhub import (  # noqa: E402
+    main,
+    parse_snapshot_row,
+    sanitize_error_message,
+    vendor_estimate_access_from_errors,
+)
 
 
 def _write_fixture(root: Path, ticker: str = "AAA") -> None:
@@ -61,6 +66,36 @@ def test_parse_snapshot_stamps_fetch_date_not_fiscal_period() -> None:
     assert row["available_from"] != row["actual_report_date"]
     assert row["est_eps_fy1"] == 1.45
     assert row["est_eps_revision_breadth"] > 0
+    assert row["vendor_estimate_access"] is True
+
+
+def test_vendor_entitlement_errors_are_redacted_and_blocking() -> None:
+    raw = "403 Client Error: Forbidden for url: https://finnhub.io/api/v1/stock/eps-estimate?symbol=AAPL&token=secret-key"
+    clean = sanitize_error_message(raw)
+    assert "secret-key" not in clean
+    assert "token=***" in clean
+    errors = [
+        {
+            "ticker": "AAPL",
+            "endpoint": "/stock/eps-estimate",
+            "status_code": 403,
+            "vendor_entitlement_blocked": True,
+            "error": clean,
+        }
+    ]
+    assert vendor_estimate_access_from_errors(errors) is False
+    row = parse_snapshot_row(
+        "AAPL",
+        fetch_date=pd.Timestamp("2026-07-09"),
+        eps_payload={},
+        revenue_payload={},
+        earnings_payload=[],
+        recommendation_payload=[],
+        eps_estimate_access=False,
+        revenue_estimate_access=False,
+    )
+    assert row["vendor_estimate_access"] is False
+    assert row["has_forward_estimate"] == 0
 
 
 def test_cli_fixture_writes_snapshot_and_signals() -> None:
@@ -103,5 +138,6 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
 
 if __name__ == "__main__":
     test_parse_snapshot_stamps_fetch_date_not_fiscal_period()
+    test_vendor_entitlement_errors_are_redacted_and_blocking()
     test_cli_fixture_writes_snapshot_and_signals()
     print("collect_earnings_estimates_smoke: PASS")
