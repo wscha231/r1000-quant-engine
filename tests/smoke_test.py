@@ -248,10 +248,20 @@ def test_phase_columns_in_keep_cols() -> None:
     Phase A Stage 5 (2026-04-20): build_feature_store moved to r1000_pipeline.py.
     This test now greps combined sources for both the constants and the
     build_feature_store body.
+
+    Exception: forward-only/latest-only phase columns must not enter the
+    historical feature store. Those columns need their own neutrality smoke.
     """
+    latest_only_phase_columns = {
+        "PHASE18_ESTIMATE_REVISION_COLUMNS",
+    }
     combined = _combined_src()
     # Find all PHASE*_COLUMNS module-level constants (main OR config file)
-    constants = re.findall(r"^(PHASE\w+_COLUMNS)\s*=\s*\[", combined, re.MULTILINE)
+    constants = [
+        c
+        for c in re.findall(r"^(PHASE\w+_COLUMNS)\s*=\s*\[", combined, re.MULTILINE)
+        if c not in latest_only_phase_columns
+    ]
     assert constants, "no PHASE*_COLUMNS constants found -- regex or repo broken"
 
     # Extract build_feature_store body (up to the next top-level def)
