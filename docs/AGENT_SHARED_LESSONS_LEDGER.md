@@ -95,6 +95,10 @@ Expected contract:
 - Agent: Codex
 - Branch/PR/run:
   - branch `codex/earnings-estimate-universe-catchup-20260709`
+  - PR #256
+  - PR #257
+  - cancelled run `29026640545`
+  - successful run `29028159934`
 - Context:
   - User objected that the forward estimate archive collected only about 65
     names in the latest auto-shard run.
@@ -109,11 +113,16 @@ Expected contract:
     `shard_mode=all_shards_catchup`.
   - Catch-up raises the collector error cap to avoid stopping after the first
     100 expected free-vendor coverage/entitlement errors.
+  - Successful all-shards run requested 863 tickers and wrote 863 snapshot rows.
+  - Only 13 tickers had true forward-estimate rows, for 1.506% estimate
+    coverage.
 - Failure or caveat:
   - This can consume materially more free API quota and may still return low
     usable estimate coverage.
   - Missing vendor coverage remains neutral, not bearish.
   - Current snapshots remain forward-only and cannot revise 7Y CAGR/MDD.
+  - First-day archive rows do not yet provide 30/90-day revision deltas; they
+    are baseline snapshots for future forward scoring.
 - Root cause:
   - The previous daily schedule intentionally optimized safety over immediate
     broad coverage.
@@ -123,9 +132,12 @@ Expected contract:
     all-universe coverage.
   - Broad coverage paths need a larger explicit error cap than smoke-size
     archive paths.
+  - Free FMP/Finnhub coverage is not presently enough for a broad
+    estimate-revision alpha source.
 - Next action:
-  - Run one manual catch-up after merge, inspect coverage, then feed the archive
-    into forward paper-ledger tracking.
+  - Feed the 13 covered names into forward paper-ledger tracking.
+  - Treat broad estimate-revision alpha as data-blocked unless paid PIT
+    estimates or better entitlement is added.
 - Do-not-repeat:
   - Do not infer universe-wide estimate coverage from a single 50-name shard.
   - Do not treat broad catch-up as historical backtest evidence.
