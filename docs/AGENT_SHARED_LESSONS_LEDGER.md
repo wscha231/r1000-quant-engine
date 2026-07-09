@@ -366,8 +366,7 @@ Expected contract:
 - Agent: Codex
 - Branch/PR/run:
   - `codex/universe-forward-estimate-scan-20260709`
-  - first shard workflow run `29015925250` dispatched; no coverage verdict until
-    the collector artifact is inspected
+  - first shard workflow run `29015925250`
 - Context:
   - User correctly challenged the current-holdings-only estimate scan and asked
     whether every universe ticker should be analyzed before selection.
@@ -379,6 +378,9 @@ Expected contract:
   - Broad scans can now be staged from tracked candidate sources such as
     `research/entry_classifier_predictions.csv` rather than only the latest
     Concentrated names.
+  - Shard 0 workflow completed successfully, but collector status was
+    `blocked_partial_coverage`: only 2 of 50 requested tickers had true forward
+    estimates (`AAPL`, `ADBE`).
 - Failure or caveat:
   - Free API coverage can still be partial or blocked.
   - Current estimate snapshots remain forward-only and cannot restate run287 7Y
@@ -390,8 +392,11 @@ Expected contract:
   - Build broad-universe coverage first, then rank confirmed names.
   - Missing vendor coverage is neutral, not a sell/reject signal.
 - Next action:
-  - Dispatch shards gradually with default `vendor_order=fmp,finnhub`, inspect
-    coverage and redacted logs, then build a forward paper-ledger ranking.
+  - Treat the current free-vendor estimate feed as coverage-blocked for broad
+    alpha use unless later shards or a higher-entitlement vendor materially
+    improve coverage.
+  - Continue shard measurement only as a data-coverage audit; do not rank
+    missing-coverage tickers negatively.
 - Do-not-repeat:
   - Do not use a current snapshot archive as historical backtest evidence.
   - Do not add Alpha Vantage back into the default vendor order before key

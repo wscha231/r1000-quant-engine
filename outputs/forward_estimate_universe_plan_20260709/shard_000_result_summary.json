@@ -1,0 +1,37 @@
+{
+  "schema_version": "forward-estimate-shard-result-v1",
+  "run_id": 29015925250,
+  "run_conclusion": "success",
+  "workflow": "earnings_estimates_daily.yml",
+  "vendor_order": [
+    "fmp",
+    "finnhub"
+  ],
+  "collector_status": "blocked_partial_coverage",
+  "collector_reason": "coverage_below_80pct_warn_only",
+  "ticker_count_requested": 50,
+  "snapshot_rows": 36,
+  "has_forward_estimate_rows": 2,
+  "estimate_coverage_ratio": 0.04,
+  "coverage_ratio": 0.72,
+  "tickers_with_forward_estimates": [
+    "AAPL",
+    "ADBE"
+  ],
+  "fetch_sources": [
+    "finnhub",
+    "fmp"
+  ],
+  "vendor_estimate_access": true,
+  "vendor_blocked_errors": true,
+  "error_count": 102,
+  "raw_secret_fragment_scan_clean": true,
+  "redaction_markers_present_only": true,
+  "research_only": true,
+  "forward_only": true,
+  "backtest_acceptance_allowed": false,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false,
+  "fullrun_dispatched": false,
+  "verdict": "workflow_success_but_free_vendor_coverage_blocked"
+}

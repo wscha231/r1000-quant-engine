@@ -103,8 +103,13 @@ Initial shard-0 dispatch:
 - tickers requested: 50
 - vendor order: `fmp,finnhub`
 - fullrun: no
-- status when this patch was prepared: in progress, still before collector
-  output
+- workflow conclusion: success
+- collector status: `blocked_partial_coverage`
+- estimate coverage: 2 / 50 tickers, 4%
+- tickers with true forward estimates: `AAPL`, `ADBE`
+- raw known-secret fragment scan: clean; persisted vendor URL credentials were
+  masked as `apikey=***` and `token=***`
 
-The run must be inspected after completion before drawing any coverage or alpha
-conclusion.
+Interpretation: the broad-universe scan path works mechanically, but the
+current free FMP/Finnhub entitlement is not enough to support a broad
+estimate-revision alpha signal. Missing coverage remains neutral.
