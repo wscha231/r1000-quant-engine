@@ -135,6 +135,7 @@ def build_manifest(
     artifact_name: str,
     shard_id: str = "",
     shard_file: str = "",
+    shard_mode: str = "",
 ) -> dict[str, Any]:
     snapshot_dir_path = repo_path(snapshot_dir)
     signals_path = repo_path(signals)
@@ -169,6 +170,7 @@ def build_manifest(
         "artifact_name": artifact_name,
         "shard_id": shard_id,
         "shard_file": shard_file,
+        "shard_mode": shard_mode,
         "fetch_date": fetch_date,
         "collector_status": summary_payload.get("status", "missing_summary"),
         "collector_reason": summary_payload.get("reason", ""),
@@ -214,6 +216,7 @@ def build_manifest(
         "artifact_name": artifact_name,
         "shard_id": shard_id,
         "shard_file": shard_file,
+        "shard_mode": shard_mode,
         "fetch_date": fetch_date,
         "collector_status": payload["collector_status"],
         "ticker_count_requested": payload["ticker_count_requested"],
@@ -247,6 +250,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact-name", default="")
     parser.add_argument("--shard-id", default="")
     parser.add_argument("--shard-file", default="")
+    parser.add_argument("--shard-mode", default="")
     return parser.parse_args()
 
 
@@ -267,6 +271,7 @@ def main() -> int:
         artifact_name=args.artifact_name,
         shard_id=args.shard_id,
         shard_file=args.shard_file,
+        shard_mode=args.shard_mode,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 1 if payload["text_secret_scan"]["unmasked_secret_pattern_found"] else 0

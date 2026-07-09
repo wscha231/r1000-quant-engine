@@ -68,6 +68,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
             artifact_name="earnings-estimates-daily-29015925250",
             shard_id="shard_000",
             shard_file="outputs/forward_estimate_universe_plan_20260709/shards/shard_000.csv",
+            shard_mode="rotating_shard",
         )
 
         assert payload["verdict"] == "archive_manifest_written"
@@ -80,6 +81,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert payload["files"]["signals"]["sha256"]
         assert payload["shard_id"] == "shard_000"
         assert payload["shard_file"].endswith("shard_000.csv")
+        assert payload["shard_mode"] == "rotating_shard"
         assert payload["text_secret_scan"]["unmasked_secret_pattern_found"] is False
         assert payload["text_secret_scan"]["scans"][1]["masked_url_credential_markers_present"] is True
         persisted = json.loads(manifest.read_text(encoding="utf-8"))
@@ -88,6 +90,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert len(rows) == 1
         assert rows[0]["run_id"] == "29015925250"
         assert rows[0]["shard_id"] == "shard_000"
+        assert rows[0]["shard_mode"] == "rotating_shard"
         assert rows[0]["snapshot_sha256"] == payload["files"]["snapshot"]["sha256"]
 
         payload2 = build_manifest(
@@ -105,6 +108,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
             artifact_name="earnings-estimates-daily-29015925250",
             shard_id="shard_000",
             shard_file="outputs/forward_estimate_universe_plan_20260709/shards/shard_000.csv",
+            shard_mode="rotating_shard",
         )
         assert payload2["verdict"] == "archive_manifest_written"
         rows2 = [json.loads(line) for line in index.read_text(encoding="utf-8").splitlines()]

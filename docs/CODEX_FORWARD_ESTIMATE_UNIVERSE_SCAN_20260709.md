@@ -14,8 +14,10 @@ fullrun, and does not enable production.
 ## Implemented
 
 - `tools/build_forward_estimate_universe_plan.py`
+- `tools/build_forward_estimate_catchup_universe.py`
 - `tools/build_earnings_estimate_archive_manifest.py`
 - `tests/forward_estimate_universe_plan_smoke.py`
+- `tests/earnings_estimate_catchup_universe_smoke.py`
 - `tests/earnings_estimate_archive_manifest_smoke.py`
 - `tools/run_pr_validation.py` registration
 
@@ -43,6 +45,27 @@ Each scheduled run collects:
 
 This avoids trying to pull all 858 tickers in one run while still building
 coverage across the full candidate universe over time.
+
+Manual catch-up is also available for the user's "cover most of the universe"
+request. The workflow input `catchup_all_universe_shards=true` combines every
+checked-in shard into one deduped universe CSV and archives it in one run. This
+uses materially more free API quota, so it is manual-only; the scheduled job
+remains one rotating shard plus the core watchlist.
+
+Manual catch-up dispatch:
+
+```bash
+gh workflow run earnings_estimates_daily.yml \
+  --repo wscha231/r1000-quant-engine \
+  --ref master \
+  -f catchup_all_universe_shards=true \
+  -f ticker_limit=0 \
+  -f vendor_order='fmp,finnhub'
+```
+
+The manifest/index records `shard_id=all_shards` and
+`shard_mode=all_shards_catchup` so later agents can separate broad catch-up
+runs from normal 65-name daily shard runs.
 
 Default source:
 

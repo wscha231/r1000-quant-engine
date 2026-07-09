@@ -90,6 +90,46 @@ Expected contract:
 
 ## Ledger
 
+### 2026-07-09 - Broad estimate archive needs catch-up mode, not only one daily shard
+
+- Agent: Codex
+- Branch/PR/run:
+  - branch `codex/earnings-estimate-universe-catchup-20260709`
+- Context:
+  - User objected that the forward estimate archive collected only about 65
+    names in the latest auto-shard run.
+- Attempt:
+  - Kept the scheduled archive quota-safe, but added a manual all-shards
+    catch-up path that combines every checked-in forward-estimate shard into one
+    deduped universe file.
+- Result:
+  - Workflow input `catchup_all_universe_shards=true` now requests the full
+    checked-in candidate universe instead of one rotating shard.
+  - Archive manifest/index records `shard_id=all_shards` and
+    `shard_mode=all_shards_catchup`.
+- Failure or caveat:
+  - This can consume materially more free API quota and may still return low
+    usable estimate coverage.
+  - Missing vendor coverage remains neutral, not bearish.
+  - Current snapshots remain forward-only and cannot revise 7Y CAGR/MDD.
+- Root cause:
+  - The previous daily schedule intentionally optimized safety over immediate
+    broad coverage.
+- Reusable lesson:
+  - Separate safe daily rotation from explicit broad catch-up collection.
+  - Label catch-up provenance so later analysis does not mix one-shard and
+    all-universe coverage.
+- Next action:
+  - Run one manual catch-up after merge, inspect coverage, then feed the archive
+    into forward paper-ledger tracking.
+- Do-not-repeat:
+  - Do not infer universe-wide estimate coverage from a single 50-name shard.
+  - Do not treat broad catch-up as historical backtest evidence.
+- Evidence files:
+  - `.github/workflows/earnings_estimates_daily.yml`
+  - `tools/build_forward_estimate_catchup_universe.py`
+  - `tests/earnings_estimate_catchup_universe_smoke.py`
+
 ### 2026-07-09 - Estimate confirmation now requires actual forward estimate coverage
 
 - Agent: Codex

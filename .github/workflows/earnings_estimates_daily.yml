@@ -19,6 +19,10 @@ on:
         description: 'Rotate one broad-universe shard from the checked-in plan. Always enabled on schedule.'
         type: boolean
         default: false
+      catchup_all_universe_shards:
+        description: 'Manual catch-up: combine all checked-in universe shards in one run. Uses materially more free API quota.'
+        type: boolean
+        default: false
       ticker_limit:
         description: 'Optional cap after combining tickers/universe file. 0 means no cap.'
         type: string
@@ -46,7 +50,7 @@ concurrency:
 jobs:
   archive:
     runs-on: ubuntu-latest
-    timeout-minutes: 80
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -138,6 +142,7 @@ jobs:
           INPUT_UNIVERSE_SHARD_FILE: ${{ github.event.inputs.universe_shard_file || '' }}
           INPUT_TICKER_LIMIT: ${{ github.event.inputs.ticker_limit || '0' }}
           INPUT_AUTO_UNIVERSE_SHARD: ${{ github.event.inputs.auto_universe_shard || 'false' }}
+          INPUT_CATCHUP_ALL_UNIVERSE_SHARDS: ${{ github.event.inputs.catchup_all_universe_shards || 'false' }}
           DEFAULT_TICKERS: AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,ASML,TSM,ARM,SMH,SOXX
           SHARD_DIR: outputs/forward_estimate_universe_plan_20260709/shards
         run: |
@@ -147,14 +152,33 @@ jobs:
           TICKER_LIMIT="${INPUT_TICKER_LIMIT:-0}"
           SHARD_ID=""
           SHARD_FILE=""
+          SHARD_MODE="manual_or_watchlist_only"
 
           if [ -n "${INPUT_UNIVERSE_SHARD_FILE:-}" ]; then
             UNIVERSE_FILE="${INPUT_UNIVERSE_SHARD_FILE}"
             SHARD_FILE="${INPUT_UNIVERSE_SHARD_FILE}"
             SHARD_ID="$(basename "${INPUT_UNIVERSE_SHARD_FILE}" .csv)"
+            SHARD_MODE="manual_shard"
           fi
 
-          if [ "${EVENT_NAME}" = "schedule" ] || [ "${INPUT_AUTO_UNIVERSE_SHARD}" = "true" ]; then
+          if [ "${INPUT_CATCHUP_ALL_UNIVERSE_SHARDS}" = "true" ]; then
+            if [ ! -d "${SHARD_DIR}" ]; then
+              echo "::error::missing shard dir ${SHARD_DIR}"
+              exit 2
+            fi
+            mkdir -p outputs/earnings_estimates_daily
+            python tools/build_forward_estimate_catchup_universe.py \
+              --shard-dir "${SHARD_DIR}" \
+              --output outputs/earnings_estimates_daily/catchup_all_shards_universe.csv \
+              --summary outputs/earnings_estimates_daily/catchup_universe_summary.json \
+              --include-tickers "${DEFAULT_TICKERS}" \
+              --max-tickers "${TICKER_LIMIT}"
+            UNIVERSE_FILE="outputs/earnings_estimates_daily/catchup_all_shards_universe.csv"
+            SHARD_ID="all_shards"
+            SHARD_FILE="${UNIVERSE_FILE}"
+            SHARD_MODE="all_shards_catchup"
+            TICKER_LIMIT="0"
+          elif [ "${EVENT_NAME}" = "schedule" ] || [ "${INPUT_AUTO_UNIVERSE_SHARD}" = "true" ]; then
             if [ ! -d "${SHARD_DIR}" ]; then
               echo "::error::missing shard dir ${SHARD_DIR}"
               exit 2
@@ -174,6 +198,7 @@ jobs:
             fi
             UNIVERSE_FILE="${SHARD_FILE}"
             TICKER_LIMIT="0"
+            SHARD_MODE="rotating_shard"
           fi
 
           if [ -z "${TICKERS}" ]; then
@@ -190,11 +215,13 @@ jobs:
             echo "RESOLVED_TICKER_LIMIT=${TICKER_LIMIT}"
             echo "RESOLVED_SHARD_ID=${SHARD_ID}"
             echo "RESOLVED_SHARD_FILE=${SHARD_FILE}"
+            echo "RESOLVED_SHARD_MODE=${SHARD_MODE}"
           } >> "$GITHUB_ENV"
           echo "[archive] tickers=${TICKERS}"
           echo "[archive] universe_file=${UNIVERSE_FILE:-<none>}"
           echo "[archive] ticker_limit=${TICKER_LIMIT}"
           echo "[archive] shard_id=${SHARD_ID:-<manual_or_watchlist_only>}"
+          echo "[archive] shard_mode=${SHARD_MODE}"
 
       - name: Collect forward-only estimate archive
         env:
@@ -241,7 +268,8 @@ jobs:
             --workflow "${GITHUB_WORKFLOW}" \
             --artifact-name "earnings-estimates-daily-${GITHUB_RUN_ID}" \
             --shard-id "${RESOLVED_SHARD_ID:-}" \
-            --shard-file "${RESOLVED_SHARD_FILE:-}"
+            --shard-file "${RESOLVED_SHARD_FILE:-}" \
+            --shard-mode "${RESOLVED_SHARD_MODE:-}"
 
       - name: Save earnings estimate archive cache
         if: always()
