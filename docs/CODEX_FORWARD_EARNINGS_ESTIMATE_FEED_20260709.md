@@ -97,6 +97,26 @@ dispatch. It:
 The scheduled default ticker set is bounded. A broader universe can be supplied
 manually through `tickers`, `universe_file`, and `ticker_limit`.
 
+## Vendor Entitlement Handling
+
+The first manual run on `master` reached GitHub Actions and proved the workflow
+registration path, but Finnhub returned HTTP 403 for `/stock/eps-estimate` on
+the configured key. That means the current key is valid enough to call Finnhub
+but is not entitled for the true forward-estimate endpoint.
+
+The collector treats this as a data-entitlement block, not a strategy result:
+
+- `status=blocked_vendor_entitlement`
+- `reason=finnhub_estimate_endpoint_forbidden`
+- `vendor_estimate_access=false`
+- `backtest_acceptance_allowed=false`
+- `production_activation_allowed=false`
+- `live_trading_enabled=false`
+
+API tokens are redacted before any error string is written to artifacts or
+Google Drive. A blocked entitlement run exits successfully so scheduled jobs do
+not repeatedly fail while still preserving a loud machine-readable summary.
+
 ## Validation
 
 - `tests/collect_earnings_estimates_smoke.py`
