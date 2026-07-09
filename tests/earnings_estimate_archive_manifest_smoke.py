@@ -34,9 +34,13 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
                     "status": "blocked_partial_coverage",
                     "reason": "coverage_below_80pct_warn_only",
                     "ticker_count_requested": 50,
+                    "request_snapshot_rows": 36,
+                    "request_has_forward_estimate_rows": 2,
                     "snapshot_rows": 36,
                     "has_forward_estimate_rows": 2,
                     "estimate_coverage_ratio": 0.04,
+                    "stored_estimate_coverage_ratio": 0.04,
+                    "same_day_snapshot_merged": False,
                     "coverage_ratio": 0.72,
                     "fetch_sources": ["fmp", "finnhub"],
                     "vendor_order": ["fmp", "finnhub"],
@@ -75,6 +79,9 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert payload["verdict"] == "archive_manifest_written"
         assert payload["collector_status"] == "blocked_partial_coverage"
         assert payload["estimate_coverage_ratio"] == 0.04
+        assert payload["request_snapshot_rows"] == 36
+        assert payload["request_has_forward_estimate_rows"] == 2
+        assert payload["same_day_snapshot_merged"] is False
         assert payload["backtest_acceptance_allowed"] is False
         assert payload["production_activation_allowed"] is False
         assert payload["live_trading_enabled"] is False
@@ -94,6 +101,8 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert rows[0]["shard_id"] == "shard_000"
         assert rows[0]["shard_mode"] == "rotating_shard"
         assert rows[0]["collector_max_errors"] == 5000
+        assert rows[0]["request_snapshot_rows"] == 36
+        assert rows[0]["same_day_snapshot_merged"] is False
         assert rows[0]["snapshot_sha256"] == payload["files"]["snapshot"]["sha256"]
 
         payload2 = build_manifest(

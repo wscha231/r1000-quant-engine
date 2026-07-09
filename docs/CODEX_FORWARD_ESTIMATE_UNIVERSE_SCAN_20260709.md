@@ -47,6 +47,9 @@ Storage contract:
 - GitHub cache is a convenience restore path, not the source of truth.
 - Google Drive sync is the intended durable store for `data_pit/events/earnings_estimates/`
   and `data_pit/events/earnings_revision_signals.parquet`.
+- Multiple runs on the same fetch date must merge into
+  `estimates_YYYYMMDD.parquet`; a smaller incremental run must not shrink or
+  overwrite a broader same-day catch-up snapshot.
 
 The data becomes historically usable only from its `available_from` fetch date
 forward. Current/free vendor snapshots cannot be backfilled into dates before

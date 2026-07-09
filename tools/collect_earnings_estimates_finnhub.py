@@ -552,6 +552,46 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
+def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Merge same-date archive rows instead of shrinking a durable snapshot.
+
+    Manual smokes, broad catch-ups, and scheduled incremental runs can all share
+    a fetch date. The durable `estimates_YYYYMMDD.parquet` file should be the
+    union of that day's collected tickers, with later rows replacing earlier
+    rows for the same ticker.
+    """
+    info: dict[str, Any] = {
+        "same_day_snapshot_merged": False,
+        "same_day_existing_rows": 0,
+        "same_day_current_rows": int(len(current)),
+        "same_day_merged_rows": int(len(current)),
+    }
+    if current.empty or not existing_path.exists():
+        return current, info
+    try:
+        existing = pd.read_parquet(existing_path)
+    except Exception:
+        return current, info
+    if existing.empty:
+        return current, info
+    info["same_day_existing_rows"] = int(len(existing))
+    combined = pd.concat([existing, current], ignore_index=True, sort=False)
+    if "ticker" in combined.columns:
+        combined["_ticker_norm"] = combined["ticker"].astype(str).str.upper().str.strip()
+        sort_cols = ["_ticker_norm"]
+        if "available_from" in combined.columns:
+            combined["_available_from_ts"] = pd.to_datetime(combined["available_from"], errors="coerce")
+            sort_cols.append("_available_from_ts")
+        combined = combined.sort_values(sort_cols, kind="stable")
+        combined = combined.drop_duplicates("_ticker_norm", keep="last")
+        combined = combined.drop(columns=[c for c in ["_ticker_norm", "_available_from_ts"] if c in combined.columns])
+        if "ticker" in combined.columns:
+            combined = combined.sort_values("ticker", kind="stable").reset_index(drop=True)
+    info["same_day_snapshot_merged"] = True
+    info["same_day_merged_rows"] = int(len(combined))
+    return combined, info
+
+
 def fetch_json(session: requests.Session, endpoint: str, ticker: str, api_key: str, *, sleep_seconds: float) -> Any:
     url = f"{FINNHUB_BASE}{endpoint}"
     params = {"symbol": ticker, "token": api_key}
@@ -921,26 +961,34 @@ def main() -> int:
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if not vendor_estimate_access else 2
+    current_snapshot = snapshot.copy()
     snapshot_path = snapshot_dir / f"estimates_{fetch_date.strftime('%Y%m%d')}.parquet"
+    snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
     snapshot.to_parquet(snapshot_path, index=False)
     history = load_snapshot_history(snapshot_dir)
     signals, feature_summary = compute_estimate_revision_features(history, as_of_date=fetch_date.date().isoformat())
     if not signals.empty:
         signals_output.parent.mkdir(parents=True, exist_ok=True)
         signals.to_parquet(signals_output, index=False)
-    coverage_ratio = len(snapshot) / max(1, len(tickers))
+    coverage_ratio = len(current_snapshot) / max(1, len(tickers))
+    request_has_forward_estimate_rows = (
+        int(pd.to_numeric(current_snapshot["has_forward_estimate"], errors="coerce").fillna(0).sum())
+        if "has_forward_estimate" in current_snapshot.columns
+        else 0
+    )
+    estimate_coverage_ratio = request_has_forward_estimate_rows / max(1, len(tickers))
     has_forward_estimate_rows = (
         int(pd.to_numeric(snapshot["has_forward_estimate"], errors="coerce").fillna(0).sum())
         if "has_forward_estimate" in snapshot.columns
         else 0
     )
-    estimate_coverage_ratio = has_forward_estimate_rows / max(1, len(tickers))
-    vendor_estimate_access = has_forward_estimate_rows > 0
+    stored_estimate_coverage_ratio = has_forward_estimate_rows / max(1, len(snapshot))
+    vendor_estimate_access = request_has_forward_estimate_rows > 0
     status = (
         "completed"
         if estimate_coverage_ratio >= 0.8
         else "blocked_vendor_entitlement"
-        if has_forward_estimate_rows == 0 and vendor_blocked_errors
+        if request_has_forward_estimate_rows == 0 and vendor_blocked_errors
         else "blocked_partial_coverage"
     )
     reason = ""
@@ -961,7 +1009,12 @@ def main() -> int:
         "production_activation_allowed": False,
         "live_trading_enabled": False,
         "ticker_count_requested": len(tickers),
+        "request_snapshot_rows": int(len(current_snapshot)),
+        "request_has_forward_estimate_rows": request_has_forward_estimate_rows,
+        "request_estimate_coverage_ratio": estimate_coverage_ratio,
         "snapshot_rows": int(len(snapshot)),
+        "stored_estimate_coverage_ratio": stored_estimate_coverage_ratio,
+        **same_day_merge,
         "coverage_ratio": coverage_ratio,
         "estimate_coverage_ratio": estimate_coverage_ratio,
         "vendor_estimate_access": vendor_estimate_access,

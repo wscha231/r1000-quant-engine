@@ -255,10 +255,80 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
         assert payload["vendor_blocked_errors"] is True, payload
 
 
+def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        snapshot_dir = root / "snapshots"
+        snapshot_dir.mkdir()
+        existing = pd.DataFrame(
+            [
+                {"ticker": "AAA", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 1},
+                {"ticker": "BBB", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 0},
+            ]
+        )
+        existing.to_parquet(snapshot_dir / "estimates_20260709.parquet", index=False)
+
+        def fake_collect_live_snapshot(*_: Any, **__: Any) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+            return pd.DataFrame(
+                [
+                    {
+                        "ticker": "CCC",
+                        "as_of_date": "2026-07-09",
+                        "available_from": "2026-07-09",
+                        "fetch_source": "fmp",
+                        "est_eps_fy1": 1.0,
+                        "est_eps_fy2": 1.1,
+                        "est_rev_fy1": 100.0,
+                        "est_dispersion": 0.1,
+                        "earnings_surprise_last": 0.0,
+                        "est_eps_revision_breadth": 1.0,
+                        "surprise_streak": 1,
+                        "has_forward_estimate": 1,
+                        "vendor_estimate_access": True,
+                    }
+                ]
+            ), []
+
+        old_collect = collector.collect_live_snapshot
+        old_argv = sys.argv[:]
+        try:
+            collector.collect_live_snapshot = fake_collect_live_snapshot
+            sys.argv = [
+                "collect_earnings_estimates_finnhub.py",
+                "--tickers",
+                "CCC",
+                "--api-key",
+                "dummy",
+                "--fetch-date",
+                "2026-07-09",
+                "--snapshot-dir",
+                str(snapshot_dir),
+                "--signals-output",
+                str(root / "signals.parquet"),
+                "--summary",
+                str(root / "summary.json"),
+            ]
+            assert collector.main() == 0
+        finally:
+            collector.collect_live_snapshot = old_collect
+            sys.argv = old_argv
+
+        stored = pd.read_parquet(snapshot_dir / "estimates_20260709.parquet")
+        assert set(stored["ticker"]) == {"AAA", "BBB", "CCC"}
+        payload = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+        assert payload["same_day_snapshot_merged"] is True
+        assert payload["same_day_existing_rows"] == 2
+        assert payload["same_day_current_rows"] == 1
+        assert payload["same_day_merged_rows"] == 3
+        assert payload["request_snapshot_rows"] == 1
+        assert payload["snapshot_rows"] == 3
+
+
 if __name__ == "__main__":
     test_parse_snapshot_stamps_fetch_date_not_fiscal_period()
     test_vendor_entitlement_errors_are_redacted_and_blocking()
     test_free_vendor_payloads_normalize_to_internal_schema()
     test_cli_fixture_writes_snapshot_and_signals()
     test_partial_free_vendor_success_is_not_global_block()
+    test_same_day_snapshot_merges_instead_of_overwriting_existing_archive()
     print("collect_earnings_estimates_smoke: PASS")

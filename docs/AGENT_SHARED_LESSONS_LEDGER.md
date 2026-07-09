@@ -184,6 +184,39 @@ Expected contract:
   - `tests/earnings_estimate_incremental_universe_smoke.py`
   - `.github/workflows/earnings_estimates_daily.yml`
 
+### 2026-07-10 - Same-day estimate archive writes must merge, not overwrite
+
+- Agent: Codex
+- Branch/PR/run:
+  - branch `codex/earnings-estimate-sameday-merge-20260710`
+- Context:
+  - The durable snapshot filename is date-based:
+    `data_pit/events/earnings_estimates/estimates_YYYYMMDD.parquet`.
+- Attempt:
+  - Added same-day merge semantics to the forward estimate collector.
+- Result:
+  - If a same-date snapshot already exists, the collector unions existing and
+    current rows by ticker and keeps the latest row for duplicated tickers.
+  - Summary/manifest/index now expose same-day merge fields.
+- Failure or caveat:
+  - This does not create historical estimate data before the fetch date.
+- Root cause:
+  - Same-day manual smokes, broad catch-ups, and incremental runs can otherwise
+    overwrite a larger durable snapshot with a smaller request.
+- Reusable lesson:
+  - Date-partitioned durable archives need append/merge semantics whenever run
+    size can vary.
+- Next action:
+  - Keep using one date-partition per fetch date; rely on merge fields to audit
+    same-day run behavior.
+- Do-not-repeat:
+  - Do not let a small same-day incremental archive shrink a prior all-shards
+    catch-up file.
+- Evidence files:
+  - `tools/collect_earnings_estimates_finnhub.py`
+  - `tests/collect_earnings_estimates_smoke.py`
+  - `tools/build_earnings_estimate_archive_manifest.py`
+
 ### 2026-07-09 - Estimate confirmation now requires actual forward estimate coverage
 
 - Agent: Codex
