@@ -185,6 +185,7 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
         payload = json.loads(summary.read_text(encoding="utf-8"))
         assert payload["forward_only"] is True
         assert payload["backtest_acceptance_allowed"] is False
+        assert payload["max_errors"] == 100
         sig = pd.read_parquet(signals)
         assert sig["available_from"].dt.strftime("%Y-%m-%d").iloc[0] == "2026-07-09"
 

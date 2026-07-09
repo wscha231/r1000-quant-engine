@@ -40,6 +40,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
                     "coverage_ratio": 0.72,
                     "fetch_sources": ["fmp", "finnhub"],
                     "vendor_order": ["fmp", "finnhub"],
+                    "max_errors": 5000,
                     "vendor_estimate_access": True,
                     "vendor_blocked_errors": True,
                     "error_count": 102,
@@ -82,6 +83,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert payload["shard_id"] == "shard_000"
         assert payload["shard_file"].endswith("shard_000.csv")
         assert payload["shard_mode"] == "rotating_shard"
+        assert payload["collector_max_errors"] == 5000
         assert payload["text_secret_scan"]["unmasked_secret_pattern_found"] is False
         assert payload["text_secret_scan"]["scans"][1]["masked_url_credential_markers_present"] is True
         persisted = json.loads(manifest.read_text(encoding="utf-8"))
@@ -91,6 +93,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert rows[0]["run_id"] == "29015925250"
         assert rows[0]["shard_id"] == "shard_000"
         assert rows[0]["shard_mode"] == "rotating_shard"
+        assert rows[0]["collector_max_errors"] == 5000
         assert rows[0]["snapshot_sha256"] == payload["files"]["snapshot"]["sha256"]
 
         payload2 = build_manifest(

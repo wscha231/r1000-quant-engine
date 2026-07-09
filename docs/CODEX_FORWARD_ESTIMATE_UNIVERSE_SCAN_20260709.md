@@ -60,12 +60,15 @@ gh workflow run earnings_estimates_daily.yml \
   --ref master \
   -f catchup_all_universe_shards=true \
   -f ticker_limit=0 \
+  -f collector_max_errors=5000 \
   -f vendor_order='fmp,finnhub'
 ```
 
 The manifest/index records `shard_id=all_shards` and
 `shard_mode=all_shards_catchup` so later agents can separate broad catch-up
-runs from normal 65-name daily shard runs.
+runs from normal 65-name daily shard runs. Catch-up also raises the default
+collector error cap from `100` to `5000`, because free-vendor entitlement and
+coverage errors are expected when scanning the full universe.
 
 Default source:
 

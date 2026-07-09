@@ -107,6 +107,8 @@ Expected contract:
     checked-in candidate universe instead of one rotating shard.
   - Archive manifest/index records `shard_id=all_shards` and
     `shard_mode=all_shards_catchup`.
+  - Catch-up raises the collector error cap to avoid stopping after the first
+    100 expected free-vendor coverage/entitlement errors.
 - Failure or caveat:
   - This can consume materially more free API quota and may still return low
     usable estimate coverage.
@@ -119,6 +121,8 @@ Expected contract:
   - Separate safe daily rotation from explicit broad catch-up collection.
   - Label catch-up provenance so later analysis does not mix one-shard and
     all-universe coverage.
+  - Broad coverage paths need a larger explicit error cap than smoke-size
+    archive paths.
 - Next action:
   - Run one manual catch-up after merge, inspect coverage, then feed the archive
     into forward paper-ledger tracking.
