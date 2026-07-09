@@ -147,6 +147,7 @@ def test_free_vendor_payloads_normalize_to_internal_schema() -> None:
     )
     assert fmp_eps["data"][0]["avg"] == 4.3
     assert fmp_rev["data"][0]["avg"] == 1010000000
+    assert clean_vendor_order(None) == ["fmp", "finnhub"]
     assert clean_vendor_order("av,financialmodelingprep,finnhub,alpha") == ["alphavantage", "fmp", "finnhub"]
 
 

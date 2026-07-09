@@ -90,6 +90,42 @@ Expected contract:
 
 ## Ledger
 
+### 2026-07-09 - Alpha Vantage calls paused pending key rotation
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/pause-alphavantage-until-rotation-20260709`
+- Context:
+  - Claude review directive identified Alpha Vantage key rotation as the only
+    open credential incident after a vendor response echoed a key in a
+    rate-limit body.
+- Attempt:
+  - Removed Alpha Vantage from the default estimate vendor order.
+  - Left explicit `vendor_order='alphavantage'` available only for the bounded
+    post-rotation smoke.
+- Result:
+  - Scheduled/default estimate archive uses FMP then Finnhub and does not call
+    Alpha Vantage by default.
+- Failure or caveat:
+  - This does not rotate the key. The user still needs to create/install a new
+    Alpha Vantage key and verify the old one is dead.
+- Root cause:
+  - Key exposure risk cannot be fully closed by log deletion and redaction
+    alone.
+- Reusable lesson:
+  - Pause a vendor in default workflows when rotation is pending, even if
+    redaction has been hardened.
+- Next action:
+  - User rotates `ALPHAVANTAGE_API_KEY`, then run a one-ticker
+    Alpha-Vantage-only smoke and scan `summary.json` plus `collector.log`.
+- Do-not-repeat:
+  - Do not run broad Alpha Vantage jobs with the pre-rotation key.
+  - Do not record any key value in this ledger, PR text, or artifacts.
+- Evidence files:
+  - `.github/workflows/earnings_estimates_daily.yml`
+  - `tools/collect_earnings_estimates_finnhub.py`
+  - `docs/AGENT_API_ACCESS_CONTRACT.md`
+
 ### 2026-07-09 - Finnhub replacement key smoke failed authorization
 
 - Agent: Codex

@@ -11,7 +11,7 @@ artifact.
 | Secret/env name | Intended use | Current status |
 |-----------------|--------------|----------------|
 | `FINNHUB_API_KEY` | Finnhub market data, earnings, recommendations | Estimate endpoints are not entitled on the current key. |
-| `ALPHAVANTAGE_API_KEY` | Alpha Vantage earnings-estimate fallback | Free tier is rate-limited. |
+| `ALPHAVANTAGE_API_KEY` | Alpha Vantage earnings-estimate fallback / listing lifecycle | Paused in the default estimate workflow until key rotation is confirmed. |
 | `FMP_API_KEY` | Financial Modeling Prep analyst estimates fallback | Returned usable rows in the 2026-07-09 smoke. |
 | `FRED_API_KEY` | Macro and rates | Optional for workflows that need macro data. |
 | `GOOGLE_SERVICE_ACCOUNT_KEY` / `RCLONE_CONFIG_GDRIVE` | Artifact persistence | Optional but useful for shared archives. |
@@ -61,6 +61,9 @@ Expected output contract:
 - `production_activation_allowed=false`
 - `live_trading_enabled=false`
 
+Default vendor order is `fmp,finnhub`. Alpha Vantage must be requested
+explicitly, for example after key rotation with `-f vendor_order='alphavantage'`.
+
 ## What This Does Not Authorize
 
 - No fullrun dispatch.
@@ -68,6 +71,8 @@ Expected output contract:
 - No live trading.
 - No historical backtest use of current estimate snapshots.
 - No alpha hook based only on forward snapshots.
+- No Alpha Vantage calls until the exposed-key rotation checklist is completed,
+  except a bounded post-rotation smoke.
 
 ## Required Sharing Discipline
 

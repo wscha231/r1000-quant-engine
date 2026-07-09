@@ -19,6 +19,10 @@ on:
         description: 'PIT archive date. Defaults to UTC today.'
         type: string
         default: ''
+      vendor_order:
+        description: 'Comma-separated vendor order. Default pauses Alpha Vantage until key rotation is confirmed.'
+        type: string
+        default: 'fmp,finnhub'
   schedule:
     # 09:35 KST Tue-Sat, after most US after-close earnings data is visible.
     - cron: '35 0 * * 2-6'
@@ -123,7 +127,7 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          ESTIMATE_VENDOR_ORDER: alphavantage,fmp,finnhub
+          ESTIMATE_VENDOR_ORDER: ${{ github.event.inputs.vendor_order || 'fmp,finnhub' }}
           TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,ASML,TSM,ARM,SMH,SOXX' }}
           UNIVERSE_FILE: ${{ github.event.inputs.universe_file || '' }}
           TICKER_LIMIT: ${{ github.event.inputs.ticker_limit || '0' }}

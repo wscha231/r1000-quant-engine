@@ -20,7 +20,7 @@ values in this file, PR bodies, issue comments, artifacts, or handoff notes.
 | `ALPACA_API_KEY` | Alpaca paper-account key | Paper only unless an explicit live gate says otherwise. |
 | `ALPACA_API_SECRET` | Alpaca paper-account secret | Paper only unless an explicit live gate says otherwise. |
 | `FINNHUB_API_KEY` | Finnhub market/earnings endpoints | Current key is not entitled for Finnhub estimate endpoints. |
-| `ALPHAVANTAGE_API_KEY` | Alpha Vantage earnings-estimate fallback | Free tier is rate-limited; forward-only archive use. |
+| `ALPHAVANTAGE_API_KEY` | Alpha Vantage earnings-estimate fallback / listing lifecycle | Paused in default estimate workflow until key rotation is confirmed. |
 | `FMP_API_KEY` | Financial Modeling Prep estimate fallback | Free endpoint currently returns usable rows for some tickers. |
 | `FRED_API_KEY` | Macro data | Optional unless a workflow explicitly requires it. |
 | `TELEGRAM_BOT_TOKEN` | Notifications | Optional for local research-only work. |
@@ -55,6 +55,11 @@ gh workflow run earnings_estimates_daily.yml \
   -f tickers='AAPL' \
   -f ticker_limit=1
 ```
+
+The default estimate workflow vendor order is `fmp,finnhub`; this intentionally
+pauses Alpha Vantage calls until the prior key-exposure incident is closed with a
+rotated key. After rotation, an Alpha Vantage-only smoke can be run manually with
+`-f vendor_order='alphavantage'`.
 
 Expected behavior:
 
