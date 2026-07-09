@@ -157,6 +157,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/estimate_revision_features_smoke.py", []),
     ("tests/estimate_feed_backtest_neutrality_smoke.py", []),
     ("tests/estimate_confirm_selection_smoke.py", []),
+    ("tests/forward_estimate_universe_plan_smoke.py", []),
     ("tests/cost_sensitivity_sidecar_smoke.py", []),
     ("tests/trade_attribution_analysis_smoke.py", []),
     ("tests/concentrated_cap_replacement_audit_smoke.py", []),

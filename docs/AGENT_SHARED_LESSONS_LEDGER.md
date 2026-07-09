@@ -361,6 +361,46 @@ Expected contract:
   - `outputs/run287_multisource_fusion_broker_ab/` local untracked artifacts
   - `outputs/run287_w4_consensus_broker_ab_cash_carry/` local untracked artifacts
 
+### 2026-07-09 - Forward estimates must scan the broad universe, not only current holdings
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/universe-forward-estimate-scan-20260709`
+  - first shard workflow run `29015925250` dispatched; no coverage verdict until
+    the collector artifact is inspected
+- Context:
+  - User correctly challenged the current-holdings-only estimate scan and asked
+    whether every universe ticker should be analyzed before selection.
+- Attempt:
+  - Added a forward-only universe planning tool that reads broad ticker sources,
+    dedupes tickers, removes non-equity placeholders, and emits shard inputs for
+    `.github/workflows/earnings_estimates_daily.yml`.
+- Result:
+  - Broad scans can now be staged from tracked candidate sources such as
+    `research/entry_classifier_predictions.csv` rather than only the latest
+    Concentrated names.
+- Failure or caveat:
+  - Free API coverage can still be partial or blocked.
+  - Current estimate snapshots remain forward-only and cannot restate run287 7Y
+    CAGR/MDD.
+- Root cause:
+  - Holding-only scans create selection bias and miss replacement/missed-leader
+    candidates before the data can score them.
+- Reusable lesson:
+  - Build broad-universe coverage first, then rank confirmed names.
+  - Missing vendor coverage is neutral, not a sell/reject signal.
+- Next action:
+  - Dispatch shards gradually with default `vendor_order=fmp,finnhub`, inspect
+    coverage and redacted logs, then build a forward paper-ledger ranking.
+- Do-not-repeat:
+  - Do not use a current snapshot archive as historical backtest evidence.
+  - Do not add Alpha Vantage back into the default vendor order before key
+    rotation is complete.
+- Evidence files:
+  - `tools/build_forward_estimate_universe_plan.py`
+  - `tests/forward_estimate_universe_plan_smoke.py`
+  - `docs/CODEX_FORWARD_ESTIMATE_UNIVERSE_SCAN_20260709.md`
+
 ### 2026-07-06 - run287 baseline and measurement discipline
 
 - Agent: Codex plus external review synthesis
