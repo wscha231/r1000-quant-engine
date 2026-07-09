@@ -14,12 +14,25 @@ fullrun, and does not enable production.
 ## Implemented
 
 - `tools/build_forward_estimate_universe_plan.py`
+- `tools/build_earnings_estimate_archive_manifest.py`
 - `tests/forward_estimate_universe_plan_smoke.py`
+- `tests/earnings_estimate_archive_manifest_smoke.py`
 - `tools/run_pr_validation.py` registration
 
 The planner reads one or more CSV/parquet sources with a ticker-like column,
 dedupes tickers, drops non-equity placeholders such as `CASH`, and writes shard
 inputs for `.github/workflows/earnings_estimates_daily.yml`.
+
+The daily archive workflow also writes a per-run manifest and an append-only
+archive index:
+
+- `outputs/earnings_estimates_daily/archive_manifest.json`
+- `data_pit/events/earnings_estimates/archive_index.jsonl`
+
+The manifest records run id, fetch date, collector coverage, vendor order,
+artifact name, file sizes, and SHA-256 hashes for the snapshot/signals/log
+files. The index is restored from cache/GDrive and appended every run so future
+agents can locate and verify old snapshots without relying on chat history.
 
 Default source:
 
@@ -90,6 +103,8 @@ estimate snapshots cannot supply that. The near-term value is operational:
 - rank current positive-revision candidates for forward paper tracking
 - avoid overfitting only the current holdings
 - accumulate a true `available_from=fetch_date` archive for future OOS review
+- preserve file hashes and run metadata so future analysis can verify exactly
+  which snapshot was used
 
 If the broad scan shows low coverage, the conclusion is a data entitlement
 block, not an alpha failure. If coverage is usable, the next step is a
