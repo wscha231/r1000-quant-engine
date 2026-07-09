@@ -146,6 +146,44 @@ Expected contract:
   - `tools/build_forward_estimate_catchup_universe.py`
   - `tests/earnings_estimate_catchup_universe_smoke.py`
 
+### 2026-07-10 - Forward estimate archive should refresh covered and new names incrementally
+
+- Agent: Codex
+- Branch/PR/run:
+  - branch `codex/earnings-estimate-incremental-addons-20260710`
+- Context:
+  - User asked where estimate data is stored permanently and whether the system
+    should collect only new forward data plus newly added universe tickers.
+- Attempt:
+  - Added an incremental add-on universe builder for the daily estimate archive.
+- Result:
+  - Scheduled runs keep the rotating shard, but also add known-covered tickers
+    from restored archive history and current-universe tickers not yet seen in
+    the archive.
+  - Existing uncovered names are not all retried daily; they are retried slowly
+    through the rotating shard.
+- Failure or caveat:
+  - Estimate snapshots are historically usable only from their
+    `available_from=fetch_date` forward.
+  - Pre-archive estimate history still requires a paid PIT estimate source.
+- Root cause:
+  - Free/current estimate APIs expose snapshots, not full historical revision
+    history.
+- Reusable lesson:
+  - After a broad baseline catch-up, use incremental covered/new/rotating-retry
+    collection instead of repeating a full all-universe pull every day.
+- Next action:
+  - Use the archive as forward paper-ledger evidence once enough dates exist for
+    21/63/126-day outcome scoring.
+- Do-not-repeat:
+  - Do not call current snapshots "past data" for dates before collection.
+  - Do not collect all uncovered tickers every day when a rotating retry shard is
+    enough.
+- Evidence files:
+  - `tools/build_forward_estimate_incremental_universe.py`
+  - `tests/earnings_estimate_incremental_universe_smoke.py`
+  - `.github/workflows/earnings_estimates_daily.yml`
+
 ### 2026-07-09 - Estimate confirmation now requires actual forward estimate coverage
 
 - Agent: Codex

@@ -23,6 +23,18 @@ on:
         description: 'Manual catch-up: combine all checked-in universe shards in one run. Uses materially more free API quota.'
         type: boolean
         default: false
+      incremental_universe_addons:
+        description: 'Add known-covered names and newly added universe names to the requested ticker set. Always enabled on schedule.'
+        type: boolean
+        default: false
+      max_new_universe_tickers:
+        description: 'Cap newly added universe tickers per incremental run.'
+        type: string
+        default: '100'
+      max_known_covered_tickers:
+        description: 'Cap known-covered estimate tickers per incremental run.'
+        type: string
+        default: '300'
       ticker_limit:
         description: 'Optional cap after combining tickers/universe file. 0 means no cap.'
         type: string
@@ -148,6 +160,9 @@ jobs:
           INPUT_COLLECTOR_MAX_ERRORS: ${{ github.event.inputs.collector_max_errors || '' }}
           INPUT_AUTO_UNIVERSE_SHARD: ${{ github.event.inputs.auto_universe_shard || 'false' }}
           INPUT_CATCHUP_ALL_UNIVERSE_SHARDS: ${{ github.event.inputs.catchup_all_universe_shards || 'false' }}
+          INPUT_INCREMENTAL_UNIVERSE_ADDONS: ${{ github.event.inputs.incremental_universe_addons || 'false' }}
+          INPUT_MAX_NEW_UNIVERSE_TICKERS: ${{ github.event.inputs.max_new_universe_tickers || '100' }}
+          INPUT_MAX_KNOWN_COVERED_TICKERS: ${{ github.event.inputs.max_known_covered_tickers || '300' }}
           DEFAULT_TICKERS: AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,ASML,TSM,ARM,SMH,SOXX
           SHARD_DIR: outputs/forward_estimate_universe_plan_20260709/shards
         run: |
@@ -159,6 +174,10 @@ jobs:
           SHARD_ID=""
           SHARD_FILE=""
           SHARD_MODE="manual_or_watchlist_only"
+          ENABLE_INCREMENTAL_ADDONS="${INPUT_INCREMENTAL_UNIVERSE_ADDONS:-false}"
+          if [ "${EVENT_NAME}" = "schedule" ]; then
+            ENABLE_INCREMENTAL_ADDONS="true"
+          fi
 
           if [ -n "${INPUT_UNIVERSE_SHARD_FILE:-}" ]; then
             UNIVERSE_FILE="${INPUT_UNIVERSE_SHARD_FILE}"
@@ -208,6 +227,27 @@ jobs:
             UNIVERSE_FILE="${SHARD_FILE}"
             TICKER_LIMIT="0"
             SHARD_MODE="rotating_shard"
+          fi
+
+          if [ "${INPUT_CATCHUP_ALL_UNIVERSE_SHARDS}" != "true" ] && [ "${ENABLE_INCREMENTAL_ADDONS}" = "true" ]; then
+            mkdir -p outputs/earnings_estimates_daily
+            python tools/build_forward_estimate_incremental_universe.py \
+              --shard-dir "${SHARD_DIR}" \
+              --snapshot-dir data_pit/events/earnings_estimates \
+              --output outputs/earnings_estimates_daily/incremental_universe.csv \
+              --summary outputs/earnings_estimates_daily/incremental_universe_summary.json \
+              --include-tickers "${TICKERS:-${DEFAULT_TICKERS}}" \
+              --include-file "${UNIVERSE_FILE:-}" \
+              --max-new-tickers "${INPUT_MAX_NEW_UNIVERSE_TICKERS:-100}" \
+              --max-covered-tickers "${INPUT_MAX_KNOWN_COVERED_TICKERS:-300}"
+            UNIVERSE_FILE="outputs/earnings_estimates_daily/incremental_universe.csv"
+            SHARD_FILE="${UNIVERSE_FILE}"
+            if [ "${SHARD_MODE}" = "manual_or_watchlist_only" ]; then
+              SHARD_MODE="incremental_addons"
+            else
+              SHARD_MODE="${SHARD_MODE}_incremental_addons"
+            fi
+            TICKER_LIMIT="0"
           fi
 
           if [ -z "${MAX_ERRORS}" ]; then

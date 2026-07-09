@@ -16,11 +16,16 @@ def test_workflow_rotates_broad_universe_shards_and_persists_metadata() -> None:
     assert "DAY_INDEX" in text
     assert "SHARD_INDEX" in text
     assert "catchup_all_universe_shards" in text
+    assert "incremental_universe_addons" in text
+    assert "max_new_universe_tickers" in text
+    assert "max_known_covered_tickers" in text
     assert "collector_max_errors" in text
     assert 'MAX_ERRORS="5000"' in text
     assert 'MAX_ERRORS="100"' in text
     assert "build_forward_estimate_catchup_universe.py" in text
+    assert "build_forward_estimate_incremental_universe.py" in text
     assert "all_shards_catchup" in text
+    assert "incremental_addons" in text
     assert "RESOLVED_TICKERS" in text
     assert "RESOLVED_UNIVERSE_FILE" in text
     assert "RESOLVED_SHARD_ID" in text

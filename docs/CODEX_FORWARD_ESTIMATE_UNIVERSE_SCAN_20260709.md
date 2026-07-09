@@ -36,6 +36,22 @@ artifact name, file sizes, and SHA-256 hashes for the snapshot/signals/log
 files. The index is restored from cache/GDrive and appended every run so future
 agents can locate and verify old snapshots without relying on chat history.
 
+Storage contract:
+
+- Durable archive path: `data_pit/events/earnings_estimates/`
+- Daily snapshot: `data_pit/events/earnings_estimates/estimates_YYYYMMDD.parquet`
+- Append-only index: `data_pit/events/earnings_estimates/archive_index.jsonl`
+- Derived latest PIT signals: `data_pit/events/earnings_revision_signals.parquet`
+- Run summary/manifest/logs: `outputs/earnings_estimates_daily/`
+- GitHub artifacts are temporary retention copies.
+- GitHub cache is a convenience restore path, not the source of truth.
+- Google Drive sync is the intended durable store for `data_pit/events/earnings_estimates/`
+  and `data_pit/events/earnings_revision_signals.parquet`.
+
+The data becomes historically usable only from its `available_from` fetch date
+forward. Current/free vendor snapshots cannot be backfilled into dates before
+the archive existed.
+
 The scheduled archive rotates through the checked-in broad-universe shard plan.
 Each scheduled run collects:
 
@@ -45,6 +61,20 @@ Each scheduled run collects:
 
 This avoids trying to pull all 858 tickers in one run while still building
 coverage across the full candidate universe over time.
+
+Scheduled runs also build an incremental add-on universe from restored archive
+history:
+
+- known-covered tickers are recollected so future 30/90-day revision deltas can
+  be measured
+- newly added current-universe tickers are collected immediately instead of
+  waiting for their shard date
+- the selected rotating shard continues slow coverage retry for currently
+  uncovered names
+
+This is the normal operating mode after the all-shards baseline run. It stores
+new forward snapshots only; it does not try to recreate missing historical
+estimate data.
 
 Manual catch-up is also available for the user's "cover most of the universe"
 request. The workflow input `catchup_all_universe_shards=true` combines every
