@@ -90,6 +90,41 @@ Expected contract:
 
 ## Ledger
 
+### 2026-07-09 - Finnhub replacement key smoke failed authorization
+
+- Agent: Codex
+- Branch/PR/run:
+  - local smoke only, no workflow run
+- Context:
+  - User supplied a candidate replacement for `FINNHUB_API_KEY` and asked to try
+    it.
+- Attempt:
+  - Temporarily set the candidate key in a local environment variable and ran
+    the forward estimate collector with `--vendor-order finnhub` on AAPL.
+- Result:
+  - Finnhub returned HTTP 401 Unauthorized for `/stock/eps-estimate`,
+    `/stock/revenue-estimate`, `/stock/earnings`, and `/stock/recommendation`.
+  - GitHub `FINNHUB_API_KEY` was restored to the previous repository secret
+    value after the failed smoke.
+- Failure or caveat:
+  - This is not merely lack of estimate entitlement; HTTP 401 indicates the
+    candidate key itself was not accepted by Finnhub.
+- Root cause:
+  - Candidate key invalid, inactive, or not provisioned for the API account.
+- Reusable lesson:
+  - Test replacement secrets with a one-ticker local or workflow smoke before
+    leaving them as the repo default.
+  - Do not run broad workflows with an unverified replacement key.
+- Next action:
+  - If a new Finnhub key is desired, verify it on a non-sensitive endpoint first,
+    then on estimate endpoints, then update the GitHub secret.
+- Do-not-repeat:
+  - Do not leave a failed replacement key installed in `FINNHUB_API_KEY`.
+  - Do not record the key value in this ledger, PR text, or artifacts.
+- Evidence files:
+  - `tools/collect_earnings_estimates_finnhub.py`
+  - `docs/AGENT_API_ACCESS_CONTRACT.md`
+
 ### 2026-07-09 - Forward estimate feed made usable with free vendor fallback
 
 - Agent: Codex
