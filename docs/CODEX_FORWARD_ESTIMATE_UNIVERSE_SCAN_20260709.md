@@ -164,3 +164,35 @@ Initial shard-0 dispatch:
 Interpretation: the broad-universe scan path works mechanically, but the
 current free FMP/Finnhub entitlement is not enough to support a broad
 estimate-revision alpha signal. Missing coverage remains neutral.
+
+## All-Shards Catch-Up Dispatch
+
+Manual all-shards catch-up after PR #256/#257:
+
+- GitHub Actions run: `29028159934`
+- head sha: `a086a2653fd8a4a2a0e927dc8a55572acd26fecd`
+- workflow conclusion: success
+- shard mode: `all_shards_catchup`
+- source shards: 18
+- tickers requested: 863
+- snapshot rows: 863
+- true forward-estimate rows: 13
+- estimate coverage: 1.506%
+- collector status: `blocked_partial_coverage`
+- collector errors: 2551
+- collector max errors: 5000
+- secret scan: clean; persisted vendor URL credentials were masked as
+  `apikey=***` and `token=***`
+- artifact: `earnings-estimates-daily-29028159934`
+
+Covered tickers with true forward-estimate rows:
+
+`AAPL`, `MSFT`, `NVDA`, `AMD`, `PLTR`, `TSLA`, `GOOGL`, `META`, `AMZN`,
+`TSM`, `ADBE`, `BA`, `BAC`.
+
+Interpretation: the all-universe path now works and did request essentially the
+whole checked-in candidate universe, but the free FMP/Finnhub entitlement is not
+usable as a broad estimate-revision alpha source today. This is a data coverage
+block, not a negative stock signal. Because this was the first all-universe
+snapshot day, 30/90-day revision deltas are still unavailable/zero; the archive
+must accumulate forward history before revision-change evidence can be scored.
