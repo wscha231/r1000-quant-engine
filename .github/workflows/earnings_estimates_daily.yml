@@ -151,6 +151,25 @@ jobs:
             --sleep-seconds 1.1 \
             2>&1 | tee outputs/earnings_estimates_daily/collector.log
 
+      - name: Build earnings estimate archive manifest
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/earnings_estimates_daily data_pit/events/earnings_estimates
+          python tools/build_earnings_estimate_archive_manifest.py \
+            --snapshot-dir data_pit/events/earnings_estimates \
+            --signals data_pit/events/earnings_revision_signals.parquet \
+            --summary outputs/earnings_estimates_daily/summary.json \
+            --collector-log outputs/earnings_estimates_daily/collector.log \
+            --manifest outputs/earnings_estimates_daily/archive_manifest.json \
+            --index data_pit/events/earnings_estimates/archive_index.jsonl \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --head-sha "${GITHUB_SHA}" \
+            --ref "${GITHUB_REF_NAME}" \
+            --workflow "${GITHUB_WORKFLOW}" \
+            --artifact-name "earnings-estimates-daily-${GITHUB_RUN_ID}"
+
       - name: Save earnings estimate archive cache
         if: always()
         uses: actions/cache/save@v4

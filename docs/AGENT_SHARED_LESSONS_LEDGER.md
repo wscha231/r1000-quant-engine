@@ -361,6 +361,57 @@ Expected contract:
   - `outputs/run287_multisource_fusion_broker_ab/` local untracked artifacts
   - `outputs/run287_w4_consensus_broker_ab_cash_carry/` local untracked artifacts
 
+### 2026-07-09 - Forward estimates must scan the broad universe, not only current holdings
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/universe-forward-estimate-scan-20260709`
+  - first shard workflow run `29015925250`
+- Context:
+  - User correctly challenged the current-holdings-only estimate scan and asked
+    whether every universe ticker should be analyzed before selection.
+- Attempt:
+  - Added a forward-only universe planning tool that reads broad ticker sources,
+    dedupes tickers, removes non-equity placeholders, and emits shard inputs for
+    `.github/workflows/earnings_estimates_daily.yml`.
+  - Added an archive manifest/index writer so every future estimate archive run
+    records file hashes, run metadata, coverage, and storage pointers.
+- Result:
+  - Broad scans can now be staged from tracked candidate sources such as
+    `research/entry_classifier_predictions.csv` rather than only the latest
+    Concentrated names.
+  - Shard 0 workflow completed successfully, but collector status was
+    `blocked_partial_coverage`: only 2 of 50 requested tickers had true forward
+    estimates (`AAPL`, `ADBE`).
+- Failure or caveat:
+  - Free API coverage can still be partial or blocked.
+  - Current estimate snapshots remain forward-only and cannot restate run287 7Y
+    CAGR/MDD.
+- Root cause:
+  - Holding-only scans create selection bias and miss replacement/missed-leader
+    candidates before the data can score them.
+- Reusable lesson:
+  - Build broad-universe coverage first, then rank confirmed names.
+  - Missing vendor coverage is neutral, not a sell/reject signal.
+  - Persist snapshot hashes and run ids outside chat so future agents can
+    reproduce which data was used.
+- Next action:
+  - Treat the current free-vendor estimate feed as coverage-blocked for broad
+    alpha use unless later shards or a higher-entitlement vendor materially
+    improve coverage.
+  - Continue shard measurement only as a data-coverage audit; do not rank
+    missing-coverage tickers negatively.
+- Do-not-repeat:
+  - Do not use a current snapshot archive as historical backtest evidence.
+  - Do not add Alpha Vantage back into the default vendor order before key
+    rotation is complete.
+- Evidence files:
+  - `tools/build_forward_estimate_universe_plan.py`
+  - `tools/build_earnings_estimate_archive_manifest.py`
+  - `tests/forward_estimate_universe_plan_smoke.py`
+  - `tests/earnings_estimate_archive_manifest_smoke.py`
+  - `docs/CODEX_FORWARD_ESTIMATE_UNIVERSE_SCAN_20260709.md`
+
 ### 2026-07-06 - run287 baseline and measurement discipline
 
 - Agent: Codex plus external review synthesis
