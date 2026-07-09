@@ -838,6 +838,7 @@ def main() -> int:
             "reason": "no_tickers",
             "research_only": True,
             "forward_only": True,
+            "max_errors": args.max_errors,
         }
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -878,6 +879,7 @@ def main() -> int:
                 "research_only": True,
                 "forward_only": True,
                 "vendor_order": vendor_order,
+                "max_errors": args.max_errors,
             }
             write_json(summary_path, payload)
             print(json.dumps(payload, indent=2, sort_keys=True))
@@ -914,6 +916,7 @@ def main() -> int:
             "research_only": True,
             "forward_only": True,
             "vendor_order": vendor_order,
+            "max_errors": args.max_errors,
         }
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -964,6 +967,7 @@ def main() -> int:
         "vendor_estimate_access": vendor_estimate_access,
         "vendor_blocked_errors": vendor_blocked_errors,
         "vendor_order": vendor_order,
+        "max_errors": args.max_errors,
         "fetch_sources": sorted(snapshot["fetch_source"].dropna().astype(str).unique().tolist()) if "fetch_source" in snapshot.columns else [],
         "has_forward_estimate_rows": has_forward_estimate_rows,
         "snapshot_path": str(snapshot_path),
