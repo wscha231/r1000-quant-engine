@@ -34,6 +34,7 @@ def _signals() -> pd.DataFrame:
                 "estimate_revision_confirmed": 1,
                 "estimate_revision_replacement_gate_pass": 1,
                 "estimate_revision_future_winner_multiplier": 1.03,
+                "has_forward_estimate": 1,
             },
             {
                 "ticker": "BBB",
@@ -44,6 +45,7 @@ def _signals() -> pd.DataFrame:
                 "estimate_revision_confirmed": 1,
                 "estimate_revision_replacement_gate_pass": 1,
                 "estimate_revision_future_winner_multiplier": 1.05,
+                "has_forward_estimate": 1,
             },
         ]
     )
@@ -74,8 +76,32 @@ def test_empty_archive_is_neutral() -> None:
     assert out["portfolio_future_winner_engine_score"].tolist() == [1.0, 1.0]
 
 
+def test_missing_forward_estimate_signal_is_neutral() -> None:
+    signals = pd.DataFrame(
+        [
+            {
+                "ticker": "AAA",
+                "available_from": "2026-07-08",
+                "est_eps_fy1": 0.0,
+                "est_eps_revision_breadth": 0.90,
+                "est_dispersion_change_30d": -0.10,
+                "estimate_revision_confirmed": 1,
+                "estimate_revision_replacement_gate_pass": 1,
+                "estimate_revision_future_winner_multiplier": 1.05,
+                "has_forward_estimate": 0,
+            }
+        ]
+    )
+    out, summary = apply_estimate_revision_confirmation(_scored(), signals, decision_date="2026-07-09", enabled=True)
+    assert summary["selection_change_count"] == 0
+    aaa = out[out["ticker"].eq("AAA")].iloc[0]
+    assert aaa["estimate_revision_replacement_gate_pass"] == 0
+    assert aaa["portfolio_future_winner_engine_score"] == 1.0
+
+
 if __name__ == "__main__":
     test_confirmation_default_off_changes_nothing()
     test_confirmation_uses_only_available_latest_signals()
     test_empty_archive_is_neutral()
+    test_missing_forward_estimate_signal_is_neutral()
     print("estimate_confirm_selection_smoke: PASS")

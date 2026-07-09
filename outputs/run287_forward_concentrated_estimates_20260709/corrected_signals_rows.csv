@@ -1,0 +1,6 @@
+ticker,has_forward_estimate,estimate_revision_confirmed,estimate_revision_replacement_gate_pass,estimate_revision_future_winner_multiplier,est_eps_revision_30d,est_eps_revision_90d,est_eps_revision_breadth,est_rev_revision_30d,est_dispersion_change_30d,available_from
+AMD,1,1,1,1.05,0.0,0.0,1.0,0.0,0.0,2026-07-09
+MU,0,0,0,1.0,0.0,0.0,0.9615384615384616,0.0,0.0,2026-07-09
+SNDK,0,0,0,1.0,0.0,0.0,1.0,0.0,0.0,2026-07-09
+TXN,0,0,0,1.0,0.0,0.0,0.7272727272727273,0.0,0.0,2026-07-09
+UMC,0,0,0,1.0,0.0,0.0,0.5555555555555556,0.0,0.0,2026-07-09

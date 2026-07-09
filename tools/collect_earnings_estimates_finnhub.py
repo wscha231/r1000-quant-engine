@@ -392,6 +392,7 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
         "earnings_surprise_last",
         "est_eps_revision_breadth",
         "surprise_streak",
+        "has_forward_estimate",
     ]:
         if col not in d.columns:
             d[col] = 0.0
@@ -418,10 +419,17 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
                     "est_dispersion_change_30d": dispersion - prior_dispersion_30 if pd.notna(prior_dispersion_30) else 0.0,
                 }
             )
-            confirmed = out["est_eps_revision_breadth"] > 0 and out["est_dispersion_change_30d"] <= 0
+            has_forward_estimate = safe_float(out.get("has_forward_estimate"), 0.0) > 0
+            confirmed = (
+                has_forward_estimate
+                and out["est_eps_revision_breadth"] > 0
+                and out["est_dispersion_change_30d"] <= 0
+            )
             out["estimate_revision_confirmed"] = int(confirmed)
             out["estimate_revision_replacement_gate_pass"] = int(confirmed)
-            mult = 1.0 + max(-0.05, min(0.05, safe_float(out["est_eps_revision_breadth"], 0.0) * 0.05))
+            mult = 1.0
+            if has_forward_estimate:
+                mult += max(-0.05, min(0.05, safe_float(out["est_eps_revision_breadth"], 0.0) * 0.05))
             out["estimate_revision_future_winner_multiplier"] = float(mult)
             rows.append(out)
     out_df = pd.DataFrame(rows)
@@ -493,7 +501,11 @@ def apply_estimate_revision_confirmation(
     if latest.empty:
         summary["reason"] = "no_available_signals"
         return out, summary
-    keep_cols = ["ticker", *[c for c in PHASE18_ESTIMATE_REVISION_COLUMNS if c in latest.columns]]
+    keep_cols = [
+        "ticker",
+        *[c for c in PHASE18_ESTIMATE_REVISION_COLUMNS if c in latest.columns],
+        *[c for c in ["has_forward_estimate"] if c in latest.columns],
+    ]
     merged = out.merge(latest[keep_cols], on="ticker", how="left", suffixes=("", "_estimate_signal"))
     for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
         signal_col = f"{col}_estimate_signal"
@@ -502,10 +514,17 @@ def apply_estimate_revision_confirmation(
             merged = merged.drop(columns=[signal_col])
     breadth = pd.to_numeric(merged["est_eps_revision_breadth"], errors="coerce").fillna(0.0)
     dispersion_change = pd.to_numeric(merged["est_dispersion_change_30d"], errors="coerce").fillna(0.0)
-    confirmed = (breadth > 0.0) & (dispersion_change <= 0.0)
+    if "has_forward_estimate" in merged.columns:
+        has_forward_estimate = pd.to_numeric(merged["has_forward_estimate"], errors="coerce").fillna(0.0).gt(0.0)
+    else:
+        has_forward_estimate = pd.Series(True, index=merged.index)
+    confirmed = has_forward_estimate & (breadth > 0.0) & (dispersion_change <= 0.0)
     merged["estimate_revision_confirmed"] = confirmed.astype(int)
     merged["estimate_revision_replacement_gate_pass"] = confirmed.astype(int)
-    multiplier = 1.0 + (breadth * multiplier_cap).clip(lower=-multiplier_cap, upper=multiplier_cap)
+    multiplier = 1.0 + (breadth.where(has_forward_estimate, 0.0) * multiplier_cap).clip(
+        lower=-multiplier_cap,
+        upper=multiplier_cap,
+    )
     merged["estimate_revision_future_winner_multiplier"] = multiplier
     changed = int(confirmed.sum())
     if future_winner_score_col in merged.columns:
