@@ -90,6 +90,47 @@ Expected contract:
 
 ## Ledger
 
+### 2026-07-09 - Default FMP/Finnhub estimate smoke succeeded after AV pause
+
+- Agent: Codex
+- Branch/PR/run:
+  - workflow run `28994832444`
+- Context:
+  - After Alpha Vantage was paused pending key rotation, the user asked Codex to
+    run the safe estimate workflow.
+- Attempt:
+  - Ran `earnings_estimates_daily.yml` on `master` for AAPL with
+    `ticker_limit=1` and the default vendor order.
+- Result:
+  - Workflow conclusion was `success`.
+  - `vendor_order=["fmp","finnhub"]`.
+  - `fetch_sources=["fmp"]`.
+  - `status=completed`, `estimate_coverage_ratio=1.0`, and
+    `has_forward_estimate_rows=1`.
+  - `backtest_acceptance_allowed=false`,
+    `production_activation_allowed=false`, and `live_trading_enabled=false`.
+  - Artifact scan found no raw key pattern in `summary.json` or
+    `collector.log`.
+- Failure or caveat:
+  - This is a forward-only archive smoke, not historical CAGR/MDD evidence.
+  - Alpha Vantage remains paused until key rotation is completed.
+- Root cause:
+  - FMP can supply at least one usable forward estimate row under the current
+    free-vendor setup.
+- Reusable lesson:
+  - The default post-pause path can continue collecting forward archive evidence
+    without calling Alpha Vantage.
+- Next action:
+  - Rotate `ALPHAVANTAGE_API_KEY` before any Alpha-Vantage-only smoke or
+    `LISTING_STATUS` work.
+- Do-not-repeat:
+  - Do not treat this run as 7Y backtest acceptance.
+  - Do not run broad Alpha Vantage jobs before rotation.
+- Evidence files:
+  - `.github/workflows/earnings_estimates_daily.yml`
+  - `outputs/earnings_estimates_daily/summary.json` from run `28994832444`
+  - `outputs/earnings_estimates_daily/collector.log` from run `28994832444`
+
 ### 2026-07-09 - Alpha Vantage calls paused pending key rotation
 
 - Agent: Codex
