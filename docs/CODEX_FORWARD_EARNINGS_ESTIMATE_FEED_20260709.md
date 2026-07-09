@@ -130,6 +130,11 @@ blocked data feed and the strategy evidence does not change. If a free vendor
 returns rows, those rows are stamped with `available_from=fetch_date` and can be
 used only for forward paper-ledger evidence until enough PIT history accumulates.
 
+Partial free-vendor coverage is allowed as an archive success when at least 80%
+of requested tickers receive forward estimates. Missing names stay neutral and
+are reported through `partial_vendor_errors_warn_only`, `estimate_coverage_ratio`,
+and `has_forward_estimate_rows`.
+
 ## Validation
 
 - `tests/collect_earnings_estimates_smoke.py`

@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -21,6 +22,7 @@ from tools.collect_earnings_estimates_finnhub import (  # noqa: E402
     sanitize_error_message,
     vendor_estimate_access_from_errors,
 )
+import tools.collect_earnings_estimates_finnhub as collector  # noqa: E402
 
 
 def _write_fixture(root: Path, ticker: str = "AAA") -> None:
@@ -181,9 +183,75 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
         assert sig["available_from"].dt.strftime("%Y-%m-%d").iloc[0] == "2026-07-09"
 
 
+def test_partial_free_vendor_success_is_not_global_block() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+
+        def fake_collect_live_snapshot(*_: Any, **__: Any) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+            rows = []
+            for ticker, has_estimate in [("AAA", 1), ("BBB", 1), ("CCC", 1), ("DDD", 1), ("EEE", 0)]:
+                rows.append(
+                    {
+                        "ticker": ticker,
+                        "as_of_date": "2026-07-09",
+                        "available_from": "2026-07-09",
+                        "fetch_source": "fmp" if has_estimate else "finnhub",
+                        "est_eps_fy1": 1.0 if has_estimate else 0.0,
+                        "est_eps_fy2": 1.1 if has_estimate else 0.0,
+                        "est_rev_fy1": 100.0 if has_estimate else 0.0,
+                        "est_dispersion": 0.1,
+                        "earnings_surprise_last": 0.0,
+                        "est_eps_revision_breadth": 0.0,
+                        "surprise_streak": 0,
+                        "has_forward_estimate": has_estimate,
+                        "vendor_estimate_access": bool(has_estimate),
+                    }
+                )
+            return pd.DataFrame(rows), [
+                {
+                    "ticker": "EEE",
+                    "vendor": "fmp",
+                    "endpoint": "/stable/analyst-estimates",
+                    "status_code": 402,
+                    "vendor_entitlement_blocked": True,
+                    "error": "402 Client Error: Payment Required for url: https://financialmodelingprep.com/stable/analyst-estimates?symbol=EEE&apikey=***",
+                }
+            ]
+
+        old_collect = collector.collect_live_snapshot
+        old_argv = sys.argv[:]
+        try:
+            collector.collect_live_snapshot = fake_collect_live_snapshot
+            sys.argv = [
+                "collect_earnings_estimates_finnhub.py",
+                "--tickers",
+                "AAA,BBB,CCC,DDD,EEE",
+                "--api-key",
+                "dummy",
+                "--snapshot-dir",
+                str(root / "snapshots"),
+                "--signals-output",
+                str(root / "signals.parquet"),
+                "--summary",
+                str(root / "summary.json"),
+            ]
+            assert collector.main() == 0
+        finally:
+            collector.collect_live_snapshot = old_collect
+            sys.argv = old_argv
+        payload = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+        assert payload["status"] == "completed", payload
+        assert payload["reason"] == "partial_vendor_errors_warn_only", payload
+        assert payload["has_forward_estimate_rows"] == 4, payload
+        assert payload["estimate_coverage_ratio"] == 0.8, payload
+        assert payload["vendor_estimate_access"] is True, payload
+        assert payload["vendor_blocked_errors"] is True, payload
+
+
 if __name__ == "__main__":
     test_parse_snapshot_stamps_fetch_date_not_fiscal_period()
     test_vendor_entitlement_errors_are_redacted_and_blocking()
     test_free_vendor_payloads_normalize_to_internal_schema()
     test_cli_fixture_writes_snapshot_and_signals()
+    test_partial_free_vendor_success_is_not_global_block()
     print("collect_earnings_estimates_smoke: PASS")

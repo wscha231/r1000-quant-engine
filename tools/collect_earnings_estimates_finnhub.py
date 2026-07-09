@@ -572,7 +572,7 @@ def fetch_json_optional(
                 "ticker": ticker,
                 "endpoint": endpoint,
                 "status_code": status_code,
-                "vendor_entitlement_blocked": bool(status_code in {401, 403} and endpoint in ESTIMATE_ENDPOINTS),
+                "vendor_entitlement_blocked": bool(status_code in {401, 402, 403} and endpoint in ESTIMATE_ENDPOINTS),
                 "error": sanitize_error_message(exc),
             }
         )
@@ -592,6 +592,10 @@ def fetch_json_optional(
 
 def vendor_estimate_access_from_errors(errors: list[dict[str, Any]]) -> bool:
     return not any(bool(e.get("vendor_entitlement_blocked")) for e in errors)
+
+
+def estimate_vendor_blocked_by_errors(errors: list[dict[str, Any]]) -> bool:
+    return any(bool(e.get("vendor_entitlement_blocked")) for e in errors)
 
 
 def fetch_alphavantage_payloads(
@@ -632,7 +636,7 @@ def fetch_alphavantage_payloads(
                 "vendor": "alphavantage",
                 "endpoint": "EARNINGS_ESTIMATES",
                 "status_code": status_code,
-                "vendor_entitlement_blocked": bool(status_code in {401, 403}),
+                "vendor_entitlement_blocked": bool(status_code in {401, 402, 403}),
                 "error": sanitize_error_message(exc),
             }
         )
@@ -675,7 +679,7 @@ def fetch_fmp_payloads(
                 "vendor": "fmp",
                 "endpoint": "/stable/analyst-estimates",
                 "status_code": status_code,
-                "vendor_entitlement_blocked": bool(status_code in {401, 403}),
+                "vendor_entitlement_blocked": bool(status_code in {401, 402, 403}),
                 "error": sanitize_error_message(exc),
             }
         )
@@ -867,10 +871,11 @@ def main() -> int:
             max_errors=args.max_errors,
         )
     vendor_order = clean_vendor_order(args.vendor_order)
+    vendor_blocked_errors = estimate_vendor_blocked_by_errors(errors)
     vendor_estimate_access = vendor_estimate_access_from_errors(errors)
     if snapshot.empty:
         status = "blocked_vendor_entitlement" if not vendor_estimate_access else "blocked_partial_coverage"
-        reason = "finnhub_estimate_endpoint_forbidden" if not vendor_estimate_access else "no_snapshot_rows"
+        reason = "estimate_vendor_endpoint_forbidden_or_payment_required" if not vendor_estimate_access else "no_snapshot_rows"
         payload = {
             "schema_version": SCHEMA_VERSION,
             "generated_at_utc": utc_now(),
@@ -880,6 +885,7 @@ def main() -> int:
             "error_count": len(errors),
             "errors": errors[:10],
             "vendor_estimate_access": vendor_estimate_access,
+            "vendor_blocked_errors": vendor_blocked_errors,
             "backtest_acceptance_allowed": False,
             "production_activation_allowed": False,
             "live_trading_enabled": False,
@@ -898,16 +904,25 @@ def main() -> int:
         signals_output.parent.mkdir(parents=True, exist_ok=True)
         signals.to_parquet(signals_output, index=False)
     coverage_ratio = len(snapshot) / max(1, len(tickers))
+    has_forward_estimate_rows = (
+        int(pd.to_numeric(snapshot["has_forward_estimate"], errors="coerce").fillna(0).sum())
+        if "has_forward_estimate" in snapshot.columns
+        else 0
+    )
+    estimate_coverage_ratio = has_forward_estimate_rows / max(1, len(tickers))
+    vendor_estimate_access = has_forward_estimate_rows > 0
     status = (
         "completed"
-        if coverage_ratio >= 0.8 and vendor_estimate_access
+        if estimate_coverage_ratio >= 0.8
         else "blocked_vendor_entitlement"
-        if not vendor_estimate_access
+        if has_forward_estimate_rows == 0 and vendor_blocked_errors
         else "blocked_partial_coverage"
     )
     reason = ""
-    if status == "blocked_vendor_entitlement":
-        reason = "finnhub_estimate_endpoint_forbidden"
+    if status == "completed" and errors:
+        reason = "partial_vendor_errors_warn_only"
+    elif status == "blocked_vendor_entitlement":
+        reason = "estimate_vendor_endpoint_forbidden_or_payment_required"
     elif status == "blocked_partial_coverage":
         reason = "coverage_below_80pct_warn_only"
     payload = {
@@ -923,10 +938,12 @@ def main() -> int:
         "ticker_count_requested": len(tickers),
         "snapshot_rows": int(len(snapshot)),
         "coverage_ratio": coverage_ratio,
+        "estimate_coverage_ratio": estimate_coverage_ratio,
         "vendor_estimate_access": vendor_estimate_access,
+        "vendor_blocked_errors": vendor_blocked_errors,
         "vendor_order": vendor_order,
         "fetch_sources": sorted(snapshot["fetch_source"].dropna().astype(str).unique().tolist()) if "fetch_source" in snapshot.columns else [],
-        "has_forward_estimate_rows": int(snapshot["has_forward_estimate"].sum()) if "has_forward_estimate" in snapshot.columns else 0,
+        "has_forward_estimate_rows": has_forward_estimate_rows,
         "snapshot_path": str(snapshot_path),
         "signals_output": str(signals_output),
         "feature_summary": feature_summary,
