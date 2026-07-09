@@ -13,6 +13,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.collect_earnings_estimates_finnhub import (  # noqa: E402
+    alphavantage_to_payloads,
+    clean_vendor_order,
+    fmp_to_payloads,
     main,
     parse_snapshot_row,
     sanitize_error_message,
@@ -74,6 +77,9 @@ def test_vendor_entitlement_errors_are_redacted_and_blocking() -> None:
     clean = sanitize_error_message(raw)
     assert "secret-key" not in clean
     assert "token=***" in clean
+    av_clean = sanitize_error_message("https://www.alphavantage.co/query?function=EARNINGS_ESTIMATES&symbol=AAPL&apikey=alpha-secret")
+    assert "alpha-secret" not in av_clean
+    assert "apikey=***" in av_clean
     errors = [
         {
             "ticker": "AAPL",
@@ -96,6 +102,45 @@ def test_vendor_entitlement_errors_are_redacted_and_blocking() -> None:
     )
     assert row["vendor_estimate_access"] is False
     assert row["has_forward_estimate"] == 0
+
+
+def test_free_vendor_payloads_normalize_to_internal_schema() -> None:
+    av_eps, av_rev = alphavantage_to_payloads(
+        {
+            "annualEarningsEstimates": [
+                {
+                    "fiscalDateEnding": "2026-12-31",
+                    "epsEstimateAverage": "4.20",
+                    "epsEstimateHigh": "4.50",
+                    "epsEstimateLow": "3.90",
+                    "epsEstimateAnalystCount": "12",
+                    "revenueEstimateAverage": "1000000000",
+                },
+                {
+                    "fiscalDateEnding": "2027-12-31",
+                    "epsEstimateAverage": "5.00",
+                    "revenueEstimateAverage": "1200000000",
+                },
+            ]
+        }
+    )
+    assert av_eps["data"][0]["avg"] == "4.20"
+    assert av_rev["data"][0]["avg"] == "1000000000"
+    fmp_eps, fmp_rev = fmp_to_payloads(
+        [
+            {
+                "date": "2026-12-31",
+                "estimatedEpsAvg": 4.3,
+                "estimatedEpsHigh": 4.8,
+                "estimatedEpsLow": 3.8,
+                "numberAnalystsEstimatedEps": 11,
+                "estimatedRevenueAvg": 1010000000,
+            }
+        ]
+    )
+    assert fmp_eps["data"][0]["avg"] == 4.3
+    assert fmp_rev["data"][0]["avg"] == 1010000000
+    assert clean_vendor_order("av,financialmodelingprep,finnhub,alpha") == ["alphavantage", "fmp", "finnhub"]
 
 
 def test_cli_fixture_writes_snapshot_and_signals() -> None:
@@ -139,5 +184,6 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
 if __name__ == "__main__":
     test_parse_snapshot_stamps_fetch_date_not_fiscal_period()
     test_vendor_entitlement_errors_are_redacted_and_blocking()
+    test_free_vendor_payloads_normalize_to_internal_schema()
     test_cli_fixture_writes_snapshot_and_signals()
     print("collect_earnings_estimates_smoke: PASS")

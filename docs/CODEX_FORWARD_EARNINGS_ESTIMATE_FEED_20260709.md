@@ -19,6 +19,8 @@ Implemented:
 - `.github/workflows/earnings_estimates_daily.yml`
 - `PHASE18_ESTIMATE_REVISION_COLUMNS`
 - `PHASE_ESTIMATE_REVISION_CONFIRM_ENABLED=false` by default
+- encrypted GitHub secrets for `ALPHAVANTAGE_API_KEY` and `FMP_API_KEY`
+- free-vendor fallback order: Alpha Vantage -> FMP -> Finnhub
 - fixture-based collector and feature smokes
 - backtest-neutrality static smoke
 - latest-confirmation default-OFF smoke
@@ -89,7 +91,7 @@ referenced by the backtest pipeline.
 dispatch. It:
 
 - restores prior archive from cache/GDrive when available
-- calls Finnhub using `FINNHUB_API_KEY`
+- calls estimate vendors using encrypted GitHub secrets
 - writes the daily snapshot and rolling signals
 - uploads artifacts
 - syncs to Google Drive when configured
@@ -100,9 +102,15 @@ manually through `tickers`, `universe_file`, and `ticker_limit`.
 ## Vendor Entitlement Handling
 
 The first manual run on `master` reached GitHub Actions and proved the workflow
-registration path, but Finnhub returned HTTP 403 for `/stock/eps-estimate` on
-the configured key. That means the current key is valid enough to call Finnhub
-but is not entitled for the true forward-estimate endpoint.
+registration path, but Finnhub returned HTTP 403 for `/stock/eps-estimate` and
+`/stock/revenue-estimate` on the configured key. That means the current key is
+valid enough to call Finnhub but is not entitled for the true forward-estimate
+endpoint.
+
+Alpha Vantage and FMP keys are stored as GitHub encrypted repository secrets and
+the collector now tries them before Finnhub. This is still a forward-only
+archive; current vendor snapshots are never retrofitted into historical
+backtests.
 
 The collector treats this as a data-entitlement block, not a strategy result:
 
@@ -116,6 +124,11 @@ The collector treats this as a data-entitlement block, not a strategy result:
 API tokens are redacted before any error string is written to artifacts or
 Google Drive. A blocked entitlement run exits successfully so scheduled jobs do
 not repeatedly fail while still preserving a loud machine-readable summary.
+
+If all free vendors are unavailable or rate-limited, the archive remains a
+blocked data feed and the strategy evidence does not change. If a free vendor
+returns rows, those rows are stamped with `available_from=fetch_date` and can be
+used only for forward paper-ledger evidence until enough PIT history accumulates.
 
 ## Validation
 

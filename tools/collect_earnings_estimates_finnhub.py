@@ -31,6 +31,8 @@ DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
 DEFAULT_SUMMARY = "outputs/earnings_estimates_daily/summary.json"
 FINNHUB_BASE = "https://finnhub.io/api/v1"
+ALPHAVANTAGE_BASE = "https://www.alphavantage.co/query"
+FMP_BASE = "https://financialmodelingprep.com"
 ESTIMATE_ENDPOINTS = {"/stock/eps-estimate", "/stock/revenue-estimate"}
 
 
@@ -68,7 +70,34 @@ def sanitize_error_message(value: Any) -> str:
     file contents. Never write vendor keys into summary JSON or collector logs.
     """
     text = str(value)
-    return re.sub(r"([?&]token=)[^&\s]+", r"\1***", text)[:240]
+    text = re.sub(r"([?&]token=)[^&\s]+", r"\1***", text)
+    text = re.sub(r"([?&]apikey=)[^&\s]+", r"\1***", text)
+    return text[:240]
+
+
+def clean_vendor_order(value: str | None) -> list[str]:
+    raw = value or "alphavantage,fmp,finnhub"
+    out = []
+    for item in raw.split(","):
+        vendor = item.strip().lower().replace("_", "")
+        if vendor in {"av", "alpha", "alphavantage"}:
+            vendor = "alphavantage"
+        if vendor in {"financialmodelingprep"}:
+            vendor = "fmp"
+        if vendor in {"finnhub", "alphavantage", "fmp"} and vendor not in out:
+            out.append(vendor)
+    return out or ["alphavantage", "fmp", "finnhub"]
+
+
+def first_present(row: dict[str, Any], names: list[str], default: Any = None) -> Any:
+    lowered = {str(k).lower(): v for k, v in row.items()}
+    for name in names:
+        if name in row and row.get(name) not in [None, ""]:
+            return row.get(name)
+        lname = name.lower()
+        if lname in lowered and lowered[lname] not in [None, ""]:
+            return lowered[lname]
+    return default
 
 
 def parse_tickers(values: str | None, universe_file: str | None = None, limit: int = 0) -> list[str]:
@@ -142,6 +171,141 @@ def latest_recommendation_record(payload: Any) -> dict[str, Any]:
     return sorted(rows, key=lambda x: str(x.get("period") or ""))[-1]
 
 
+def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Normalize Alpha Vantage EARNINGS_ESTIMATES into Finnhub-like payloads."""
+    if not isinstance(payload, dict):
+        return {}, {}
+    if payload.get("Error Message") or payload.get("Information") or payload.get("Note"):
+        return {}, {}
+    annual = payload.get("annualEarningsEstimates") or payload.get("annualReports") or []
+    rows = [x for x in annual if isinstance(x, dict)] if isinstance(annual, list) else []
+    rows = sorted(rows, key=lambda x: str(first_present(x, ["fiscalDateEnding", "period", "date"], "")))
+    if not rows:
+        quarterly = payload.get("quarterlyEarningsEstimates") or payload.get("quarterlyReports") or []
+        rows = [x for x in quarterly if isinstance(x, dict)] if isinstance(quarterly, list) else []
+        rows = sorted(rows, key=lambda x: str(first_present(x, ["fiscalDateEnding", "period", "date"], "")))
+    eps_rows: list[dict[str, Any]] = []
+    rev_rows: list[dict[str, Any]] = []
+    for row in rows[:2]:
+        period = str(first_present(row, ["fiscalDateEnding", "period", "date"], ""))
+        eps_rows.append(
+            {
+                "period": period,
+                "avg": first_present(
+                    row,
+                    [
+                        "epsEstimateAverage",
+                        "epsEstimatedAverage",
+                        "estimatedEPSAvg",
+                        "estimatedEpsAvg",
+                        "estimateAverage",
+                    ],
+                ),
+                "high": first_present(row, ["epsEstimateHigh", "estimatedEPSHigh", "estimatedEpsHigh", "estimateHigh"]),
+                "low": first_present(row, ["epsEstimateLow", "estimatedEPSLow", "estimatedEpsLow", "estimateLow"]),
+                "numberAnalysts": first_present(
+                    row,
+                    ["epsEstimateAnalystCount", "epsEstimateNumberOfAnalysts", "numberAnalystsEstimatedEps", "analystCount"],
+                    0,
+                ),
+            }
+        )
+        rev_rows.append(
+            {
+                "period": period,
+                "avg": first_present(
+                    row,
+                    [
+                        "revenueEstimateAverage",
+                        "revenueEstimatedAverage",
+                        "estimatedRevenueAvg",
+                        "estimatedRevenueAverage",
+                    ],
+                ),
+                "high": first_present(row, ["revenueEstimateHigh", "estimatedRevenueHigh"]),
+                "low": first_present(row, ["revenueEstimateLow", "estimatedRevenueLow"]),
+                "numberAnalysts": first_present(
+                    row,
+                    [
+                        "revenueEstimateAnalystCount",
+                        "revenueEstimateNumberOfAnalysts",
+                        "numberAnalystsEstimatedRevenue",
+                        "analystCount",
+                    ],
+                    0,
+                ),
+            }
+        )
+    eps_rows = [x for x in eps_rows if x.get("avg") not in [None, ""]]
+    rev_rows = [x for x in rev_rows if x.get("avg") not in [None, ""]]
+    return {"data": eps_rows}, {"data": rev_rows}
+
+
+def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Normalize FMP stable analyst-estimates responses into Finnhub-like payloads."""
+    if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        data = payload.get("data")
+    else:
+        data = payload
+    rows = [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+    rows = sorted(rows, key=lambda x: str(first_present(x, ["date", "fiscalDateEnding", "period"], "")))
+    eps_rows: list[dict[str, Any]] = []
+    rev_rows: list[dict[str, Any]] = []
+    for row in rows[:2]:
+        period = str(first_present(row, ["date", "fiscalDateEnding", "period"], ""))
+        eps_rows.append(
+            {
+                "period": period,
+                "avg": first_present(
+                    row,
+                    [
+                        "estimatedEpsAvg",
+                        "estimatedEPSAvg",
+                        "estimatedEpsAverage",
+                        "epsAvg",
+                        "epsAverage",
+                    ],
+                ),
+                "high": first_present(row, ["estimatedEpsHigh", "estimatedEPSHigh", "epsHigh"]),
+                "low": first_present(row, ["estimatedEpsLow", "estimatedEPSLow", "epsLow"]),
+                "numberAnalysts": first_present(
+                    row,
+                    ["numberAnalystsEstimatedEps", "numberAnalystEstimatedEps", "numberAnalysts", "analystCount"],
+                    0,
+                ),
+            }
+        )
+        rev_rows.append(
+            {
+                "period": period,
+                "avg": first_present(
+                    row,
+                    [
+                        "estimatedRevenueAvg",
+                        "estimatedRevenueAverage",
+                        "revenueAvg",
+                        "revenueAverage",
+                    ],
+                ),
+                "high": first_present(row, ["estimatedRevenueHigh", "revenueHigh"]),
+                "low": first_present(row, ["estimatedRevenueLow", "revenueLow"]),
+                "numberAnalysts": first_present(
+                    row,
+                    [
+                        "numberAnalystsEstimatedRevenue",
+                        "numberAnalystEstimatedRevenue",
+                        "numberAnalysts",
+                        "analystCount",
+                    ],
+                    0,
+                ),
+            }
+        )
+    eps_rows = [x for x in eps_rows if x.get("avg") not in [None, ""]]
+    rev_rows = [x for x in rev_rows if x.get("avg") not in [None, ""]]
+    return {"data": eps_rows}, {"data": rev_rows}
+
+
 def parse_snapshot_row(
     ticker: str,
     *,
@@ -152,6 +316,7 @@ def parse_snapshot_row(
     recommendation_payload: Any,
     eps_estimate_access: bool = True,
     revenue_estimate_access: bool = True,
+    fetch_source: str = "finnhub",
 ) -> dict[str, Any]:
     eps1, eps2 = first_two_estimates(eps_payload)
     rev1 = latest_estimate_record(revenue_payload)
@@ -172,7 +337,7 @@ def parse_snapshot_row(
         "ticker": ticker.upper(),
         "as_of_date": fetch_date.date().isoformat(),
         "available_from": fetch_date.date().isoformat(),
-        "fetch_source": "finnhub",
+        "fetch_source": fetch_source,
         "eps_estimate_access": bool(eps_estimate_access),
         "revenue_estimate_access": bool(revenue_estimate_access),
         "vendor_estimate_access": bool(eps_estimate_access and revenue_estimate_access),
@@ -375,6 +540,20 @@ def fetch_json(session: requests.Session, endpoint: str, ticker: str, api_key: s
     return response.json()
 
 
+def fetch_url_json(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any],
+    *,
+    sleep_seconds: float,
+) -> Any:
+    response = session.get(url, params=params, timeout=20)
+    if sleep_seconds:
+        time.sleep(sleep_seconds)
+    response.raise_for_status()
+    return response.json()
+
+
 def fetch_json_optional(
     session: requests.Session,
     endpoint: str,
@@ -415,10 +594,146 @@ def vendor_estimate_access_from_errors(errors: list[dict[str, Any]]) -> bool:
     return not any(bool(e.get("vendor_entitlement_blocked")) for e in errors)
 
 
+def fetch_alphavantage_payloads(
+    session: requests.Session,
+    ticker: str,
+    api_key: str,
+    *,
+    sleep_seconds: float,
+    errors: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        payload = fetch_url_json(
+            session,
+            ALPHAVANTAGE_BASE,
+            {"function": "EARNINGS_ESTIMATES", "symbol": ticker, "apikey": api_key},
+            sleep_seconds=sleep_seconds,
+        )
+        eps, rev = alphavantage_to_payloads(payload)
+        if not (eps.get("data") or rev.get("data")):
+            info = payload.get("Information") or payload.get("Note") or payload.get("Error Message") if isinstance(payload, dict) else ""
+            if info:
+                errors.append(
+                    {
+                        "ticker": ticker,
+                        "vendor": "alphavantage",
+                        "endpoint": "EARNINGS_ESTIMATES",
+                        "status_code": 200,
+                        "vendor_entitlement_blocked": False,
+                        "error": sanitize_error_message(info),
+                    }
+                )
+        return eps, rev
+    except requests.HTTPError as exc:
+        status_code = int(exc.response.status_code) if exc.response is not None else 0
+        errors.append(
+            {
+                "ticker": ticker,
+                "vendor": "alphavantage",
+                "endpoint": "EARNINGS_ESTIMATES",
+                "status_code": status_code,
+                "vendor_entitlement_blocked": bool(status_code in {401, 403}),
+                "error": sanitize_error_message(exc),
+            }
+        )
+    except Exception as exc:
+        errors.append(
+            {
+                "ticker": ticker,
+                "vendor": "alphavantage",
+                "endpoint": "EARNINGS_ESTIMATES",
+                "status_code": 0,
+                "vendor_entitlement_blocked": False,
+                "error": sanitize_error_message(exc),
+            }
+        )
+    return {}, {}
+
+
+def fetch_fmp_payloads(
+    session: requests.Session,
+    ticker: str,
+    api_key: str,
+    *,
+    sleep_seconds: float,
+    errors: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        payload = fetch_url_json(
+            session,
+            f"{FMP_BASE}/stable/analyst-estimates",
+            {"symbol": ticker, "period": "annual", "page": 0, "limit": 10, "apikey": api_key},
+            sleep_seconds=sleep_seconds,
+        )
+        eps, rev = fmp_to_payloads(payload)
+        return eps, rev
+    except requests.HTTPError as exc:
+        status_code = int(exc.response.status_code) if exc.response is not None else 0
+        errors.append(
+            {
+                "ticker": ticker,
+                "vendor": "fmp",
+                "endpoint": "/stable/analyst-estimates",
+                "status_code": status_code,
+                "vendor_entitlement_blocked": bool(status_code in {401, 403}),
+                "error": sanitize_error_message(exc),
+            }
+        )
+    except Exception as exc:
+        errors.append(
+            {
+                "ticker": ticker,
+                "vendor": "fmp",
+                "endpoint": "/stable/analyst-estimates",
+                "status_code": 0,
+                "vendor_entitlement_blocked": False,
+                "error": sanitize_error_message(exc),
+            }
+        )
+    return {}, {}
+
+
+def fetch_estimate_payloads_by_order(
+    session: requests.Session,
+    ticker: str,
+    *,
+    finnhub_api_key: str,
+    alphavantage_api_key: str,
+    fmp_api_key: str,
+    vendor_order: list[str],
+    sleep_seconds: float,
+    errors: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], str, bool, bool]:
+    for vendor in vendor_order:
+        if vendor == "alphavantage" and alphavantage_api_key:
+            eps, rev = fetch_alphavantage_payloads(
+                session, ticker, alphavantage_api_key, sleep_seconds=sleep_seconds, errors=errors
+            )
+            if eps.get("data") or rev.get("data"):
+                return eps, rev, "alphavantage", bool(eps.get("data")), bool(rev.get("data"))
+        elif vendor == "fmp" and fmp_api_key:
+            eps, rev = fetch_fmp_payloads(session, ticker, fmp_api_key, sleep_seconds=sleep_seconds, errors=errors)
+            if eps.get("data") or rev.get("data"):
+                return eps, rev, "fmp", bool(eps.get("data")), bool(rev.get("data"))
+        elif vendor == "finnhub" and finnhub_api_key:
+            eps = fetch_json_optional(
+                session, "/stock/eps-estimate", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
+            )
+            rev = fetch_json_optional(
+                session, "/stock/revenue-estimate", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
+            )
+            if eps is not None or rev is not None:
+                return eps or {}, rev or {}, "finnhub", eps is not None, rev is not None
+    return {}, {}, "", False, False
+
+
 def collect_live_snapshot(
     tickers: list[str],
     *,
-    api_key: str,
+    finnhub_api_key: str,
+    alphavantage_api_key: str,
+    fmp_api_key: str,
+    vendor_order: list[str],
     fetch_date: pd.Timestamp,
     sleep_seconds: float,
     max_errors: int,
@@ -427,19 +742,24 @@ def collect_live_snapshot(
     errors: list[dict[str, Any]] = []
     session = requests.Session()
     for ticker in tickers:
-        eps = fetch_json_optional(
-            session, "/stock/eps-estimate", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
-        )
-        rev = fetch_json_optional(
-            session, "/stock/revenue-estimate", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
+        eps, rev, estimate_source, eps_access, rev_access = fetch_estimate_payloads_by_order(
+            session,
+            ticker,
+            finnhub_api_key=finnhub_api_key,
+            alphavantage_api_key=alphavantage_api_key,
+            fmp_api_key=fmp_api_key,
+            vendor_order=vendor_order,
+            sleep_seconds=sleep_seconds,
+            errors=errors,
         )
         earnings = fetch_json_optional(
-            session, "/stock/earnings", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
-        )
+            session, "/stock/earnings", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
+        ) if finnhub_api_key else None
         rec = fetch_json_optional(
-            session, "/stock/recommendation", ticker, api_key, sleep_seconds=sleep_seconds, errors=errors
-        )
-        if any(payload is not None for payload in [eps, rev, earnings, rec]):
+            session, "/stock/recommendation", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
+        ) if finnhub_api_key else None
+        if any(payload is not None and payload != {} for payload in [eps, rev, earnings, rec]):
+            fetch_source = estimate_source or ("finnhub" if any(payload is not None for payload in [earnings, rec]) else "")
             rows.append(
                 parse_snapshot_row(
                     ticker,
@@ -448,8 +768,9 @@ def collect_live_snapshot(
                     revenue_payload=rev or {},
                     earnings_payload=earnings or [],
                     recommendation_payload=rec or [],
-                    eps_estimate_access=eps is not None,
-                    revenue_estimate_access=rev is not None,
+                    eps_estimate_access=eps_access,
+                    revenue_estimate_access=rev_access,
+                    fetch_source=fetch_source,
                 )
             )
         if max_errors and len(errors) >= max_errors:
@@ -463,12 +784,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--universe-file", default="")
     parser.add_argument("--ticker-limit", type=int, default=0)
     parser.add_argument("--api-key", default=os.environ.get("FINNHUB_API_KEY", ""))
+    parser.add_argument("--alphavantage-api-key", default=os.environ.get("ALPHAVANTAGE_API_KEY", ""))
+    parser.add_argument("--fmp-api-key", default=os.environ.get("FMP_API_KEY", ""))
+    parser.add_argument("--vendor-order", default=os.environ.get("ESTIMATE_VENDOR_ORDER", "alphavantage,fmp,finnhub"))
     parser.add_argument("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR)
     parser.add_argument("--signals-output", default=DEFAULT_SIGNALS)
     parser.add_argument("--summary", default=DEFAULT_SUMMARY)
     parser.add_argument("--fetch-date", default=datetime.now(timezone.utc).date().isoformat())
     parser.add_argument("--sleep-seconds", type=float, default=1.1)
-    parser.add_argument("--max-errors", type=int, default=25)
+    parser.add_argument("--max-errors", type=int, default=100)
     parser.add_argument("--fixture-dir", default="")
     return parser.parse_args()
 
@@ -518,25 +842,31 @@ def main() -> int:
             )
         snapshot = pd.DataFrame(rows)
     else:
-        if not args.api_key:
+        vendor_order = clean_vendor_order(args.vendor_order)
+        if not any([args.api_key, args.alphavantage_api_key, args.fmp_api_key]):
             payload = {
                 "schema_version": SCHEMA_VERSION,
                 "generated_at_utc": utc_now(),
                 "status": "blocked",
-                "reason": "missing_finnhub_api_key",
+                "reason": "missing_estimate_vendor_api_key",
                 "research_only": True,
                 "forward_only": True,
+                "vendor_order": vendor_order,
             }
             write_json(summary_path, payload)
             print(json.dumps(payload, indent=2, sort_keys=True))
             return 2
         snapshot, errors = collect_live_snapshot(
             tickers,
-            api_key=args.api_key,
+            finnhub_api_key=args.api_key,
+            alphavantage_api_key=args.alphavantage_api_key,
+            fmp_api_key=args.fmp_api_key,
+            vendor_order=vendor_order,
             fetch_date=fetch_date,
             sleep_seconds=args.sleep_seconds,
             max_errors=args.max_errors,
         )
+    vendor_order = clean_vendor_order(args.vendor_order)
     vendor_estimate_access = vendor_estimate_access_from_errors(errors)
     if snapshot.empty:
         status = "blocked_vendor_entitlement" if not vendor_estimate_access else "blocked_partial_coverage"
@@ -555,6 +885,7 @@ def main() -> int:
             "live_trading_enabled": False,
             "research_only": True,
             "forward_only": True,
+            "vendor_order": vendor_order,
         }
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -593,6 +924,8 @@ def main() -> int:
         "snapshot_rows": int(len(snapshot)),
         "coverage_ratio": coverage_ratio,
         "vendor_estimate_access": vendor_estimate_access,
+        "vendor_order": vendor_order,
+        "fetch_sources": sorted(snapshot["fetch_source"].dropna().astype(str).unique().tolist()) if "fetch_source" in snapshot.columns else [],
         "has_forward_estimate_rows": int(snapshot["has_forward_estimate"].sum()) if "has_forward_estimate" in snapshot.columns else 0,
         "snapshot_path": str(snapshot_path),
         "signals_output": str(signals_output),
