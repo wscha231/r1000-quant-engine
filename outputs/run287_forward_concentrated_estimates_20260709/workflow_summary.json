@@ -1,0 +1,117 @@
+{
+  "backtest_acceptance_allowed": false,
+  "coverage_ratio": 1.0,
+  "error_count": 12,
+  "errors": [
+    {
+      "endpoint": "/stable/analyst-estimates",
+      "error": "402 Client Error: Payment Required for url: https://financialmodelingprep.com/stable/analyst-estimates?symbol=MU&period=annual&page=0&limit=10&apikey=***",
+      "status_code": 402,
+      "ticker": "MU",
+      "vendor": "fmp",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stock/eps-estimate",
+      "error": "403 Client Error: Forbidden for url: https://finnhub.io/api/v1/stock/eps-estimate?symbol=MU&token=***",
+      "status_code": 403,
+      "ticker": "MU",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stock/revenue-estimate",
+      "error": "403 Client Error: Forbidden for url: https://finnhub.io/api/v1/stock/revenue-estimate?symbol=MU&token=***",
+      "status_code": 403,
+      "ticker": "MU",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stable/analyst-estimates",
+      "error": "402 Client Error: Payment Required for url: https://financialmodelingprep.com/stable/analyst-estimates?symbol=SNDK&period=annual&page=0&limit=10&apikey=***",
+      "status_code": 402,
+      "ticker": "SNDK",
+      "vendor": "fmp",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stock/eps-estimate",
+      "error": "403 Client Error: Forbidden for url: https://finnhub.io/api/v1/stock/eps-estimate?symbol=SNDK&token=***",
+      "status_code": 403,
+      "ticker": "SNDK",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stock/revenue-estimate",
+      "error": "403 Client Error: Forbidden for url: https://finnhub.io/api/v1/stock/revenue-estimate?symbol=SNDK&token=***",
+      "status_code": 403,
+      "ticker": "SNDK",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stable/analyst-estimates",
+      "error": "402 Client Error: Payment Required for url: https://financialmodelingprep.com/stable/analyst-estimates?symbol=UMC&period=annual&page=0&limit=10&apikey=***",
+      "status_code": 402,
+      "ticker": "UMC",
+      "vendor": "fmp",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stock/eps-estimate",
+      "error": "403 Client Error: Forbidden for url: https://finnhub.io/api/v1/stock/eps-estimate?symbol=UMC&token=***",
+      "status_code": 403,
+      "ticker": "UMC",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stock/revenue-estimate",
+      "error": "403 Client Error: Forbidden for url: https://finnhub.io/api/v1/stock/revenue-estimate?symbol=UMC&token=***",
+      "status_code": 403,
+      "ticker": "UMC",
+      "vendor_entitlement_blocked": true
+    },
+    {
+      "endpoint": "/stable/analyst-estimates",
+      "error": "402 Client Error: Payment Required for url: https://financialmodelingprep.com/stable/analyst-estimates?symbol=TXN&period=annual&page=0&limit=10&apikey=***",
+      "status_code": 402,
+      "ticker": "TXN",
+      "vendor": "fmp",
+      "vendor_entitlement_blocked": true
+    }
+  ],
+  "estimate_coverage_ratio": 0.2,
+  "feature_summary": {
+    "available_from_is_fetch_date": true,
+    "backtest_acceptance_allowed": false,
+    "coverage_ratio": 1.0,
+    "forward_only": true,
+    "input_rows": 5,
+    "live_trading_enabled": false,
+    "output_rows": 5,
+    "production_activation_allowed": false,
+    "status": "completed",
+    "ticker_count": 5
+  },
+  "fetch_sources": [
+    "finnhub",
+    "fmp"
+  ],
+  "forward_only": true,
+  "generated_at_utc": "2026-07-09T06:00:14Z",
+  "has_forward_estimate_rows": 1,
+  "live_trading_enabled": false,
+  "production_activation_allowed": false,
+  "reason": "coverage_below_80pct_warn_only",
+  "research_only": true,
+  "schema_version": "forward-earnings-estimates-v1",
+  "signals_output": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/events/earnings_revision_signals.parquet",
+  "snapshot_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_pit/events/earnings_estimates/estimates_20260709.parquet",
+  "snapshot_rows": 5,
+  "status": "blocked_partial_coverage",
+  "ticker_count_requested": 5,
+  "vendor_blocked_errors": true,
+  "vendor_estimate_access": true,
+  "vendor_order": [
+    "fmp",
+    "finnhub"
+  ]
+}

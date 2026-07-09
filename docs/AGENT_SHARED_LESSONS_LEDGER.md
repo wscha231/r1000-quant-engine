@@ -90,6 +90,55 @@ Expected contract:
 
 ## Ledger
 
+### 2026-07-09 - Estimate confirmation now requires actual forward estimate coverage
+
+- Agent: Codex
+- Branch/PR/run:
+  - workflow run `28997279936`
+  - branch `codex/fix-estimate-confirmation-coverage-20260709`
+- Context:
+  - User asked to continue setup and search for the best CAGR/MDD path.
+  - A bounded forward archive was run on the latest Concentrated holdings:
+    `MU,SNDK,AMD,UMC,TXN`.
+- Attempt:
+  - Ran the default `fmp,finnhub` estimate archive and inspected the artifact.
+  - Aggregated existing run287 cheap A/B outputs into a local candidate
+    inventory.
+- Result:
+  - Workflow run `28997279936` succeeded but returned usable forward estimates
+    for only `1/5` tickers, with `AMD` covered by FMP.
+  - Initial signal inspection showed non-covered tickers could still be marked
+    as estimate-confirmed from positive recommendation breadth.
+  - The collector and latest-confirmation helper were changed so confirmation
+    requires `has_forward_estimate > 0`.
+  - After the fix, only `AMD` passes latest estimate confirmation; `MU`, `SNDK`,
+    `TXN`, and `UMC` are neutral.
+- Failure or caveat:
+  - Free vendor coverage is too low for a Concentrated confirmation decision.
+  - Forward archive evidence still cannot change historical 7Y CAGR/MDD.
+  - The best nominal historical candidate remains rejected on OOS CAGR.
+- Root cause:
+  - Recommendation breadth is not the same as forward EPS/revenue estimate
+    coverage.
+- Reusable lesson:
+  - Missing estimate rows must be neutral, even when a vendor can return
+    earnings surprises or recommendation counts.
+  - Gate latest confirmation on actual forward-estimate availability, not on
+    auxiliary sentiment fields.
+- Next action:
+  - Rotate `ALPHAVANTAGE_API_KEY` before Alpha Vantage-only smoke or
+    `LISTING_STATUS` work.
+  - Continue forward archive collection as paper-ledger evidence only.
+- Do-not-repeat:
+  - Do not count recommendation-only rows as estimate revision confirmation.
+  - Do not claim historical CAGR/MDD improvement from current API snapshots.
+- Evidence files:
+  - `tools/collect_earnings_estimates_finnhub.py`
+  - `tests/estimate_revision_features_smoke.py`
+  - `tests/estimate_confirm_selection_smoke.py`
+  - `outputs/run287_forward_concentrated_estimates_20260709/report.md`
+  - `docs/CODEX_RUN287_CAGR_MDD_SEARCH_STATUS_20260709.md`
+
 ### 2026-07-09 - Default FMP/Finnhub estimate smoke succeeded after AV pause
 
 - Agent: Codex

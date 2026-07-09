@@ -1,0 +1,6 @@
+ticker,fetch_source,has_forward_estimate,vendor_estimate_access,est_eps_fy1,est_eps_fy2,est_rev_fy1,est_dispersion,earnings_surprise_last,surprise_streak,available_from
+MU,finnhub,0,False,0.0,0.0,0.0,0.0,17.326,4,2026-07-09
+SNDK,finnhub,0,False,0.0,0.0,0.0,0.0,57.8834,4,2026-07-09
+AMD,fmp,1,True,2.64582,3.49889,23520416326.0,0.2944143758690769,4.7881,3,2026-07-09
+UMC,finnhub,0,False,0.0,0.0,0.0,0.0,48.6518,1,2026-07-09
+TXN,finnhub,0,False,0.0,0.0,0.0,0.0,21.6069,1,2026-07-09

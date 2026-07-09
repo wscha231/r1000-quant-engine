@@ -27,6 +27,7 @@ def test_estimate_revision_features_compute_rising_revision_and_narrowing_disper
                 "earnings_surprise_last": 2.0,
                 "est_eps_revision_breadth": 0.20,
                 "surprise_streak": 1,
+                "has_forward_estimate": 1,
             },
             {
                 "ticker": "AAA",
@@ -39,6 +40,7 @@ def test_estimate_revision_features_compute_rising_revision_and_narrowing_disper
                 "earnings_surprise_last": 4.0,
                 "est_eps_revision_breadth": 0.30,
                 "surprise_streak": 2,
+                "has_forward_estimate": 1,
             },
             {
                 "ticker": "AAA",
@@ -51,6 +53,7 @@ def test_estimate_revision_features_compute_rising_revision_and_narrowing_disper
                 "earnings_surprise_last": 5.0,
                 "est_eps_revision_breadth": 0.50,
                 "surprise_streak": 3,
+                "has_forward_estimate": 1,
             },
         ]
     )
@@ -67,6 +70,33 @@ def test_estimate_revision_features_compute_rising_revision_and_narrowing_disper
     assert summary["available_from_is_fetch_date"] is True
 
 
+def test_missing_forward_estimate_cannot_confirm_revision() -> None:
+    snapshots = pd.DataFrame(
+        [
+            {
+                "ticker": "BBB",
+                "as_of_date": "2026-07-01",
+                "available_from": "2026-07-01",
+                "est_eps_fy1": 0.0,
+                "est_eps_fy2": 0.0,
+                "est_rev_fy1": 0.0,
+                "est_dispersion": 0.0,
+                "earnings_surprise_last": 8.0,
+                "est_eps_revision_breadth": 0.90,
+                "surprise_streak": 3,
+                "has_forward_estimate": 0,
+            }
+        ]
+    )
+    out, summary = compute_estimate_revision_features(snapshots, as_of_date="2026-07-01")
+    assert summary["status"] == "completed", summary
+    latest = out.iloc[-1]
+    assert latest["estimate_revision_confirmed"] == 0
+    assert latest["estimate_revision_replacement_gate_pass"] == 0
+    assert latest["estimate_revision_future_winner_multiplier"] == 1.0
+
+
 if __name__ == "__main__":
     test_estimate_revision_features_compute_rising_revision_and_narrowing_dispersion()
+    test_missing_forward_estimate_cannot_confirm_revision()
     print("estimate_revision_features_smoke: PASS")

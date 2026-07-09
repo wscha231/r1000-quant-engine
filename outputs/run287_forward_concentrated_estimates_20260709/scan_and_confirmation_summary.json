@@ -1,0 +1,43 @@
+{
+  "backtest_acceptance_allowed": false,
+  "corrected_confirmed_tickers": [
+    "AMD"
+  ],
+  "corrected_gate_pass_tickers": [
+    "AMD"
+  ],
+  "estimate_coverage_ratio": 0.2,
+  "feature_summary_after_guard_fix": {
+    "available_from_is_fetch_date": true,
+    "backtest_acceptance_allowed": false,
+    "coverage_ratio": 1.0,
+    "forward_only": true,
+    "input_rows": 5,
+    "live_trading_enabled": false,
+    "output_rows": 5,
+    "production_activation_allowed": false,
+    "status": "completed",
+    "ticker_count": 5
+  },
+  "fetch_sources": [
+    "finnhub",
+    "fmp"
+  ],
+  "forward_only": true,
+  "has_forward_estimate_rows": 1,
+  "live_trading_enabled": false,
+  "production_activation_allowed": false,
+  "raw_key_pattern_files": [],
+  "raw_key_pattern_found": false,
+  "reason": "coverage_below_80pct_warn_only",
+  "run_id": 28997279936,
+  "snapshot_rows": 5,
+  "status": "blocked_partial_coverage",
+  "ticker_count_requested": 5,
+  "vendor_blocked_errors": true,
+  "vendor_estimate_access": true,
+  "vendor_order": [
+    "fmp",
+    "finnhub"
+  ]
+}
