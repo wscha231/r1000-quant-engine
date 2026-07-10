@@ -180,6 +180,8 @@ def build_coverage_audit(
     data_root = repo_path(args.data_root)
     cache_dir = repo_path(args.price_cache)
     sec_zip = data_root / "data_raw" / "free" / "sec" / "companyfacts.zip"
+    listing_status = data_root / "data_pit" / "free" / "av_listing_status.parquet"
+    earnings_calendar = data_root / "data_pit" / "events" / "earnings_calendar_history.parquet"
     macro_dir = data_root / "data_raw" / "free" / "macro"
     price_manifest = data_root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json"
     price_manifest_payload = read_json(price_manifest, {}) or {}
@@ -223,6 +225,19 @@ def build_coverage_audit(
                 "status": "available" if sec_zip.exists() else "missing",
                 "path": rel(sec_zip),
             },
+            "av_listing_status": {
+                "tier": "free_reference_lifecycle_proxy",
+                "status": "available" if listing_status.exists() else "missing",
+                "path": rel(listing_status),
+                "pit_usage_label": "reference_lifecycle_proxy_not_index_membership",
+            },
+            "fmp_earnings_calendar_history": {
+                "tier": "free_vendor_history_snapshot",
+                "status": "available" if earnings_calendar.exists() else "missing",
+                "path": rel(earnings_calendar),
+                "pit_backtest_allowed": False,
+                "pit_usage_label": "vendor_historical_snapshot_not_revision_history",
+            },
             "macro": {
                 "tier": "official_free_plus_market_proxy",
                 "status": "available" if macro_dir.exists() and path_stats(macro_dir)["file_count"] > 0 else "missing",
@@ -261,8 +276,11 @@ def build_manifest(
         data_root / "data_raw" / "free" / "sec",
         data_root / "data_raw" / "free" / "prices",
         data_root / "data_raw" / "free" / "macro",
+        data_root / "data_raw" / "free" / "alpha_vantage" / "listing_status",
+        data_root / "data_raw" / "free" / "fmp" / "earnings_calendar",
         data_root / "data_raw" / "free" / "universe_proxy",
         data_root / "data_pit" / "free",
+        data_root / "data_pit" / "events",
         repo_path(args.price_cache),
         repo_path(args.manifest_dir),
     ]
@@ -274,6 +292,10 @@ def build_manifest(
         "requested": {
             "latest_run": rel(repo_path(args.latest_run)),
             "sec_companyfacts": bool(args.sec_companyfacts),
+            "av_listing_status": bool(args.listing_status),
+            "fmp_earnings_calendar_history": bool(args.fmp_earnings_calendar),
+            "fmp_earnings_calendar_start": args.fmp_earnings_start,
+            "fmp_earnings_calendar_end": args.fmp_earnings_end,
             "macro_snapshot": not bool(args.skip_macro_snapshot),
             "price_mode": args.price_mode,
             "price_start": args.price_start,
@@ -292,6 +314,17 @@ def build_manifest(
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    for attr, default in {
+        "listing_status": False,
+        "fmp_earnings_calendar": False,
+        "fmp_earnings_start": "2016-01-01",
+        "fmp_earnings_end": "",
+        "fmp_chunk_days": 31,
+        "fmp_max_chunks": 0,
+    }.items():
+        if not hasattr(args, attr):
+            setattr(args, attr, default)
+
     data_root = repo_path(args.data_root)
     output_dir = repo_path(args.output_dir)
     manifest_dir = repo_path(args.manifest_dir)
@@ -300,9 +333,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     raw_price_dir = data_root / "data_raw" / "free" / "prices"
     raw_macro_dir = data_root / "data_raw" / "free" / "macro" / "daily_snapshot"
     raw_universe_dir = data_root / "data_raw" / "free" / "universe_proxy"
+    raw_listing_dir = data_root / "data_raw" / "free" / "alpha_vantage" / "listing_status"
+    raw_fmp_calendar_dir = data_root / "data_raw" / "free" / "fmp" / "earnings_calendar"
+    events_dir = data_root / "data_pit" / "events"
     cache_dir = repo_path(args.price_cache)
 
-    for path in [output_dir, manifest_dir, pit_dir, raw_sec_dir, raw_price_dir, raw_macro_dir, raw_universe_dir, cache_dir]:
+    for path in [
+        output_dir,
+        manifest_dir,
+        pit_dir,
+        events_dir,
+        raw_sec_dir,
+        raw_price_dir,
+        raw_macro_dir,
+        raw_listing_dir,
+        raw_fmp_calendar_dir,
+        raw_universe_dir,
+        cache_dir,
+    ]:
         path.mkdir(parents=True, exist_ok=True)
 
     latest_run = repo_path(args.latest_run)
@@ -321,6 +369,40 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if args.required_downloads:
             command.append("--required")
         actions.append(run_command("sec_companyfacts", command, required=args.required_downloads))
+
+    if args.listing_status:
+        command = [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "collect_alphavantage_listing_status.py"),
+            "--raw-dir",
+            str(raw_listing_dir),
+            "--output",
+            str(pit_dir / "av_listing_status.parquet"),
+            "--summary",
+            str(output_dir / "listing_status_summary.json"),
+        ]
+        actions.append(run_command("av_listing_status", command, required=False))
+
+    if args.fmp_earnings_calendar:
+        command = [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "collect_fmp_earnings_calendar_history.py"),
+            "--start",
+            args.fmp_earnings_start,
+            "--chunk-days",
+            str(args.fmp_chunk_days),
+            "--max-chunks",
+            str(args.fmp_max_chunks),
+            "--raw-dir",
+            str(raw_fmp_calendar_dir),
+            "--output",
+            str(events_dir / "earnings_calendar_history.parquet"),
+            "--summary",
+            str(output_dir / "fmp_earnings_calendar_summary.json"),
+        ]
+        if args.fmp_earnings_end:
+            command += ["--end", args.fmp_earnings_end]
+        actions.append(run_command("fmp_earnings_calendar_history", command, required=False))
 
     if not args.skip_macro_snapshot:
         command = [
@@ -395,6 +477,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pit-label", default=DEFAULT_PIT_LABEL, choices=["pit_safe", "pit_proxy_universe", "research_proxy"])
     parser.add_argument("--sec-companyfacts", action="store_true")
     parser.add_argument("--sec-max-age-days", type=float, default=7.0)
+    parser.add_argument("--listing-status", action="store_true", help="collect Alpha Vantage active/delisted listing lifecycle reference data")
+    parser.add_argument("--fmp-earnings-calendar", action="store_true", help="collect FMP earnings calendar history as a vendor snapshot")
+    parser.add_argument("--fmp-earnings-start", default="2016-01-01")
+    parser.add_argument("--fmp-earnings-end", default="")
+    parser.add_argument("--fmp-chunk-days", type=int, default=31)
+    parser.add_argument("--fmp-max-chunks", type=int, default=0, help="0 = all chunks")
     parser.add_argument("--skip-macro-snapshot", action="store_true")
     parser.add_argument("--price-mode", choices=["none", "dry_run", "target_books"], default="dry_run")
     parser.add_argument("--price-start", default="2016-01-01")
