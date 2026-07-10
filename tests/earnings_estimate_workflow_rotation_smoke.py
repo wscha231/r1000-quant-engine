@@ -17,6 +17,21 @@ def test_workflow_rotates_broad_universe_shards_and_persists_metadata() -> None:
     assert "SHARD_INDEX" in text
     assert "catchup_all_universe_shards" in text
     assert "incremental_universe_addons" in text
+    assert "collection_universe_file" in text
+    assert "collection_checkpoint.json" in text
+    assert "collection_universe.csv" in text
+    assert "collection_queue.csv" in text
+    assert "collection_queue_report.md" in text
+    assert "--expected-universe-count 993" in text
+    assert "--latest-run cloud_results/full_rebuild/latest_global_alpha_universe" in text
+    assert "--max-missing-tickers" in text
+    assert "--max-retry-tickers" in text
+    assert "RESOLVED_COLLECTION_REQUIRED" in text
+    assert "if: env.RESOLVED_COLLECTION_REQUIRED == 'true'" in text
+    assert "group: earnings-estimates-daily-durable-archive" in text
+    assert "group: earnings-estimates-daily-${{ github.ref }}" not in text
+    assert "id: build_manifest" in text
+    assert text.count("if: ${{ always() && steps.build_manifest.outcome == 'success' }}") == 2
     assert "max_new_universe_tickers" in text
     assert "max_known_covered_tickers" in text
     assert "collector_max_errors" in text
@@ -38,6 +53,9 @@ def test_workflow_rotates_broad_universe_shards_and_persists_metadata() -> None:
     assert "--shard-file \"${RESOLVED_SHARD_FILE:-}\"" in text
     assert "--shard-mode \"${RESOLVED_SHARD_MODE:-}\"" in text
     assert "--max-errors \"${RESOLVED_MAX_ERRORS:-100}\"" in text
+    assert "--queue-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json" in text
+    assert "--collection-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json" in text
+    assert "--collection-queue outputs/earnings_estimates_daily/collection_queue.csv" in text
     assert "AAPL,MSFT,NVDA,AMD" in text
     assert "schedule" in text
     assert "full_rebuild_manual" not in text

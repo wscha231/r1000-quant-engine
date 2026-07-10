@@ -24,17 +24,33 @@ on:
         type: boolean
         default: false
       incremental_universe_addons:
-        description: 'Add known-covered names and newly added universe names to the requested ticker set. Always enabled on schedule.'
+        description: 'Use the durable exact-universe queue. Always enabled on schedule.'
         type: boolean
         default: false
+      collection_universe_file:
+        description: 'Optional exact current-universe coverage CSV used to seed/update the durable 993-row canonical snapshot.'
+        type: string
+        default: 'outputs/free_historical_data_coverage/universe_coverage.csv'
+      collection_stale_after_days:
+        description: 'Refresh a successful forward snapshot when this many calendar days have elapsed.'
+        type: string
+        default: '7'
       max_new_universe_tickers:
-        description: 'Cap newly added universe tickers per incremental run.'
+        description: 'Cap newly added universe tickers per run; 0 disables this lane.'
+        type: string
+        default: '100'
+      max_missing_universe_tickers:
+        description: 'Cap never-observed exact-universe tickers per run; 0 disables this lane.'
         type: string
         default: '100'
       max_known_covered_tickers:
-        description: 'Cap known-covered estimate tickers per incremental run.'
+        description: 'Cap stale successful estimate tickers refreshed per run; 0 disables this lane.'
         type: string
         default: '300'
+      max_uncovered_retry_tickers:
+        description: 'Cap slow rotating uncovered retries per run; 0 disables this lane.'
+        type: string
+        default: '50'
       ticker_limit:
         description: 'Optional cap after combining tickers/universe file. 0 means no cap.'
         type: string
@@ -60,7 +76,9 @@ permissions:
   actions: read
 
 concurrency:
-  group: earnings-estimates-daily-${{ github.ref }}
+  # The archive, canonical universe, and queue checkpoint share one durable
+  # Google Drive path across refs, so every writer must be serialized globally.
+  group: earnings-estimates-daily-durable-archive
   cancel-in-progress: false
 
 jobs:
@@ -161,8 +179,12 @@ jobs:
           INPUT_AUTO_UNIVERSE_SHARD: ${{ github.event.inputs.auto_universe_shard || 'false' }}
           INPUT_CATCHUP_ALL_UNIVERSE_SHARDS: ${{ github.event.inputs.catchup_all_universe_shards || 'false' }}
           INPUT_INCREMENTAL_UNIVERSE_ADDONS: ${{ github.event.inputs.incremental_universe_addons || 'false' }}
+          INPUT_COLLECTION_UNIVERSE_FILE: ${{ github.event.inputs.collection_universe_file || 'outputs/free_historical_data_coverage/universe_coverage.csv' }}
+          INPUT_COLLECTION_STALE_AFTER_DAYS: ${{ github.event.inputs.collection_stale_after_days || '7' }}
           INPUT_MAX_NEW_UNIVERSE_TICKERS: ${{ github.event.inputs.max_new_universe_tickers || '100' }}
+          INPUT_MAX_MISSING_UNIVERSE_TICKERS: ${{ github.event.inputs.max_missing_universe_tickers || '100' }}
           INPUT_MAX_KNOWN_COVERED_TICKERS: ${{ github.event.inputs.max_known_covered_tickers || '300' }}
+          INPUT_MAX_UNCOVERED_RETRY_TICKERS: ${{ github.event.inputs.max_uncovered_retry_tickers || '50' }}
           DEFAULT_TICKERS: AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,ASML,TSM,ARM,SMH,SOXX
           SHARD_DIR: outputs/forward_estimate_universe_plan_20260709/shards
         run: |
@@ -175,6 +197,8 @@ jobs:
           SHARD_FILE=""
           SHARD_MODE="manual_or_watchlist_only"
           ENABLE_INCREMENTAL_ADDONS="${INPUT_INCREMENTAL_UNIVERSE_ADDONS:-false}"
+          QUEUE_RESOLVED="false"
+          COLLECTION_REQUIRED="true"
           if [ "${EVENT_NAME}" = "schedule" ]; then
             ENABLE_INCREMENTAL_ADDONS="true"
           fi
@@ -234,14 +258,30 @@ jobs:
             python tools/build_forward_estimate_incremental_universe.py \
               --shard-dir "${SHARD_DIR}" \
               --snapshot-dir data_pit/events/earnings_estimates \
+              --coverage-file "${INPUT_COLLECTION_UNIVERSE_FILE}" \
+              --latest-run cloud_results/full_rebuild/latest_global_alpha_universe \
+              --canonical-universe data_pit/events/earnings_estimates/collection_universe.csv \
+              --checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
               --output outputs/earnings_estimates_daily/incremental_universe.csv \
+              --queue-output outputs/earnings_estimates_daily/collection_queue.csv \
               --summary outputs/earnings_estimates_daily/incremental_universe_summary.json \
+              --report outputs/earnings_estimates_daily/collection_queue_report.md \
               --include-tickers "${TICKERS:-${DEFAULT_TICKERS}}" \
               --include-file "${UNIVERSE_FILE:-}" \
+              --expected-universe-count 993 \
+              --stale-after-days "${INPUT_COLLECTION_STALE_AFTER_DAYS:-7}" \
               --max-new-tickers "${INPUT_MAX_NEW_UNIVERSE_TICKERS:-100}" \
-              --max-covered-tickers "${INPUT_MAX_KNOWN_COVERED_TICKERS:-300}"
+              --max-missing-tickers "${INPUT_MAX_MISSING_UNIVERSE_TICKERS:-100}" \
+              --max-covered-tickers "${INPUT_MAX_KNOWN_COVERED_TICKERS:-300}" \
+              --max-retry-tickers "${INPUT_MAX_UNCOVERED_RETRY_TICKERS:-50}"
             UNIVERSE_FILE="outputs/earnings_estimates_daily/incremental_universe.csv"
             SHARD_FILE="${UNIVERSE_FILE}"
+            TICKERS=""
+            QUEUE_RESOLVED="true"
+            SELECTED_COUNT="$(( $(wc -l < "${UNIVERSE_FILE}") - 1 ))"
+            if [ "${SELECTED_COUNT}" -le 0 ]; then
+              COLLECTION_REQUIRED="false"
+            fi
             if [ "${SHARD_MODE}" = "manual_or_watchlist_only" ]; then
               SHARD_MODE="incremental_addons"
             else
@@ -254,7 +294,7 @@ jobs:
             MAX_ERRORS="100"
           fi
 
-          if [ -z "${TICKERS}" ]; then
+          if [ -z "${TICKERS}" ] && [ "${QUEUE_RESOLVED}" != "true" ]; then
             TICKERS="${DEFAULT_TICKERS}"
           fi
           if [ "${EVENT_NAME}" = "schedule" ] && [ -z "${SHARD_ID}" ]; then
@@ -270,6 +310,7 @@ jobs:
             echo "RESOLVED_SHARD_FILE=${SHARD_FILE}"
             echo "RESOLVED_SHARD_MODE=${SHARD_MODE}"
             echo "RESOLVED_MAX_ERRORS=${MAX_ERRORS}"
+            echo "RESOLVED_COLLECTION_REQUIRED=${COLLECTION_REQUIRED}"
           } >> "$GITHUB_ENV"
           echo "[archive] tickers=${TICKERS}"
           echo "[archive] universe_file=${UNIVERSE_FILE:-<none>}"
@@ -277,8 +318,10 @@ jobs:
           echo "[archive] shard_id=${SHARD_ID:-<manual_or_watchlist_only>}"
           echo "[archive] shard_mode=${SHARD_MODE}"
           echo "[archive] max_errors=${MAX_ERRORS}"
+          echo "[archive] collection_required=${COLLECTION_REQUIRED}"
 
       - name: Collect forward-only estimate archive
+        if: env.RESOLVED_COLLECTION_REQUIRED == 'true'
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
@@ -300,12 +343,15 @@ jobs:
             --snapshot-dir data_pit/events/earnings_estimates \
             --signals-output data_pit/events/earnings_revision_signals.parquet \
             --summary outputs/earnings_estimates_daily/summary.json \
+            --collection-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
+            --collection-queue outputs/earnings_estimates_daily/collection_queue.csv \
             --vendor-order "$ESTIMATE_VENDOR_ORDER" \
             --sleep-seconds 1.1 \
             --max-errors "${RESOLVED_MAX_ERRORS:-100}" \
             2>&1 | tee outputs/earnings_estimates_daily/collector.log
 
       - name: Build earnings estimate archive manifest
+        id: build_manifest
         if: always()
         run: |
           set -euo pipefail
@@ -325,7 +371,11 @@ jobs:
             --artifact-name "earnings-estimates-daily-${GITHUB_RUN_ID}" \
             --shard-id "${RESOLVED_SHARD_ID:-}" \
             --shard-file "${RESOLVED_SHARD_FILE:-}" \
-            --shard-mode "${RESOLVED_SHARD_MODE:-}"
+            --shard-mode "${RESOLVED_SHARD_MODE:-}" \
+            --queue-summary outputs/earnings_estimates_daily/incremental_universe_summary.json \
+            --queue-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
+            --queue-csv outputs/earnings_estimates_daily/collection_queue.csv \
+            --queue-report outputs/earnings_estimates_daily/collection_queue_report.md
 
       - name: Save earnings estimate archive cache
         if: always()
@@ -337,7 +387,7 @@ jobs:
           key: earnings-estimates-daily-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload earnings estimate artifact
-        if: always()
+        if: ${{ always() && steps.build_manifest.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: earnings-estimates-daily-${{ github.run_id }}
@@ -348,7 +398,7 @@ jobs:
           retention-days: 30
 
       - name: Sync earnings estimate archive to Google Drive
-        if: always()
+        if: ${{ always() && steps.build_manifest.outcome == 'success' }}
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional

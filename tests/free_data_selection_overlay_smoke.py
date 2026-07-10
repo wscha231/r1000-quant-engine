@@ -84,6 +84,7 @@ def test_cli_writes_research_only_outputs() -> None:
         args.listing_status = str(listing)
         args.earnings_calendar = str(earnings)
         args.decision_date = "2026-07-10"
+        args.baseline_ranked = ""
         args.output_dir = str(out)
         args.top_n = 1
         summary = run(args)
@@ -94,10 +95,74 @@ def test_cli_writes_research_only_outputs() -> None:
         assert (out / "report.md").exists()
 
 
+def test_missing_forward_and_lifecycle_evidence_remain_neutral() -> None:
+    scored = pd.DataFrame([{"ticker": "AAA", "score": 2.0}, {"ticker": "BBB", "score": 1.0}])
+    signals = pd.DataFrame(
+        [
+            {
+                "ticker": "AAA",
+                "available_from": "2026-07-09",
+                "fetch_source": "finnhub",
+                "has_forward_estimate": 0,
+                "est_eps_revision_breadth": 1.0,
+            }
+        ]
+    )
+    listing = pd.DataFrame([{"symbol": "AAA", "status": "Active"}])
+    ranked, summary = build_overlay(
+        scored,
+        decision_date=pd.Timestamp("2026-07-10"),
+        signals=signals,
+        listing=listing,
+        earnings_calendar=pd.DataFrame(),
+        top_n=2,
+    )
+    aaa = ranked.set_index("ticker").loc["AAA"]
+    bbb = ranked.set_index("ticker").loc["BBB"]
+    assert aaa["free_data_forward_estimate_score_before_coverage_gate"] > 0
+    assert aaa["free_data_forward_estimate_score"] == 0
+    assert bool(aaa["free_data_lifecycle_evidence_present"]) is True
+    assert bool(bbb["free_data_lifecycle_evidence_present"]) is False
+    assert bbb["free_data_evidence_coverage_count"] == 0
+    assert summary["forward_coverage_gate_neutralized_rows"] == 1
+    assert summary["lifecycle_missing_neutral_rows"] == 1
+
+
+def test_rank_comparison_is_reported() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        scored = root / "scored.csv"
+        baseline = root / "baseline.csv"
+        out = root / "out"
+        pd.DataFrame([{"ticker": "AAA", "score": 2.0}, {"ticker": "BBB", "score": 1.0}]).to_csv(scored, index=False)
+        pd.DataFrame(
+            [
+                {"ticker": "BBB", "free_data_selection_rank": 1},
+                {"ticker": "AAA", "free_data_selection_rank": 2},
+            ]
+        ).to_csv(baseline, index=False)
+        args = parse_args()
+        args.scored = str(scored)
+        args.estimate_signals = str(root / "missing_signals.parquet")
+        args.listing_status = str(root / "missing_listing.parquet")
+        args.earnings_calendar = str(root / "missing_earnings.parquet")
+        args.baseline_ranked = str(baseline)
+        args.decision_date = "2026-07-10"
+        args.output_dir = str(out)
+        args.top_n = 1
+        summary = run(args)
+        assert summary["rank_comparison"]["baseline_available"] is True
+        assert summary["rank_comparison"]["changed_rank_rows"] == 2
+        assert summary["rank_comparison"]["top_n_added"] == ["AAA"]
+        assert summary["rank_comparison"]["top_n_removed"] == ["BBB"]
+
+
 def main() -> None:
     test_overlay_promotes_confirmed_forward_evidence_and_penalizes_delisted()
     test_cli_writes_research_only_outputs()
-    print(json.dumps({"status": "PASS", "tests": 2}, sort_keys=True))
+    test_missing_forward_and_lifecycle_evidence_remain_neutral()
+    test_rank_comparison_is_reported()
+    print(json.dumps({"status": "PASS", "tests": 4}, sort_keys=True))
 
 
 if __name__ == "__main__":
