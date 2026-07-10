@@ -13,6 +13,26 @@ on:
         description: 'Download/refresh SEC companyfacts.zip into data_raw/free/sec (large, 1GB+)'
         type: boolean
         default: false
+      listing_status:
+        description: 'Collect Alpha Vantage active/delisted listing lifecycle reference data'
+        type: boolean
+        default: false
+      fmp_earnings_calendar:
+        description: 'Collect FMP earnings calendar history as vendor snapshot, not PIT revision history'
+        type: boolean
+        default: false
+      fmp_earnings_start:
+        description: 'Start date for FMP earnings calendar history'
+        type: string
+        default: '2016-01-01'
+      fmp_earnings_end:
+        description: 'End date for FMP earnings calendar history; blank = today'
+        type: string
+        default: ''
+      fmp_max_chunks:
+        description: 'Safety cap for FMP calendar chunks; 0 = all'
+        type: string
+        default: '0'
       price_mode:
         description: 'none | dry_run | target_books'
         type: choice
@@ -67,6 +87,7 @@ jobs:
             cache_prices
             data_raw/free
             data_pit/free
+            data_pit/events
           key: free-data-lake-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             free-data-lake-${{ runner.os }}-
@@ -134,6 +155,7 @@ jobs:
           }
           restore_dir data_raw/free data_raw/free
           restore_dir data_pit/free data_pit/free
+          restore_dir data_pit/events data_pit/events
           restore_dir manifests/free_data manifests/free_data
           restore_dir cache_prices cache_prices
           mkdir -p data_raw/free/sec
@@ -145,6 +167,8 @@ jobs:
       - name: Bootstrap free data lake
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
         run: |
           set -euo pipefail
@@ -157,7 +181,23 @@ jobs:
           if [ "${{ inputs.sec_companyfacts }}" = "true" ]; then
             ARGS+=(--sec-companyfacts)
           fi
+          if [ "${{ inputs.listing_status }}" = "true" ]; then
+            ARGS+=(--listing-status)
+          fi
+          if [ "${{ inputs.fmp_earnings_calendar }}" = "true" ]; then
+            ARGS+=(--fmp-earnings-calendar --fmp-earnings-start "${{ inputs.fmp_earnings_start }}" --fmp-max-chunks "${{ inputs.fmp_max_chunks }}")
+            if [ -n "${{ inputs.fmp_earnings_end }}" ]; then
+              ARGS+=(--fmp-earnings-end "${{ inputs.fmp_earnings_end }}")
+            fi
+          fi
           python tools/run_free_data_lake_bootstrap.py "${ARGS[@]}" 2>&1 | tee free_data_lake_bootstrap.log
+
+      - name: Build data catalog
+        if: always()
+        run: |
+          set -euo pipefail
+          python tools/build_data_catalog.py --output data/catalog.json --print-summary
+          python tools/audit_free_historical_data_coverage.py --latest-run "${{ inputs.latest_run }}" --output-dir outputs/free_historical_data_coverage
 
       - name: Run free-data proxy broker replay
         if: ${{ inputs.run_proxy_replay }}
@@ -192,6 +232,7 @@ jobs:
           path: |
             free_data_lake_bootstrap.log
             outputs/free_data_lake_bootstrap/
+            outputs/free_historical_data_coverage/
             outputs/free_data_proxy_backtest/
             outputs/free_data_engine_validation/
             outputs/ten_year_backtest_readiness/
@@ -199,6 +240,7 @@ jobs:
             outputs/full_rebuild_logs/free_data_engine_validation.log
             outputs/full_rebuild_logs/ten_year_backtest_readiness.log
             data_pit/free/coverage_audit.json
+            data/catalog.json
             manifests/free_data/latest_manifest.json
             data_raw/free/prices/replay_price_cache_manifest.json
           retention-days: 90
@@ -233,8 +275,11 @@ jobs:
           }
           sync_dir data_raw/free data_raw/free
           sync_dir data_pit/free data_pit/free
+          sync_dir data_pit/events data_pit/events
+          sync_dir data data
           sync_dir manifests/free_data manifests/free_data
           sync_dir cache_prices cache_prices
+          sync_dir outputs/free_historical_data_coverage research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage
           sync_dir outputs/free_data_lake_bootstrap research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_lake_bootstrap
           sync_dir outputs/free_data_proxy_backtest research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest
           sync_dir outputs/free_data_engine_validation research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation

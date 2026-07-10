@@ -91,6 +91,7 @@ jobs:
             cache_prices
             data_raw/free
             data_pit/free
+            data_pit/events
           key: free-data-daily-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             free-data-daily-${{ runner.os }}-
@@ -151,6 +152,10 @@ jobs:
               rclone copy "$BASE$d" "$d/"
             fi
           done
+          mkdir -p data_pit/events
+          if rclone lsf "$BASE""data_pit/events" >/dev/null 2>&1; then
+            rclone copy "$BASE""data_pit/events" data_pit/events/
+          fi
           mkdir -p data_raw/free/sec
           if [ ! -s data_raw/free/sec/companyfacts.zip ] && rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
             echo "[gdrive] restoring existing root companyfacts.zip -> data_raw/free/sec/companyfacts.zip"
@@ -184,6 +189,8 @@ jobs:
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true
           python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
           python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" --ref "${GITHUB_REF_NAME:-master}" --repo "${GITHUB_REPOSITORY:-wscha231/r1000-quant-engine}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+          python tools/build_data_catalog.py --output data/catalog.json --print-summary
+          python tools/audit_free_historical_data_coverage.py --latest-run "$LATEST" --output-dir outputs/free_historical_data_coverage
 
       - name: Upload daily validation artifact
         if: always()
@@ -193,12 +200,14 @@ jobs:
           path: |
             free_data_daily_bootstrap.log
             outputs/free_data_lake_bootstrap/
+            outputs/free_historical_data_coverage/
             outputs/free_data_proxy_backtest/
             outputs/free_data_engine_validation/
             outputs/ten_year_backtest_readiness/
             outputs/full_rebuild_logs/free_data_*.log
             outputs/full_rebuild_logs/ten_year_backtest_readiness.log
             data_pit/free/coverage_audit.json
+            data/catalog.json
             manifests/free_data/latest_manifest.json
           retention-days: 90
 
@@ -218,11 +227,12 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
-          for d in data_raw/free data_pit/free manifests/free_data cache_prices; do
+          for d in data_raw/free data_pit/free data_pit/events manifests/free_data cache_prices data; do
             if [ -e "$d" ]; then
               rclone copy "$d" "$BASE$d/"
             fi
           done
           rclone copy outputs/free_data_engine_validation "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation/"
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
+          rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
           rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
