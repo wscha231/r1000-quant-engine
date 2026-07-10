@@ -214,12 +214,20 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
     for row in universe.to_dict("records"):
         ticker = normalize_ticker(row.get("ticker"))
         cik10 = normalize_cik(row.get("cik10"))
+        sec_present = bool(cik10 and cik10 in sec_members)
+        if sec_present:
+            sec_missing_reason = ""
+        elif not cik10:
+            sec_missing_reason = "missing_cik10_mapping"
+        else:
+            sec_missing_reason = "cik_not_in_companyfacts_zip"
         rows.append(
             {
                 "ticker": ticker,
                 "cik10": cik10,
                 "universe_source": row.get("universe_source", ""),
-                "sec_companyfacts_present": bool(cik10 and cik10 in sec_members),
+                "sec_companyfacts_present": sec_present,
+                "sec_companyfacts_missing_reason": sec_missing_reason,
                 "av_listing_status_present": ticker in listing,
                 "fmp_earnings_calendar_present": ticker in earnings_calendar,
                 "forward_estimate_seen": ticker in estimate_seen,
@@ -250,6 +258,11 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
         "universe_ticker_count": total,
         "coverage_csv": coverage_csv.as_posix(),
         "estimate_snapshot_file_count": estimate_file_count,
+        "sec_companyfacts_missing_reason_counts": (
+            coverage_frame.loc[~coverage_frame["sec_companyfacts_present"].astype(bool), "sec_companyfacts_missing_reason"]
+            .value_counts(dropna=False)
+            .to_dict()
+        ),
         "coverage": {
             "sec_companyfacts": coverage_item(
                 "sec_companyfacts_present",

@@ -75,6 +75,8 @@ def test_dedicated_historical_backfill_workflow_is_collector_only() -> None:
         "data_pit/events",
         "data_raw/free",
         "data/catalog.json",
+        "run_free_data_selection_overlay.py",
+        "outputs/free_data_selection_overlay",
     ]:
         assert token in text
     assert "run_broker_ledger_replay.py" not in text

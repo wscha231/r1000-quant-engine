@@ -141,6 +141,7 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
     frames: list[pd.DataFrame] = []
     raw_records: list[dict[str, Any]] = []
     errors: list[str] = []
+    warnings: list[str] = []
     for state in ["active", "delisted"]:
         raw_path = raw_dir / f"listing_status_{state}_{stamp}.csv"
         try:
@@ -153,6 +154,10 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
                 raise RuntimeError("missing_api_key_and_no_existing_raw")
             frame = read_csv_payload(payload, source_state=state, collected_at=collected_at)
             frames.append(frame)
+            if state == "delisted" and len(frame) == 0:
+                warnings.append("delisted_state_returned_zero_rows")
+            if len(payload) <= 2:
+                warnings.append(f"{state}_payload_too_small:{len(payload)}_bytes")
             raw_records.append(
                 {
                     "state": state,
@@ -183,7 +188,12 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
         "active_rows": int((combined["source_state"] == "active").sum()) if not combined.empty else 0,
         "delisted_rows": int((combined["source_state"] == "delisted").sum()) if not combined.empty else 0,
         "errors": errors,
-        "status": "ok" if combined is not None and not combined.empty and not errors else ("partial" if not combined.empty else "blocked"),
+        "warnings": warnings,
+        "status": (
+            "ok"
+            if combined is not None and not combined.empty and not errors and not warnings
+            else ("partial" if combined is not None and not combined.empty else "blocked")
+        ),
     }
     write_json(summary_path, summary)
     print(json.dumps(summary, indent=2, sort_keys=True))
