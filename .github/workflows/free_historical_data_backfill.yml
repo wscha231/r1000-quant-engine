@@ -155,7 +155,8 @@ jobs:
               "${ARGS[@]}" \
               --raw-dir data_raw/free/fmp/earnings_calendar \
               --output data_pit/events/earnings_calendar_history.parquet \
-              --summary outputs/free_historical_data_backfill/fmp_earnings_calendar_summary.json
+              --summary outputs/free_historical_data_backfill/fmp_earnings_calendar_summary.json \
+              --allow-blocked
           fi
 
       - name: Catalog and audit coverage
@@ -168,6 +169,13 @@ jobs:
             ARGS+=(--universe-file "${{ inputs.universe_file }}")
           fi
           python tools/audit_free_historical_data_coverage.py "${ARGS[@]}"
+          if [ -s "${{ inputs.latest_run }}/scored_latest.csv" ]; then
+            python tools/run_free_data_selection_overlay.py \
+              --scored "${{ inputs.latest_run }}/scored_latest.csv" \
+              --output-dir outputs/free_data_selection_overlay
+          else
+            echo "[selection-overlay] missing ${{ inputs.latest_run }}/scored_latest.csv; skipping latest selection overlay"
+          fi
 
       - name: Upload historical backfill artifact
         if: always()
@@ -177,6 +185,7 @@ jobs:
           path: |
             outputs/free_historical_data_backfill/
             outputs/free_historical_data_coverage/
+            outputs/free_data_selection_overlay/
             data/catalog.json
             data_pit/free/av_listing_status.parquet
             data_pit/events/earnings_calendar_history.parquet
@@ -205,3 +214,6 @@ jobs:
           done
           rclone copy outputs/free_historical_data_backfill "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_backfill/"
           rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
+          if [ -d outputs/free_data_selection_overlay ]; then
+            rclone copy outputs/free_data_selection_overlay "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_selection_overlay/"
+          fi

@@ -253,12 +253,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="data_pit/events/earnings_calendar_history.parquet")
     parser.add_argument("--summary", default="outputs/free_historical_data_backfill/fmp_earnings_calendar_summary.json")
     parser.add_argument("--allow-missing-key", action="store_true")
+    parser.add_argument("--allow-blocked", action="store_true", help="exit 0 when the vendor is entitlement-blocked but summary was written")
     return parser.parse_args()
 
 
 def main() -> int:
-    summary = collect(parse_args())
-    return 0 if summary.get("status") in {"ok", "partial"} else 1
+    args = parse_args()
+    summary = collect(args)
+    if summary.get("status") in {"ok", "partial"}:
+        return 0
+    if args.allow_blocked and summary.get("status") == "blocked":
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
