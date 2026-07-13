@@ -746,3 +746,53 @@ Expected contract:
   - `tools/build_public_portfolio_dashboard.py`
   - `tests/public_portfolio_dashboard_smoke.py`
   - `docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md`
+
+### 2026-07-13 - Daily publication must require a real completed session and exact closes
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-daily-paper-ledger-20260713`, PR #266 update
+- Context:
+  - The user requested automatic portfolio and homepage updates only after the
+    prior US trading close, with correct weekend and exchange-holiday handling.
+- Attempt:
+  - Replaced the age-only inline check with an exact NYSE calendar gate that
+    recognizes holidays and early closes, requires a 90-minute settlement
+    buffer, and rejects scheduled sessions older than 18 hours.
+  - Added a fail-closed coverage audit for every current target, held position,
+    pending-order ticker, and required benchmark before the paper ledger runs.
+  - Made the Pages workflow verify that the successful daily run actually
+    produced a completed-session artifact before deploying.
+- Result:
+  - Synthetic regular-day, too-soon, Independence Day holiday, weekend, and
+    post-Thanksgiving early-close cases pass.
+  - A stale single-ticker price blocks the entire portfolio/public refresh;
+    exact same-session coverage passes.
+  - A holiday/no-new-close run leaves the previous valid website deployed.
+- Failure or caveat:
+  - The first scheduled real-market artifact still must be reviewed after the
+    PR is merged; synthetic calendar/price fixtures are not operating evidence.
+  - Manual `force_run` may replay an older completed session, but exact-close
+    coverage and paper-ledger idempotency still apply.
+- Root cause:
+  - The previous workflow knew a recent NYSE close existed but did not prove
+    exact session-date coverage across the complete operating book, and the
+    Pages follower could run after a successful holiday no-op.
+- Reusable lesson:
+  - Calendar completion, data availability, account marking, artifact
+    publication, and Pages deployment are separate gates and must all agree on
+    the same exchange session date.
+- Next action:
+  - Merge only after CI passes, then inspect the first scheduled artifact's
+    session and close-price coverage manifests before trusting daily updates.
+- Do-not-repeat:
+  - Do not label a portfolio with a new as-of date using prior-session prices.
+  - Do not deploy Pages from a successful workflow that emitted no completed-
+    session artifact.
+  - Do not turn a holiday skip into a failed trade or invented fill.
+- Evidence files:
+  - `tools/run_daily_market_session_gate.py`
+  - `tools/validate_daily_close_prices.py`
+  - `tests/daily_market_close_gate_smoke.py`
+  - `.github/workflows/daily_operating_selection_refresh.yml`
+  - `.github/workflows/pages_deploy.yml`

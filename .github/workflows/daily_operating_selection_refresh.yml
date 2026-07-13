@@ -54,34 +54,15 @@ jobs:
         env:
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run || 'false' }}
         run: |
-          python - <<'PY'
-          from datetime import datetime, timedelta, timezone
-          import os
-          import pandas as pd
-          import pandas_market_calendars as mcal
-
-          force = str(os.environ.get("FORCE_RUN", "false")).lower() == "true"
-          now = datetime.now(timezone.utc)
-          cal = mcal.get_calendar("NYSE")
-          sched = cal.schedule(start_date=(now - timedelta(days=5)).date(), end_date=now.date())
-          ready = force
-          last_close = ""
-          if not sched.empty:
-              close = sched["market_close"].max()
-              if isinstance(close, pd.Timestamp):
-                  close_utc = close.to_pydatetime()
-                  if close_utc.tzinfo is None:
-                      close_utc = close_utc.replace(tzinfo=timezone.utc)
-                  last_close = close_utc.isoformat()
-                  ready = ready or (timedelta(0) <= now - close_utc <= timedelta(hours=22))
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              handle.write(f"MARKET_READY={'yes' if ready else 'no'}\n")
-              handle.write(f"LAST_NYSE_CLOSE_UTC={last_close}\n")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(f"ready={'yes' if ready else 'no'}\n")
-              handle.write(f"last_close={last_close}\n")
-          print(f"[market] ready={ready} force={force} last_close={last_close}")
-          PY
+          ARGS=(
+            --output "$RUNNER_TEMP/daily_market_session_gate.json"
+            --min-close-age-minutes 90
+            --max-close-age-hours 18
+          )
+          if [ "${FORCE_RUN:-false}" = "true" ]; then
+            ARGS+=(--force)
+          fi
+          python tools/run_daily_market_session_gate.py "${ARGS[@]}"
 
       - name: Restore GitHub cache
         if: steps.market.outputs.ready == 'yes'
@@ -195,6 +176,13 @@ jobs:
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
             restore_dir paper_archive/run287_daily_simulated_fill_ledger outputs/daily_simulated_fill_ledger
           fi
+
+      - name: Record completed market session gate
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/daily_market_session_gate
+          cp "$MARKET_SESSION_GATE_FILE" outputs/daily_market_session_gate/session.json
 
       - name: Refresh current price cache
         if: steps.market.outputs.ready == 'yes'
@@ -317,6 +305,25 @@ jobs:
             2>&1 | tee outputs/full_rebuild_logs/daily_operating_target_books.log || \
             echo "[daily-operating] operating target book build failed or timed out; freshness contract will block selection" | tee -a outputs/full_rebuild_logs/daily_operating_target_books.log
 
+      - name: Require exact completed-session close prices
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/validate_daily_close_prices.py \
+            --session-date "$LAST_NYSE_SESSION_DATE" \
+            --price-cache cache_prices \
+            --target outputs/reports/operating_main_target_book.csv \
+            --target outputs/reports/operating_concentrated_target_book.csv \
+            --account outputs/broker_replay/main/account_state_latest.json \
+            --account outputs/broker_replay/concentrated/account_state_latest.json \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --required-ticker SPY \
+            --required-ticker QQQ \
+            --required-ticker SMH \
+            --required-ticker SOXX \
+            --output outputs/daily_market_session_gate/close_price_coverage.json \
+            2>&1 | tee outputs/full_rebuild_logs/daily_close_price_coverage.log
+
       - name: Refresh daily macro snapshot
         if: steps.market.outputs.ready == 'yes'
         run: |
@@ -359,6 +366,21 @@ jobs:
 
           status_path = Path("outputs/data_freshness_contract/status.json")
           status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+          session_path = Path("outputs/daily_market_session_gate/session.json")
+          coverage_path = Path("outputs/daily_market_session_gate/close_price_coverage.json")
+          session = json.loads(session_path.read_text(encoding="utf-8")) if session_path.exists() else {}
+          coverage = json.loads(coverage_path.read_text(encoding="utf-8")) if coverage_path.exists() else {}
+          completed_session_date = os.environ.get("LAST_NYSE_SESSION_DATE", "")
+          exact_close_ready = bool(
+              session.get("ready") is True
+              and session.get("session_date") == completed_session_date
+              and coverage.get("status") == "PASS"
+              and coverage.get("exact_close_coverage") is True
+              and coverage.get("session_date") == completed_session_date
+              and int(coverage.get("missing_ticker_count", -1)) == 0
+          )
+          if not exact_close_ready:
+              raise SystemExit("completed-session exact-close gate is not satisfied")
           summary = {
               "schema_version": "daily-operating-selection-refresh-v1",
               "daily_operating_refresh": True,
@@ -372,6 +394,10 @@ jobs:
               "source_commit_sha": os.environ.get("GITHUB_SHA", ""),
               "source_branch": os.environ.get("GITHUB_REF_NAME", ""),
               "source_artifact_name": f"daily-operating-selection-refresh-{os.environ.get('GITHUB_RUN_ID', '')}",
+              "market_session_date": completed_session_date,
+              "market_session_gate_status": session.get("status", "missing"),
+              "exact_close_coverage": exact_close_ready,
+              "close_price_coverage_status": coverage.get("status", "missing"),
               "selection_allowed": bool(status.get("selection_allowed", False)),
               "promotion_allowed": bool(status.get("promotion_allowed", False)),
               "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
@@ -400,7 +426,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
-          PAPER_AS_OF="${LAST_NYSE_CLOSE_UTC%%T*}"
+          PAPER_AS_OF="$LAST_NYSE_SESSION_DATE"
           python tools/run_daily_simulated_fill_ledger.py \
             --state-dir outputs/daily_simulated_fill_ledger \
             --price-cache cache_prices \
@@ -447,13 +473,14 @@ jobs:
             2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log || true
 
       - name: Upload daily operating artifact
-        if: always()
+        if: always() && steps.market.outputs.ready == 'yes'
         uses: actions/upload-artifact@v4
         with:
           name: daily-operating-selection-refresh-${{ github.run_id }}
           path: |
             outputs/data_freshness_contract/
             outputs/daily_market_snapshot/
+            outputs/daily_market_session_gate/
             outputs/daily_operating_selection_refresh/
             outputs/data_readiness/
             outputs/reports/operating_*_target_book.csv

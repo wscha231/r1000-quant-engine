@@ -41,6 +41,11 @@ trade, and equity prefixes exactly.
 
 Every completed market close should produce a private append-only paper state:
 
+- schedule at 10:15 KST Tuesday-Saturday, then use the exact NYSE calendar to
+  skip weekends, holidays, and stale sessions while honoring early closes;
+- require the completed session's exact close for every held, targeted, or
+  pending-order ticker before marking either account; never carry a prior close
+  into a new public as-of date;
 - resolve only prior-day pending orders at the first eligible close;
 - sell before buy, integer shares, 25 bps, no negative cash;
 - hash-chain every fill and rejection;
@@ -62,6 +67,12 @@ Forward status gates:
 - forward evidence never changes the historical seven-year CAGR/MDD label.
 
 ## Cost-efficient improvement sequence
+
+The remaining annualized gaps look small, but endpoint arithmetic is not an
+acceptance test. Over roughly 7.1 years, moving Main from 34.4032% to 35% needs
+about 3.2% more terminal wealth; moving Concentrated from 49.0971% to 50% needs
+about 4.4% more. One narrow, repeatable winner-selection improvement may be
+enough, but a lucky trade or endpoint-tuned threshold is not.
 
 ### 1. Preserve the current policy while the paper ledger accumulates
 
@@ -85,6 +96,13 @@ gate before any full purchase:
 
 The preregistered signal should be one composite revision state.  It must pass
 single-source full/OOS/OOS2 screens before it can enter either portfolio.
+
+This is the sole CAGR-gap research lane. Keep existing MDD controls frozen; do
+not add a second exit, cash-floor, leadership-retention, or SEC threshold arm.
+The first paid action is only a small timestamped sample with a fixed cost
+ceiling. Full-universe licensing is allowed only if the sample proves PIT
+timestamps, historical coverage, and nonnegative OOS/OOS2 source-screen
+direction.
 
 ### 3. Portfolio use only after source validation
 

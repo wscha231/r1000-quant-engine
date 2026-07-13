@@ -31,6 +31,30 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def write_market_gate(source: Path, session_date: str) -> None:
+    gate = source / "daily_market_session_gate"
+    write_json(
+        gate / "session.json",
+        {
+            "status": "READY_COMPLETED_SESSION",
+            "ready": True,
+            "session_date": session_date,
+            "weekend_and_holiday_aware": True,
+            "early_close_aware": True,
+        },
+    )
+    write_json(
+        gate / "close_price_coverage.json",
+        {
+            "status": "PASS",
+            "session_date": session_date,
+            "exact_close_coverage": True,
+            "missing_ticker_count": 0,
+            "prior_session_fallback_allowed": False,
+        },
+    )
+
+
 def build_replay_fixture(root: Path) -> Path:
     source = root / "replay"
     for portfolio, ticker, cash, cagr, max_dd in [
@@ -138,6 +162,7 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
         write_json(base_path, base)
 
         current = root / "daily" / "user_current"
+        write_market_gate(root / "daily", "2026-07-11")
         write_json(
             current / "summary.json",
             {
@@ -227,6 +252,7 @@ def test_daily_artifact_merges_only_safe_forward_paper_fills() -> None:
         write_json(base_path, base)
 
         daily = root / "daily"
+        write_market_gate(daily, "2026-07-14")
         current = daily / "user_current"
         write_json(
             current / "summary.json",
@@ -325,6 +351,50 @@ def test_daily_artifact_merges_only_safe_forward_paper_fills() -> None:
             assert forbidden not in encoded, forbidden
 
 
+def test_daily_artifact_rejects_stale_or_missing_close_gate() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        base = build_dashboard(build_replay_fixture(root))
+        base_path = root / "dashboard.json"
+        write_json(base_path, base)
+        daily = root / "daily"
+        current = daily / "user_current"
+        write_json(
+            current / "summary.json",
+            {"review_only": True, "live_trading_enabled": False, "production_mutation_allowed": False},
+        )
+        write_csv(
+            current / "01_current_holdings.csv",
+            [
+                {
+                    "portfolio_kind": "main",
+                    "row_type": "equity",
+                    "ticker": "AAA",
+                    "current_weight": "0.8",
+                    "as_of_date": "2026-07-14",
+                }
+            ],
+        )
+        write_csv(current / "02_target_weights.csv", [])
+        write_csv(current / "03_order_preview.csv", [])
+        write_json(current / "08_rebalance_decision.json", {"decision": "HOLD"})
+
+        try:
+            build_dashboard(daily, base_json=base_path)
+        except ValueError as exc:
+            assert "market-session gate" in str(exc)
+        else:
+            raise AssertionError("missing market gate must block public refresh")
+
+        write_market_gate(daily, "2026-07-11")
+        try:
+            build_dashboard(daily, base_json=base_path)
+        except ValueError as exc:
+            assert "does not match completed session" in str(exc)
+        else:
+            raise AssertionError("stale market gate must block public refresh")
+
+
 def test_static_site_references_only_public_assets() -> None:
     html = (ROOT / "docs" / "public" / "index.html").read_text(encoding="utf-8")
     javascript = (ROOT / "docs" / "public" / "app.js").read_text(encoding="utf-8")
@@ -348,6 +418,7 @@ def main() -> int:
     test_replay_export_is_privacy_safe()
     test_daily_artifact_refreshes_holdings_but_not_fake_trades()
     test_daily_artifact_merges_only_safe_forward_paper_fills()
+    test_daily_artifact_rejects_stale_or_missing_close_gate()
     test_static_site_references_only_public_assets()
     print("public_portfolio_dashboard_smoke: PASS")
     return 0

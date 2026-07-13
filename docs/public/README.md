@@ -39,19 +39,26 @@ a forbidden field, secret-like value, or absolute local path reaches
 
 ## Daily update flow
 
-1. `Daily Operating Selection Refresh` runs after the latest completed NYSE
-   close and emits a review-only GitHub artifact.
+1. `Daily Operating Selection Refresh` is scheduled for 10:15 KST Tuesday
+   through Saturday. An exact NYSE calendar gate identifies weekends, US
+   holidays, and early closes, then requires at least a 90-minute data buffer.
+   A stale session older than 18 hours is skipped.
 2. `.github/workflows/pages_deploy.yml` runs only after that workflow succeeds
    on `master`.
 3. The daily workflow restores the last validated private paper state, resolves
    prior pending orders at the next cached close, and enqueues a new batch only
    when the normalized target allocation changed.
-4. The Pages workflow downloads the exact artifact, overlays current holdings,
+4. Before any paper mark or fill, every current holding, current target,
+   pending-order ticker, and required benchmark must have an exact close for
+   that completed session. A prior-session price is not an allowed fallback.
+5. The Pages workflow downloads the exact artifact, overlays current holdings,
    target weights, review previews, and allowlisted forward paper fills on the
    last validated public snapshot, re-runs the privacy smoke test, and deploys
    **only `docs/public/`**.
-5. If the source is missing, not review-only, unsafe, or malformed, deployment
-   fails and the previously valid site remains live.
+6. If the market was closed, the exact-close artifact is absent and Pages
+   deployment is skipped. If the source is stale, incomplete, not review-only,
+   unsafe, or malformed, publication fails closed and the previously valid site
+   remains live.
 
 The daily ledger is simulated and review-only. It freezes integer-share order
 quantities after a completed close, resolves them no earlier than the next

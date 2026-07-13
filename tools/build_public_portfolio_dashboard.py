@@ -381,6 +381,43 @@ def user_current_dir(source: Path) -> Path | None:
     return None
 
 
+def daily_market_gate_root(source: Path) -> Path | None:
+    candidates = [
+        source / "daily_market_session_gate",
+        source / "outputs" / "daily_market_session_gate",
+    ]
+    for candidate in candidates:
+        if (candidate / "session.json").exists() and (candidate / "close_price_coverage.json").exists():
+            return candidate
+    return None
+
+
+def validate_daily_market_artifact(source: Path) -> str:
+    root = daily_market_gate_root(source)
+    if root is None:
+        raise ValueError("daily artifact is missing the completed-market-session gate")
+    session = read_json(root / "session.json")
+    coverage = read_json(root / "close_price_coverage.json")
+    session_date = clean_text(session.get("session_date"), max_length=16)
+    if (
+        session.get("ready") is not True
+        or not str(session.get("status") or "").startswith("READY_")
+        or session.get("weekend_and_holiday_aware") is not True
+        or session.get("early_close_aware") is not True
+        or not session_date
+    ):
+        raise ValueError("daily artifact market-session gate is not ready")
+    if (
+        coverage.get("status") != "PASS"
+        or coverage.get("exact_close_coverage") is not True
+        or int(safe_float(coverage.get("missing_ticker_count"), -1) or 0) != 0
+        or clean_text(coverage.get("session_date"), max_length=16) != session_date
+        or coverage.get("prior_session_fallback_allowed") is not False
+    ):
+        raise ValueError("daily artifact does not have exact close coverage")
+    return session_date
+
+
 def public_target_maps(rows: list[dict[str, str]]) -> tuple[dict[str, dict[str, float]], dict[str, float]]:
     targets = {portfolio: {} for portfolio in PORTFOLIOS}
     cash_targets: dict[str, float] = {}
@@ -477,6 +514,7 @@ def public_order_previews(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
 
 
 def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
+    completed_session_date = validate_daily_market_artifact(source)
     current_dir = user_current_dir(source)
     if current_dir is None:
         raise FileNotFoundError(f"daily artifact has no user_current holdings under {source}")
@@ -515,7 +553,12 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
 
     decision = read_json(current_dir / "08_rebalance_decision.json")
     dashboard["order_previews"] = public_order_previews(read_csv(current_dir / "03_order_preview.csv"))
-    dashboard["as_of_close"] = max(dates, default=dashboard.get("as_of_close", ""))
+    holdings_as_of = max(dates, default="")
+    if holdings_as_of and holdings_as_of != completed_session_date:
+        raise ValueError(
+            f"daily holdings date {holdings_as_of} does not match completed session {completed_session_date}"
+        )
+    dashboard["as_of_close"] = completed_session_date
     dashboard["status"].update(
         {
             "review_only": True,
@@ -537,6 +580,7 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
                 else "retained_from_last_validated_replay"
             ),
             "forward_paper_fill_count": forward_fill_count,
+            "market_session_gate": "exact_close_passed",
         }
     )
     return dashboard
