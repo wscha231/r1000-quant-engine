@@ -60,6 +60,18 @@
 
     <section class="metric-grid" id="metric-grid" aria-label="포트폴리오 핵심 성과"></section>
 
+    <section class="panel allocation-overview" aria-labelledby="allocation-overview-title">
+      <div class="section-heading section-heading-wrap">
+        <div>
+          <span class="section-kicker">PORTFOLIO COMPOSITION</span>
+          <h2 id="allocation-overview-title">두 포트 보유 구성</h2>
+          <p class="section-description">원형 차트와 범례에서 종목별 비중과 현금을 한눈에 비교할 수 있습니다.</p>
+        </div>
+        <span class="asof-inline"><span class="status-dot" aria-hidden="true"></span><span id="allocation-asof">—</span> 종가</span>
+      </div>
+      <div class="donut-grid" id="allocation-donuts"></div>
+    </section>
+
     <section class="panel performance-panel" aria-labelledby="performance-title">
       <div class="section-heading">
         <div>
@@ -137,14 +149,18 @@
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="trades-title">
+    <section class="panel trade-ledger-panel" id="trade-section" aria-labelledby="trades-title" hidden>
       <div class="section-heading section-heading-wrap">
         <div>
           <span class="section-kicker">EXECUTED REPLAY LEDGER</span>
-          <h2 id="trades-title">매수·매도 기록</h2>
+          <h2 id="trades-title" tabindex="-1">백테스트 매수·매도 기록</h2>
           <p class="section-description" id="trade-history-status">검증된 모의 브로커 원장의 최근 체결입니다.</p>
         </div>
-        <div class="controls">
+        <div class="controls ledger-controls">
+          <div class="segmented" role="group" aria-label="거래 기록 포트폴리오 선택">
+            <button class="trade-portfolio-tab active" data-trade-portfolio="main" type="button">Main</button>
+            <button class="trade-portfolio-tab" data-trade-portfolio="concentrated" type="button">Concentrated</button>
+          </div>
           <label class="select-field">
             <span class="sr-only">매매 방향 선택</span>
             <select id="trade-side">
@@ -157,6 +173,7 @@
             <span class="sr-only">매매 종목 검색</span>
             <input id="trade-search" type="search" placeholder="티커 검색" autocomplete="off">
           </label>
+          <button class="ledger-close" id="close-trade-ledger" type="button" aria-controls="trade-section">기록 닫기</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -175,7 +192,10 @@
           <tbody id="trades-body"></tbody>
         </table>
       </div>
-      <div class="table-footer" id="trades-footer"></div>
+      <div class="table-footer ledger-footer">
+        <span id="trades-footer"></span>
+        <button class="load-more" id="load-more-trades" type="button">더 보기</button>
+      </div>
     </section>
 
     <section class="lower-grid">

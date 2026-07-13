@@ -220,8 +220,17 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
 
 def test_static_site_references_only_public_assets() -> None:
     html = (ROOT / "docs" / "public" / "index.html").read_text(encoding="utf-8")
+    javascript = (ROOT / "docs" / "public" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (ROOT / "docs" / "public" / "styles.css").read_text(encoding="utf-8")
     assert "./styles.css" in html
     assert "./app.js" in html
+    assert 'id="allocation-donuts"' in html
+    assert 'id="trade-section"' in html and "백테스트 매수·매도 기록" in html
+    assert 'id="load-more-trades"' in html
+    assert "data-ledger-portfolio" in javascript
+    assert "conic-gradient" in javascript
+    assert "openTradeLedger" in javascript and "closeTradeLedger" in javascript
+    assert ".donut-chart" in stylesheet and ".ledger-open" in stylesheet
     assert "CODEX_" not in html
     assert "AGENT_SHARED" not in html
     assert "noindex, nofollow" in html
