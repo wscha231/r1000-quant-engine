@@ -902,3 +902,55 @@ Expected contract:
   - `tests/pit_estimate_guidance_source_gate_smoke.py`
   - `docs/run287_pit_estimate_guidance_source_requirements.json`
   - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SOURCE_GATE_20260713.md`
+
+### 2026-07-14 - Long estimate/guidance outcomes and unbiased sample request frozen before labels
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-long-horizon-source-contract-20260714`
+  - local request preparation only; no provider call, return join, or fullrun
+- Context:
+  - The final research must cover the historical eligible union, not only a
+    small sample or the current 993-row snapshot. The user also requested
+    longer post-event trading-day outcomes.
+- Attempt:
+  - Froze 21/63/126/252/504-session roles before any estimate/guidance return
+    labels are available.
+  - Built a deterministic 50-row zero-cost schema request from the 993-row
+    current research queue without using holdings or future returns.
+- Result:
+  - Current reference: 992 equity issuers and 64 ADR/global listings.
+  - Sample: 45 current active issuers, exactly five ADR/global listings, and
+    five historical-delisted provider-query slots across 13 current sector
+    labels.
+  - Status: `READY_ZERO_COST_SCHEMA_REQUEST_WITH_PROVIDER_DELISTED_QUERY`.
+  - 252D is a powered long-confirmation gate; 504D is a powered directional
+    sensitivity because endpoint censoring is material.
+  - Synthetic deterministic, delisted-slot, and missing-long-horizon cases
+    passed.
+  - Local standard PR validation passed 138 of 142 tests. The four failures are
+    the existing sparse-checkout omissions; both estimate/guidance tests passed.
+- Failure or caveat:
+  - The free listing artifact returned zero delisted rows. The historical union
+    count remains unknown and `pit_universe_label_clean=false`.
+  - No real provider sample or historical return was evaluated.
+- Root cause:
+  - Projecting current constituents backward would omit failed/delisted names.
+    Treating unresolved 504D outcomes as zero would also bias recent events.
+- Reusable lesson:
+  - Separate sample procurement QA from final all-universe research.
+  - Long outcomes require explicit right censoring, longer bootstrap blocks,
+    and verified terminal returns for delisted securities.
+- Next action:
+  - Send only the zero-cost schema request. Run the source gate on the delivered
+    50-security export before joining any price outcomes.
+- Do-not-repeat:
+  - Do not back-project the current 993 rows as historical membership.
+  - Do not fill unresolved 252D/504D labels with zero or remove delisted names.
+  - Do not change horizon lengths or the 2026-07-10 endpoint after results.
+- Evidence files:
+  - `docs/run287_pit_estimate_guidance_outcome_contract.json`
+  - `tools/build_pit_estimate_guidance_sample_request.py`
+  - `tests/pit_estimate_guidance_sample_request_smoke.py`
+  - `docs/CODEX_RUN287_LONG_HORIZON_SAMPLE_REQUEST_20260714.md`
+  - `outputs/run287_pit_estimate_guidance_sample_request_20260714/`

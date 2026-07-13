@@ -62,8 +62,10 @@ Forward status gates:
   invented fill;
 - forward CAGR remains `UNDERPOWERED` before at least 252 observations and 300
   elapsed days;
-- review checkpoints use 21/63/126-session return, SPY excess return, rolling
-  drawdown, turnover, rejection rate, and implementation tracking error;
+- review checkpoints use 21/63/126-session return, with 252-session long
+  confirmation and 504-session right-censored sensitivity added once resolved;
+  also report SPY excess return, rolling drawdown, turnover, rejection rate,
+  and implementation tracking error;
 - forward evidence never changes the historical seven-year CAGR/MDD label.
 
 ## Cost-efficient improvement sequence
@@ -96,6 +98,10 @@ gate before any full purchase:
 
 The preregistered signal should be one composite revision state.  It must pass
 single-source full/OOS/OOS2 screens before it can enter either portfolio.
+The primary outcome remains 63 sessions, supported by 21 and 126 sessions.
+Add a powered 252-session long-confirmation gate and a 504-session directional
+sensitivity. Unresolved long outcomes stay null, and delisted securities need
+verified delisting returns or cash proceeds rather than survivorship deletion.
 
 This is the sole CAGR-gap research lane. Keep existing MDD controls frozen; do
 not add a second exit, cash-floor, leadership-retention, or SEC threshold arm.

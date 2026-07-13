@@ -53,6 +53,8 @@ The first export is a small, stratified sample, not a full-universe license:
 - at least 80% coverage of the requested delisted names;
 - symbol history, delisted history, PIT history, and research reproduction
   rights must be explicitly represented in provider metadata.
+- outcome compatibility for fixed 21/63/126/252/504-trading-day horizons under
+  `docs/run287_pit_estimate_guidance_outcome_contract.json`.
 
 Missing securities or components are coverage failures and remain neutral.
 They are never imputed as positive or negative evidence.
@@ -132,8 +134,11 @@ py -3 tools/audit_pit_estimate_guidance_source.py `
 
 ## Next action
 
-Prepare a deterministic 50-name sample request with at least five delisted
-stable IDs and request a zero-cost schema export first. If no candidate supplies
-that export without lock-in, present a fixed sample-cost ceiling and exact
-required fields to the user for separate approval. Do not buy a full license
-and do not build the composite alpha state yet.
+The deterministic request is now generated under
+`outputs/run287_pit_estimate_guidance_sample_request_20260714/`: 45 current
+stratified issuers, five ADR/global slots within that active sample, and five
+historical-delisted provider-query slots. Request a zero-cost schema export
+first. If no candidate supplies that export without lock-in, present a fixed
+sample-cost ceiling and exact required fields to the user for separate
+approval. Do not buy a full license and do not build the composite alpha state
+yet.
