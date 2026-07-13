@@ -5,6 +5,7 @@ const state = {
   tradeSearch: "",
   tradeSide: "all",
   tradeLimit: 80,
+  lastLedgerTrigger: null,
 };
 
 const COLORS = {
@@ -16,6 +17,7 @@ const COLORS = {
 const allocationColors = [
   "#54e1ad", "#6ea8ff", "#b68cff", "#ffcc73", "#59c4da",
   "#f58eae", "#72d887", "#8f9cff", "#de9c5d", "#75b7a7",
+  "#c7e06f", "#ee7c65", "#8bd3ff", "#d69fea", "#a5b689", "#eebc8b",
 ];
 
 const $ = (selector) => document.querySelector(selector);
@@ -111,6 +113,7 @@ function renderHeader() {
   $("#source-label").textContent = valueOrDash(data.source?.label);
   $("#decision-label").textContent = valueOrDash(data.status?.decision);
   $("#header-status-text").textContent = `${formatDate(data.as_of_close)} 종가 반영`;
+  $("#allocation-asof").textContent = formatDate(data.as_of_close);
 }
 
 function renderMetricCards() {
@@ -119,6 +122,66 @@ function renderMetricCards() {
     .map((portfolio) => metricCard(portfolio, state.data.portfolios[portfolio]))
     .join("");
   $("#metric-grid").innerHTML = html;
+}
+
+function allocationItems(portfolio) {
+  const item = portfolioData(portfolio);
+  const holdings = (item.holdings || []).map((holding, index) => ({
+    ticker: holding.ticker,
+    weight: Number(holding.weight || 0),
+    color: allocationColors[index % allocationColors.length],
+  }));
+  holdings.push({ ticker: "CASH", weight: Number(item.cash_weight || 0), color: COLORS.cash });
+  return holdings.filter((holding) => holding.weight > 0);
+}
+
+function donutGradient(items) {
+  const total = items.reduce((sum, item) => sum + item.weight, 0) || 1;
+  let cursor = 0;
+  const segments = items.map((item) => {
+    const start = cursor;
+    cursor += item.weight / total * 100;
+    return `${item.color} ${start.toFixed(4)}% ${cursor.toFixed(4)}%`;
+  });
+  return `conic-gradient(from -90deg, ${segments.join(", ")})`;
+}
+
+function renderAllocationDonuts() {
+  $("#allocation-donuts").innerHTML = ["main", "concentrated"]
+    .filter((portfolio) => state.data.portfolios?.[portfolio])
+    .map((portfolio) => {
+      const data = portfolioData(portfolio);
+      const items = allocationItems(portfolio);
+      const tradeCount = (data.trades || []).length;
+      const legend = items.map((item) => `
+        <li>
+          <span class="donut-legend-name"><span class="donut-swatch" style="background:${item.color}"></span>${escapeHtml(item.ticker)}</span>
+          <strong>${percent(item.weight)}</strong>
+        </li>`).join("");
+      return `
+        <article class="donut-card" data-portfolio="${portfolio}">
+          <div class="donut-card-head">
+            <div>
+              <span class="donut-portfolio-label">${escapeHtml(data.label || portfolio)}</span>
+              <small>${data.holding_count ?? data.holdings?.length ?? 0}종목 + 현금</small>
+            </div>
+            <span class="donut-cash-chip">현금 ${percent(data.cash_weight)}</span>
+          </div>
+          <div class="donut-card-body">
+            <div class="donut-chart" style="background:${donutGradient(items)}" role="img" aria-label="${escapeHtml(data.label || portfolio)} 종목별 보유 비중 원형 차트">
+              <div class="donut-center">
+                <strong>${percent(1 - Number(data.cash_weight || 0), 1)}</strong>
+                <span>주식 비중</span>
+              </div>
+            </div>
+            <ol class="donut-legend" aria-label="${escapeHtml(data.label || portfolio)} 종목별 비중">${legend}</ol>
+          </div>
+          <button class="ledger-open" type="button" data-ledger-portfolio="${portfolio}" aria-controls="trade-section" aria-expanded="false">
+            <span>${escapeHtml(data.label || portfolio)} 백테스트 매수·매도 기록</span>
+            <strong>${tradeCount.toLocaleString("en-US")}건 보기 →</strong>
+          </button>
+        </article>`;
+    }).join("");
 }
 
 function chartPoints(curve, minValue, maxValue, width, height, padding) {
@@ -199,7 +262,7 @@ function renderAllocationStrip(holdings, cashWeight) {
 
 function holdingsRow(item, rank) {
   const delta = Number(item.target_weight) - Number(item.weight);
-  const hasTarget = Number.isFinite(Number(item.target_weight));
+  const hasTarget = item.target_weight !== null && item.target_weight !== undefined && Number.isFinite(Number(item.target_weight));
   const deltaClass = !hasTarget ? "" : delta > 0 ? "weight-delta-positive" : delta < 0 ? "weight-delta-negative" : "";
   return `
     <tr>
@@ -219,7 +282,7 @@ function renderHoldings() {
   const body = holdings.map(holdingsRow).join("");
   const cashTarget = Number(portfolio.target_cash_weight);
   const cashDelta = cashTarget - Number(portfolio.cash_weight);
-  const cashTargetValid = Number.isFinite(cashTarget);
+  const cashTargetValid = portfolio.target_cash_weight !== null && portfolio.target_cash_weight !== undefined && Number.isFinite(cashTarget);
   const cashRow = query && !"CASH".includes(query) ? "" : `
     <tr class="cash-row">
       <td class="rank-cell">—</td>
@@ -289,7 +352,10 @@ function renderTrades() {
       <td class="number">${percent(item.target_weight)}</td>
       <td>${escapeHtml(reasonLabel(item.reason))}</td>
     </tr>`).join("") : `<tr><td colspan="7" class="empty-state">조건에 맞는 매매 기록이 없습니다.</td></tr>`;
-  $("#trades-footer").textContent = `${portfolio.label || state.portfolio} · ${visible.length}/${trades.length}건 표시`;
+  const buyCount = trades.filter((item) => item.side === "BUY").length;
+  const sellCount = trades.filter((item) => item.side === "SELL").length;
+  $("#trades-footer").textContent = `${portfolio.label || state.portfolio} · ${visible.length}/${trades.length}건 · 매수 ${buyCount} · 매도 ${sellCount}`;
+  $("#load-more-trades").hidden = visible.length >= trades.length;
   const historyStatus = state.data.source?.trade_history_status;
   $("#trade-history-status").textContent = historyStatus === "retained_from_last_validated_replay"
     ? "일일 artifact에는 체결 원장이 없어 마지막 검증 replay 이력을 유지합니다. 변경안은 위 표에서 별도로 표시합니다."
@@ -308,6 +374,7 @@ function renderChanges() {
 function renderAll() {
   renderHeader();
   renderMetricCards();
+  renderAllocationDonuts();
   renderChart();
   renderHoldings();
   renderPreviews();
@@ -315,26 +382,62 @@ function renderAll() {
   renderChanges();
 }
 
+function setActivePortfolio(portfolio) {
+  if (!state.data?.portfolios?.[portfolio]) return;
+  state.portfolio = portfolio;
+  state.tradeLimit = 80;
+  $$(".portfolio-tab").forEach((item) => item.classList.toggle("active", item.dataset.portfolio === portfolio));
+  $$(".trade-portfolio-tab").forEach((item) => item.classList.toggle("active", item.dataset.tradePortfolio === portfolio));
+  renderHoldings();
+  renderTrades();
+}
+
+function openTradeLedger(portfolio, trigger) {
+  setActivePortfolio(portfolio);
+  const section = $("#trade-section");
+  section.hidden = false;
+  state.lastLedgerTrigger = trigger || null;
+  $$(".ledger-open").forEach((button) => button.setAttribute("aria-expanded", String(button === trigger)));
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+  window.setTimeout(() => $("#trades-title").focus({ preventScroll: true }), 350);
+}
+
+function closeTradeLedger() {
+  $("#trade-section").hidden = true;
+  $$(".ledger-open").forEach((button) => button.setAttribute("aria-expanded", "false"));
+  if (state.lastLedgerTrigger) state.lastLedgerTrigger.focus({ preventScroll: false });
+}
+
 function attachEvents() {
   $$(".portfolio-tab").forEach((button) => button.addEventListener("click", () => {
-    state.portfolio = button.dataset.portfolio;
-    state.tradeLimit = 80;
-    $$(".portfolio-tab").forEach((item) => item.classList.toggle("active", item === button));
-    renderHoldings();
-    renderTrades();
+    setActivePortfolio(button.dataset.portfolio);
   }));
+  $$(".trade-portfolio-tab").forEach((button) => button.addEventListener("click", () => {
+    setActivePortfolio(button.dataset.tradePortfolio);
+  }));
+  $("#allocation-donuts").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ledger-portfolio]");
+    if (button) openTradeLedger(button.dataset.ledgerPortfolio, button);
+  });
   $("#holdings-search").addEventListener("input", (event) => {
     state.holdingsSearch = event.target.value;
     renderHoldings();
   });
   $("#trade-search").addEventListener("input", (event) => {
     state.tradeSearch = event.target.value;
+    state.tradeLimit = 80;
     renderTrades();
   });
   $("#trade-side").addEventListener("change", (event) => {
     state.tradeSide = event.target.value;
+    state.tradeLimit = 80;
     renderTrades();
   });
+  $("#load-more-trades").addEventListener("click", () => {
+    state.tradeLimit += 80;
+    renderTrades();
+  });
+  $("#close-trade-ledger").addEventListener("click", closeTradeLedger);
 }
 
 async function loadDashboard() {

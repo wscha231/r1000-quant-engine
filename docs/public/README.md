@@ -9,6 +9,11 @@ shows Main and Concentrated portfolio weights, cash weights, validated research
 metrics, recent replay trades, review-only target deltas, and a filtered code
 change log.
 
+The current allocation view includes side-by-side donut charts for both
+portfolios. Each chart has an explicit button that opens the matching backtest
+BUY/SELL ledger; the ledger can switch portfolios, filter by side or ticker,
+and progressively reveal the complete published history.
+
 ## Public data boundary
 
 Published:
