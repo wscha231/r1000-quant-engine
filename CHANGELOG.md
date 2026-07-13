@@ -3,6 +3,53 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-07-13
+
+### 19:00 KST - Reject two-signal partial-resize confirmation
+
+- scope:
+  - Add and evaluate one research-only broker execution arm that confirms held-name partial resizes across two consecutive decisions while keeping entries, full exits, and target-gross risk cuts immediate.
+  - Preserve the default mechanical broker replay exactly and block the arm from production activation.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->adds the opt-in partial-resize confirmation state machine, decision audit, and research-only metrics.
+  - `tests/broker_ledger_replay_smoke.py` ->covers immediate entries/exits/risk cuts, deferred and confirmed resizes, nonnegative cash, and disabled-mode parity.
+  - `docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md` ->records the fixed-book A/B result and stop rule.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the failure and exact do-not-repeat key.
+  - `docs/run287_do_not_repeat_registry.json` ->machine-readable registry of rejected Run287 signal/mechanism/book/window combinations.
+  - `tools/check_run287_do_not_repeat.py` ->fails closed on exact rejected combinations unless the registered coverage or semantic-change exception is satisfied.
+  - `tests/run287_do_not_repeat_registry_smoke.py` ->covers duplicate blocking and the two allowed reopening conditions.
+  - `tools/run_pr_validation.py` ->runs the registry smoke in the standard validation tier.
+- symbols_added:
+  - `tools.check_run287_do_not_repeat.normalize`
+  - `tools.check_run287_do_not_repeat.load_registry`
+  - `tools.check_run287_do_not_repeat.evaluate_candidate`
+  - `tools.check_run287_do_not_repeat.parse_args`
+  - `tools.check_run287_do_not_repeat.main`
+- symbols_changed:
+  - `tools.run_broker_ledger_replay.replay` ->accepts `partial_resize_two_signal_confirmation`; default remains false.
+  - `tools.run_broker_ledger_replay.parse_args` ->adds the explicit research-only CLI flag.
+  - `tools.run_broker_ledger_replay.main` ->passes the opt-in flag to replay.
+  - `tests.broker_ledger_replay_smoke.main` ->runs the new mechanism and parity cases.
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the do-not-repeat registry smoke.
+- config_fields_added:
+  - CLI `--partial-resize-two-signal-confirmation` (default off; research only).
+- breaking_changes:
+  - none; disabled mode reproduced the frozen control trade ledgers byte-for-byte.
+- outputs:
+  - `outputs/run287_partial_resize_two_signal_20260713/summary.json` ->machine-readable verdict and source hashes.
+  - `outputs/run287_partial_resize_two_signal_20260713/{main,concentrated}/{control,arm}_{cash_carry,zero_yield}/` ->fixed-book broker replay evidence.
+- validation:
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->PASS.
+  - `py -3 tests\run287_do_not_repeat_registry_smoke.py` ->PASS.
+  - `py -3 tests\broker_cash_carry_smoke.py` ->PASS.
+  - frozen cash-carry control parity ->PASS; exact Main and Concentrated trade-ledger SHA-256 matches.
+  - cash-carry result ->REJECT: Main dCAGR -2.8146pp, OOS -14.4485pp, OOS2 -6.9461pp; Concentrated dCAGR -10.8946pp, OOS -31.9098pp, OOS2 -15.6199pp.
+  - zero-yield OOS/OOS2 directions ->negative for both portfolios.
+  - local standard PR validation ->136/140 PASS; the four unrelated failures require tracked paths excluded by this workspace's sparse checkout (`aggressive/`, `auto_learning_v2/`, `data_static/iwb_holdings_seed.csv`, and global output fixtures). GitHub CI uses a full checkout for the final verdict.
+- risks_or_notes:
+  - No fullrun, production activation, live trading, or target-book mutation was performed.
+  - Do not retune confirmation count or add a resize/deadband threshold grid on the same books and window.
+
 ## 2026-06-29
 
 ### 23:19 KST - Window gate: official-anchored overshoot no longer self-invalidates as proxy

@@ -74,6 +74,111 @@ def test_broker_replay_tracks_integer_shares_and_cash() -> None:
         assert (out / "positions_latest.csv").exists()
 
 
+def test_partial_resize_two_signal_confirmation_is_narrow_and_research_only() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        control_out = root / "control"
+        arm_out = root / "arm"
+        cache.mkdir()
+        _write_px(cache, "AAA", [100.0] * 24)
+        _write_px(cache, "BBB", [100.0] * 24)
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
+                {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.40},
+                {"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 0.70},
+                {"rebalance_date": "2026-01-16", "ticker": "AAA", "weight": 0.80},
+                {"rebalance_date": "2026-01-23", "ticker": "AAA", "weight": 0.60},
+            ]
+        ).to_csv(target, index=False)
+
+        control = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=control_out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            cost_bps=25.0,
+            integer_shares=True,
+        )
+        arm = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=arm_out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            cost_bps=25.0,
+            integer_shares=True,
+            partial_resize_two_signal_confirmation=True,
+        )
+
+        assert control["status"] == "completed"
+        assert arm["status"] == "completed"
+        assert arm["execution_policy"] == "partial_resize_two_signal_confirmation"
+        assert arm["research_only"] is True
+        assert arm["valid_for_production"] is False
+        assert arm["partial_resize_deferred_count"] >= 1
+        assert arm["partial_resize_confirmed_count"] >= 1
+        assert arm["risk_cut_immediate_count"] >= 1
+        assert arm["target_exit_immediate_count"] == 1
+
+        decisions = pd.read_csv(arm_out / "partial_resize_decisions.csv")
+        aaa = decisions[decisions["ticker"].eq("AAA")]
+        assert "partial_resize_first_signal" in set(aaa["reason"])
+        assert "partial_resize_second_signal_confirmed" in set(aaa["reason"])
+        assert "partial_resize_risk_cut_immediate" in set(aaa["reason"])
+        bbb = decisions[decisions["ticker"].eq("BBB")]
+        assert "target_exit_immediate" in set(bbb["reason"])
+
+        trades = pd.read_csv(arm_out / "trades.csv")
+        bbb_sells = trades[(trades["ticker"].eq("BBB")) & (trades["side"].eq("SELL"))]
+        assert len(bbb_sells) == 1
+        assert pd.read_csv(arm_out / "cash_ledger.csv")["cash_usd"].min() >= -1e-6
+
+
+def test_explicitly_disabled_partial_resize_mode_preserves_control_parity() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        first_out = root / "first"
+        second_out = root / "second"
+        cache.mkdir()
+        _write_px(cache, "AAA", [100.0, 101.0, 102.0, 103.0, 104.0, 105.0])
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
+                {"rebalance_date": "2026-01-06", "ticker": "AAA", "weight": 0.70},
+            ]
+        ).to_csv(target, index=False)
+
+        first = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=first_out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+        )
+        second = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=second_out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            partial_resize_two_signal_confirmation=False,
+        )
+
+        for key in ("cagr", "max_dd", "sharpe", "trade_count", "total_fees_usd", "gross_traded_usd"):
+            assert first[key] == second[key], key
+        pd.testing.assert_frame_equal(
+            pd.read_csv(first_out / "trades.csv"),
+            pd.read_csv(second_out / "trades.csv"),
+            check_dtype=False,
+        )
+
+
 def test_broker_replay_blocks_contaminated_weight_book() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -277,6 +382,8 @@ def test_alphaops_vnext_concentrated_book_auto_disables_legacy_filter() -> None:
 
 def main() -> int:
     test_broker_replay_tracks_integer_shares_and_cash()
+    test_partial_resize_two_signal_confirmation_is_narrow_and_research_only()
+    test_explicitly_disabled_partial_resize_mode_preserves_control_parity()
     test_broker_replay_blocks_contaminated_weight_book()
     test_broker_replay_does_not_backdate_sparse_history_fill()
     test_concentrated_replay_uses_comparison_champion_filter()
