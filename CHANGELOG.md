@@ -5,6 +5,42 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 07:35 KST - Add exact-close held-security risk watch and provider-ready sample message
+
+- scope:
+  - Add a forward-only, per-held-security price-risk warning layer after the exact completed-session close.
+  - Preserve rejected stop/resize/cap mechanisms and prepare the existing deterministic 50-row PIT request for zero-cost provider dispatch.
+- files:
+  - `docs/run287_holding_risk_watch_contract.json` ->freezes past-only quantiles, states, missing-neutral handling, and non-executable actions.
+  - `tools/build_run287_holding_risk_watch.py` ->measures held-name shock, trend, drawdown, volatility, and one-day loss contribution with an append-only idempotent archive.
+  - `tests/run287_holding_risk_watch_smoke.py` ->covers shock detection, trend damage, missing-neutral behavior, future-row exclusion, exact-close success, and same-date idempotency.
+  - `.github/workflows/daily_operating_selection_refresh.yml` ->runs the watch after the paper account mark and persists it through GitHub artifacts/cache and Google Drive paper archive.
+  - `tools/build_pit_estimate_guidance_sample_request.py` ->writes a provider-ready `provider_request.md` that authorizes no purchase or paid work.
+  - `tests/pit_estimate_guidance_sample_request_smoke.py` ->checks the provider message and its SHA-256.
+  - `tests/workflow_artifact_smoke.py` ->checks daily holding-risk ordering, exact-close requirement, and persistence paths.
+  - `docs/CODEX_RUN287_HOLDING_RISK_WATCH_RESULT_20260714.md` ->records the actual 2026-07-13 diagnostic and next gates.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the broad-regime blind spot and no-execution boundary.
+- symbols_added:
+  - `tools.build_run287_holding_risk_watch.build_watch`
+  - `tools.build_run287_holding_risk_watch.price_features`
+  - `tools.build_run287_holding_risk_watch.classify`
+  - `tools.build_run287_holding_risk_watch.archive_rows`
+- symbols_changed:
+  - `tools.build_pit_estimate_guidance_sample_request.write_outputs` ->adds the provider-ready request message and hash.
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the held-security risk smoke.
+- breaking_changes:
+  - none; target books, cash policy, paper orders, historical metrics, production, and live trading are unchanged.
+- outputs:
+  - `outputs/run287_holding_risk_watch_20260714_close_20260713/` ->actual exact-close alerts and append-only history.
+  - `outputs/run287_pit_estimate_guidance_sample_request_20260714_v2/` ->unchanged deterministic CSV selection plus provider-ready message.
+- validation:
+  - held-security risk, PIT sample request, and daily workflow artifact smokes ->PASS.
+  - do-not-repeat preflight ->`ALLOWED_NEW_COMBINATION` with no exact prior match.
+  - local standard PR validation ->139/143 PASS; the same four sparse-checkout omissions remain and all new/adjacent tests pass.
+- risks_or_notes:
+  - Current alerts are review evidence only and cannot justify a sell/trim rule without forward outcomes and a separately approved A/B.
+  - No provider request was dispatched, no purchase was authorized, and no fullrun was executed.
+
 ### 07:10 KST - Freeze long estimate/guidance outcomes and build the zero-cost sample request
 
 - scope:

@@ -1,0 +1,63 @@
+{
+  "schema_version": "run287-holding-risk-watch-contract-v1",
+  "scope": "current_held_security_price_risk_forward_watch",
+  "benchmark": "SPY",
+  "price_basis": "split_and_dividend_adjusted_close",
+  "decision_time_rule": "use_only_rows_with_price_date_lte_asof_and_publish_after_exact_completed_session_close",
+  "history": {
+    "lookback_sessions": 756,
+    "minimum_return_observations": 252,
+    "short_return_sessions": 1,
+    "trend_return_sessions": 21,
+    "drawdown_sessions": 63,
+    "short_volatility_sessions": 21,
+    "long_volatility_sessions": 126
+  },
+  "past_only_quantiles": {
+    "absolute_return_shock": 0.025,
+    "spy_relative_return_shock": 0.025,
+    "opening_gap_shock": 0.025,
+    "trend_damage": 0.1,
+    "drawdown_damage": 0.1,
+    "volatility_ratio_spike": 0.95
+  },
+  "signals": {
+    "idiosyncratic_shock": "current_1d_return_lte_past_absolute_q025_and_current_spy_excess_lte_past_relative_q025",
+    "opening_gap_shock": "current_adjusted_open_gap_lte_past_gap_q025",
+    "trend_damage": "below_ma20_and_ma50_and_21d_spy_excess_lte_past_q10",
+    "drawdown_damage": "below_ma50_and_63d_drawdown_lte_past_q10",
+    "volatility_spike": "current_21d_to_126d_realized_volatility_ratio_gte_past_q95"
+  },
+  "states": {
+    "ALERT": "idiosyncratic_shock_or_three_independent_signals_or_gap_plus_trend_or_drawdown_damage",
+    "WATCH": "one_or_more_independent_signals_without_alert",
+    "NORMAL": "no_signal",
+    "DATA_INSUFFICIENT": "missing_exact_close_or_insufficient_past_only_history"
+  },
+  "advisory_actions": {
+    "ALERT": "FREEZE_INCREMENTAL_BUY_AND_MANUAL_REVIEW",
+    "WATCH": "REVIEW_BEFORE_INCREMENTAL_BUY",
+    "NORMAL": "NO_CHANGE",
+    "DATA_INSUFFICIENT": "MISSING_NEUTRAL_NO_ACTION"
+  },
+  "forward_archive_outcome_horizons_trading_days": [1, 5, 21, 63, 126],
+  "missing_policy": "neutral_no_forced_trade",
+  "same_date_rerun_policy": "same_portfolio_ticker_asof_payload_must_match_exactly_or_fail_closed",
+  "research_registration": {
+    "signal": "held_security_past_only_price_damage",
+    "mechanism": "current_forward_advisory_watch_no_book_mutation",
+    "book": "run287_current_paper_accounts",
+    "window": "forward_from_2026-07-13",
+    "semantic_difference_from_rejected_work": "measurement_and_operator_warning_only_no_stop_no_exit_delay_no_partial_resize_no_cluster_cap_no_tilt"
+  },
+  "safety": {
+    "advisory_only": true,
+    "orders_generated": false,
+    "target_books_mutated": false,
+    "cash_policy_changed": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false,
+    "fullrun_allowed": false
+  }
+}

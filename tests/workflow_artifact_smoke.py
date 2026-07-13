@@ -906,6 +906,13 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/daily_simulated_fill_ledger/",
         "daily_simulated_fill_ledger.log",
         "paper_archive/run287_daily_simulated_fill_ledger",
+        "tools/build_run287_holding_risk_watch.py",
+        "outputs/holding_risk_watch/",
+        "daily_holding_risk_watch.log",
+        "paper_archive/run287_holding_risk_watch",
+        "--require-exact-close",
+        "RISK_AVAILABLE_FROM=\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"",
+        "--available-from \"$RISK_AVAILABLE_FROM\"",
         "Persist validated forward paper ledger state",
         "--max-fill-lag-days 7",
         "daily-operating-selection-refresh",
@@ -938,8 +945,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]:
         assert forbidden not in text, forbidden
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
+    holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
     assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
+    assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
 
