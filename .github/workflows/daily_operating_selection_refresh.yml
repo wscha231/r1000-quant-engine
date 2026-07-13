@@ -22,6 +22,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: daily-operating-selection-refresh
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -50,34 +54,15 @@ jobs:
         env:
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run || 'false' }}
         run: |
-          python - <<'PY'
-          from datetime import datetime, timedelta, timezone
-          import os
-          import pandas as pd
-          import pandas_market_calendars as mcal
-
-          force = str(os.environ.get("FORCE_RUN", "false")).lower() == "true"
-          now = datetime.now(timezone.utc)
-          cal = mcal.get_calendar("NYSE")
-          sched = cal.schedule(start_date=(now - timedelta(days=5)).date(), end_date=now.date())
-          ready = force
-          last_close = ""
-          if not sched.empty:
-              close = sched["market_close"].max()
-              if isinstance(close, pd.Timestamp):
-                  close_utc = close.to_pydatetime()
-                  if close_utc.tzinfo is None:
-                      close_utc = close_utc.replace(tzinfo=timezone.utc)
-                  last_close = close_utc.isoformat()
-                  ready = ready or (timedelta(0) <= now - close_utc <= timedelta(hours=22))
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              handle.write(f"MARKET_READY={'yes' if ready else 'no'}\n")
-              handle.write(f"LAST_NYSE_CLOSE_UTC={last_close}\n")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(f"ready={'yes' if ready else 'no'}\n")
-              handle.write(f"last_close={last_close}\n")
-          print(f"[market] ready={ready} force={force} last_close={last_close}")
-          PY
+          ARGS=(
+            --output "$RUNNER_TEMP/daily_market_session_gate.json"
+            --min-close-age-minutes 90
+            --max-close-age-hours 18
+          )
+          if [ "${FORCE_RUN:-false}" = "true" ]; then
+            ARGS+=(--force)
+          fi
+          python tools/run_daily_market_session_gate.py "${ARGS[@]}"
 
       - name: Restore GitHub cache
         if: steps.market.outputs.ready == 'yes'
@@ -96,6 +81,15 @@ jobs:
             daily-operating-selection-${{ runner.os }}-
             collector-cache-${{ runner.os }}-
             replay-price-cache-${{ runner.os }}-
+
+      - name: Restore validated forward paper state cache
+        if: steps.market.outputs.ready == 'yes'
+        uses: actions/cache/restore@v4
+        with:
+          path: outputs/daily_simulated_fill_ledger
+          key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            daily-paper-ledger-${{ runner.os }}-
 
       - name: Configure rclone
         if: steps.market.outputs.ready == 'yes'
@@ -179,6 +173,16 @@ jobs:
             mkdir -p outputs
             cp -a cloud_results/full_rebuild/latest_global_alpha_universe/. outputs/
           fi
+          if [ "${GDRIVE_READY:-no}" = "yes" ]; then
+            restore_dir paper_archive/run287_daily_simulated_fill_ledger outputs/daily_simulated_fill_ledger
+          fi
+
+      - name: Record completed market session gate
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/daily_market_session_gate
+          cp "$MARKET_SESSION_GATE_FILE" outputs/daily_market_session_gate/session.json
 
       - name: Refresh current price cache
         if: steps.market.outputs.ready == 'yes'
@@ -301,6 +305,25 @@ jobs:
             2>&1 | tee outputs/full_rebuild_logs/daily_operating_target_books.log || \
             echo "[daily-operating] operating target book build failed or timed out; freshness contract will block selection" | tee -a outputs/full_rebuild_logs/daily_operating_target_books.log
 
+      - name: Require exact completed-session close prices
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/validate_daily_close_prices.py \
+            --session-date "$LAST_NYSE_SESSION_DATE" \
+            --price-cache cache_prices \
+            --target outputs/reports/operating_main_target_book.csv \
+            --target outputs/reports/operating_concentrated_target_book.csv \
+            --account outputs/broker_replay/main/account_state_latest.json \
+            --account outputs/broker_replay/concentrated/account_state_latest.json \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --required-ticker SPY \
+            --required-ticker QQQ \
+            --required-ticker SMH \
+            --required-ticker SOXX \
+            --output outputs/daily_market_session_gate/close_price_coverage.json \
+            2>&1 | tee outputs/full_rebuild_logs/daily_close_price_coverage.log
+
       - name: Refresh daily macro snapshot
         if: steps.market.outputs.ready == 'yes'
         run: |
@@ -343,6 +366,21 @@ jobs:
 
           status_path = Path("outputs/data_freshness_contract/status.json")
           status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+          session_path = Path("outputs/daily_market_session_gate/session.json")
+          coverage_path = Path("outputs/daily_market_session_gate/close_price_coverage.json")
+          session = json.loads(session_path.read_text(encoding="utf-8")) if session_path.exists() else {}
+          coverage = json.loads(coverage_path.read_text(encoding="utf-8")) if coverage_path.exists() else {}
+          completed_session_date = os.environ.get("LAST_NYSE_SESSION_DATE", "")
+          exact_close_ready = bool(
+              session.get("ready") is True
+              and session.get("session_date") == completed_session_date
+              and coverage.get("status") == "PASS"
+              and coverage.get("exact_close_coverage") is True
+              and coverage.get("session_date") == completed_session_date
+              and int(coverage.get("missing_ticker_count", -1)) == 0
+          )
+          if not exact_close_ready:
+              raise SystemExit("completed-session exact-close gate is not satisfied")
           summary = {
               "schema_version": "daily-operating-selection-refresh-v1",
               "daily_operating_refresh": True,
@@ -356,6 +394,10 @@ jobs:
               "source_commit_sha": os.environ.get("GITHUB_SHA", ""),
               "source_branch": os.environ.get("GITHUB_REF_NAME", ""),
               "source_artifact_name": f"daily-operating-selection-refresh-{os.environ.get('GITHUB_RUN_ID', '')}",
+              "market_session_date": completed_session_date,
+              "market_session_gate_status": session.get("status", "missing"),
+              "exact_close_coverage": exact_close_ready,
+              "close_price_coverage_status": coverage.get("status", "missing"),
               "selection_allowed": bool(status.get("selection_allowed", False)),
               "promotion_allowed": bool(status.get("promotion_allowed", False)),
               "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
@@ -384,14 +426,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
+          PAPER_AS_OF="$LAST_NYSE_SESSION_DATE"
+          python tools/run_daily_simulated_fill_ledger.py \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --price-cache cache_prices \
+            --order-preview-root outputs/account_ledger_preview \
+            --main-bootstrap-account outputs/broker_replay/main/account_state_latest.json \
+            --concentrated-bootstrap-account outputs/broker_replay/concentrated/account_state_latest.json \
+            --main-target outputs/reports/operating_main_target_book.csv \
+            --concentrated-target outputs/reports/operating_concentrated_target_book.csv \
+            --as-of-date "$PAPER_AS_OF" \
+            --cost-bps 25 \
+            --max-fill-lag-days 7 \
+            2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger.log
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/daily_operating_snapshot.log || true
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/daily_user_portfolio_reports.log || true
-          if [ -s outputs/broker_replay/main/account_state_latest.json ] && [ -s outputs/reports/operating_main_target_book.csv ]; then
-            python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/daily_account_order_preview_main.log || true
-          fi
-          if [ -s outputs/broker_replay/concentrated/account_state_latest.json ] && [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
-            python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/daily_account_order_preview_concentrated.log || true
-          fi
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log || true
           mkdir -p outputs/user_current
           cat > outputs/user_current/DAILY_REVIEW_ONLY.md <<'EOF'
@@ -424,13 +473,14 @@ jobs:
             2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log || true
 
       - name: Upload daily operating artifact
-        if: always()
+        if: always() && steps.market.outputs.ready == 'yes'
         uses: actions/upload-artifact@v4
         with:
           name: daily-operating-selection-refresh-${{ github.run_id }}
           path: |
             outputs/data_freshness_contract/
             outputs/daily_market_snapshot/
+            outputs/daily_market_session_gate/
             outputs/daily_operating_selection_refresh/
             outputs/data_readiness/
             outputs/reports/operating_*_target_book.csv
@@ -439,6 +489,7 @@ jobs:
             outputs/user_current/
             outputs/user_portfolio_reports/
             outputs/account_ledger_preview/
+            outputs/daily_simulated_fill_ledger/
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -451,6 +502,13 @@ jobs:
             outputs/full_rebuild_logs/data_freshness_contract.log
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
+
+      - name: Save validated forward paper state cache
+        if: success() && steps.market.outputs.ready == 'yes'
+        uses: actions/cache/save@v4
+        with:
+          path: outputs/daily_simulated_fill_ledger
+          key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Sync daily operating artifact to Google Drive
         if: always()
@@ -470,7 +528,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -478,6 +536,25 @@ jobs:
           if [ -s cache_prices/replay_price_cache_manifest.json ]; then
             rclone copyto cache_prices/replay_price_cache_manifest.json "$DEST/cache_prices/replay_price_cache_manifest.json" || true
           fi
+
+      - name: Persist validated forward paper ledger state
+        if: success() && steps.market.outputs.ready == 'yes'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
+            echo "[gdrive] not configured; validated paper state remains in the GitHub cache/artifact"
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          test -s outputs/daily_simulated_fill_ledger/summary.json
+          rclone copy outputs/daily_simulated_fill_ledger "${BASE}paper_archive/run287_daily_simulated_fill_ledger/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
 
       - name: Save refreshed GitHub cache
         if: always() && steps.market.outputs.ready == 'yes'

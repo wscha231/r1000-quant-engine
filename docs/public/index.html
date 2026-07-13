@@ -152,9 +152,9 @@
     <section class="panel trade-ledger-panel" id="trade-section" aria-labelledby="trades-title" hidden>
       <div class="section-heading section-heading-wrap">
         <div>
-          <span class="section-kicker">EXECUTED REPLAY LEDGER</span>
-          <h2 id="trades-title" tabindex="-1">백테스트 매수·매도 기록</h2>
-          <p class="section-description" id="trade-history-status">검증된 모의 브로커 원장의 최근 체결입니다.</p>
+          <span class="section-kicker">BACKTEST + FORWARD PAPER LEDGER</span>
+          <h2 id="trades-title" tabindex="-1">매수·매도 기록</h2>
+          <p class="section-description" id="trade-history-status">검증 백테스트와 다음 종가 기준 Forward 모의 체결을 구분해 표시합니다.</p>
         </div>
         <div class="controls ledger-controls">
           <div class="segmented" role="group" aria-label="거래 기록 포트폴리오 선택">
@@ -182,6 +182,7 @@
             <tr>
               <th scope="col">체결일</th>
               <th scope="col">신호일</th>
+              <th scope="col">구분</th>
               <th scope="col">방향</th>
               <th scope="col">종목</th>
               <th scope="col" class="number">체결가</th>

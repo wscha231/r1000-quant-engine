@@ -1,0 +1,1003 @@
+#!/usr/bin/env python3
+"""Advance a review-only forward paper ledger at the next observable close.
+
+The daily operating workflow produces target books and account order previews,
+but those previews are proposals rather than fills.  This tool keeps a separate
+append-only forward paper state:
+
+1. restore the last private paper account and pending orders;
+2. resolve prior pending orders at the first cached close after the signal;
+3. mark the paper account at the requested completed-market close;
+4. build a fresh order preview from that paper account; and
+5. enqueue it only when the normalized target allocation changed.
+
+It never calls a broker, places an order, or mutates canonical production
+outputs.  Private quantities and dollar values stay in the workflow artifact;
+the public dashboard applies a separate allowlist before publishing fills.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.run_account_order_preview import normalize_target, run as run_order_preview  # noqa: E402
+from tools.run_broker_ledger_replay import LedgerState, account_equity, execute_order, safe_float  # noqa: E402
+from tools.run_weekly_evaluation import load_price_series, price_on_or_after, price_on_or_before  # noqa: E402
+
+
+PORTFOLIOS = ("main", "concentrated")
+GENESIS_HASH = "0" * 64
+EVENT_HASH_FIELDS = {"event_hash"}
+PENDING_COLUMNS = [
+    "portfolio_kind",
+    "signal_date",
+    "ticker",
+    "side",
+    "quantity",
+    "reference_price",
+    "target_weight",
+    "reason",
+    "fill_mode",
+    "cost_bps_per_side",
+    "client_order_id",
+    "idempotency_key",
+    "order_batch_id",
+    "target_hash",
+    "priority",
+    "pending_status",
+    "created_at_utc",
+]
+
+
+def repo_path(path_like: str | Path) -> Path:
+    path = Path(path_like)
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def read_csv(path: Path) -> pd.DataFrame:
+    if not path.exists() or path.stat().st_size == 0:
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path, low_memory=False)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+
+def write_csv(path: Path, frame: pd.DataFrame, columns: list[str] | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = frame.copy()
+    if columns is not None:
+        for column in columns:
+            if column not in out.columns:
+                out[column] = ""
+        extras = [column for column in out.columns if column not in columns]
+        out = out.reindex(columns=[*columns, *extras])
+    out.to_csv(path, index=False)
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def canonical_hash(payload: Any) -> str:
+    return sha256_bytes(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8"))
+
+
+def file_hash(path: Path) -> str:
+    if not path.exists():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def clean_ticker(value: Any) -> str:
+    ticker = str(value or "").upper().strip()
+    return "" if ticker in {"", "NAN", "NONE"} else ticker
+
+
+def clean_date(value: Any) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    return "" if pd.isna(parsed) else pd.Timestamp(parsed).date().isoformat()
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def normalized_target(target_path: Path, portfolio: str, as_of_date: pd.Timestamp) -> pd.DataFrame:
+    target = normalize_target(read_csv(target_path), portfolio, as_of_date.date().isoformat())
+    if target.empty:
+        return pd.DataFrame(columns=["ticker", "target_weight"])
+    target = target[["ticker", "target_weight"]].copy()
+    target["ticker"] = target["ticker"].map(clean_ticker)
+    target["target_weight"] = pd.to_numeric(target["target_weight"], errors="coerce").fillna(0.0)
+    target = target[(target["ticker"] != "") & (target["target_weight"] > 1e-12)].copy()
+    target = target.groupby("ticker", as_index=False)["target_weight"].sum()
+    return target.sort_values("ticker").reset_index(drop=True)
+
+
+def target_hash(target: pd.DataFrame) -> str:
+    rows = [
+        {"ticker": str(row.ticker), "target_weight": round(float(row.target_weight), 12)}
+        for row in target.itertuples(index=False)
+    ]
+    return canonical_hash({"schema": "run287-forward-target-v1", "rows": rows})
+
+
+def target_effective_date(target_path: Path, as_of_date: pd.Timestamp) -> pd.Timestamp | None:
+    raw = read_csv(target_path)
+    if raw.empty or "rebalance_date" not in raw.columns:
+        return None
+    dates = pd.to_datetime(raw["rebalance_date"], errors="coerce").dropna().dt.normalize()
+    eligible = dates[dates <= as_of_date]
+    return pd.Timestamp(eligible.max()).normalize() if not eligible.empty else None
+
+
+def state_from_account(account: dict[str, Any]) -> LedgerState:
+    positions = account.get("positions") if isinstance(account.get("positions"), list) else []
+    shares: dict[str, float] = {}
+    basis: dict[str, float] = {}
+    for row in positions:
+        if not isinstance(row, dict):
+            continue
+        ticker = clean_ticker(row.get("ticker"))
+        quantity = safe_float(row.get("shares"), 0.0)
+        if not ticker or quantity <= 1e-12:
+            continue
+        shares[ticker] = float(quantity)
+        basis[ticker] = float(safe_float(row.get("cost_basis"), safe_float(row.get("price"), 0.0)))
+    realized = account.get("realized_pnl_by_ticker") if isinstance(account.get("realized_pnl_by_ticker"), dict) else {}
+    state = LedgerState(
+        cash=float(safe_float(account.get("cash_usd"), 0.0)),
+        shares=shares,
+        cost_basis=basis,
+        realized_pnl={clean_ticker(key): float(safe_float(value, 0.0)) for key, value in realized.items() if clean_ticker(key)},
+    )
+    if state.cash < -1e-6:
+        raise ValueError("paper account contains negative cash")
+    return state
+
+
+def validate_seed_account(account: dict[str, Any], portfolio: str, as_of_date: pd.Timestamp, cost_bps: float) -> None:
+    if not account:
+        raise FileNotFoundError(f"missing bootstrap account for {portfolio}")
+    if str(account.get("portfolio_kind") or portfolio).lower() != portfolio:
+        raise ValueError(f"bootstrap portfolio mismatch for {portfolio}")
+    seed_date = pd.to_datetime(account.get("as_of_date"), errors="coerce")
+    if pd.notna(seed_date) and pd.Timestamp(seed_date).normalize() > as_of_date:
+        raise ValueError(f"bootstrap account is from the future for {portfolio}")
+    fill_mode = str(account.get("fill_mode") or "next_close").lower()
+    if fill_mode != "next_close":
+        raise ValueError(f"bootstrap account must use next_close for {portfolio}")
+    if account.get("integer_shares") is False:
+        raise ValueError(f"bootstrap account must use integer shares for {portfolio}")
+    account_cost = safe_float(account.get("cost_bps_per_side"), cost_bps)
+    if abs(float(account_cost) - float(cost_bps)) > 1e-9:
+        raise ValueError(f"bootstrap cost mismatch for {portfolio}")
+
+
+def load_or_seed_account(
+    *,
+    portfolio_dir: Path,
+    bootstrap_path: Path,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+    cost_bps: float,
+) -> tuple[dict[str, Any], LedgerState, bool]:
+    state_path = portfolio_dir / "account_state_latest.json"
+    account = read_json(state_path)
+    seeded = False
+    if not account:
+        account = read_json(bootstrap_path)
+        validate_seed_account(account, portfolio, as_of_date, cost_bps)
+        seeded = True
+    else:
+        if account.get("review_only") is not True or account.get("live_trading_enabled") is not False:
+            raise ValueError(f"restored paper account safety flags invalid for {portfolio}")
+        state_date = pd.to_datetime(account.get("as_of_date"), errors="coerce")
+        if pd.notna(state_date) and pd.Timestamp(state_date).normalize() > as_of_date:
+            raise ValueError(f"restored paper account is from the future for {portfolio}")
+    return account, state_from_account(account), seeded
+
+
+def load_prices(price_cache: Path, tickers: set[str]) -> dict[str, pd.DataFrame]:
+    prices: dict[str, pd.DataFrame] = {}
+    for ticker in sorted({clean_ticker(value) for value in tickers if clean_ticker(value)}):
+        frame = load_price_series(price_cache, ticker)
+        if not frame.empty:
+            prices[ticker] = frame
+    return prices
+
+
+def event_payload_for_hash(row: dict[str, Any]) -> dict[str, Any]:
+    return {str(key): value for key, value in row.items() if key not in EVENT_HASH_FIELDS}
+
+
+def combined_events(fills: pd.DataFrame, rejections: pd.DataFrame) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for frame in (fills, rejections):
+        if not frame.empty:
+            rows.extend(frame.to_dict("records"))
+    return sorted(rows, key=lambda row: int(safe_float(row.get("event_sequence"), 0.0)))
+
+
+def validate_event_chain(fills: pd.DataFrame, rejections: pd.DataFrame) -> tuple[int, str, set[str]]:
+    rows = combined_events(fills, rejections)
+    previous = GENESIS_HASH
+    last_sequence = 0
+    event_ids: set[str] = set()
+    client_ids: set[str] = set()
+    for row in rows:
+        sequence = int(safe_float(row.get("event_sequence"), 0.0))
+        event_id = str(row.get("event_id") or "")
+        if sequence != last_sequence + 1:
+            raise ValueError("forward paper event sequence is not contiguous")
+        if not event_id or event_id in event_ids:
+            raise ValueError("forward paper event id is missing or duplicated")
+        if str(row.get("previous_event_hash") or "") != previous:
+            raise ValueError("forward paper previous-event hash mismatch")
+        expected = canonical_hash(event_payload_for_hash(row))
+        if str(row.get("event_hash") or "") != expected:
+            raise ValueError("forward paper event hash mismatch")
+        previous = expected
+        last_sequence = sequence
+        event_ids.add(event_id)
+        client_id = str(row.get("client_order_id") or "")
+        if client_id:
+            client_ids.add(client_id)
+    return last_sequence, previous, client_ids
+
+
+def append_event(
+    *,
+    rows: list[dict[str, Any]],
+    sequence: int,
+    previous_hash: str,
+    client_order_id: str,
+    event_type: str,
+    event_date: str,
+    reason: str,
+    payload: dict[str, Any],
+) -> tuple[int, str]:
+    sequence += 1
+    event_id = canonical_hash(
+        {
+            "client_order_id": client_order_id,
+            "event_type": event_type,
+            "event_date": event_date,
+            "reason": reason,
+        }
+    )[:32]
+    row = {
+        **payload,
+        "event_sequence": sequence,
+        "event_id": event_id,
+        "event_type": event_type,
+        "event_date": event_date,
+        "event_reason": reason,
+        "previous_event_hash": previous_hash,
+    }
+    row["event_hash"] = canonical_hash(event_payload_for_hash(row))
+    rows.append(row)
+    return sequence, str(row["event_hash"])
+
+
+def resolve_pending_orders(
+    *,
+    portfolio: str,
+    state: LedgerState,
+    pending: pd.DataFrame,
+    fills: pd.DataFrame,
+    rejections: pd.DataFrame,
+    price_cache: Path,
+    as_of_date: pd.Timestamp,
+    cost_bps: float,
+    max_fill_lag_days: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    sequence, previous_hash, resolved_client_ids = validate_event_chain(fills, rejections)
+    fill_rows = fills.to_dict("records") if not fills.empty else []
+    rejection_rows = rejections.to_dict("records") if not rejections.empty else []
+    if pending.empty:
+        return pd.DataFrame(columns=PENDING_COLUMNS), pd.DataFrame(fill_rows), pd.DataFrame(rejection_rows), {
+            "resolved_fills": 0,
+            "resolved_rejections": 0,
+        }
+
+    candidates: list[tuple[pd.Timestamp, int, int, dict[str, Any], float]] = []
+    keep_pending: list[dict[str, Any]] = []
+    stale_rejections: list[tuple[dict[str, Any], str]] = []
+    tickers = {clean_ticker(value) for value in pending.get("ticker", pd.Series(dtype=str)).tolist()}
+    prices = load_prices(price_cache, tickers)
+
+    for index, row in enumerate(pending.to_dict("records")):
+        client_id = str(row.get("client_order_id") or "")
+        if client_id in resolved_client_ids:
+            continue
+        ticker = clean_ticker(row.get("ticker"))
+        side = str(row.get("side") or "").upper()
+        signal_date = pd.to_datetime(row.get("signal_date"), errors="coerce")
+        if not client_id or not ticker or side not in {"BUY", "SELL"} or pd.isna(signal_date):
+            stale_rejections.append((row, "invalid_pending_order"))
+            continue
+        signal_date = pd.Timestamp(signal_date).normalize()
+        if signal_date >= as_of_date:
+            keep_pending.append(row)
+            continue
+        target_date = signal_date + pd.Timedelta(days=1)
+        actual_date, fill_px = price_on_or_after(prices.get(ticker, pd.DataFrame()), target_date, "close")
+        actual_date = pd.Timestamp(actual_date).normalize() if actual_date is not None else None
+        lag_expired = as_of_date > target_date + pd.Timedelta(days=int(max_fill_lag_days))
+        if actual_date is None or fill_px is None or actual_date > as_of_date:
+            if lag_expired:
+                stale_rejections.append((row, "missing_next_close_after_max_lag"))
+            else:
+                keep_pending.append(row)
+            continue
+        if (actual_date - target_date).days > int(max_fill_lag_days):
+            stale_rejections.append((row, "next_close_exceeds_max_lag"))
+            continue
+        side_priority = 0 if side == "SELL" else 1
+        priority = int(safe_float(row.get("priority"), index))
+        candidates.append((actual_date, side_priority, priority, row, float(fill_px)))
+
+    new_fill_count = 0
+    new_rejection_count = 0
+    for row, reason in stale_rejections:
+        client_id = str(row.get("client_order_id") or "")
+        signal = clean_date(row.get("signal_date"))
+        payload = {
+            "portfolio_kind": portfolio,
+            "date": as_of_date.date().isoformat(),
+            "signal_date": signal,
+            "ticker": clean_ticker(row.get("ticker")),
+            "side": str(row.get("side") or "").upper(),
+            "requested_quantity": safe_float(row.get("quantity"), 0.0),
+            "target_weight": safe_float(row.get("target_weight"), 0.0),
+            "client_order_id": client_id,
+            "idempotency_key": str(row.get("idempotency_key") or ""),
+            "order_batch_id": str(row.get("order_batch_id") or ""),
+            "target_hash": str(row.get("target_hash") or ""),
+            "execution_status": "SIMULATED_REJECTED",
+            "fill_mode": "next_close",
+            "cost_bps_per_side": float(cost_bps),
+            "review_only": True,
+            "simulated": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+        }
+        sequence, previous_hash = append_event(
+            rows=rejection_rows,
+            sequence=sequence,
+            previous_hash=previous_hash,
+            client_order_id=client_id,
+            event_type="REJECTION",
+            event_date=as_of_date.date().isoformat(),
+            reason=reason,
+            payload=payload,
+        )
+        new_rejection_count += 1
+
+    for fill_date, _side_priority, _priority, row, fill_px in sorted(
+        candidates, key=lambda item: (item[0], item[1], item[2], clean_ticker(item[3].get("ticker")))
+    ):
+        client_id = str(row.get("client_order_id") or "")
+        requested = float(safe_float(row.get("quantity"), 0.0))
+        order = execute_order(
+            state=state,
+            ticker=clean_ticker(row.get("ticker")),
+            side=str(row.get("side") or "").upper(),
+            desired_qty=requested,
+            price=float(fill_px),
+            cost_bps=float(cost_bps),
+            integer_shares=True,
+        )
+        if not order:
+            payload = {
+                "portfolio_kind": portfolio,
+                "date": fill_date.date().isoformat(),
+                "signal_date": clean_date(row.get("signal_date")),
+                "ticker": clean_ticker(row.get("ticker")),
+                "side": str(row.get("side") or "").upper(),
+                "requested_quantity": requested,
+                "target_weight": safe_float(row.get("target_weight"), 0.0),
+                "client_order_id": client_id,
+                "idempotency_key": str(row.get("idempotency_key") or ""),
+                "order_batch_id": str(row.get("order_batch_id") or ""),
+                "target_hash": str(row.get("target_hash") or ""),
+                "execution_status": "SIMULATED_REJECTED",
+                "fill_mode": "next_close",
+                "cost_bps_per_side": float(cost_bps),
+                "review_only": True,
+                "simulated": True,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+            }
+            sequence, previous_hash = append_event(
+                rows=rejection_rows,
+                sequence=sequence,
+                previous_hash=previous_hash,
+                client_order_id=client_id,
+                event_type="REJECTION",
+                event_date=fill_date.date().isoformat(),
+                reason="insufficient_cash_or_position",
+                payload=payload,
+            )
+            new_rejection_count += 1
+            continue
+        filled_quantity = float(order.get("quantity") or 0.0)
+        execution_status = "SIMULATED_FILL" if abs(filled_quantity - requested) <= 1e-9 else "SIMULATED_PARTIAL_FILL"
+        payload = {
+            "portfolio_kind": portfolio,
+            "date": fill_date.date().isoformat(),
+            "signal_date": clean_date(row.get("signal_date")),
+            "ticker": clean_ticker(row.get("ticker")),
+            "side": str(row.get("side") or "").upper(),
+            "quantity": filled_quantity,
+            "requested_quantity": requested,
+            "fill_price": float(order.get("fill_price") or fill_px),
+            "gross_value": float(order.get("gross_value") or 0.0),
+            "fee_usd": float(order.get("fee_usd") or 0.0),
+            "cash_delta": float(order.get("cash_delta") or 0.0),
+            "cash_after": float(order.get("cash_after") or state.cash),
+            "shares_after": float(order.get("shares_after") or 0.0),
+            "target_weight": safe_float(row.get("target_weight"), 0.0),
+            "reason": str(row.get("reason") or "target_rebalance"),
+            "fill_mode": "next_close",
+            "cost_bps_per_side": float(cost_bps),
+            "client_order_id": client_id,
+            "idempotency_key": str(row.get("idempotency_key") or ""),
+            "order_batch_id": str(row.get("order_batch_id") or ""),
+            "target_hash": str(row.get("target_hash") or ""),
+            "execution_status": execution_status,
+            "record_type": "FORWARD_PAPER",
+            "review_only": True,
+            "simulated": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+        }
+        sequence, previous_hash = append_event(
+            rows=fill_rows,
+            sequence=sequence,
+            previous_hash=previous_hash,
+            client_order_id=client_id,
+            event_type="FILL",
+            event_date=fill_date.date().isoformat(),
+            reason="next_close_simulated_fill",
+            payload=payload,
+        )
+        new_fill_count += 1
+
+    pending_out = pd.DataFrame(keep_pending)
+    fills_out = pd.DataFrame(fill_rows)
+    rejections_out = pd.DataFrame(rejection_rows)
+    validate_event_chain(fills_out, rejections_out)
+    return pending_out, fills_out, rejections_out, {
+        "resolved_fills": new_fill_count,
+        "resolved_rejections": new_rejection_count,
+    }
+
+
+def mark_account(
+    *,
+    account: dict[str, Any],
+    state: LedgerState,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+    price_cache: Path,
+    fills: pd.DataFrame,
+    pending: pd.DataFrame,
+    cost_bps: float,
+    seed_path: Path,
+) -> tuple[dict[str, Any], pd.DataFrame]:
+    prices = load_prices(price_cache, set(state.shares))
+    equity, values = account_equity(state, prices, as_of_date)
+    if equity <= 0 or state.cash < -1e-6:
+        raise ValueError(f"invalid paper account equity/cash for {portfolio}")
+    position_rows: list[dict[str, Any]] = []
+    for ticker in sorted(state.shares):
+        quantity = float(state.shares.get(ticker, 0.0))
+        if quantity <= 1e-12:
+            continue
+        _date, price = price_on_or_before(prices.get(ticker, pd.DataFrame()), as_of_date, "close")
+        price = float(price) if price is not None else float(state.cost_basis.get(ticker, 0.0))
+        market_value = float(values.get(ticker, quantity * price))
+        basis = float(state.cost_basis.get(ticker, price))
+        position_rows.append(
+            {
+                "as_of_date": as_of_date.date().isoformat(),
+                "ticker": ticker,
+                "shares": quantity,
+                "price": price,
+                "market_value_usd": market_value,
+                "weight": market_value / equity,
+                "cost_basis": basis,
+                "unrealized_pnl_usd": market_value - quantity * basis,
+                "realized_pnl_usd": float(state.realized_pnl.get(ticker, 0.0)),
+            }
+        )
+    total_fees = (
+        float(pd.to_numeric(fills.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if not fills.empty
+        else 0.0
+    )
+    seed_date = str(account.get("seed_as_of_date") or account.get("as_of_date") or "")
+    seed_equity = float(safe_float(account.get("seed_equity_usd"), safe_float(account.get("equity_usd"), equity)))
+    output = {
+        "schema_version": "daily-simulated-account-v1",
+        "portfolio_kind": portfolio,
+        "as_of_date": as_of_date.date().isoformat(),
+        "seed_as_of_date": seed_date,
+        "seed_equity_usd": seed_equity,
+        "seed_account_sha256": str(account.get("seed_account_sha256") or file_hash(seed_path)),
+        "starting_capital_usd": float(safe_float(account.get("starting_capital_usd"), seed_equity)),
+        "equity_usd": float(equity),
+        "cash_usd": float(state.cash),
+        "cash_weight": float(state.cash / equity),
+        "stock_value_usd": float(sum(values.values())),
+        "position_count": len(position_rows),
+        "fill_mode": "next_close",
+        "cost_bps_per_side": float(cost_bps),
+        "integer_shares": True,
+        "cash_carry_mode": "none",
+        "cash_carry_note": "forward execution monitor; official historical cash-carry metrics remain separate",
+        "positions": position_rows,
+        "realized_pnl_by_ticker": {key: float(value) for key, value in sorted(state.realized_pnl.items())},
+        "total_realized_pnl_usd": float(sum(state.realized_pnl.values())),
+        "total_fees_usd": total_fees,
+        "forward_fill_count": int(len(fills)),
+        "pending_order_count": int(len(pending)),
+        "review_only": True,
+        "simulated_broker_ledger": True,
+        "live_trading_enabled": False,
+        "production_mutation_allowed": False,
+        "human_approval_required_for_live_orders": True,
+    }
+    return output, pd.DataFrame(position_rows)
+
+
+def update_equity_curve(
+    *,
+    path: Path,
+    account: dict[str, Any],
+    seed_account: dict[str, Any],
+    as_of_date: pd.Timestamp,
+) -> pd.DataFrame:
+    curve = read_csv(path)
+    rows = curve.to_dict("records") if not curve.empty else []
+    if not rows:
+        seed_date = clean_date(account.get("seed_as_of_date") or seed_account.get("as_of_date"))
+        seed_equity = float(safe_float(account.get("seed_equity_usd"), safe_float(seed_account.get("equity_usd"), 0.0)))
+        seed_cash = float(safe_float(seed_account.get("cash_usd"), 0.0))
+        if seed_date and seed_date != as_of_date.date().isoformat() and seed_equity > 0:
+            rows.append(
+                {
+                    "date": seed_date,
+                    "equity_usd": seed_equity,
+                    "cash_usd": seed_cash,
+                    "cash_weight": seed_cash / seed_equity,
+                    "stock_value_usd": seed_equity - seed_cash,
+                    "position_count": int(safe_float(seed_account.get("position_count"), len(seed_account.get("positions") or []))),
+                    "record_type": "SEED_ACCOUNT",
+                }
+            )
+    current = {
+        "date": as_of_date.date().isoformat(),
+        "equity_usd": float(account["equity_usd"]),
+        "cash_usd": float(account["cash_usd"]),
+        "cash_weight": float(account["cash_weight"]),
+        "stock_value_usd": float(account["stock_value_usd"]),
+        "position_count": int(account["position_count"]),
+        "record_type": "FORWARD_MARK",
+    }
+    existing = next((row for row in rows if clean_date(row.get("date")) == current["date"]), None)
+    if existing is not None:
+        prior_equity = float(safe_float(existing.get("equity_usd"), np.nan))
+        if not math.isclose(prior_equity, current["equity_usd"], rel_tol=1e-9, abs_tol=1e-6):
+            raise ValueError("same-date forward equity mark changed; refusing non-append mutation")
+    else:
+        rows.append(current)
+    out = pd.DataFrame(rows)
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out = out.dropna(subset=["date"]).sort_values("date").drop_duplicates("date", keep="first").reset_index(drop=True)
+    write_csv(path, out)
+    return out
+
+
+def forward_metrics(curve: pd.DataFrame) -> dict[str, Any]:
+    if curve.empty:
+        return {
+            "observations": 0,
+            "forward_return": None,
+            "forward_max_drawdown": None,
+            "forward_cagr": None,
+            "cagr_status": "UNDERPOWERED",
+        }
+    values = pd.to_numeric(curve["equity_usd"], errors="coerce").dropna()
+    dates = pd.to_datetime(curve.loc[values.index, "date"], errors="coerce")
+    if values.empty:
+        return {
+            "observations": 0,
+            "forward_return": None,
+            "forward_max_drawdown": None,
+            "forward_cagr": None,
+            "cagr_status": "UNDERPOWERED",
+        }
+    running_peak = values.cummax()
+    drawdown = values / running_peak - 1.0
+    total_return = float(values.iloc[-1] / values.iloc[0] - 1.0) if values.iloc[0] > 0 else None
+    elapsed_days = int((dates.iloc[-1] - dates.iloc[0]).days) if len(dates) > 1 else 0
+    powered = len(values) >= 252 and elapsed_days >= 300
+    cagr = None
+    if powered and total_return is not None and values.iloc[0] > 0 and values.iloc[-1] > 0:
+        cagr = float((values.iloc[-1] / values.iloc[0]) ** (365.25 / elapsed_days) - 1.0)
+    return {
+        "observations": int(len(values)),
+        "start_date": dates.iloc[0].date().isoformat(),
+        "end_date": dates.iloc[-1].date().isoformat(),
+        "elapsed_days": elapsed_days,
+        "forward_return": total_return,
+        "forward_max_drawdown": float(drawdown.min()),
+        "forward_cagr": cagr,
+        "cagr_status": "MEASURED" if powered else "UNDERPOWERED",
+        "historical_metric_replacement_allowed": False,
+    }
+
+
+def build_order_preview(
+    *,
+    account_path: Path,
+    target_path: Path,
+    price_cache: Path,
+    output_dir: Path,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+    cost_bps: float,
+) -> dict[str, Any]:
+    return run_order_preview(
+        SimpleNamespace(
+            account_state=str(account_path),
+            target=str(target_path),
+            price_cache=str(price_cache),
+            portfolio_kind=portfolio,
+            output_dir=str(output_dir),
+            as_of_date=as_of_date.date().isoformat(),
+            target_date=as_of_date.date().isoformat(),
+            cost_bps=float(cost_bps),
+            limit_margin_pct=0.25,
+            min_trade_usd=25.0,
+            fractional_shares=False,
+        )
+    )
+
+
+def enqueue_preview_orders(
+    *,
+    portfolio: str,
+    portfolio_dir: Path,
+    preview_dir: Path,
+    target: pd.DataFrame,
+    target_digest: str,
+    as_of_date: pd.Timestamp,
+    meta: dict[str, Any],
+    pending: pd.DataFrame,
+    cost_bps: float,
+) -> tuple[pd.DataFrame, dict[str, Any], int]:
+    if not target_digest or target.empty:
+        raise ValueError(f"empty target allocation for {portfolio}")
+    if str(meta.get("last_enqueued_target_hash") or "") == target_digest:
+        return pending, meta, 0
+    if not pending.empty:
+        pending_hashes = {str(value) for value in pending.get("target_hash", pd.Series(dtype=str)).tolist()}
+        if target_digest in pending_hashes:
+            return pending, meta, 0
+        raise ValueError(f"unresolved pending target would be superseded for {portfolio}")
+
+    orders = read_csv(preview_dir / "orders_preview.csv")
+    manifest = read_json(preview_dir / "order_batch_manifest.json")
+    batch_id = str(manifest.get("order_batch_id") or "")
+    queued: list[dict[str, Any]] = []
+    for priority, row in enumerate(orders.to_dict("records"), start=1):
+        status = str(row.get("status") or "")
+        quantity = float(safe_float(row.get("quantity"), 0.0))
+        ticker = clean_ticker(row.get("ticker"))
+        side = str(row.get("side") or "").upper()
+        if status.startswith("blocked") or quantity <= 0 or not ticker or side not in {"BUY", "SELL"}:
+            continue
+        client_id = str(row.get("client_order_id") or "")
+        if not client_id:
+            raise ValueError(f"preview order missing client id for {portfolio}")
+        queued.append(
+            {
+                "portfolio_kind": portfolio,
+                "signal_date": as_of_date.date().isoformat(),
+                "ticker": ticker,
+                "side": side,
+                "quantity": quantity,
+                "reference_price": float(safe_float(row.get("reference_price"), 0.0)),
+                "target_weight": float(safe_float(row.get("target_weight"), 0.0)),
+                "reason": str(row.get("reason") or "target_rebalance"),
+                "fill_mode": "next_close",
+                "cost_bps_per_side": float(cost_bps),
+                "client_order_id": client_id,
+                "idempotency_key": str(row.get("idempotency_key") or ""),
+                "order_batch_id": batch_id,
+                "target_hash": target_digest,
+                "priority": priority,
+                "pending_status": "PENDING_NEXT_CLOSE",
+                "created_at_utc": utc_now(),
+            }
+        )
+    meta = dict(meta)
+    meta.update(
+        {
+            "last_enqueued_target_hash": target_digest,
+            "last_enqueued_signal_date": as_of_date.date().isoformat(),
+            "last_order_batch_id": batch_id,
+            "last_enqueue_status": "QUEUED" if queued else "NOOP_MATCHED_TARGET",
+            "last_enqueue_count": len(queued),
+        }
+    )
+    if queued:
+        queued_frame = pd.DataFrame(queued)
+        pending_out = queued_frame if pending.empty else pd.concat([pending, queued_frame], ignore_index=True, sort=False)
+    else:
+        pending_out = pending
+    write_csv(portfolio_dir / "pending_orders.csv", pending_out, PENDING_COLUMNS)
+    return pending_out, meta, len(queued)
+
+
+def run_portfolio(
+    *,
+    portfolio: str,
+    state_root: Path,
+    bootstrap_path: Path,
+    target_path: Path,
+    price_cache: Path,
+    preview_root: Path,
+    as_of_date: pd.Timestamp,
+    cost_bps: float,
+    max_fill_lag_days: int,
+) -> dict[str, Any]:
+    portfolio_dir = state_root / portfolio
+    portfolio_dir.mkdir(parents=True, exist_ok=True)
+    account, state, seeded = load_or_seed_account(
+        portfolio_dir=portfolio_dir,
+        bootstrap_path=bootstrap_path,
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        cost_bps=cost_bps,
+    )
+    seed_account = read_json(bootstrap_path)
+    pending = read_csv(portfolio_dir / "pending_orders.csv")
+    fills = read_csv(portfolio_dir / "fills.csv")
+    rejections = read_csv(portfolio_dir / "rejections.csv")
+    meta = read_json(portfolio_dir / "state_meta.json")
+
+    pending, fills, rejections, resolved = resolve_pending_orders(
+        portfolio=portfolio,
+        state=state,
+        pending=pending,
+        fills=fills,
+        rejections=rejections,
+        price_cache=price_cache,
+        as_of_date=as_of_date,
+        cost_bps=cost_bps,
+        max_fill_lag_days=max_fill_lag_days,
+    )
+    write_csv(portfolio_dir / "pending_orders.csv", pending, PENDING_COLUMNS)
+    write_csv(portfolio_dir / "fills.csv", fills)
+    write_csv(portfolio_dir / "rejections.csv", rejections)
+
+    marked_account, positions = mark_account(
+        account=account,
+        state=state,
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        price_cache=price_cache,
+        fills=fills,
+        pending=pending,
+        cost_bps=cost_bps,
+        seed_path=bootstrap_path,
+    )
+    account_path = portfolio_dir / "account_state_latest.json"
+    write_json(account_path, marked_account)
+    write_csv(portfolio_dir / "positions_latest.csv", positions)
+
+    preview_dir = preview_root / portfolio
+    preview = build_order_preview(
+        account_path=account_path,
+        target_path=target_path,
+        price_cache=price_cache,
+        output_dir=preview_dir,
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        cost_bps=cost_bps,
+    )
+    if preview.get("status") != "completed":
+        raise ValueError(f"paper account preview failed for {portfolio}: {preview.get('reason')}")
+    target = normalized_target(target_path, portfolio, as_of_date)
+    digest = target_hash(target)
+    effective_date = target_effective_date(target_path, as_of_date)
+    seed_date = pd.to_datetime(account.get("seed_as_of_date") or account.get("as_of_date"), errors="coerce")
+    if (
+        seeded
+        and not meta.get("last_enqueued_target_hash")
+        and effective_date is not None
+        and pd.notna(seed_date)
+        and effective_date <= pd.Timestamp(seed_date).normalize()
+    ):
+        meta.update(
+            {
+                "last_enqueued_target_hash": digest,
+                "last_enqueued_signal_date": pd.Timestamp(seed_date).date().isoformat(),
+                "last_order_batch_id": "",
+                "last_enqueue_status": "BOOTSTRAP_TARGET_ASSUMED_APPLIED",
+                "last_enqueue_count": 0,
+            }
+        )
+    pending, meta, enqueued = enqueue_preview_orders(
+        portfolio=portfolio,
+        portfolio_dir=portfolio_dir,
+        preview_dir=preview_dir,
+        target=target,
+        target_digest=digest,
+        as_of_date=as_of_date,
+        meta=meta,
+        pending=pending,
+        cost_bps=cost_bps,
+    )
+    marked_account["pending_order_count"] = int(len(pending))
+    write_json(account_path, marked_account)
+    curve = update_equity_curve(
+        path=portfolio_dir / "equity_curve.csv",
+        account=marked_account,
+        seed_account=seed_account or account,
+        as_of_date=as_of_date,
+    )
+    sequence, chain_hash, _client_ids = validate_event_chain(fills, rejections)
+    metrics = forward_metrics(curve)
+    meta.update(
+        {
+            "schema_version": "daily-simulated-fill-ledger-state-v1",
+            "portfolio_kind": portfolio,
+            "as_of_date": as_of_date.date().isoformat(),
+            "event_sequence": sequence,
+            "event_chain_hash": chain_hash,
+            "pending_order_count": int(len(pending)),
+            "fill_count": int(len(fills)),
+            "rejection_count": int(len(rejections)),
+            "review_only": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+            "updated_at_utc": utc_now(),
+        }
+    )
+    write_json(portfolio_dir / "state_meta.json", meta)
+    manifest = {
+        "schema_version": "daily-simulated-fill-ledger-manifest-v1",
+        "portfolio_kind": portfolio,
+        "as_of_date": as_of_date.date().isoformat(),
+        "seeded_this_run": seeded,
+        "fill_mode": "next_close",
+        "cost_bps_per_side": float(cost_bps),
+        "integer_shares": True,
+        "max_fill_lag_days": int(max_fill_lag_days),
+        "target_hash": digest,
+        "target_effective_date": effective_date.date().isoformat() if effective_date is not None else None,
+        "target_sha256": file_hash(target_path),
+        "seed_account_sha256": file_hash(bootstrap_path),
+        "event_sequence": sequence,
+        "event_chain_hash": chain_hash,
+        "resolved_fills_this_run": resolved["resolved_fills"],
+        "resolved_rejections_this_run": resolved["resolved_rejections"],
+        "enqueued_this_run": enqueued,
+        "pending_order_count": int(len(pending)),
+        "fill_count": int(len(fills)),
+        "rejection_count": int(len(rejections)),
+        "forward_metrics": metrics,
+        "review_only": True,
+        "simulated": True,
+        "live_trading_enabled": False,
+        "production_mutation_allowed": False,
+        "historical_cagr_mdd_replacement_allowed": False,
+    }
+    write_json(portfolio_dir / "manifest.json", manifest)
+    return manifest
+
+
+def run(args: argparse.Namespace) -> dict[str, Any]:
+    state_root = repo_path(args.state_dir)
+    price_cache = repo_path(args.price_cache)
+    preview_root = repo_path(args.order_preview_root)
+    state_root.mkdir(parents=True, exist_ok=True)
+    as_of_date = pd.Timestamp(args.as_of_date).normalize()
+    if pd.isna(as_of_date):
+        raise ValueError("--as-of-date must be a completed market date")
+
+    results: dict[str, Any] = {}
+    for portfolio in PORTFOLIOS:
+        results[portfolio] = run_portfolio(
+            portfolio=portfolio,
+            state_root=state_root,
+            bootstrap_path=repo_path(getattr(args, f"{portfolio}_bootstrap_account")),
+            target_path=repo_path(getattr(args, f"{portfolio}_target")),
+            price_cache=price_cache,
+            preview_root=preview_root,
+            as_of_date=as_of_date,
+            cost_bps=float(args.cost_bps),
+            max_fill_lag_days=int(args.max_fill_lag_days),
+        )
+    summary = {
+        "schema_version": "daily-simulated-fill-ledger-summary-v1",
+        "status": "completed",
+        "as_of_date": as_of_date.date().isoformat(),
+        "portfolios": results,
+        "review_only": True,
+        "simulated": True,
+        "live_trading_enabled": False,
+        "production_mutation_allowed": False,
+        "historical_cagr_mdd_replacement_allowed": False,
+        "generated_at_utc": utc_now(),
+    }
+    write_json(state_root / "summary.json", summary)
+    return summary
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--state-dir", default="outputs/daily_simulated_fill_ledger")
+    parser.add_argument("--price-cache", default="cache_prices")
+    parser.add_argument("--order-preview-root", default="outputs/account_ledger_preview")
+    parser.add_argument("--main-bootstrap-account", default="outputs/broker_replay/main/account_state_latest.json")
+    parser.add_argument("--concentrated-bootstrap-account", default="outputs/broker_replay/concentrated/account_state_latest.json")
+    parser.add_argument("--main-target", default="outputs/reports/operating_main_target_book.csv")
+    parser.add_argument("--concentrated-target", default="outputs/reports/operating_concentrated_target_book.csv")
+    parser.add_argument("--as-of-date", required=True)
+    parser.add_argument("--cost-bps", type=float, default=25.0)
+    parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    return parser.parse_args()
+
+
+def main() -> int:
+    try:
+        payload = run(parse_args())
+    except Exception as exc:
+        print(json.dumps({"status": "blocked", "reason": f"{type(exc).__name__}: {exc}"}, indent=2))
+        return 2
+    print(json.dumps(payload, indent=2, default=str))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

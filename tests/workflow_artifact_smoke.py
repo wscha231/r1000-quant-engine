@@ -12,6 +12,7 @@ FREE_DATA_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_lake_bootstrap.
 FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_update.yml"
 DATA_PREFLIGHT_WORKFLOW = ROOT / ".github" / "workflows" / "data_readiness_preflight.yml"
 DAILY_OPERATING_WORKFLOW = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
+PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "pages_deploy.yml"
 PIPELINE = ROOT / "r1000_pipeline.py"
 
 MONTHLY_BOOK_TOKENS = [
@@ -874,6 +875,16 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "latest_target_candidate_book.csv",
         "daily_candidate_source",
         "LAST_NYSE_CLOSE_UTC",
+        "LAST_NYSE_SESSION_DATE",
+        "tools/run_daily_market_session_gate.py",
+        "--min-close-age-minutes 90",
+        "--max-close-age-hours 18",
+        "Record completed market session gate",
+        "tools/validate_daily_close_prices.py",
+        "Require exact completed-session close prices",
+        "outputs/daily_market_session_gate/",
+        "close_price_coverage.json",
+        "exact_close_coverage",
         "building SEC-enriched candidate replay",
         "outputs/sec_enriched_candidate_replay/",
         "--require-current-latest-target",
@@ -891,6 +902,14 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--source-context daily_operating_refresh",
         "outputs/data_freshness_contract/",
         "outputs/daily_operating_selection_refresh/",
+        "tools/run_daily_simulated_fill_ledger.py",
+        "outputs/daily_simulated_fill_ledger/",
+        "daily_simulated_fill_ledger.log",
+        "paper_archive/run287_daily_simulated_fill_ledger",
+        "Persist validated forward paper ledger state",
+        "--max-fill-lag-days 7",
+        "daily-operating-selection-refresh",
+        "cancel-in-progress: false",
         "review_only",
         "canonical_production_sync",
         "live_trading_enabled",
@@ -918,6 +937,26 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/run_broker_ledger_replay.py",
     ]:
         assert forbidden not in text, forbidden
+    paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
+    snapshot_idx = text.index("python tools/run_operating_snapshot.py")
+    assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
+    assert "run_daily_simulated_fill_ledger.py --" not in text
+    assert "daily_simulated_fill_ledger.log || true" not in text
+
+
+def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
+    text = PAGES_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "Check for completed-session daily artifact",
+        "actions/github-script@v7",
+        "daily-operating-selection-refresh-${runId}",
+        "no completed-session artifact",
+        "Resolve Pages publication gate",
+        "deploy_ready",
+        "steps.publish_gate.outputs.ready == 'yes'",
+        "needs.build.outputs.deploy_ready == 'yes'",
+    ]:
+        assert token in text, token
 
 
 def main() -> int:
@@ -932,6 +971,7 @@ def main() -> int:
     test_free_data_daily_workflow_updates_metrics_after_close()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
+    test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
     print("workflow artifact smoke passed")
     return 0
 

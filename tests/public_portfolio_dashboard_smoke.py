@@ -31,6 +31,30 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def write_market_gate(source: Path, session_date: str) -> None:
+    gate = source / "daily_market_session_gate"
+    write_json(
+        gate / "session.json",
+        {
+            "status": "READY_COMPLETED_SESSION",
+            "ready": True,
+            "session_date": session_date,
+            "weekend_and_holiday_aware": True,
+            "early_close_aware": True,
+        },
+    )
+    write_json(
+        gate / "close_price_coverage.json",
+        {
+            "status": "PASS",
+            "session_date": session_date,
+            "exact_close_coverage": True,
+            "missing_ticker_count": 0,
+            "prior_session_fallback_allowed": False,
+        },
+    )
+
+
 def build_replay_fixture(root: Path) -> Path:
     source = root / "replay"
     for portfolio, ticker, cash, cagr, max_dd in [
@@ -115,6 +139,7 @@ def test_replay_export_is_privacy_safe() -> None:
         assert payload["portfolios"]["main"]["cash_weight"] == 0.20
         assert payload["portfolios"]["main"]["holdings"][0]["ticker"] == "AAA"
         assert payload["portfolios"]["main"]["trades"][0]["side"] == "BUY"
+        assert payload["portfolios"]["main"]["trades"][0]["record_type"] == "BACKTEST"
 
         encoded = json.dumps(payload).lower()
         for forbidden in [
@@ -137,6 +162,7 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
         write_json(base_path, base)
 
         current = root / "daily" / "user_current"
+        write_market_gate(root / "daily", "2026-07-11")
         write_json(
             current / "summary.json",
             {
@@ -218,6 +244,157 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
         assert '"quantity":' not in json.dumps(payload).lower()
 
 
+def test_daily_artifact_merges_only_safe_forward_paper_fills() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        base = build_dashboard(build_replay_fixture(root))
+        base_path = root / "dashboard.json"
+        write_json(base_path, base)
+
+        daily = root / "daily"
+        write_market_gate(daily, "2026-07-14")
+        current = daily / "user_current"
+        write_json(
+            current / "summary.json",
+            {
+                "review_only": True,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+                "source_run_id": "456",
+                "source_commit_sha": "def",
+            },
+        )
+        write_csv(
+            current / "01_current_holdings.csv",
+            [
+                {
+                    "portfolio_kind": "main",
+                    "row_type": "equity",
+                    "ticker": "NEW",
+                    "current_weight": "0.70",
+                    "current_price": "201",
+                    "as_of_date": "2026-07-14",
+                },
+                {
+                    "portfolio_kind": "concentrated",
+                    "row_type": "equity",
+                    "ticker": "BBB",
+                    "current_weight": "0.65",
+                    "current_price": "131",
+                    "as_of_date": "2026-07-14",
+                },
+            ],
+        )
+        write_csv(current / "02_target_weights.csv", [{"portfolio_kind": "main", "ticker": "NEW", "target_weight": "0.70"}])
+        write_csv(current / "03_order_preview.csv", [])
+        write_json(current / "08_rebalance_decision.json", {"decision": "HOLD", "live_trading_enabled": False})
+
+        ledger = daily / "daily_simulated_fill_ledger"
+        write_json(
+            ledger / "summary.json",
+            {
+                "review_only": True,
+                "simulated": True,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+            },
+        )
+        for portfolio, count in [("main", 1), ("concentrated", 0)]:
+            write_json(
+                ledger / portfolio / "manifest.json",
+                {
+                    "review_only": True,
+                    "simulated": True,
+                    "live_trading_enabled": False,
+                    "production_mutation_allowed": False,
+                    "historical_cagr_mdd_replacement_allowed": False,
+                    "fill_mode": "next_close",
+                    "cost_bps_per_side": 25.0,
+                    "fill_count": count,
+                },
+            )
+        write_csv(
+            ledger / "main" / "fills.csv",
+            [
+                {
+                    "event_type": "FILL",
+                    "execution_status": "SIMULATED_FILL",
+                    "date": "2026-07-14",
+                    "signal_date": "2026-07-13",
+                    "ticker": "NEW",
+                    "side": "BUY",
+                    "quantity": "12",
+                    "fill_price": "201",
+                    "fee_usd": "6.03",
+                    "cash_after": "12345",
+                    "target_weight": "0.70",
+                    "reason": "target_rebalance",
+                    "fill_mode": "next_close",
+                    "review_only": "True",
+                    "simulated": "True",
+                    "live_trading_enabled": "False",
+                    "production_mutation_allowed": "False",
+                }
+            ],
+        )
+        write_csv(ledger / "concentrated" / "fills.csv", [])
+
+        payload = build_dashboard(daily, base_json=base_path)
+        validate_public_payload(payload)
+        trades = payload["portfolios"]["main"]["trades"]
+        assert trades[0]["ticker"] == "NEW"
+        assert trades[0]["record_type"] == "FORWARD_PAPER"
+        assert payload["source"]["trade_history_status"] == "validated_replay_plus_forward_paper_fills"
+        assert payload["source"]["forward_paper_fill_count"] == 1
+        encoded = json.dumps(payload).lower()
+        for forbidden in ['"quantity":', '"fee_usd":', '"cash_after":']:
+            assert forbidden not in encoded, forbidden
+
+
+def test_daily_artifact_rejects_stale_or_missing_close_gate() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        base = build_dashboard(build_replay_fixture(root))
+        base_path = root / "dashboard.json"
+        write_json(base_path, base)
+        daily = root / "daily"
+        current = daily / "user_current"
+        write_json(
+            current / "summary.json",
+            {"review_only": True, "live_trading_enabled": False, "production_mutation_allowed": False},
+        )
+        write_csv(
+            current / "01_current_holdings.csv",
+            [
+                {
+                    "portfolio_kind": "main",
+                    "row_type": "equity",
+                    "ticker": "AAA",
+                    "current_weight": "0.8",
+                    "as_of_date": "2026-07-14",
+                }
+            ],
+        )
+        write_csv(current / "02_target_weights.csv", [])
+        write_csv(current / "03_order_preview.csv", [])
+        write_json(current / "08_rebalance_decision.json", {"decision": "HOLD"})
+
+        try:
+            build_dashboard(daily, base_json=base_path)
+        except ValueError as exc:
+            assert "market-session gate" in str(exc)
+        else:
+            raise AssertionError("missing market gate must block public refresh")
+
+        write_market_gate(daily, "2026-07-11")
+        try:
+            build_dashboard(daily, base_json=base_path)
+        except ValueError as exc:
+            assert "does not match completed session" in str(exc)
+        else:
+            raise AssertionError("stale market gate must block public refresh")
+
+
 def test_static_site_references_only_public_assets() -> None:
     html = (ROOT / "docs" / "public" / "index.html").read_text(encoding="utf-8")
     javascript = (ROOT / "docs" / "public" / "app.js").read_text(encoding="utf-8")
@@ -225,12 +402,13 @@ def test_static_site_references_only_public_assets() -> None:
     assert "./styles.css" in html
     assert "./app.js" in html
     assert 'id="allocation-donuts"' in html
-    assert 'id="trade-section"' in html and "백테스트 매수·매도 기록" in html
+    assert 'id="trade-section"' in html and "매수·매도 기록" in html
     assert 'id="load-more-trades"' in html
     assert "data-ledger-portfolio" in javascript
     assert "conic-gradient" in javascript
     assert "openTradeLedger" in javascript and "closeTradeLedger" in javascript
-    assert ".donut-chart" in stylesheet and ".ledger-open" in stylesheet
+    assert "FORWARD_PAPER" in javascript and "Forward 모의" in javascript
+    assert ".donut-chart" in stylesheet and ".ledger-open" in stylesheet and ".record-forward" in stylesheet
     assert "CODEX_" not in html
     assert "AGENT_SHARED" not in html
     assert "noindex, nofollow" in html
@@ -239,6 +417,8 @@ def test_static_site_references_only_public_assets() -> None:
 def main() -> int:
     test_replay_export_is_privacy_safe()
     test_daily_artifact_refreshes_holdings_but_not_fake_trades()
+    test_daily_artifact_merges_only_safe_forward_paper_fills()
+    test_daily_artifact_rejects_stale_or_missing_close_gate()
     test_static_site_references_only_public_assets()
     print("public_portfolio_dashboard_smoke: PASS")
     return 0
