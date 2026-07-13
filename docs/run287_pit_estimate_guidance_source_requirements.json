@@ -4,6 +4,8 @@
   "window_end": "2026-07-10",
   "oos2_start": "2023-01-01",
   "oos_start": "2024-07-01",
+  "outcome_contract": "docs/run287_pit_estimate_guidance_outcome_contract.json",
+  "required_return_horizons_trading_days": [21, 63, 126, 252, 504],
   "history_start_grace_days": 183,
   "history_end_grace_days": 183,
   "min_requested_security_count": 50,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -199,6 +200,19 @@ def test_missing_event_schema_blocks_early() -> None:
     assert coverage.empty
 
 
+def test_frozen_requirements_include_long_horizons() -> None:
+    payload = json.loads(
+        (ROOT / "docs" / "run287_pit_estimate_guidance_source_requirements.json").read_text(encoding="utf-8")
+    )
+    assert payload["required_return_horizons_trading_days"] == [21, 63, 126, 252, 504]
+    outcome_path = ROOT / payload["outcome_contract"]
+    outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
+    roles = {int(row["trading_days"]): row["role"] for row in outcome["horizons"]}
+    assert roles[252] == "long_confirmation"
+    assert roles[504] == "long_sensitivity"
+    assert outcome["right_censoring_policy"].startswith("unresolved_outcomes_are_null")
+
+
 def main() -> None:
     test_ready_sample()
     test_date_only_timestamp_blocks_pit()
@@ -207,6 +221,7 @@ def main() -> None:
     test_lock_in_blocks_procurement()
     test_invalid_cost_blocks_without_crashing()
     test_missing_event_schema_blocks_early()
+    test_frozen_requirements_include_long_horizons()
     print("pit_estimate_guidance_source_gate_smoke: PASS")
 
 

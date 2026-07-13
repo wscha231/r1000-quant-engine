@@ -3,6 +3,46 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-07-14
+
+### 07:10 KST - Freeze long estimate/guidance outcomes and build the zero-cost sample request
+
+- scope:
+  - Extend the preregistered estimate/guidance outcome contract with 252-session confirmation and 504-session right-censored sensitivity.
+  - Build a deterministic 50-row provider request plus a 992-equity current-universe reference without using return labels or mutating membership.
+- files:
+  - `docs/run287_pit_estimate_guidance_outcome_contract.json` ->freezes 21/63/126/252/504-session roles, power floors, overlap blocks, right censoring, and delisting treatment.
+  - `docs/run287_pit_estimate_guidance_source_requirements.json` ->links the outcome contract and required horizons.
+  - `tools/build_pit_estimate_guidance_sample_request.py` ->selects an unbiased active sample and deterministic historical-delisted provider query slots.
+  - `tests/pit_estimate_guidance_sample_request_smoke.py` ->covers deterministic selection, long-horizon presence, delisted query slots, hashes, and fail-closed contract loss.
+  - `tests/pit_estimate_guidance_source_gate_smoke.py` ->asserts the frozen source requirements include 252D/504D roles and null censoring.
+  - `docs/CODEX_RUN287_LONG_HORIZON_SAMPLE_REQUEST_20260714.md` ->records the actual request, all-universe boundary, and next gate.
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SOURCE_GATE_20260713.md` ->records the completed request step and long-horizon compatibility.
+  - `docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md` ->adds long forward durability checkpoints without changing portfolio policy.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the survivorship and right-censoring lessons.
+  - `tools/run_pr_validation.py` ->adds the sample-request smoke to the standard PR tier.
+- symbols_added:
+  - `tools.build_pit_estimate_guidance_sample_request.build_request`
+  - `tools.build_pit_estimate_guidance_sample_request.select_active_sample`
+  - `tools.build_pit_estimate_guidance_sample_request.write_outputs`
+  - `tools.build_pit_estimate_guidance_sample_request.main`
+- symbols_changed:
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the sample-request smoke.
+- config_fields_added:
+  - fixed return horizons `21,63,126,252,504` and their promotion/sensitivity roles.
+- breaking_changes:
+  - none; existing source gate, collectors, target books, and portfolio policy are unchanged.
+- outputs:
+  - `outputs/run287_pit_estimate_guidance_sample_request_20260714/` ->50-row sample request, 992-equity current reference, hashes, summary, and report.
+- validation:
+  - `py -3 tests/pit_estimate_guidance_source_gate_smoke.py` ->PASS.
+  - `py -3 tests/pit_estimate_guidance_sample_request_smoke.py` ->PASS.
+  - actual local request ->`READY_ZERO_COST_SCHEMA_REQUEST_WITH_PROVIDER_DELISTED_QUERY`; 45 active + 5 delisted query slots, exactly 5 ADR/global active rows.
+  - local standard PR validation ->138/142 PASS; the four unrelated failures require tracked paths excluded by this workspace's sparse checkout (`aggressive/`, `auto_learning_v2/`, `data_static/iwb_holdings_seed.csv`, and global output fixtures). GitHub CI uses a full checkout for the final verdict.
+- risks_or_notes:
+  - The free listing artifact has zero delisted rows, so the provider must resolve the five deterministic delisted slots before the source gate can pass.
+  - No provider request was dispatched, no purchase was authorized, no returns were joined, and no fullrun was executed.
+
 ## 2026-07-13
 
 ### 19:50 KST - Add fail-closed PIT estimate/guidance source gate

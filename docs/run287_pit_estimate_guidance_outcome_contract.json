@@ -1,0 +1,81 @@
+{
+  "schema_version": "run287-pit-estimate-guidance-outcome-contract-v1",
+  "frozen_endpoint": "2026-07-10",
+  "entry_rule": "first_exchange_close_strictly_after_available_from",
+  "price_return_basis": "split_and_dividend_adjusted_total_return_series",
+  "benchmark_return_basis": [
+    "SPY",
+    "sector_or_industry_benchmark_when_reproducible"
+  ],
+  "horizons": [
+    {
+      "trading_days": 21,
+      "role": "short_support",
+      "promotion_gate": true,
+      "minimum_independent_blocks": 12,
+      "bootstrap_block": "event_week"
+    },
+    {
+      "trading_days": 63,
+      "role": "primary",
+      "promotion_gate": true,
+      "minimum_independent_blocks": 12,
+      "bootstrap_block": "event_week"
+    },
+    {
+      "trading_days": 126,
+      "role": "intermediate_support",
+      "promotion_gate": true,
+      "minimum_independent_blocks": 12,
+      "bootstrap_block": "event_week"
+    },
+    {
+      "trading_days": 252,
+      "role": "long_confirmation",
+      "promotion_gate": true,
+      "minimum_independent_blocks": 8,
+      "bootstrap_block": "calendar_quarter"
+    },
+    {
+      "trading_days": 504,
+      "role": "long_sensitivity",
+      "promotion_gate": false,
+      "minimum_independent_blocks": 6,
+      "bootstrap_block": "calendar_half_year"
+    }
+  ],
+  "windows": {
+    "full": {
+      "start": "2019-06-03",
+      "end": "2026-07-10"
+    },
+    "oos2": {
+      "start": "2023-01-01",
+      "end": "2026-07-10"
+    },
+    "oos": {
+      "start": "2024-07-01",
+      "end": "2026-07-10"
+    }
+  },
+  "resolved_event_minimums": {
+    "promotion_horizons_positive_events_per_oos_window": 100,
+    "promotion_horizons_negative_events_per_oos_window": 100,
+    "long_504_positive_events_per_reported_window": 50,
+    "long_504_negative_events_per_reported_window": 50
+  },
+  "direction_rule": "positive_minus_negative_mean_and_median_excess_return_must_be_positive",
+  "bootstrap_rule": "promotion_horizon_lower_95pct_bound_must_be_nonnegative_when_powered",
+  "long_252_rule": "required_in_full_oos2_and_oos_when_each_window_meets_event_and_block_floors",
+  "long_504_rule": "report_full_and_oos2_when_powered; direction_sensitivity_only_due_endpoint_censoring",
+  "right_censoring_policy": "unresolved_outcomes_are_null_with_explicit_status_never_zero_never_failure_imputation",
+  "delisting_policy": "use verified delisting_return_or_cash_merger_proceeds; otherwise unresolved_and_coverage_failure",
+  "overlapping_event_policy": "collapse_same_security_same_signal_state_same_event_week_to_first_available_event",
+  "missing_policy": "neutral_for_signal_and_missing_for_outcome_never_alpha_positive",
+  "threshold_change_policy": "frozen_before_return_labels; no endpoint_or_failed_ticker_retuning",
+  "research_only": true,
+  "portfolio_arm_allowed": false,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false,
+  "fullrun_dispatched": false
+}
