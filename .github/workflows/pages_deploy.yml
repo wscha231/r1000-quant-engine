@@ -45,6 +45,11 @@ jobs:
         with:
           ref: master
           fetch-depth: 60
+          sparse-checkout: |
+            docs/public
+            tools/build_public_portfolio_dashboard.py
+            tests/public_portfolio_dashboard_smoke.py
+          sparse-checkout-cone-mode: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
