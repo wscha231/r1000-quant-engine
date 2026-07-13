@@ -346,12 +346,13 @@ function renderTrades() {
     <tr>
       <td>${formatDate(item.date)}</td>
       <td>${formatDate(item.signal_date)}</td>
+      <td><span class="record-badge ${item.record_type === "FORWARD_PAPER" ? "record-forward" : "record-backtest"}">${item.record_type === "FORWARD_PAPER" ? "Forward 모의" : "Backtest"}</span></td>
       <td><span class="side-badge ${item.side === "BUY" ? "side-buy" : "side-sell"}">${item.side === "BUY" ? "매수" : "매도"}</span></td>
       <td class="ticker-cell">${escapeHtml(item.ticker)}</td>
       <td class="number">${price(item.fill_price)}</td>
       <td class="number">${percent(item.target_weight)}</td>
       <td>${escapeHtml(reasonLabel(item.reason))}</td>
-    </tr>`).join("") : `<tr><td colspan="7" class="empty-state">조건에 맞는 매매 기록이 없습니다.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="8" class="empty-state">조건에 맞는 매매 기록이 없습니다.</td></tr>`;
   const buyCount = trades.filter((item) => item.side === "BUY").length;
   const sellCount = trades.filter((item) => item.side === "SELL").length;
   $("#trades-footer").textContent = `${portfolio.label || state.portfolio} · ${visible.length}/${trades.length}건 · 매수 ${buyCount} · 매도 ${sellCount}`;
@@ -359,7 +360,9 @@ function renderTrades() {
   const historyStatus = state.data.source?.trade_history_status;
   $("#trade-history-status").textContent = historyStatus === "retained_from_last_validated_replay"
     ? "일일 artifact에는 체결 원장이 없어 마지막 검증 replay 이력을 유지합니다. 변경안은 위 표에서 별도로 표시합니다."
-    : "검증된 모의 브로커 원장의 최근 체결입니다. 수량과 계좌 금액은 공개하지 않습니다.";
+    : historyStatus === "validated_replay_plus_forward_paper_fills"
+      ? "검증 백테스트와 다음 거래일 종가로 확정된 Forward 모의 체결입니다. 실제 주문이 아니며 수량과 계좌 금액은 공개하지 않습니다."
+      : "검증된 모의 브로커 원장의 최근 체결입니다. 수량과 계좌 금액은 공개하지 않습니다.";
 }
 
 function renderChanges() {

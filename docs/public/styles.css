@@ -292,10 +292,13 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.022); }
 .cash-row td { color: var(--mint); background: var(--mint-dim); }
 .weight-delta-positive { color: var(--mint) !important; }
 .weight-delta-negative { color: var(--red) !important; }
-.side-badge, .action-badge, .review-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; font: 600 0.66rem var(--mono); }
+.side-badge, .action-badge, .review-badge, .record-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; font: 600 0.66rem var(--mono); }
 .side-badge { min-width: 45px; padding: 5px 8px; }
 .side-buy { color: var(--mint); background: var(--mint-dim); }
 .side-sell { color: var(--red); background: rgba(255, 122, 144, 0.12); }
+.record-badge { min-width: 76px; padding: 5px 8px; }
+.record-forward { color: var(--blue); background: rgba(94, 177, 255, 0.13); }
+.record-backtest { color: var(--muted-strong); background: rgba(255, 255, 255, 0.06); }
 .action-badge { padding: 6px 9px; color: var(--amber); background: rgba(255, 204, 115, 0.11); }
 .review-badge { padding: 8px 12px; color: var(--amber); border: 1px solid rgba(255, 204, 115, 0.24); background: rgba(255, 204, 115, 0.08); }
 .table-footer { padding-top: 14px; color: var(--muted); font: 0.68rem var(--mono); text-align: right; }

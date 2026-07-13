@@ -891,6 +891,14 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--source-context daily_operating_refresh",
         "outputs/data_freshness_contract/",
         "outputs/daily_operating_selection_refresh/",
+        "tools/run_daily_simulated_fill_ledger.py",
+        "outputs/daily_simulated_fill_ledger/",
+        "daily_simulated_fill_ledger.log",
+        "paper_archive/run287_daily_simulated_fill_ledger",
+        "Persist validated forward paper ledger state",
+        "--max-fill-lag-days 7",
+        "daily-operating-selection-refresh",
+        "cancel-in-progress: false",
         "review_only",
         "canonical_production_sync",
         "live_trading_enabled",
@@ -918,6 +926,11 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/run_broker_ledger_replay.py",
     ]:
         assert forbidden not in text, forbidden
+    paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
+    snapshot_idx = text.index("python tools/run_operating_snapshot.py")
+    assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
+    assert "run_daily_simulated_fill_ledger.py --" not in text
+    assert "daily_simulated_fill_ledger.log || true" not in text
 
 
 def main() -> int:

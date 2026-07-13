@@ -7,10 +7,11 @@ The producer accepts either a broker replay directory (``replays/main`` and
 and market prices, but never account dollar values, share quantities, cost
 basis, P&L, fees, API credentials, or local paths.
 
-Daily ``user_current`` artifacts do not contain an executed trade ledger.  In
-that case ``--base-json`` retains the previously reviewed trade history while
-current holdings, target weights, and review-only order previews are refreshed.
-Order previews are always labelled as proposals and never as executions.
+Daily ``user_current`` artifacts do not themselves contain an executed trade
+ledger.  ``--base-json`` therefore retains the previously reviewed history,
+then merges only hash-chained, review-only fills from the separate daily
+simulated ledger.  Order previews stay labelled as proposals and are never
+converted into fills by this publisher.
 """
 
 from __future__ import annotations
@@ -94,6 +95,13 @@ def clean_text(value: Any, *, max_length: int = 240) -> str:
 def clean_ticker(value: Any) -> str:
     ticker = clean_text(value, max_length=24).upper()
     return "" if ticker in {"", "NAN", "NONE"} else ticker
+
+
+def flag_is(value: Any, expected: bool) -> bool:
+    if isinstance(value, bool):
+        return value is expected
+    text = str(value or "").strip().lower()
+    return text in ({"true", "1", "yes"} if expected else {"false", "0", "no"})
 
 
 def first_value(row: dict[str, Any], *names: str) -> Any:
@@ -193,7 +201,7 @@ def replay_holdings(rows: list[dict[str, str]], targets: dict[str, float] | None
     return holdings, cash_weight, as_of
 
 
-def replay_trades(rows: list[dict[str, str]], limit: int = 240) -> list[dict[str, Any]]:
+def replay_trades(rows: list[dict[str, Any]], limit: int = 240) -> list[dict[str, Any]]:
     trades: list[dict[str, Any]] = []
     for row in rows:
         ticker = clean_ticker(row.get("ticker"))
@@ -210,10 +218,81 @@ def replay_trades(rows: list[dict[str, str]], limit: int = 240) -> list[dict[str
                 "target_weight": safe_float(row.get("target_weight")),
                 "reason": clean_text(row.get("reason"), max_length=80),
                 "fill_mode": clean_text(row.get("fill_mode"), max_length=32),
+                "record_type": clean_text(row.get("record_type"), max_length=32) or "BACKTEST",
             }
         )
     trades.sort(key=lambda item: (item["date"], item["ticker"], item["side"]), reverse=True)
     return trades[:limit]
+
+
+def forward_paper_root(source: Path) -> Path | None:
+    candidates = [
+        source / "daily_simulated_fill_ledger",
+        source / "outputs" / "daily_simulated_fill_ledger",
+    ]
+    for candidate in candidates:
+        if (candidate / "summary.json").exists():
+            return candidate
+    return None
+
+
+def public_forward_paper_trades(source: Path, portfolio: str) -> list[dict[str, Any]]:
+    root = forward_paper_root(source)
+    if root is None:
+        return []
+    summary = read_json(root / "summary.json")
+    if (
+        summary.get("review_only") is not True
+        or summary.get("simulated") is not True
+        or summary.get("live_trading_enabled") is not False
+        or summary.get("production_mutation_allowed") is not False
+    ):
+        raise ValueError("daily simulated fill summary safety flags are invalid")
+    manifest = read_json(root / portfolio / "manifest.json")
+    if (
+        manifest.get("review_only") is not True
+        or manifest.get("simulated") is not True
+        or manifest.get("live_trading_enabled") is not False
+        or manifest.get("production_mutation_allowed") is not False
+        or manifest.get("historical_cagr_mdd_replacement_allowed") is not False
+        or str(manifest.get("fill_mode") or "") != "next_close"
+        or abs(float(safe_float(manifest.get("cost_bps_per_side"), -1.0) or -1.0) - 25.0) > 1e-9
+    ):
+        raise ValueError(f"daily simulated fill manifest is invalid for {portfolio}")
+    rows = read_csv(root / portfolio / "fills.csv")
+    if int(safe_float(manifest.get("fill_count"), 0) or 0) != len(rows):
+        raise ValueError(f"daily simulated fill count mismatch for {portfolio}")
+    allowed_rows: list[dict[str, Any]] = []
+    for row in rows:
+        if (
+            not str(row.get("execution_status") or "").startswith("SIMULATED_")
+            or str(row.get("event_type") or "") != "FILL"
+            or str(row.get("fill_mode") or "") != "next_close"
+            or not flag_is(row.get("review_only"), True)
+            or not flag_is(row.get("simulated"), True)
+            or not flag_is(row.get("live_trading_enabled"), False)
+            or not flag_is(row.get("production_mutation_allowed"), False)
+        ):
+            raise ValueError(f"unsafe or non-simulated fill row for {portfolio}")
+        allowed_rows.append({**row, "record_type": "FORWARD_PAPER"})
+    return replay_trades(allowed_rows, limit=100_000)
+
+
+def merge_public_trades(prior: list[dict[str, Any]], forward: list[dict[str, Any]], limit: int = 240) -> list[dict[str, Any]]:
+    merged: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in [*replay_trades(prior, limit=100_000), *forward]:
+        key = (
+            row.get("date"),
+            row.get("signal_date"),
+            row.get("ticker"),
+            row.get("side"),
+            safe_float(row.get("fill_price")),
+            row.get("record_type"),
+        )
+        merged[key] = row
+    rows = list(merged.values())
+    rows.sort(key=lambda item: (item.get("date", ""), item.get("ticker", ""), item.get("side", "")), reverse=True)
+    return rows[:limit]
 
 
 def empty_dashboard() -> dict[str, Any]:
@@ -415,11 +494,14 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("daily user_current artifact contains no public equity holdings")
     official_metrics = metrics_by_portfolio(read_json(current_dir / "04_official_metrics.json"))
 
+    forward_fill_count = 0
     for portfolio in PORTFOLIOS:
         holdings, cash = current[portfolio]
         prior = dashboard.get("portfolios", {}).get(portfolio, {})
         if not holdings and not prior:
             continue
+        forward_trades = public_forward_paper_trades(source, portfolio)
+        forward_fill_count += len(forward_trades)
         dashboard.setdefault("portfolios", {})[portfolio] = {
             "label": PORTFOLIO_LABELS[portfolio],
             "metrics": official_metrics.get(portfolio, prior.get("metrics", {})),
@@ -428,7 +510,7 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
             "cash_weight": round(float(cash), 10) if holdings else prior.get("cash_weight"),
             "target_cash_weight": target_cash.get(portfolio),
             "equity_curve": prior.get("equity_curve", []),
-            "trades": prior.get("trades", []),
+            "trades": merge_public_trades(prior.get("trades", []), forward_trades),
         }
 
     decision = read_json(current_dir / "08_rebalance_decision.json")
@@ -449,7 +531,12 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
             "label": "Daily operating selection review artifact",
             "run_id": clean_text(summary.get("source_run_id"), max_length=40),
             "commit": clean_text(summary.get("source_commit_sha"), max_length=64),
-            "trade_history_status": "retained_from_last_validated_replay",
+            "trade_history_status": (
+                "validated_replay_plus_forward_paper_fills"
+                if forward_fill_count
+                else "retained_from_last_validated_replay"
+            ),
+            "forward_paper_fill_count": forward_fill_count,
         }
     )
     return dashboard

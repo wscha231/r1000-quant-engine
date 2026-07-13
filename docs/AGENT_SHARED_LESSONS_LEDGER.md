@@ -684,3 +684,65 @@ Expected contract:
   - `tests/public_portfolio_dashboard_smoke.py`
   - `docs/public/`
   - `.github/workflows/pages_deploy.yml`
+
+### 2026-07-13 - Daily forward paper fills require persistent state and next-close resolution
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-daily-paper-ledger-20260713`
+- Context:
+  - The public dashboard retained validated replay trades because the daily
+    workflow emitted order previews but no confirmed simulated fills.
+- Attempt:
+  - Added a private, review-only forward paper ledger that restores its last
+    validated state, resolves prior pending orders at the next cached close,
+    builds the next preview from the updated paper account, and enqueues only a
+    changed normalized target hash.
+  - Added deterministic client-order idempotency, sell-before-buy integer-share
+    execution, 25 bps costs, no-negative-cash enforcement, a seven-day fill-lag
+    bound, and a hash chain across fill/rejection events.
+  - Wired validated state to a dedicated GitHub cache and Google Drive
+    `paper_archive`, while publishing only allowlisted forward fill fields.
+- Result:
+  - A synthetic two-session scenario queued on the signal close, filled once at
+    the next close, preserved nonnegative cash, rejected an expired missing-price
+    order, detected a tampered event, and remained idempotent on rerun.
+  - The public table now distinguishes `Backtest` from `Forward 모의`; private
+    quantities, fees, and account dollars remain excluded.
+- Failure or caveat:
+  - No scheduled real-market artifact has run this code yet; synthetic success
+    is not operating evidence.
+  - The forward account currently records zero-yield cash for execution
+    monitoring. Historical acceptance metrics retain the separate DGS3MO cash
+    carry contract and must not be replaced by forward metrics.
+  - Forward CAGR is underpowered until at least 252 observations and 300 elapsed
+    days.
+- Root cause:
+  - The prior daily preview was rebuilt from the fixed historical account state
+    and had no persistent pending-to-fill lifecycle.
+- Reusable lesson:
+  - Resolve yesterday before proposing today, persist only validated state, and
+    never infer a fill from a same-day preview.
+  - Target-hash idempotency is necessary to prevent unchanged target books from
+    causing daily drift rebalancing.
+  - Operational forward evidence measures implementation durability; it does
+    not establish seven-year CAGR/MDD.
+- Next action:
+  - Run targeted PR validation, review the first scheduled artifact, and verify
+    the next Pages deployment shows only actual forward simulated fills.
+  - Use 21/63/126-session forward checkpoints and open a timestamped PIT
+    estimate/guidance source procurement gate rather than retuning rejected SEC
+    or downside-beta arms.
+- Do-not-repeat:
+  - Do not persist partial state after a failed resolver.
+  - Do not publish paper quantities or account dollars.
+  - Do not call forward paper fills live or broker-executed trades.
+  - Do not tune the rejected Main downside-beta arm or rejected SEC source
+    screen to cross an endpoint.
+- Evidence files:
+  - `tools/run_daily_simulated_fill_ledger.py`
+  - `tests/daily_simulated_fill_ledger_smoke.py`
+  - `.github/workflows/daily_operating_selection_refresh.yml`
+  - `tools/build_public_portfolio_dashboard.py`
+  - `tests/public_portfolio_dashboard_smoke.py`
+  - `docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md`
