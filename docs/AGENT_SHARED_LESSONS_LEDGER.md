@@ -796,3 +796,56 @@ Expected contract:
   - `tests/daily_market_close_gate_smoke.py`
   - `.github/workflows/daily_operating_selection_refresh.yml`
   - `.github/workflows/pages_deploy.yml`
+
+### 2026-07-13 - Partial-resize confirmation saves fees but destroys target-book alpha
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-partial-resize-confirm-20260713`
+  - local fixed-book replay only; no fullrun
+- Context:
+  - A 25bps versus 0bps upper-bound diagnostic showed enough theoretical cost
+    headroom to cover the remaining headline CAGR gaps, while small trades were
+    too small to matter. Monthly partial resize and reversal churn was the only
+    cost bucket large enough to investigate cheaply.
+- Attempt:
+  - Added one fixed research-only execution mechanism: entries, full exits, and
+    partial sells during a total target-gross reduction execute immediately;
+    every other held-name partial resize requires the same side at two
+    consecutive decisions.
+  - Used integer shares, next-close fills, 25bps per side, lag at most seven
+    days, the frozen generated baseline books, cash-carry as primary, and
+    zero-yield sensitivity. No threshold grid was run.
+- Result:
+  - Control parity passed with exact Main and Concentrated trade-ledger SHA-256
+    matches.
+  - Main cash-carry fell from 34.4032% CAGR / -25.3619% MDD to 31.5886% /
+    -27.0363%; OOS dCAGR was -14.4485pp and OOS2 dCAGR was -6.9461pp.
+  - Concentrated cash-carry fell from 49.0971% / -22.9552% to 38.2025% /
+    -23.5305%; OOS dCAGR was -31.9098pp and OOS2 dCAGR was -15.6199pp.
+  - Zero-yield OOS and OOS2 deltas were also negative for both portfolios.
+  - Main saved $5,259.96 of fees and 295 trades; Concentrated saved $21,147.52
+    and 91 trades. The forgone target-weight alpha was much larger.
+- Failure or caveat:
+  - `REJECT_OOS_CAGR_WORSE`; this is a genuine firing arm, not a no-op.
+  - The proxy universe remains `pit_universe_label_clean=false`, so even a pass
+    would have remained production-blocked research evidence.
+- Root cause:
+  - Monthly target-weight changes contain useful allocation information. A
+    generic delay treats informative conviction changes as execution noise.
+- Reusable lesson:
+  - Cost upper bounds identify an opportunity size, not a valid mechanism.
+  - Reduce costs only when a new decision-time signal can distinguish noisy
+    resizes from informative resizes; do not suppress the target book blindly.
+- Next action:
+  - Open the preregistered PIT estimate/guidance source lane. Continue free
+    snapshots as forward paper evidence only.
+- Do-not-repeat:
+  - Do not retune confirmation count, add a resize threshold grid, or rename
+    this as a deadband/no-trade-band arm on the same books and window.
+  - Exact key:
+    `target_weight_direction+partial_resize_two_signal_confirmation+generated_baseline_books+2019-06-03_2026-07-10`.
+- Evidence files:
+  - `docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md`
+  - `outputs/run287_partial_resize_two_signal_20260713/summary.json`
+  - `outputs/run287_partial_resize_two_signal_20260713/{main,concentrated}/{control,arm}_{cash_carry,zero_yield}/`

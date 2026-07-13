@@ -868,6 +868,7 @@ def replay(
     oos2_start: str | None = None,
     oos2_end: str | None = None,
     cash_carry_config: CashCarryConfig | None = None,
+    partial_resize_two_signal_confirmation: bool = False,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
@@ -966,11 +967,25 @@ def replay(
     holdings_rows: list[dict[str, Any]] = []
     cash_rows: list[dict[str, Any]] = []
     target_vs_actual_rows: list[dict[str, Any]] = []
+    partial_resize_rows: list[dict[str, Any]] = []
+    pending_partial_resizes: dict[str, dict[str, Any]] = {}
+    previous_target_gross: float | None = None
 
-    for signal_dt in sorted(periods.keys()):
+    for signal_index, signal_dt in enumerate(sorted(periods.keys())):
         target = targets[targets["rebalance_date"].eq(signal_dt)].copy()
         if target.empty:
             continue
+        target_weights = {
+            str(row.ticker).upper(): safe_float(row.weight)
+            for row in target.itertuples(index=False)
+            if str(row.ticker).upper() not in CASH_TICKERS
+        }
+        target_gross = float(sum(max(0.0, weight) for weight in target_weights.values()))
+        risk_gross_reduction = bool(
+            previous_target_gross is not None
+            and target_gross < float(previous_target_gross) - 1e-12
+        )
+        previous_target_gross = target_gross
         fill_dt_by_ticker: dict[str, pd.Timestamp] = {}
         fill_px_by_ticker: dict[str, float] = {}
         for ticker in sorted(set(target["ticker"].astype(str).str.upper()) | set(state.shares.keys())):
@@ -996,15 +1011,11 @@ def replay(
                 cash_rate_table=cash_rate_table,
             )
         current_equity, current_values = account_equity(state, prices, fill_dt)
-        target_weights = {
-            str(row.ticker).upper(): safe_float(row.weight)
-            for row in target.itertuples(index=False)
-            if str(row.ticker).upper() not in CASH_TICKERS
-        }
         for ticker in sorted(set(state.shares.keys()) - set(target_weights.keys())):
             px = fill_px_by_ticker.get(ticker)
             if px is None:
                 continue
+            pending_partial_resizes.pop(ticker, None)
             order = execute_order(
                 state=state,
                 ticker=ticker,
@@ -1017,8 +1028,24 @@ def replay(
             if order:
                 order.update({"date": fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": "target_exit", "fill_mode": fill_mode})
                 trade_rows.append(order)
+                if partial_resize_two_signal_confirmation:
+                    partial_resize_rows.append(
+                        {
+                            "date": fill_dt.date().isoformat(),
+                            "signal_date": signal_dt.date().isoformat(),
+                            "ticker": ticker,
+                            "action": "execute",
+                            "reason": "target_exit_immediate",
+                            "side": "SELL",
+                            "target_weight": 0.0,
+                            "current_weight": np.nan,
+                            "diff_value_usd": float(order.get("gross_value", 0.0)) * -1.0,
+                            "risk_gross_reduction": risk_gross_reduction,
+                        }
+                    )
         current_equity, current_values = account_equity(state, prices, fill_dt)
-        adjustments: list[tuple[str, float, float, float, float]] = []
+        adjustments: list[tuple[str, float, float, float, float, str]] = []
+        observed_partial_resize_tickers: set[str] = set()
         for ticker, target_weight in target_weights.items():
             px = fill_px_by_ticker.get(ticker)
             if px is None:
@@ -1029,9 +1056,101 @@ def replay(
             diff_value = target_value - current_value
             if abs(diff_value) < max(25.0, current_equity * 0.0005):
                 continue
-            adjustments.append((ticker, float(target_weight), float(diff_value), float(px), float(current_value)))
+            reason = "target_rebalance"
+            if partial_resize_two_signal_confirmation:
+                side = "BUY" if diff_value > 0 else "SELL"
+                current_weight = float(current_value / current_equity) if current_equity > 0 else 0.0
+                if current_qty <= 1e-12:
+                    pending_partial_resizes.pop(ticker, None)
+                    reason = "target_entry_immediate"
+                    partial_resize_rows.append(
+                        {
+                            "date": fill_dt.date().isoformat(),
+                            "signal_date": signal_dt.date().isoformat(),
+                            "ticker": ticker,
+                            "action": "execute",
+                            "reason": reason,
+                            "side": side,
+                            "target_weight": float(target_weight),
+                            "current_weight": current_weight,
+                            "diff_value_usd": float(diff_value),
+                            "risk_gross_reduction": risk_gross_reduction,
+                        }
+                    )
+                elif side == "SELL" and risk_gross_reduction:
+                    pending_partial_resizes.pop(ticker, None)
+                    reason = "partial_resize_risk_cut_immediate"
+                    partial_resize_rows.append(
+                        {
+                            "date": fill_dt.date().isoformat(),
+                            "signal_date": signal_dt.date().isoformat(),
+                            "ticker": ticker,
+                            "action": "execute",
+                            "reason": reason,
+                            "side": side,
+                            "target_weight": float(target_weight),
+                            "current_weight": current_weight,
+                            "diff_value_usd": float(diff_value),
+                            "risk_gross_reduction": True,
+                        }
+                    )
+                else:
+                    observed_partial_resize_tickers.add(ticker)
+                    pending = pending_partial_resizes.get(ticker)
+                    confirmed = bool(
+                        pending
+                        and pending.get("side") == side
+                        and int(pending.get("signal_index", -2)) == signal_index - 1
+                    )
+                    if not confirmed:
+                        pending_partial_resizes[ticker] = {
+                            "side": side,
+                            "signal_index": signal_index,
+                            "signal_date": signal_dt.date().isoformat(),
+                        }
+                        partial_resize_rows.append(
+                            {
+                                "date": fill_dt.date().isoformat(),
+                                "signal_date": signal_dt.date().isoformat(),
+                                "ticker": ticker,
+                                "action": "defer",
+                                "reason": "partial_resize_first_signal",
+                                "side": side,
+                                "target_weight": float(target_weight),
+                                "current_weight": current_weight,
+                                "diff_value_usd": float(diff_value),
+                                "risk_gross_reduction": risk_gross_reduction,
+                            }
+                        )
+                        continue
+                    pending_partial_resizes.pop(ticker, None)
+                    reason = "partial_resize_second_signal_confirmed"
+                    partial_resize_rows.append(
+                        {
+                            "date": fill_dt.date().isoformat(),
+                            "signal_date": signal_dt.date().isoformat(),
+                            "ticker": ticker,
+                            "action": "execute",
+                            "reason": reason,
+                            "side": side,
+                            "target_weight": float(target_weight),
+                            "current_weight": current_weight,
+                            "diff_value_usd": float(diff_value),
+                            "risk_gross_reduction": risk_gross_reduction,
+                        }
+                    )
+            adjustments.append((ticker, float(target_weight), float(diff_value), float(px), float(current_value), reason))
+        if partial_resize_two_signal_confirmation:
+            stale_pending = [
+                ticker
+                for ticker, pending in pending_partial_resizes.items()
+                if int(pending.get("signal_index", -2)) < signal_index
+                and ticker not in observed_partial_resize_tickers
+            ]
+            for ticker in stale_pending:
+                pending_partial_resizes.pop(ticker, None)
         adjustments = sorted(adjustments, key=lambda row: (row[2] > 0, abs(row[2])))
-        for ticker, target_weight, diff_value, px, _current_value in adjustments:
+        for ticker, target_weight, diff_value, px, _current_value, reason in adjustments:
             side = "BUY" if diff_value > 0 else "SELL"
             qty = abs(diff_value) / px
             order = execute_order(
@@ -1044,7 +1163,7 @@ def replay(
                 integer_shares=integer_shares,
             )
             if order:
-                order.update({"date": fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": "target_rebalance", "target_weight": target_weight, "fill_mode": fill_mode})
+                order.update({"date": fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": reason, "target_weight": target_weight, "fill_mode": fill_mode})
                 trade_rows.append(order)
         equity_after, values_after = account_equity(state, prices, fill_dt)
         for ticker, target_weight in target_weights.items():
@@ -1131,6 +1250,7 @@ def replay(
     holdings_df = pd.DataFrame(holdings_rows)
     cash_df = pd.DataFrame(cash_rows)
     target_vs_actual_df = pd.DataFrame(target_vs_actual_rows)
+    partial_resize_df = pd.DataFrame(partial_resize_rows)
     metrics = calc_metrics(equity_df, trades_df, starting_capital, cash_carry_mode=cash_carry_config.mode)
     # Stage 0 OOS lock — IS/OOS slices computed alongside the full-window
     # metrics. Top-level fields are preserved so existing consumers
@@ -1156,11 +1276,39 @@ def replay(
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
             "price_cache": str(price_cache),
-            "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares and not carry_enabled),
+            "valid_for_production": bool(
+                metrics.get("status") == "completed"
+                and fill_mode == "next_close"
+                and integer_shares
+                and not carry_enabled
+                and not partial_resize_two_signal_confirmation
+            ),
             "max_fill_lag_days": int(max_fill_lag_days),
             **weight_diag,
         }
     )
+    if partial_resize_two_signal_confirmation:
+        reason_counts = (
+            partial_resize_df["reason"].value_counts().to_dict()
+            if not partial_resize_df.empty and "reason" in partial_resize_df.columns
+            else {}
+        )
+        metrics.update(
+            {
+                "candidate_id": f"{portfolio_kind}_partial_resize_two_signal_confirmation",
+                "execution_policy": "partial_resize_two_signal_confirmation",
+                "research_only": True,
+                "production_activation_allowed": False,
+                "partial_resize_decision_count": int(len(partial_resize_df)),
+                "partial_resize_deferred_count": int(reason_counts.get("partial_resize_first_signal", 0)),
+                "partial_resize_confirmed_count": int(reason_counts.get("partial_resize_second_signal_confirmed", 0)),
+                "risk_cut_immediate_count": int(reason_counts.get("partial_resize_risk_cut_immediate", 0)),
+                "target_entry_immediate_count": int(reason_counts.get("target_entry_immediate", 0)),
+                "target_exit_immediate_count": int(reason_counts.get("target_exit_immediate", 0)),
+                "pending_partial_resize_count": int(len(pending_partial_resizes)),
+                "promotion_note": "Research-only single-mechanism execution arm; entries, full exits, and target-gross risk cuts remain immediate.",
+            }
+        )
     if carry_enabled:
         metrics.update(
             {
@@ -1189,6 +1337,8 @@ def replay(
         weekly.to_csv(output_dir / "holdings_weekly.csv", index=False)
     cash_df.to_csv(output_dir / "cash_ledger.csv", index=False)
     target_vs_actual_df.to_csv(output_dir / "target_vs_actual_weights.csv", index=False)
+    if partial_resize_two_signal_confirmation:
+        partial_resize_df.to_csv(output_dir / "partial_resize_decisions.csv", index=False)
     if not equity_df.empty:
         latest_date = pd.Timestamp(pd.to_datetime(equity_df["date"], errors="coerce").dropna().max()).normalize()
         account_state, latest_positions = latest_account_state(
@@ -1296,6 +1446,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cash-rate-lag-days", type=int, default=None, help="Business-day PIT lag before a FRED rate is usable; default 1.")
     parser.add_argument("--cash-carry-haircut-bps", type=float, default=None, help="Annual haircut subtracted from the raw cash rate; default 50bps.")
     parser.add_argument("--cash-carry-day-count", type=int, default=None, help="Day-count denominator for cash interest; default ACT/365.")
+    parser.add_argument(
+        "--partial-resize-two-signal-confirmation",
+        action="store_true",
+        help="Research-only: defer held-name partial resizes until the same direction repeats at the next decision; entries, exits, and target-gross risk cuts remain immediate.",
+    )
     return parser.parse_args()
 
 
@@ -1345,6 +1500,7 @@ def main() -> int:
             day_count=args.cash_carry_day_count,
             rate_path=args.cash_rate_path,
         ),
+        partial_resize_two_signal_confirmation=bool(args.partial_resize_two_signal_confirmation),
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2
