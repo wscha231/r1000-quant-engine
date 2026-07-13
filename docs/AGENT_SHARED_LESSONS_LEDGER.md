@@ -632,3 +632,55 @@ Expected contract:
 - Evidence files:
   - run287 post-run reports
   - PIT membership audit docs
+
+### 2026-07-13 - Public portfolio dashboard must separate executed replay from review proposals
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-public-dashboard-20260713`
+- Context:
+  - User requested a GitHub-hosted website with daily system changes, current
+    Main/Concentrated holdings and cash weights, and BUY/SELL history, with a
+    custom domain to be added later.
+- Attempt:
+  - Replaced the GitHub Pages placeholder with a static Korean dashboard and a
+    standard-library JSON exporter.
+  - Added a `workflow_run` deployment lane that consumes the successful
+    `Daily Operating Selection Refresh` review artifact from `master`.
+  - Published the latest validated replay snapshot as of the 2026-07-10 close.
+- Result:
+  - The public contract contains weights, prices, normalized performance,
+    replay BUY/SELL records, and review-only target deltas.
+  - Share quantities, dollar account/cash values, cost basis, P&L, fees,
+    secrets, and local paths are rejected before deployment.
+  - The initial public snapshot reports Main 14 equities / 10.63% cash and
+    Concentrated 5 equities / 16.40% cash.
+- Failure or caveat:
+  - The daily operating artifact does not include an executed trade ledger.
+    Its `03_order_preview.csv` is a human-review proposal, not a fill record.
+  - The Pages repository setting was found in legacy `master:/docs` mode and
+    must be changed to `build_type=workflow` before the new deployment is used.
+- Root cause:
+  - Previous Pages work stopped at a placeholder and had no privacy-safe bridge
+    between review artifacts and a public dataset.
+- Reusable lesson:
+  - Preserve last validated executed history when a daily artifact has no
+    fills; never relabel order previews as trades.
+  - Build public data from an explicit allowlist and fail closed on local paths,
+    secret-like values, missing review flags, or production/live flags.
+  - Use relative asset URLs so moving from the GitHub project URL to a custom
+    domain does not require an application rewrite.
+- Next action:
+  - Validate the public-only Pages artifact in PR checks, change Pages source to
+    GitHub Actions, merge, and verify the live URL plus the next successful
+    daily artifact refresh.
+- Do-not-repeat:
+  - Do not publish `outputs/`, `docs/`, user_current, or broker artifacts
+    directly.
+  - Do not expose quantities or account dollar values on a public Pages site.
+  - Do not treat a review-only target delta as an executed BUY/SELL.
+- Evidence files:
+  - `tools/build_public_portfolio_dashboard.py`
+  - `tests/public_portfolio_dashboard_smoke.py`
+  - `docs/public/`
+  - `.github/workflows/pages_deploy.yml`
