@@ -1,51 +1,100 @@
-name: Deploy GitHub Pages (docs/public)
+name: Deploy Run287 Portfolio Dashboard
 
-# Publishes ONLY docs/public/ via the GitHub Actions artifact deployment path.
+# Publishes ONLY docs/public/ via the GitHub Actions Pages artifact path.
+# Internal docs/ files are never part of the deployed artifact.
 #
-# Why GitHub Actions instead of "Deploy from a branch":
-#   The branch-source UI only offers `/` (repo root) or `/docs` as the folder.
-#   `/docs/public/` is not selectable. Using `/docs` would expose every
-#   internal strategy doc under docs/ (CODEX_*, MASTER_PRIORITY_*, etc).
-#   The Actions path uploads ONLY docs/public/ as the Pages artifact, so the
-#   rest of docs/ is never published.
-#
-# Activation (user, one-time): Settings -> Pages -> Source: "GitHub Actions".
-# After that this workflow runs on every push that touches docs/public/.
+# Daily refresh contract:
+#   - waits for Daily Operating Selection Refresh on master to succeed;
+#   - downloads only that run's review-only artifact;
+#   - publishes weights/prices and review proposals, never account dollars,
+#     quantities, P&L, secrets, local paths, or automatic order instructions;
+#   - fails closed when the artifact is not explicitly review_only.
 
 on:
   push:
     branches: [master]
     paths:
       - 'docs/public/**'
+      - 'tools/build_public_portfolio_dashboard.py'
+      - 'tests/public_portfolio_dashboard_smoke.py'
       - '.github/workflows/pages_deploy.yml'
+  workflow_run:
+    workflows: ['Daily Operating Selection Refresh']
+    types: [completed]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment; do not cancel an in-progress run so a
-# half-finished deploy is never left live.
 concurrency:
-  group: pages
+  group: run287-public-pages
   cancel-in-progress: false
 
 jobs:
+  build:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted master source
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 60
+          sparse-checkout: |
+            docs/public
+            tools/build_public_portfolio_dashboard.py
+            tests/public_portfolio_dashboard_smoke.py
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download completed daily review artifact
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: daily-operating-selection-refresh-${{ github.event.workflow_run.id }}
+          path: .dashboard-source
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Refresh privacy-safe public snapshot
+        if: github.event_name == 'workflow_run'
+        run: |
+          python tools/build_public_portfolio_dashboard.py \
+            --source .dashboard-source \
+            --base-json docs/public/data/dashboard.json \
+            --output docs/public/data/dashboard.json \
+            --repo-root .
+
+      - name: Validate public data and static assets
+        run: python tests/public_portfolio_dashboard_smoke.py
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload public-only Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/public
+
   deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Upload docs/public as Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/public
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
