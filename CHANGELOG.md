@@ -5,6 +5,39 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-13
 
+### 19:50 KST - Add fail-closed PIT estimate/guidance source gate
+
+- scope:
+  - Preregister the sole new historical CAGR-gap source lane and audit small provider samples before alpha joins or broad licensing.
+  - Preserve the forward-only free archive and keep all portfolio, purchase, fullrun, production, and live-trading actions disabled.
+- files:
+  - `tools/audit_pit_estimate_guidance_source.py` ->audits provider-neutral long-event exports for schema, exact PIT chronology, stable identity, provenance, coverage, and procurement constraints.
+  - `tests/pit_estimate_guidance_source_gate_smoke.py` ->covers ready, PIT-blocked, undercovered, procurement-blocked, and schema-blocked states.
+  - `docs/run287_pit_estimate_guidance_source_requirements.json` ->freezes sample/OOS/OOS2/delisted/revision/guidance coverage floors before alpha labels.
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SOURCE_GATE_20260713.md` ->records the contract, current free-artifact verdict, stop rules, and next action.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the provider-gate boundary and do-not-repeat rules.
+  - `tools/run_pr_validation.py` ->adds the new smoke to the standard PR tier.
+- symbols_added:
+  - `tools.audit_pit_estimate_guidance_source.audit_source`
+  - `tools.audit_pit_estimate_guidance_source.build_coverage`
+  - `tools.audit_pit_estimate_guidance_source.write_outputs`
+  - `tools.audit_pit_estimate_guidance_source.main`
+- symbols_changed:
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the PIT estimate/guidance source gate smoke.
+- config_fields_added:
+  - frozen `run287-pit-estimate-guidance-source-requirements-v1` sample thresholds.
+- breaking_changes:
+  - none; the existing free collector and portfolio paths are unchanged.
+- outputs:
+  - gate runs emit `summary.json`, `checks.csv`, `coverage_by_security.csv`, and `report.md` under the requested output directory.
+- validation:
+  - `py -3 tests/pit_estimate_guidance_source_gate_smoke.py` ->PASS.
+  - existing free run `29028159934` audit ->`BLOCKED_SCHEMA`; 13/863 true estimates remain forward-only.
+  - local standard PR validation ->137/141 PASS; the four unrelated failures require tracked paths excluded by this workspace's sparse checkout (`aggressive/`, `auto_learning_v2/`, `data_static/iwb_holdings_seed.csv`, and global output fixtures). GitHub CI uses a full checkout for the final verdict.
+- risks_or_notes:
+  - No real historical sample has passed and no purchase is authorized.
+  - `READY_FOR_SOURCE_SCREEN` permits only the preregistered single-source alpha screen, never a portfolio arm.
+
 ### 19:00 KST - Reject two-signal partial-resize confirmation
 
 - scope:

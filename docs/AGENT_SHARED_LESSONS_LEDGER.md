@@ -849,3 +849,56 @@ Expected contract:
   - `docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md`
   - `outputs/run287_partial_resize_two_signal_20260713/summary.json`
   - `outputs/run287_partial_resize_two_signal_20260713/{main,concentrated}/{control,arm}_{cash_carry,zero_yield}/`
+
+### 2026-07-13 - PIT estimate/guidance procurement is now fail-closed before alpha
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-pit-estimate-source-gate-20260713`
+  - provider-neutral local data audit only; no fullrun
+- Context:
+  - The remaining Main and Concentrated CAGR gaps require a genuinely new
+    historical source lane. The free estimate archive is forward-only and its
+    successful catch-up artifact found true estimates for only 13 of 863
+    requested names.
+- Attempt:
+  - Preregistered one new combination:
+    `pit_estimate_guidance_composite_revision_state + single_source_screen + single_source_events + 2019-06-03_2026-07-10`.
+  - Added a provider-neutral gate for exact timestamps, stable IDs, source
+    hashes, EPS/revenue revisions, guidance pairs, delisted coverage, OOS/OOS2
+    coverage, reproduction rights, approved sample cost, and no lock-in.
+- Result:
+  - Do-not-repeat preflight: `ALLOWED_NEW_COMBINATION`.
+  - Synthetic complete export: `READY_FOR_SOURCE_SCREEN`.
+  - Synthetic date-only, chronology, schema, coverage, and lock-in faults each
+    reached their intended blocked state.
+  - Existing free run `29028159934`: `BLOCKED_SCHEMA`; it remains valid only as
+    forward evidence and was not backfilled or scored historically.
+  - Local standard PR validation passed 137 of 141 tests. The four failures are
+    the existing sparse-checkout omissions; the new gate and adjacent estimate
+    tests passed.
+- Failure or caveat:
+  - No real historical provider sample has passed yet. The new lane is data-
+    ready, not alpha-ready, portfolio-ready, purchase-approved, or production-
+    ready.
+- Root cause:
+  - A current snapshot cannot reconstruct when a historical consensus or
+    guidance value became available. Ticker-only identity also cannot prove
+    delisted and symbol-change coverage.
+- Reusable lesson:
+  - Audit schema, PIT chronology, stable identity, coverage, rights, and cost
+    before joining returns or purchasing a broad license.
+  - `READY_FOR_SOURCE_SCREEN` authorizes only the next research gate.
+- Next action:
+  - Build a deterministic 50-security sample request with at least five
+    delisted stable IDs and obtain a zero-cost schema sample first.
+- Do-not-repeat:
+  - Do not retrofit the 13 current free snapshots into 2019-2026.
+  - Do not weaken the frozen sample thresholds after seeing provider coverage
+    or return labels.
+  - Do not buy full-universe history before sample gate and source screen pass.
+- Evidence files:
+  - `tools/audit_pit_estimate_guidance_source.py`
+  - `tests/pit_estimate_guidance_source_gate_smoke.py`
+  - `docs/run287_pit_estimate_guidance_source_requirements.json`
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SOURCE_GATE_20260713.md`
