@@ -61,6 +61,58 @@ def test_workflow_rotates_broad_universe_shards_and_persists_metadata() -> None:
     assert "full_rebuild_manual" not in text
 
 
+def test_workflow_appends_bounded_forward_paper_archive_after_completed_session() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    for token in (
+        "Resolve completed NYSE session for forward paper archive",
+        "tools/run_daily_market_session_gate.py",
+        "--min-close-age-minutes 90",
+        "--max-close-age-hours 36",
+        "if: steps.forward_market.outputs.ready == 'yes'",
+        'LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"',
+        "tools/run_free_data_selection_overlay.py",
+        '--decision-date "$LAST_NYSE_SESSION_DATE"',
+        "outputs/free_data_selection_overlay_previous/ranked_universe.csv",
+        "outputs/free_data_selection_overlay/ranked_universe.csv",
+        "tools/build_forward_paper_price_universe.py",
+        "tools/build_replay_price_cache.py",
+        "--start 2026-07-01",
+        "--refresh-stale-days 1",
+        "tools/run_free_data_forward_paper_ledger.py",
+        "--ranked-universe outputs/free_data_selection_overlay/ranked_universe.csv",
+        "--price-cache cache_prices_forward_paper",
+        '--as-of-date "$LAST_NYSE_SESSION_DATE"',
+        "research_state/free_data_forward_paper_ledger",
+        "research_state/free_data_selection_overlay",
+        "research_state/free_data_forward_paper_price_cache",
+    ):
+        assert token in text, token
+    assert "fmp_calendar" not in text.lower()
+    assert "fullrun" not in text.lower()
+    assert "live_trading" not in text.lower()
+    assert "production" not in text.lower()
+
+
+def test_workflow_checkout_is_bounded_to_daily_inputs() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "sparse-checkout: |" in text
+    assert "sparse-checkout-cone-mode: true" in text
+    sparse_block = text.split("sparse-checkout: |", 1)[1].split(
+        "sparse-checkout-cone-mode:", 1
+    )[0]
+    for path in (
+        ".github",
+        "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "data_static",
+        "outputs/forward_estimate_universe_plan_20260709",
+        "tools",
+    ):
+        assert path in sparse_block, path
+    assert "cloud_results/full_rebuild/202" not in sparse_block
+
+
 if __name__ == "__main__":
     test_workflow_rotates_broad_universe_shards_and_persists_metadata()
+    test_workflow_appends_bounded_forward_paper_archive_after_completed_session()
+    test_workflow_checkout_is_bounded_to_daily_inputs()
     print("earnings_estimate_workflow_rotation_smoke: PASS")

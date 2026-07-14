@@ -18,6 +18,7 @@ import math
 import os
 import sys
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,14 +39,29 @@ if str(REPO_ROOT) not in sys.path:
 from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
 
 
-SCHEMA_VERSION = "free-data-forward-paper-ledger-v1"
+SCHEMA_VERSION = "free-data-forward-paper-ledger-v2"
+LEGACY_SCHEMA_VERSION = "free-data-forward-paper-ledger-v1"
+OBSERVATION_IDENTITY_VERSION = "decision-date-ticker-v2"
 SIGNAL_SNAPSHOT_SCHEMA_VERSION = "free-data-selection-signal-snapshot-v2"
+COHORT_CONTRACT_SCHEMA_VERSION = "free-data-forward-paper-cohorts-v1"
 HORIZONS = (21, 63, 126)
 BENCHMARK_DEFAULT = "SPY"
 EVENT_LOG_NAME = "ledger_events.jsonl"
+COHORT_TOP_N = 30
+CONTROL_RANK_START = 31
+CONTROL_RANK_END = 60
+BOOTSTRAP_REPLICATIONS = 2_000
+REVIEW_THRESHOLDS = {
+    "distinct_true_forward_tickers": 50,
+    "resolved_outcomes": 200,
+    "decision_week_blocks_21d": 12,
+    "decision_week_blocks_63d": 8,
+    "max_drawdown_degradation": 0.02,
+}
 
 SIGNAL_SNAPSHOT_COLUMNS = (
     "free_data_selection_rank",
+    "free_data_base_selection_rank",
     "prior_free_data_selection_rank",
     "free_data_selection_rank_delta_vs_prior",
     "free_data_selection_score",
@@ -115,6 +131,28 @@ def load_nyse_sessions(start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.D
     if sessions.tz is not None:
         sessions = sessions.tz_localize(None)
     return sessions[sessions.notna()].normalize().sort_values().drop_duplicates()
+
+
+def load_nyse_schedule(start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame | None:
+    """Return normalized session dates and their actual UTC close timestamps."""
+    if mcal is None:
+        return None
+    try:
+        schedule = mcal.get_calendar("NYSE").schedule(
+            start_date=pd.Timestamp(start_date).date().isoformat(),
+            end_date=pd.Timestamp(end_date).date().isoformat(),
+        )
+    except Exception:
+        return None
+    if schedule.empty or "market_close" not in schedule.columns:
+        return None
+    out = schedule[["market_close"]].copy()
+    index = pd.DatetimeIndex(pd.to_datetime(out.index, errors="coerce"))
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    out.index = index.normalize()
+    out["market_close"] = pd.to_datetime(out["market_close"], errors="coerce", utc=True)
+    return out[out.index.notna() & out["market_close"].notna()].sort_index()
 
 
 def normalize_ticker(value: Any) -> str:
@@ -247,6 +285,124 @@ def signal_snapshot(row: pd.Series) -> dict[str, Any]:
     return {column: _json_scalar(row.get(column)) for column in SIGNAL_SNAPSHOT_COLUMNS if column in row.index}
 
 
+def _finite_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def cohort_membership(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Derive fixed paper cohorts without treating missing evidence as positive."""
+    overlay_rank = _finite_number(snapshot.get("free_data_selection_rank"))
+    base_rank = _finite_number(snapshot.get("free_data_base_selection_rank"))
+    # Legacy v1 observations did not persist the contemporaneous base rank.
+    # Their already-recorded cohort membership remains readable, but new v2
+    # captures are fail-closed below unless the new field is present.
+    if base_rank is None:
+        base_rank = _finite_number(snapshot.get("prior_free_data_selection_rank"))
+    base_top30 = base_rank is not None and 1 <= base_rank <= COHORT_TOP_N
+    overlay_top30 = overlay_rank is not None and 1 <= overlay_rank <= COHORT_TOP_N
+    matched_control = overlay_rank is not None and CONTROL_RANK_START <= overlay_rank <= CONTROL_RANK_END
+    has_forward = (_finite_number(snapshot.get("has_forward_estimate")) or 0.0) > 0.0
+    true_forward = bool(
+        has_forward
+        and _truthy(snapshot.get("free_data_forward_estimate_evidence_present"))
+        and _truthy(snapshot.get("estimate_revision_confirmed"))
+    )
+    memberships = [
+        name
+        for name, member in (
+            ("base_top30", base_top30),
+            ("overlay_top30", overlay_top30),
+            ("matched_control_ranks31_60", matched_control),
+        )
+        if member
+    ]
+    return {
+        "base_top30_member": base_top30,
+        "overlay_top30_member": overlay_top30,
+        "matched_control_member": matched_control,
+        "true_forward_signal": true_forward,
+        "forward_arm_member": bool(overlay_top30 and true_forward),
+        "forward_signal_state": "true_forward" if true_forward else "neutral_missing_or_unconfirmed",
+        "cohort_memberships": memberships,
+    }
+
+
+def persisted_observation_membership(observation: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "base_top30_member",
+        "overlay_top30_member",
+        "matched_control_member",
+        "true_forward_signal",
+        "forward_arm_member",
+        "forward_signal_state",
+        "cohort_memberships",
+    )
+    if observation.get("schema_version") == SCHEMA_VERSION and all(field in observation for field in fields):
+        memberships = observation.get("cohort_memberships")
+        return {
+            "base_top30_member": _truthy(observation.get("base_top30_member")),
+            "overlay_top30_member": _truthy(observation.get("overlay_top30_member")),
+            "matched_control_member": _truthy(observation.get("matched_control_member")),
+            "true_forward_signal": _truthy(observation.get("true_forward_signal")),
+            "forward_arm_member": _truthy(observation.get("forward_arm_member")),
+            "forward_signal_state": str(observation.get("forward_signal_state") or "neutral_missing_or_unconfirmed"),
+            "cohort_memberships": list(memberships) if isinstance(memberships, list) else [],
+        }
+    return cohort_membership(snapshot)
+
+
+def select_cohort_candidates(candidates: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Keep the fixed base/overlay/control union; never promote missing signal rows."""
+    audit: dict[str, Any] = {
+        "source_ranked_rows": int(len(candidates)),
+        "cohort_rows": 0,
+        "cohort_counts": {
+            "base_top30": 0,
+            "overlay_top30": 0,
+            "matched_control_ranks31_60": 0,
+            "true_forward_signal": 0,
+            "forward_arm": 0,
+        },
+        "missing_forward_evidence_policy": "neutral",
+        "cohort_contract_schema_version": COHORT_CONTRACT_SCHEMA_VERSION,
+    }
+    if candidates.empty:
+        return candidates.copy(), audit
+    annotated = candidates.copy()
+    memberships = annotated.apply(lambda row: cohort_membership(signal_snapshot(row)), axis=1)
+    for column in (
+        "base_top30_member",
+        "overlay_top30_member",
+        "matched_control_member",
+        "true_forward_signal",
+        "forward_arm_member",
+    ):
+        annotated[column] = memberships.map(lambda item: bool(item[column]))
+    keep = annotated[["base_top30_member", "overlay_top30_member", "matched_control_member"]].any(axis=1)
+    selected = annotated.loc[keep].copy()
+    audit["cohort_rows"] = int(len(selected))
+    audit["cohort_counts"] = {
+        "base_top30": int(selected["base_top30_member"].sum()),
+        "overlay_top30": int(selected["overlay_top30_member"].sum()),
+        "matched_control_ranks31_60": int(selected["matched_control_member"].sum()),
+        "true_forward_signal": int(selected["true_forward_signal"].sum()),
+        "forward_arm": int(selected["forward_arm_member"].sum()),
+    }
+    return selected.drop(
+        columns=[
+            "base_top30_member",
+            "overlay_top30_member",
+            "matched_control_member",
+            "true_forward_signal",
+            "forward_arm_member",
+        ]
+    ), audit
+
+
 def _observation_event(
     row: pd.Series,
     *,
@@ -261,9 +417,12 @@ def _observation_event(
 ) -> dict[str, Any]:
     ticker = normalize_ticker(row.get("ticker"))
     snapshot = signal_snapshot(row)
+    membership = cohort_membership(snapshot)
     snapshot_json = _canonical_json(snapshot)
     snapshot_sha256 = _sha256_text(snapshot_json)
-    observation_key = f"{SCHEMA_VERSION}|{decision_date.date().isoformat()}|{ticker}|{snapshot_sha256}"
+    # One immutable observation per decision date and ticker.  Snapshot hashes
+    # remain evidence, but must not create duplicate statistical observations.
+    observation_key = f"{SCHEMA_VERSION}|{decision_date.date().isoformat()}|{ticker}"
     observation_id = _sha256_text(observation_key)[:24]
     return {
         "schema_version": SCHEMA_VERSION,
@@ -271,6 +430,7 @@ def _observation_event(
         "event_type": "signal_observed",
         "recorded_at_utc": recorded_at_utc,
         "observation_id": observation_id,
+        "observation_identity_version": OBSERVATION_IDENTITY_VERSION,
         "decision_date": decision_date.date().isoformat(),
         "ticker": ticker,
         "source_observed_at_utc": source_observed_at_utc,
@@ -282,7 +442,15 @@ def _observation_event(
         "signal_snapshot_sha256": snapshot_sha256,
         "signal_snapshot": snapshot,
         "benchmark_ticker": benchmark,
-        "labels": ["forward_signal_observed", "paper_ledger_candidate", "not_backtest_acceptance"],
+        "cohort_contract_schema_version": COHORT_CONTRACT_SCHEMA_VERSION,
+        **membership,
+        "labels": [
+            "forward_signal_observed",
+            "paper_ledger_candidate",
+            "not_backtest_acceptance",
+            *[f"cohort_{name}" for name in membership["cohort_memberships"]],
+            *(["true_forward_signal"] if membership["true_forward_signal"] else ["forward_signal_neutral"]),
+        ],
         "forward_only": True,
         "pre_observation_signal_backfill_allowed": False,
         "historical_backtest_acceptance_allowed": False,
@@ -304,6 +472,7 @@ def build_observation_events(
     candidates_path: Path,
     summary_path: Path,
     benchmark: str,
+    full_ranked_universe: bool,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     audit: dict[str, Any] = {
         "candidate_rows": int(len(candidates)),
@@ -330,6 +499,13 @@ def build_observation_events(
         audit["blockers"].append("overlay_production_flag_not_false")
     if overlay_summary.get("historical_backtest_acceptance_allowed") is not False:
         audit["blockers"].append("overlay_backtest_flag_not_false")
+    expected_candidates_hash_field = "ranked_universe_sha256" if full_ranked_universe else "selected_candidates_sha256"
+    expected_candidates_hash = str(overlay_summary.get(expected_candidates_hash_field) or "")
+    actual_candidates_hash = sha256_file(candidates_path) if candidates_path.is_file() else ""
+    if not expected_candidates_hash:
+        audit["blockers"].append(f"overlay_{expected_candidates_hash_field}_missing")
+    elif expected_candidates_hash != actual_candidates_hash:
+        audit["blockers"].append(f"overlay_{expected_candidates_hash_field}_mismatch")
     for flag in ("production_promotion_allowed", "historical_backtest_acceptance_allowed"):
         if flag in candidates.columns and candidates[flag].map(_truthy).any():
             audit["blockers"].append(f"candidate_{flag}_contains_true")
@@ -355,10 +531,14 @@ def build_observation_events(
         audit["blocked_observation_rows"] = int(len(candidates))
         return [], audit
 
-    candidates_hash = sha256_file(candidates_path)
+    candidates_hash = actual_candidates_hash
     summary_hash = sha256_file(summary_path)
     existing_ids = {str(event.get("event_id")) for event in existing_events}
     existing_observations = [event for event in existing_events if event.get("event_type") == "signal_observed"]
+    existing_by_decision_ticker = {
+        (str(event.get("decision_date") or ""), normalize_ticker(event.get("ticker"))): event
+        for event in existing_observations
+    }
     existing_dates = pd.to_datetime(
         [event.get("decision_date") for event in existing_observations], errors="coerce"
     )
@@ -377,8 +557,27 @@ def build_observation_events(
         )
         for _, row in candidates.iterrows()
     ]
-    novel = [event for event in proposed if event["event_id"] not in existing_ids]
-    audit["duplicate_observation_rows"] = len(proposed) - len(novel)
+    novel: list[dict[str, Any]] = []
+    conflicts: list[str] = []
+    duplicates = 0
+    for event in proposed:
+        immutable_key = (str(event.get("decision_date") or ""), normalize_ticker(event.get("ticker")))
+        prior = existing_by_decision_ticker.get(immutable_key)
+        if prior is not None:
+            if str(prior.get("signal_snapshot_sha256") or "") == str(event.get("signal_snapshot_sha256") or ""):
+                duplicates += 1
+            else:
+                conflicts.append(f"{immutable_key[0]}:{immutable_key[1]}")
+            continue
+        if event["event_id"] in existing_ids:
+            duplicates += 1
+            continue
+        novel.append(event)
+    audit["duplicate_observation_rows"] = duplicates
+    if conflicts:
+        audit["blockers"].append(
+            "immutable_decision_ticker_snapshot_conflict:" + ",".join(sorted(conflicts)[:20])
+        )
     receipt_lag_days = (recorded_at.date() - source_observed.date()).days
     if novel:
         audit["source_receipt_lag_days"] = receipt_lag_days
@@ -438,18 +637,25 @@ def _reference_candidate(
     benchmark_prices: pd.DataFrame,
     benchmark_basis: str,
     market_sessions: pd.DatetimeIndex | None,
+    market_closes: pd.Series | None,
     *,
     as_of_date: pd.Timestamp,
     recorded_at_utc: str,
 ) -> tuple[dict[str, Any] | None, str]:
-    if market_sessions is None:
+    if market_sessions is None or market_closes is None:
         return None, "pending_exchange_calendar_unavailable"
     if benchmark_basis != "adjusted_close":
         return None, "pending_benchmark_total_return_proxy_unavailable"
     if ticker_basis != "adjusted_close":
         return None, "pending_ticker_adjusted_price_unavailable"
     decision = pd.Timestamp(observation["decision_date"]).normalize()
-    eligible = market_sessions[(market_sessions > decision) & (market_sessions <= as_of_date)]
+    source_observed = _utc_timestamp(observation.get("source_observed_at_utc"))
+    session_closes = market_closes.reindex(market_sessions)
+    eligible = market_sessions[
+        (market_sessions > decision)
+        & (market_sessions <= as_of_date)
+        & session_closes.gt(source_observed).to_numpy()
+    ]
     if len(eligible) == 0:
         return None, "pending_next_close_not_elapsed"
     reference_date = pd.Timestamp(eligible[0]).normalize()
@@ -475,7 +681,7 @@ def _reference_candidate(
         "ticker_price_basis": ticker_basis,
         "benchmark_price_basis": benchmark_basis,
         "benchmark_total_return_proxy": True,
-        "reference_rule": "first_NYSE_session_strictly_after_decision_date_with_exact_adjusted_closes",
+        "reference_rule": "first_NYSE_close_after_both_decision_date_and_source_observed_at_utc_with_exact_adjusted_closes",
         "historical_backtest_acceptance_allowed": False,
         "valid_for_backtest": False,
         "production_promotion_allowed": False,
@@ -497,15 +703,20 @@ def _outcome_candidate(
     ticker_prices: pd.DataFrame,
     benchmark_prices: pd.DataFrame,
     market_sessions: pd.DatetimeIndex | None,
+    market_closes: pd.Series | None,
     *,
     as_of_date: pd.Timestamp,
     recorded_at_utc: str,
 ) -> tuple[dict[str, Any] | None, str]:
-    if market_sessions is None:
+    if market_sessions is None or market_closes is None:
         return None, "pending_exchange_calendar_unavailable"
     reference_date = pd.Timestamp(reference["next_close_date"]).normalize()
     decision = pd.Timestamp(observation["decision_date"]).normalize()
-    expected_reference_dates = market_sessions[market_sessions > decision]
+    source_observed = _utc_timestamp(observation.get("source_observed_at_utc"))
+    session_closes = market_closes.reindex(market_sessions)
+    expected_reference_dates = market_sessions[
+        (market_sessions > decision) & session_closes.gt(source_observed).to_numpy()
+    ]
     if len(expected_reference_dates) == 0 or reference_date != pd.Timestamp(expected_reference_dates[0]).normalize():
         return None, "pending_reference_session_mismatch"
     elapsed_sessions = market_sessions[(market_sessions >= reference_date) & (market_sessions <= as_of_date)]
@@ -569,11 +780,13 @@ def evaluate_observations(
         [event.get("decision_date") for event in observations], errors="coerce"
     )
     valid_decision_dates = decision_dates[decision_dates.notna()]
-    market_sessions = (
-        load_nyse_sessions(pd.Timestamp(valid_decision_dates.min()), as_of_date)
+    market_schedule = (
+        load_nyse_schedule(pd.Timestamp(valid_decision_dates.min()), as_of_date)
         if len(valid_decision_dates)
-        else pd.DatetimeIndex([])
+        else pd.DataFrame(columns=["market_close"])
     )
+    market_sessions = None if market_schedule is None else pd.DatetimeIndex(market_schedule.index)
+    market_closes = None if market_schedule is None else market_schedule["market_close"]
     references = {
         str(event["observation_id"]): event
         for event in events
@@ -609,6 +822,7 @@ def evaluate_observations(
                 benchmark_frame,
                 benchmark_basis,
                 market_sessions,
+                market_closes,
                 as_of_date=as_of_date,
                 recorded_at_utc=recorded_at_utc,
             )
@@ -637,6 +851,7 @@ def evaluate_observations(
                 ticker_frame,
                 benchmark_frame,
                 market_sessions,
+                market_closes,
                 as_of_date=as_of_date,
                 recorded_at_utc=recorded_at_utc,
             )
@@ -666,6 +881,7 @@ def build_current_status(
     for observation in observations:
         observation_id = str(observation["observation_id"])
         snapshot = observation.get("signal_snapshot") or {}
+        membership = persisted_observation_membership(observation, snapshot)
         reference = references.get(observation_id) or {}
         evaluation = evaluations.get(observation_id) or {}
         row: dict[str, Any] = {
@@ -682,6 +898,13 @@ def build_current_status(
             "free_data_recent_actual_score": snapshot.get("free_data_recent_actual_score"),
             "free_data_evidence_coverage_count": snapshot.get("free_data_evidence_coverage_count"),
             "has_forward_estimate": snapshot.get("has_forward_estimate"),
+            "base_top30_member": membership["base_top30_member"],
+            "overlay_top30_member": membership["overlay_top30_member"],
+            "matched_control_member": membership["matched_control_member"],
+            "true_forward_signal": membership["true_forward_signal"],
+            "forward_arm_member": membership["forward_arm_member"],
+            "forward_signal_state": membership["forward_signal_state"],
+            "cohort_memberships": ",".join(membership["cohort_memberships"]),
             "labels": ",".join(observation.get("labels") or []),
             "benchmark_ticker": observation.get("benchmark_ticker"),
             "reference_status": "reference_observed" if reference else evaluation.get("reference_status", "pending_reference"),
@@ -719,6 +942,277 @@ def build_current_status(
     ).reset_index(drop=True)
 
 
+def _cohort_mask(status: pd.DataFrame, column: str) -> pd.Series:
+    if column not in status.columns:
+        return pd.Series(False, index=status.index, dtype=bool)
+    return status[column].map(_truthy).astype(bool)
+
+
+def _completed_cohort(status: pd.DataFrame, cohort_column: str, horizon: int) -> pd.DataFrame:
+    if status.empty:
+        return status.copy()
+    outcome_status = f"outcome_{horizon}d_status"
+    if outcome_status not in status.columns:
+        return status.iloc[0:0].copy()
+    return status.loc[_cohort_mask(status, cohort_column) & status[outcome_status].eq("completed")].copy()
+
+
+def _week_block_outcome_metrics(frame: pd.DataFrame, horizon: int) -> dict[str, Any]:
+    excess_column = f"outcome_{horizon}d_excess_total_return"
+    drawdown_column = f"outcome_{horizon}d_ticker_max_drawdown"
+    if frame.empty or excess_column not in frame.columns:
+        return {
+            "completed_count": 0,
+            "decision_week_block_count": 0,
+            "mean_spy_excess_return": None,
+            "median_spy_excess_return": None,
+            "week_block_bootstrap_mean_lower_95": None,
+            "mean_ticker_max_drawdown": None,
+        }
+    work = frame[["decision_date", excess_column, drawdown_column]].copy()
+    work["decision_date"] = pd.to_datetime(work["decision_date"], errors="coerce")
+    work["excess"] = pd.to_numeric(work[excess_column], errors="coerce")
+    work["drawdown"] = pd.to_numeric(work[drawdown_column], errors="coerce")
+    work = work[work["decision_date"].notna() & work["excess"].notna() & np.isfinite(work["excess"])].copy()
+    if work.empty:
+        return {
+            "completed_count": 0,
+            "decision_week_block_count": 0,
+            "mean_spy_excess_return": None,
+            "median_spy_excess_return": None,
+            "week_block_bootstrap_mean_lower_95": None,
+            "mean_ticker_max_drawdown": None,
+        }
+    work["decision_week"] = work["decision_date"].dt.to_period("W-SUN").astype(str)
+    week_means = work.groupby("decision_week", sort=True)["excess"].mean().to_numpy(dtype=float)
+    bootstrap_lower: float | None = None
+    if len(week_means):
+        seed = int(_sha256_text(f"forward-paper-week-bootstrap|{horizon}")[:8], 16)
+        rng = np.random.default_rng(seed)
+        sampled = rng.choice(
+            week_means,
+            size=(BOOTSTRAP_REPLICATIONS, len(week_means)),
+            replace=True,
+        )
+        bootstrap_lower = float(np.quantile(sampled.mean(axis=1), 0.025))
+    finite_drawdown = work["drawdown"].dropna()
+    finite_drawdown = finite_drawdown[np.isfinite(finite_drawdown)]
+    return {
+        "completed_count": int(len(work)),
+        "decision_week_block_count": int(len(week_means)),
+        "mean_spy_excess_return": float(work["excess"].mean()),
+        "median_spy_excess_return": float(work["excess"].median()),
+        "week_block_bootstrap_mean_lower_95": bootstrap_lower,
+        "mean_ticker_max_drawdown": float(finite_drawdown.mean()) if len(finite_drawdown) else None,
+    }
+
+
+def _paired_week_drawdown_metrics(
+    forward: pd.DataFrame,
+    control: pd.DataFrame,
+    horizon: int,
+) -> dict[str, Any]:
+    """Compare drawdown only within decision weeks represented by both arms."""
+    column = f"outcome_{horizon}d_ticker_max_drawdown"
+
+    def weekly(frame: pd.DataFrame, label: str) -> pd.DataFrame:
+        if frame.empty or column not in frame.columns:
+            return pd.DataFrame(columns=["decision_week", label])
+        work = frame[["decision_date", column]].copy()
+        work["decision_date"] = pd.to_datetime(work["decision_date"], errors="coerce")
+        work[label] = pd.to_numeric(work[column], errors="coerce")
+        work = work[
+            work["decision_date"].notna() & work[label].notna() & np.isfinite(work[label])
+        ].copy()
+        if work.empty:
+            return pd.DataFrame(columns=["decision_week", label])
+        work["decision_week"] = work["decision_date"].dt.to_period("W-SUN").astype(str)
+        return work.groupby("decision_week", as_index=False, sort=True)[label].mean()
+
+    paired = weekly(forward, "forward_drawdown").merge(
+        weekly(control, "control_drawdown"), on="decision_week", how="inner", validate="one_to_one"
+    )
+    if paired.empty:
+        return {
+            "paired_decision_week_block_count": 0,
+            "mean_paired_week_drawdown_degradation": None,
+            "max_paired_week_drawdown_degradation": None,
+        }
+    # Drawdowns are negative.  control - forward is positive only when the
+    # forward arm is worse within the same decision week.
+    degradation = paired["control_drawdown"] - paired["forward_drawdown"]
+    return {
+        "paired_decision_week_block_count": int(len(paired)),
+        "mean_paired_week_drawdown_degradation": float(degradation.mean()),
+        "max_paired_week_drawdown_degradation": float(degradation.max()),
+    }
+
+
+def build_review_readiness(status: pd.DataFrame) -> dict[str, Any]:
+    """Build deterministic, paper-only readiness gates for the true-forward arm."""
+    cohort_columns = {
+        "base_top30": "base_top30_member",
+        "overlay_top30": "overlay_top30_member",
+        "matched_control_ranks31_60": "matched_control_member",
+        "true_forward_arm": "forward_arm_member",
+    }
+    cohort_metrics: dict[str, Any] = {}
+    for cohort_name, cohort_column in cohort_columns.items():
+        cohort_metrics[cohort_name] = {
+            f"{horizon}d": _week_block_outcome_metrics(
+                _completed_cohort(status, cohort_column, horizon), horizon
+            )
+            for horizon in HORIZONS
+        }
+
+    true_forward_mask = _cohort_mask(status, "true_forward_signal") if not status.empty else pd.Series(dtype=bool)
+    forward_arm_mask = _cohort_mask(status, "forward_arm_member") if not status.empty else pd.Series(dtype=bool)
+    observed_true_forward_tickers = (
+        int(status.loc[true_forward_mask, "ticker"].astype(str).nunique()) if not status.empty else 0
+    )
+    distinct_true_forward_tickers = (
+        int(status.loc[forward_arm_mask, "ticker"].astype(str).nunique()) if not status.empty else 0
+    )
+    resolved_horizon_rows = sum(
+        int(
+            (
+                forward_arm_mask
+                & status[f"outcome_{horizon}d_status"].eq("completed")
+            ).sum()
+        )
+        for horizon in HORIZONS
+    ) if not status.empty else 0
+    resolved_primary_63d_observations = 0
+    if not status.empty and "outcome_63d_status" in status.columns:
+        primary = status.loc[
+            forward_arm_mask & status["outcome_63d_status"].eq("completed"),
+            ["decision_date", "ticker"],
+        ].drop_duplicates()
+        resolved_primary_63d_observations = int(len(primary))
+    resolved_observations = 0
+    if not status.empty:
+        any_completed = pd.Series(False, index=status.index, dtype=bool)
+        for horizon in HORIZONS:
+            any_completed |= status[f"outcome_{horizon}d_status"].eq("completed")
+        resolved_observations = int((forward_arm_mask & any_completed).sum())
+
+    forward_metrics = cohort_metrics["true_forward_arm"]
+    control_metrics = cohort_metrics["matched_control_ranks31_60"]
+    drawdown_degradation: dict[str, float | None] = {}
+    paired_drawdown_metrics: dict[str, dict[str, Any]] = {}
+    for horizon in (21, 63):
+        paired = _paired_week_drawdown_metrics(
+            _completed_cohort(status, "forward_arm_member", horizon),
+            _completed_cohort(status, "matched_control_member", horizon),
+            horizon,
+        )
+        paired_drawdown_metrics[f"{horizon}d"] = paired
+        drawdown_degradation[f"{horizon}d"] = paired["mean_paired_week_drawdown_degradation"]
+
+    def check(actual: Any, required: str, passed: bool) -> dict[str, Any]:
+        return {"actual": actual, "required": required, "passed": bool(passed)}
+
+    sample_checks = {
+        "distinct_true_forward_tickers": check(
+            distinct_true_forward_tickers,
+            f">={REVIEW_THRESHOLDS['distinct_true_forward_tickers']}",
+            distinct_true_forward_tickers >= REVIEW_THRESHOLDS["distinct_true_forward_tickers"],
+        ),
+        "resolved_outcomes": check(
+            resolved_primary_63d_observations,
+            f">={REVIEW_THRESHOLDS['resolved_outcomes']} unique completed 63D decision-ticker observations",
+            resolved_primary_63d_observations >= REVIEW_THRESHOLDS["resolved_outcomes"],
+        ),
+        "decision_week_blocks_21d": check(
+            forward_metrics["21d"]["decision_week_block_count"],
+            f">={REVIEW_THRESHOLDS['decision_week_blocks_21d']}",
+            forward_metrics["21d"]["decision_week_block_count"] >= REVIEW_THRESHOLDS["decision_week_blocks_21d"],
+        ),
+        "decision_week_blocks_63d": check(
+            forward_metrics["63d"]["decision_week_block_count"],
+            f">={REVIEW_THRESHOLDS['decision_week_blocks_63d']}",
+            forward_metrics["63d"]["decision_week_block_count"] >= REVIEW_THRESHOLDS["decision_week_blocks_63d"],
+        ),
+        "matched_control_decision_week_blocks_21d": check(
+            control_metrics["21d"]["decision_week_block_count"],
+            f">={REVIEW_THRESHOLDS['decision_week_blocks_21d']}",
+            control_metrics["21d"]["decision_week_block_count"] >= REVIEW_THRESHOLDS["decision_week_blocks_21d"],
+        ),
+        "matched_control_decision_week_blocks_63d": check(
+            control_metrics["63d"]["decision_week_block_count"],
+            f">={REVIEW_THRESHOLDS['decision_week_blocks_63d']}",
+            control_metrics["63d"]["decision_week_block_count"] >= REVIEW_THRESHOLDS["decision_week_blocks_63d"],
+        ),
+        "paired_drawdown_decision_week_blocks_21d": check(
+            paired_drawdown_metrics["21d"]["paired_decision_week_block_count"],
+            f">={REVIEW_THRESHOLDS['decision_week_blocks_21d']}",
+            paired_drawdown_metrics["21d"]["paired_decision_week_block_count"] >= REVIEW_THRESHOLDS["decision_week_blocks_21d"],
+        ),
+        "paired_drawdown_decision_week_blocks_63d": check(
+            paired_drawdown_metrics["63d"]["paired_decision_week_block_count"],
+            f">={REVIEW_THRESHOLDS['decision_week_blocks_63d']}",
+            paired_drawdown_metrics["63d"]["paired_decision_week_block_count"] >= REVIEW_THRESHOLDS["decision_week_blocks_63d"],
+        ),
+    }
+    evidence_checks: dict[str, dict[str, Any]] = {}
+    for horizon in (21, 63):
+        metrics = forward_metrics[f"{horizon}d"]
+        mean_value = metrics["mean_spy_excess_return"]
+        median_value = metrics["median_spy_excess_return"]
+        lower_value = metrics["week_block_bootstrap_mean_lower_95"]
+        degradation = drawdown_degradation[f"{horizon}d"]
+        evidence_checks[f"mean_spy_excess_positive_{horizon}d"] = check(
+            mean_value, ">0", mean_value is not None and mean_value > 0.0
+        )
+        evidence_checks[f"median_spy_excess_positive_{horizon}d"] = check(
+            median_value, ">0", median_value is not None and median_value > 0.0
+        )
+        evidence_checks[f"week_block_bootstrap_lower_nonnegative_{horizon}d"] = check(
+            lower_value, ">=0", lower_value is not None and lower_value >= 0.0
+        )
+        evidence_checks[f"drawdown_degradation_at_most_2pp_{horizon}d"] = check(
+            degradation,
+            f"<={REVIEW_THRESHOLDS['max_drawdown_degradation']}",
+            degradation is not None and degradation <= REVIEW_THRESHOLDS["max_drawdown_degradation"],
+        )
+    direction_126d = forward_metrics["126d"]["mean_spy_excess_return"]
+    evidence_checks["mean_spy_excess_direction_positive_126d"] = check(
+        direction_126d, ">0", direction_126d is not None and direction_126d > 0.0
+    )
+
+    sample_ready = all(item["passed"] for item in sample_checks.values())
+    evidence_ready = all(item["passed"] for item in evidence_checks.values())
+    readiness_status = (
+        "REVIEW_READY_PAPER_ONLY"
+        if sample_ready and evidence_ready
+        else ("EVIDENCE_GATE_FAILED" if sample_ready else "UNDERPOWERED")
+    )
+    return {
+        "status": readiness_status,
+        "review_ready": bool(sample_ready and evidence_ready),
+        "paper_only": True,
+        "valid_for_historical_backtest_acceptance": False,
+        "distinct_true_forward_ticker_count": distinct_true_forward_tickers,
+        "observed_true_forward_ticker_count_all_cohorts": observed_true_forward_tickers,
+        "resolved_outcome_count": int(resolved_primary_63d_observations),
+        "resolved_observation_count": int(resolved_observations),
+        "resolved_horizon_row_count_diagnostic": int(resolved_horizon_rows),
+        "resolved_outcome_definition": "unique completed 63D true-forward-arm decision-date/ticker observations",
+        "drawdown_degradation_vs_matched_control": drawdown_degradation,
+        "paired_week_drawdown_metrics": paired_drawdown_metrics,
+        "sample_checks": sample_checks,
+        "evidence_checks": evidence_checks,
+        "cohort_metrics": cohort_metrics,
+        "bootstrap": {
+            "unit": "decision_week",
+            "statistic": "mean of decision-week mean SPY excess returns",
+            "replications": BOOTSTRAP_REPLICATIONS,
+            "confidence": 0.95,
+            "deterministic_seed": True,
+        },
+    }
+
+
 def schema_payload() -> dict[str, Any]:
     outcome_fields = {
         f"{horizon}d": {
@@ -740,9 +1234,44 @@ def schema_payload() -> dict[str, Any]:
         "event_log_format": "newline-delimited JSON",
         "event_log_append_only": True,
         "event_types": ["signal_observed", "next_close_reference_observed", "forward_outcome_observed"],
-        "observation_identity": "sha256(schema_version|decision_date|ticker|signal_snapshot_sha256)",
+        "observation_identity_version": OBSERVATION_IDENTITY_VERSION,
+        "observation_identity": "sha256(schema_version|decision_date|ticker)",
+        "legacy_observation_identity": "v1 sha256(schema_version|decision_date|ticker|signal_snapshot_sha256) remains readable",
+        "legacy_schema_version": LEGACY_SCHEMA_VERSION,
         "signal_snapshot_schema_version": SIGNAL_SNAPSHOT_SCHEMA_VERSION,
         "signal_snapshot_columns": list(SIGNAL_SNAPSHOT_COLUMNS),
+        "cohort_contract": {
+            "schema_version": COHORT_CONTRACT_SCHEMA_VERSION,
+            "source": "full contemporaneous ranked universe when available",
+            "base_top30": "free_data_base_selection_rank between 1 and 30 inclusive",
+            "overlay_top30": "free_data_selection_rank between 1 and 30 inclusive",
+            "matched_control_ranks31_60": "free_data_selection_rank between 31 and 60 inclusive",
+            "observation_universe": "union of base_top30, overlay_top30, and matched_control_ranks31_60",
+            "migration_policy": (
+                "preserve pre-contract observations exactly; do not overwrite or augment an existing "
+                "decision-date/ticker snapshot; complete 30/30/30 capture starts on the next distinct decision date"
+            ),
+            "true_forward_signal": (
+                "has_forward_estimate > 0 and free_data_forward_estimate_evidence_present and "
+                "estimate_revision_confirmed"
+            ),
+            "forward_arm": "overlay_top30 and true_forward_signal",
+            "missing_forward_evidence_policy": "neutral_missing_or_unconfirmed",
+        },
+        "review_readiness_contract": {
+            "thresholds": REVIEW_THRESHOLDS,
+            "resolved_outcome_definition": (
+                "unique completed 63D true-forward-arm decision-date/ticker observations"
+            ),
+            "week_block_bootstrap_replications": BOOTSTRAP_REPLICATIONS,
+            "week_block_bootstrap_statistic": "mean of decision-week mean SPY excess returns",
+            "required_21d_and_63d": (
+                "mean and median SPY excess > 0, week-block bootstrap lower 95% >= 0, "
+                "paired decision-week mean drawdown degradation vs ranks31-60 control <= 0.02"
+            ),
+            "required_126d": "mean SPY excess return > 0",
+            "paper_only": True,
+        },
         "reference_rule": "first NYSE session strictly after decision_date; ticker and SPY must have exact adjusted closes",
         "price_basis_required": "adjusted close; SPY adjusted close is the total-return proxy",
         "outcomes": outcome_fields,
@@ -793,6 +1322,7 @@ def build_summary(
                 "completed_ratio": round(counts.get("completed", 0) / max(len(status), 1), 6),
             }
     blocked = bool(capture_audit.get("blockers")) and not observations
+    review_readiness = build_review_readiness(status)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc,
@@ -806,6 +1336,7 @@ def build_summary(
         "appended_event_counts": dict(appended_counts),
         "capture_audit": capture_audit,
         "coverage": coverage,
+        "review_readiness": review_readiness,
         "benchmark_ticker": str(status["benchmark_ticker"].iloc[0]) if not status.empty else BENCHMARK_DEFAULT,
         "benchmark_proxy": "SPY adjusted-close total-return proxy",
         "missing_prices_and_unelapsed_outcomes_remain_pending": True,
@@ -831,6 +1362,7 @@ def render_report(summary: dict[str, Any]) -> str:
         f"- observations: `{coverage.get('observation_count', 0)}`",
         f"- unique tickers: `{coverage.get('unique_ticker_count', 0)}`",
         f"- reference statuses: `{json.dumps(coverage.get('reference_status_counts') or {}, sort_keys=True)}`",
+        f"- review readiness: `{(summary.get('review_readiness') or {}).get('status', 'UNDERPOWERED')}`",
         "",
         "## Outcome coverage",
         "",
@@ -845,6 +1377,15 @@ def render_report(summary: dict[str, Any]) -> str:
         )
     lines += [
         "",
+        "## Paper review gate",
+        "",
+        f"- Distinct true-forward tickers: `{(summary.get('review_readiness') or {}).get('distinct_true_forward_ticker_count', 0)}` / `{REVIEW_THRESHOLDS['distinct_true_forward_tickers']}`",
+        f"- Resolved primary 63D decision-ticker outcomes: `{(summary.get('review_readiness') or {}).get('resolved_outcome_count', 0)}` / `{REVIEW_THRESHOLDS['resolved_outcomes']}`",
+        f"- 21D decision-week blocks: `{((((summary.get('review_readiness') or {}).get('cohort_metrics') or {}).get('true_forward_arm') or {}).get('21d') or {}).get('decision_week_block_count', 0)}` / `{REVIEW_THRESHOLDS['decision_week_blocks_21d']}`",
+        f"- 63D decision-week blocks: `{((((summary.get('review_readiness') or {}).get('cohort_metrics') or {}).get('true_forward_arm') or {}).get('63d') or {}).get('decision_week_block_count', 0)}` / `{REVIEW_THRESHOLDS['decision_week_blocks_63d']}`",
+        "- The forward arm contains only overlay-top-30 rows with confirmed true-forward evidence; missing evidence is neutral.",
+        "- REVIEW_READY_PAPER_ONLY is never historical backtest acceptance or production promotion.",
+        "",
         "## Contract",
         "",
         "- The JSONL event log is append-only; derived status files may be rebuilt.",
@@ -853,6 +1394,8 @@ def render_report(summary: dict[str, Any]) -> str:
         "- A novel decision date older than the latest recorded decision date is blocked.",
         "- Entry is the first NYSE session strictly after the decision date, with exact ticker and SPY adjusted closes.",
         "- 21D/63D/126D outcomes use exact NYSE sessions and SPY adjusted close as a total-return proxy.",
+        "- Each new decision date is accepted only when a full ranked universe supplies exactly base top 30, overlay top 30, and overlay ranks 31-60 control cohorts.",
+        "- Pre-contract observations are preserved without retroactive cohort augmentation; the complete v2 cohort starts on the next distinct decision date.",
         "- Any exchange-calendar price gap remains pending; no forward-fill or later-close substitution is used.",
         "- Labels: `forward_signal_observed`, `paper_ledger_candidate`, `not_backtest_acceptance`.",
         "- Historical backtest acceptance, production promotion, live trading, target-book mutation, and fullrun dispatch are all false.",
@@ -868,7 +1411,7 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
 
 
-def run(args: argparse.Namespace, *, now_utc: str | None = None) -> dict[str, Any]:
+def _run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dict[str, Any]:
     recorded_at_utc = now_utc or utc_now()
     recorded_at = _utc_timestamp(recorded_at_utc)
     as_of_date = pd.Timestamp(args.as_of_date).normalize() if args.as_of_date else recorded_at.tz_localize(None).normalize()
@@ -877,12 +1420,25 @@ def run(args: argparse.Namespace, *, now_utc: str | None = None) -> dict[str, An
 
     candidates_path = repo_path(args.candidates)
     summary_path = repo_path(args.overlay_summary) if args.overlay_summary else candidates_path.parent / "summary.json"
+    ranked_universe_arg = str(getattr(args, "ranked_universe", "") or "").strip()
+    default_ranked_universe = candidates_path.parent / "ranked_universe.csv"
+    ranked_universe_path = (
+        repo_path(ranked_universe_arg)
+        if ranked_universe_arg
+        else (default_ranked_universe if default_ranked_universe.exists() else candidates_path)
+    )
+    full_ranked_universe = bool(
+        ranked_universe_path.is_file()
+        and (bool(ranked_universe_arg) or default_ranked_universe.exists())
+    )
+    allow_incomplete_test_capture = bool(getattr(args, "_test_allow_incomplete_cohorts", False))
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     event_log = output_dir / EVENT_LOG_NAME
 
-    candidates = read_candidates(candidates_path)
+    source_candidates = read_candidates(ranked_universe_path)
+    candidates, cohort_audit = select_cohort_candidates(source_candidates)
     overlay_summary = read_json(summary_path)
     existing_events = read_events(event_log)
     persisted_market_dates = pd.to_datetime(
@@ -899,15 +1455,51 @@ def run(args: argparse.Namespace, *, now_utc: str | None = None) -> dict[str, An
             raise ValueError(
                 "as_of_date cannot precede an already persisted reference or outcome date in the append-only ledger"
             )
-    observation_events, capture_audit = build_observation_events(
-        candidates,
-        overlay_summary,
-        existing_events,
-        recorded_at_utc=recorded_at.isoformat().replace("+00:00", "Z"),
-        candidates_path=candidates_path,
-        summary_path=summary_path,
-        benchmark=normalize_ticker(args.benchmark) or BENCHMARK_DEFAULT,
-    )
+    required_counts = {
+        "base_top30": COHORT_TOP_N,
+        "overlay_top30": COHORT_TOP_N,
+        "matched_control_ranks31_60": CONTROL_RANK_END - CONTROL_RANK_START + 1,
+    }
+    observed_counts = cohort_audit.get("cohort_counts") or {}
+    cohort_capture_blockers: list[str] = []
+    if not full_ranked_universe:
+        cohort_capture_blockers.append("full_ranked_universe_required_for_new_decision")
+    if "free_data_base_selection_rank" not in source_candidates.columns:
+        cohort_capture_blockers.append("contemporaneous_base_selection_rank_required")
+    for name, expected in required_counts.items():
+        actual = int(observed_counts.get(name, 0) or 0)
+        if actual != expected:
+            cohort_capture_blockers.append(f"incomplete_fixed_cohort:{name}:{actual}!={expected}")
+    if cohort_capture_blockers and not allow_incomplete_test_capture:
+        observation_events = []
+        capture_audit = {
+            "candidate_rows": int(len(candidates)),
+            "new_observation_rows": 0,
+            "duplicate_observation_rows": 0,
+            "blocked_observation_rows": int(len(candidates)),
+            "blockers": cohort_capture_blockers,
+            "outcome_refresh_allowed_for_existing_observations": True,
+        }
+    else:
+        observation_events, capture_audit = build_observation_events(
+            candidates,
+            overlay_summary,
+            existing_events,
+            recorded_at_utc=recorded_at.isoformat().replace("+00:00", "Z"),
+            candidates_path=ranked_universe_path,
+            summary_path=summary_path,
+            benchmark=normalize_ticker(args.benchmark) or BENCHMARK_DEFAULT,
+            full_ranked_universe=full_ranked_universe,
+        )
+        if allow_incomplete_test_capture and cohort_capture_blockers:
+            capture_audit["test_only_incomplete_cohort_bypass"] = cohort_capture_blockers
+    capture_audit["cohort_capture"] = {
+        **cohort_audit,
+        "source_ranked_universe_path": str(ranked_universe_path),
+        "source_mode": "full_ranked_universe" if full_ranked_universe else "candidate_file_fallback",
+        "required_exact_cohort_counts": required_counts,
+        "complete_fixed_cohorts": not cohort_capture_blockers,
+    }
     append_events(event_log, observation_events)
     events_after_capture = existing_events + observation_events
     outcome_events, evaluations = evaluate_observations(
@@ -936,9 +1528,41 @@ def run(args: argparse.Namespace, *, now_utc: str | None = None) -> dict[str, An
     return summary
 
 
+@contextmanager
+def exclusive_ledger_lock(output_dir: Path):
+    """Serialize read/append cycles so two writers cannot duplicate events."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = output_dir / ".forward_paper_ledger.lock"
+    try:
+        descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise RuntimeError(f"forward paper ledger is already locked: {lock_path}") from exc
+    try:
+        os.write(descriptor, f"pid={os.getpid()} utc={utc_now()}\n".encode("utf-8"))
+        os.fsync(descriptor)
+        yield
+    finally:
+        os.close(descriptor)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def run(args: argparse.Namespace, *, now_utc: str | None = None) -> dict[str, Any]:
+    output_dir = repo_path(args.output_dir)
+    with exclusive_ledger_lock(output_dir):
+        return _run_unlocked(args, now_utc=now_utc)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidates", default="outputs/free_data_selection_overlay/selected_candidates.csv")
+    parser.add_argument(
+        "--ranked-universe",
+        default="",
+        help="Full contemporaneous ranked universe; defaults to ranked_universe.csv beside --candidates when present.",
+    )
     parser.add_argument("--overlay-summary", default="")
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default="outputs/free_data_forward_paper_ledger")

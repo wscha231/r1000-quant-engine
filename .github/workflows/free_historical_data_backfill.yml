@@ -74,6 +74,7 @@ jobs:
             data_pit/free
             data_pit/events
             data
+            cache_prices
           key: free-historical-data-backfill-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             free-historical-data-backfill-${{ runner.os }}-
@@ -126,12 +127,18 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          for d in data_raw/free data_pit/free data_pit/events data manifests/free_data; do
+          for d in data_raw/free data_pit/free data_pit/events data manifests/free_data cache_prices; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
               rclone copy "$BASE$d" "$d/"
             fi
           done
+          SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-manual}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
+          LEDGER_REMOTE="${BASE}research_state/${SAFE_BRANCH}/free_data_forward_paper_ledger"
+          mkdir -p outputs/free_data_forward_paper_ledger
+          if rclone lsf "$LEDGER_REMOTE" >/dev/null 2>&1; then
+            rclone copy "$LEDGER_REMOTE" outputs/free_data_forward_paper_ledger/
+          fi
 
       - name: Run historical free-data collectors
         env:
@@ -180,6 +187,16 @@ jobs:
             python tools/run_free_data_selection_overlay.py \
               --scored "${{ inputs.latest_run }}/scored_latest.csv" \
               --output-dir outputs/free_data_selection_overlay
+            if [ -s outputs/free_data_selection_overlay/ranked_universe.csv ] && \
+               [ -s outputs/free_data_selection_overlay/selected_candidates.csv ] && \
+               [ -s outputs/free_data_selection_overlay/summary.json ]; then
+              python tools/run_free_data_forward_paper_ledger.py \
+                --candidates outputs/free_data_selection_overlay/selected_candidates.csv \
+                --ranked-universe outputs/free_data_selection_overlay/ranked_universe.csv \
+                --overlay-summary outputs/free_data_selection_overlay/summary.json \
+                --price-cache cache_prices \
+                --output-dir outputs/free_data_forward_paper_ledger
+            fi
           else
             echo "[selection-overlay] missing ${{ inputs.latest_run }}/scored_latest.csv; skipping latest selection overlay"
           fi
@@ -193,6 +210,7 @@ jobs:
             outputs/free_historical_data_backfill/
             outputs/free_historical_data_coverage/
             outputs/free_data_selection_overlay/
+            outputs/free_data_forward_paper_ledger/
             data/catalog.json
             data_raw/free/sec/company_tickers.json
             data_raw/free/sec/company_tickers_manifest.json
@@ -217,7 +235,7 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-manual}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
-          for d in data_raw/free data_pit/free data_pit/events data; do
+          for d in data_raw/free data_pit/free data_pit/events data cache_prices; do
             if [ -e "$d" ]; then
               rclone copy "$d" "$BASE$d/"
             fi
@@ -226,4 +244,8 @@ jobs:
           rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
           if [ -d outputs/free_data_selection_overlay ]; then
             rclone copy outputs/free_data_selection_overlay "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_selection_overlay/"
+          fi
+          if [ -d outputs/free_data_forward_paper_ledger ]; then
+            rclone copy outputs/free_data_forward_paper_ledger "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_forward_paper_ledger/"
+            rclone copy outputs/free_data_forward_paper_ledger "${BASE}research_state/${SAFE_BRANCH}/free_data_forward_paper_ledger/"
           fi

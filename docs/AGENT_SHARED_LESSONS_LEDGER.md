@@ -1359,3 +1359,57 @@ Expected contract:
   - `.github/workflows/pr_validation.yml`
   - `.github/workflows/portfolio_system_guard.yml`
   - `tests/workflow_artifact_smoke.py`
+
+### 2026-07-14 - Forward archives need exact cohorts and a durable state path
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-forward-paper-ledger-recovery-20260714`
+  - local recovery and targeted tests; no fullrun or execution
+- Context:
+  - A valid v2 forward ledger existed in an earlier commit and local outputs,
+    but the source had been lost from later squash/merge history and the daily
+    collector did not durably append the fixed comparison cohorts.
+- Attempt:
+  - Restored the original v2 overlay, ledger, tests, and manual workflow exactly
+    from commit `2f3c9750`.
+  - Added a fail-closed bounded price-universe builder and integrated the lane
+    after the completed-NYSE-session gate in the durable estimate workflow.
+- Result:
+  - Exact 30-name base, 30-name overlay, and 30-name ranks 31-60 control cohorts
+    are required for every new decision date.
+  - The dedicated price cache contains only current cohort names, unresolved
+    prior observations, and SPY and begins on 2026-07-01.
+  - Existing 30 observations and their immutable event log were preserved; the
+    lane remains `UNDERPOWERED` with 10 distinct true-forward tickers and zero
+    resolved 63D outcomes.
+- Failure or caveat:
+  - The pre-v2 overlay lacks `free_data_base_selection_rank`, so it cannot be
+    used to invent historical base/control membership. It remains outcome-
+    refreshable but cannot seed a new fixed-cohort capture.
+  - The canonical tracked score snapshot has feature date 2026-06-24. Fresh
+    estimate evidence does not make that base ranking a same-day score refresh.
+- Root cause:
+  - Source recovery and output preservation were not coupled to a durable daily
+    append path, and a candidate-only file cannot reconstruct an unselected
+    control cohort.
+- Reusable lesson:
+  - Persist forward state in both a serialized global path and immutable per-run
+    evidence. Derive comparison cohorts from the contemporaneous full ranked
+    universe, never from the selected book.
+  - Bound price refreshes by unresolved evidence instead of repeatedly fetching
+    the entire universe.
+- Next action:
+  - Merge only after targeted and complete PR CI pass, seed or verify the global
+    Drive state without overwriting a newer ledger, and inspect the first
+    scheduled exact-cohort run.
+- Do-not-repeat:
+  - Do not backfill observations before their recorded source time.
+  - Do not infer base or control membership from top-30 candidates.
+  - Do not use FMP calendar HTTP 402, fullrun, production, or live execution for
+    this lane.
+- Evidence files:
+  - `tools/run_free_data_forward_paper_ledger.py`
+  - `tools/build_forward_paper_price_universe.py`
+  - `.github/workflows/earnings_estimates_daily.yml`
+  - `docs/CODEX_RUN287_FORWARD_PAPER_LEDGER_RECOVERY_RESULT_20260714.md`

@@ -8,6 +8,7 @@ features. Missing evidence is neutral; lifecycle risks are explicit.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -51,6 +52,14 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def read_table(path: Path) -> pd.DataFrame:
     if not path.exists() or not path.is_file():
         return pd.DataFrame()
@@ -84,6 +93,22 @@ def robust_rank_score(values: pd.Series) -> pd.Series:
     if numeric.notna().sum() <= 1:
         return pd.Series(0.0, index=values.index)
     return numeric.rank(pct=True).fillna(0.0)
+
+
+def deterministic_descending_rank(frame: pd.DataFrame, score_column: str) -> pd.Series:
+    """Rank a contemporaneous score with ticker as the immutable tie-break."""
+    if frame.empty:
+        return pd.Series(index=frame.index, dtype="int64")
+    ordered = frame.assign(
+        _deterministic_rank_score=pd.to_numeric(frame[score_column], errors="coerce")
+    ).sort_values(
+        ["_deterministic_rank_score", "ticker"],
+        ascending=[False, True],
+        na_position="last",
+        kind="stable",
+    )
+    ranked = pd.Series(range(1, len(ordered) + 1), index=ordered.index, dtype="int64")
+    return ranked.reindex(frame.index).astype("int64")
 
 
 def latest_signal_by_ticker(signals: pd.DataFrame, decision_date: pd.Timestamp) -> pd.DataFrame:
@@ -315,6 +340,12 @@ def build_overlay(
         + out["free_data_lifecycle_evidence_present"].astype(int)
     )
     lifecycle_penalty = out["free_data_lifecycle_risk"].astype(float)
+    # This is the contemporaneous base-book cohort rank.  A prior overlay's
+    # rank is useful for turnover diagnostics, but cannot define today's base
+    # top-30 paper cohort.
+    out["free_data_base_selection_rank"] = deterministic_descending_rank(
+        out, "free_data_base_rank_score"
+    )
     out["free_data_base_weighted_component"] = 0.64 * out["free_data_base_rank_score"]
     out["free_data_forward_weighted_component"] = 0.22 * out["free_data_forward_estimate_score"]
     out["free_data_recent_actual_weighted_component"] = 0.14 * out["free_data_recent_actual_score"]
@@ -325,11 +356,15 @@ def build_overlay(
         + out["free_data_recent_actual_weighted_component"]
         + out["free_data_lifecycle_penalty_component"]
     ).clip(lower=0.0)
-    out["free_data_selection_rank"] = out["free_data_selection_score"].rank(method="first", ascending=False).astype(int)
+    out["free_data_selection_rank"] = deterministic_descending_rank(
+        out, "free_data_selection_score"
+    )
     out["free_data_selection_label"] = "research_only_latest_overlay"
     out["production_promotion_allowed"] = False
     out["historical_backtest_acceptance_allowed"] = False
-    out = out.sort_values("free_data_selection_score", ascending=False).reset_index(drop=True)
+    out = out.sort_values(
+        ["free_data_selection_score", "ticker"], ascending=[False, True], kind="stable"
+    ).reset_index(drop=True)
     summary = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -531,8 +566,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     if not ranked.empty:
-        ranked.to_csv(output_dir / "ranked_universe.csv", index=False)
-        ranked.head(args.top_n).to_csv(output_dir / "selected_candidates.csv", index=False)
+        ranked_path = output_dir / "ranked_universe.csv"
+        selected_path = output_dir / "selected_candidates.csv"
+        ranked.to_csv(ranked_path, index=False)
+        ranked.head(args.top_n).to_csv(selected_path, index=False)
+        summary["ranked_universe_path"] = str(ranked_path)
+        summary["ranked_universe_sha256"] = sha256_file(ranked_path)
+        summary["selected_candidates_path"] = str(selected_path)
+        summary["selected_candidates_sha256"] = sha256_file(selected_path)
     write_json(output_dir / "summary.json", summary)
     write_report(output_dir / "report.md", summary, ranked.head(args.top_n))
     print(json.dumps(summary, indent=2, sort_keys=True, default=str))
