@@ -165,6 +165,20 @@
       "evidence": ["docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md"]
     },
     {
+      "id": "sec_filing_quality_event",
+      "signal": "sec_filing_quality_event",
+      "mechanism": "exact_accepted_time_source_screen",
+      "book": "single_source_sec_events",
+      "window": "available_history_to_2026-07-10",
+      "status": "REJECT_SOURCE_SCREEN",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "sec_filing_quality_event+exact_accepted_time_source_screen+single_source_sec_events+available_history_to_2026-07-10",
+      "evidence": [
+        "docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md",
+        "outputs/sec_filing_quality_event/source_screen_summary.json"
+      ]
+    },
+    {
       "id": "partial_resize_two_signal_confirmation",
       "signal": "target_weight_direction",
       "mechanism": "partial_resize_two_signal_confirmation",

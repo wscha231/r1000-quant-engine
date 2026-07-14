@@ -5,6 +5,24 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 12:40 KST - Restore and lock the rejected SEC filing-quality source screen
+
+- scope:
+  - Recover the exact accepted-time SEC filing-quality source-screen producer and smoke that were lost from later squash history.
+  - Freeze the existing rejection in the machine-readable do-not-repeat registry without rerunning or retuning the signal.
+- files:
+  - `tools/run_sec_filing_quality_event.py` ->restored byte-for-byte from commit `2f3c9750`.
+  - `tests/sec_filing_quality_event_smoke.py` ->restored exact offline data-contract and source-screen tests.
+  - `docs/run287_do_not_repeat_registry.json` and its smoke ->block the exact rejected source-screen combination.
+  - `docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md` ->records hashes, powered sample, frozen metrics, and the stop decision.
+- result:
+  - Frozen exact-acceptance coverage is 100% across 115,185 eligible ticker events and 113,466 issuer/accession events.
+  - The powered OOS/OOS2 63D point estimates were positive, but filing-week bootstrap lower bounds were -1.2681%p and -0.6535%p; OOS 21D direction was also negative.
+  - The source screen remains `REJECT_SOURCE_SCREEN`; downstream fixed-book, generated-book, and portfolio arms remain prohibited.
+- caveat:
+  - The current identity mapping is not PIT historical membership and no delisting-return repair is supplied by this event.
+  - Recovered code is for reproducibility and regression protection, not permission to repeat the rejected experiment.
+
 ### 12:25 KST - Verify the first exact-cohort forward paper archive run
 
 - scope:
