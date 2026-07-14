@@ -1413,3 +1413,52 @@ Expected contract:
   - `tools/build_forward_paper_price_universe.py`
   - `.github/workflows/earnings_estimates_daily.yml`
   - `docs/CODEX_RUN287_FORWARD_PAPER_LEDGER_RECOVERY_RESULT_20260714.md`
+
+### 2026-07-14 - The first durable forward run passed while vendor coverage stayed partial
+
+- Agent: Codex
+- Branch/PR/run:
+  - PR #276 merge `29060b0c3731cd74b11818e17ec8af378ac2625b`
+  - GitHub Actions run `29303018492`
+- Context:
+  - The recovered ledger needed one real completed-session execution to prove
+    that cache/Drive restore, exact cohorts, bounded prices, append-only events,
+    artifact upload, and Drive persistence work together.
+- Attempt:
+  - Dispatched the manual 16-name default watchlist on merged `master`; no
+    fullrun, broad catch-up, portfolio A/B, or execution path was enabled.
+- Result:
+  - The run succeeded in 7m03s and used the completed 2026-07-13 NYSE session.
+  - Exact 30/30/30 cohorts produced 60 unique current names, 60 new signal
+    observations, and 30 next-close references for the earlier decision date.
+  - The ledger now has 90 observations, 11 distinct true-forward tickers, and
+    zero resolved 63D outcomes; the review state remains `UNDERPOWERED`.
+  - The bounded price cache wrote 61 of 61 tickers with zero failures.
+  - Current Drive ledger and overlay state matched the artifact with zero
+    differences; immutable per-run copies also exist.
+- Failure or caveat:
+  - Only 10 of 16 requested watchlist names had true forward estimates. The
+    collector reported `blocked_partial_coverage` and 18 vendor-blocked errors.
+  - The queue acknowledgement was absent because this was a manual watchlist
+    smoke, not an incremental 993-name scheduled queue run.
+- Root cause:
+  - Free vendor entitlement and symbol coverage remain incomplete even when the
+    archive workflow itself is healthy.
+- Reusable lesson:
+  - Separate transport/workflow health from signal coverage. Partial vendor
+    coverage must remain missing-neutral and must not invalidate exact cohort
+    persistence or be presented as full-universe coverage.
+  - A source observed after a session close must enter at the next close; the
+    just-completed close cannot be reused as its reference.
+- Next action:
+  - Let the serialized scheduled queue continue bounded incremental collection,
+    inspect the first scheduled queue manifest, and wait for frozen sample gates
+    before any portfolio A/B.
+- Do-not-repeat:
+  - Do not promote 62.5% watchlist coverage to a 993-name coverage claim.
+  - Do not use the 2026-07-13 close as the entry reference for the cohort
+    observed at 2026-07-14T03:16:59Z.
+  - Do not run fullrun, production, live trading, or return-driven retuning.
+- Evidence files:
+  - `outputs/earnings_estimates_daily_29303018492/`
+  - `docs/CODEX_RUN287_FORWARD_PAPER_LEDGER_RECOVERY_RESULT_20260714.md`
