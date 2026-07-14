@@ -2354,3 +2354,59 @@ Expected contract:
   - `docs/run287_risk_outcome_archive_contract.json`
   - `tools/resolve_run287_risk_outcomes.py`
   - `tests/run287_risk_outcome_archive_smoke.py`
+
+### 2026-07-15 - Vendor entitlement failures need evidence-specific cost control
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-estimate-entitlement-circuit-20260715`
+  - audited scheduled artifact `29304288757`
+- Context:
+  - The valid 993-name incremental queue selected 150 names but the collector
+    stopped after 36 because 102 raw vendor errors exhausted `max_errors=100`.
+- Attempt:
+  - Added a run-scoped, repeated-signature circuit for global estimate endpoint
+    authorization failures and split raw errors from the collector safety
+    budget.
+  - Initially considered 401/402/403 equivalent, then rejected that design
+    after the real artifact showed valid FMP estimate rows in the same batch as
+    repeated FMP 402 rows.
+- Result:
+  - Only identical 401/403 endpoint signatures across three distinct tickers,
+    with zero accessible responses from that vendor, can open the circuit.
+  - FMP 402 remains visible as a warning-only coverage miss and cannot stop the
+    queue; valid partial FMP rows remain discoverable.
+  - Summary, archive manifest, and append-only index record circuit decisions,
+    raw versus budget errors, warning-only errors, and avoided requests.
+  - Focused collector, queue, and manifest smokes passed. Full local PR
+    validation passed `173/173` in `219.26` seconds. No live provider run was
+    dispatched.
+- Failure or caveat:
+  - The next scheduled artifact is still required to measure the real avoided
+    request count and verify all 150 selected names are acknowledged.
+  - This is forward-data infrastructure, not historical alpha or a CAGR/MDD
+    change.
+- Root cause:
+  - A single undifferentiated error cap treated partial symbol coverage and
+    global endpoint denial as the same failure, repeatedly spending calls on a
+    globally denied endpoint while stopping a partially useful vendor early.
+- Reusable lesson:
+  - Never infer a global provider block from a status code alone when the same
+    run contains successful rows from that provider.
+  - Keep raw errors immutable, but use an evidence-specific operational budget
+    so expected coverage misses do not starve a bounded universe queue.
+- Next action:
+  - Let the next scheduled archive run validate the circuit without a manual
+    paid/provider dispatch, then audit selected, attempted, acknowledged,
+    estimate-row, and avoided-request counts.
+- Do-not-repeat:
+  - Do not persist a global vendor disable from one run.
+  - Do not trip on FMP 402 while partial successful symbols exist.
+  - Do not hide warning-only coverage misses from the archive.
+  - Do not describe queue completion as CAGR/MDD evidence.
+- Evidence files:
+  - `tools/collect_earnings_estimates_finnhub.py`
+  - `tools/build_earnings_estimate_archive_manifest.py`
+  - `tests/collect_earnings_estimates_smoke.py`
+  - `tests/earnings_estimate_archive_manifest_smoke.py`
+  - `docs/CODEX_RUN287_ESTIMATE_QUEUE_COST_CONTROL_RESULT_20260715.md`

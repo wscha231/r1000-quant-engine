@@ -35,6 +35,13 @@ FINNHUB_BASE = "https://finnhub.io/api/v1"
 ALPHAVANTAGE_BASE = "https://www.alphavantage.co/query"
 FMP_BASE = "https://financialmodelingprep.com"
 ESTIMATE_ENDPOINTS = {"/stock/eps-estimate", "/stock/revenue-estimate"}
+DEFAULT_ENTITLEMENT_CIRCUIT_THRESHOLD = 3
+GLOBAL_ENTITLEMENT_CIRCUIT_STATUS_CODES = {401, 403}
+ESTIMATE_REQUESTS_PER_VENDOR_TICKER = {
+    "alphavantage": 1,
+    "fmp": 1,
+    "finnhub": 2,
+}
 
 
 def utc_now() -> str:
@@ -716,6 +723,7 @@ def fetch_json_optional(
         errors.append(
             {
                 "ticker": ticker,
+                "vendor": "finnhub",
                 "endpoint": endpoint,
                 "status_code": status_code,
                 "vendor_entitlement_blocked": bool(status_code in {401, 402, 403} and endpoint in ESTIMATE_ENDPOINTS),
@@ -727,6 +735,7 @@ def fetch_json_optional(
         errors.append(
             {
                 "ticker": ticker,
+                "vendor": "finnhub",
                 "endpoint": endpoint,
                 "status_code": 0,
                 "vendor_entitlement_blocked": False,
@@ -742,6 +751,153 @@ def vendor_estimate_access_from_errors(errors: list[dict[str, Any]]) -> bool:
 
 def estimate_vendor_blocked_by_errors(errors: list[dict[str, Any]]) -> bool:
     return any(bool(e.get("vendor_entitlement_blocked")) for e in errors)
+
+
+def _new_vendor_entitlement_circuit(vendor: str, threshold: int) -> dict[str, Any]:
+    return {
+        "vendor": vendor,
+        "run_scoped": True,
+        "threshold_distinct_tickers": max(0, int(threshold)),
+        "estimate_request_ticker_count": 0,
+        "accessible_response_ticker_count": 0,
+        "estimate_data_ticker_count": 0,
+        "entitlement_failure_ticker_count": 0,
+        "entitlement_failure_signatures": {},
+        "tripped": False,
+        "tripped_at_ticker": "",
+        "trip_signature": "",
+        "skipped_ticker_count": 0,
+        "estimated_http_requests_avoided": 0,
+    }
+
+
+def _error_vendor(error: dict[str, Any]) -> str:
+    vendor = str(error.get("vendor") or "").strip().lower()
+    if vendor:
+        return vendor
+    return "finnhub" if str(error.get("endpoint") or "") in ESTIMATE_ENDPOINTS else ""
+
+
+def _record_vendor_entitlement_result(
+    circuits: dict[str, dict[str, Any]],
+    *,
+    vendor: str,
+    ticker: str,
+    new_errors: list[dict[str, Any]],
+    accessible_response: bool,
+    has_estimate_data: bool,
+    threshold: int,
+) -> None:
+    circuit = circuits.setdefault(vendor, _new_vendor_entitlement_circuit(vendor, threshold))
+    circuit["estimate_request_ticker_count"] += 1
+    if accessible_response:
+        circuit["accessible_response_ticker_count"] += 1
+    if has_estimate_data:
+        circuit["estimate_data_ticker_count"] += 1
+
+    entitlement_errors = [
+        error
+        for error in new_errors
+        if _error_vendor(error) == vendor
+        and bool(error.get("vendor_entitlement_blocked"))
+        and int(error.get("status_code") or 0) in GLOBAL_ENTITLEMENT_CIRCUIT_STATUS_CODES
+    ]
+    if not entitlement_errors or accessible_response:
+        return
+
+    failure_tickers: set[str] = set()
+    signatures = circuit["entitlement_failure_signatures"]
+    for error in entitlement_errors:
+        endpoint = str(error.get("endpoint") or "unknown")
+        status_code = int(error.get("status_code") or 0)
+        signature = f"{status_code}:{endpoint}"
+        signature_tickers = signatures.setdefault(signature, [])
+        if ticker not in signature_tickers:
+            signature_tickers.append(ticker)
+        failure_tickers.add(ticker)
+    circuit["entitlement_failure_ticker_count"] += len(failure_tickers)
+
+    if circuit["tripped"] or threshold <= 0 or circuit["accessible_response_ticker_count"] > 0:
+        return
+    for signature, signature_tickers in signatures.items():
+        if len(signature_tickers) >= threshold:
+            circuit["tripped"] = True
+            circuit["tripped_at_ticker"] = ticker
+            circuit["trip_signature"] = signature
+            return
+
+
+def _skip_tripped_vendor(circuit: dict[str, Any]) -> None:
+    circuit["skipped_ticker_count"] += 1
+    avoided = ESTIMATE_REQUESTS_PER_VENDOR_TICKER.get(str(circuit.get("vendor") or ""), 1)
+    circuit["estimated_http_requests_avoided"] += avoided
+
+
+def summarize_vendor_entitlement_circuits(
+    circuits: dict[str, dict[str, Any]],
+    *,
+    stopped_unattempted_ticker_count: int = 0,
+    stop_reason: str = "",
+) -> dict[str, Any]:
+    vendors = {vendor: dict(circuit) for vendor, circuit in sorted(circuits.items())}
+    tripped_vendors = [vendor for vendor, circuit in vendors.items() if bool(circuit.get("tripped"))]
+    avoided = sum(int(circuit.get("estimated_http_requests_avoided") or 0) for circuit in vendors.values())
+    if stopped_unattempted_ticker_count > 0:
+        avoided += stopped_unattempted_ticker_count * sum(
+            ESTIMATE_REQUESTS_PER_VENDOR_TICKER.get(vendor, 1) for vendor in tripped_vendors
+        )
+    return {
+        "enabled": any(int(circuit.get("threshold_distinct_tickers") or 0) > 0 for circuit in vendors.values()),
+        "run_scoped": True,
+        "persistent_vendor_block_written": False,
+        "circuit_status_codes": sorted(GLOBAL_ENTITLEMENT_CIRCUIT_STATUS_CODES),
+        "tripped_vendor_count": len(tripped_vendors),
+        "tripped_vendors": tripped_vendors,
+        "estimated_estimate_http_requests_avoided": avoided,
+        "stopped_unattempted_ticker_count": int(stopped_unattempted_ticker_count),
+        "stop_reason": stop_reason,
+        "vendors": vendors,
+    }
+
+
+def collection_error_budget(
+    errors: list[dict[str, Any]],
+    circuits: dict[str, dict[str, Any]],
+) -> dict[str, int]:
+    """Keep symbol-level entitlement misses from exhausting the safety cap.
+
+    HTTP 402 is retained as a coverage warning because the observed FMP run
+    returned estimates for some symbols while returning 402 for others. A
+    vendor that has returned any accessible response is likewise demonstrably
+    not globally blocked. 401/403 probes count against the cap only after the
+    repeated-signature circuit has actually tripped.
+    """
+    budget_count = 0
+    warn_only_count = 0
+    probe_count = 0
+    for error in errors:
+        vendor = _error_vendor(error)
+        circuit = circuits.get(vendor, {})
+        partial_access_confirmed = int(circuit.get("accessible_response_ticker_count") or 0) > 0
+        entitlement_blocked = bool(error.get("vendor_entitlement_blocked"))
+        status_code = int(error.get("status_code") or 0)
+        if entitlement_blocked and (status_code == 402 or partial_access_confirmed):
+            warn_only_count += 1
+            continue
+        if (
+            entitlement_blocked
+            and status_code in GLOBAL_ENTITLEMENT_CIRCUIT_STATUS_CODES
+            and not bool(circuit.get("tripped"))
+        ):
+            probe_count += 1
+            continue
+        budget_count += 1
+    return {
+        "raw_error_count": len(errors),
+        "error_budget_count": budget_count,
+        "entitlement_error_warn_only_count": warn_only_count,
+        "entitlement_error_probe_count": probe_count,
+    }
 
 
 def fetch_alphavantage_payloads(
@@ -853,28 +1009,81 @@ def fetch_estimate_payloads_by_order(
     vendor_order: list[str],
     sleep_seconds: float,
     errors: list[dict[str, Any]],
-) -> tuple[dict[str, Any], dict[str, Any], str, bool, bool]:
+    vendor_entitlement_circuits: dict[str, dict[str, Any]] | None = None,
+    entitlement_circuit_threshold: int = DEFAULT_ENTITLEMENT_CIRCUIT_THRESHOLD,
+) -> tuple[dict[str, Any], dict[str, Any], str, bool, bool, bool]:
+    circuits = vendor_entitlement_circuits if vendor_entitlement_circuits is not None else {}
+    any_request_attempted = False
     for vendor in vendor_order:
+        circuit = circuits.get(vendor)
+        if circuit and bool(circuit.get("tripped")):
+            _skip_tripped_vendor(circuit)
+            continue
+        before_error_count = len(errors)
         if vendor == "alphavantage" and alphavantage_api_key:
+            any_request_attempted = True
             eps, rev = fetch_alphavantage_payloads(
                 session, ticker, alphavantage_api_key, sleep_seconds=sleep_seconds, errors=errors
             )
+            new_errors = errors[before_error_count:]
+            accessible = not any(
+                _error_vendor(error) == vendor
+                and (int(error.get("status_code") or 0) == 0 or int(error.get("status_code") or 0) >= 400)
+                for error in new_errors
+            )
+            _record_vendor_entitlement_result(
+                circuits,
+                vendor=vendor,
+                ticker=ticker,
+                new_errors=new_errors,
+                accessible_response=accessible,
+                has_estimate_data=bool(eps.get("data") or rev.get("data")),
+                threshold=entitlement_circuit_threshold,
+            )
             if eps.get("data") or rev.get("data"):
-                return eps, rev, "alphavantage", bool(eps.get("data")), bool(rev.get("data"))
+                return eps, rev, "alphavantage", bool(eps.get("data")), bool(rev.get("data")), any_request_attempted
         elif vendor == "fmp" and fmp_api_key:
+            any_request_attempted = True
             eps, rev = fetch_fmp_payloads(session, ticker, fmp_api_key, sleep_seconds=sleep_seconds, errors=errors)
+            new_errors = errors[before_error_count:]
+            accessible = not any(
+                _error_vendor(error) == vendor
+                and (int(error.get("status_code") or 0) == 0 or int(error.get("status_code") or 0) >= 400)
+                for error in new_errors
+            )
+            _record_vendor_entitlement_result(
+                circuits,
+                vendor=vendor,
+                ticker=ticker,
+                new_errors=new_errors,
+                accessible_response=accessible,
+                has_estimate_data=bool(eps.get("data") or rev.get("data")),
+                threshold=entitlement_circuit_threshold,
+            )
             if eps.get("data") or rev.get("data"):
-                return eps, rev, "fmp", bool(eps.get("data")), bool(rev.get("data"))
+                return eps, rev, "fmp", bool(eps.get("data")), bool(rev.get("data")), any_request_attempted
         elif vendor == "finnhub" and finnhub_api_key:
+            any_request_attempted = True
             eps = fetch_json_optional(
                 session, "/stock/eps-estimate", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
             )
             rev = fetch_json_optional(
                 session, "/stock/revenue-estimate", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
             )
+            new_errors = errors[before_error_count:]
+            accessible = eps is not None or rev is not None
+            _record_vendor_entitlement_result(
+                circuits,
+                vendor=vendor,
+                ticker=ticker,
+                new_errors=new_errors,
+                accessible_response=accessible,
+                has_estimate_data=bool((eps or {}).get("data") or (rev or {}).get("data")),
+                threshold=entitlement_circuit_threshold,
+            )
             if eps is not None or rev is not None:
-                return eps or {}, rev or {}, "finnhub", eps is not None, rev is not None
-    return {}, {}, "", False, False
+                return eps or {}, rev or {}, "finnhub", eps is not None, rev is not None, any_request_attempted
+    return {}, {}, "", False, False, any_request_attempted
 
 
 def collect_live_snapshot(
@@ -887,14 +1096,16 @@ def collect_live_snapshot(
     fetch_date: pd.Timestamp,
     sleep_seconds: float,
     max_errors: int,
-) -> tuple[pd.DataFrame, list[dict[str, Any]], list[str]]:
+    entitlement_circuit_threshold: int = DEFAULT_ENTITLEMENT_CIRCUIT_THRESHOLD,
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[str], dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     attempted_tickers: list[str] = []
+    vendor_entitlement_circuits: dict[str, dict[str, Any]] = {}
+    stop_reason = ""
     session = requests.Session()
     for ticker in tickers:
-        attempted_tickers.append(ticker)
-        eps, rev, estimate_source, eps_access, rev_access = fetch_estimate_payloads_by_order(
+        eps, rev, estimate_source, eps_access, rev_access, estimate_request_attempted = fetch_estimate_payloads_by_order(
             session,
             ticker,
             finnhub_api_key=finnhub_api_key,
@@ -903,13 +1114,21 @@ def collect_live_snapshot(
             vendor_order=vendor_order,
             sleep_seconds=sleep_seconds,
             errors=errors,
+            vendor_entitlement_circuits=vendor_entitlement_circuits,
+            entitlement_circuit_threshold=entitlement_circuit_threshold,
         )
+        optional_finnhub_request_attempted = bool(finnhub_api_key)
         earnings = fetch_json_optional(
             session, "/stock/earnings", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
         ) if finnhub_api_key else None
         rec = fetch_json_optional(
             session, "/stock/recommendation", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
         ) if finnhub_api_key else None
+        if estimate_request_attempted or optional_finnhub_request_attempted:
+            attempted_tickers.append(ticker)
+        else:
+            stop_reason = "no_enabled_vendor_request_after_entitlement_circuit"
+            break
         if any(payload is not None and payload != {} for payload in [eps, rev, earnings, rec]):
             fetch_source = estimate_source or ("finnhub" if any(payload is not None for payload in [earnings, rec]) else "")
             rows.append(
@@ -925,9 +1144,17 @@ def collect_live_snapshot(
                     fetch_source=fetch_source,
                 )
             )
-        if max_errors and len(errors) >= max_errors:
+        error_budget = collection_error_budget(errors, vendor_entitlement_circuits)
+        if max_errors and error_budget["error_budget_count"] >= max_errors:
+            stop_reason = "max_errors_reached"
             break
-    return pd.DataFrame(rows), errors, attempted_tickers
+    diagnostics = summarize_vendor_entitlement_circuits(
+        vendor_entitlement_circuits,
+        stopped_unattempted_ticker_count=max(0, len(tickers) - len(attempted_tickers)),
+        stop_reason=stop_reason,
+    )
+    diagnostics["error_budget"] = collection_error_budget(errors, vendor_entitlement_circuits)
+    return pd.DataFrame(rows), errors, attempted_tickers, diagnostics
 
 
 def parse_args() -> argparse.Namespace:
@@ -945,6 +1172,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fetch-date", default=datetime.now(timezone.utc).date().isoformat())
     parser.add_argument("--sleep-seconds", type=float, default=1.1)
     parser.add_argument("--max-errors", type=int, default=100)
+    parser.add_argument(
+        "--entitlement-circuit-threshold",
+        type=int,
+        default=DEFAULT_ENTITLEMENT_CIRCUIT_THRESHOLD,
+        help="Trip a run-scoped vendor circuit after this many distinct tickers share one 401/403 signature; 0 disables.",
+    )
     parser.add_argument("--fixture-dir", default="")
     parser.add_argument("--collection-checkpoint", default="")
     parser.add_argument("--collection-queue", default="")
@@ -969,6 +1202,7 @@ def main() -> int:
             "research_only": True,
             "forward_only": True,
             "max_errors": args.max_errors,
+            "entitlement_circuit_threshold": args.entitlement_circuit_threshold,
         }
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -976,6 +1210,7 @@ def main() -> int:
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     errors: list[dict[str, Any]] = []
     attempted_tickers: list[str] = []
+    vendor_entitlement_circuit = summarize_vendor_entitlement_circuits({})
     if args.fixture_dir:
         fixture_dir = repo_path(args.fixture_dir)
         rows = []
@@ -1012,6 +1247,7 @@ def main() -> int:
                 "forward_only": True,
                 "vendor_order": vendor_order,
                 "max_errors": args.max_errors,
+                "entitlement_circuit_threshold": args.entitlement_circuit_threshold,
             }
             write_json(summary_path, payload)
             print(json.dumps(payload, indent=2, sort_keys=True))
@@ -1025,8 +1261,11 @@ def main() -> int:
             fetch_date=fetch_date,
             sleep_seconds=args.sleep_seconds,
             max_errors=args.max_errors,
+            entitlement_circuit_threshold=args.entitlement_circuit_threshold,
         )
-        if len(collected) == 3:
+        if len(collected) == 4:
+            snapshot, errors, attempted_tickers, vendor_entitlement_circuit = collected
+        elif len(collected) == 3:
             snapshot, errors, attempted_tickers = collected
         else:  # Backward-compatible with test doubles written for the older API.
             snapshot, errors = collected  # type: ignore[misc]
@@ -1042,6 +1281,7 @@ def main() -> int:
         "acknowledged_ticker_count": 0,
         "unacknowledged_tickers": [],
     }
+    error_budget = vendor_entitlement_circuit.get("error_budget") or collection_error_budget(errors, {})
     vendor_order = clean_vendor_order(args.vendor_order)
     vendor_blocked_errors = estimate_vendor_blocked_by_errors(errors)
     vendor_estimate_access = vendor_estimate_access_from_errors(errors)
@@ -1057,6 +1297,9 @@ def main() -> int:
             "ticker_count_attempted": len(attempted_tickers),
             "collection_attempt_ack": attempt_ack,
             "error_count": len(errors),
+            "error_budget_count": error_budget["error_budget_count"],
+            "entitlement_error_warn_only_count": error_budget["entitlement_error_warn_only_count"],
+            "entitlement_error_probe_count": error_budget["entitlement_error_probe_count"],
             "errors": errors[:10],
             "vendor_estimate_access": vendor_estimate_access,
             "vendor_blocked_errors": vendor_blocked_errors,
@@ -1067,6 +1310,8 @@ def main() -> int:
             "forward_only": True,
             "vendor_order": vendor_order,
             "max_errors": args.max_errors,
+            "entitlement_circuit_threshold": args.entitlement_circuit_threshold,
+            "vendor_entitlement_circuit": vendor_entitlement_circuit,
         }
         write_json(summary_path, payload)
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -1133,12 +1378,17 @@ def main() -> int:
         "vendor_blocked_errors": vendor_blocked_errors,
         "vendor_order": vendor_order,
         "max_errors": args.max_errors,
+        "entitlement_circuit_threshold": args.entitlement_circuit_threshold,
+        "vendor_entitlement_circuit": vendor_entitlement_circuit,
         "fetch_sources": sorted(snapshot["fetch_source"].dropna().astype(str).unique().tolist()) if "fetch_source" in snapshot.columns else [],
         "has_forward_estimate_rows": has_forward_estimate_rows,
         "snapshot_path": str(snapshot_path),
         "signals_output": str(signals_output),
         "feature_summary": feature_summary,
         "error_count": len(errors),
+        "error_budget_count": error_budget["error_budget_count"],
+        "entitlement_error_warn_only_count": error_budget["entitlement_error_warn_only_count"],
+        "entitlement_error_probe_count": error_budget["entitlement_error_probe_count"],
         "errors": errors[:10],
     }
     write_json(summary_path, payload)

@@ -380,6 +380,7 @@ jobs:
             --vendor-order "$ESTIMATE_VENDOR_ORDER" \
             --sleep-seconds 1.1 \
             --max-errors "${RESOLVED_MAX_ERRORS:-100}" \
+            --entitlement-circuit-threshold 3 \
             2>&1 | tee outputs/earnings_estimates_daily/collector.log
 
       - name: Build earnings estimate archive manifest
