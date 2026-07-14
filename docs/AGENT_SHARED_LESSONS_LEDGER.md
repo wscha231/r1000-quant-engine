@@ -2000,3 +2000,70 @@ Expected contract:
   - `tools/run_run287_exact_packet_producer.py`
   - `tests/run287_exact_packet_producer_smoke.py`
   - `docs/CODEX_RUN287_EXACT_PACKET_PRODUCER_RESULT_20260714.md`
+
+### 2026-07-14 - Exact input publication must be explicit and immutable by close
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-upstream-input-registry-20260714`
+  - actual 2026-07-13 registry and fresh-root selector/risk replay
+- Context:
+  - The exact packet producer was deterministic after a registry existed, but
+    the validated local registry was hand assembled and the daily workflow
+    could not safely distinguish one of several similarly named manifests.
+  - The 2026-07-13 semiconductor shock also raised pressure to change portfolio
+    risk rules before the one-date warning had resolved outcomes.
+- Attempt:
+  - Added an explicit twelve-path source-bundle contract and a zero-discovery,
+    zero-network registry builder.
+  - Validated dynamic status/date/safety fields, required manifest output
+    hashes, all 363 price-map sources, and six frozen input hashes.
+  - Added immutable dated publication, exact rerun reuse, same-date collision
+    blocking, older-date blocking, and safe missing-bundle behavior.
+  - Wired the registry attempt between the held-risk watch and exact packet
+    producer in the daily completed-close workflow.
+- Result:
+  - The actual registry built in about 0.33 seconds with zero failures and hash
+    `f592436927f961ea717467c1db90bab4d4909d18281db9b94ab3758d1fb655c4`.
+  - A fresh packet replay completed in about 11.47 seconds with three scenarios
+    and the same seven candidates. Selector output matched the prior packet on
+    50 rows/15 semantic columns; candidate risk matched on 7 rows/53 semantic
+    columns.
+  - The 2026-07-13 marked accounts remained Main -5.4295% and Concentrated
+    -6.0107% for the session. Broad crisis stayed GREEN, while ALERT weights
+    were 26.0836% and 27.7027%, respectively. SNDK generated about 62.6% of the
+    Concentrated session loss.
+  - No network request, target-book write, order, backtest, fullrun, production,
+    live-trading, cash-policy, or selector-weight mutation occurred.
+  - Full local PR validation passed `169/169` in `236.11` seconds.
+- Failure or caveat:
+  - The workflow still needs an upstream producer to publish the exact source
+    bundle for each completed close. The builder intentionally does not infer
+    paths from directory names.
+  - One shock does not prove that an exit, trim, replacement, or cash change
+    improves forward or historical CAGR/MDD.
+- Root cause:
+  - Operational reproducibility and alpha evidence are separate bottlenecks.
+    The first required a deterministic handoff; the second still requires
+    resolved forward observations or a true historical PIT source.
+- Reusable lesson:
+  - Freeze explicit upstream paths and their internal outputs before running a
+    selector. Never use latest-file discovery to bridge research stages.
+  - Security-level warnings can be severe while the broad crisis state is
+    green, but observation alone is not authority to change a book.
+- Next action:
+  - Build the bounded upstream source-bundle orchestrator without fullrun.
+  - In parallel, continue the unchanged weekly observation archive and advance
+    the timestamped PIT estimate/guidance source gate; do not wait for twelve
+    weeks to perform data-source validation.
+- Do-not-repeat:
+  - Do not turn the 2026-07-13 shock into a tuned stop, partial resize, cluster
+    cap, generic technical-risk rule, or immediate portfolio replacement.
+  - Do not count registry automation as CAGR/MDD improvement.
+  - Do not overwrite an immutable same-date registry after any input changes.
+- Evidence files:
+  - `docs/run287_exact_packet_input_source_bundle_contract.json`
+  - `tools/build_run287_exact_packet_input_registry.py`
+  - `tests/run287_exact_packet_input_registry_smoke.py`
+  - `docs/CODEX_RUN287_EXACT_PACKET_INPUT_REGISTRY_RESULT_20260714.md`
+  - `outputs/run287_exact_packet_input_registry_20260714_local/`

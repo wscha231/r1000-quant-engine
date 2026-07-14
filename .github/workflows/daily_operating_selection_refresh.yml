@@ -454,6 +454,16 @@ jobs:
             --output-dir outputs/holding_risk_watch \
             --require-exact-close \
             2>&1 | tee outputs/full_rebuild_logs/daily_holding_risk_watch.log
+          if python tools/build_run287_exact_packet_input_registry.py \
+            --source-bundle outputs/run287_exact_packet_input_sources/source_bundle.json \
+            --valuation-date "$PAPER_AS_OF" \
+            --output-dir outputs/run287_exact_packet_input_registry \
+            --allow-missing \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log; then
+            echo "[daily-operating] exact packet input registry completed or safely skipped"
+          else
+            echo "[daily-operating] exact packet input registry blocked; producer will fail closed"
+          fi
           if python tools/run_run287_exact_packet_producer.py \
             --input-registry outputs/run287_exact_packet_input_registry/registry.json \
             --valuation-date "$PAPER_AS_OF" \
@@ -535,6 +545,7 @@ jobs:
             outputs/account_ledger_preview/
             outputs/daily_simulated_fill_ledger/
             outputs/holding_risk_watch/
+            outputs/run287_exact_packet_input_registry/
             outputs/run287_exact_packet_producer/
             outputs/run287_current_selector_no_write_exact_close_*/
             outputs/run287_candidate_risk_watch_exact_close_*/
@@ -549,6 +560,7 @@ jobs:
             data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log
             outputs/full_rebuild_logs/daily_holding_risk_watch.log
+            outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/data_freshness_contract.log

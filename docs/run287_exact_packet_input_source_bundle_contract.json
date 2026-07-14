@@ -1,0 +1,49 @@
+{
+  "schema_version": "run287-exact-packet-input-source-bundle-contract-v1",
+  "bundle_schema_version": "run287-exact-packet-input-source-bundle-v1",
+  "required_status": "READY_EXACT_PACKET_INPUT_SOURCE_PATHS_REVIEW_ONLY",
+  "purpose": "explicit path handoff from same-close upstream producers to the exact packet input-registry builder",
+  "required_top_level_fields": [
+    "schema_version",
+    "status",
+    "valuation_price_cutoff_date",
+    "inputs"
+  ],
+  "required_dynamic_input_labels": [
+    "crisis_manifest",
+    "decision_manifest",
+    "macro_manifest",
+    "price_manifest",
+    "score_stack_manifest",
+    "soxx_manifest"
+  ],
+  "required_fixed_input_labels": [
+    "concentrated_prior_book",
+    "main_prior_book",
+    "pinned_import_manifest",
+    "price_map_manifest",
+    "selector_contract_manifest",
+    "target_generation_manifest"
+  ],
+  "input_record": {
+    "required_fields": [
+      "path"
+    ],
+    "path_rule": "one explicit file path; globbing and latest-file discovery are forbidden"
+  },
+  "immutability": {
+    "same_date_changed_registry": "BLOCK",
+    "older_than_current_registry": "BLOCK",
+    "same_date_exact_rerun": "REUSE",
+    "dated_path": "by_date/YYYY-MM-DD/registry.json"
+  },
+  "safety": {
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "live_trading_allowed": false,
+    "network_requests_allowed": false,
+    "orders_allowed": false,
+    "production_mutation_allowed": false,
+    "target_book_write_allowed": false
+  }
+}
