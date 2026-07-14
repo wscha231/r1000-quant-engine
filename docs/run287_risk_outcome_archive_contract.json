@@ -1,0 +1,64 @@
+{
+  "schema_version": "run287-risk-outcome-archive-contract-v1",
+  "scope": "forward_only_held_and_candidate_risk_signal_outcomes",
+  "benchmark": "SPY",
+  "price_basis": "split_and_dividend_adjusted_close",
+  "observation_contract": {
+    "candidate_unit": "one_decision_date_ticker",
+    "held_unit": "one_decision_date_portfolio_ticker_with_positive_marked_weight",
+    "candidate_and_held_rows_may_not_authorize_trades": true,
+    "missing_is_neutral": true
+  },
+  "outcome_contract": {
+    "horizons_trading_days": [1, 5, 21, 63, 126],
+    "signal_return_start": "exact_signal_close",
+    "actionable_return_start": "first_NYSE_close_strictly_after_signal_close",
+    "actionable_metrics_at_1d": "not_applicable",
+    "required_metrics": [
+      "ticker_total_return",
+      "benchmark_total_return",
+      "spy_excess_total_return",
+      "ticker_max_drawdown",
+      "ticker_max_gain",
+      "ticker_recovery_from_trough",
+      "actionable_ticker_total_return",
+      "actionable_spy_excess_total_return",
+      "actionable_ticker_max_drawdown"
+    ],
+    "missing_or_delisted_price_path": "pending_never_zero_never_failure_imputation",
+    "future_price_rows_allowed": false
+  },
+  "bounded_price_refresh": {
+    "initial_start_date": "2026-07-13",
+    "maximum_unique_tickers_including_benchmark": 150,
+    "include_only_unresolved_observation_tickers": true,
+    "benchmark_always_included": true
+  },
+  "mechanism_review_gate": {
+    "primary_horizon_trading_days": 63,
+    "minimum_distinct_decision_weeks": 12,
+    "minimum_warning_observations": 50,
+    "minimum_normal_observations": 50,
+    "minimum_distinct_tickers": 30,
+    "minimum_paired_decision_week_blocks": 8,
+    "warning_states": ["ALERT", "WATCH"],
+    "control_state": "NORMAL",
+    "same_ticker_date_deduplicated_for_group_metrics": true,
+    "gate_opens_review_only": true,
+    "automatic_portfolio_promotion_allowed": false
+  },
+  "safety": {
+    "review_only": true,
+    "stop_or_exit_rule_created": false,
+    "threshold_tuning_allowed": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "orders_generated": false,
+    "target_books_mutated": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}
