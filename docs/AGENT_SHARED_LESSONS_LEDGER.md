@@ -1055,6 +1055,70 @@ Expected contract:
   - `docs/CODEX_RUN287_LONG_HORIZON_SAMPLE_REQUEST_20260714.md`
   - `outputs/run287_pit_estimate_guidance_sample_request_20260714/`
 
+### 2026-07-14 - Exact-time management guidance can be scouted without vendor email
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-email-free-guidance-scout-20260714`
+  - bounded SEC public-data run only; no fullrun or portfolio run
+- Context:
+  - The user asked for a way to obtain useful PIT estimate/guidance evidence
+    without emailing a commercial data provider.
+- Attempt:
+  - Preserved the frozen provider-neutral consensus/guidance contract.
+  - Preregistered a separate management-guidance revision source lane.
+  - Reused existing exact accepted-time indexes and collected only the missing
+    NVS/RIO foreign-issuer submission indexes.
+  - Scanned at most eight recent 8-K/6-K complete submissions for each of ten
+    deterministic sample names.
+- Result:
+  - Do-not-repeat preflight: `ALLOWED_NEW_COMBINATION`.
+  - Selected/indexed names: 10/10; ADR/global identity routes: 5/5.
+  - SEC complete submissions: 80/80; exact accepted-time: 80/80.
+  - Untrusted heuristic candidates: 17 filings and 42 passage rows across
+    NVS, PG, RIO, VZ, and YMM.
+  - Hardened offline replay verified 80/80 raw SEC acceptance headers and
+    reduced the heuristic candidate set to 16 filings without using returns.
+  - Status: `READY_FOR_MANUAL_SCHEMA_REVIEW`.
+  - Provider email, API key, purchase, returns, portfolio A/B, fullrun,
+    production, and live trading were not used.
+- Failure or caveat:
+  - Historical analyst consensus, stable historical membership, and verified
+    delisting returns/cash proceeds remain unavailable from SEC alone.
+  - Five tickers without a candidate in their latest eight filings remain
+    neutral; this bounded scout does not prove complete historical absence.
+  - A post-run audit found calendar-year, qualitative-outlook, physical-volume,
+    one-time-effect, and republication false-positive risks. The 17 filings are
+    not 17 validated revision events.
+- Root cause:
+  - Company guidance is public issuer disclosure, while analyst consensus and
+    exchange terminal-return histories are separate proprietary or
+    market-data records.
+- Reusable lesson:
+  - Separate public management-guidance revision semantics from analyst-
+    consensus surprise semantics instead of weakening the original gate.
+  - Use strict explicit guidance/outlook anchors; generic words such as
+    `expected`, `projected`, `lower`, or `update` create material boilerplate
+    and current-results false positives.
+- Next action:
+  - Label all 80 inspected filings to measure recall, apply detailed labels to
+    the 16 hardened candidates, and build the EPS/revenue range, fiscal-period,
+    currency, unit, and prior-guidance pairing parser.
+  - Expand to all 45 active sample names only if review precision is at least
+    90% and registered-schema completeness is at least 80%.
+- Do-not-repeat:
+  - Do not treat SEC management guidance as historical analyst consensus.
+  - Do not join returns, run A/B, or expand the full archive before candidate
+    precision and schema completeness pass.
+  - Do not treat missing guidance as negative.
+- Evidence files:
+  - `docs/run287_sec_management_guidance_scout_contract.json`
+  - `tools/run_sec_management_guidance_scout.py`
+  - `tests/sec_management_guidance_scout_smoke.py`
+  - `docs/CODEX_RUN287_EMAIL_FREE_GUIDANCE_SCOUT_RESULT_20260714.md`
+  - `outputs/run287_sec_guidance_foreign_gap_index_20260714/`
+  - `outputs/run287_sec_management_guidance_scout_20260714/`
+  - `outputs/run287_sec_management_guidance_scout_20260714_hardened_v2/`
 ### 2026-07-14 - Held-security risk must be measured separately from broad-market regime
 
 - Agent: Codex

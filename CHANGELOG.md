@@ -5,6 +5,26 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 09:28 KST - Add a bounded no-email SEC management-guidance scout
+
+- scope:
+  - Test whether exact accepted-time management guidance can be recovered from SEC 8-K/6-K filings without vendor email, purchase, login, or API key.
+  - Keep this source-only lane separate from the frozen analyst-consensus/provider gate and all portfolio logic.
+- files:
+  - `docs/run287_sec_management_guidance_scout_contract.json` ->freezes the bounded source, document, PIT, and no-promotion rules.
+  - `tools/run_sec_management_guidance_scout.py` ->downloads or reuses complete SEC submissions, verifies raw acceptance headers, quarantines missing PIT rows, and discovers untrusted guidance candidates.
+  - `tests/sec_management_guidance_scout_smoke.py` ->covers exact acceptance, raw-header mismatch, year-only rejection, no three-window cap, offline cache reuse, and all no-promotion flags.
+  - `docs/CODEX_RUN287_EMAIL_FREE_GUIDANCE_SCOUT_RESULT_20260714.md` ->records the real 10-name/80-filing result and remaining gaps.
+  - `tools/run_pr_validation.py` ->registers the new smoke.
+- result:
+  - Indexed all 10 selected names including all five ADR/global names after a two-ticker NVS/RIO gap fill.
+  - Downloaded 80 of 80 bounded submissions with exact accepted-time coverage of 100%.
+  - Found 17 untrusted heuristic candidate filings across NVS, PG, RIO, VZ, and YMM; post-run audit requires all 80 filings to be labeled before precision/recall claims.
+  - Hardened offline replay matched 80/80 raw SEC acceptance headers, blocked no PIT rows, and reduced the candidate filing set to 16 without return labels.
+  - No returns, portfolio A/B, book mutation, fullrun, production, or live trading ran.
+- caveat:
+  - SEC management guidance does not reconstruct historical analyst consensus or delisting returns.
+  - The next step is a frozen 80-filing gold set with detailed review of the 16 hardened candidates, not full-universe collection.
 ### 07:35 KST - Add exact-close held-security risk watch and provider-ready sample message
 
 - scope:
