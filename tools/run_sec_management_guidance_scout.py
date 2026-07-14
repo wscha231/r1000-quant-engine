@@ -370,9 +370,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         ticker = str(row["ticker"])
         accession = str(row["accession_number"])
         url = complete_submission_url(row.get("cik10"), accession)
+        cached_path = cache_file(cache_dir, ticker, accession)
         raw, state = fetch_submission(
             url=url,
-            cache_path=cache_file(cache_dir, ticker, accession),
+            cache_path=cached_path,
             user_agent=user_agent,
             offline=bool(args.offline),
             sleep_s=float(args.sleep),
@@ -380,9 +381,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         download_rows.append(
             {
                 "ticker": ticker,
+                "cik10": str(row.get("cik10", "")),
                 "accession_number": accession,
+                "form_type": str(row.get("form_type", "")),
+                "filing_date": str(row.get("filing_date", "")),
                 "accepted_at": row.get("accepted_at", ""),
                 "source_url": url,
+                "cache_path": str(cached_path),
+                "source_sha256": "",
                 "download_state": state,
                 "download_success": raw is not None,
                 "raw_header_accepted_at": "",
@@ -399,6 +405,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raw_header_mismatch_count += 1
             continue
         raw_hash = sha256_bytes(raw)
+        download_rows[-1]["source_sha256"] = raw_hash
         decoded = raw.decode("utf-8", errors="replace")
         for document_type, document in sgml_documents(decoded):
             if document_type not in allowed_doc_types:
