@@ -1055,6 +1055,60 @@ Expected contract:
   - `docs/CODEX_RUN287_LONG_HORIZON_SAMPLE_REQUEST_20260714.md`
   - `outputs/run287_pit_estimate_guidance_sample_request_20260714/`
 
+### 2026-07-14 - Held-security risk must be measured separately from broad-market regime
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-holding-risk-watch-20260714`
+  - local exact-close diagnostic for 2026-07-13; no fullrun or execution
+- Context:
+  - SPY remained above MA20/MA50 and the broad crisis state stayed green while
+    several held semiconductor and storage names fell much more sharply.
+- Attempt:
+  - Registered a current/forward-only, past-quantile held-security risk watch
+    with no stop, exit delay, partial resize, cluster cap, tilt, or order hook.
+  - Added an idempotent daily history and exact-close workflow integration.
+  - Regenerated the deterministic 50-row estimate/guidance request with a
+    provider-ready no-cost message.
+- Result:
+  - Exact 2026-07-13 prices were available for SPY and all 15 unique holdings.
+  - Main alerts: SNDK, NXT, ALAB, MRVL. Main watches: FLEX, WDC, ON, CIEN, MU,
+    QCOM. Concentrated alert: SNDK. Concentrated watch: MU.
+  - Estimated one-session return: Main -5.4295%; Concentrated -6.0107%.
+  - The provider request remained 45 active plus five deterministic delisted
+    query slots with exactly five ADR/global active names and unchanged CSV
+    hashes.
+  - Local standard PR validation passed 139 of 143 tests. The four failures are
+    the existing sparse-checkout omissions; all new and adjacent tests passed.
+- Failure or caveat:
+  - This is one current event and does not prove that selling, trimming, or
+    delaying buys improves CAGR/MDD.
+  - No provider/contact is selected, so the request was not dispatched.
+- Root cause:
+  - A broad SPY crisis gate cannot identify idiosyncratic held-name damage when
+    the index remains healthy. The prior workflow also lacked a persistent
+    per-position forward warning archive.
+- Reusable lesson:
+  - Separate observation from execution. Rank held-name shock and loss
+    contribution first; require forward outcomes and a separately preregistered
+    broker-ledger A/B before changing weights.
+  - Record data availability after the exact close, not at an earlier decision
+    timestamp.
+- Next action:
+  - Let the daily archive accumulate and resolve 1/5/21/63/126-session outcomes.
+  - Select a provider/contact and send only the zero-cost 50-row package; then
+    run the frozen PIT source gate before any return join.
+- Do-not-repeat:
+  - Do not convert this watch into the rejected stop/exit-delay, partial-resize,
+    aggregate-cluster-cap, or generic technical-risk-control mechanisms.
+  - Do not tune quantiles after observing 2026-07-13.
+- Evidence files:
+  - `docs/run287_holding_risk_watch_contract.json`
+  - `tools/build_run287_holding_risk_watch.py`
+  - `tests/run287_holding_risk_watch_smoke.py`
+  - `docs/CODEX_RUN287_HOLDING_RISK_WATCH_RESULT_20260714.md`
+  - `outputs/run287_holding_risk_watch_20260714_close_20260713/`
+  - `outputs/run287_pit_estimate_guidance_sample_request_20260714_v2/`
 ### 2026-07-14 - Scheduled full rebuild violated the separate-approval boundary
 
 - Agent: Codex

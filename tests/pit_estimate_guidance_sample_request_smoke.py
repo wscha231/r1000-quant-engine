@@ -108,7 +108,13 @@ def test_complete_request_is_deterministic_and_long_horizon_ready() -> None:
         persisted = json.loads((output / "summary.json").read_text(encoding="utf-8"))
         assert persisted["required_return_horizons_trading_days"] == [21, 63, 126, 252, 504]
         assert len(persisted["output_hashes"]["sample_request_sha256"]) == 64
+        assert len(persisted["output_hashes"]["provider_request_sha256"]) == 64
         assert (output / "sample_request.csv").exists()
+        provider_request = (output / "provider_request.md").read_text(encoding="utf-8")
+        assert "no-cost schema and coverage evaluation request" in provider_request
+        assert "not a purchase order" in provider_request
+        assert "252 days is powered long confirmation" in provider_request
+        assert "five deterministic historical-delisted query slots" in provider_request
 
 
 def test_missing_delisted_source_emits_deterministic_provider_slots() -> None:

@@ -359,6 +359,41 @@ def write_outputs(output_dir: Path, summary: dict[str, Any], sample: pd.DataFram
         "sample_request_sha256": sha256_file(sample_path),
         "current_universe_reference_request_sha256": sha256_file(full_path),
     }
+    provider_lines = [
+        "# Zero-cost PIT estimate/guidance sample request",
+        "",
+        "This is a no-cost schema and coverage evaluation request for 50 rows. It is not a purchase order,",
+        "does not authorize paid work, and does not authorize redistribution or production use.",
+        "",
+        "## Attached evaluation files",
+        "",
+        f"- `sample_request.csv` SHA-256: `{summary['output_hashes']['sample_request_sha256']}`",
+        f"- `current_universe_reference_request.csv` SHA-256: `{summary['output_hashes']['current_universe_reference_request_sha256']}`",
+        f"- deterministic selection seed: `{summary['selection_seed']}`",
+        "",
+        "Please return the requested 50-row sample, including the five deterministic historical-delisted query slots,",
+        "using permanent security IDs and complete ticker/symbol histories. For every consensus-estimate and company-",
+        "guidance observation, include the original observation timestamp, exact provider availability timestamp, metric,",
+        "fiscal period, estimate horizon, value, currency, source lineage, revision/supersession fields, and explicit null reason.",
+        "",
+        "The export must cover delisting returns or cash-merger proceeds where applicable and must distinguish ADR/listing",
+        "identity from the underlying issuer. Current constituents must not be projected backward as historical membership.",
+        "",
+        f"Required return-compatibility horizons: `{summary['required_return_horizons_trading_days']}` trading days.",
+        "The 63-day result is primary; 21/126 days are directional support; 252 days is powered long confirmation;",
+        "504 days is powered directional sensitivity. Return computation remains on our side; do not supply forward labels",
+        "used to select these rows.",
+        "",
+        "Please also provide a data dictionary, timestamp/timezone semantics, point-in-time revision policy, survivorship",
+        "coverage, ADR/delisted coverage, sample limitations, and the expected full-history security count. Any commercial",
+        "terms or full-history pricing must be quoted separately and will require explicit approval before work begins.",
+        "",
+        "Requested delivery format: UTF-8 CSV or Parquet plus a machine-readable schema/data dictionary.",
+        "",
+    ]
+    provider_path = output_dir / "provider_request.md"
+    provider_path.write_text("\n".join(provider_lines), encoding="utf-8")
+    summary["output_hashes"]["provider_request_sha256"] = sha256_file(provider_path)
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     lines = [
         "# Run287 PIT estimate/guidance sample request",
@@ -370,6 +405,7 @@ def write_outputs(output_dir: Path, summary: dict[str, Any], sample: pd.DataFram
         f"- Return horizons: {summary['required_return_horizons_trading_days']}",
         "- Historical union count: unknown until PIT membership and delisted history are supplied",
         "- Purchase, provider dispatch, returns join, backtest, portfolio mutation, production, and fullrun: not authorized",
+        "- Provider-ready message: `provider_request.md` (not dispatched)",
         "",
         "## Blockers and provider work",
         "",
