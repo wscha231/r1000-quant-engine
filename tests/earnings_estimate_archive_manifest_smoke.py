@@ -49,9 +49,19 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
                     "fetch_sources": ["fmp", "finnhub"],
                     "vendor_order": ["fmp", "finnhub"],
                     "max_errors": 5000,
+                    "entitlement_circuit_threshold": 3,
+                    "vendor_entitlement_circuit": {
+                        "run_scoped": True,
+                        "persistent_vendor_block_written": False,
+                        "tripped_vendors": ["fmp", "finnhub"],
+                        "estimated_estimate_http_requests_avoided": 441,
+                    },
                     "vendor_estimate_access": True,
                     "vendor_blocked_errors": True,
                     "error_count": 102,
+                    "error_budget_count": 6,
+                    "entitlement_error_warn_only_count": 96,
+                    "entitlement_error_probe_count": 0,
                     "snapshot_path": str(snapshot),
                     "backtest_acceptance_allowed": False,
                     "production_activation_allowed": False,
@@ -120,6 +130,10 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert payload["shard_file"].endswith("shard_000.csv")
         assert payload["shard_mode"] == "rotating_shard"
         assert payload["collector_max_errors"] == 5000
+        assert payload["entitlement_circuit_threshold"] == 3
+        assert payload["vendor_entitlement_circuit"]["tripped_vendors"] == ["fmp", "finnhub"]
+        assert payload["error_count"] == 102
+        assert payload["error_budget_count"] == 6
         assert payload["collection_queue_status"] == "ready_for_forward_archive_incremental"
         assert payload["collection_universe_ticker_count"] == 993
         assert payload["collection_eligible_ticker_count"] == 992
@@ -135,6 +149,10 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert rows[0]["shard_id"] == "shard_000"
         assert rows[0]["shard_mode"] == "rotating_shard"
         assert rows[0]["collector_max_errors"] == 5000
+        assert rows[0]["entitlement_circuit_tripped_vendors"] == ["fmp", "finnhub"]
+        assert rows[0]["estimated_estimate_http_requests_avoided"] == 441
+        assert rows[0]["error_budget_count"] == 6
+        assert rows[0]["entitlement_error_warn_only_count"] == 96
         assert rows[0]["request_snapshot_rows"] == 36
         assert rows[0]["same_day_snapshot_merged"] is False
         assert rows[0]["collection_universe_ticker_count"] == 993

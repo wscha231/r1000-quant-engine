@@ -255,6 +255,152 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
         assert payload["vendor_blocked_errors"] is True, payload
 
 
+def test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls() -> None:
+    calls = {"fmp": 0, "finnhub_estimate": 0, "finnhub_optional": 0}
+    tickers = [f"T{i:03d}" for i in range(150)]
+
+    def blocked_fmp(
+        _session: Any,
+        ticker: str,
+        _api_key: str,
+        *,
+        sleep_seconds: float,
+        errors: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        del sleep_seconds
+        calls["fmp"] += 1
+        errors.append(
+            {
+                "ticker": ticker,
+                "vendor": "fmp",
+                "endpoint": "/stable/analyst-estimates",
+                "status_code": 402,
+                "vendor_entitlement_blocked": True,
+                "error": "402 payment required apikey=***",
+            }
+        )
+        return {}, {}
+
+    def blocked_finnhub_estimates_but_open_optional(
+        _session: Any,
+        endpoint: str,
+        ticker: str,
+        _api_key: str,
+        *,
+        sleep_seconds: float,
+        errors: list[dict[str, Any]],
+    ) -> Any:
+        del sleep_seconds
+        if endpoint in collector.ESTIMATE_ENDPOINTS:
+            calls["finnhub_estimate"] += 1
+            errors.append(
+                {
+                    "ticker": ticker,
+                    "vendor": "finnhub",
+                    "endpoint": endpoint,
+                    "status_code": 403,
+                    "vendor_entitlement_blocked": True,
+                    "error": "403 forbidden token=***",
+                }
+            )
+            return None
+        calls["finnhub_optional"] += 1
+        return []
+
+    old_fmp = collector.fetch_fmp_payloads
+    old_finnhub = collector.fetch_json_optional
+    try:
+        collector.fetch_fmp_payloads = blocked_fmp
+        collector.fetch_json_optional = blocked_finnhub_estimates_but_open_optional
+        snapshot, errors, attempted, diagnostics = collector.collect_live_snapshot(
+            tickers,
+            finnhub_api_key="dummy-finnhub",
+            alphavantage_api_key="",
+            fmp_api_key="dummy-fmp",
+            vendor_order=["fmp", "finnhub"],
+            fetch_date=pd.Timestamp("2026-07-15"),
+            sleep_seconds=0.0,
+            max_errors=100,
+            entitlement_circuit_threshold=3,
+        )
+    finally:
+        collector.fetch_fmp_payloads = old_fmp
+        collector.fetch_json_optional = old_finnhub
+
+    assert calls == {"fmp": 150, "finnhub_estimate": 6, "finnhub_optional": 300}
+    assert len(errors) == 156
+    assert attempted == tickers
+    assert len(snapshot) == 150
+    assert diagnostics["tripped_vendors"] == ["finnhub"]
+    assert diagnostics["estimated_estimate_http_requests_avoided"] == 294
+    assert diagnostics["persistent_vendor_block_written"] is False
+    assert diagnostics["circuit_status_codes"] == [401, 403]
+    assert diagnostics["vendors"]["fmp"]["skipped_ticker_count"] == 0
+    assert diagnostics["vendors"]["finnhub"]["skipped_ticker_count"] == 147
+    assert diagnostics["error_budget"] == {
+        "raw_error_count": 156,
+        "error_budget_count": 6,
+        "entitlement_error_warn_only_count": 150,
+        "entitlement_error_probe_count": 0,
+    }
+
+
+def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
+    calls = 0
+
+    def partially_open_fmp(
+        _session: Any,
+        ticker: str,
+        _api_key: str,
+        *,
+        sleep_seconds: float,
+        errors: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        nonlocal calls
+        del sleep_seconds
+        calls += 1
+        if ticker == "AAA":
+            return {"data": [{"period": "2027", "avg": 1.0}]}, {}
+        errors.append(
+            {
+                "ticker": ticker,
+                "vendor": "fmp",
+                "endpoint": "/stable/analyst-estimates",
+                "status_code": 402,
+                "vendor_entitlement_blocked": True,
+                "error": "402 payment required apikey=***",
+            }
+        )
+        return {}, {}
+
+    old_fmp = collector.fetch_fmp_payloads
+    try:
+        collector.fetch_fmp_payloads = partially_open_fmp
+        snapshot, errors, attempted, diagnostics = collector.collect_live_snapshot(
+            ["AAA", "BBB", "CCC", "DDD"],
+            finnhub_api_key="",
+            alphavantage_api_key="",
+            fmp_api_key="dummy-fmp",
+            vendor_order=["fmp"],
+            fetch_date=pd.Timestamp("2026-07-15"),
+            sleep_seconds=0.0,
+            max_errors=1,
+            entitlement_circuit_threshold=3,
+        )
+    finally:
+        collector.fetch_fmp_payloads = old_fmp
+
+    assert calls == 4
+    assert len(errors) == 3
+    assert attempted == ["AAA", "BBB", "CCC", "DDD"]
+    assert len(snapshot) == 1
+    assert diagnostics["tripped_vendor_count"] == 0
+    assert diagnostics["vendors"]["fmp"]["accessible_response_ticker_count"] == 1
+    assert diagnostics["vendors"]["fmp"]["trip_signature"] == ""
+    assert diagnostics["error_budget"]["error_budget_count"] == 0
+    assert diagnostics["error_budget"]["entitlement_error_warn_only_count"] == 3
+
+
 def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -330,5 +476,7 @@ if __name__ == "__main__":
     test_free_vendor_payloads_normalize_to_internal_schema()
     test_cli_fixture_writes_snapshot_and_signals()
     test_partial_free_vendor_success_is_not_global_block()
+    test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls()
+    test_entitlement_circuit_never_trips_after_vendor_access_success()
     test_same_day_snapshot_merges_instead_of_overwriting_existing_archive()
     print("collect_earnings_estimates_smoke: PASS")

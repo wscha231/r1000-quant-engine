@@ -213,9 +213,14 @@ def build_manifest(
         "fetch_sources": summary_payload.get("fetch_sources", []),
         "vendor_order": summary_payload.get("vendor_order", []),
         "collector_max_errors": summary_payload.get("max_errors", ""),
+        "entitlement_circuit_threshold": summary_payload.get("entitlement_circuit_threshold", 0),
+        "vendor_entitlement_circuit": summary_payload.get("vendor_entitlement_circuit", {}),
         "vendor_estimate_access": summary_payload.get("vendor_estimate_access", False),
         "vendor_blocked_errors": summary_payload.get("vendor_blocked_errors", False),
         "error_count": summary_payload.get("error_count", 0),
+        "error_budget_count": summary_payload.get("error_budget_count", summary_payload.get("error_count", 0)),
+        "entitlement_error_warn_only_count": summary_payload.get("entitlement_error_warn_only_count", 0),
+        "entitlement_error_probe_count": summary_payload.get("entitlement_error_probe_count", 0),
         "ticker_count_attempted": summary_payload.get("ticker_count_attempted", 0),
         "collection_attempt_ack": summary_payload.get("collection_attempt_ack", {}),
         "collection_queue_status": queue_payload.get("status", "missing_queue_summary"),
@@ -281,6 +286,17 @@ def build_manifest(
         "stored_estimate_coverage_ratio": payload["stored_estimate_coverage_ratio"],
         "same_day_snapshot_merged": payload["same_day_snapshot_merged"],
         "collector_max_errors": payload["collector_max_errors"],
+        "entitlement_circuit_threshold": payload["entitlement_circuit_threshold"],
+        "entitlement_circuit_tripped_vendors": payload.get("vendor_entitlement_circuit", {}).get(
+            "tripped_vendors", []
+        ),
+        "estimated_estimate_http_requests_avoided": payload.get("vendor_entitlement_circuit", {}).get(
+            "estimated_estimate_http_requests_avoided", 0
+        ),
+        "error_count": payload["error_count"],
+        "error_budget_count": payload["error_budget_count"],
+        "entitlement_error_warn_only_count": payload["entitlement_error_warn_only_count"],
+        "entitlement_error_probe_count": payload["entitlement_error_probe_count"],
         "collection_queue_status": payload["collection_queue_status"],
         "collection_queue_selected_ticker_count": payload["collection_queue_selected_ticker_count"],
         "collection_attempt_acknowledged_ticker_count": payload.get("collection_attempt_ack", {}).get(
