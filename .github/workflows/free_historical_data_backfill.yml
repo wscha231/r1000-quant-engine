@@ -8,9 +8,9 @@ on:
         type: boolean
         default: true
       fmp_earnings_calendar:
-        description: 'Collect FMP earnings calendar history as vendor snapshot, not PIT revision history'
+        description: 'Opt-in only after access changes; current endpoint is entitlement-blocked (HTTP 402)'
         type: boolean
-        default: true
+        default: false
       fmp_earnings_start:
         description: 'Start date for FMP earnings calendar history'
         type: string
@@ -137,9 +137,16 @@ jobs:
         env:
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
         run: |
           set -euo pipefail
           mkdir -p outputs/free_historical_data_backfill data_raw/free data_pit/free data_pit/events
+          python tools/collect_sec_company_tickers.py \
+            --refresh \
+            --raw-output data_raw/free/sec/company_tickers.json \
+            --manifest-output data_raw/free/sec/company_tickers_manifest.json \
+            --reference-output data_pit/free/sec_company_tickers.parquet \
+            --summary outputs/free_historical_data_backfill/sec_company_tickers_summary.json
           if [ "${{ inputs.listing_status }}" = "true" ]; then
             python tools/collect_alphavantage_listing_status.py \
               --raw-dir data_raw/free/alpha_vantage/listing_status \
@@ -164,7 +171,7 @@ jobs:
         run: |
           set -euo pipefail
           python tools/build_data_catalog.py --output data/catalog.json --print-summary
-          ARGS=(--latest-run "${{ inputs.latest_run }}" --output-dir outputs/free_historical_data_coverage)
+          ARGS=(--latest-run "${{ inputs.latest_run }}" --sec-ticker-map data_pit/free/sec_company_tickers.parquet --output-dir outputs/free_historical_data_coverage)
           if [ -n "${{ inputs.universe_file }}" ]; then
             ARGS+=(--universe-file "${{ inputs.universe_file }}")
           fi
@@ -187,7 +194,10 @@ jobs:
             outputs/free_historical_data_coverage/
             outputs/free_data_selection_overlay/
             data/catalog.json
+            data_raw/free/sec/company_tickers.json
+            data_raw/free/sec/company_tickers_manifest.json
             data_pit/free/av_listing_status.parquet
+            data_pit/free/sec_company_tickers.parquet
             data_pit/events/earnings_calendar_history.parquet
           retention-days: 90
 

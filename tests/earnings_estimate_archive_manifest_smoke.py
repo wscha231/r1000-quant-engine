@@ -26,6 +26,10 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         collector_log = out_dir / "collector.log"
         manifest = out_dir / "archive_manifest.json"
         index = snapshot_dir / "archive_index.jsonl"
+        queue_summary = out_dir / "incremental_universe_summary.json"
+        queue_checkpoint = snapshot_dir / "collection_checkpoint.json"
+        queue_csv = out_dir / "collection_queue.csv"
+        queue_report = out_dir / "collection_queue_report.md"
         snapshot.write_bytes(b"snapshot-bytes")
         signals.write_bytes(b"signals-bytes")
         summary.write_text(
@@ -57,6 +61,27 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
             encoding="utf-8",
         )
         collector_log.write_text("masked url apikey=*** token=***\n", encoding="utf-8")
+        queue_summary.write_text(
+            json.dumps(
+                {
+                    "schema_version": "forward-estimate-collection-queue-v2",
+                    "status": "ready_for_forward_archive_incremental",
+                    "output_ticker_count": 3,
+                    "current_universe_ticker_count": 993,
+                    "eligible_universe_ticker_count": 992,
+                    "non_equity_placeholder_ticker_count": 1,
+                    "universe_source_mode": "coverage_file_seed",
+                    "canonical_universe": {"sha256": "canonical-sha"},
+                    "snapshot_source_aggregate_sha256": "snapshot-source-sha",
+                    "queue_state_counts": {"fresh_success_reused": 13, "missing": 130},
+                    "selection_reason_counts": {"missing_snapshot": 3},
+                }
+            ),
+            encoding="utf-8",
+        )
+        queue_checkpoint.write_text("{}\n", encoding="utf-8")
+        queue_csv.write_text("ticker,queue_state\nAAA,missing\n", encoding="utf-8")
+        queue_report.write_text("# Queue\n", encoding="utf-8")
 
         payload = build_manifest(
             snapshot_dir=str(snapshot_dir),
@@ -74,6 +99,10 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
             shard_id="shard_000",
             shard_file="outputs/forward_estimate_universe_plan_20260709/shards/shard_000.csv",
             shard_mode="rotating_shard",
+            queue_summary=str(queue_summary),
+            queue_checkpoint=str(queue_checkpoint),
+            queue_csv=str(queue_csv),
+            queue_report=str(queue_report),
         )
 
         assert payload["verdict"] == "archive_manifest_written"
@@ -91,6 +120,11 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert payload["shard_file"].endswith("shard_000.csv")
         assert payload["shard_mode"] == "rotating_shard"
         assert payload["collector_max_errors"] == 5000
+        assert payload["collection_queue_status"] == "ready_for_forward_archive_incremental"
+        assert payload["collection_universe_ticker_count"] == 993
+        assert payload["collection_eligible_ticker_count"] == 992
+        assert payload["collection_non_equity_placeholder_ticker_count"] == 1
+        assert payload["files"]["collection_queue_checkpoint"]["sha256"]
         assert payload["text_secret_scan"]["unmasked_secret_pattern_found"] is False
         assert payload["text_secret_scan"]["scans"][1]["masked_url_credential_markers_present"] is True
         persisted = json.loads(manifest.read_text(encoding="utf-8"))
@@ -103,6 +137,8 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert rows[0]["collector_max_errors"] == 5000
         assert rows[0]["request_snapshot_rows"] == 36
         assert rows[0]["same_day_snapshot_merged"] is False
+        assert rows[0]["collection_universe_ticker_count"] == 993
+        assert rows[0]["collection_queue_checkpoint_sha256"]
         assert rows[0]["snapshot_sha256"] == payload["files"]["snapshot"]["sha256"]
 
         payload2 = build_manifest(
@@ -121,6 +157,10 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
             shard_id="shard_000",
             shard_file="outputs/forward_estimate_universe_plan_20260709/shards/shard_000.csv",
             shard_mode="rotating_shard",
+            queue_summary=str(queue_summary),
+            queue_checkpoint=str(queue_checkpoint),
+            queue_csv=str(queue_csv),
+            queue_report=str(queue_report),
         )
         assert payload2["verdict"] == "archive_manifest_written"
         rows2 = [json.loads(line) for line in index.read_text(encoding="utf-8").splitlines()]
