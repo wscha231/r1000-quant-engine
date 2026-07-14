@@ -1761,3 +1761,71 @@ Expected contract:
   - `tools/run_run287_current_decision_score_stack_audit.py`
   - `tests/run287_current_decision_score_stack_smoke.py`
   - `docs/CODEX_RUN287_SYSTEM_FLOW_AND_SCORE_STACK_20260714.md`
+
+### 2026-07-14 - A valid current score stack is not an executable transition plan
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-selector-no-write-20260714`
+  - exact-close current selector audit for completed NYSE session `2026-07-13`
+- Context:
+  - The complete current decision frame and six-head registered score stack had
+    passed, but holdings, current marked cash, official prior-book semantics,
+    candidate relative strength, transition costs, and held-security risk had
+    not yet been reconciled in one no-write gate.
+- Attempt:
+  - Restored the exact pinned Git-object loader, crisis-state sidecar, official
+    selector adapter, and bounded SOXX price recovery from the previously
+    verified policy-reproduction branch.
+  - Advanced the pinned crisis state and all four selector benchmarks to the
+    2026-07-13 close, then ran the official policy commit on 347 registered
+    names under Main strict, Main prior-hold bridge, and Concentrated strict.
+  - Compared every advisory weight with both the frozen official prior book and
+    the exact-close marked account. Added 25/50/100 bps cost, concentration,
+    held-risk conflict, and unassessed-new-entry diagnostics.
+- Result:
+  - The pinned crisis state is GREEN and deterministic. The selector itself
+    used zero network requests and emitted no target book or order.
+  - Main one-way turnover is 50.1923% strict and 44.7147% bridge. Concentrated
+    turnover is 60.8017% and its advisory cash is 34.0937% versus 17.4686%
+    marked cash.
+  - Main strict has two incremental buys into WATCH/ALERT holdings, one under a
+    freeze warning; the bridge has four such conflicts, two under freeze.
+    Concentrated has none, but two proposed new entries are not yet covered by
+    the holding-risk watch. Every scenario remains review-only.
+  - Local PR validation passed `165/165` in `427.1` seconds.
+- Failure or caveat:
+  - This is one current date, not a policy-book sequence or historical replay.
+    It cannot establish CAGR/MDD improvement or transition stability.
+  - Concentrated high cash is mostly structural: risk caps leave 30.625%
+    unallocated before the neutral-regime 0.95 gross multiplier raises cash to
+    34.0937%.
+  - Six official prior holdings are currently ineligible as new entries. The
+    bridge is a transition diagnostic, not permission to grandfather them.
+- Root cause:
+  - Correctly rescoring the complete input substrate materially changes the
+    current cross-section. Immediate execution would convert repaired data
+    integrity into large turnover, cost, and candidate-risk uncertainty.
+- Reusable lesson:
+  - Always compare selector output with exact-close marked accounts as well as
+    frozen target books; they answer different questions.
+  - Include cash in one-way turnover, exclude cash from transaction fees, and
+    intersect proposed incremental buys with held-security risk warnings.
+  - A GREEN market crisis state does not imply full investment when name caps,
+    candidate gates, and regime capacity independently constrain gross.
+- Next action:
+  - Build a no-order risk packet for every proposed new entry, then append
+    selector observations across distinct future decision weeks. Do not choose
+    a transition rule, mutate a book, or run fullrun from this one-date result.
+- Do-not-repeat:
+  - Do not treat a current selector projection as historical CAGR/MDD evidence.
+  - Do not hide turnover by comparing only with stale target weights.
+  - Do not increment ALERT/WATCH holdings or buy unassessed new entries merely
+    because the market-level crisis state is GREEN.
+  - Do not grid-search cash, turnover, or replacement thresholds after seeing
+    this packet.
+- Evidence files:
+  - `outputs/run287_current_crisis_state_20260714_close_20260713/manifest.json`
+  - `outputs/run287_selector_benchmark_price_20260714_close_20260713/manifest.json`
+  - `outputs/run287_current_selector_no_write_20260714_close_20260713_v2/manifest.json`
+  - `docs/CODEX_RUN287_CURRENT_SELECTOR_NO_WRITE_RESULT_20260714.md`
