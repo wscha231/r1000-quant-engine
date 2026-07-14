@@ -2066,4 +2066,62 @@ Expected contract:
   - `tools/build_run287_exact_packet_input_registry.py`
   - `tests/run287_exact_packet_input_registry_smoke.py`
   - `docs/CODEX_RUN287_EXACT_PACKET_INPUT_REGISTRY_RESULT_20260714.md`
+
+### 2026-07-14 - Premium estimate metadata is not PIT or sample entitlement
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-nasdaq-zeeh-sample-20260714`
+  - local `20260714_local_preflight`
+- Context:
+  - Historical analyst-consensus revisions remain the principal external-data
+    gap after the accepted-time SEC management-guidance source lane failed its
+    preregistered precision gate.
+  - Nasdaq Data Link exposes public metadata for the premium ZACKS/EEH history
+    table, whose primary key includes `obs_date`, but a prior keyless data
+    request returned HTTP 403.
+- Attempt:
+  - Added a secret-safe probe limited to two HTTP requests and 50 returned
+    rows, with append-only raw evidence and SHA-256 provenance.
+  - Registered fail-closed checks for row limits, future dates, duplicate
+    provider keys, exact timestamp coverage, stable identity, delisted fields,
+    ADR identity, and immutable collisions.
+  - Ran the local preflight without a configured provider key.
+- Result:
+  - The local status was `BLOCKED_CREDENTIAL_MISSING` with exactly zero HTTP
+    requests and no provider charge or trial activation.
+  - Fixture validation passed for missing-key, entitlement, 50-row, date-only,
+    future-row, row-limit, redaction, idempotence, and collision paths.
+  - Full local PR validation passed `170/170` in `214.76` seconds.
+  - Return joins, source screen, portfolio A/B, book mutation, orders, fullrun,
+    production, and live trading remained prohibited.
+- Failure or caveat:
+  - No entitled sample has been received, so actual EEH columns, stable-ID,
+    delisted, ADR, and exact timestamp coverage remain unverified.
+  - A date-only `obs_date` cannot satisfy the existing 100% exact-timestamp
+    source gate and must not be promoted by assigning a synthetic time.
+- Root cause:
+  - Public premium-table metadata proves the dataset identity, not data access
+    or Run287's PIT and historical-universe requirements.
+- Reusable lesson:
+  - Separate schema-review readiness from source-screen readiness.  A 50-row
+    response is evidence for procurement only until exact availability and
+    historical security identity pass the frozen audit.
+  - Missing credentials should make zero requests; entitlement failures should
+    stop after one bounded attempt and never leak the key into artifacts.
+- Next action:
+  - If an existing self-service ZEEH-entitled key becomes available, run one
+    bounded sample probe and audit its real columns.  Do not authorize a paid
+    purchase from metadata alone.
+- Do-not-repeat:
+  - Do not retry the same keyless ZACKS/EEH data request.
+  - Do not coerce `obs_date` to a fabricated exact timestamp.
+  - Do not infer stable delisted or ADR identity from a current ticker.
+  - Do not join returns or run portfolio A/B from a schema sample.
+- Evidence files:
+  - `docs/run287_nasdaq_zeeh_sample_contract.json`
+  - `tools/probe_run287_nasdaq_zeeh_sample.py`
+  - `tests/run287_nasdaq_zeeh_sample_smoke.py`
+  - `docs/CODEX_RUN287_NASDAQ_ZEEH_SAMPLE_PROBE_RESULT_20260714.md`
+  - `outputs/run287_nasdaq_zeeh_sample/20260714_local_preflight/`
   - `outputs/run287_exact_packet_input_registry_20260714_local/`

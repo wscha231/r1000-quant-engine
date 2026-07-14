@@ -1,0 +1,34 @@
+{
+  "schema_version": "run287-nasdaq-zeeh-sample-contract-v1",
+  "purpose": "Bounded procurement and schema preflight for Nasdaq Data Link ZACKS/EEH historical consensus estimates",
+  "dataset": "ZACKS/EEH",
+  "api_key_environment_variable": "NASDAQ_DATA_LINK_API_KEY",
+  "api_key_cli_value_allowed": false,
+  "maximum_http_requests": 2,
+  "maximum_data_rows": 50,
+  "required_provider_primary_key": [
+    "m_ticker",
+    "per_end_date",
+    "obs_date",
+    "per_type"
+  ],
+  "pit_rules": {
+    "date_only_obs_date_is_exact_timestamp": false,
+    "fabricated_midnight_timestamp_allowed": false,
+    "future_observation_allowed": false,
+    "source_gate_min_exact_timestamp_ratio": 1.0
+  },
+  "evidence_rules": {
+    "raw_responses_append_only": true,
+    "source_sha256_required": true,
+    "secret_in_artifacts_allowed": false,
+    "sample_rows_committed_to_git": false
+  },
+  "promotion_rules": {
+    "purchase_authorized": false,
+    "return_join_allowed": false,
+    "portfolio_ab_allowed": false,
+    "fullrun_allowed": false,
+    "production_allowed": false
+  }
+}
