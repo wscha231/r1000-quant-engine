@@ -2188,3 +2188,53 @@ Expected contract:
   - `tests/run287_risk_outcome_archive_smoke.py`
   - `docs/CODEX_RUN287_RISK_OUTCOME_ARCHIVE_RESULT_20260714.md`
   - `outputs/run287_risk_outcome_archive_20260714_local/`
+
+### 2026-07-14 - A forward ledger needs an explicit first seed
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-first-risk-outcome-20260715`
+  - failed scheduled run `29305572139`
+- Context:
+  - PR #290 made risk outcomes append-only and persistent, but the most recent
+    daily workflow had failed before any validated paper state could be saved.
+- Attempt:
+  - Inspected the failed GitHub Actions job and traced the first hard error to
+    `FileNotFoundError: missing bootstrap account for main`.
+  - Added a fail-closed one-time seed from the unchanged target books and exact
+    completed-session adjusted closes, with fixed USD 100,000 research notional,
+    integer shares, 25 bps contract metadata, and residual cash.
+  - Kept historical broker replay and fullrun out of the daily workflow.
+- Result:
+  - The bootstrap can start the review-only next-close ledger even when no
+    `outputs/broker_replay/*` artifact was restored.
+  - Existing state wins; a frozen bootstrap is reused exactly; partial event
+    evidence without account state blocks instead of resetting history.
+  - No target book, target weight, production state, order, or live-trading
+    path is changed.
+  - Full local PR validation passed `172/172` in `216.31` seconds.
+- Failure or caveat:
+  - The seed is a current-close starting assumption, not an actual historical
+    fill record. Only subsequent next-close events are true-forward simulated
+    fills.
+  - Historical CAGR/MDD remains unchanged; this repair only enables the
+    evidence archive needed for a later mechanism review.
+- Root cause:
+  - The scheduled workflow implicitly depended on a fullrun-produced broker
+    account that was absent from both restored state channels.
+- Reusable lesson:
+  - Forward paper systems need a labeled genesis state that is independent of
+    optional historical artifacts, exact-close verified, and never recreated
+    after an event chain begins.
+- Next action:
+  - Validate the focused smoke and full PR suite, publish a draft PR, and run
+    the completed-close workflow after the 2026-07-14 settlement buffer.
+- Do-not-repeat:
+  - Do not describe the bootstrap as an actual fill.
+  - Do not backfill trades or use a prior-session price to force initialization.
+  - Do not reset a paper ledger because its account file is missing.
+  - Do not count this operational repair as historical CAGR/MDD improvement.
+- Evidence files:
+  - `tools/bootstrap_run287_daily_paper_accounts.py`
+  - `tests/run287_daily_paper_bootstrap_smoke.py`
+  - `docs/CODEX_RUN287_DAILY_PAPER_BOOTSTRAP_RECOVERY_RESULT_20260714.md`

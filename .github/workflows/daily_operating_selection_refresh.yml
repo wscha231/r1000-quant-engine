@@ -314,6 +314,20 @@ jobs:
             2>&1 | tee outputs/full_rebuild_logs/daily_operating_target_books.log || \
             echo "[daily-operating] operating target book build failed or timed out; freshness contract will block selection" | tee -a outputs/full_rebuild_logs/daily_operating_target_books.log
 
+      - name: Ensure review-only forward paper bootstrap
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/bootstrap_run287_daily_paper_accounts.py \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --price-cache cache_prices \
+            --main-target outputs/reports/operating_main_target_book.csv \
+            --concentrated-target outputs/reports/operating_concentrated_target_book.csv \
+            --as-of-date "$LAST_NYSE_SESSION_DATE" \
+            --starting-capital 100000 \
+            --cost-bps 25 \
+            2>&1 | tee outputs/full_rebuild_logs/daily_paper_bootstrap.log
+
       - name: Require exact completed-session close prices
         if: steps.market.outputs.ready == 'yes'
         run: |
@@ -323,8 +337,8 @@ jobs:
             --price-cache cache_prices \
             --target outputs/reports/operating_main_target_book.csv \
             --target outputs/reports/operating_concentrated_target_book.csv \
-            --account outputs/broker_replay/main/account_state_latest.json \
-            --account outputs/broker_replay/concentrated/account_state_latest.json \
+            --account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
+            --account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
             --state-dir outputs/daily_simulated_fill_ledger \
             --required-ticker SPY \
             --required-ticker QQQ \
@@ -441,8 +455,8 @@ jobs:
             --state-dir outputs/daily_simulated_fill_ledger \
             --price-cache cache_prices \
             --order-preview-root outputs/account_ledger_preview \
-            --main-bootstrap-account outputs/broker_replay/main/account_state_latest.json \
-            --concentrated-bootstrap-account outputs/broker_replay/concentrated/account_state_latest.json \
+            --main-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
+            --concentrated-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
             --main-target outputs/reports/operating_main_target_book.csv \
             --concentrated-target outputs/reports/operating_concentrated_target_book.csv \
             --as-of-date "$PAPER_AS_OF" \
@@ -586,6 +600,7 @@ jobs:
             data_pit/free/market_snapshot/
             data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log
+            outputs/full_rebuild_logs/daily_paper_bootstrap.log
             outputs/full_rebuild_logs/daily_holding_risk_watch.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
