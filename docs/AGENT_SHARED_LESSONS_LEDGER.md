@@ -2477,3 +2477,54 @@ Expected contract:
   - `tests/run287_exact_packet_source_bundle_smoke.py`
   - `tests/run287_exact_packet_upstream_smoke.py`
   - `docs/CODEX_RUN287_EXACT_PACKET_UPSTREAM_RESULT_20260715.md`
+
+### 2026-07-15 - Scheduled evidence needs one explicit same-session fail-closed gate
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-next-scheduled-gate-audit-20260715`
+  - negative control estimate artifact `29304288757`
+- Context:
+  - Estimate queue, exact packet, observation archive, and risk outcome each
+    had local contracts, but no single audit proved that their next artifacts
+    were complete, same-session, safe, and ready for the first 1D review.
+- Attempt:
+  - Added an explicit-path auditor for the estimate manifest plus seven daily
+    evidence files. No latest-directory discovery is permitted.
+  - Froze `150/150/150` queue acknowledgement, the 993-name universe shape,
+    the 401/403-only circuit, exact session dates, row-level close coverage,
+    component READY states, and portfolio-safety flags.
+- Result:
+  - Missing artifacts are pending; present invalid artifacts are blocked; a
+    valid chain with no elapsed 1D is pending rather than failed.
+  - The old real artifact was correctly blocked at `36/150` acknowledgement
+    and also exposed its missing new circuit evidence.
+  - Six focused gate scenarios passed, related subsystem smokes passed, and
+    full local PR validation passed `176/176` in `232.42` seconds.
+- Failure or caveat:
+  - The next scheduled post-settlement estimate and daily artifacts have not
+    yet arrived, so `150/150` and the first real 1D direction remain unproven.
+  - A completed 1D result is diagnostic only and cannot establish historical
+    CAGR or MDD improvement.
+- Root cause:
+  - Independent READY labels do not prove cross-artifact date consistency,
+    completeness, or that an older partial artifact was not selected by hand.
+- Reusable lesson:
+  - Pass evidence paths and expected dates explicitly; never infer the current
+    research cut from a latest directory.
+  - Separate `pending because time/data has not arrived` from `blocked because
+    present evidence violates contract`.
+- Next action:
+  - Audit the next scheduled artifacts after the settlement buffer, review the
+    1D warning-minus-normal diagnostic without tuning, and continue collecting
+    toward the frozen 21D and 63D gates.
+- Do-not-repeat:
+  - Do not accept selected count as proof that all names were attempted.
+  - Do not treat FMP HTTP 402 as a global vendor circuit.
+  - Do not combine artifacts from different NYSE sessions.
+  - Do not use 1D direction to change a rule, cash, weight, or target book.
+- Evidence files:
+  - `docs/run287_next_scheduled_artifact_gate_contract.json`
+  - `tools/audit_run287_next_scheduled_artifact_gate.py`
+  - `tests/run287_next_scheduled_artifact_gate_smoke.py`
+  - `docs/CODEX_RUN287_NEXT_SCHEDULED_ARTIFACT_GATE_RESULT_20260715.md`

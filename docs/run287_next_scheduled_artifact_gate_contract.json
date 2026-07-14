@@ -1,0 +1,71 @@
+{
+  "schema_version": "run287-next-scheduled-artifact-gate-contract-v1",
+  "purpose": "fail_closed_same_session_audit_for_estimate_queue_exact_packet_and_first_forward_risk_outcome",
+  "estimate_gate": {
+    "manifest_schema_version": "earnings-estimate-archive-manifest-v1",
+    "required_verdict": "archive_manifest_written",
+    "required_collection_queue_status": "ready_for_forward_archive_incremental",
+    "required_selected_ticker_count": 150,
+    "required_requested_ticker_count": 150,
+    "required_attempted_ticker_count": 150,
+    "required_acknowledged_ticker_count": 150,
+    "required_universe_ticker_count": 993,
+    "required_eligible_ticker_count": 992,
+    "required_non_equity_placeholder_ticker_count": 1,
+    "required_missing_coverage_policy": "neutral",
+    "entitlement_circuit_threshold": 3,
+    "entitlement_circuit_status_codes": [401, 403],
+    "forbidden_circuit_status_codes": [402],
+    "coverage_positive_required": false
+  },
+  "daily_gate": {
+    "market_session": {
+      "schema_version": "daily-market-session-gate-v1",
+      "required_status": "READY_COMPLETED_SESSION"
+    },
+    "close_coverage": {
+      "schema_version": "daily-close-price-coverage-v1",
+      "required_status": "PASS"
+    },
+    "exact_upstream": {
+      "schema_version": "run287-exact-packet-upstream-orchestrator-v1",
+      "allowed_statuses": [
+        "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY",
+        "READY_EXISTING_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY"
+      ]
+    },
+    "exact_registry": {
+      "schema_version": "run287-exact-packet-input-registry-builder-v1",
+      "required_status": "READY_EXACT_PACKET_INPUTS_REVIEW_ONLY"
+    },
+    "exact_producer": {
+      "schema_version": "run287-exact-packet-producer-v1",
+      "required_status": "READY_EXISTING_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY"
+    },
+    "decision_archive": {
+      "schema_version": "run287-decision-observation-archive-v1",
+      "required_status": "READY_DECISION_OBSERVATION_ARCHIVE_REVIEW_ONLY"
+    },
+    "risk_outcome": {
+      "schema_version": "run287-risk-outcome-archive-v1",
+      "required_status": "READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY",
+      "first_diagnostic_horizon": "1d",
+      "mechanism_review_horizon": "63d"
+    }
+  },
+  "safety": {
+    "research_only": true,
+    "review_only": true,
+    "rule_change_allowed": false,
+    "historical_ab_allowed": false,
+    "portfolio_mutation_allowed": false,
+    "target_books_mutated": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "orders_generated": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}
