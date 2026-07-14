@@ -1647,3 +1647,59 @@ Expected contract:
   - `outputs/run287_recent_companyfacts_20260714_close_20260713/manifest.json`
   - `outputs/run287_current_decision_frame_20260714_close_20260713_v4/manifest.json`
   - `docs/CODEX_RUN287_CURRENT_DECISION_FRAME_20260714.md`
+
+### 2026-07-14 - Complete current inputs must be rescored before any selector comparison
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-current-score-only-20260714`
+  - score-only research packet for completed NYSE session `2026-07-13`
+- Context:
+  - The exact-close 989-ticker decision frame passed its data gate, but the
+    prior score-only runner was tied to an older feature manifest plus a
+    separate verifier and could not safely consume the new single manifest.
+- Attempt:
+  - Added a single-manifest, hash-pinned lane for the four frozen linear heads.
+  - Verified the scaled matrix, selection context, ticker coverage, frozen
+    model metadata, availability timestamps, ticker order, and independent
+    matrix/engine parity before emitting any predictions.
+  - Added fail-closed fixtures for a wrong manifest hash, future feature
+    availability, and ranking-enabled model metadata.
+- Result:
+  - All 989 tickers and 3,956 prediction cells are finite; all four frozen
+    heads match independent direct matrix calculations within `1e-16`.
+  - The source order is preserved, network requests are zero, and no score
+    sort, rank, selector, backtest, fullrun, or source/target-book mutation ran.
+  - The earlier embedded predictions were finite for only 738 tickers. The
+    complete missing-neutral matrix provides first-time scores for 251 tickers.
+  - Local Tier-1 PR validation passed `160/160` in 238.8 seconds.
+- Failure or caveat:
+  - All 738 overlap rows changed in every head and overlap correlations range
+    from 0.3115 to 0.8025. The embedded prior predictions are not a control
+    replay because their decision substrate was incomplete and different.
+  - Raw `decision_feature_complete` remains false and current ticker identity
+    is not PIT historical membership.
+- Root cause:
+  - Price freshness and complete current-decision inputs were established in
+    separate stages. Reusing embedded prior predictions would silently ignore
+    the completed macro, benchmark, and accepted-time SEC/fundamental matrix.
+- Reusable lesson:
+  - Freeze and verify the complete decision-frame manifest first, then score
+    every ticker in source order with the frozen model metadata. Treat prior
+    prediction deltas as sensitivity diagnostics, never as selector evidence.
+  - Independent head parity proves arithmetic only; it does not prove the
+    cross-sectional score stack, eligibility, turnover, or portfolio outcome.
+- Next action:
+  - Run a separate pinned score-stack parity audit with ranking and selection
+    still disabled. If it passes, open an advisory selector diff and
+    25/50/100 bps turnover-cost review without changing a target book.
+- Do-not-repeat:
+  - Do not feed the old two-manifest dry-run contract with the new decision
+    frame by bypassing its verifier relation.
+  - Do not sort or choose securities from raw head deltas.
+  - Do not interpret 989 finite predictions as historical CAGR/MDD evidence.
+- Evidence files:
+  - `outputs/run287_current_decision_score_only_20260714_close_20260713/manifest.json`
+  - `tools/run_run287_current_decision_score_only.py`
+  - `tests/run287_current_decision_score_only_smoke.py`
+  - `docs/CODEX_RUN287_CURRENT_DECISION_SCORE_ONLY_20260714.md`
