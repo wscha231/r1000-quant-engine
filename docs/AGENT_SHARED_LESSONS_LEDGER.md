@@ -2238,3 +2238,45 @@ Expected contract:
   - `tools/bootstrap_run287_daily_paper_accounts.py`
   - `tests/run287_daily_paper_bootstrap_smoke.py`
   - `docs/CODEX_RUN287_DAILY_PAPER_BOOTSTRAP_RECOVERY_RESULT_20260714.md`
+
+### 2026-07-15 - The first forward horizon must be visible but cannot become a rule
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-risk-1d-diagnostic-20260715`
+- Context:
+  - The archive already froze and resolved 1D outcomes, but automatic group
+    summaries exposed only 21D and 63D results.
+- Attempt:
+  - Added contract-driven 1D, 21D, and 63D warning-versus-normal summaries.
+  - Labeled 1D as diagnostic-only and kept the mechanism review gate fixed at
+    63 trading days.
+  - Added report and smoke assertions that 1D next-close actionable metrics
+    remain not applicable.
+- Result:
+  - The first completed 1D close can now be reviewed without an ad-hoc
+    spreadsheet or threshold change.
+  - The change affects measurement output only; no stop, exit, resize, cash,
+    order, target-book, selector, backtest, fullrun, production, or live path
+    is changed.
+- Failure or caveat:
+  - One decision week and one trading-day outcome are underpowered and cannot
+    establish a CAGR or MDD improvement.
+- Root cause:
+  - Outcome capture and early-horizon diagnostic visibility were implemented
+    separately, leaving the first frozen endpoint out of the summary.
+- Reusable lesson:
+  - Expose preregistered early diagnostics automatically, while keeping their
+    inability to promote a portfolio mechanism explicit and test-enforced.
+- Next action:
+  - Resolve the 2026-07-14 close after the settlement buffer, review the 1D
+    warning-versus-normal direction, and continue collecting toward the frozen
+    21D direction and 63D mechanism-review gates.
+- Do-not-repeat:
+  - Do not tune risk thresholds from the first 1D cross-section.
+  - Do not treat same-close 1D evidence as an actionable next-close return.
+  - Do not use 1D direction to change portfolio weights or cash.
+- Evidence files:
+  - `docs/run287_risk_outcome_archive_contract.json`
+  - `tools/resolve_run287_risk_outcomes.py`
+  - `tests/run287_risk_outcome_archive_smoke.py`

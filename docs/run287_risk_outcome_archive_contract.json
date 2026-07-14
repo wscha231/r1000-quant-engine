@@ -11,6 +11,8 @@
   },
   "outcome_contract": {
     "horizons_trading_days": [1, 5, 21, 63, 126],
+    "diagnostic_group_metrics_horizons_trading_days": [1, 21, 63],
+    "diagnostic_only_horizons_trading_days": [1],
     "signal_return_start": "exact_signal_close",
     "actionable_return_start": "first_NYSE_close_strictly_after_signal_close",
     "actionable_metrics_at_1d": "not_applicable",
