@@ -732,3 +732,372 @@ Expected contract:
 - Evidence files:
   - run287 post-run reports
   - PIT membership audit docs
+
+### 2026-07-13 - Public portfolio dashboard must separate executed replay from review proposals
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-public-dashboard-20260713`
+- Context:
+  - User requested a GitHub-hosted website with daily system changes, current
+    Main/Concentrated holdings and cash weights, and BUY/SELL history, with a
+    custom domain to be added later.
+- Attempt:
+  - Replaced the GitHub Pages placeholder with a static Korean dashboard and a
+    standard-library JSON exporter.
+  - Added a `workflow_run` deployment lane that consumes the successful
+    `Daily Operating Selection Refresh` review artifact from `master`.
+  - Published the latest validated replay snapshot as of the 2026-07-10 close.
+- Result:
+  - The public contract contains weights, prices, normalized performance,
+    replay BUY/SELL records, and review-only target deltas.
+  - Share quantities, dollar account/cash values, cost basis, P&L, fees,
+    secrets, and local paths are rejected before deployment.
+  - The initial public snapshot reports Main 14 equities / 10.63% cash and
+    Concentrated 5 equities / 16.40% cash.
+- Failure or caveat:
+  - The daily operating artifact does not include an executed trade ledger.
+    Its `03_order_preview.csv` is a human-review proposal, not a fill record.
+  - The Pages repository setting was found in legacy `master:/docs` mode and
+    must be changed to `build_type=workflow` before the new deployment is used.
+- Root cause:
+  - Previous Pages work stopped at a placeholder and had no privacy-safe bridge
+    between review artifacts and a public dataset.
+- Reusable lesson:
+  - Preserve last validated executed history when a daily artifact has no
+    fills; never relabel order previews as trades.
+  - Build public data from an explicit allowlist and fail closed on local paths,
+    secret-like values, missing review flags, or production/live flags.
+  - Use relative asset URLs so moving from the GitHub project URL to a custom
+    domain does not require an application rewrite.
+- Next action:
+  - Validate the public-only Pages artifact in PR checks, change Pages source to
+    GitHub Actions, merge, and verify the live URL plus the next successful
+    daily artifact refresh.
+- Do-not-repeat:
+  - Do not publish `outputs/`, `docs/`, user_current, or broker artifacts
+    directly.
+  - Do not expose quantities or account dollar values on a public Pages site.
+  - Do not treat a review-only target delta as an executed BUY/SELL.
+- Evidence files:
+  - `tools/build_public_portfolio_dashboard.py`
+  - `tests/public_portfolio_dashboard_smoke.py`
+  - `docs/public/`
+  - `.github/workflows/pages_deploy.yml`
+
+### 2026-07-13 - Daily forward paper fills require persistent state and next-close resolution
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-daily-paper-ledger-20260713`
+- Context:
+  - The public dashboard retained validated replay trades because the daily
+    workflow emitted order previews but no confirmed simulated fills.
+- Attempt:
+  - Added a private, review-only forward paper ledger that restores its last
+    validated state, resolves prior pending orders at the next cached close,
+    builds the next preview from the updated paper account, and enqueues only a
+    changed normalized target hash.
+  - Added deterministic client-order idempotency, sell-before-buy integer-share
+    execution, 25 bps costs, no-negative-cash enforcement, a seven-day fill-lag
+    bound, and a hash chain across fill/rejection events.
+  - Wired validated state to a dedicated GitHub cache and Google Drive
+    `paper_archive`, while publishing only allowlisted forward fill fields.
+- Result:
+  - A synthetic two-session scenario queued on the signal close, filled once at
+    the next close, preserved nonnegative cash, rejected an expired missing-price
+    order, detected a tampered event, and remained idempotent on rerun.
+  - The public table now distinguishes `Backtest` from `Forward 모의`; private
+    quantities, fees, and account dollars remain excluded.
+- Failure or caveat:
+  - No scheduled real-market artifact has run this code yet; synthetic success
+    is not operating evidence.
+  - The forward account currently records zero-yield cash for execution
+    monitoring. Historical acceptance metrics retain the separate DGS3MO cash
+    carry contract and must not be replaced by forward metrics.
+  - Forward CAGR is underpowered until at least 252 observations and 300 elapsed
+    days.
+- Root cause:
+  - The prior daily preview was rebuilt from the fixed historical account state
+    and had no persistent pending-to-fill lifecycle.
+- Reusable lesson:
+  - Resolve yesterday before proposing today, persist only validated state, and
+    never infer a fill from a same-day preview.
+  - Target-hash idempotency is necessary to prevent unchanged target books from
+    causing daily drift rebalancing.
+  - Operational forward evidence measures implementation durability; it does
+    not establish seven-year CAGR/MDD.
+- Next action:
+  - Run targeted PR validation, review the first scheduled artifact, and verify
+    the next Pages deployment shows only actual forward simulated fills.
+  - Use 21/63/126-session forward checkpoints and open a timestamped PIT
+    estimate/guidance source procurement gate rather than retuning rejected SEC
+    or downside-beta arms.
+- Do-not-repeat:
+  - Do not persist partial state after a failed resolver.
+  - Do not publish paper quantities or account dollars.
+  - Do not call forward paper fills live or broker-executed trades.
+  - Do not tune the rejected Main downside-beta arm or rejected SEC source
+    screen to cross an endpoint.
+- Evidence files:
+  - `tools/run_daily_simulated_fill_ledger.py`
+  - `tests/daily_simulated_fill_ledger_smoke.py`
+  - `.github/workflows/daily_operating_selection_refresh.yml`
+  - `tools/build_public_portfolio_dashboard.py`
+  - `tests/public_portfolio_dashboard_smoke.py`
+  - `docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md`
+
+### 2026-07-13 - Daily publication must require a real completed session and exact closes
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-daily-paper-ledger-20260713`, PR #266 update
+- Context:
+  - The user requested automatic portfolio and homepage updates only after the
+    prior US trading close, with correct weekend and exchange-holiday handling.
+- Attempt:
+  - Replaced the age-only inline check with an exact NYSE calendar gate that
+    recognizes holidays and early closes, requires a 90-minute settlement
+    buffer, and rejects scheduled sessions older than 18 hours.
+  - Added a fail-closed coverage audit for every current target, held position,
+    pending-order ticker, and required benchmark before the paper ledger runs.
+  - Made the Pages workflow verify that the successful daily run actually
+    produced a completed-session artifact before deploying.
+- Result:
+  - Synthetic regular-day, too-soon, Independence Day holiday, weekend, and
+    post-Thanksgiving early-close cases pass.
+  - A stale single-ticker price blocks the entire portfolio/public refresh;
+    exact same-session coverage passes.
+  - A holiday/no-new-close run leaves the previous valid website deployed.
+- Failure or caveat:
+  - The first scheduled real-market artifact still must be reviewed after the
+    PR is merged; synthetic calendar/price fixtures are not operating evidence.
+  - Manual `force_run` may replay an older completed session, but exact-close
+    coverage and paper-ledger idempotency still apply.
+- Root cause:
+  - The previous workflow knew a recent NYSE close existed but did not prove
+    exact session-date coverage across the complete operating book, and the
+    Pages follower could run after a successful holiday no-op.
+- Reusable lesson:
+  - Calendar completion, data availability, account marking, artifact
+    publication, and Pages deployment are separate gates and must all agree on
+    the same exchange session date.
+- Next action:
+  - Merge only after CI passes, then inspect the first scheduled artifact's
+    session and close-price coverage manifests before trusting daily updates.
+- Do-not-repeat:
+  - Do not label a portfolio with a new as-of date using prior-session prices.
+  - Do not deploy Pages from a successful workflow that emitted no completed-
+    session artifact.
+  - Do not turn a holiday skip into a failed trade or invented fill.
+- Evidence files:
+  - `tools/run_daily_market_session_gate.py`
+  - `tools/validate_daily_close_prices.py`
+  - `tests/daily_market_close_gate_smoke.py`
+  - `.github/workflows/daily_operating_selection_refresh.yml`
+  - `.github/workflows/pages_deploy.yml`
+
+### 2026-07-13 - Partial-resize confirmation saves fees but destroys target-book alpha
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-partial-resize-confirm-20260713`
+  - local fixed-book replay only; no fullrun
+- Context:
+  - A 25bps versus 0bps upper-bound diagnostic showed enough theoretical cost
+    headroom to cover the remaining headline CAGR gaps, while small trades were
+    too small to matter. Monthly partial resize and reversal churn was the only
+    cost bucket large enough to investigate cheaply.
+- Attempt:
+  - Added one fixed research-only execution mechanism: entries, full exits, and
+    partial sells during a total target-gross reduction execute immediately;
+    every other held-name partial resize requires the same side at two
+    consecutive decisions.
+  - Used integer shares, next-close fills, 25bps per side, lag at most seven
+    days, the frozen generated baseline books, cash-carry as primary, and
+    zero-yield sensitivity. No threshold grid was run.
+- Result:
+  - Control parity passed with exact Main and Concentrated trade-ledger SHA-256
+    matches.
+  - Main cash-carry fell from 34.4032% CAGR / -25.3619% MDD to 31.5886% /
+    -27.0363%; OOS dCAGR was -14.4485pp and OOS2 dCAGR was -6.9461pp.
+  - Concentrated cash-carry fell from 49.0971% / -22.9552% to 38.2025% /
+    -23.5305%; OOS dCAGR was -31.9098pp and OOS2 dCAGR was -15.6199pp.
+  - Zero-yield OOS and OOS2 deltas were also negative for both portfolios.
+  - Main saved $5,259.96 of fees and 295 trades; Concentrated saved $21,147.52
+    and 91 trades. The forgone target-weight alpha was much larger.
+- Failure or caveat:
+  - `REJECT_OOS_CAGR_WORSE`; this is a genuine firing arm, not a no-op.
+  - The proxy universe remains `pit_universe_label_clean=false`, so even a pass
+    would have remained production-blocked research evidence.
+- Root cause:
+  - Monthly target-weight changes contain useful allocation information. A
+    generic delay treats informative conviction changes as execution noise.
+- Reusable lesson:
+  - Cost upper bounds identify an opportunity size, not a valid mechanism.
+  - Reduce costs only when a new decision-time signal can distinguish noisy
+    resizes from informative resizes; do not suppress the target book blindly.
+- Next action:
+  - Open the preregistered PIT estimate/guidance source lane. Continue free
+    snapshots as forward paper evidence only.
+- Do-not-repeat:
+  - Do not retune confirmation count, add a resize threshold grid, or rename
+    this as a deadband/no-trade-band arm on the same books and window.
+  - Exact key:
+    `target_weight_direction+partial_resize_two_signal_confirmation+generated_baseline_books+2019-06-03_2026-07-10`.
+- Evidence files:
+  - `docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md`
+  - `outputs/run287_partial_resize_two_signal_20260713/summary.json`
+  - `outputs/run287_partial_resize_two_signal_20260713/{main,concentrated}/{control,arm}_{cash_carry,zero_yield}/`
+
+### 2026-07-13 - PIT estimate/guidance procurement is now fail-closed before alpha
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-pit-estimate-source-gate-20260713`
+  - provider-neutral local data audit only; no fullrun
+- Context:
+  - The remaining Main and Concentrated CAGR gaps require a genuinely new
+    historical source lane. The free estimate archive is forward-only and its
+    successful catch-up artifact found true estimates for only 13 of 863
+    requested names.
+- Attempt:
+  - Preregistered one new combination:
+    `pit_estimate_guidance_composite_revision_state + single_source_screen + single_source_events + 2019-06-03_2026-07-10`.
+  - Added a provider-neutral gate for exact timestamps, stable IDs, source
+    hashes, EPS/revenue revisions, guidance pairs, delisted coverage, OOS/OOS2
+    coverage, reproduction rights, approved sample cost, and no lock-in.
+- Result:
+  - Do-not-repeat preflight: `ALLOWED_NEW_COMBINATION`.
+  - Synthetic complete export: `READY_FOR_SOURCE_SCREEN`.
+  - Synthetic date-only, chronology, schema, coverage, and lock-in faults each
+    reached their intended blocked state.
+  - Existing free run `29028159934`: `BLOCKED_SCHEMA`; it remains valid only as
+    forward evidence and was not backfilled or scored historically.
+  - Local standard PR validation passed 137 of 141 tests. The four failures are
+    the existing sparse-checkout omissions; the new gate and adjacent estimate
+    tests passed.
+- Failure or caveat:
+  - No real historical provider sample has passed yet. The new lane is data-
+    ready, not alpha-ready, portfolio-ready, purchase-approved, or production-
+    ready.
+- Root cause:
+  - A current snapshot cannot reconstruct when a historical consensus or
+    guidance value became available. Ticker-only identity also cannot prove
+    delisted and symbol-change coverage.
+- Reusable lesson:
+  - Audit schema, PIT chronology, stable identity, coverage, rights, and cost
+    before joining returns or purchasing a broad license.
+  - `READY_FOR_SOURCE_SCREEN` authorizes only the next research gate.
+- Next action:
+  - Build a deterministic 50-security sample request with at least five
+    delisted stable IDs and obtain a zero-cost schema sample first.
+- Do-not-repeat:
+  - Do not retrofit the 13 current free snapshots into 2019-2026.
+  - Do not weaken the frozen sample thresholds after seeing provider coverage
+    or return labels.
+  - Do not buy full-universe history before sample gate and source screen pass.
+- Evidence files:
+  - `tools/audit_pit_estimate_guidance_source.py`
+  - `tests/pit_estimate_guidance_source_gate_smoke.py`
+  - `docs/run287_pit_estimate_guidance_source_requirements.json`
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SOURCE_GATE_20260713.md`
+
+### 2026-07-14 - Long estimate/guidance outcomes and unbiased sample request frozen before labels
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-long-horizon-source-contract-20260714`
+  - local request preparation only; no provider call, return join, or fullrun
+- Context:
+  - The final research must cover the historical eligible union, not only a
+    small sample or the current 993-row snapshot. The user also requested
+    longer post-event trading-day outcomes.
+- Attempt:
+  - Froze 21/63/126/252/504-session roles before any estimate/guidance return
+    labels are available.
+  - Built a deterministic 50-row zero-cost schema request from the 993-row
+    current research queue without using holdings or future returns.
+- Result:
+  - Current reference: 992 equity issuers and 64 ADR/global listings.
+  - Sample: 45 current active issuers, exactly five ADR/global listings, and
+    five historical-delisted provider-query slots across 13 current sector
+    labels.
+  - Status: `READY_ZERO_COST_SCHEMA_REQUEST_WITH_PROVIDER_DELISTED_QUERY`.
+  - 252D is a powered long-confirmation gate; 504D is a powered directional
+    sensitivity because endpoint censoring is material.
+  - Synthetic deterministic, delisted-slot, and missing-long-horizon cases
+    passed.
+  - Local standard PR validation passed 138 of 142 tests. The four failures are
+    the existing sparse-checkout omissions; both estimate/guidance tests passed.
+- Failure or caveat:
+  - The free listing artifact returned zero delisted rows. The historical union
+    count remains unknown and `pit_universe_label_clean=false`.
+  - No real provider sample or historical return was evaluated.
+- Root cause:
+  - Projecting current constituents backward would omit failed/delisted names.
+    Treating unresolved 504D outcomes as zero would also bias recent events.
+- Reusable lesson:
+  - Separate sample procurement QA from final all-universe research.
+  - Long outcomes require explicit right censoring, longer bootstrap blocks,
+    and verified terminal returns for delisted securities.
+- Next action:
+  - Send only the zero-cost schema request. Run the source gate on the delivered
+    50-security export before joining any price outcomes.
+- Do-not-repeat:
+  - Do not back-project the current 993 rows as historical membership.
+  - Do not fill unresolved 252D/504D labels with zero or remove delisted names.
+  - Do not change horizon lengths or the 2026-07-10 endpoint after results.
+- Evidence files:
+  - `docs/run287_pit_estimate_guidance_outcome_contract.json`
+  - `tools/build_pit_estimate_guidance_sample_request.py`
+  - `tests/pit_estimate_guidance_sample_request_smoke.py`
+  - `docs/CODEX_RUN287_LONG_HORIZON_SAMPLE_REQUEST_20260714.md`
+  - `outputs/run287_pit_estimate_guidance_sample_request_20260714/`
+
+### 2026-07-14 - Scheduled full rebuild violated the separate-approval boundary
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/disable-scheduled-fullrun-20260714`
+  - GitHub Actions incident run `29249021773`; governance fix only, no fullrun
+- Context:
+  - Run287 requires exact hashes and expected cost to be shown for separate
+    user approval before any fullrun.
+  - The nominally manual full-rebuild workflow still contained a weekly cron.
+- Attempt:
+  - Audited the live workflow and the failed scheduled run before editing.
+  - Removed the automatic trigger and added a first-step manual approval guard.
+- Result:
+  - The workflow is `workflow_dispatch`-only.
+  - A dispatch now requires `FULLRUN_APPROVED`, the exact dispatched commit
+    SHA, a frozen source-manifest SHA-256, and expected runner minutes.
+  - Blank core inputs and `alphaops_vnext_production` fail before expensive
+    runner work; approved manual runs are serialized.
+- Failure or caveat:
+  - Run `29249021773` had already started automatically on 2026-07-13. It
+    failed at `run_local.py --full` because the scheduled event supplied an
+    empty `fast_mode`, after earlier setup, SEC refresh, and restore steps ran.
+  - This fix does not make a future fullrun approved; it only enforces the
+    prerequisites. No fullrun was used to validate the fix.
+- Root cause:
+  - A `schedule` trigger was combined with logic that read
+    `workflow_dispatch`-only inputs. GitHub scheduled events do not populate
+    those dispatch inputs.
+- Reusable lesson:
+  - Expensive manual workflows must not also have automatic triggers.
+  - Approval evidence must be validated before checkout, collection, restore,
+    or any other material runner work.
+- Next action:
+  - Run targeted smoke and standard PR CI, then merge this governance fix
+    before integrating the SEC/CIK and risk-watch PRs.
+- Do-not-repeat:
+  - Do not restore a cron, `workflow_call`, or chained automatic trigger to the
+    full-rebuild workflow.
+  - Do not use a fullrun to test the governance guard.
+  - Do not treat incident artifacts or diagnostics as a valid performance
+    baseline.
+- Evidence files:
+  - `.github/workflows/full_rebuild_manual.yml`
+  - `tests/smoke_test.py`
+  - `docs/CODEX_FULLRUN_SCHEDULE_GOVERNANCE_RESULT_20260714.md`

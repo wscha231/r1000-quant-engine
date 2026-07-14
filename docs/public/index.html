@@ -1,77 +1,251 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07101f">
   <meta name="robots" content="noindex, nofollow">
-  <title>r1000-quant-engine — Performance Report</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      max-width: 760px;
-      margin: 60px auto;
-      padding: 0 24px;
-      line-height: 1.65;
-      color: #1a1a1a;
-      background: #fafafa;
-    }
-    h1 { font-size: 1.6rem; margin-bottom: 0.4rem; }
-    .subtitle { color: #666; font-size: 0.95rem; margin-bottom: 2rem; }
-    .placeholder-box {
-      border: 1px solid #ddd;
-      background: white;
-      border-radius: 8px;
-      padding: 24px 28px;
-      margin: 24px 0;
-    }
-    code {
-      background: #f0f0f0;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 0.9em;
-    }
-    .footer {
-      margin-top: 48px;
-      padding-top: 16px;
-      border-top: 1px solid #eee;
-      font-size: 0.85rem;
-      color: #888;
-    }
-  </style>
+  <meta name="description" content="Run287 Main 및 Concentrated 포트폴리오의 연구용 보유 비중, 성과, 매매 원장 대시보드">
+  <title>Run287 Portfolio Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Noto+Sans+KR:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <h1>r1000-quant-engine</h1>
-  <div class="subtitle">7-Year Walk-Forward Performance Report</div>
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
 
-  <div class="placeholder-box">
-    <strong>Placeholder.</strong>
-    <p>
-      This page will display the auto-generated 7-year walk-forward performance
-      report after the credibility audit pipeline (Stage 1–2) completes and the
-      first weekly cron full rebuild publishes here.
-    </p>
-    <p>
-      The report will include headline CAGR / MaxDD / Sharpe plus 9 credibility
-      indicators (embargo audit, factor α/β attribution, bootstrap confidence
-      interval, cost stress, regime decomposition, start-date sensitivity,
-      walk-forward yearly consistency, combinatorial purged CV, decision
-      provenance / meta-leakage disclosure) following walk-forward training
-      with <code>126-day embargo</code> and <code>3-month retrain frequency</code>.
-    </p>
-    <p>
-      Until then, this placeholder confirms that GitHub Pages is wired to
-      <code>master:/docs/public/</code> and ready to receive auto-publish
-      commits from <code>.github/workflows/walkforward_report_publish.yml</code>
-      (planned, not yet shipped).
-    </p>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Run287 Portfolio Monitor 홈">
+      <span class="brand-mark">R287</span>
+      <span>
+        <strong>Portfolio Monitor</strong>
+        <small>Research ledger · daily close</small>
+      </span>
+    </a>
+    <div class="header-status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="header-status-text">데이터 불러오는 중</span>
+    </div>
+  </header>
+
+  <main id="top" class="page-shell">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="eyebrow">RUN287 · SIMULATED BROKER LEDGER</div>
+        <h1 id="hero-title">매일의 판단을<br><span>한 화면에.</span></h1>
+        <p class="hero-description">
+          Main과 Concentrated의 보유 비중, 현금, 검증 성과와 매매 이력을
+          직전 완료 거래일 종가 기준으로 공개합니다.
+        </p>
+        <div class="guardrail-row" aria-label="운용 안전 상태">
+          <span class="guardrail">연구·검토 전용</span>
+          <span class="guardrail">자동 주문 없음</span>
+          <span class="guardrail">달러 자산액 비공개</span>
+        </div>
+      </div>
+      <aside class="asof-card" aria-label="데이터 기준일">
+        <span>VALUATION CLOSE</span>
+        <strong id="as-of-close">—</strong>
+        <p>직전 완료 미국 거래일 종가</p>
+        <dl>
+          <div><dt>갱신</dt><dd id="generated-at">—</dd></div>
+          <div><dt>출처</dt><dd id="source-label">—</dd></div>
+          <div><dt>판정</dt><dd id="decision-label">—</dd></div>
+        </dl>
+      </aside>
+    </section>
+
+    <section class="metric-grid" id="metric-grid" aria-label="포트폴리오 핵심 성과"></section>
+
+    <section class="panel allocation-overview" aria-labelledby="allocation-overview-title">
+      <div class="section-heading section-heading-wrap">
+        <div>
+          <span class="section-kicker">PORTFOLIO COMPOSITION</span>
+          <h2 id="allocation-overview-title">두 포트 보유 구성</h2>
+          <p class="section-description">원형 차트와 범례에서 종목별 비중과 현금을 한눈에 비교할 수 있습니다.</p>
+        </div>
+        <span class="asof-inline"><span class="status-dot" aria-hidden="true"></span><span id="allocation-asof">—</span> 종가</span>
+      </div>
+      <div class="donut-grid" id="allocation-donuts"></div>
+    </section>
+
+    <section class="panel performance-panel" aria-labelledby="performance-title">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">NORMALIZED GROWTH</span>
+          <h2 id="performance-title">누적 성장 경로</h2>
+        </div>
+        <div class="legend" id="chart-legend" aria-label="차트 범례"></div>
+      </div>
+      <div class="chart-shell">
+        <svg id="equity-chart" viewBox="0 0 1000 340" role="img" aria-label="Main과 Concentrated 정규화 누적 성장 차트"></svg>
+        <div id="chart-empty" class="empty-state" hidden>공개 가능한 성장 경로가 아직 없습니다.</div>
+      </div>
+      <p class="chart-note">각 포트폴리오의 시작값을 100으로 정규화했습니다. 총자산 달러 금액은 공개하지 않습니다.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="holdings-title">
+      <div class="section-heading section-heading-wrap">
+        <div>
+          <span class="section-kicker">CURRENT ALLOCATION</span>
+          <h2 id="holdings-title">현재 보유 비중</h2>
+        </div>
+        <div class="controls">
+          <div class="segmented" role="group" aria-label="보유 포트폴리오 선택">
+            <button class="portfolio-tab active" data-portfolio="main" type="button">Main</button>
+            <button class="portfolio-tab" data-portfolio="concentrated" type="button">Concentrated</button>
+          </div>
+          <label class="search-field">
+            <span class="sr-only">보유 종목 검색</span>
+            <input id="holdings-search" type="search" placeholder="티커 검색" autocomplete="off">
+          </label>
+        </div>
+      </div>
+      <div class="allocation-strip" id="allocation-strip" aria-label="종목별 비중 막대"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">순위</th>
+              <th scope="col">종목</th>
+              <th scope="col" class="number">종가</th>
+              <th scope="col" class="number">현재 비중</th>
+              <th scope="col" class="number">목표 비중</th>
+              <th scope="col" class="number">차이</th>
+            </tr>
+          </thead>
+          <tbody id="holdings-body"></tbody>
+        </table>
+      </div>
+      <div class="table-footer" id="holdings-footer"></div>
+    </section>
+
+    <section class="panel" id="preview-section" aria-labelledby="preview-title" hidden>
+      <div class="section-heading section-heading-wrap">
+        <div>
+          <span class="section-kicker warning-kicker">REVIEW ONLY · NOT EXECUTED</span>
+          <h2 id="preview-title">검토 필요 변경안</h2>
+          <p class="section-description">아래 내용은 현재 비중과 목표 비중의 차이이며, 체결 주문이나 자동매매 기록이 아닙니다.</p>
+        </div>
+        <span class="review-badge">사람 승인 필요</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">포트</th>
+              <th scope="col">종목</th>
+              <th scope="col">검토 상태</th>
+              <th scope="col" class="number">현재</th>
+              <th scope="col" class="number">목표</th>
+              <th scope="col" class="number">차이</th>
+            </tr>
+          </thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel trade-ledger-panel" id="trade-section" aria-labelledby="trades-title" hidden>
+      <div class="section-heading section-heading-wrap">
+        <div>
+          <span class="section-kicker">BACKTEST + FORWARD PAPER LEDGER</span>
+          <h2 id="trades-title" tabindex="-1">매수·매도 기록</h2>
+          <p class="section-description" id="trade-history-status">검증 백테스트와 다음 종가 기준 Forward 모의 체결을 구분해 표시합니다.</p>
+        </div>
+        <div class="controls ledger-controls">
+          <div class="segmented" role="group" aria-label="거래 기록 포트폴리오 선택">
+            <button class="trade-portfolio-tab active" data-trade-portfolio="main" type="button">Main</button>
+            <button class="trade-portfolio-tab" data-trade-portfolio="concentrated" type="button">Concentrated</button>
+          </div>
+          <label class="select-field">
+            <span class="sr-only">매매 방향 선택</span>
+            <select id="trade-side">
+              <option value="all">전체 방향</option>
+              <option value="BUY">매수</option>
+              <option value="SELL">매도</option>
+            </select>
+          </label>
+          <label class="search-field">
+            <span class="sr-only">매매 종목 검색</span>
+            <input id="trade-search" type="search" placeholder="티커 검색" autocomplete="off">
+          </label>
+          <button class="ledger-close" id="close-trade-ledger" type="button" aria-controls="trade-section">기록 닫기</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">체결일</th>
+              <th scope="col">신호일</th>
+              <th scope="col">구분</th>
+              <th scope="col">방향</th>
+              <th scope="col">종목</th>
+              <th scope="col" class="number">체결가</th>
+              <th scope="col" class="number">목표 비중</th>
+              <th scope="col">사유</th>
+            </tr>
+          </thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+      </div>
+      <div class="table-footer ledger-footer">
+        <span id="trades-footer"></span>
+        <button class="load-more" id="load-more-trades" type="button">더 보기</button>
+      </div>
+    </section>
+
+    <section class="lower-grid">
+      <section class="panel compact-panel" aria-labelledby="changes-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">SYSTEM CHANGELOG</span>
+            <h2 id="changes-title">최근 수정 내용</h2>
+          </div>
+        </div>
+        <ol id="changes-list" class="changes-list"></ol>
+      </section>
+
+      <section class="panel compact-panel" aria-labelledby="contract-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">PUBLIC DATA CONTRACT</span>
+            <h2 id="contract-title">공개 원칙</h2>
+          </div>
+        </div>
+        <ul class="contract-list">
+          <li><strong>기준 시각</strong><span>직전 완료 미국 거래일 종가</span></li>
+          <li><strong>체결 가정</strong><span>정수 주식 · next-close · 편도 25bps</span></li>
+          <li><strong>공개 항목</strong><span>종목 · 비중 · 가격 · 매매 방향</span></li>
+          <li><strong>비공개 항목</strong><span>총자산 · 수량 · 원가 · 손익 · 비밀키</span></li>
+          <li><strong>운용 상태</strong><span>모의 원장 · 연구/검토 전용</span></li>
+        </ul>
+      </section>
+    </section>
+
+    <section class="disclaimer" aria-label="중요 고지">
+      <strong>중요 고지</strong>
+      <p>
+        이 사이트는 연구용 모의 브로커 원장과 검토 자료를 보여주며 투자 권유, 실계좌 내역 또는 자동 주문 지시가 아닙니다.
+        CAGR과 MDD는 과거 시뮬레이션 결과이며 미래 성과를 보장하지 않습니다. PIT 유니버스와 상장폐지 편향이 완전히 해결되기 전에는 production-ready로 보지 않습니다.
+      </p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>Run287 Portfolio Monitor</span>
+    <a href="https://github.com/wscha231/r1000-quant-engine" rel="noreferrer">GitHub repository</a>
+  </footer>
+
+  <div id="load-error" class="load-error" role="alert" hidden>
+    <strong>데이터를 불러오지 못했습니다.</strong>
+    <span>마지막 배포 상태를 확인해 주세요.</span>
   </div>
 
-  <div class="footer">
-    Auto-publish pipeline status: <strong>not yet wired</strong> — see
-    <code>docs/CODEX_WALKFORWARD_PUBLIC_REPORT_PLAN.md</code> Workstream W5 + AUTO.
-    <br>
-    Repository:
-    <a href="https://github.com/wscha231/r1000-quant-engine">wscha231/r1000-quant-engine</a>.
-  </div>
+  <script src="./app.js" defer></script>
 </body>
 </html>

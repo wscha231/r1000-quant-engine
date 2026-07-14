@@ -1,0 +1,6509 @@
+{
+  "as_of_close": "2026-07-10",
+  "changes": [
+    {
+      "commit": "7504806c",
+      "date": "2026-07-10",
+      "summary": "Add free data selection overlay (#262)"
+    },
+    {
+      "commit": "f5a90295",
+      "date": "2026-07-10",
+      "summary": "Add free historical data backfill contracts (#261)"
+    },
+    {
+      "commit": "ded2c367",
+      "date": "2026-07-10",
+      "summary": "Merge same-day estimate archive snapshots"
+    },
+    {
+      "commit": "ae470d2f",
+      "date": "2026-07-10",
+      "summary": "Add incremental estimate archive add-ons"
+    },
+    {
+      "commit": "b46c99f3",
+      "date": "2026-07-10",
+      "summary": "Document all-shards estimate catch-up result"
+    },
+    {
+      "commit": "6b16a219",
+      "date": "2026-07-09",
+      "summary": "Raise estimate catch-up error cap"
+    },
+    {
+      "commit": "96c9ef53",
+      "date": "2026-07-09",
+      "summary": "Add all-shards estimate archive catch-up mode"
+    },
+    {
+      "commit": "dbc28630",
+      "date": "2026-07-09",
+      "summary": "Rotate forward estimate archive shards"
+    },
+    {
+      "commit": "96bbfd29",
+      "date": "2026-07-09",
+      "summary": "Add forward estimate universe archive planning"
+    },
+    {
+      "commit": "364ddc40",
+      "date": "2026-07-09",
+      "summary": "codex: guard estimate confirmation by coverage"
+    },
+    {
+      "commit": "a7b84228",
+      "date": "2026-07-09",
+      "summary": "codex: record default estimate smoke result"
+    },
+    {
+      "commit": "dc9ea4cd",
+      "date": "2026-07-09",
+      "summary": "codex: pause alphavantage until key rotation"
+    }
+  ],
+  "generated_at_utc": "2026-07-13T05:12:45+00:00",
+  "methodology": {
+    "cash_basis": "actual simulated cash ledger with research cash carry",
+    "execution_assumption": "integer shares, next close, 25 bps per side",
+    "public_data_delay": "published after daily review artifact completes",
+    "valuation_basis": "latest completed US trading close"
+  },
+  "order_previews": [],
+  "portfolios": {
+    "concentrated": {
+      "cash_weight": 0.1639664577,
+      "equity_curve": [
+        {
+          "date": "2019-06-03",
+          "index": 100.0
+        },
+        {
+          "date": "2019-06-17",
+          "index": 104.67
+        },
+        {
+          "date": "2019-07-01",
+          "index": 105.3829
+        },
+        {
+          "date": "2019-07-16",
+          "index": 108.4609
+        },
+        {
+          "date": "2019-07-30",
+          "index": 110.485
+        },
+        {
+          "date": "2019-08-13",
+          "index": 113.5487
+        },
+        {
+          "date": "2019-08-27",
+          "index": 112.1894
+        },
+        {
+          "date": "2019-09-11",
+          "index": 112.7668
+        },
+        {
+          "date": "2019-09-25",
+          "index": 108.3019
+        },
+        {
+          "date": "2019-10-09",
+          "index": 106.4695
+        },
+        {
+          "date": "2019-10-23",
+          "index": 107.6758
+        },
+        {
+          "date": "2019-11-06",
+          "index": 105.4636
+        },
+        {
+          "date": "2019-11-20",
+          "index": 106.8479
+        },
+        {
+          "date": "2019-12-05",
+          "index": 105.5182
+        },
+        {
+          "date": "2019-12-19",
+          "index": 112.2369
+        },
+        {
+          "date": "2020-01-06",
+          "index": 113.8528
+        },
+        {
+          "date": "2020-01-21",
+          "index": 121.4726
+        },
+        {
+          "date": "2020-02-04",
+          "index": 139.9712
+        },
+        {
+          "date": "2020-02-18",
+          "index": 145.9475
+        },
+        {
+          "date": "2020-03-03",
+          "index": 126.8207
+        },
+        {
+          "date": "2020-03-17",
+          "index": 119.6418
+        },
+        {
+          "date": "2020-03-31",
+          "index": 121.6799
+        },
+        {
+          "date": "2020-04-15",
+          "index": 121.5435
+        },
+        {
+          "date": "2020-04-29",
+          "index": 122.251
+        },
+        {
+          "date": "2020-05-13",
+          "index": 126.8528
+        },
+        {
+          "date": "2020-05-28",
+          "index": 127.4236
+        },
+        {
+          "date": "2020-06-11",
+          "index": 127.0203
+        },
+        {
+          "date": "2020-06-25",
+          "index": 139.085
+        },
+        {
+          "date": "2020-07-10",
+          "index": 164.8253
+        },
+        {
+          "date": "2020-07-24",
+          "index": 151.5759
+        },
+        {
+          "date": "2020-08-07",
+          "index": 169.5378
+        },
+        {
+          "date": "2020-08-21",
+          "index": 177.6312
+        },
+        {
+          "date": "2020-09-04",
+          "index": 173.9574
+        },
+        {
+          "date": "2020-09-21",
+          "index": 193.9744
+        },
+        {
+          "date": "2020-10-05",
+          "index": 213.9087
+        },
+        {
+          "date": "2020-10-19",
+          "index": 205.0498
+        },
+        {
+          "date": "2020-11-02",
+          "index": 193.3837
+        },
+        {
+          "date": "2020-11-16",
+          "index": 200.963
+        },
+        {
+          "date": "2020-12-01",
+          "index": 203.6508
+        },
+        {
+          "date": "2020-12-15",
+          "index": 219.7641
+        },
+        {
+          "date": "2020-12-30",
+          "index": 233.8172
+        },
+        {
+          "date": "2021-01-14",
+          "index": 251.4829
+        },
+        {
+          "date": "2021-01-29",
+          "index": 236.14
+        },
+        {
+          "date": "2021-02-12",
+          "index": 258.3888
+        },
+        {
+          "date": "2021-03-01",
+          "index": 247.2105
+        },
+        {
+          "date": "2021-03-15",
+          "index": 248.3175
+        },
+        {
+          "date": "2021-03-29",
+          "index": 232.7566
+        },
+        {
+          "date": "2021-04-13",
+          "index": 237.4303
+        },
+        {
+          "date": "2021-04-27",
+          "index": 244.3807
+        },
+        {
+          "date": "2021-05-11",
+          "index": 247.3758
+        },
+        {
+          "date": "2021-05-25",
+          "index": 242.8241
+        },
+        {
+          "date": "2021-06-09",
+          "index": 248.2968
+        },
+        {
+          "date": "2021-06-23",
+          "index": 245.5034
+        },
+        {
+          "date": "2021-07-08",
+          "index": 225.1189
+        },
+        {
+          "date": "2021-07-21",
+          "index": 248.8085
+        },
+        {
+          "date": "2021-08-04",
+          "index": 266.8234
+        },
+        {
+          "date": "2021-08-18",
+          "index": 261.4156
+        },
+        {
+          "date": "2021-09-01",
+          "index": 270.6526
+        },
+        {
+          "date": "2021-09-16",
+          "index": 275.4232
+        },
+        {
+          "date": "2021-09-30",
+          "index": 258.2951
+        },
+        {
+          "date": "2021-10-14",
+          "index": 264.5613
+        },
+        {
+          "date": "2021-10-28",
+          "index": 271.0604
+        },
+        {
+          "date": "2021-11-11",
+          "index": 282.6989
+        },
+        {
+          "date": "2021-11-26",
+          "index": 281.4119
+        },
+        {
+          "date": "2021-12-10",
+          "index": 256.8251
+        },
+        {
+          "date": "2021-12-27",
+          "index": 260.9341
+        },
+        {
+          "date": "2022-01-10",
+          "index": 257.1521
+        },
+        {
+          "date": "2022-01-25",
+          "index": 249.6998
+        },
+        {
+          "date": "2022-02-08",
+          "index": 252.0763
+        },
+        {
+          "date": "2022-02-23",
+          "index": 249.5924
+        },
+        {
+          "date": "2022-03-09",
+          "index": 246.6432
+        },
+        {
+          "date": "2022-03-23",
+          "index": 249.3277
+        },
+        {
+          "date": "2022-04-06",
+          "index": 248.83
+        },
+        {
+          "date": "2022-04-21",
+          "index": 249.5708
+        },
+        {
+          "date": "2022-05-05",
+          "index": 248.1186
+        },
+        {
+          "date": "2022-05-19",
+          "index": 247.6949
+        },
+        {
+          "date": "2022-06-03",
+          "index": 248.458
+        },
+        {
+          "date": "2022-06-17",
+          "index": 243.5949
+        },
+        {
+          "date": "2022-07-05",
+          "index": 241.6475
+        },
+        {
+          "date": "2022-07-19",
+          "index": 241.9986
+        },
+        {
+          "date": "2022-08-02",
+          "index": 243.0679
+        },
+        {
+          "date": "2022-08-16",
+          "index": 247.7034
+        },
+        {
+          "date": "2022-08-30",
+          "index": 245.57
+        },
+        {
+          "date": "2022-09-14",
+          "index": 244.1141
+        },
+        {
+          "date": "2022-09-28",
+          "index": 241.4908
+        },
+        {
+          "date": "2022-10-12",
+          "index": 241.5874
+        },
+        {
+          "date": "2022-10-26",
+          "index": 242.9283
+        },
+        {
+          "date": "2022-11-09",
+          "index": 243.6469
+        },
+        {
+          "date": "2022-11-23",
+          "index": 246.858
+        },
+        {
+          "date": "2022-12-08",
+          "index": 242.8011
+        },
+        {
+          "date": "2022-12-21",
+          "index": 240.0007
+        },
+        {
+          "date": "2023-01-06",
+          "index": 237.9677
+        },
+        {
+          "date": "2023-01-23",
+          "index": 239.259
+        },
+        {
+          "date": "2023-02-06",
+          "index": 238.8488
+        },
+        {
+          "date": "2023-02-21",
+          "index": 236.7182
+        },
+        {
+          "date": "2023-03-07",
+          "index": 238.7476
+        },
+        {
+          "date": "2023-03-21",
+          "index": 241.7461
+        },
+        {
+          "date": "2023-04-04",
+          "index": 241.9642
+        },
+        {
+          "date": "2023-04-19",
+          "index": 245.3588
+        },
+        {
+          "date": "2023-05-03",
+          "index": 251.2059
+        },
+        {
+          "date": "2023-05-17",
+          "index": 252.8666
+        },
+        {
+          "date": "2023-06-01",
+          "index": 252.5796
+        },
+        {
+          "date": "2023-06-15",
+          "index": 254.8325
+        },
+        {
+          "date": "2023-06-30",
+          "index": 257.5429
+        },
+        {
+          "date": "2023-07-17",
+          "index": 267.5325
+        },
+        {
+          "date": "2023-07-31",
+          "index": 276.155
+        },
+        {
+          "date": "2023-08-14",
+          "index": 255.6279
+        },
+        {
+          "date": "2023-08-28",
+          "index": 252.0896
+        },
+        {
+          "date": "2023-09-12",
+          "index": 266.0241
+        },
+        {
+          "date": "2023-09-26",
+          "index": 255.2492
+        },
+        {
+          "date": "2023-10-10",
+          "index": 260.7046
+        },
+        {
+          "date": "2023-10-24",
+          "index": 256.4216
+        },
+        {
+          "date": "2023-11-07",
+          "index": 259.7518
+        },
+        {
+          "date": "2023-11-21",
+          "index": 265.7257
+        },
+        {
+          "date": "2023-12-06",
+          "index": 266.1572
+        },
+        {
+          "date": "2023-12-20",
+          "index": 279.842
+        },
+        {
+          "date": "2024-01-05",
+          "index": 269.227
+        },
+        {
+          "date": "2024-01-22",
+          "index": 294.9126
+        },
+        {
+          "date": "2024-02-05",
+          "index": 304.5997
+        },
+        {
+          "date": "2024-02-20",
+          "index": 325.0364
+        },
+        {
+          "date": "2024-03-05",
+          "index": 370.6924
+        },
+        {
+          "date": "2024-03-19",
+          "index": 357.7397
+        },
+        {
+          "date": "2024-04-03",
+          "index": 365.0817
+        },
+        {
+          "date": "2024-04-17",
+          "index": 347.9923
+        },
+        {
+          "date": "2024-05-01",
+          "index": 324.661
+        },
+        {
+          "date": "2024-05-15",
+          "index": 339.1261
+        },
+        {
+          "date": "2024-05-29",
+          "index": 336.9552
+        },
+        {
+          "date": "2024-06-12",
+          "index": 355.5184
+        },
+        {
+          "date": "2024-06-27",
+          "index": 351.5928
+        },
+        {
+          "date": "2024-07-12",
+          "index": 356.4951
+        },
+        {
+          "date": "2024-07-26",
+          "index": 362.8196
+        },
+        {
+          "date": "2024-08-09",
+          "index": 364.3317
+        },
+        {
+          "date": "2024-08-23",
+          "index": 374.5675
+        },
+        {
+          "date": "2024-09-09",
+          "index": 359.2789
+        },
+        {
+          "date": "2024-09-23",
+          "index": 382.8875
+        },
+        {
+          "date": "2024-10-07",
+          "index": 379.1106
+        },
+        {
+          "date": "2024-10-21",
+          "index": 400.654
+        },
+        {
+          "date": "2024-11-04",
+          "index": 384.5549
+        },
+        {
+          "date": "2024-11-18",
+          "index": 420.8552
+        },
+        {
+          "date": "2024-12-03",
+          "index": 450.6463
+        },
+        {
+          "date": "2024-12-17",
+          "index": 432.548
+        },
+        {
+          "date": "2025-01-02",
+          "index": 425.0626
+        },
+        {
+          "date": "2025-01-17",
+          "index": 428.0844
+        },
+        {
+          "date": "2025-02-03",
+          "index": 444.8645
+        },
+        {
+          "date": "2025-02-18",
+          "index": 526.0774
+        },
+        {
+          "date": "2025-03-04",
+          "index": 419.4519
+        },
+        {
+          "date": "2025-03-18",
+          "index": 415.7161
+        },
+        {
+          "date": "2025-04-01",
+          "index": 411.6511
+        },
+        {
+          "date": "2025-04-15",
+          "index": 411.0587
+        },
+        {
+          "date": "2025-04-30",
+          "index": 415.8088
+        },
+        {
+          "date": "2025-05-14",
+          "index": 420.0297
+        },
+        {
+          "date": "2025-05-29",
+          "index": 419.6259
+        },
+        {
+          "date": "2025-06-12",
+          "index": 423.629
+        },
+        {
+          "date": "2025-06-27",
+          "index": 434.7968
+        },
+        {
+          "date": "2025-07-14",
+          "index": 437.9371
+        },
+        {
+          "date": "2025-07-28",
+          "index": 464.3703
+        },
+        {
+          "date": "2025-08-11",
+          "index": 490.5899
+        },
+        {
+          "date": "2025-08-25",
+          "index": 484.323
+        },
+        {
+          "date": "2025-09-09",
+          "index": 547.6905
+        },
+        {
+          "date": "2025-09-23",
+          "index": 607.6466
+        },
+        {
+          "date": "2025-10-07",
+          "index": 590.8269
+        },
+        {
+          "date": "2025-10-21",
+          "index": 620.0942
+        },
+        {
+          "date": "2025-11-03",
+          "index": 724.65
+        },
+        {
+          "date": "2025-11-17",
+          "index": 768.1674
+        },
+        {
+          "date": "2025-12-02",
+          "index": 841.5823
+        },
+        {
+          "date": "2025-12-16",
+          "index": 878.8781
+        },
+        {
+          "date": "2025-12-31",
+          "index": 946.229
+        },
+        {
+          "date": "2026-01-15",
+          "index": 1031.5177
+        },
+        {
+          "date": "2026-01-30",
+          "index": 1138.3559
+        },
+        {
+          "date": "2026-02-13",
+          "index": 1270.7481
+        },
+        {
+          "date": "2026-03-02",
+          "index": 1415.6441
+        },
+        {
+          "date": "2026-03-16",
+          "index": 1393.9698
+        },
+        {
+          "date": "2026-03-30",
+          "index": 1373.3911
+        },
+        {
+          "date": "2026-04-14",
+          "index": 1436.986
+        },
+        {
+          "date": "2026-04-28",
+          "index": 1437.0324
+        },
+        {
+          "date": "2026-05-12",
+          "index": 1558.1589
+        },
+        {
+          "date": "2026-05-27",
+          "index": 1633.3056
+        },
+        {
+          "date": "2026-06-10",
+          "index": 1511.6598
+        },
+        {
+          "date": "2026-06-25",
+          "index": 1938.8806
+        },
+        {
+          "date": "2026-07-10",
+          "index": 1708.0346
+        }
+      ],
+      "holding_count": 5,
+      "holdings": [
+        {
+          "price": 1915.9200439453125,
+          "target_weight": null,
+          "ticker": "SNDK",
+          "weight": 0.2976103178
+        },
+        {
+          "price": 979.450610516649,
+          "target_weight": null,
+          "ticker": "MU",
+          "weight": 0.2905077929
+        },
+        {
+          "price": 557.8900146484375,
+          "target_weight": null,
+          "ticker": "AMD",
+          "weight": 0.1017029865
+        },
+        {
+          "price": 24.7682222631635,
+          "target_weight": null,
+          "ticker": "UMC",
+          "weight": 0.0748279727
+        },
+        {
+          "price": 311.4599914550781,
+          "target_weight": null,
+          "ticker": "TXN",
+          "weight": 0.0713844723
+        }
+      ],
+      "label": "Concentrated",
+      "metrics": {
+        "average_cash_weight": 0.40982402496609327,
+        "cagr": 0.4909708313132537,
+        "cost_bps_per_side": 25.0,
+        "end_date": "2026-07-10",
+        "fill_mode": "next_close",
+        "max_drawdown": -0.22955203584248118,
+        "metric_mode": "broker_ledger_next_close_cash_carry",
+        "oos2_cagr": 0.7536906974131772,
+        "oos2_max_drawdown": -0.22955203584248118,
+        "oos_cagr": 1.2140676677065234,
+        "oos_max_drawdown": -0.22955203584248118,
+        "sharpe": 1.5002964775262089,
+        "start_date": "2019-06-03",
+        "trade_count": 730,
+        "valid_for_production": false
+      },
+      "target_cash_weight": null,
+      "trades": [
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 25.830000320640234,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.08,
+          "ticker": "UMC"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 303.5,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0712232115826528,
+          "ticker": "TXN"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 1744.4300537109375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.2781899142641855,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 984.9014609710947,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.3,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 552.0499877929688,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.1029905602315827,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 546.0576171875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 22.889999389648438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.08,
+          "ticker": "UMC"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 293.20001220703125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0712232115826528,
+          "ticker": "TXN"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 1761.4300537109375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.2781899142641855,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 1035.5,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.3,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 227.8800048828125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "LNG"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 569.6099853515625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 273.510009765625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "BE"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 510.1300048828125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.1029905602315827,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 431.4075012207031,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.076,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 254.27999877929688,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "TRGP"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 1187.0,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.285,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 542.2100219726562,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 269.4357604980469,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0649277224038989,
+          "ticker": "LNG"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 949.9299926757812,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 352.4100036621094,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "KEYS"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 535.2899780273438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.1204961404911771,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 290.5199890136719,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.285,
+          "ticker": "BE"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 243.5667266845703,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0303518657072188,
+          "ticker": "TRGP"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 367.8500061035156,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0018214318242097,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 764.6500244140625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.04,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 289.8399963378906,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0070775670791731,
+          "ticker": "KEYS"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 415.3900146484375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0525,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 269.8804016113281,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 238.41262817382812,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0303368407616883,
+          "ticker": "TRGP"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 51.00259017944336,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "SLB"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 5179.91552734375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "SEB"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 412.4967346191406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0538372431695917,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 783.25,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.076,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 313.2699890136719,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.076,
+          "ticker": "KEYS"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 353.7300109863281,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.076,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 86.91999816894531,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "ASTS"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 270.03033447265625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.285,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 47.519161224365234,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0408162804290504,
+          "ticker": "SLB"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 5132.19580078125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0285,
+          "ticker": "SEB"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 437.61614990234375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.285,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 423.4200134277344,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.2585655618867856,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 275.4861755371094,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": null,
+          "ticker": "EXPE"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 268.489990234375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": null,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 104.55000305175781,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0521181576841639,
+          "ticker": "ASTS"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 187.56129455566406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0618437052005317,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 79.0199966430664,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": null,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 315.2875671386719,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.285,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 386.1099853515625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.12950982446199,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 314.7403259277344,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": null,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 281.7293395996094,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0551,
+          "ticker": "EXPE"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 246.05999755859375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.2121854809535952,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 83.47000122070312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.076,
+          "ticker": "ASTS"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 163.28787231445312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.3,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 75.80000305175781,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.058,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 240.26197814941406,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.08,
+          "ticker": "MU"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 317.92999267578125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.226674995702489,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 314.2751159667969,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0141894796732943,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 314.5035400390625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": null,
+          "ticker": "GOOG"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 200.9199981689453,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.2165585740344426,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 157.77638244628906,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.285,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 160.66917419433594,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": null,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 199.5800018310547,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.2290082366856353,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 283.16595458984375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.1303091163009999,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 283.564208984375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.1045966400123669,
+          "ticker": "GOOG"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 189.55999755859375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.1725860070009978,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 130.38865661621094,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.285,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 85.69000244140625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": null,
+          "ticker": "P"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 142.2845001220703,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.11733366265511,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 171.39999389648438,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.1219092064355935,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 244.4217529296875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.1122571309092963,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 151.72000122070312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.285,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 194.5,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": null,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 81.6886215209961,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.1363072296703841,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 375.1499938964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 77.47000122070312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.3,
+          "ticker": "P"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 170.5528564453125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 96.4959487915039,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0651748939109134,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 132.55499267578125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.3,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 578.36669921875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "GEV"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 162.32000732421875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 174.24000549316406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.1685178764187024,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 280.2699890136719,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "ZS"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 76.34310913085938,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.3,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 378.010009765625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.2520085662162873,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 56.56999969482422,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "NXT"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 173.4889373779297,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.03,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 166.17160034179688,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 655.0126953125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.1255910936979196,
+          "ticker": "GEV"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 41.30406188964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "DRS"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 742.469970703125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 171.6999969482422,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.038712589515594,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 131.10000610351562,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.253687750570199,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 307.32000732421875,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.058,
+          "ticker": "ZS"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 299.989990234375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "PODD"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 130.67999267578125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 57.52000045776367,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0734338854446157,
+          "ticker": "NXT"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 154.1962890625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.04,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 175.33978271484375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 504.6339416503906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.3,
+          "ticker": "GEV"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 44.69403076171875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.12,
+          "ticker": "DRS"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 775.3800048828125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.12,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 83.88999938964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "ATI"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 293.17999267578125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.285,
+          "ticker": "ZS"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 83.63999938964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "UBER"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 325.0,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.0551,
+          "ticker": "PODD"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 132.0399932861328,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.1139999999999999,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 156.69766235351562,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.1230994555633436,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 22.618106842041016,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "KVUE"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 55.63999938964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "HALO"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 168.34535217285156,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.0949999999999999,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 102.47000122070312,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "FTNT"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 80.7699966430664,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.1334005444366564,
+          "ticker": "ATI"
+        },
+        {
+          "date": "2025-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 80.88999938964844,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-04-30",
+          "target_weight": 0.0525,
+          "ticker": "UBER"
+        },
+        {
+          "date": "2025-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 69.28609466552734,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-04-30",
+          "target_weight": null,
+          "ticker": "TPR"
+        },
+        {
+          "date": "2025-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 112.84921264648438,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-04-30",
+          "target_weight": 0.0142163531700058,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 22.696847915649414,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-04-30",
+          "target_weight": 0.0168298005492663,
+          "ticker": "KVUE"
+        },
+        {
+          "date": "2025-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 60.029998779296875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-04-30",
+          "target_weight": 0.0155603242029281,
+          "ticker": "HALO"
+        },
+        {
+          "date": "2025-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 104.20999908447266,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-04-30",
+          "target_weight": 0.0408935220777997,
+          "ticker": "FTNT"
+        },
+        {
+          "date": "2025-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 59.959999084472656,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-04-30",
+          "target_weight": null,
+          "ticker": "BROS"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 72.98999786376953,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-03-31",
+          "target_weight": 0.0525,
+          "ticker": "UBER"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 71.64509582519531,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-03-31",
+          "target_weight": 0.0033146068504028,
+          "ticker": "TPR"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 6.585199356079102,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-03-31",
+          "target_weight": null,
+          "ticker": "SAN"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 97.02458953857422,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-03-31",
+          "target_weight": 0.0246314120940873,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 25.639999389648438,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-03-31",
+          "target_weight": null,
+          "ticker": "LI"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 22.621063232421875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-03-31",
+          "target_weight": 0.0446657403221347,
+          "ticker": "KVUE"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 61.349998474121094,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-03-31",
+          "target_weight": 0.0148882407333751,
+          "ticker": "BROS"
+        },
+        {
+          "date": "2025-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 192.1699981689453,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-03-31",
+          "target_weight": null,
+          "ticker": "AMZN"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 82.29790496826172,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-02-28",
+          "target_weight": 0.076,
+          "ticker": "TPR"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 6.284106254577637,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-02-28",
+          "target_weight": 0.076,
+          "ticker": "SAN"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 83.41999816894531,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-02-28",
+          "target_weight": null,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 27.3700008392334,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-02-28",
+          "target_weight": 0.076,
+          "ticker": "LI"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 707.6300048828125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-02-28",
+          "target_weight": null,
+          "ticker": "HUBS"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 163.50999450683594,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-02-28",
+          "target_weight": null,
+          "ticker": "GTLS"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 166.14219665527344,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-02-28",
+          "target_weight": null,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 59.06999969482422,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-02-28",
+          "target_weight": null,
+          "ticker": "CORT"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 76.33999633789062,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-02-28",
+          "target_weight": 0.076,
+          "ticker": "BROS"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 337.3399963378906,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-02-28",
+          "target_weight": null,
+          "ticker": "APP"
+        },
+        {
+          "date": "2025-03-03",
+          "fill_mode": "next_close",
+          "fill_price": 205.02000427246094,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-02-28",
+          "target_weight": 0.0087226294474572,
+          "ticker": "AMZN"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 104.83000183105469,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-01-31",
+          "target_weight": null,
+          "ticker": "UAL"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 83.73999786376953,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-01-31",
+          "target_weight": 0.285,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 113.12528228759766,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-01-31",
+          "target_weight": null,
+          "ticker": "MRVL"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 764.9199829101562,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-01-31",
+          "target_weight": 0.0888727620669024,
+          "ticker": "HUBS"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 208.88999938964844,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-01-31",
+          "target_weight": 0.0551,
+          "ticker": "GTLS"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 200.1843719482422,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-01-31",
+          "target_weight": 0.0728975863868043,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 66.55000305175781,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-01-31",
+          "target_weight": 0.076,
+          "ticker": "CORT"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 85.12000274658203,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-01-31",
+          "target_weight": null,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 658.1099853515625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-01-31",
+          "target_weight": null,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2025-02-03",
+          "fill_mode": "next_close",
+          "fill_price": 365.44000244140625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-01-31",
+          "target_weight": 0.1139999999999999,
+          "ticker": "APP"
+        },
+        {
+          "date": "2025-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 95.43000030517578,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-12-31",
+          "target_weight": 0.076,
+          "ticker": "UAL"
+        },
+        {
+          "date": "2025-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 390.50994873046875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-12-31",
+          "target_weight": null,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2025-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 75.19000244140625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-12-31",
+          "target_weight": 0.285,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2025-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 113.06787872314453,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-12-31",
+          "target_weight": 0.076,
+          "ticker": "MRVL"
+        },
+        {
+          "date": "2025-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 325.8800048828125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-12-31",
+          "target_weight": null,
+          "ticker": "DUOL"
+        },
+        {
+          "date": "2025-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 83.23999786376953,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-12-31",
+          "target_weight": 0.1418200096096538,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 596.489990234375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-12-31",
+          "target_weight": 0.038,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 97.44000244140625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-11-29",
+          "target_weight": 0.231361314135136,
+          "ticker": "UAL"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 496.4930725097656,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-11-29",
+          "target_weight": 0.176897149090447,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 209.80999755859375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-11-29",
+          "target_weight": null,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 66.38999938964844,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-11-29",
+          "target_weight": 0.3,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 138.41372680664062,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-11-29",
+          "target_weight": null,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 35.59000015258789,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-11-29",
+          "target_weight": null,
+          "ticker": "EXEL"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 346.5199890136719,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-11-29",
+          "target_weight": 0.0586047221124362,
+          "ticker": "DUOL"
+        },
+        {
+          "date": "2024-12-02",
+          "fill_mode": "next_close",
+          "fill_price": 636.3900146484375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-11-29",
+          "target_weight": 0.2031368146619807,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 80.45999908447266,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-10-31",
+          "target_weight": 0.076,
+          "ticker": "UAL"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 387.65325927734375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-10-31",
+          "target_weight": 0.19,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 173.8800048828125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-10-31",
+          "target_weight": 0.0371424998453287,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 89.12000274658203,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-10-31",
+          "target_weight": null,
+          "ticker": "SN"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 41.91999816894531,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-10-31",
+          "target_weight": 0.0845891691537772,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 135.1887664794922,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-10-31",
+          "target_weight": 0.0551,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 2054.89990234375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-10-31",
+          "target_weight": null,
+          "ticker": "MELI"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 34.119998931884766,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-10-31",
+          "target_weight": 0.076,
+          "ticker": "EXEL"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 293.67999267578125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-10-31",
+          "target_weight": null,
+          "ticker": "DUOL"
+        },
+        {
+          "date": "2024-11-01",
+          "fill_mode": "next_close",
+          "fill_price": 47.619998931884766,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-10-31",
+          "target_weight": null,
+          "ticker": "CORT"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 357.8299865722656,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-09-30",
+          "target_weight": null,
+          "ticker": "UTHR"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 302.2691650390625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-09-30",
+          "target_weight": null,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 179.00999450683594,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-09-30",
+          "target_weight": 0.076,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 107.94000244140625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-09-30",
+          "target_weight": 0.1284792196826444,
+          "ticker": "SN"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 110.97000122070312,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-09-30",
+          "target_weight": null,
+          "ticker": "SFM"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 36.459999084472656,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-09-30",
+          "target_weight": 0.1653405214194792,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 2066.1201171875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-09-30",
+          "target_weight": 0.121355260394691,
+          "ticker": "MELI"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 56.63999938964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-09-30",
+          "target_weight": null,
+          "ticker": "HALO"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 129.68190002441406,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-09-30",
+          "target_weight": null,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 280.6600036621094,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-09-30",
+          "target_weight": 0.0551,
+          "ticker": "DUOL"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 46.75,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-09-30",
+          "target_weight": 0.285,
+          "ticker": "CORT"
+        },
+        {
+          "date": "2024-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 276.05999755859375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-09-30",
+          "target_weight": null,
+          "ticker": "ALNY"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 352.3999938964844,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-08-30",
+          "target_weight": 0.1139999999999999,
+          "ticker": "UTHR"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 269.4418640136719,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-08-30",
+          "target_weight": 0.0551,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 99.69000244140625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-08-30",
+          "target_weight": 0.0331497928752536,
+          "ticker": "SFM"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 73.30999755859375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-08-30",
+          "target_weight": null,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 61.220001220703125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-08-30",
+          "target_weight": 0.1139999999999999,
+          "ticker": "HALO"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 116.1670150756836,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-08-30",
+          "target_weight": 0.285,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 212.74000549316406,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-08-30",
+          "target_weight": null,
+          "ticker": "FSLR"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 133.24713134765625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-08-30",
+          "target_weight": null,
+          "ticker": "CRS"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 34.2599983215332,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-08-30",
+          "target_weight": null,
+          "ticker": "CORT"
+        },
+        {
+          "date": "2024-09-03",
+          "fill_mode": "next_close",
+          "fill_price": 253.77999877929688,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-08-30",
+          "target_weight": 0.1139999999999999,
+          "ticker": "ALNY"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 327.7900085449219,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-07-31",
+          "target_weight": null,
+          "ticker": "UTHR"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 100.76000213623047,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-07-31",
+          "target_weight": 0.076,
+          "ticker": "SFM"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 75.33000183105469,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-07-31",
+          "target_weight": 0.0983787812462949,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 55.04999923706055,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-07-31",
+          "target_weight": 0.0551,
+          "ticker": "HALO"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 106.9842758178711,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-07-31",
+          "target_weight": null,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 218.5,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-07-31",
+          "target_weight": 0.0638382183978689,
+          "ticker": "FSLR"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 142.85699462890625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-07-31",
+          "target_weight": 0.076,
+          "ticker": "CRS"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 37.939998626708984,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-07-31",
+          "target_weight": 0.19,
+          "ticker": "CORT"
+        },
+        {
+          "date": "2024-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 268.6099853515625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-07-31",
+          "target_weight": null,
+          "ticker": "ALNY"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 86.27924346923828,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-06-28",
+          "target_weight": null,
+          "ticker": "VST"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 319.010009765625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-06-28",
+          "target_weight": 0.0551,
+          "ticker": "UTHR"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 133.3000030517578,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-06-28",
+          "target_weight": null,
+          "ticker": "THC"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 124.095458984375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-06-28",
+          "target_weight": null,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 66.33999633789062,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-06-28",
+          "target_weight": 0.1042597204738826,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 181.58981323242188,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-06-28",
+          "target_weight": null,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 103.13394927978516,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-06-28",
+          "target_weight": 0.076,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 222.7100067138672,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-06-28",
+          "target_weight": 0.1009362676845281,
+          "ticker": "FSLR"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 106.16515350341797,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-06-28",
+          "target_weight": 0.1463040118415891,
+          "ticker": "CRS"
+        },
+        {
+          "date": "2024-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 243.32000732421875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-06-28",
+          "target_weight": 0.285,
+          "ticker": "ALNY"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 91.87850952148438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-05-31",
+          "target_weight": 0.130549425730797,
+          "ticker": "VST"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 95.84797668457031,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-05-31",
+          "target_weight": null,
+          "ticker": "VRT"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 62.27000045776367,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-05-31",
+          "target_weight": null,
+          "ticker": "VKTX"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 315.4453430175781,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-05-31",
+          "target_weight": null,
+          "ticker": "TT"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 133.69000244140625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-05-31",
+          "target_weight": 0.0395957537425172,
+          "ticker": "THC"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 77.05899810791016,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-05-31",
+          "target_weight": null,
+          "ticker": "SMCI"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 114.80134582519531,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-05-31",
+          "target_weight": 0.1824872915968935,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 55.939998626708984,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-05-31",
+          "target_weight": 0.285,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 171.64796447753906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-05-31",
+          "target_weight": 0.1139999999999999,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2024-06-03",
+          "fill_mode": "next_close",
+          "fill_price": 272.7200012207031,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-05-31",
+          "target_weight": 0.1983675289297921,
+          "ticker": "FSLR"
+        },
+        {
+          "date": "2024-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 88.27865600585938,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-04-30",
+          "target_weight": 0.076,
+          "ticker": "VRT"
+        },
+        {
+          "date": "2024-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 76.43000030517578,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-04-30",
+          "target_weight": 0.038,
+          "ticker": "VKTX"
+        },
+        {
+          "date": "2024-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 309.04815673828125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-04-30",
+          "target_weight": 0.076,
+          "ticker": "TT"
+        },
+        {
+          "date": "2024-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 115.94999694824219,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-04-30",
+          "target_weight": 0.0551,
+          "ticker": "THC"
+        },
+        {
+          "date": "2024-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 73.83000183105469,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-04-30",
+          "target_weight": 0.038,
+          "ticker": "SMCI"
+        },
+        {
+          "date": "2024-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 82.89753723144531,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-04-30",
+          "target_weight": 0.038,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2024-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 108.93588256835938,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-04-30",
+          "target_weight": null,
+          "ticker": "MU"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 80.18079376220703,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-03-28",
+          "target_weight": 0.0690518939656713,
+          "ticker": "VRT"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 79.5,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2024-03-28",
+          "target_weight": 0.04,
+          "ticker": "VKTX"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 103.71499633789062,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-03-28",
+          "target_weight": 0.3,
+          "ticker": "SMCI"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 90.2068862915039,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-03-28",
+          "target_weight": 0.1539041670234201,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 123.43419647216797,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2024-03-28",
+          "target_weight": 0.1470439390109085,
+          "ticker": "MU"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 191.97000122070312,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-03-28",
+          "target_weight": null,
+          "ticker": "ELF"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 311.3699951171875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-03-28",
+          "target_weight": null,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2024-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 183.33999633789062,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2024-03-28",
+          "target_weight": null,
+          "ticker": "AMD"
+        }
+      ]
+    },
+    "main": {
+      "cash_weight": 0.1063371838,
+      "equity_curve": [
+        {
+          "date": "2019-06-03",
+          "index": 100.0
+        },
+        {
+          "date": "2019-06-17",
+          "index": 108.9086
+        },
+        {
+          "date": "2019-07-01",
+          "index": 109.3335
+        },
+        {
+          "date": "2019-07-16",
+          "index": 112.312
+        },
+        {
+          "date": "2019-07-30",
+          "index": 112.1668
+        },
+        {
+          "date": "2019-08-13",
+          "index": 112.5815
+        },
+        {
+          "date": "2019-08-27",
+          "index": 112.754
+        },
+        {
+          "date": "2019-09-11",
+          "index": 110.9813
+        },
+        {
+          "date": "2019-09-25",
+          "index": 109.9691
+        },
+        {
+          "date": "2019-10-09",
+          "index": 107.3897
+        },
+        {
+          "date": "2019-10-23",
+          "index": 109.5761
+        },
+        {
+          "date": "2019-11-06",
+          "index": 111.408
+        },
+        {
+          "date": "2019-11-20",
+          "index": 112.4453
+        },
+        {
+          "date": "2019-12-05",
+          "index": 112.4155
+        },
+        {
+          "date": "2019-12-19",
+          "index": 119.9163
+        },
+        {
+          "date": "2020-01-06",
+          "index": 120.8842
+        },
+        {
+          "date": "2020-01-21",
+          "index": 124.2129
+        },
+        {
+          "date": "2020-02-04",
+          "index": 127.0832
+        },
+        {
+          "date": "2020-02-18",
+          "index": 132.743
+        },
+        {
+          "date": "2020-03-03",
+          "index": 120.6612
+        },
+        {
+          "date": "2020-03-17",
+          "index": 106.8571
+        },
+        {
+          "date": "2020-03-31",
+          "index": 113.13
+        },
+        {
+          "date": "2020-04-15",
+          "index": 116.1713
+        },
+        {
+          "date": "2020-04-29",
+          "index": 118.7453
+        },
+        {
+          "date": "2020-05-13",
+          "index": 125.6519
+        },
+        {
+          "date": "2020-05-28",
+          "index": 128.3525
+        },
+        {
+          "date": "2020-06-11",
+          "index": 130.4744
+        },
+        {
+          "date": "2020-06-25",
+          "index": 140.0287
+        },
+        {
+          "date": "2020-07-10",
+          "index": 152.8904
+        },
+        {
+          "date": "2020-07-24",
+          "index": 146.708
+        },
+        {
+          "date": "2020-08-07",
+          "index": 164.8679
+        },
+        {
+          "date": "2020-08-21",
+          "index": 168.2138
+        },
+        {
+          "date": "2020-09-04",
+          "index": 163.4113
+        },
+        {
+          "date": "2020-09-21",
+          "index": 167.6674
+        },
+        {
+          "date": "2020-10-05",
+          "index": 182.4113
+        },
+        {
+          "date": "2020-10-19",
+          "index": 178.7058
+        },
+        {
+          "date": "2020-11-02",
+          "index": 170.1009
+        },
+        {
+          "date": "2020-11-16",
+          "index": 177.7213
+        },
+        {
+          "date": "2020-12-01",
+          "index": 185.1023
+        },
+        {
+          "date": "2020-12-15",
+          "index": 197.2628
+        },
+        {
+          "date": "2020-12-30",
+          "index": 202.5311
+        },
+        {
+          "date": "2021-01-14",
+          "index": 222.4747
+        },
+        {
+          "date": "2021-01-29",
+          "index": 209.7552
+        },
+        {
+          "date": "2021-02-12",
+          "index": 230.3792
+        },
+        {
+          "date": "2021-03-01",
+          "index": 223.0993
+        },
+        {
+          "date": "2021-03-15",
+          "index": 219.884
+        },
+        {
+          "date": "2021-03-29",
+          "index": 202.2262
+        },
+        {
+          "date": "2021-04-13",
+          "index": 213.0562
+        },
+        {
+          "date": "2021-04-27",
+          "index": 219.1717
+        },
+        {
+          "date": "2021-05-11",
+          "index": 213.6383
+        },
+        {
+          "date": "2021-05-25",
+          "index": 214.1543
+        },
+        {
+          "date": "2021-06-09",
+          "index": 217.5814
+        },
+        {
+          "date": "2021-06-23",
+          "index": 216.93
+        },
+        {
+          "date": "2021-07-08",
+          "index": 207.543
+        },
+        {
+          "date": "2021-07-21",
+          "index": 219.157
+        },
+        {
+          "date": "2021-08-04",
+          "index": 233.8442
+        },
+        {
+          "date": "2021-08-18",
+          "index": 223.4852
+        },
+        {
+          "date": "2021-09-01",
+          "index": 240.8505
+        },
+        {
+          "date": "2021-09-16",
+          "index": 247.6995
+        },
+        {
+          "date": "2021-09-30",
+          "index": 228.5609
+        },
+        {
+          "date": "2021-10-14",
+          "index": 231.4502
+        },
+        {
+          "date": "2021-10-28",
+          "index": 239.2693
+        },
+        {
+          "date": "2021-11-11",
+          "index": 250.5656
+        },
+        {
+          "date": "2021-11-26",
+          "index": 244.0723
+        },
+        {
+          "date": "2021-12-10",
+          "index": 223.0359
+        },
+        {
+          "date": "2021-12-27",
+          "index": 226.0458
+        },
+        {
+          "date": "2022-01-10",
+          "index": 219.9427
+        },
+        {
+          "date": "2022-01-25",
+          "index": 214.2086
+        },
+        {
+          "date": "2022-02-08",
+          "index": 217.4736
+        },
+        {
+          "date": "2022-02-23",
+          "index": 212.1092
+        },
+        {
+          "date": "2022-03-09",
+          "index": 210.5538
+        },
+        {
+          "date": "2022-03-23",
+          "index": 214.6584
+        },
+        {
+          "date": "2022-04-06",
+          "index": 213.5078
+        },
+        {
+          "date": "2022-04-21",
+          "index": 213.6575
+        },
+        {
+          "date": "2022-05-05",
+          "index": 212.7776
+        },
+        {
+          "date": "2022-05-19",
+          "index": 211.0794
+        },
+        {
+          "date": "2022-06-03",
+          "index": 213.8977
+        },
+        {
+          "date": "2022-06-17",
+          "index": 200.8736
+        },
+        {
+          "date": "2022-07-05",
+          "index": 198.5611
+        },
+        {
+          "date": "2022-07-19",
+          "index": 200.23
+        },
+        {
+          "date": "2022-08-02",
+          "index": 202.1656
+        },
+        {
+          "date": "2022-08-16",
+          "index": 207.9782
+        },
+        {
+          "date": "2022-08-30",
+          "index": 203.9621
+        },
+        {
+          "date": "2022-09-14",
+          "index": 202.5605
+        },
+        {
+          "date": "2022-09-28",
+          "index": 195.2866
+        },
+        {
+          "date": "2022-10-12",
+          "index": 196.2497
+        },
+        {
+          "date": "2022-10-26",
+          "index": 197.6597
+        },
+        {
+          "date": "2022-11-09",
+          "index": 196.2026
+        },
+        {
+          "date": "2022-11-23",
+          "index": 202.4924
+        },
+        {
+          "date": "2022-12-08",
+          "index": 202.1261
+        },
+        {
+          "date": "2022-12-21",
+          "index": 201.6868
+        },
+        {
+          "date": "2023-01-06",
+          "index": 200.956
+        },
+        {
+          "date": "2023-01-23",
+          "index": 203.0178
+        },
+        {
+          "date": "2023-02-06",
+          "index": 203.7949
+        },
+        {
+          "date": "2023-02-21",
+          "index": 199.6705
+        },
+        {
+          "date": "2023-03-07",
+          "index": 200.9862
+        },
+        {
+          "date": "2023-03-21",
+          "index": 199.0956
+        },
+        {
+          "date": "2023-04-04",
+          "index": 200.5046
+        },
+        {
+          "date": "2023-04-19",
+          "index": 201.8508
+        },
+        {
+          "date": "2023-05-03",
+          "index": 204.5444
+        },
+        {
+          "date": "2023-05-17",
+          "index": 208.7919
+        },
+        {
+          "date": "2023-06-01",
+          "index": 214.7012
+        },
+        {
+          "date": "2023-06-15",
+          "index": 223.0466
+        },
+        {
+          "date": "2023-06-30",
+          "index": 225.2967
+        },
+        {
+          "date": "2023-07-17",
+          "index": 230.4355
+        },
+        {
+          "date": "2023-07-31",
+          "index": 235.2213
+        },
+        {
+          "date": "2023-08-14",
+          "index": 223.5815
+        },
+        {
+          "date": "2023-08-28",
+          "index": 221.4903
+        },
+        {
+          "date": "2023-09-12",
+          "index": 222.7566
+        },
+        {
+          "date": "2023-09-26",
+          "index": 206.424
+        },
+        {
+          "date": "2023-10-10",
+          "index": 214.8227
+        },
+        {
+          "date": "2023-10-24",
+          "index": 205.676
+        },
+        {
+          "date": "2023-11-07",
+          "index": 209.1663
+        },
+        {
+          "date": "2023-11-21",
+          "index": 217.3311
+        },
+        {
+          "date": "2023-12-06",
+          "index": 217.6482
+        },
+        {
+          "date": "2023-12-20",
+          "index": 224.8219
+        },
+        {
+          "date": "2024-01-05",
+          "index": 223.1627
+        },
+        {
+          "date": "2024-01-22",
+          "index": 234.5825
+        },
+        {
+          "date": "2024-02-05",
+          "index": 240.2518
+        },
+        {
+          "date": "2024-02-20",
+          "index": 248.5412
+        },
+        {
+          "date": "2024-03-05",
+          "index": 283.4012
+        },
+        {
+          "date": "2024-03-19",
+          "index": 273.8345
+        },
+        {
+          "date": "2024-04-03",
+          "index": 289.4359
+        },
+        {
+          "date": "2024-04-17",
+          "index": 270.8029
+        },
+        {
+          "date": "2024-05-01",
+          "index": 270.0008
+        },
+        {
+          "date": "2024-05-15",
+          "index": 299.0789
+        },
+        {
+          "date": "2024-05-29",
+          "index": 296.9255
+        },
+        {
+          "date": "2024-06-12",
+          "index": 296.4495
+        },
+        {
+          "date": "2024-06-27",
+          "index": 288.2235
+        },
+        {
+          "date": "2024-07-12",
+          "index": 287.0438
+        },
+        {
+          "date": "2024-07-26",
+          "index": 276.1503
+        },
+        {
+          "date": "2024-08-09",
+          "index": 275.8311
+        },
+        {
+          "date": "2024-08-23",
+          "index": 298.0544
+        },
+        {
+          "date": "2024-09-09",
+          "index": 280.5985
+        },
+        {
+          "date": "2024-09-23",
+          "index": 302.5797
+        },
+        {
+          "date": "2024-10-07",
+          "index": 307.8714
+        },
+        {
+          "date": "2024-10-21",
+          "index": 309.9749
+        },
+        {
+          "date": "2024-11-04",
+          "index": 290.7567
+        },
+        {
+          "date": "2024-11-18",
+          "index": 323.1508
+        },
+        {
+          "date": "2024-12-03",
+          "index": 338.1991
+        },
+        {
+          "date": "2024-12-17",
+          "index": 327.3372
+        },
+        {
+          "date": "2025-01-02",
+          "index": 324.7224
+        },
+        {
+          "date": "2025-01-17",
+          "index": 340.6793
+        },
+        {
+          "date": "2025-02-03",
+          "index": 340.9983
+        },
+        {
+          "date": "2025-02-18",
+          "index": 371.2671
+        },
+        {
+          "date": "2025-03-04",
+          "index": 315.9377
+        },
+        {
+          "date": "2025-03-18",
+          "index": 308.4403
+        },
+        {
+          "date": "2025-04-01",
+          "index": 307.9215
+        },
+        {
+          "date": "2025-04-15",
+          "index": 307.0441
+        },
+        {
+          "date": "2025-04-30",
+          "index": 317.1779
+        },
+        {
+          "date": "2025-05-14",
+          "index": 326.5355
+        },
+        {
+          "date": "2025-05-29",
+          "index": 327.3532
+        },
+        {
+          "date": "2025-06-12",
+          "index": 333.7893
+        },
+        {
+          "date": "2025-06-27",
+          "index": 339.0168
+        },
+        {
+          "date": "2025-07-14",
+          "index": 343.9082
+        },
+        {
+          "date": "2025-07-28",
+          "index": 360.5439
+        },
+        {
+          "date": "2025-08-11",
+          "index": 358.4145
+        },
+        {
+          "date": "2025-08-25",
+          "index": 348.4597
+        },
+        {
+          "date": "2025-09-09",
+          "index": 373.9702
+        },
+        {
+          "date": "2025-09-23",
+          "index": 404.1039
+        },
+        {
+          "date": "2025-10-07",
+          "index": 407.4971
+        },
+        {
+          "date": "2025-10-21",
+          "index": 404.9264
+        },
+        {
+          "date": "2025-11-03",
+          "index": 457.7808
+        },
+        {
+          "date": "2025-11-17",
+          "index": 446.2408
+        },
+        {
+          "date": "2025-12-02",
+          "index": 474.5482
+        },
+        {
+          "date": "2025-12-16",
+          "index": 481.2939
+        },
+        {
+          "date": "2025-12-31",
+          "index": 489.066
+        },
+        {
+          "date": "2026-01-15",
+          "index": 558.5974
+        },
+        {
+          "date": "2026-01-30",
+          "index": 567.2688
+        },
+        {
+          "date": "2026-02-13",
+          "index": 597.9705
+        },
+        {
+          "date": "2026-03-02",
+          "index": 645.6998
+        },
+        {
+          "date": "2026-03-16",
+          "index": 619.7499
+        },
+        {
+          "date": "2026-03-30",
+          "index": 579.8055
+        },
+        {
+          "date": "2026-04-14",
+          "index": 675.9433
+        },
+        {
+          "date": "2026-04-28",
+          "index": 678.0127
+        },
+        {
+          "date": "2026-05-12",
+          "index": 755.4493
+        },
+        {
+          "date": "2026-05-27",
+          "index": 806.7163
+        },
+        {
+          "date": "2026-06-10",
+          "index": 753.622
+        },
+        {
+          "date": "2026-06-25",
+          "index": 888.6654
+        },
+        {
+          "date": "2026-07-10",
+          "index": 818.3493
+        }
+      ],
+      "holding_count": 14,
+      "holdings": [
+        {
+          "price": 135.8000030517578,
+          "target_weight": null,
+          "ticker": "FLEX",
+          "weight": 0.1107672155
+        },
+        {
+          "price": 1915.9200439453125,
+          "target_weight": null,
+          "ticker": "SNDK",
+          "weight": 0.1079375217
+        },
+        {
+          "price": 111.5,
+          "target_weight": null,
+          "ticker": "NXT",
+          "weight": 0.0787930497
+        },
+        {
+          "price": 460.7200012207031,
+          "target_weight": null,
+          "ticker": "CIEN",
+          "weight": 0.0773027357
+        },
+        {
+          "price": 48.540000915527344,
+          "target_weight": null,
+          "ticker": "HPE",
+          "weight": 0.0682462665
+        },
+        {
+          "price": 186.8800048828125,
+          "target_weight": null,
+          "ticker": "RVMD",
+          "weight": 0.0615676173
+        },
+        {
+          "price": 582.5900268554688,
+          "target_weight": null,
+          "ticker": "WDC",
+          "weight": 0.0606483795
+        },
+        {
+          "price": 557.8900146484375,
+          "target_weight": null,
+          "ticker": "AMD",
+          "weight": 0.04851144
+        },
+        {
+          "price": 95.95999908447266,
+          "target_weight": null,
+          "ticker": "ON",
+          "weight": 0.0483024641
+        },
+        {
+          "price": 189.16000366210938,
+          "target_weight": null,
+          "ticker": "QCOM",
+          "weight": 0.0481869988
+        },
+        {
+          "price": 979.450610516649,
+          "target_weight": null,
+          "ticker": "MU",
+          "weight": 0.0467826025
+        },
+        {
+          "price": 24.7682222631635,
+          "target_weight": null,
+          "ticker": "UMC",
+          "weight": 0.0457439231
+        },
+        {
+          "price": 412.9700012207031,
+          "target_weight": null,
+          "ticker": "ALAB",
+          "weight": 0.0455195798
+        },
+        {
+          "price": 235.86817475332523,
+          "target_weight": null,
+          "ticker": "MRVL",
+          "weight": 0.0453530218
+        }
+      ],
+      "label": "Main",
+      "metrics": {
+        "average_cash_weight": 0.2930697593413685,
+        "cagr": 0.3440318523644359,
+        "cost_bps_per_side": 25.0,
+        "end_date": "2026-07-10",
+        "fill_mode": "next_close",
+        "max_drawdown": -0.25361933512789125,
+        "metric_mode": "broker_ledger_next_close_cash_carry",
+        "oos2_cagr": 0.49742640818924544,
+        "oos2_max_drawdown": -0.2062235031442261,
+        "oos_cagr": 0.6990101690831747,
+        "oos_max_drawdown": -0.2062235031442261,
+        "sharpe": 1.2757052100640842,
+        "start_date": "2019-06-03",
+        "trade_count": 1625,
+        "valid_for_production": false
+      },
+      "target_cash_weight": null,
+      "trades": [
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 577.4600219726562,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0605966485450584,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 25.830000320640234,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0482211401789317,
+          "ticker": "UMC"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 1744.4300537109375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0989732045391831,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 189.99000549316406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0630953376034442,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 186.47999572753906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0482211401789317,
+          "ticker": "QCOM"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 94.69000244140625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0482211401789317,
+          "ticker": "ON"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 115.02999877929688,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0822326743506752,
+          "ticker": "NXT"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 249.27000938615328,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0482211401789317,
+          "ticker": "MRVL"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 43.150001525878906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.061348850735111,
+          "ticker": "HPE"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 138.64999389648438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.1143902775489209,
+          "ticker": "FLEX"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 433.8299865722656,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0736186208821332,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 552.0499877929688,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0482211401789317,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2026-07-06",
+          "fill_mode": "next_close",
+          "fill_price": 432.739990234375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-07-02",
+          "target_weight": 0.0482211401789317,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 546.0576171875,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0605966485450584,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 22.889999389648438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0482211401789317,
+          "ticker": "UMC"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 369.4700012207031,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "TER"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 68.9422607421875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "STM"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 1761.4300537109375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0989732045391831,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 163.67999267578125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0630953376034442,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 228.14735412597656,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0482211401789317,
+          "ticker": "QCOM"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 687.3749389648438,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "PWR"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 120.91999816894531,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0482211401789317,
+          "ticker": "ON"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 145.02000427246094,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0822326743506752,
+          "ticker": "NXT"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 1035.5,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0482211401789317,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 219.42999267578125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0482211401789317,
+          "ticker": "MRVL"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 905.0,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 46.862892150878906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.061348850735111,
+          "ticker": "HPE"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 148.00999450683594,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.1143902775489209,
+          "ticker": "FLEX"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 1787.8800048828125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": null,
+          "ticker": "FIX"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 569.6099853515625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0736186208821332,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 510.1300048828125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0482211401789317,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2026-06-01",
+          "fill_mode": "next_close",
+          "fill_price": 320.0899963378906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-05-29",
+          "target_weight": 0.0482211401789317,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 431.4075012207031,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.1101040856369836,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 433.6199951171875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 345.28961181640625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0135232601722308,
+          "ticker": "TER"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 55.68721008300781,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.1061277790504991,
+          "ticker": "STM"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 1187.0,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.1217576602373974,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 230.0390167236328,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "RGLD"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 742.0966186523438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0521430053929868,
+          "ticker": "PWR"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 103.02999877929688,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0564715605788755,
+          "ticker": "ON"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 542.2100219726562,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0310245840659029,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 164.9499969482422,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0852994299673909,
+          "ticker": "MRVL"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 256.5392761230469,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 352.4100036621094,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "KEYS"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 239.5443878173828,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 1866.2886962890625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0324628975945586,
+          "ticker": "FIX"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 712.8953857421875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "CW"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 1011.7000122070312,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "COST"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 535.2899780273438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-04-30",
+          "target_weight": 0.0921380064146331,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-05-01",
+          "fill_mode": "next_close",
+          "fill_price": 388.5968933105469,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-04-30",
+          "target_weight": null,
+          "ticker": "AMAT"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 297.65240478515625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0373702753920284,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 439.20001220703125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0413360685421514,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 312.0821533203125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0371531856203539,
+          "ticker": "TER"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 692.72998046875,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0615574350412844,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 263.2445068359375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0145388245171061,
+          "ticker": "RGLD"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 367.8500061035156,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0049646905121872,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 221.8537139892578,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0159688902978145,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 764.6500244140625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0558676537897098,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 289.8399963378906,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0123672980610842,
+          "ticker": "KEYS"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 249.38772583007812,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0051662457599432,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 696.7509155273438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.01420336172677,
+          "ticker": "CW"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 995.1160278320312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0067883797521257,
+          "ticker": "COST"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 247.8000030517578,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": null,
+          "ticker": "COHR"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 415.3900146484375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0605289600129264,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-04-01",
+          "fill_mode": "next_close",
+          "fill_price": 353.3606872558594,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-03-31",
+          "target_weight": 0.0274800744176776,
+          "ticker": "AMAT"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 269.8804016113281,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.053387875596584,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 531.0900268554688,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0641360622248153,
+          "ticker": "TPL"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 325.70697021484375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0485117789197122,
+          "ticker": "TER"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 619.0800170898438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0777248401859942,
+          "ticker": "SNDK"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 101.62000274658203,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 303.0174865722656,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.020663020213525,
+          "ticker": "RGLD"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 218.0500030517578,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "ONTO"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 412.4967346191406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0654851798458717,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 258.5400085449219,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "MTSI"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 230.5611572265625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0182569743941308,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 783.25,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.1285626032868633,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 313.2699890136719,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.1071355027390527,
+          "ticker": "KEYS"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 297.134033203125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0421234948011407,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 298.9100036621094,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0462460150692986,
+          "ticker": "COHR"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 353.7300109863281,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.1285626032868633,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 86.91999816894531,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": null,
+          "ticker": "ASTS"
+        },
+        {
+          "date": "2026-03-02",
+          "fill_mode": "next_close",
+          "fill_price": 371.7178955078125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-02-27",
+          "target_weight": 0.0198069948141002,
+          "ticker": "AMAT"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 270.03033447265625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.1093901455257443,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 249.33154296875,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0305732261967792,
+          "ticker": "TER"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 97.16000366210938,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0896052695264307,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 21.940000534057617,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": null,
+          "ticker": "ROIV"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 74.1500015258789,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": null,
+          "ticker": "RKLB"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 202.42999267578125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0536322711449534,
+          "ticker": "ONTO"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 437.61614990234375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.1093901455257443,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 228.55999755859375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0398134776210544,
+          "ticker": "MTSI"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 237.04881286621094,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.1093901455257443,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 423.4200134277344,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.1093901455257443,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 343.24322509765625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": null,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 273.4641418457031,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0532452019188715,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 222.44000244140625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0305732261967792,
+          "ticker": "COHR"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 268.489990234375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0305732261967792,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 104.55000305175781,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0807048938081409,
+          "ticker": "ASTS"
+        },
+        {
+          "date": "2026-02-02",
+          "fill_mode": "next_close",
+          "fill_price": 327.5837097167969,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2026-01-30",
+          "target_weight": 0.0305732261967792,
+          "ticker": "AMAT"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 187.56129455566406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0387928236595,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 207.39492797851562,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0418676480543657,
+          "ticker": "TER"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 79.0199966430664,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0991448065296552,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 21.93000030517578,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.058978606024064,
+          "ticker": "ROIV"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 75.98999786376953,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0726576965842467,
+          "ticker": "RKLB"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 315.2875671386719,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.1032609982329135,
+          "ticker": "MU"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 184.70843505859375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0387928236595,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 386.1099853515625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0756537382499321,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 314.7403259277344,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0323273530495833,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 314.90850830078125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": null,
+          "ticker": "GOOG"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 209.64022827148438,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.06199666254035,
+          "ticker": "FTAI"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 274.3399963378906,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": null,
+          "ticker": "FSLR"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 194.3300018310547,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0470561528308265,
+          "ticker": "COHR"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 246.05999755859375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.1032609982329135,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 98.69000244140625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": null,
+          "ticker": "BE"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 346.3441467285156,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-12-31",
+          "target_weight": null,
+          "ticker": "AVGO"
+        },
+        {
+          "date": "2026-01-02",
+          "fill_mode": "next_close",
+          "fill_price": 83.47000122070312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-12-31",
+          "target_weight": 0.0726576965842467,
+          "ticker": "ASTS"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 163.28787231445312,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0571035174094567,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 563.5680541992188,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": null,
+          "ticker": "UI"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 179.48715209960938,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0107704321867267,
+          "ticker": "TER"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 75.80000305175781,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0089753601556056,
+          "ticker": "RVMD"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 20.219999313354492,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0504335618573299,
+          "ticker": "ROIV"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 88.55000305175781,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": null,
+          "ticker": "P"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 240.26197814941406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0107704321867267,
+          "ticker": "MU"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 154.2419891357422,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0107704321867267,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 317.92999267578125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0571035174094567,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 211.41000366210938,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": null,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 314.2751159667969,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0475862645078805,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 314.5035400390625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0475862645078805,
+          "ticker": "GOOG"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 263.5400085449219,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0107704321867267,
+          "ticker": "FSLR"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 163.5,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0571035174094567,
+          "ticker": "COHR"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 200.9199981689453,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0107704321867267,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 98.93000030517578,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0107704321867267,
+          "ticker": "BE"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 383.92840576171875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-11-28",
+          "target_weight": 0.0107704321867267,
+          "ticker": "AVGO"
+        },
+        {
+          "date": "2025-12-01",
+          "fill_mode": "next_close",
+          "fill_price": 165.19000244140625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-11-28",
+          "target_weight": null,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 157.77638244628906,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.1089646631756948,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 771.2310791015625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0562898949478095,
+          "ticker": "UI"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 413.5400085449219,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": null,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 182.78627014160156,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.1089646631756948,
+          "ticker": "TER"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 19.600000381469727,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0644258465646441,
+          "ticker": "ROIV"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 98.5999984741211,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0576590197146067,
+          "ticker": "P"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 81.0299072265625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": null,
+          "ticker": "NEM"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 234.50669860839844,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0583482846526686,
+          "ticker": "MU"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 160.66917419433594,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0286049387948928,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 199.5800018310547,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0705463330564406,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 23.338790893554688,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": null,
+          "ticker": "KGC"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 186.22999572753906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.1060185010120975,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 283.16595458984375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0319704550269378,
+          "ticker": "GOOGL"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 283.564208984375,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0253015681165253,
+          "ticker": "GOOG"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 265.7099914550781,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.1272222012145171,
+          "ticker": "FSLR"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 189.55999755859375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0528290468635947,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 157.58999633789062,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": null,
+          "ticker": "ANET"
+        },
+        {
+          "date": "2025-11-03",
+          "fill_mode": "next_close",
+          "fill_price": 191.55999755859375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-10-31",
+          "target_weight": 0.0466319963557116,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 130.38865661621094,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.1049760164978484,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 671.7725830078125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0743020628548663,
+          "ticker": "UI"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 12.989999771118164,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": null,
+          "ticker": "UEC"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 426.989990234375,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0583053857131033,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 140.90127563476562,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0523471280624,
+          "ticker": "TER"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 85.69000244140625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0484022781763286,
+          "ticker": "P"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 85.32859802246094,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0455888709623299,
+          "ticker": "NEM"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 181.8860626220703,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.097559213522873,
+          "ticker": "MU"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 142.2845001220703,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0567891199798176,
+          "ticker": "LRCX"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 171.39999389648438,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0600988493908154,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 25.3834285736084,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0910925576049919,
+          "ticker": "KGC"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 147.27999877929688,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0365483982685519,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 50.65972900390625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": null,
+          "ticker": "DINO"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 151.72000122070312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.1049760164978484,
+          "ticker": "CIEN"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 149.27000427246094,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": 0.0219791786700154,
+          "ticker": "ANET"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 164.00999450683594,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": null,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2025-10-01",
+          "fill_mode": "next_close",
+          "fill_price": 460.6499938964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-09-30",
+          "target_weight": null,
+          "ticker": "ALNY"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 81.6886215209961,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0933495236016783,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 184.84039306640625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "VST"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 123.87355041503906,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "VRT"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 526.5,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0242044335056806,
+          "ticker": "UI"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 10.979999542236328,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0529463962393239,
+          "ticker": "UEC"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 375.1499938964844,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0702444260496721,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 37.2400016784668,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "SMR"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 77.47000122070312,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.1283726201339174,
+          "ticker": "P"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 223.53602600097656,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "ORCL"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 170.5528564453125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 143.8475341796875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 75.06190490722656,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.067435245088063,
+          "ticker": "NEM"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 132.55499267578125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.1283726201339174,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 21.40386390686035,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0802793905215678,
+          "ticker": "KGC"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 145.3000030517578,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0621438038304432,
+          "ticker": "INSM"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 578.36669921875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "GEV"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 89.02871704101562,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": null,
+          "ticker": "EBAY"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 50.7474250793457,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0243200967851321,
+          "ticker": "DINO"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 135.8699951171875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0799310494500615,
+          "ticker": "ANET"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 162.32000732421875,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0271631500776667,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 447.0,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.0256091334362303,
+          "ticker": "ALNY"
+        },
+        {
+          "date": "2025-09-02",
+          "fill_mode": "next_close",
+          "fill_price": 174.24000549316406,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-08-29",
+          "target_weight": 0.1014576670578373,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 280.2699890136719,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "ZS"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 76.34310913085938,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0103418013310873,
+          "ticker": "WDC"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 206.96434020996094,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0103418013310873,
+          "ticker": "VST"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 141.43418884277344,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0497720236523021,
+          "ticker": "VRT"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 378.010009765625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.1241016159730478,
+          "ticker": "TLN"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 44.43000030517578,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0346289667992882,
+          "ticker": "SMR"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 242.50631713867188,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0375650051638985,
+          "ticker": "ORCL"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 173.4889373779297,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0569993439987897,
+          "ticker": "NVDA"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 166.17160034179688,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0103418013310873,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 106.68000030517578,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0103418013310873,
+          "ticker": "LITE"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 218.27505493164062,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "JBL"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 655.0126953125,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0945439413165764,
+          "ticker": "GEV"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 90.57704162597656,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0375282613084947,
+          "ticker": "EBAY"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 41.30406188964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "DRS"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 248.35000610351562,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "DASH"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 492.8027648925781,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "CW"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 257.08575439453125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "CRS"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 72.78827667236328,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "CCJ"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 742.469970703125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 286.5404968261719,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "AVGO"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 76.72000122070312,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-07-31",
+          "target_weight": null,
+          "ticker": "ATI"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 171.6999969482422,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.120686645880656,
+          "ticker": "AMD"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 401.79998779296875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0495800447907043,
+          "ticker": "ALNY"
+        },
+        {
+          "date": "2025-08-01",
+          "fill_mode": "next_close",
+          "fill_price": 131.10000610351562,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-07-31",
+          "target_weight": 0.0827344106486985,
+          "ticker": "ALAB"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 307.32000732421875,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0161621869877482,
+          "ticker": "ZS"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 333.43304443359375,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "WING"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 184.13412475585938,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0803674221401835,
+          "ticker": "VST"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 473.44000244140625,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "ULTA"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 36.119998931884766,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0438766934616355,
+          "ticker": "SMR"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 85.18000030517578,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "RBRK"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 130.67999267578125,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "PLTR"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 57.52000045776367,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": null,
+          "ticker": "NXT"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 154.1962890625,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0954507932783495,
+          "ticker": "NRG"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 215.8582000732422,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0612591884246588,
+          "ticker": "JBL"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 504.6339416503906,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.1330239222978849,
+          "ticker": "GEV"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 44.69403076171875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.1027729786947149,
+          "ticker": "DRS"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 238.00999450683594,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0762247820318658,
+          "ticker": "DASH"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 475.8794860839844,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.025645340173923,
+          "ticker": "CW"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 271.0181579589844,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0700700818419674,
+          "ticker": "CRS"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 71.53072357177734,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0728085754717149,
+          "ticker": "CCJ"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 775.3800048828125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.097781394289714,
+          "ticker": "AXON"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 262.8143310546875,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0263659161155208,
+          "ticker": "AVGO"
+        },
+        {
+          "date": "2025-07-01",
+          "fill_mode": "next_close",
+          "fill_price": 83.88999938964844,
+          "reason": "target_rebalance",
+          "side": "SELL",
+          "signal_date": "2025-06-30",
+          "target_weight": 0.0610350799463376,
+          "ticker": "ATI"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 293.17999267578125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.1125333902102294,
+          "ticker": "ZS"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 347.0009765625,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.0293334649922464,
+          "ticker": "WING"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 109.07245635986328,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "VRT"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 272.182373046875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "VRSN"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 475.67999267578125,
+          "reason": "target_rebalance",
+          "side": "BUY",
+          "signal_date": "2025-05-30",
+          "target_weight": 0.059214458479593,
+          "ticker": "ULTA"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 83.63999938964844,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "UBER"
+        },
+        {
+          "date": "2025-06-02",
+          "fill_mode": "next_close",
+          "fill_price": 170.1199951171875,
+          "reason": "target_exit",
+          "side": "SELL",
+          "signal_date": "2025-05-30",
+          "target_weight": null,
+          "ticker": "THC"
+        }
+      ]
+    }
+  },
+  "privacy": {
+    "account_dollar_values_published": false,
+    "cost_basis_and_pnl_published": false,
+    "market_prices_published": true,
+    "share_quantities_published": false,
+    "weights_published": true
+  },
+  "schema_version": "run287-public-dashboard-v1",
+  "source": {
+    "commit": "",
+    "label": "Run287 validated broker-ledger replay",
+    "mode": "broker_replay_snapshot",
+    "run_id": "",
+    "trade_history_status": "included_from_replay"
+  },
+  "status": {
+    "decision": "RESEARCH_ONLY",
+    "live_trading_enabled": false,
+    "production_ready": false,
+    "review_only": true,
+    "simulated_broker_ledger": true
+  }
+}

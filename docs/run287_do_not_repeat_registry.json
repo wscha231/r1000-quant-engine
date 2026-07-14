@@ -1,0 +1,179 @@
+{
+  "schema_version": "run287-do-not-repeat-registry-v1",
+  "match_fields": [
+    "signal",
+    "mechanism",
+    "book",
+    "window"
+  ],
+  "preflight": "py -3 tools/check_run287_do_not_repeat.py --signal <signal> --mechanism <mechanism> --book <book> --window <window>",
+  "reuse_policy": {
+    "blocked_by_default": true,
+    "minimum_component_coverage_increase_pp": 5.0,
+    "semantic_change_must_be_explicit": true,
+    "renaming_or_threshold_changes_are_not_semantic_changes": true
+  },
+  "entries": [
+    {
+      "id": "monthly_dd_vix_floor",
+      "signal": "monthly_drawdown_or_vix_state",
+      "mechanism": "gross_floor_or_cash_floor",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md", "docs/AGENT_SHARED_LESSONS_LEDGER.md"]
+    },
+    {
+      "id": "broad_gross_floor",
+      "signal": "broad_market_regime",
+      "mechanism": "broad_gross_floor",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md"]
+    },
+    {
+      "id": "stop_or_exit_delay",
+      "signal": "price_stop_or_hold_age",
+      "mechanism": "stop_grid_or_exit_delay",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md", "CHANGELOG.md"]
+    },
+    {
+      "id": "rank_rs_revenue_replacement",
+      "signal": "rank_rs_or_revenue",
+      "mechanism": "replacement_rule",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md"]
+    },
+    {
+      "id": "aggregate_cluster_cap",
+      "signal": "aggregate_cluster_exposure",
+      "mechanism": "cluster_cap",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md"]
+    },
+    {
+      "id": "static_actual_profitability",
+      "signal": "static_actual_results_or_profitability",
+      "mechanism": "fixed_book_tilt",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED_OOS",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_RUN287_CAGR_MDD_SEARCH_STATUS_20260709.md"]
+    },
+    {
+      "id": "ownership_13f_form4",
+      "signal": "13f_or_form4_ownership",
+      "mechanism": "confirmation_or_fixed_book_tilt",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_RUN287_CAGR_MDD_SEARCH_STATUS_20260709.md"]
+    },
+    {
+      "id": "w4_sec_percentile_tilt",
+      "signal": "w4_sec_percentile",
+      "mechanism": "top_quintile_tilt10",
+      "book": "run287_generated_concentrated",
+      "window": "run287_7y",
+      "status": "REJECTED_OOS",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_RUN287_CAGR_MDD_SEARCH_STATUS_20260709.md"]
+    },
+    {
+      "id": "consensus_no_signal",
+      "signal": "w4_consensus",
+      "mechanism": "confirmation_or_tilt",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "BLOCKED_NO_SIGNAL",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_RUN287_CAGR_MDD_SEARCH_STATUS_20260709.md"]
+    },
+    {
+      "id": "technical_macro_risk_financial_proxy",
+      "signal": "technical_macro_risk_or_financial_proxy",
+      "mechanism": "tilt_gate_or_risk_control",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED_OOS",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_RUN287_CAGR_MDD_SEARCH_STATUS_20260709.md"]
+    },
+    {
+      "id": "weak_source_fusion",
+      "signal": "weak_multisource_evidence",
+      "mechanism": "fusion_or_combined_confirmation",
+      "book": "run287_generated_books",
+      "window": "run287_7y",
+      "status": "REJECTED_OOS",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_RUN287_CAGR_MDD_SEARCH_STATUS_20260709.md", "docs/AGENT_SHARED_LESSONS_LEDGER.md"]
+    },
+    {
+      "id": "direct_growth_tilt",
+      "signal": "growth_confirmation",
+      "mechanism": "direct_weight_tilt",
+      "book": "run287_generated_main",
+      "window": "run287_7y",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md"]
+    },
+    {
+      "id": "composite_account_aware_execution",
+      "signal": "target_weight_and_holding_state",
+      "mechanism": "no_trade_bands_staged_entry_min_hold_winner_trim",
+      "book": "alphaops_generated_books",
+      "window": "historical_broker_replays",
+      "status": "REJECTED",
+      "blocked_reuse": true,
+      "evidence": ["CHANGELOG.md", "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md"]
+    },
+    {
+      "id": "main_growth_downside_beta_neutral",
+      "signal": "growth_confirmation_and_downside_beta",
+      "mechanism": "risk_neutralized_growth_transfer",
+      "book": "run287_generated_main",
+      "window": "2019-06-03_2026-07-10",
+      "status": "REJECTED_MDD_GATE",
+      "blocked_reuse": true,
+      "evidence": ["docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md"]
+    },
+    {
+      "id": "sec_market_confirmed_fundamental_event",
+      "signal": "sec_market_confirmed_fundamental_event",
+      "mechanism": "source_screen_then_portfolio_gate",
+      "book": "run287_generated_books",
+      "window": "2019-06-03_2026-07-10",
+      "status": "REJECT_SOURCE_SCREEN",
+      "blocked_reuse": true,
+      "evidence": ["docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md"]
+    },
+    {
+      "id": "partial_resize_two_signal_confirmation",
+      "signal": "target_weight_direction",
+      "mechanism": "partial_resize_two_signal_confirmation",
+      "book": "generated_baseline_books",
+      "window": "2019-06-03_2026-07-10",
+      "status": "REJECT_OOS_CAGR_WORSE",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "target_weight_direction+partial_resize_two_signal_confirmation+generated_baseline_books+2019-06-03_2026-07-10",
+      "evidence": ["docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md", "outputs/run287_partial_resize_two_signal_20260713/summary.json"]
+    }
+  ]
+}

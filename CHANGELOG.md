@@ -3,6 +3,149 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-07-14
+
+### 23:30 KST - Make the long full rebuild manual-only and fail closed
+
+- scope:
+  - Remove the weekly full-rebuild cron that executed without the separately required Run287 approval.
+  - Reject manual dispatches before expensive work unless exact approval, commit, input-manifest, and cost evidence is supplied.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->keeps only `workflow_dispatch`, validates approval evidence first, serializes approved runs, and blocks production policy in the current research scope.
+  - `tests/smoke_test.py` ->locks the absence of schedule/cron and the presence of the manual approval guard.
+  - `docs/CODEX_FULLRUN_SCHEDULE_GOVERNANCE_RESULT_20260714.md` ->records the scheduled-run incident, root cause, fix, and validation boundary.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the incident and do-not-repeat rules.
+- breaking_changes:
+  - Full rebuilds can no longer run on a schedule.
+  - Manual dispatch now requires `FULLRUN_APPROVED`, the exact dispatched commit SHA, a frozen source-manifest SHA-256, and expected runner minutes.
+  - `alphaops_vnext_production` is blocked while the current scope remains research-only.
+- validation:
+  - fullrun ->NOT RUN by contract.
+  - targeted full-rebuild workflow smoke and YAML parse ->PASS.
+  - adjacent seven-year-lock and workflow-artifact PR validation ->2/2 PASS.
+  - full GitHub PR validation ->pending until the branch is pushed.
+- risks_or_notes:
+  - GitHub Actions run `29249021773` is retained as incident evidence; its failed outputs are not a valid baseline.
+  - Existing untracked outputs and downloaded artifacts were preserved.
+
+### 07:10 KST - Freeze long estimate/guidance outcomes and build the zero-cost sample request
+
+- scope:
+  - Extend the preregistered estimate/guidance outcome contract with 252-session confirmation and 504-session right-censored sensitivity.
+  - Build a deterministic 50-row provider request plus a 992-equity current-universe reference without using return labels or mutating membership.
+- files:
+  - `docs/run287_pit_estimate_guidance_outcome_contract.json` ->freezes 21/63/126/252/504-session roles, power floors, overlap blocks, right censoring, and delisting treatment.
+  - `docs/run287_pit_estimate_guidance_source_requirements.json` ->links the outcome contract and required horizons.
+  - `tools/build_pit_estimate_guidance_sample_request.py` ->selects an unbiased active sample and deterministic historical-delisted provider query slots.
+  - `tests/pit_estimate_guidance_sample_request_smoke.py` ->covers deterministic selection, long-horizon presence, delisted query slots, hashes, and fail-closed contract loss.
+  - `tests/pit_estimate_guidance_source_gate_smoke.py` ->asserts the frozen source requirements include 252D/504D roles and null censoring.
+  - `docs/CODEX_RUN287_LONG_HORIZON_SAMPLE_REQUEST_20260714.md` ->records the actual request, all-universe boundary, and next gate.
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SOURCE_GATE_20260713.md` ->records the completed request step and long-horizon compatibility.
+  - `docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md` ->adds long forward durability checkpoints without changing portfolio policy.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the survivorship and right-censoring lessons.
+  - `tools/run_pr_validation.py` ->adds the sample-request smoke to the standard PR tier.
+- symbols_added:
+  - `tools.build_pit_estimate_guidance_sample_request.build_request`
+  - `tools.build_pit_estimate_guidance_sample_request.select_active_sample`
+  - `tools.build_pit_estimate_guidance_sample_request.write_outputs`
+  - `tools.build_pit_estimate_guidance_sample_request.main`
+- symbols_changed:
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the sample-request smoke.
+- config_fields_added:
+  - fixed return horizons `21,63,126,252,504` and their promotion/sensitivity roles.
+- breaking_changes:
+  - none; existing source gate, collectors, target books, and portfolio policy are unchanged.
+- outputs:
+  - `outputs/run287_pit_estimate_guidance_sample_request_20260714/` ->50-row sample request, 992-equity current reference, hashes, summary, and report.
+- validation:
+  - `py -3 tests/pit_estimate_guidance_source_gate_smoke.py` ->PASS.
+  - `py -3 tests/pit_estimate_guidance_sample_request_smoke.py` ->PASS.
+  - actual local request ->`READY_ZERO_COST_SCHEMA_REQUEST_WITH_PROVIDER_DELISTED_QUERY`; 45 active + 5 delisted query slots, exactly 5 ADR/global active rows.
+  - local standard PR validation ->138/142 PASS; the four unrelated failures require tracked paths excluded by this workspace's sparse checkout (`aggressive/`, `auto_learning_v2/`, `data_static/iwb_holdings_seed.csv`, and global output fixtures). GitHub CI uses a full checkout for the final verdict.
+- risks_or_notes:
+  - The free listing artifact has zero delisted rows, so the provider must resolve the five deterministic delisted slots before the source gate can pass.
+  - No provider request was dispatched, no purchase was authorized, no returns were joined, and no fullrun was executed.
+
+## 2026-07-13
+
+### 19:50 KST - Add fail-closed PIT estimate/guidance source gate
+
+- scope:
+  - Preregister the sole new historical CAGR-gap source lane and audit small provider samples before alpha joins or broad licensing.
+  - Preserve the forward-only free archive and keep all portfolio, purchase, fullrun, production, and live-trading actions disabled.
+- files:
+  - `tools/audit_pit_estimate_guidance_source.py` ->audits provider-neutral long-event exports for schema, exact PIT chronology, stable identity, provenance, coverage, and procurement constraints.
+  - `tests/pit_estimate_guidance_source_gate_smoke.py` ->covers ready, PIT-blocked, undercovered, procurement-blocked, and schema-blocked states.
+  - `docs/run287_pit_estimate_guidance_source_requirements.json` ->freezes sample/OOS/OOS2/delisted/revision/guidance coverage floors before alpha labels.
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SOURCE_GATE_20260713.md` ->records the contract, current free-artifact verdict, stop rules, and next action.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the provider-gate boundary and do-not-repeat rules.
+  - `tools/run_pr_validation.py` ->adds the new smoke to the standard PR tier.
+- symbols_added:
+  - `tools.audit_pit_estimate_guidance_source.audit_source`
+  - `tools.audit_pit_estimate_guidance_source.build_coverage`
+  - `tools.audit_pit_estimate_guidance_source.write_outputs`
+  - `tools.audit_pit_estimate_guidance_source.main`
+- symbols_changed:
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the PIT estimate/guidance source gate smoke.
+- config_fields_added:
+  - frozen `run287-pit-estimate-guidance-source-requirements-v1` sample thresholds.
+- breaking_changes:
+  - none; the existing free collector and portfolio paths are unchanged.
+- outputs:
+  - gate runs emit `summary.json`, `checks.csv`, `coverage_by_security.csv`, and `report.md` under the requested output directory.
+- validation:
+  - `py -3 tests/pit_estimate_guidance_source_gate_smoke.py` ->PASS.
+  - existing free run `29028159934` audit ->`BLOCKED_SCHEMA`; 13/863 true estimates remain forward-only.
+  - local standard PR validation ->137/141 PASS; the four unrelated failures require tracked paths excluded by this workspace's sparse checkout (`aggressive/`, `auto_learning_v2/`, `data_static/iwb_holdings_seed.csv`, and global output fixtures). GitHub CI uses a full checkout for the final verdict.
+- risks_or_notes:
+  - No real historical sample has passed and no purchase is authorized.
+  - `READY_FOR_SOURCE_SCREEN` permits only the preregistered single-source alpha screen, never a portfolio arm.
+
+### 19:00 KST - Reject two-signal partial-resize confirmation
+
+- scope:
+  - Add and evaluate one research-only broker execution arm that confirms held-name partial resizes across two consecutive decisions while keeping entries, full exits, and target-gross risk cuts immediate.
+  - Preserve the default mechanical broker replay exactly and block the arm from production activation.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->adds the opt-in partial-resize confirmation state machine, decision audit, and research-only metrics.
+  - `tests/broker_ledger_replay_smoke.py` ->covers immediate entries/exits/risk cuts, deferred and confirmed resizes, nonnegative cash, and disabled-mode parity.
+  - `docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md` ->records the fixed-book A/B result and stop rule.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the failure and exact do-not-repeat key.
+  - `docs/run287_do_not_repeat_registry.json` ->machine-readable registry of rejected Run287 signal/mechanism/book/window combinations.
+  - `tools/check_run287_do_not_repeat.py` ->fails closed on exact rejected combinations unless the registered coverage or semantic-change exception is satisfied.
+  - `tests/run287_do_not_repeat_registry_smoke.py` ->covers duplicate blocking and the two allowed reopening conditions.
+  - `tools/run_pr_validation.py` ->runs the registry smoke in the standard validation tier.
+- symbols_added:
+  - `tools.check_run287_do_not_repeat.normalize`
+  - `tools.check_run287_do_not_repeat.load_registry`
+  - `tools.check_run287_do_not_repeat.evaluate_candidate`
+  - `tools.check_run287_do_not_repeat.parse_args`
+  - `tools.check_run287_do_not_repeat.main`
+- symbols_changed:
+  - `tools.run_broker_ledger_replay.replay` ->accepts `partial_resize_two_signal_confirmation`; default remains false.
+  - `tools.run_broker_ledger_replay.parse_args` ->adds the explicit research-only CLI flag.
+  - `tools.run_broker_ledger_replay.main` ->passes the opt-in flag to replay.
+  - `tests.broker_ledger_replay_smoke.main` ->runs the new mechanism and parity cases.
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the do-not-repeat registry smoke.
+- config_fields_added:
+  - CLI `--partial-resize-two-signal-confirmation` (default off; research only).
+- breaking_changes:
+  - none; disabled mode reproduced the frozen control trade ledgers byte-for-byte.
+- outputs:
+  - `outputs/run287_partial_resize_two_signal_20260713/summary.json` ->machine-readable verdict and source hashes.
+  - `outputs/run287_partial_resize_two_signal_20260713/{main,concentrated}/{control,arm}_{cash_carry,zero_yield}/` ->fixed-book broker replay evidence.
+- validation:
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->PASS.
+  - `py -3 tests\run287_do_not_repeat_registry_smoke.py` ->PASS.
+  - `py -3 tests\broker_cash_carry_smoke.py` ->PASS.
+  - frozen cash-carry control parity ->PASS; exact Main and Concentrated trade-ledger SHA-256 matches.
+  - cash-carry result ->REJECT: Main dCAGR -2.8146pp, OOS -14.4485pp, OOS2 -6.9461pp; Concentrated dCAGR -10.8946pp, OOS -31.9098pp, OOS2 -15.6199pp.
+  - zero-yield OOS/OOS2 directions ->negative for both portfolios.
+  - local standard PR validation ->136/140 PASS; the four unrelated failures require tracked paths excluded by this workspace's sparse checkout (`aggressive/`, `auto_learning_v2/`, `data_static/iwb_holdings_seed.csv`, and global output fixtures). GitHub CI uses a full checkout for the final verdict.
+- risks_or_notes:
+  - No fullrun, production activation, live trading, or target-book mutation was performed.
+  - Do not retune confirmation count or add a resize/deadband threshold grid on the same books and window.
+
 ## 2026-06-29
 
 ### 23:19 KST - Window gate: official-anchored overshoot no longer self-invalidates as proxy
