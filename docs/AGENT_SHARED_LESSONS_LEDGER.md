@@ -1829,3 +1829,60 @@ Expected contract:
   - `outputs/run287_selector_benchmark_price_20260714_close_20260713/manifest.json`
   - `outputs/run287_current_selector_no_write_20260714_close_20260713_v2/manifest.json`
   - `docs/CODEX_RUN287_CURRENT_SELECTOR_NO_WRITE_RESULT_20260714.md`
+
+### 2026-07-14 - A candidate risk packet closes missing data, not the transition gate
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-risk-no-write-20260714`
+  - exact-close proposed-new-entry risk packet for `2026-07-13`
+- Context:
+  - The current selector proposed seven new entries that were absent from the
+    marked accounts and therefore outside the held-security risk archive.
+- Attempt:
+  - Derived the exact candidate union mechanically from the hash-pinned
+    no-write selector comparison.
+  - Reused the held-security price-feature and classification functions without
+    adding candidate-specific thresholds.
+  - Joined immutable long histories through 2026-07-10 to the hash-pinned
+    provider increment for 2026-07-13, and verified SPY through the macro
+    manifest and market-component audit.
+  - Added fail-closed tests for future rows, overlap mismatch, SPY hash mismatch,
+    source mutation, deterministic rerun, and non-executable safety fields.
+- Result:
+  - All seven candidates had exact 2026-07-13 closes and sufficient history.
+    STX is ALERT; AMAT and COHU are WATCH; ARM, DELL, FTNT, and PANW are NORMAL.
+  - The maximum 130-session provider overlap error was about `1.14e-7`, below
+    the frozen `1e-5` ceiling. Network requests were zero and source inputs
+    remained unchanged.
+  - The first run archived seven events and the exact same-date rerun appended
+    zero. No selector weight, target book, cash, order, backtest, fullrun, or
+    production state changed.
+  - Local standard PR validation passed `166/166` in `228.94` seconds.
+- Failure or caveat:
+  - ARM's -7.55% one-session move did not fire the narrow frozen quantile
+    contract. NORMAL is not a complete company-risk review or buy evidence.
+  - One date cannot establish candidate risk efficacy, transition stability,
+    or CAGR/MDD improvement.
+- Root cause:
+  - The held-security watch intentionally covered current positions only; the
+    candidate set was not known until the repaired current selector ran.
+- Reusable lesson:
+  - Evaluate proposed entries with the exact same preregistered contract as
+    holdings, but keep candidate state separate from selector alpha and sizing.
+  - Pin both long-history and current-increment hashes, validate their overlap,
+    and verify the benchmark through its owning manifest before classification.
+- Next action:
+  - Append the unchanged selector and risk packets across distinct completed
+    decision weeks. Review STX/AMAT/COHU manually, but do not retune or convert
+    the warning into a forced trade rule.
+- Do-not-repeat:
+  - Do not treat NORMAL as buy authorization.
+  - Do not tune risk thresholds after seeing the 2026-07-13 semiconductor drop.
+  - Do not use this current forward packet as seven-year CAGR/MDD evidence.
+- Evidence files:
+  - `outputs/run287_candidate_risk_watch_20260714_close_20260713/summary.json`
+  - `docs/run287_candidate_risk_watch_contract.json`
+  - `tools/build_run287_candidate_risk_watch.py`
+  - `tests/run287_candidate_risk_watch_smoke.py`
+  - `docs/CODEX_RUN287_CANDIDATE_RISK_WATCH_RESULT_20260714.md`

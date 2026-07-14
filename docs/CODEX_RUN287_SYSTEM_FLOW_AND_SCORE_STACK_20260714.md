@@ -20,8 +20,9 @@ flowchart TD
     F --> G[CatBoost heads and adaptive registered score stack]
     G --> H{Current gate passed?}
     H -- yes --> I[No-write Main and Concentrated selector audit]
-    I --> J[Advisory diff, turnover, cost and risk intersection]
-    J --> K{Transition evidence gate}
+    I --> J[Advisory diff, turnover, cost and held-risk intersection]
+    J --> X[Exact-close proposed-candidate risk packet]
+    X --> K{Transition evidence gate}
     K -- one-date turnover and risk blocked --> L[No target-book change, no fullrun, no trade]
     K -- future multi-week evidence --> W[Separate user-approved promotion gate]
 
@@ -47,7 +48,8 @@ flowchart TD
 | Daily decision data | 989 tickers, 238 features, 100% finite scaled matrix, zero future rows | Current-decision input completeness under missing-neutral scaling | Passed |
 | Linear scoring | 3,956/3,956 finite cells, independent parity 4/4 | Frozen linear-head arithmetic | Passed |
 | Registered score stack | Six active heads, passthrough 6/6, CatBoost parity 2/2, determinism 13/13 | Current score and eligibility construction without ranking | Passed in this change |
-| Current selector | Passed as `REVIEW_REQUIRED`; Main turnover 44.7-50.2%, Concentrated 60.8% | One-date candidates, cash, cost, and held-risk conflicts only | New-entry risk packet, then multi-week append-only stability |
+| Current selector | Passed as `REVIEW_REQUIRED`; Main turnover 44.7-50.2%, Concentrated 60.8% | One-date candidates, cash, cost, and held-risk conflicts only | Multi-week append-only stability |
+| Proposed-candidate risk | Exact-close 7/7; STX ALERT, AMAT/COHU WATCH, four NORMAL | Frozen current price-damage review only; NORMAL is not buy evidence | Keep contract fixed and append distinct decision weeks |
 | Historical new alpha | Free SEC filing-quality source rejected | Nothing promotable from the closed SEC lane | Await PIT estimate/guidance sample |
 | Forward archive | 90 observations, two decision dates, 11 distinct true-forward tickers, zero resolved 63D | Early operational evidence only | Continue bounded collection; still `UNDERPOWERED` |
 | Production/fullrun | Disabled | Nothing | Separate explicit approval remains mandatory |
@@ -109,14 +111,14 @@ and public dashboard contracts.
 
 ## Bottlenecks and next sequence
 
-1. The separate no-write selector audit is complete. It wrote no target book
-   or order and did not run a backtest/fullrun. The one-date transition remains
-   blocked by material turnover, held-risk buy conflicts in Main, and missing
-   position-level risk checks for proposed new entries.
-2. Build the same past-only risk diagnostics for every proposed new buy, then
-   append the selector output across distinct future decision weeks. Keep the
-   strict and Main prior-hold bridge scenarios fixed; do not introduce a
-   turnover, cash, or replacement threshold grid.
+1. The separate no-write selector audit and the exact-close risk packet for all
+   seven proposed new buys are complete. They wrote no target book or order and
+   did not run a backtest/fullrun. STX is ALERT; AMAT and COHU are WATCH.
+2. The one-date transition remains blocked by material turnover, existing-held
+   risk conflicts in Main, candidate warnings, and missing multi-week selector
+   stability. Append the same selector and risk contracts across distinct
+   future decision weeks. Keep the strict and Main prior-hold bridge scenarios
+   fixed; do not introduce a turnover, cash, or replacement threshold grid.
 3. Do not merge or reuse PR #280 as the selector input. It was based on a
    partial 2026-07-13 ranking whose rows explicitly had incomplete decision
    features and is retained only as stale diagnostic reference.
@@ -129,6 +131,8 @@ and public dashboard contracts.
 
 Detailed selector evidence is in
 `docs/CODEX_RUN287_CURRENT_SELECTOR_NO_WRITE_RESULT_20260714.md`.
+Candidate-risk evidence is in
+`docs/CODEX_RUN287_CANDIDATE_RISK_WATCH_RESULT_20260714.md`.
 
 No direct growth tilt, SEC veto/replacement, broad gross floor, stop/exit-delay,
 proxy grid, or hindsight ticker/era exclusion is reopened by this result.
