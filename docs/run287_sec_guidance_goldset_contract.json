@@ -1,0 +1,62 @@
+{
+  "schema_version": "run287-sec-guidance-goldset-contract-v1",
+  "source_scout_schema_version": "run287-sec-management-guidance-scout-contract-v2",
+  "expected_filing_count": 80,
+  "reviewer_ids": [
+    "reviewer_a",
+    "reviewer_b"
+  ],
+  "review_policy": {
+    "all_filings_reviewed_independently": true,
+    "reviewers_must_not_see_each_others_labels": true,
+    "adjudication_required_on_any_disagreement": true,
+    "candidate_negative_filings_are_included_for_recall": true,
+    "missing_label_is_not_negative": true
+  },
+  "filing_class_values": [
+    "TRUE_GUIDANCE",
+    "FALSE_POSITIVE",
+    "NO_GUIDANCE",
+    "UNREADABLE"
+  ],
+  "precision_label_values": [
+    "TP",
+    "FP",
+    "TN",
+    "FN"
+  ],
+  "component_metrics_allowed_initially": [
+    "eps",
+    "revenue"
+  ],
+  "comparison_status_values": [
+    "INIT",
+    "UP",
+    "DOWN",
+    "NO_CHANGE",
+    "NOT_COMPARABLE"
+  ],
+  "required_source_gates": {
+    "scout_status": "READY_FOR_MANUAL_SCHEMA_REVIEW",
+    "exact_acceptance_ratio": 1.0,
+    "raw_header_acceptance_match_ratio": 1.0,
+    "quarantined_missing_acceptance_count": 0,
+    "raw_header_acceptance_mismatch_count": 0,
+    "source_sha256_per_filing": true
+  },
+  "promotion_gates": {
+    "minimum_precision": 0.9,
+    "minimum_recall": 0.8,
+    "minimum_schema_completeness": 0.8,
+    "fired_row_pit_period_currency_unit_share_basis_completeness": 1.0
+  },
+  "prohibited": {
+    "return_join": true,
+    "portfolio_ab": true,
+    "portfolio_mutation": true,
+    "fullrun": true,
+    "production": true,
+    "live_trading": true,
+    "automatic_orders": true
+  }
+}

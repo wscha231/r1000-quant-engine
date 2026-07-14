@@ -5,6 +5,26 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 11:03 KST - Freeze the 80-filing SEC guidance dual-review packet
+
+- scope:
+  - Freeze every bounded SEC guidance filing, including heuristic negatives, before parser, return, or portfolio work.
+  - Provide blind, separate reviewer templates with exact accepted-time and per-source hash evidence.
+- files:
+  - `docs/run287_sec_guidance_goldset_contract.json` ->registers review labels, source requirements, promotion gates, and prohibited operations.
+  - `tools/run_sec_management_guidance_scout.py` ->adds complete source identity, cache path, and SHA-256 to the download manifest.
+  - `tools/build_sec_guidance_goldset_packet.py` ->verifies all source gates and creates the full dual-review packet.
+  - `tests/sec_guidance_goldset_packet_smoke.py` ->covers candidate-negative inclusion, reviewer isolation, exact source integrity, and fail-closed hash mismatch handling.
+  - `docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_PACKET_RESULT_20260714.md` ->records the actual packet and frozen hashes.
+  - `tools/run_pr_validation.py` ->registers the gold-set smoke.
+- result:
+  - Hardened v3 reused 80 cached filings across 10 issuers with 80/80 exact accepted-time and raw-header agreement.
+  - The packet contains 16 heuristic-candidate and 64 heuristic-negative filings, all with valid source hashes and full review text.
+  - Separate blank filing/component templates were created for reviewer A and reviewer B; no labels were inferred.
+  - No returns, portfolio A/B, book mutation, fullrun, production, or live trading ran.
+- caveat:
+  - Parser construction and the 45-name archive remain blocked until independent review and adjudication reach the preregistered precision, recall, and completeness gates.
+
 ### 09:28 KST - Add a bounded no-email SEC management-guidance scout
 
 - scope:

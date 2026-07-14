@@ -1219,3 +1219,50 @@ Expected contract:
   - `.github/workflows/full_rebuild_manual.yml`
   - `tests/smoke_test.py`
   - `docs/CODEX_FULLRUN_SCHEDULE_GOVERNANCE_RESULT_20260714.md`
+### 2026-07-14 - Candidate-only review cannot measure SEC guidance recall
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-guidance-goldset-20260714`
+  - hardened v3 offline scout and dual-review packet; no fullrun or execution
+- Context:
+  - The hardened scout found 16 heuristic candidate filings, but reviewing only
+    those rows could estimate precision and could not reveal false negatives.
+- Attempt:
+  - Froze all 80 bounded filings with exact acceptance, raw-header agreement,
+    complete-submission SHA-256, full allowed-document text, and separate blank
+    reviewer A/B files.
+  - Registered EPS/revenue-only extraction fields and fixed promotion gates.
+- Result:
+  - Source integrity passed for 80/80 filings across 10 issuers, including all
+    five ADR/global sample names.
+  - The packet contains 16 heuristic candidates and 64 heuristic negatives.
+  - No return or portfolio outcome label is present in the packet.
+- Failure or caveat:
+  - The packet is evidence ready, not a validated signal. Precision, recall,
+    schema completeness, and revision-pair availability are still unknown.
+  - The repository-wide smoke has six unrelated sparse-checkout failures from
+    absent `aggressive/` and IWB seed files; the new and adjacent SEC tests pass.
+- Root cause:
+  - Candidate discovery is a retrieval heuristic. Candidate-only review
+    conditions the sample on the heuristic firing and therefore hides false
+    negatives and inflates apparent recall.
+- Reusable lesson:
+  - Freeze the complete bounded denominator and source hashes before labeling.
+  - Keep reviewers blind to one another and keep market outcomes out of source
+    labeling so financial results cannot influence semantic judgments.
+- Next action:
+  - Complete two independent 80-filing reviews, adjudicate every disagreement,
+    and calculate frozen precision, recall, and registered-schema completeness.
+  - Build the deterministic parser only if those gates pass; do not join returns.
+- Do-not-repeat:
+  - Do not label only heuristic candidates or treat missing labels as negatives.
+  - Do not expand to 45 names, join returns, run A/B, or tune extraction rules
+    after seeing market outcomes before the gold-set gates pass.
+- Evidence files:
+  - `docs/run287_sec_guidance_goldset_contract.json`
+  - `tools/build_sec_guidance_goldset_packet.py`
+  - `tests/sec_guidance_goldset_packet_smoke.py`
+  - `docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_PACKET_RESULT_20260714.md`
+  - `outputs/run287_sec_management_guidance_scout_20260714_hardened_v3/`
+  - `outputs/run287_sec_guidance_goldset_packet_20260714/`
