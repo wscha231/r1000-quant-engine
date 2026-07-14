@@ -5,6 +5,24 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 11:30 KST - Close the bounded SEC guidance heuristic at the precision gate
+
+- scope:
+  - Evaluate two blind 80-filing reviews, require explicit adjudication of every filing disagreement, and stop before downstream tuning when a mandatory source gate fails.
+- files:
+  - `docs/run287_sec_guidance_goldset_adjudication.csv` ->freezes the three filing-level adjudications without market outcomes.
+  - `tools/evaluate_sec_guidance_goldset_reviews.py` ->validates complete blind reviews, computes precision/recall, applies adjudications, and enforces early termination.
+  - `tests/sec_guidance_goldset_review_gate_smoke.py` ->covers disagreement resolution, metric calculation, unsafe-operation flags, and unresolved-disagreement blocking.
+  - `docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_REVIEW_GATE_RESULT_20260714.md` ->records the independent results, adjudication, hashes, and closure decision.
+  - `tools/run_pr_validation.py` ->registers the review-gate smoke.
+- result:
+  - Reviewer agreement was 77/80; adjudicated TP/FP/TN/FN was 13/3/61/1.
+  - Recall passed at 92.86%, but precision failed at 81.25% versus the frozen 90% minimum.
+  - Component adjudication, deterministic parser work, 45-name expansion, return joins, and portfolio A/B were stopped.
+  - No fullrun, production, live trading, or automatic orders ran.
+- caveat:
+  - This closes the exact bounded heuristic lane, not every possible future SEC signal. A future lane needs different semantics or materially improved coverage and a new blind set.
+
 ### 11:03 KST - Freeze the 80-filing SEC guidance dual-review packet
 
 - scope:

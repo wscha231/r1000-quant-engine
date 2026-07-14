@@ -1266,3 +1266,49 @@ Expected contract:
   - `docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_PACKET_RESULT_20260714.md`
   - `outputs/run287_sec_management_guidance_scout_20260714_hardened_v3/`
   - `outputs/run287_sec_guidance_goldset_packet_20260714/`
+### 2026-07-14 - SEC guidance heuristic failed frozen precision before parser work
+
+- Agent: Codex with independent reviewer A and reviewer B agents
+- Branch/PR/run:
+  - `codex/run287-guidance-goldset-adjudication-20260714`
+  - source-only dual review and adjudication; no returns, fullrun, or execution
+- Context:
+  - The 80-filing packet required two blind reviews and filing-level
+    adjudication before any parser, archive expansion, or outcome join.
+- Attempt:
+  - Independently classified all 80 filings, reconciled exactly three filing-
+    level disagreements from frozen text, and evaluated fixed precision/recall
+    gates without seeing market outcomes.
+- Result:
+  - Agreement was 77/80. Adjudicated TP/FP/TN/FN was 13/3/61/1.
+  - Recall passed at 92.86%; precision failed at 81.25% versus the fixed 90%.
+  - The evaluator returned `CLOSED_SOURCE_PRECISION_OR_RECALL_GATE` and blocked
+    parser work, component adjudication, 45-name expansion, returns, and A/B.
+- Failure or caveat:
+  - Two packet rows were unreadable because allowed attachments were not plain
+    extractable text, including a uuencoded PDF payload.
+  - Reviewer component counts differed materially, but resolving them cannot
+    rescue the already failed mandatory filing precision gate.
+- Root cause:
+  - The broad text-window heuristic admitted qualitative growth language,
+    physical-volume/unit-cost disclosures, and one-time transaction text while
+    missing one conditional long-horizon revenue outlook.
+- Reusable lesson:
+  - Blind-label the entire bounded denominator and adjudicate semantic scope
+    before parser tuning or market-outcome access.
+  - Stop at the first failed mandatory gate; downstream schema work cannot
+    repair source precision without becoming post-result retuning.
+- Next action:
+  - Register this exact lane as closed and move to an independent planned lane,
+    such as the existing accepted-time filing-quality event or forward paper
+    evidence, without reusing these rows for threshold tuning.
+- Do-not-repeat:
+  - Do not add special-case rules for the known NVS, RIO, VZ, or TPL rows.
+  - Do not expand this heuristic to 45 names, build its parser, join returns,
+    or run portfolio A/B under the same research key.
+- Evidence files:
+  - `docs/run287_sec_guidance_goldset_adjudication.csv`
+  - `tools/evaluate_sec_guidance_goldset_reviews.py`
+  - `tests/sec_guidance_goldset_review_gate_smoke.py`
+  - `docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_REVIEW_GATE_RESULT_20260714.md`
+  - `outputs/run287_sec_guidance_goldset_review_gate_20260714/`

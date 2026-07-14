@@ -1,0 +1,4 @@
+review_row_id,adjudicated_filing_class,adjudicated_precision_label,adjudicator_id,adjudicated_at_utc,rationale
+eb9bed43b96a118bfee50b15,TRUE_GUIDANCE,TP,codex_root,2026-07-14T02:27:31Z,"Issuer explicitly reaffirmed numeric 5-6% five-year sales CAGR guidance for 2025-2030; sales is the registered revenue metric."
+f513ee1e7924d9e56026e6c2,UNREADABLE,,codex_root,2026-07-14T02:27:31Z,"Allowed annual-report exhibit is uuencoded PDF payload and cannot be judged from the frozen review text."
+7a70d7064b1518ecdf4379c9,TRUE_GUIDANCE,FN,codex_root,2026-07-14T02:27:31Z,"Issuer presentation gives conditional numeric FY2026-2035 potential renewal revenue above $250 million with explicit assumptions; it is a revenue outlook but not comparable prior guidance."
