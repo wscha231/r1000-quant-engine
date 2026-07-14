@@ -23,9 +23,6 @@ from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
-from catboost import CatBoostClassifier, CatBoostRegressor
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -475,6 +472,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             started=started,
             valuation_date=valuation_date,
         )
+
+    from catboost import CatBoostClassifier, CatBoostRegressor
 
     regressor = CatBoostRegressor()
     classifier = CatBoostClassifier()

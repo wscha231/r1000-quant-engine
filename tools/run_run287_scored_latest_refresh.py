@@ -22,9 +22,6 @@ from typing import Any, Callable, Mapping
 
 import numpy as np
 import pandas as pd
-from catboost import CatBoostClassifier, CatBoostRegressor
-
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -263,6 +260,8 @@ def score_current_context(
     session_date: pd.Timestamp,
     quarantine_tickers: set[str],
 ) -> tuple[pd.DataFrame, dict[str, Any], pd.DataFrame]:
+    from catboost import CatBoostClassifier, CatBoostRegressor
+
     model_features = [str(value) for value in model_meta.get("model_features") or []]
     if len(model_features) != 238:
         raise ValueError(f"frozen_model_feature_count:{len(model_features)}!=238")

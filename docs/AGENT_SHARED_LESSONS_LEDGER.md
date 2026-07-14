@@ -1544,6 +1544,10 @@ Expected contract:
   - A diagnostic overlay using the archived estimate signal snapshot has no
     local listing-status source, so 989 lifecycle rows remain missing-neutral.
     Its top-30 differences are diagnostic only.
+  - Initial PR validation passed 150/151 but the new smoke could not import in
+    the minimal CI image because CatBoost was loaded at module import time.
+    Moving CatBoost imports into the actual scoring functions preserved runtime
+    behavior and lets pure contract tests run without the optional dependency.
 - Root cause:
   - Daily operations updated prices and forward evidence but did not own a
     current full-universe score refresh. Symbol lifecycle and the score audit's
@@ -1553,6 +1557,8 @@ Expected contract:
     symbol changes in a reviewed logical-to-provider map with provenance.
   - Drop stale prediction columns before merging new model heads; otherwise
     pandas suffixes can silently route registered scoring to default zeros.
+  - Heavy optional model libraries must be imported at the execution boundary,
+    not at module import time, so low-cost contract CI stays usable.
   - A score observed after the close is eligible only for the next close. Never
     revise an immutable forward cohort already recorded for the same date.
 - Next action:
