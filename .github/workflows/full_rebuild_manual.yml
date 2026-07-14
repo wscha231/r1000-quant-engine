@@ -7,26 +7,30 @@ name: Full Rebuild (Manual / Long-Run)
 # Estimated runtime: ~3-5 hours (within GHA 6h timeout). Can use up to ~50%
 # of free-tier monthly minutes (2000) PER run, so trigger judiciously.
 #
-# Schedule: WEEKLY (Mon 09:00 UTC) + manual workflow_dispatch.
-# The weekly cron is the self-sustaining loop's heartbeat: each run appends a
-# row to cloud_results/performance_ledger/ledger.jsonl (IS-CAGR trend, Tier-2
-# gate pass, IS-attribution leak tags), so the engine's trajectory accumulates
-# and self-evaluates without manual intervention.
-# CAVEAT: GitHub only fires `schedule:` from the repository's DEFAULT branch.
-# This cron stays dormant until this workflow is merged to the default branch;
-# until then the loop runs per manual/dispatched run (which already accumulate
-# the ledger). A scheduled run uses input DEFAULTS — note portfolio_policy now
-# defaults to alphaops_vnext_production, so the weekly run produces the
-# production cash-overlay book + ledger row automatically.
-# Budget: a FULL rebuild is ~3-5h and up to ~50% of the 2000-min monthly free
-# tier per run. Weekly (~4 runs/mo) is the affordable cadence; drop to monthly
-# if the budget tightens.
+# Manual-only governance: this long-running workflow must never have a cron or
+# another automatic trigger. Every run requires a separately reviewed commit,
+# frozen source-manifest hash, expected runner cost, and explicit approval.
+# Research approval does not authorize production or live trading.
 
 on:
-  schedule:
-    - cron: '0 9 * * 1'  # Monday 09:00 UTC — weekly self-sustaining ledger run
   workflow_dispatch:
     inputs:
+      approval_token:
+        description: 'Exact approval phrase after review: FULLRUN_APPROVED'
+        type: string
+        required: true
+      approved_commit_sha:
+        description: 'Exact 40-hex commit SHA reviewed for this full rebuild'
+        type: string
+        required: true
+      approved_source_manifest_sha256:
+        description: 'Exact 64-hex SHA-256 of the frozen source/input manifest'
+        type: string
+        required: true
+      expected_cost_minutes:
+        description: 'Reviewed expected GitHub runner minutes (1-350)'
+        type: string
+        required: true
       universe_mode:
         description: 'r1000 baseline | r1000+adr | global_alpha_universe (R1000+ADR+cycle play) | r1000+cycle | r1000+adr_phase14_off control'
         type: choice
@@ -111,7 +115,7 @@ on:
           - off
         default: minimal
       portfolio_policy:
-        description: 'operating target policy: baseline, shadow-only integrated/market-leader, approved integrated, or AlphaOps vNext production'
+        description: 'research target policy; AlphaOps vNext production is blocked by the current governance guard'
         type: choice
         options:
           - production_baseline
@@ -119,7 +123,7 @@ on:
           - market_leader_shadow
           - approved_integrated
           - alphaops_vnext_production
-        default: alphaops_vnext_production
+        default: integrated_shadow
       approved_target_policy_path:
         description: 'approved_integrated policy file path; default stays unapproved'
         type: string
@@ -132,12 +136,89 @@ on:
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
 
+concurrency:
+  group: full-rebuild-manual
+  cancel-in-progress: false
+
 jobs:
   full_rebuild:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 350   # 5h 50m (just under 6h GHA hard limit)
 
     steps:
+      - name: Validate explicit fullrun approval
+        env:
+          APPROVAL_TOKEN: ${{ inputs.approval_token }}
+          APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
+          APPROVED_SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
+          EXPECTED_COST_MINUTES: ${{ inputs.expected_cost_minutes }}
+          INPUT_UNIVERSE_MODE: ${{ inputs.universe_mode }}
+          INPUT_BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          INPUT_FAST_MODE: ${{ inputs.fast_mode }}
+          INPUT_ARTIFACT_PROFILE: ${{ inputs.artifact_profile }}
+          INPUT_GDRIVE_SYNC_MODE: ${{ inputs.gdrive_sync_mode }}
+          INPUT_PORTFOLIO_POLICY: ${{ inputs.portfolio_policy }}
+        run: |
+          set -eu
+
+          if [ "$APPROVAL_TOKEN" != "FULLRUN_APPROVED" ]; then
+            echo "::error::fullrun requires the exact approval token FULLRUN_APPROVED"
+            exit 2
+          fi
+          if ! printf '%s' "$APPROVED_COMMIT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::approved_commit_sha must be an exact lowercase 40-hex SHA"
+            exit 2
+          fi
+          if [ "$APPROVED_COMMIT_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::approved_commit_sha does not match the dispatched GITHUB_SHA"
+            exit 2
+          fi
+          if ! printf '%s' "$APPROVED_SOURCE_MANIFEST_SHA256" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "::error::approved_source_manifest_sha256 must be an exact lowercase 64-hex SHA-256"
+            exit 2
+          fi
+          case "$EXPECTED_COST_MINUTES" in
+            ''|*[!0-9]*)
+              echo "::error::expected_cost_minutes must be an integer from 1 through 350"
+              exit 2
+              ;;
+          esac
+          if [ "$EXPECTED_COST_MINUTES" -lt 1 ] || [ "$EXPECTED_COST_MINUTES" -gt 350 ]; then
+            echo "::error::expected_cost_minutes must be within the job timeout (1-350)"
+            exit 2
+          fi
+          case "$INPUT_UNIVERSE_MODE" in
+            global_alpha_universe|r1000|r1000+adr|r1000+cycle|r1000+adr_phase14_off) ;;
+            *) echo "::error::invalid or blank universe_mode"; exit 2 ;;
+          esac
+          case "$INPUT_BACKTEST_YEARS" in
+            7|8|10) ;;
+            *) echo "::error::invalid or blank backtest_years"; exit 2 ;;
+          esac
+          case "$INPUT_FAST_MODE" in
+            true|false) ;;
+            *) echo "::error::invalid or blank fast_mode"; exit 2 ;;
+          esac
+          case "$INPUT_ARTIFACT_PROFILE" in
+            minimal|official|research_full) ;;
+            *) echo "::error::invalid or blank artifact_profile"; exit 2 ;;
+          esac
+          case "$INPUT_GDRIVE_SYNC_MODE" in
+            minimal|official|research|off) ;;
+            *) echo "::error::invalid or blank gdrive_sync_mode"; exit 2 ;;
+          esac
+          if [ "$INPUT_PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
+            echo "::error::production portfolio policy is outside the approved research scope"
+            exit 2
+          fi
+          case "$INPUT_PORTFOLIO_POLICY" in
+            production_baseline|integrated_shadow|market_leader_shadow|approved_integrated) ;;
+            *) echo "::error::invalid or blank research portfolio_policy"; exit 2 ;;
+          esac
+
+          echo "manual_fullrun_approval_ok commit=$APPROVED_COMMIT_SHA source_manifest_sha256=$APPROVED_SOURCE_MANIFEST_SHA256 expected_cost_minutes=$EXPECTED_COST_MINUTES"
+
       - name: Free disk space on runner
         # Full Rebuild 27426321227 (2026-06-12, cold cache) failed with
         # OSError [Errno 28] No space left on device while writing

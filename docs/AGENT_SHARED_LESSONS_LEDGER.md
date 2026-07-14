@@ -954,3 +954,50 @@ Expected contract:
   - `tests/pit_estimate_guidance_sample_request_smoke.py`
   - `docs/CODEX_RUN287_LONG_HORIZON_SAMPLE_REQUEST_20260714.md`
   - `outputs/run287_pit_estimate_guidance_sample_request_20260714/`
+
+### 2026-07-14 - Scheduled full rebuild violated the separate-approval boundary
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/disable-scheduled-fullrun-20260714`
+  - GitHub Actions incident run `29249021773`; governance fix only, no fullrun
+- Context:
+  - Run287 requires exact hashes and expected cost to be shown for separate
+    user approval before any fullrun.
+  - The nominally manual full-rebuild workflow still contained a weekly cron.
+- Attempt:
+  - Audited the live workflow and the failed scheduled run before editing.
+  - Removed the automatic trigger and added a first-step manual approval guard.
+- Result:
+  - The workflow is `workflow_dispatch`-only.
+  - A dispatch now requires `FULLRUN_APPROVED`, the exact dispatched commit
+    SHA, a frozen source-manifest SHA-256, and expected runner minutes.
+  - Blank core inputs and `alphaops_vnext_production` fail before expensive
+    runner work; approved manual runs are serialized.
+- Failure or caveat:
+  - Run `29249021773` had already started automatically on 2026-07-13. It
+    failed at `run_local.py --full` because the scheduled event supplied an
+    empty `fast_mode`, after earlier setup, SEC refresh, and restore steps ran.
+  - This fix does not make a future fullrun approved; it only enforces the
+    prerequisites. No fullrun was used to validate the fix.
+- Root cause:
+  - A `schedule` trigger was combined with logic that read
+    `workflow_dispatch`-only inputs. GitHub scheduled events do not populate
+    those dispatch inputs.
+- Reusable lesson:
+  - Expensive manual workflows must not also have automatic triggers.
+  - Approval evidence must be validated before checkout, collection, restore,
+    or any other material runner work.
+- Next action:
+  - Run targeted smoke and standard PR CI, then merge this governance fix
+    before integrating the SEC/CIK and risk-watch PRs.
+- Do-not-repeat:
+  - Do not restore a cron, `workflow_call`, or chained automatic trigger to the
+    full-rebuild workflow.
+  - Do not use a fullrun to test the governance guard.
+  - Do not treat incident artifacts or diagnostics as a valid performance
+    baseline.
+- Evidence files:
+  - `.github/workflows/full_rebuild_manual.yml`
+  - `tests/smoke_test.py`
+  - `docs/CODEX_FULLRUN_SCHEDULE_GOVERNANCE_RESULT_20260714.md`
