@@ -60,10 +60,24 @@ def test_new_combination_is_allowed() -> None:
     assert result["allowed"] is True
 
 
+def test_rejected_sec_filing_quality_source_screen_is_blocked() -> None:
+    result = evaluate_candidate(
+        load_registry(),
+        signal="sec_filing_quality_event",
+        mechanism="exact_accepted_time_source_screen",
+        book="single_source_sec_events",
+        window="available_history_to_2026-07-10",
+    )
+    assert result["status"] == "BLOCKED_DO_NOT_REPEAT"
+    assert result["allowed"] is False
+    assert result["matched_entry_ids"] == ["sec_filing_quality_event"]
+
+
 def main() -> int:
     test_exact_rejected_candidate_is_blocked()
     test_coverage_or_real_semantic_change_can_reopen()
     test_new_combination_is_allowed()
+    test_rejected_sec_filing_quality_source_screen_is_blocked()
     print("run287_do_not_repeat_registry_smoke: PASS")
     return 0
 

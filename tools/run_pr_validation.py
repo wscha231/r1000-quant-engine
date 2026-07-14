@@ -168,6 +168,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/sec_management_guidance_scout_smoke.py", []),
     ("tests/sec_guidance_goldset_packet_smoke.py", []),
     ("tests/sec_guidance_goldset_review_gate_smoke.py", []),
+    ("tests/sec_filing_quality_event_smoke.py", []),
     ("tests/run287_holding_risk_watch_smoke.py", []),
     ("tests/free_data_selection_overlay_smoke.py", []),
     ("tests/free_data_forward_paper_ledger_smoke.py", []),

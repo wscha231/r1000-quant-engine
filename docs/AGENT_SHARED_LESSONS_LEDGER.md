@@ -1462,3 +1462,49 @@ Expected contract:
 - Evidence files:
   - `outputs/earnings_estimates_daily_29303018492/`
   - `docs/CODEX_RUN287_FORWARD_PAPER_LEDGER_RECOVERY_RESULT_20260714.md`
+
+### 2026-07-14 - Positive SEC event point estimates failed clustered OOS confidence
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-sec-filing-quality-closure-20260714`
+  - frozen existing output; no rerun, fullrun, or portfolio replay
+- Context:
+  - The preregistered accepted-time filing-quality event had complete output
+    evidence, but its producer and smoke were lost from later squash history.
+- Attempt:
+  - Restored only the exact single-source producer and offline smoke from commit
+    `2f3c9750`, verified frozen output and producer hashes, and audited the fixed
+    power and return gates.
+- Result:
+  - Exact acceptance was 100% for 115,185 eligible ticker events; the source
+    screen contained 113,466 unique issuer/accession events.
+  - OOS and OOS2 were well powered, but their 63D filing-week bootstrap lower
+    bounds were -1.2681%p and -0.6535%p. OOS 21D direction was -0.2468%p.
+  - The existing `REJECT_SOURCE_SCREEN` verdict was confirmed and the exact
+    combination was added to the do-not-repeat registry.
+- Failure or caveat:
+  - Large full-period positive-minus-negative return does not generalize with
+    nonnegative clustered confidence in the registered OOS windows.
+  - Current ticker identity is not PIT historical index membership.
+- Root cause:
+  - The accounting-improvement event has weak and unstable conditional return
+    separation in recent periods despite a strong long-history average.
+- Reusable lesson:
+  - Apply power checks before interpretation, but do not waive clustered OOS
+    confidence merely because the sample is large or the point estimate is
+    positive.
+  - Recover rejected-lane code only for reproducibility; never interpret code
+    availability as permission to tune after outcomes.
+- Next action:
+  - Keep the historical SEC event lane closed. Continue forward paper evidence
+    and open a portfolio A/B only for a genuinely independent source that first
+    passes its frozen single-source gates.
+- Do-not-repeat:
+  - Do not change event component thresholds, horizons, weights, tickers, eras,
+    or bootstrap units after this rejection.
+  - Do not build Main veto or Concentrated replacement arms from this event.
+- Evidence files:
+  - `outputs/sec_filing_quality_event/source_screen_summary.json`
+  - `tools/run_sec_filing_quality_event.py`
+  - `docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md`
