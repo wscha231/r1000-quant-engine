@@ -57,6 +57,9 @@ DATASETS: list[dict[str, Any]] = [
      "layer": "post_disclosure", "owner_workflow": "post_disclosure_alpha_pipeline.yml", "cadence_days": 100},
     {"name": "companyfacts_zip", "path": "data_raw/free/sec/companyfacts.zip",
      "kind": "zip", "layer": "fundamentals", "owner_workflow": "free_data_daily_update.yml", "cadence_days": 7},
+    {"name": "sec_company_tickers_reference", "path": "data_pit/free/sec_company_tickers.parquet",
+     "kind": "parquet", "ticker_col": "ticker", "date_col": "available_from",
+     "layer": "sec_identity_reference", "owner_workflow": "free_historical_data_backfill.yml", "cadence_days": 7},
     {"name": "av_listing_status", "path": "data_pit/free/av_listing_status.parquet",
      "kind": "parquet", "ticker_col": "symbol", "date_col": "collected_at_utc",
      "layer": "listing_lifecycle", "owner_workflow": "free_data_lake_bootstrap.yml", "cadence_days": 31},
@@ -64,7 +67,13 @@ DATASETS: list[dict[str, Any]] = [
      "kind": "parquet", "ticker_col": "ticker", "date_col": "event_date",
      "layer": "earnings_events", "owner_workflow": "free_data_lake_bootstrap.yml", "cadence_days": 31},
     {"name": "forward_earnings_estimate_snapshots", "path": "data_pit/events/earnings_estimates",
-     "kind": "dir", "layer": "forward_estimates", "owner_workflow": "earnings_estimates_daily.yml", "cadence_days": 4},
+     "kind": "dir", "file_glob": "estimates_*.parquet", "layer": "forward_estimates",
+     "owner_workflow": "earnings_estimates_daily.yml", "cadence_days": 4},
+    {"name": "forward_estimate_collection_universe", "path": "data_pit/events/earnings_estimates/collection_universe.csv",
+     "kind": "csv", "ticker_col": "ticker", "date_col": "", "layer": "forward_estimates",
+     "owner_workflow": "earnings_estimates_daily.yml", "cadence_days": 14},
+    {"name": "forward_estimate_collection_checkpoint", "path": "data_pit/events/earnings_estimates/collection_checkpoint.json",
+     "kind": "json", "layer": "forward_estimates", "owner_workflow": "earnings_estimates_daily.yml", "cadence_days": 4},
     {"name": "forward_earnings_revision_signals", "path": "data_pit/events/earnings_revision_signals.parquet",
      "kind": "parquet", "ticker_col": "ticker", "date_col": "available_from",
      "layer": "forward_estimates", "owner_workflow": "earnings_estimates_daily.yml", "cadence_days": 4},
@@ -137,9 +146,19 @@ def inspect_dataset(spec: dict[str, Any]) -> dict[str, Any]:
 
     stat = path.stat() if not path.is_dir() else None
     if path.is_dir():
-        files = [p for p in path.rglob("*") if p.is_file()]
+        file_glob = str(spec.get("file_glob") or "").strip()
+        files = [p for p in (path.glob(file_glob) if file_glob else path.rglob("*")) if p.is_file()]
+        if file_glob:
+            entry["file_glob"] = file_glob
         entry["bytes"] = sum(p.stat().st_size for p in files)
         entry["file_count"] = len(files)
+        if file_glob and not files:
+            entry["modified_utc"] = None
+            entry["age_days"] = None
+            entry["freshness"] = "unknown"
+            entry["status"] = "empty"
+            entry["action"] = f"EMPTY — no {file_glob} files written by {spec['owner_workflow']}"
+            return entry
         mtime = max((p.stat().st_mtime for p in files), default=None)
     else:
         entry["bytes"] = stat.st_size

@@ -136,6 +136,10 @@ def build_manifest(
     shard_id: str = "",
     shard_file: str = "",
     shard_mode: str = "",
+    queue_summary: str = "outputs/earnings_estimates_daily/incremental_universe_summary.json",
+    queue_checkpoint: str = "data_pit/events/earnings_estimates/collection_checkpoint.json",
+    queue_csv: str = "outputs/earnings_estimates_daily/collection_queue.csv",
+    queue_report: str = "outputs/earnings_estimates_daily/collection_queue_report.md",
 ) -> dict[str, Any]:
     snapshot_dir_path = repo_path(snapshot_dir)
     signals_path = repo_path(signals)
@@ -143,9 +147,19 @@ def build_manifest(
     collector_log_path = repo_path(collector_log)
     manifest_path = repo_path(manifest)
     index_path = repo_path(index)
+    queue_summary_path = repo_path(queue_summary)
+    queue_checkpoint_path = repo_path(queue_checkpoint)
+    queue_csv_path = repo_path(queue_csv)
+    queue_report_path = repo_path(queue_report)
     summary_payload = load_json(summary_path)
+    queue_payload = load_json(queue_summary_path)
     snapshot_path = latest_snapshot(snapshot_dir_path, summary_payload)
-    text_scans = [scan_text_file(summary_path), scan_text_file(collector_log_path)]
+    text_scans = [
+        scan_text_file(summary_path),
+        scan_text_file(collector_log_path),
+        scan_text_file(queue_summary_path),
+        scan_text_file(queue_report_path),
+    ]
     unmasked_secret = any(scan.get("unmasked_secret_pattern_found") for scan in text_scans)
     fetch_date = str(summary_payload.get("feature_summary", {}).get("as_of_date") or "")
     if not fetch_date:
@@ -202,6 +216,23 @@ def build_manifest(
         "vendor_estimate_access": summary_payload.get("vendor_estimate_access", False),
         "vendor_blocked_errors": summary_payload.get("vendor_blocked_errors", False),
         "error_count": summary_payload.get("error_count", 0),
+        "ticker_count_attempted": summary_payload.get("ticker_count_attempted", 0),
+        "collection_attempt_ack": summary_payload.get("collection_attempt_ack", {}),
+        "collection_queue_status": queue_payload.get("status", "missing_queue_summary"),
+        "collection_queue_schema_version": queue_payload.get("schema_version", ""),
+        "collection_queue_selected_ticker_count": queue_payload.get("output_ticker_count", 0),
+        "collection_universe_ticker_count": queue_payload.get("current_universe_ticker_count", 0),
+        "collection_eligible_ticker_count": queue_payload.get("eligible_universe_ticker_count", 0),
+        "collection_non_equity_placeholder_ticker_count": queue_payload.get(
+            "non_equity_placeholder_ticker_count", 0
+        ),
+        "collection_universe_source_mode": queue_payload.get("universe_source_mode", ""),
+        "collection_universe_sha256": queue_payload.get("canonical_universe", {}).get("sha256", ""),
+        "collection_snapshot_source_aggregate_sha256": queue_payload.get(
+            "snapshot_source_aggregate_sha256", ""
+        ),
+        "collection_queue_state_counts": queue_payload.get("queue_state_counts", {}),
+        "collection_selection_reason_counts": queue_payload.get("selection_reason_counts", {}),
         "missing_vendor_coverage_policy": "neutral",
         "persistence": {
             "github_artifact_uploaded_by_workflow": True,
@@ -215,6 +246,10 @@ def build_manifest(
             "signals": file_record(signals_path),
             "summary": file_record(summary_path),
             "collector_log": file_record(collector_log_path),
+            "collection_queue_summary": file_record(queue_summary_path),
+            "collection_queue_checkpoint": file_record(queue_checkpoint_path),
+            "collection_queue_csv": file_record(queue_csv_path),
+            "collection_queue_report": file_record(queue_report_path),
         },
         "text_secret_scan": {
             "unmasked_secret_pattern_found": unmasked_secret,
@@ -246,6 +281,21 @@ def build_manifest(
         "stored_estimate_coverage_ratio": payload["stored_estimate_coverage_ratio"],
         "same_day_snapshot_merged": payload["same_day_snapshot_merged"],
         "collector_max_errors": payload["collector_max_errors"],
+        "collection_queue_status": payload["collection_queue_status"],
+        "collection_queue_selected_ticker_count": payload["collection_queue_selected_ticker_count"],
+        "collection_attempt_acknowledged_ticker_count": payload.get("collection_attempt_ack", {}).get(
+            "acknowledged_ticker_count", 0
+        ),
+        "collection_universe_ticker_count": payload["collection_universe_ticker_count"],
+        "collection_eligible_ticker_count": payload["collection_eligible_ticker_count"],
+        "collection_non_equity_placeholder_ticker_count": payload[
+            "collection_non_equity_placeholder_ticker_count"
+        ],
+        "collection_universe_source_mode": payload["collection_universe_source_mode"],
+        "collection_universe_sha256": payload["collection_universe_sha256"],
+        "collection_queue_summary_sha256": payload["files"]["collection_queue_summary"].get("sha256", ""),
+        "collection_queue_checkpoint_sha256": payload["files"]["collection_queue_checkpoint"].get("sha256", ""),
+        "collection_queue_csv_sha256": payload["files"]["collection_queue_csv"].get("sha256", ""),
         "snapshot_sha256": payload["files"]["snapshot"].get("sha256", ""),
         "signals_sha256": payload["files"]["signals"].get("sha256", ""),
         "manifest_path": display_path(manifest_path),
@@ -274,6 +324,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shard-id", default="")
     parser.add_argument("--shard-file", default="")
     parser.add_argument("--shard-mode", default="")
+    parser.add_argument("--queue-summary", default="outputs/earnings_estimates_daily/incremental_universe_summary.json")
+    parser.add_argument("--queue-checkpoint", default="data_pit/events/earnings_estimates/collection_checkpoint.json")
+    parser.add_argument("--queue-csv", default="outputs/earnings_estimates_daily/collection_queue.csv")
+    parser.add_argument("--queue-report", default="outputs/earnings_estimates_daily/collection_queue_report.md")
     return parser.parse_args()
 
 
@@ -295,6 +349,10 @@ def main() -> int:
         shard_id=args.shard_id,
         shard_file=args.shard_file,
         shard_mode=args.shard_mode,
+        queue_summary=args.queue_summary,
+        queue_checkpoint=args.queue_checkpoint,
+        queue_csv=args.queue_csv,
+        queue_report=args.queue_report,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 1 if payload["text_secret_scan"]["unmasked_secret_pattern_found"] else 0

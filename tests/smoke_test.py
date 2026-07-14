@@ -2576,10 +2576,9 @@ def test_layer4_monthly_workflow() -> None:
 
 @_test("regression.full_rebuild_workflow_exists")
 def test_full_rebuild_workflow() -> None:
-    """full_rebuild_manual.yml workflow must exist with workflow_dispatch
-    inputs (universe_mode, skip_collector) and ENGINE_REUSE_VERSION
-    sensitivity (it runs FULL rebuild = the only way to invalidate cache
-    after a Phase 14 schema change).
+    """full_rebuild_manual.yml must be manual-only and fail closed before
+    spending runner time unless exact approval evidence is supplied.  It must
+    retain the existing engine inputs and ENGINE_REUSE_VERSION sensitivity.
 
     User mandate (2026-04-25): "둘 다" — both local + GitHub Actions paths
     for FULL rebuild so user PC isn't a single point of failure.
@@ -2587,8 +2586,29 @@ def test_full_rebuild_workflow() -> None:
     wf_path = ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
     assert wf_path.exists(), "full_rebuild_manual.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
+    trigger_block = wf.split("permissions:", 1)[0]
+    for forbidden_trigger in ("schedule:", "cron:", "workflow_call:", "workflow_run:", "repository_dispatch:"):
+        assert forbidden_trigger not in trigger_block, (
+            f"full rebuild automatic trigger must stay removed: {forbidden_trigger}"
+        )
+    approval_inputs = trigger_block.split("universe_mode:", 1)[0]
+    assert approval_inputs.count("required: true") == 4, "all four approval inputs must be required"
+    assert wf.index("Validate explicit fullrun approval") < wf.index("Free disk space on runner"), (
+        "fullrun approval must be checked before any material runner work"
+    )
     for token in (
         "workflow_dispatch",
+        "approval_token",
+        "FULLRUN_APPROVED",
+        "approved_commit_sha",
+        "approved_source_manifest_sha256",
+        "expected_cost_minutes",
+        "Validate explicit fullrun approval",
+        "approved_commit_sha does not match the dispatched GITHUB_SHA",
+        "production portfolio policy is outside the approved research scope",
+        "github.event_name == 'workflow_dispatch'",
+        "group: full-rebuild-manual",
+        "default: integrated_shadow",
         "universe_mode",
         "backtest_years",
         "skip_collector",

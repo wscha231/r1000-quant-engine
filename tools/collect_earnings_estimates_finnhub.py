@@ -552,6 +552,90 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def acknowledge_collection_attempts(
+    checkpoint_path: Path,
+    queue_path: Path,
+    attempted_tickers: list[str],
+    *,
+    attempted_at_utc: str,
+) -> dict[str, Any]:
+    """Acknowledge only tickers the collector actually reached.
+
+    The queue planner records a proposed batch but deliberately leaves the
+    durable rotation counters unchanged.  This acknowledgement runs only after
+    the collector returns, so a missing key, runner failure, or max-error break
+    cannot make an unattempted tail look serviced.
+    """
+    attempted = list(dict.fromkeys(str(t).upper().strip() for t in attempted_tickers if str(t).strip()))
+    result: dict[str, Any] = {
+        "status": "disabled",
+        "attempted_ticker_count": len(attempted),
+        "acknowledged_ticker_count": 0,
+        "unacknowledged_tickers": attempted,
+    }
+    if not checkpoint_path or not str(checkpoint_path) or not queue_path or not str(queue_path):
+        return result
+    if not checkpoint_path.exists() or not queue_path.exists():
+        result["status"] = "checkpoint_or_queue_missing"
+        return result
+    try:
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        with queue_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = list(reader.fieldnames or [])
+            queue_rows = list(reader)
+    except (OSError, json.JSONDecodeError, csv.Error) as exc:
+        result.update({"status": "invalid_checkpoint_or_queue", "error": sanitize_error_message(exc)})
+        return result
+    states = checkpoint.get("ticker_states") if isinstance(checkpoint, dict) else None
+    if not isinstance(states, list) or not fieldnames:
+        result["status"] = "invalid_checkpoint_or_queue"
+        return result
+    selected = {
+        str(row.get("ticker") or "").upper().strip()
+        for row in queue_rows
+        if _truthy(row.get("selected"))
+    }
+    acknowledged = [ticker for ticker in attempted if ticker in selected]
+    acknowledged_set = set(acknowledged)
+    for row in states:
+        ticker = str(row.get("ticker") or "").upper().strip()
+        if ticker in acknowledged_set:
+            row["last_selected_at_utc"] = attempted_at_utc
+            row["selection_count"] = int(row.get("selection_count") or 0) + 1
+    for row in queue_rows:
+        ticker = str(row.get("ticker") or "").upper().strip()
+        if ticker in acknowledged_set:
+            row["last_selected_at_utc"] = attempted_at_utc
+            row["selection_count"] = str(int(row.get("selection_count") or 0) + 1)
+    result.update(
+        {
+            "status": "acknowledged",
+            "acknowledged_ticker_count": len(acknowledged),
+            "unacknowledged_tickers": [ticker for ticker in attempted if ticker not in acknowledged_set],
+        }
+    )
+    checkpoint["updated_at_utc"] = attempted_at_utc
+    checkpoint["last_collection_attempt_ack"] = result
+    checkpoint_tmp = checkpoint_path.with_suffix(checkpoint_path.suffix + ".tmp")
+    checkpoint_tmp.write_text(
+        json.dumps(checkpoint, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(checkpoint_tmp, checkpoint_path)
+    queue_tmp = queue_path.with_suffix(queue_path.suffix + ".tmp")
+    with queue_tmp.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(queue_rows)
+    os.replace(queue_tmp, queue_path)
+    return result
+
+
 def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Merge same-date archive rows instead of shrinking a durable snapshot.
 
@@ -803,11 +887,13 @@ def collect_live_snapshot(
     fetch_date: pd.Timestamp,
     sleep_seconds: float,
     max_errors: int,
-) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[str]]:
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    attempted_tickers: list[str] = []
     session = requests.Session()
     for ticker in tickers:
+        attempted_tickers.append(ticker)
         eps, rev, estimate_source, eps_access, rev_access = fetch_estimate_payloads_by_order(
             session,
             ticker,
@@ -841,7 +927,7 @@ def collect_live_snapshot(
             )
         if max_errors and len(errors) >= max_errors:
             break
-    return pd.DataFrame(rows), errors
+    return pd.DataFrame(rows), errors, attempted_tickers
 
 
 def parse_args() -> argparse.Namespace:
@@ -860,6 +946,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sleep-seconds", type=float, default=1.1)
     parser.add_argument("--max-errors", type=int, default=100)
     parser.add_argument("--fixture-dir", default="")
+    parser.add_argument("--collection-checkpoint", default="")
+    parser.add_argument("--collection-queue", default="")
     return parser.parse_args()
 
 
@@ -869,6 +957,8 @@ def main() -> int:
     snapshot_dir = repo_path(args.snapshot_dir)
     signals_output = repo_path(args.signals_output)
     summary_path = repo_path(args.summary)
+    checkpoint_path = repo_path(args.collection_checkpoint) if args.collection_checkpoint else Path()
+    queue_path = repo_path(args.collection_queue) if args.collection_queue else Path()
     tickers = parse_tickers(args.tickers, args.universe_file or None, args.ticker_limit)
     if not tickers:
         payload = {
@@ -885,10 +975,12 @@ def main() -> int:
         return 2
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     errors: list[dict[str, Any]] = []
+    attempted_tickers: list[str] = []
     if args.fixture_dir:
         fixture_dir = repo_path(args.fixture_dir)
         rows = []
         for ticker in tickers:
+            attempted_tickers.append(ticker)
             with (fixture_dir / f"{ticker.upper()}_eps.json").open(encoding="utf-8") as handle:
                 eps = json.load(handle)
             with (fixture_dir / f"{ticker.upper()}_revenue.json").open(encoding="utf-8") as handle:
@@ -924,7 +1016,7 @@ def main() -> int:
             write_json(summary_path, payload)
             print(json.dumps(payload, indent=2, sort_keys=True))
             return 2
-        snapshot, errors = collect_live_snapshot(
+        collected = collect_live_snapshot(
             tickers,
             finnhub_api_key=args.api_key,
             alphavantage_api_key=args.alphavantage_api_key,
@@ -934,6 +1026,22 @@ def main() -> int:
             sleep_seconds=args.sleep_seconds,
             max_errors=args.max_errors,
         )
+        if len(collected) == 3:
+            snapshot, errors, attempted_tickers = collected
+        else:  # Backward-compatible with test doubles written for the older API.
+            snapshot, errors = collected  # type: ignore[misc]
+            attempted_tickers = list(tickers)
+    attempt_ack = acknowledge_collection_attempts(
+        checkpoint_path,
+        queue_path,
+        attempted_tickers,
+        attempted_at_utc=utc_now(),
+    ) if args.collection_checkpoint and args.collection_queue else {
+        "status": "disabled",
+        "attempted_ticker_count": len(attempted_tickers),
+        "acknowledged_ticker_count": 0,
+        "unacknowledged_tickers": [],
+    }
     vendor_order = clean_vendor_order(args.vendor_order)
     vendor_blocked_errors = estimate_vendor_blocked_by_errors(errors)
     vendor_estimate_access = vendor_estimate_access_from_errors(errors)
@@ -946,6 +1054,8 @@ def main() -> int:
             "status": status,
             "reason": reason,
             "ticker_count_requested": len(tickers),
+            "ticker_count_attempted": len(attempted_tickers),
+            "collection_attempt_ack": attempt_ack,
             "error_count": len(errors),
             "errors": errors[:10],
             "vendor_estimate_access": vendor_estimate_access,
@@ -1009,6 +1119,8 @@ def main() -> int:
         "production_activation_allowed": False,
         "live_trading_enabled": False,
         "ticker_count_requested": len(tickers),
+        "ticker_count_attempted": len(attempted_tickers),
+        "collection_attempt_ack": attempt_ack,
         "request_snapshot_rows": int(len(current_snapshot)),
         "request_has_forward_estimate_rows": request_has_forward_estimate_rows,
         "request_estimate_coverage_ratio": estimate_coverage_ratio,

@@ -90,6 +90,106 @@ Expected contract:
 
 ## Ledger
 
+### 2026-07-10 - SEC identity coverage repaired and forward-only queue/ledger hardened
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run:
+  - branch `codex/sec-cik-coverage-20260710`
+  - source backfill run `29064427303`
+  - source estimate catch-up run `29028159934`
+  - no new API workflow or fullrun dispatched
+- Context:
+  - The handoff required validation of the downloaded successful artifact,
+    repair of 252 blank CIK rows, an exact-universe resumable collection queue,
+    a latest-only overlay rerun, and a forward paper ledger.
+- Attempt:
+  - Recomputed the artifact counts and hashes, collected the current official
+    SEC ticker/CIK reference plus companyfacts bulk, filled only unique blank
+    CIKs, and preserved all existing CIKs.
+  - Reworked the estimate add-on planner into a 993-row durable queue/checkpoint.
+  - Required true forward-estimate coverage before any forward score and made
+    auxiliary actual, recommendation, and lifecycle evidence explicit.
+  - Started an append-only 21D/63D/126D SPY-relative paper ledger.
+- Result:
+  - CIK coverage improved from `741/993` to `992/993`; 251 equity names were
+    filled and `CASH` remained an unmapped non-equity placeholder.
+  - SEC companyfacts coverage improved from `739/993` to `990/993`, or
+    `990/992` eligible equity issuers. `IBN` and `OZK` have CIKs but remain
+    absent from the current companyfacts ZIP.
+  - SEC ticker reference SHA-256 is
+    `354f84eb0c74c56244e824cec2876815df0e5ee864212e84518c26fcc879f49c`,
+    available from `2026-07-08T20:56:16Z` and ingested at
+    `2026-07-10T03:07:24Z`.
+  - The exact queue reports 993 total rows, 992 vendor-eligible tickers, one
+    placeholder, 13 fresh successes reused, 153 missing equity snapshots, and
+    826 uncovered slow-retry rows. The bounded request is 150 names: 100
+    missing plus 50 rotating retries.
+  - Queue seeds/checkpoints now require the exact `993/992/1` contract; zero
+    disables a lane, negative limits fail, and retry rotation advances only for
+    tickers the collector actually reaches.
+  - Overlay v2 has 11 true forward-estimate matches. It neutralized 613 rows
+    that previously received a positive forward component without an estimate,
+    reports 664 auxiliary actual rows, 739 lifecycle matches, and two
+    lifecycle-missing neutral rows. Top-30 additions are `NUE,QCOM`; removals
+    are `FIX,WDC`. No target book changed.
+  - The paper ledger captured 30 contemporaneous observations. With no local
+    adjusted-price cache, all next-close references and 21D/63D/126D outcomes
+    remain pending. An identical rerun left the 30-event JSONL hash unchanged.
+    New observations also fail closed when their receipt is stale, and NYSE
+    calendar gaps cannot be replaced by a later cached close.
+  - FMP earnings-calendar 401/402/403 responses now stop after one chunk. The
+    known HTTP 402 endpoint is opt-in and disabled by default.
+  - SEC refreshes validate and stage the response before atomic replacement;
+    the shared estimate archive is serialized across refs, and scanned outputs
+    are not uploaded/synced if the manifest secret gate fails.
+- Failure or caveat:
+  - `pit_universe_label_clean=false`; the 993 rows are a current-universe proxy,
+    not historical Russell 1000 membership.
+  - True usable forward estimates remain `13/993`; FMP calendar remains `0/993`;
+    Alpha Vantage delisted history remains a partial zero-row/2-byte response.
+  - The downloaded backfill artifact omitted companyfacts ZIP and estimate raw
+    snapshots. The SEC audit was therefore re-derived from a newly downloaded
+    official bulk ZIP, while forward counts were reproduced from the separate
+    successful catch-up artifact.
+  - No credential value could appear in the new SEC fetch or local queue/ledger
+    runs. Existing vendor errors remained redacted; only secret names are used.
+  - One local audit rerun initially used the absent default
+    `cloud_results/full_rebuild/latest_global_alpha_universe` path and wrote a
+    `blocked_no_universe` summary. It was immediately re-run with the downloaded
+    run artifact's exact `universe_coverage.csv`, listing snapshot, and separate
+    estimate artifact, restoring the verified `993`-row output and original
+    `741 -> 992` before/after mapping evidence.
+- Root cause:
+  - The prior audit relied only on CIKs already present in each latest-run file;
+    251 candidate-book rows had no CIK join and `CASH` collided with a real SEC
+    ticker.
+  - The prior overlay treated recommendation breadth as part of a forward score
+    even when `has_forward_estimate=0`.
+- Reusable lesson:
+  - Current SEC identity data may fill blank CIKs only when ticker-to-CIK is
+    unique. Preserve and report existing conflicts such as `XOM`; never map a
+    portfolio cash placeholder to an issuer.
+  - A broad API queue must fail closed without an exact universe, reuse fresh
+    successes, persist retry state, and keep missing coverage neutral.
+  - Report true forward estimates, auxiliary actuals, recommendations, and
+    lifecycle evidence as separate coverage sources.
+- Next action:
+  - Review the draft PR, then let the bounded scheduled archive accumulate new
+    forward snapshots. Evaluate paper-ledger outcomes only as 21D/63D/126D
+    windows and adjusted-price data become available.
+- Do-not-repeat:
+  - Do not dispatch a fullrun, retry the entitlement-blocked FMP endpoint,
+    infer positive alpha from missing estimates, map `CASH`, or call the current
+    993-name proxy PIT-clean.
+- Evidence files:
+  - `outputs/free_historical_data_coverage/summary.json`
+  - `outputs/free_historical_data_coverage/sec_cik_mapping_report.md`
+  - `outputs/earnings_estimate_queue_validation_20260710/summary.json`
+  - `outputs/free_data_selection_overlay/summary.json`
+  - `outputs/free_data_selection_overlay/report.md`
+  - `outputs/free_data_forward_paper_ledger/summary.json`
+  - `outputs/free_data_forward_paper_ledger/schema.json`
+
 ### 2026-07-09 - Broad estimate archive needs catch-up mode, not only one daily shard
 
 - Agent: Codex
@@ -1009,3 +1109,49 @@ Expected contract:
   - `docs/CODEX_RUN287_HOLDING_RISK_WATCH_RESULT_20260714.md`
   - `outputs/run287_holding_risk_watch_20260714_close_20260713/`
   - `outputs/run287_pit_estimate_guidance_sample_request_20260714_v2/`
+### 2026-07-14 - Scheduled full rebuild violated the separate-approval boundary
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/disable-scheduled-fullrun-20260714`
+  - GitHub Actions incident run `29249021773`; governance fix only, no fullrun
+- Context:
+  - Run287 requires exact hashes and expected cost to be shown for separate
+    user approval before any fullrun.
+  - The nominally manual full-rebuild workflow still contained a weekly cron.
+- Attempt:
+  - Audited the live workflow and the failed scheduled run before editing.
+  - Removed the automatic trigger and added a first-step manual approval guard.
+- Result:
+  - The workflow is `workflow_dispatch`-only.
+  - A dispatch now requires `FULLRUN_APPROVED`, the exact dispatched commit
+    SHA, a frozen source-manifest SHA-256, and expected runner minutes.
+  - Blank core inputs and `alphaops_vnext_production` fail before expensive
+    runner work; approved manual runs are serialized.
+- Failure or caveat:
+  - Run `29249021773` had already started automatically on 2026-07-13. It
+    failed at `run_local.py --full` because the scheduled event supplied an
+    empty `fast_mode`, after earlier setup, SEC refresh, and restore steps ran.
+  - This fix does not make a future fullrun approved; it only enforces the
+    prerequisites. No fullrun was used to validate the fix.
+- Root cause:
+  - A `schedule` trigger was combined with logic that read
+    `workflow_dispatch`-only inputs. GitHub scheduled events do not populate
+    those dispatch inputs.
+- Reusable lesson:
+  - Expensive manual workflows must not also have automatic triggers.
+  - Approval evidence must be validated before checkout, collection, restore,
+    or any other material runner work.
+- Next action:
+  - Run targeted smoke and standard PR CI, then merge this governance fix
+    before integrating the SEC/CIK and risk-watch PRs.
+- Do-not-repeat:
+  - Do not restore a cron, `workflow_call`, or chained automatic trigger to the
+    full-rebuild workflow.
+  - Do not use a fullrun to test the governance guard.
+  - Do not treat incident artifacts or diagnostics as a valid performance
+    baseline.
+- Evidence files:
+  - `.github/workflows/full_rebuild_manual.yml`
+  - `tests/smoke_test.py`
+  - `docs/CODEX_FULLRUN_SCHEDULE_GOVERNANCE_RESULT_20260714.md`
