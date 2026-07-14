@@ -1576,3 +1576,74 @@ Expected contract:
   - `outputs/run287_scored_latest_refresh_20260714_close_20260713_v2/manifest.json`
   - `outputs/free_data_selection_overlay_scored_20260713_v2/summary.json`
   - `docs/CODEX_RUN287_SCORED_LATEST_REFRESH_RESULT_20260714.md`
+
+### 2026-07-14 - Exact-close scoring still needs benchmark, macro, and accepted-time SEC completion
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-decision-complete-frame-20260714`
+  - bounded current decision for completed NYSE session `2026-07-13`
+- Context:
+  - The 989-ticker price/technical score packet was exact-close, but benchmark
+    and macro fields still represented the prior decision substrate and the
+    canonical accepted-time SEC index ended at July 9.
+- Attempt:
+  - Restored the previously validated isolated macro, official FRED benchmark,
+    exact Companyfacts, and complete-cross-section contracts.
+  - Added an EDGAR daily-index prefilter that requests submissions JSON only
+    for universe CIKs with relevant July 10/13 filings.
+  - Rebuilt the 989-row selection context, refreshed the only new statement
+    candidate (DAL), and regenerated the frozen 238-feature scaled matrix.
+- Result:
+  - Macro passed 9/9 market, 13/13 FRED, and 49/49 finite-column coverage.
+  - Official FRED SP500 was refreshed to the latest observation available by
+    the decision time, July 10; the previous five-day tolerance would have
+    incorrectly accepted July 9 without fetching.
+  - SEC discovery found 56 relevant filings across 49 CIKs. All 56 have exact
+    acceptance, zero future rows, 55 metadata-only event rows, and one 10-Q.
+  - DAL's July 10 10-Q resolved with 331 exact Companyfacts records, 271
+    selected records, 35 panel rows, 71 changed shared values, and 41 changed
+    frozen model inputs.
+  - The final frame has 989 unique tickers, 238 model features, 100% finite
+    scaled coverage, zero missing-neutral violations, and zero future rows.
+  - Total bounded requests were 55; source caches, canonical SEC index,
+    scored_latest, target books, and forward ledgers were not mutated.
+  - Local Tier-1 PR validation passed 159/159.
+- Failure or caveat:
+  - The first frame attempt stopped on mixed tz-aware/tz-naive acceptance
+    timestamps. The second stopped while serializing a mixed period type. Both
+    append-only failure directories remain preserved; `v3` is the valid packet.
+  - Current Companyfacts is current-vintage and current-decision-only. Historical
+    PIT membership remains unclean, so no historical or production claim is
+    permitted.
+- Root cause:
+  - An exact current stock close does not make global or filing-derived model
+    inputs current. The older benchmark freshness gate was too permissive, and
+    refreshing all 989 SEC CIKs would have hidden the real one-statement delta.
+- Reusable lesson:
+  - Prefilter recent EDGAR daily indexes, then fetch exact submissions only for
+    matching universe CIKs. Require the latest benchmark session actually
+    available at decision time, not a broad stale-day tolerance.
+  - Normalize UTC storage representation before frozen feature formulas, while
+    retaining the exact source instant for leakage checks.
+  - Keep producer row flags false; certify completeness only in a separate
+    hash-pinned manifest with ranking and portfolio actions still disabled.
+- Next action:
+  - Produce a separate score-only packet from the verified frame, then run the
+    pinned advisory selector and 25/50/100 bps cost comparison. Do not mutate a
+    target book or run fullrun.
+- Do-not-repeat:
+  - Do not infer a complete decision frame from current prices alone.
+  - Do not accept a five-business-day-old benchmark when a newer observation
+    was already publicly available.
+  - Do not refresh all universe submissions when daily-index prefiltering can
+    isolate the exact candidate CIKs.
+  - Do not delete failed append-only outputs or promote current-vintage data to
+    historical PIT evidence.
+- Evidence files:
+  - `outputs/run287_macro_sidecar_20260714_close_20260713/manifest.json`
+  - `outputs/run287_benchmark_event_sidecar_20260714_close_20260713_v2/manifest.json`
+  - `outputs/run287_recent_sec_delta_20260714_close_20260713/manifest.json`
+  - `outputs/run287_recent_companyfacts_20260714_close_20260713/manifest.json`
+  - `outputs/run287_current_decision_frame_20260714_close_20260713_v4/manifest.json`
+  - `docs/CODEX_RUN287_CURRENT_DECISION_FRAME_20260714.md`

@@ -5076,6 +5076,36 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     if present_carry_forward_cols:
         macro[present_carry_forward_cols] = macro[present_carry_forward_cols].ffill(limit=90)
 
+    # Daily FRED observations are commonly published after the corresponding
+    # market close. A PIT-safe consumer may therefore exclude the same-day
+    # observation and retain the prior published value. Carry only the short
+    # release-gap fields for at most five rows so the next market row does not
+    # become spuriously NaN, while a genuinely stale feed still fails coverage.
+    daily_release_carry_cols = [
+        "vix_level",
+        "vix_z_63d",
+        "vix_change_1m",
+        "dgs10_level",
+        "dgs10_change_1m",
+        "hy_oas_level",
+        "hy_oas_change_1m",
+    ]
+    present_daily_release_cols = [
+        column for column in daily_release_carry_cols if column in macro.columns
+    ]
+    if present_daily_release_cols:
+        macro[present_daily_release_cols] = macro[present_daily_release_cols].ffill(limit=5)
+
+    # H.10 publishes daily dollar-index observations in a weekly batch. Its
+    # documented release interval can span five market sessions, so retain a
+    # separate bounded allowance rather than weakening every daily series.
+    h10_release_carry_cols = ["dxy_level", "dxy_ret_1m"]
+    present_h10_release_cols = [
+        column for column in h10_release_carry_cols if column in macro.columns
+    ]
+    if present_h10_release_cols:
+        macro[present_h10_release_cols] = macro[present_h10_release_cols].ffill(limit=10)
+
     # VIX-based Fear&Greed proxy for historical periods without CNN data
     _vix_raw = pd.to_numeric(macro.get("vix_level"), errors="coerce") if "vix_level" in macro.columns else None
     if _vix_raw is not None:
@@ -19229,7 +19259,35 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
 DEFAULT_CFG = asdict(EngineConfig())
 
 
-if __name__ == "__main__":
+def _direct_cli_main() -> int:
+    """Require double opt-in before this module can dispatch a full run."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Pipeline module. Direct full-pipeline execution is disabled by "
+            "default; use run_local.py for explicit run-mode controls."
+        )
+    )
+    parser.add_argument(
+        "--allow-direct-fullrun",
+        action="store_true",
+        help="Second explicit opt-in; also requires R1000_ALLOW_DIRECT_FULLRUN=1.",
+    )
+    args = parser.parse_args()
+    if not (
+        args.allow_direct_fullrun
+        and os.environ.get("R1000_ALLOW_DIRECT_FULLRUN", "").strip() == "1"
+    ):
+        parser.error(
+            "direct full pipeline blocked; use run_local.py, or provide both "
+            "R1000_ALLOW_DIRECT_FULLRUN=1 and --allow-direct-fullrun"
+        )
     result = run_default_pipeline(DEFAULT_CFG)
     print(json.dumps(result.get("outputs", {}), indent=2))
     print(json.dumps(result.get("acceptance_checks", {}), indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_direct_cli_main())
