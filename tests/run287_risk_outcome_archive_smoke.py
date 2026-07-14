@@ -205,6 +205,13 @@ def test_elapsed_outcomes_and_idempotence() -> None:
         assert set(status["outcome_5d_status"]) == {"completed"}
         assert set(status["outcome_21d_status"]) == {"completed"}
         assert set(status["outcome_63d_status"]) == {"pending_not_elapsed"}
+        assert set(first["group_metrics"]) == {"1d", "21d", "63d"}
+        assert first["group_metrics"]["1d"]["warning"]["count"] == 2
+        assert first["group_metrics"]["1d"]["warning"]["distinct_tickers"] == 2
+        assert first["group_metrics"]["1d"]["warning"]["mean_actionable_spy_excess_total_return"] is None
+        report = (output / "report.md").read_text(encoding="utf-8")
+        assert "1D resolved warning/normal (diagnostic only): `2` / `0`" in report
+        assert "1D actionable metrics are not applicable" in report
         aaa = status[status["ticker"].eq("AAA")].iloc[0]
         expected = (100.0 - 0.40 * 21) / 100.0 - 1.0
         assert abs(float(aaa["outcome_21d_ticker_total_return"]) - expected) < 1e-12

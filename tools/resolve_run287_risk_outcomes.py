@@ -682,6 +682,9 @@ def write_price_universe(
 
 
 def render_report(summary: Mapping[str, Any]) -> str:
+    one_day = (summary.get("group_metrics") or {}).get("1d") or {}
+    one_day_warning = (one_day.get("warning") or {}).get("count", 0)
+    one_day_normal = (one_day.get("normal") or {}).get("count", 0)
     lines = [
         "# Run287 risk outcome archive",
         "",
@@ -690,8 +693,10 @@ def render_report(summary: Mapping[str, Any]) -> str:
         f"- Signal observations: `{summary['signal_observation_count']}`",
         f"- Distinct weeks: `{summary['distinct_decision_week_count']}`",
         f"- Price-universe tickers: `{summary['price_universe_unique_ticker_count']}`",
+        f"- 1D resolved warning/normal (diagnostic only): `{one_day_warning}` / `{one_day_normal}`",
         f"- 63D resolved warning/normal: `{summary['mechanism_review_gate']['warning_63d_count']}` / `{summary['mechanism_review_gate']['normal_63d_count']}`",
         f"- Mechanism review ready: `{str(summary['mechanism_review_ready']).lower()}`",
+        "- 1D actionable metrics are not applicable and cannot open the mechanism review gate.",
         "- This archive does not create a stop, exit, resize, cash, order, target-book, fullrun, production, or live-trading rule.",
     ]
     blockers = summary.get("blockers") or []
@@ -824,6 +829,12 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
     )
     event_counts = Counter(clean_text(event.get("event_type")) for event in all_events)
     appended_counts = Counter(clean_text(event.get("event_type")) for event in signal_events + outcome_events)
+    diagnostic_horizons = tuple(
+        int(value)
+        for value in contract["outcome_contract"].get(
+            "diagnostic_group_metrics_horizons_trading_days", [21, 63]
+        )
+    )
     summary = {
         "schema_version": SCHEMA_VERSION,
         "status": BLOCKED_STATUS if blockers else READY_STATUS,
@@ -842,7 +853,9 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
             f"{horizon}d": {str(key): int(value) for key, value in status[f"outcome_{horizon}d_status"].value_counts().to_dict().items()}
             for horizon in horizons
         },
-        "group_metrics": {f"{horizon}d": group_metrics(status, horizon) for horizon in (21, 63)},
+        "group_metrics": {
+            f"{horizon}d": group_metrics(status, horizon) for horizon in diagnostic_horizons
+        },
         "mechanism_review_gate": gate,
         "mechanism_review_ready": mechanism_ready,
         "mechanism_promotion_allowed": False,
