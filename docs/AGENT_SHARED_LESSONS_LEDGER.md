@@ -2189,6 +2189,80 @@ Expected contract:
   - `docs/CODEX_RUN287_RISK_OUTCOME_ARCHIVE_RESULT_20260714.md`
   - `outputs/run287_risk_outcome_archive_20260714_local/`
 
+### 2026-07-15 - Restored candidate artifacts do not reopen a failed source lane
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-next-ab-readiness-20260715`
+  - local `run287_next_single_ab_readiness_20260715_local`
+- Context:
+  - The next Main or Concentrated experiment must preserve the source-screen,
+    fixed-book, then generated-book sequence while avoiding another expensive
+    OOS-negative arm.
+  - The current checkout did not visibly contain the large original candidate
+    CSVs under its own `outputs/`, which made the Concentrated blocker
+    ambiguous.
+- Attempt:
+  - Located the official run `28725350727` artifacts in the existing local
+    workspace and independently hashed the raw candidate book, SEC-enriched
+    candidate book, selector metadata, target-generation manifest,
+    long-crisis payload, and long-crisis thresholds.
+  - Added a fail-closed readiness audit that accepts at most one preregistered
+    arm, checks the do-not-repeat registry, and distinguishes source-data,
+    source-screen, fixed-book, generated-book, and forward mechanism-review
+    gates.
+  - Audited current public Alpha Vantage, Intrinio, and Nasdaq Data Link
+    documentation before authorizing any paid data action.
+- Result:
+  - All six local artifact hashes exactly matched the frozen evidence manifest;
+    generated-book substrate status is `READY`.
+  - Historical A/B status is `BLOCKED_NO_ELIGIBLE_SINGLE_AB`: both SEC lanes
+    are terminally closed and no external PIT source has passed both the data
+    gate and a separate alpha screen.
+  - The SEC guidance keyword scout was added to the machine-readable
+    do-not-repeat registry after its 81.25% precision missed the 90% gate.
+  - Public vendor schemas do not yet prove exact historical availability plus
+    stable delisted/ADR identity. No email, signup, purchase, provider request,
+    return join, A/B, backtest, or fullrun was performed.
+  - Full local PR validation passed `173/173` test files in `230.81` seconds.
+- Failure or caveat:
+  - Restoring candidate artifacts removes a reproducibility blocker but creates
+    no new alpha. It cannot override a failed source screen.
+  - The current forward risk archive has only one decision week and no elapsed
+    63D sample, so it cannot select an execution mechanism.
+- Root cause:
+  - Artifact availability and signal validity are independent gates. Treating
+    an absent copy in one `outputs/` tree as the portfolio blocker obscured the
+    actual terminal SEC evidence.
+- Reusable lesson:
+  - Verify frozen hashes across preserved local workspaces before declaring a
+    generated-book substrate missing.
+  - A schema sample can open only source screening; source alpha must pass
+    before fixed-book, and fixed-book must pass before generated-book.
+  - Paid request capacity is irrelevant when the schema does not prove exact
+    point-in-time availability and historical security identity.
+- Next action:
+  - Continue the bounded forward archive. If an already-entitled ZACKS/EEH key
+    appears, run exactly one 50-row probe; otherwise accept only a zero-cost
+    provider sample against the frozen contract.
+  - After a provider reaches `READY_FOR_SOURCE_SCREEN`, run one preregistered
+    single-source screen. Only one winning arm may open the fixed-book gate.
+- Do-not-repeat:
+  - Do not run the rank/RS/revenue candidate replacement audit; it matches the
+    rejected `rank_rs_or_revenue + replacement_rule` family and uses forward
+    labels to choose a best rule.
+  - Do not reopen SEC filing quality or retune the SEC guidance keyword scout.
+  - Do not buy Alpha Vantage, Intrinio, Nasdaq, FMP, or another feed before a
+    free 50-row exact-time and identity sample passes.
+  - Do not treat forward 1D or 63D review evidence as historical CAGR/MDD proof.
+- Evidence files:
+  - `docs/run287_next_single_ab_readiness_contract.json`
+  - `tools/audit_run287_next_single_ab_readiness.py`
+  - `tests/run287_next_single_ab_readiness_smoke.py`
+  - `docs/CODEX_RUN287_NEXT_SINGLE_AB_READINESS_RESULT_20260715.md`
+  - `docs/CODEX_RUN287_PIT_PROVIDER_COST_SCREEN_20260715.md`
+  - `outputs/run287_next_single_ab_readiness_20260715_local/`
+
 ### 2026-07-14 - A forward ledger needs an explicit first seed
 
 - Agent: Codex

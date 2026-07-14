@@ -1,0 +1,80 @@
+{
+  "schema_version": "run287-next-single-ab-readiness-contract-v1",
+  "generated_substrate": {
+    "official_source_run_id": "28725350727",
+    "require_core_ready": true,
+    "require_parity_ready": true,
+    "require_generated_book_ready": true,
+    "local_artifacts": [
+      {
+        "id": "raw_candidate_replay_book",
+        "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run_28725350727_official_broker_artifact\\outputs\\reports\\candidate_replay_book.csv",
+        "expected_sha256": "2b4bc9db22e573f07e91bcdd94db51c6ce4381dacc7e4268618b189d09eaaafc"
+      },
+      {
+        "id": "candidate_replay_book",
+        "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run_28725350727_official_broker_artifact\\outputs\\sec_enriched_candidate_replay\\candidate_replay_book_sec_enriched.csv",
+        "expected_sha256": "7ffa0b27382d303008ffca55878b259ccf7f11beaee28be6f1e4653c30e97989"
+      },
+      {
+        "id": "selector_metadata",
+        "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run_28725350727_official_broker_artifact\\outputs\\alphaops_vnext\\summary.json",
+        "expected_sha256": "dff267f66964c499ad8095f456949648aae29d8111de66f4d5c3a85a620b644a"
+      },
+      {
+        "id": "target_generation_input_manifest",
+        "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run_28725350727_official_broker_artifact\\outputs\\alphaops_vnext\\target_generation_input_manifest.json",
+        "expected_sha256": "7451166d8132c7e3fbd3eb75f7ecdd095e86e482b9202c2e0e0a2b1189ba6ff7"
+      },
+      {
+        "id": "long_crisis_features",
+        "path": "H:\\codex\\r1000_run287_closeout_20260707\\cloud_results\\full_rebuild\\20260705_28725350727_global_alpha_universe\\data_pit\\macro\\long_crisis_daily_features.parquet",
+        "expected_sha256": "0059b029d0f304c5030b78c5673cc430d4307904e06e6fb425b7ce6c27fe3ffc"
+      },
+      {
+        "id": "long_crisis_thresholds",
+        "path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\outputs\\run_28725350727_official_broker_artifact\\outputs\\long_crisis_learning\\best_thresholds.json",
+        "expected_sha256": "d108c017e301f6929e1441827d5a19c02beb0d89727dbbff40f94f3e504d2da2"
+      }
+    ]
+  },
+  "terminal_source_lanes": {
+    "sec_filing_quality_event": {
+      "required_verdict": "REJECT_SOURCE_SCREEN"
+    },
+    "sec_management_guidance_scout": {
+      "required_status": "CLOSED_SOURCE_PRECISION_OR_RECALL_GATE"
+    }
+  },
+  "external_pit_lane": {
+    "source_data_ready_status": "READY_FOR_SOURCE_SCREEN",
+    "source_screen_pass_verdict": "PASS_SOURCE_SCREEN",
+    "fixed_book_pass_verdict": "PASS_FIXED_BOOK",
+    "candidate_arms_field": "candidate_arms",
+    "maximum_eligible_arms": 1,
+    "candidate_arm_required_fields": [
+      "arm_id",
+      "signal",
+      "mechanism",
+      "book",
+      "window",
+      "preregistered"
+    ]
+  },
+  "forward_risk_lane": {
+    "mechanism_review_ready_field": "mechanism_review_ready",
+    "review_gate_only": true,
+    "historical_ab_evidence": false
+  },
+  "safety": {
+    "research_only": true,
+    "portfolio_mutation_allowed": false,
+    "target_books_mutated": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "orders_generated": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}

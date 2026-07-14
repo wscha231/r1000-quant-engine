@@ -179,6 +179,20 @@
       ]
     },
     {
+      "id": "sec_management_guidance_keyword_scout",
+      "signal": "sec_management_guidance_keyword_scout",
+      "mechanism": "email_free_exact_accepted_filing_heuristic",
+      "book": "single_source_sec_guidance",
+      "window": "goldset_80_filings_to_2026-07-13",
+      "status": "CLOSED_SOURCE_PRECISION_OR_RECALL_GATE",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "sec_management_guidance_keyword_scout+email_free_exact_accepted_filing_heuristic+single_source_sec_guidance+goldset_80_filings_to_2026-07-13",
+      "evidence": [
+        "docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_REVIEW_GATE_RESULT_20260714.md",
+        "outputs/run287_sec_guidance_goldset_review_gate_20260714/summary.json"
+      ]
+    },
+    {
       "id": "partial_resize_two_signal_confirmation",
       "signal": "target_weight_direction",
       "mechanism": "partial_resize_two_signal_confirmation",
