@@ -115,6 +115,12 @@ weeks. No promotion review should open before twelve weeks and resolved forward
 outcomes. Historical CAGR/MDD remains Main 34.4032% / -25.3619% and
 Concentrated 49.0971% / -22.9552%.
 
+The next zero-network half was implemented on 2026-07-14 in
+`docs/CODEX_RUN287_EXACT_PACKET_PRODUCER_RESULT_20260714.md`. It produces the
+no-write selector and candidate-risk pair only after a hash-pinned same-close
+input registry is ready. Automatic decision-frame and score-stack registry
+production remains the next independent gate.
+
 ## Evidence
 
 - `docs/run287_decision_observation_archive_contract.json`

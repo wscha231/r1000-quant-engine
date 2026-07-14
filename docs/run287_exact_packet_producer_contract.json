@@ -1,0 +1,54 @@
+{
+  "schema_version": "run287-exact-packet-producer-contract-v1",
+  "scope": "current-close selector and proposed-candidate risk packet only",
+  "input_registry_schema_version": "run287-exact-packet-input-registry-v1",
+  "required_dynamic_inputs": {
+    "crisis_manifest": {
+      "date_field": "valuation_price_cutoff_date",
+      "status": "READY_CURRENT_CRISIS_STATE_NONSELECTING"
+    },
+    "decision_manifest": {
+      "date_field": "valuation_price_cutoff_date",
+      "status": "READY_COMPLETE_CURRENT_DECISION_FRAME"
+    },
+    "macro_manifest": {
+      "date_field": "valuation_close_date",
+      "status": "READY_CONSERVATIVE_MACRO_SIDECAR"
+    },
+    "price_manifest": {
+      "date_field": "session_date",
+      "status": "READY_RESEARCH_SCORED_LATEST"
+    },
+    "score_stack_manifest": {
+      "date_field": "valuation_price_cutoff_date",
+      "status": "READY_CURRENT_DECISION_SCORE_STACK_ELIGIBILITY_AUDIT_NONRANKING"
+    },
+    "soxx_manifest": {
+      "date_field": "valuation_price_cutoff_date",
+      "status": "READY_SELECTOR_BENCHMARK_PRICE_NONSELECTING"
+    }
+  },
+  "required_fixed_inputs": {
+    "concentrated_prior_book": "3fa0f6fa0aa41aa3ec830f476dae5e94882527a7f520531b80390bfbddb26a78",
+    "main_prior_book": "3e863068e118af3f832b9490defc38baa9f4b0718e024e2870f44bd27a979f22",
+    "pinned_import_manifest": "b59db75e6eea74989fd72946cb3b72af65a401dddb5738970ddd2b3d4febab6d",
+    "price_map_manifest": "cfb22d3b82ed32915973ee4f1ec3ea1d536f90de6dfc04f0a2d48327bcce92cf",
+    "selector_contract_manifest": "647475ceaf2109d7dc7c7dfd18865679de86dc5afd102a090481e118bab4a02f",
+    "target_generation_manifest": "7451166d8132c7e3fbd3eb75f7ecdd095e86e482b9202c2e0e0a2b1189ba6ff7"
+  },
+  "tracked_contracts": {
+    "candidate_risk_contract": "8e03bc1ae2653cbd2104e3ce4dcba012920cff91e93c61d7e3f33beb60423345",
+    "holding_risk_contract": "afc30695761d6ee6a35ea269b03257fbac2c1bbca9fe90cca9df47bcf5c35657"
+  },
+  "pinned_policy_commit": "15176b588d5bb0792bce1df6367758d795a8a33a",
+  "producer_network_request_limit": 0,
+  "safety": {
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "live_trading_allowed": false,
+    "orders_allowed": false,
+    "production_mutation_allowed": false,
+    "target_book_write_allowed": false
+  }
+}
