@@ -22,7 +22,7 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = "free-historical-data-coverage-v2"
+SCHEMA_VERSION = "free-historical-data-coverage-v3"
 NON_EQUITY_PLACEHOLDERS = {"CASH", "__CASH__"}
 
 
@@ -234,6 +234,60 @@ def load_parquet_tickers(path: Path, ticker_col: str) -> set[str]:
     return {normalize_ticker(x) for x in frame[ticker_col].dropna().tolist() if normalize_ticker(x)}
 
 
+def load_listing_status(path: Path) -> tuple[set[str], set[str], dict[str, Any]]:
+    diagnostics: dict[str, Any] = {
+        "path": path.as_posix(),
+        "file_available": False,
+        "row_count": 0,
+        "active_row_count": 0,
+        "delisted_row_count": 0,
+        "unknown_state_row_count": 0,
+        "delisted_source_available": False,
+        "delisted_sample_minimum_row_gate_met": False,
+        "pit_universe_membership_proven": False,
+    }
+    if not path.exists() or not path.is_file():
+        return set(), set(), diagnostics
+    try:
+        frame = pd.read_parquet(path)
+    except Exception:
+        return set(), set(), diagnostics
+    if "symbol" not in frame.columns:
+        return set(), set(), diagnostics
+    diagnostics["file_available"] = True
+    work = frame.copy()
+    work["symbol_normalized"] = work["symbol"].map(normalize_ticker)
+    state = (
+        work["source_state"].astype(str).str.lower().str.strip()
+        if "source_state" in work.columns
+        else pd.Series("", index=work.index, dtype=str)
+    )
+    status = (
+        work["status"].astype(str).str.lower().str.strip()
+        if "status" in work.columns
+        else pd.Series("", index=work.index, dtype=str)
+    )
+    effective = state.where(state.isin(["active", "delisted"]), status)
+    active_rows = work[effective.eq("active") & work["symbol_normalized"].ne("")]
+    delisted_rows = work[effective.eq("delisted") & work["symbol_normalized"].ne("")]
+    known = effective.isin(["active", "delisted"]) & work["symbol_normalized"].ne("")
+    active = set(active_rows["symbol_normalized"].astype(str))
+    delisted = set(delisted_rows["symbol_normalized"].astype(str))
+    diagnostics.update(
+        {
+            "row_count": int(len(work)),
+            "active_row_count": int(len(active_rows)),
+            "active_unique_ticker_count": len(active),
+            "delisted_row_count": int(len(delisted_rows)),
+            "delisted_unique_ticker_count": len(delisted),
+            "unknown_state_row_count": int((~known).sum()),
+            "delisted_source_available": bool(delisted),
+            "delisted_sample_minimum_row_gate_met": len(delisted) >= 5,
+        }
+    )
+    return active, delisted, diagnostics
+
+
 def load_forward_estimate_tickers(snapshot_dir: Path) -> tuple[set[str], set[str], int]:
     all_seen: set[str] = set()
     has_estimate: set[str] = set()
@@ -307,14 +361,27 @@ def write_report(path: Path, summary: dict[str, Any]) -> None:
     ]
     lines += [
         "",
+        "## Listing Lifecycle Evidence",
+        "",
+        f"- Source file available: `{str(summary.get('listing_lifecycle', {}).get('file_available', False)).lower()}`",
+        f"- Active rows: `{summary.get('listing_lifecycle', {}).get('active_row_count', 0)}`",
+        f"- Delisted rows: `{summary.get('listing_lifecycle', {}).get('delisted_row_count', 0)}`",
+        f"- Five-row delisted sample minimum met: `{str(summary.get('listing_lifecycle', {}).get('delisted_sample_minimum_row_gate_met', False)).lower()}`",
+        f"- PIT universe membership proven: `{str(summary.get('listing_lifecycle', {}).get('pit_universe_membership_proven', False)).lower()}`",
+        "",
         "## Usage Rules",
         "",
         "- SEC actuals require accepted/available timestamps when materialized into features.",
-        "- Alpha Vantage listing status is lifecycle reference data, not PIT Russell 1000 membership.",
+        "- Alpha Vantage active and delisted rows are reported separately; active coverage is not delisted coverage.",
+        f"- Delisted listing rows available: `{summary.get('listing_lifecycle', {}).get('delisted_row_count', 0)}`.",
+        "- Alpha Vantage listing status is reference data, not PIT Russell 1000 membership.",
         "- FMP earnings calendar history is a vendor historical snapshot, not analyst revision history.",
         "- Forward estimate snapshots are usable only from their collection dates onward.",
         "- Missing coverage must remain missing or neutral; do not impute positive alpha.",
     ]
+    gaps = summary.get("known_gaps") or []
+    if gaps:
+        lines.extend(["", "## Known Gaps", ""] + [f"- {item}" for item in gaps])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -415,7 +482,10 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
     sec_members = companyfacts_members(repo_path(args.companyfacts_zip))
     sec_ticker_map, sec_ticker_reference = load_sec_ticker_map(repo_path(args.sec_ticker_map))
     universe = apply_sec_ticker_map(universe, sec_ticker_map, sec_ticker_reference)
-    listing = load_parquet_tickers(repo_path(args.listing_status), "symbol")
+    listing_active, listing_delisted, listing_diagnostics = load_listing_status(
+        repo_path(args.listing_status)
+    )
+    listing = listing_active | listing_delisted
     earnings_calendar = load_parquet_tickers(repo_path(args.earnings_calendar), "ticker")
     estimate_seen, estimate_has, estimate_file_count = load_forward_estimate_tickers(repo_path(args.estimate_snapshot_dir))
 
@@ -451,6 +521,8 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
                 "sec_companyfacts_present": sec_present,
                 "sec_companyfacts_missing_reason": sec_missing_reason,
                 "av_listing_status_present": ticker in listing,
+                "av_listing_active_present": ticker in listing_active,
+                "av_listing_delisted_present": ticker in listing_delisted,
                 "fmp_earnings_calendar_present": ticker in earnings_calendar,
                 "forward_estimate_seen": ticker in estimate_seen,
                 "forward_estimate_has_estimate": ticker in estimate_has,
@@ -529,8 +601,18 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
             ),
             "av_listing_status": coverage_item(
                 "av_listing_status_present",
-                label="active/delisted listing lifecycle",
-                pit_usage_label="reference_lifecycle_proxy_not_index_membership",
+                label="current-universe Alpha Vantage listing reference rows",
+                pit_usage_label="active_or_delisted_reference_not_historical_membership",
+            ),
+            "av_listing_active_reference": coverage_item(
+                "av_listing_active_present",
+                label="current-universe Alpha Vantage active listing rows",
+                pit_usage_label="current_active_reference_not_historical_membership",
+            ),
+            "av_listing_delisted_reference": coverage_item(
+                "av_listing_delisted_present",
+                label="current-universe symbols also present in the delisted response",
+                pit_usage_label="diagnostic_only_symbol_reuse_possible",
             ),
             "fmp_earnings_calendar_history": coverage_item(
                 "fmp_earnings_calendar_present",
@@ -553,7 +635,12 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
             "FMP earnings calendar history is not a PIT estimate revision feed.",
             "Forward estimates begin only when snapshots were collected.",
         ],
+        "listing_lifecycle": listing_diagnostics,
     }
+    if not listing_diagnostics["delisted_source_available"]:
+        summary["known_gaps"].append(
+            "Alpha Vantage delisted listing source has zero usable rows; active coverage must not be described as delisted or survivorship coverage."
+        )
     summary["coverage"]["sec_companyfacts"]["eligible_equity_issuer_count"] = int(len(eligible))
     summary["coverage"]["sec_companyfacts"]["eligible_covered_ticker_count"] = sec_after_eligible
     summary["coverage"]["sec_companyfacts"]["eligible_missing_ticker_count"] = int(len(eligible)) - sec_after_eligible

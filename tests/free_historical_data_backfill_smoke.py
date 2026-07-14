@@ -16,12 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.collect_alphavantage_listing_status import read_csv_payload  # noqa: E402
+from tools.collect_alphavantage_listing_status import read_csv_payload, response_format  # noqa: E402
+from tools import collect_alphavantage_listing_status as av_collector  # noqa: E402
 from tools import collect_fmp_earnings_calendar_history as fmp_collector  # noqa: E402
 from tools import collect_sec_company_tickers as sec_collector  # noqa: E402
 from tools.collect_fmp_earnings_calendar_history import normalize_rows  # noqa: E402
 from tools.collect_sec_company_tickers import parse_company_tickers  # noqa: E402
-from tools.audit_free_historical_data_coverage import audit, parse_args  # noqa: E402
+from tools.audit_free_historical_data_coverage import audit, load_listing_status, parse_args  # noqa: E402
 from tools.build_data_catalog import inspect_dataset  # noqa: E402
 
 
@@ -36,6 +37,92 @@ def test_av_listing_status_parser_labels_lifecycle_proxy() -> None:
     assert set(frame["source_state"]) == {"delisted"}
     assert set(frame["source"]) == {"alphavantage_listing_status"}
     assert "delisting_date" in frame.columns
+    assert response_format(payload) == "csv"
+    assert response_format(b"{}") == "empty_json_object"
+
+
+def test_listing_status_loader_separates_active_and_delisted_rows() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "listing.parquet"
+        pd.DataFrame(
+            [
+                {"symbol": "AAA", "status": "Active", "source_state": "active"},
+                {"symbol": "OLD", "status": "Delisted", "source_state": "delisted"},
+                {"symbol": "UNK", "status": "", "source_state": ""},
+            ]
+        ).to_parquet(path, index=False)
+        active, delisted, diagnostics = load_listing_status(path)
+        assert active == {"AAA"}
+        assert delisted == {"OLD"}
+        assert diagnostics["active_row_count"] == 1
+        assert diagnostics["delisted_row_count"] == 1
+        assert diagnostics["unknown_state_row_count"] == 1
+        assert diagnostics["delisted_source_available"] is True
+        assert diagnostics["delisted_sample_minimum_row_gate_met"] is False
+
+
+def test_empty_json_delisted_response_is_persisted_but_not_usable() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        (raw_dir / "listing_status_active_2026-07-10.csv").write_text(
+            "symbol,name,exchange,assetType,ipoDate,delistingDate,status\n"
+            "AAA,AAA Corp,NASDAQ,Stock,2019-01-02,,Active\n",
+            encoding="utf-8",
+        )
+        (raw_dir / "listing_status_delisted_2026-07-10.csv").write_bytes(b"{}")
+        args = av_collector.parse_args()
+        args.raw_dir = str(raw_dir)
+        args.output = str(tmp_path / "listing.parquet")
+        args.summary = str(tmp_path / "summary.json")
+        args.asof_date = "2026-07-10"
+        args.allow_missing_key = True
+        original_key = os.environ.pop("ALPHAVANTAGE_API_KEY", None)
+        try:
+            summary = av_collector.collect(args)
+        finally:
+            if original_key is not None:
+                os.environ["ALPHAVANTAGE_API_KEY"] = original_key
+        assert summary["status"] == "partial"
+        assert summary["active_rows"] == 1
+        assert summary["delisted_rows"] == 0
+        assert summary["delisted_source_available"] is False
+        assert summary["delisted_sample_minimum_row_gate_met"] is False
+        delisted = next(row for row in summary["raw_records"] if row["state"] == "delisted")
+        assert delisted["bytes"] == 2
+        assert delisted["response_format"] == "empty_json_object"
+        assert delisted["usable_listing_rows"] is False
+        assert "delisted_non_csv_provider_response:empty_json_object" in summary["warnings"]
+
+
+def test_active_only_listing_file_never_claims_delisted_coverage() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        universe = tmp_path / "universe.csv"
+        listing = tmp_path / "listing.parquet"
+        pd.DataFrame([{"ticker": "AAA", "cik10": ""}]).to_csv(universe, index=False)
+        pd.DataFrame(
+            [{"symbol": "AAA", "status": "Active", "source_state": "active"}]
+        ).to_parquet(listing, index=False)
+        args = parse_args()
+        args.universe_file = str(universe)
+        args.latest_run = str(tmp_path / "missing_latest")
+        args.companyfacts_zip = str(tmp_path / "missing_companyfacts.zip")
+        args.sec_ticker_map = str(tmp_path / "missing_sec_reference.parquet")
+        args.listing_status = str(listing)
+        args.earnings_calendar = str(tmp_path / "missing_calendar.parquet")
+        args.estimate_snapshot_dir = str(tmp_path / "missing_estimates")
+        args.output_dir = str(tmp_path / "coverage")
+        summary = audit(args)
+        assert summary["coverage"]["av_listing_active_reference"]["covered_ticker_count"] == 1
+        assert summary["coverage"]["av_listing_delisted_reference"]["covered_ticker_count"] == 0
+        assert summary["listing_lifecycle"]["delisted_row_count"] == 0
+        assert summary["listing_lifecycle"]["delisted_source_available"] is False
+        assert any("zero usable rows" in value for value in summary["known_gaps"])
+        report = (tmp_path / "coverage" / "report.md").read_text(encoding="utf-8")
+        assert "Delisted rows: `0`" in report
+        assert "active coverage must not be described as delisted" in report
 
 
 def test_fmp_earnings_calendar_parser_blocks_historical_pit_feature_use() -> None:
@@ -340,6 +427,9 @@ def test_fmp_entitlement_block_stops_after_one_chunk() -> None:
 
 def main() -> None:
     test_av_listing_status_parser_labels_lifecycle_proxy()
+    test_listing_status_loader_separates_active_and_delisted_rows()
+    test_empty_json_delisted_response_is_persisted_but_not_usable()
+    test_active_only_listing_file_never_claims_delisted_coverage()
     test_fmp_earnings_calendar_parser_blocks_historical_pit_feature_use()
     test_free_data_workflow_exposes_historical_backfill_switches()
     test_dedicated_historical_backfill_workflow_is_collector_only()
@@ -350,7 +440,7 @@ def main() -> None:
     test_sec_refresh_preserves_prior_artifacts_when_download_is_invalid()
     test_coverage_repairs_blank_ciks_without_overwrite_or_placeholder_collision()
     test_fmp_entitlement_block_stops_after_one_chunk()
-    print(json.dumps({"status": "PASS", "tests": 11}, sort_keys=True))
+    print(json.dumps({"status": "PASS", "tests": 14}, sort_keys=True))
 
 
 if __name__ == "__main__":
