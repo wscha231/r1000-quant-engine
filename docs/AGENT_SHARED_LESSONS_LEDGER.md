@@ -1508,3 +1508,71 @@ Expected contract:
   - `outputs/sec_filing_quality_event/source_screen_summary.json`
   - `tools/run_sec_filing_quality_event.py`
   - `docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md`
+
+### 2026-07-14 - Current scoring needs an exact-close lane and explicit symbol lifecycle
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-scored-latest-20260713`
+  - local bounded refresh for completed NYSE session `2026-07-13`
+- Context:
+  - The canonical tracked `scored_latest.csv` still represented the prior full
+    rebuild while the source price cache was split across several stale dates.
+  - A current score was needed without running fullrun or changing any book.
+- Attempt:
+  - Restored the previously validated non-ranking feature/model/score helpers.
+  - Added a source-cache-immutable incremental lane that downloads a short
+    provider overlap, recomputes 42 registered technical fields, applies the
+    frozen 238-feature scaler and model heads, and emits an append-only packet.
+  - Ran the exact-session gate before download and required every current
+    context ticker to have the 2026-07-13 close.
+- Result:
+  - 989/989 current-context tickers have an exact 2026-07-13 close; future
+    provider rows are zero and all ticker refresh audits pass.
+  - The refreshed snapshot contains 989 unique tickers, 705 columns, finite
+    scores, 347 research-eligible names, and exact ranks 1 through 347.
+  - All six non-ranker prediction heads are nonzero for all 989 rows. The new
+    score has 0.9121 Spearman correlation on 738 names shared with the prior
+    canonical snapshot.
+  - The canonical score file and append-only output copy have identical SHA-256
+    `9cbb6586f995b59446d4c65d67acca3c428ebfbf9c75d1e33ebde58efcf906a0`.
+- Failure or caveat:
+  - The first pass blocked at 988/989 because stale universe symbol `IAC` has no
+    2026-07-13 quote. SEC identity and provider metadata show the same issuer
+    now trades as `PPLI`; the successful pass records explicit alias
+    `IAC=PPLI` and uses PPLI close 45.89 without rewriting historical identity.
+  - A diagnostic overlay using the archived estimate signal snapshot has no
+    local listing-status source, so 989 lifecycle rows remain missing-neutral.
+    Its top-30 differences are diagnostic only.
+  - Initial PR validation passed 150/151 but the new smoke could not import in
+    the minimal CI image because CatBoost was loaded at module import time.
+    Moving CatBoost imports into the actual scoring functions preserved runtime
+    behavior and lets pure contract tests run without the optional dependency.
+- Root cause:
+  - Daily operations updated prices and forward evidence but did not own a
+    current full-universe score refresh. Symbol lifecycle and the score audit's
+    stale `pred_*` merge collision were not explicit in that path.
+- Reusable lesson:
+  - Fail closed on the exact completed session, preserve price caches, and put
+    symbol changes in a reviewed logical-to-provider map with provenance.
+  - Drop stale prediction columns before merging new model heads; otherwise
+    pandas suffixes can silently route registered scoring to default zeros.
+  - Heavy optional model libraries must be imported at the execution boundary,
+    not at module import time, so low-cost contract CI stays usable.
+  - A score observed after the close is eligible only for the next close. Never
+    revise an immutable forward cohort already recorded for the same date.
+- Next action:
+  - Run targeted and complete CI, publish this lane, then use the refreshed
+    ranking only for a separate selector-diff review. Do not mutate target
+    books or the 2026-07-13 forward ledger without a new decision-time gate.
+- Do-not-repeat:
+  - Do not carry the 2026-07-10 IAC close into 2026-07-13.
+  - Do not overwrite the Google Drive source cache or rerun full history for a
+    one-session score update.
+  - Do not treat the diagnostic overlay as a portfolio instruction while its
+    lifecycle evidence is missing-neutral.
+- Evidence files:
+  - `outputs/run287_scored_latest_refresh_20260714_close_20260713/manifest.json`
+  - `outputs/run287_scored_latest_refresh_20260714_close_20260713_v2/manifest.json`
+  - `outputs/free_data_selection_overlay_scored_20260713_v2/summary.json`
+  - `docs/CODEX_RUN287_SCORED_LATEST_REFRESH_RESULT_20260714.md`
