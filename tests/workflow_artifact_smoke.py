@@ -947,6 +947,13 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/holding_risk_watch/",
         "daily_holding_risk_watch.log",
         "paper_archive/run287_holding_risk_watch",
+        "tools/run_run287_exact_packet_producer.py",
+        "outputs/run287_exact_packet_producer/",
+        "run287_exact_packet_input_registry/registry.json",
+        "daily_run287_exact_packet_producer.log",
+        "run287_current_selector_no_write_exact_close_",
+        "run287_candidate_risk_watch_exact_close_",
+        "exact_packet_ready",
         "tools/archive_run287_decision_observation.py",
         "outputs/run287_decision_observation_archive/",
         "daily_run287_decision_observation_archive.log",
@@ -988,11 +995,12 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         assert forbidden not in text, forbidden
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
     holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
+    exact_packet_idx = text.index("python tools/run_run287_exact_packet_producer.py")
     decision_archive_idx = text.index("python tools/archive_run287_decision_observation.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
     assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
-    assert holding_risk_idx < decision_archive_idx < snapshot_idx, "decision archive ingestion must run after the exact-close risk watch and before reports"
+    assert holding_risk_idx < exact_packet_idx < decision_archive_idx < snapshot_idx, "exact packet production and archive ingestion must run after the exact-close risk watch and before reports"
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
 

@@ -1943,3 +1943,60 @@ Expected contract:
   - `tools/archive_run287_decision_observation.py`
   - `tests/run287_decision_observation_archive_smoke.py`
   - `docs/CODEX_RUN287_DECISION_OBSERVATION_ARCHIVE_RESULT_20260714.md`
+
+### 2026-07-14 - Exact packet automation must require an explicit same-close registry
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-exact-packet-producer-20260714`
+  - zero-network selector/risk replay for the 2026-07-13 close
+- Context:
+  - The decision archive could ingest a validated packet but could not create
+    the no-write selector and proposed-candidate risk pair.
+- Attempt:
+  - Added a hash-pinned input-registry contract separating the expensive
+    decision-frame/score-stack refresh from the zero-network selector/risk
+    stage.
+  - Added portable manifest and price-map resolution that verifies content
+    hashes before replacing stored Windows paths.
+  - Wired the daily workflow to use producer paths explicitly and disabled
+    discovery fallback when the producer is not ready.
+  - Hardened archive contract hashing against Windows checkout line-ending
+    conversion by requiring both the committed Git blob hash and parsed JSON
+    equality.
+- Result:
+  - The actual 2026-07-13 producer reproduced three scenarios and the same
+    seven proposed entries in about 17.9 seconds with zero network requests.
+  - The exact rerun reused the existing packet. Archive ingestion appended zero
+    in all four history families because the normalized decision was identical.
+  - Missing registry skips; stale or changed registry blocks. No target book,
+    order, backtest, fullrun, production, or live-trading state changed.
+  - Local standard PR validation passed `168/168` in `225.10` seconds.
+- Failure or caveat:
+  - The daily workflow still needs the upstream exact-close decision frame,
+    score stack, crisis/benchmark inputs, and registry to be produced for each
+    date. This change does not claim that expensive half is automated.
+- Root cause:
+  - The valid local research packet used hash-pinned but environment-specific
+    paths, while the daily workflow had neither a semantic input handoff nor a
+    safe way to distinguish current Run287 inputs from its separate operating
+    selector.
+- Reusable lesson:
+  - Split costly source refresh from deterministic portfolio projection, but
+    join them through one exact-date hash registry rather than path discovery.
+  - A restored packet is not current evidence unless its registry, close date,
+    source hashes, and prior producer provenance all match.
+- Next action:
+  - Build the bounded upstream input-registry producer with explicit SEC and
+    market request ceilings; do not run fullrun or silently reuse a prior-date
+    registry.
+- Do-not-repeat:
+  - Do not accept a same-date packet solely because its directory name matches.
+  - Do not fall back to the daily operating selector when Run287 inputs are
+    missing.
+  - Do not count producer automation as historical CAGR/MDD improvement.
+- Evidence files:
+  - `docs/run287_exact_packet_producer_contract.json`
+  - `tools/run_run287_exact_packet_producer.py`
+  - `tests/run287_exact_packet_producer_smoke.py`
+  - `docs/CODEX_RUN287_EXACT_PACKET_PRODUCER_RESULT_20260714.md`

@@ -54,6 +54,27 @@ def git_head() -> str:
     ).strip()
 
 
+def canonical_tracked_contract_sha256(
+    path: Path, parsed: Mapping[str, Any], expected_sha256: str
+) -> str:
+    """Accept checkout line-ending conversion only when the Git blob is exact."""
+    actual = sha256_file(path)
+    expected = str(expected_sha256 or "").lower()
+    if not expected or actual == expected:
+        return actual
+    try:
+        relative = path.resolve().relative_to(REPO_ROOT).as_posix()
+        content = subprocess.check_output(
+            ["git", "show", f"HEAD:{relative}"], cwd=REPO_ROOT, timeout=10
+        )
+        committed = json.loads(content.decode("utf-8"))
+    except Exception:
+        return actual
+    if not isinstance(committed, dict) or committed != dict(parsed):
+        return actual
+    return expected if hashlib.sha256(content).hexdigest() == expected else actual
+
+
 def fingerprint(path: Path) -> dict[str, Any]:
     return {
         "path": str(path),
@@ -680,7 +701,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     failures: list[str] = []
     if contract.get("schema_version") != "run287-decision-observation-archive-contract-v1":
         failures.append("archive_contract_schema")
-    contract_sha256 = sha256_file(contract_path)
+    contract_sha256 = canonical_tracked_contract_sha256(
+        contract_path, contract, args.expected_contract_sha256
+    )
+    sources["archive_contract"]["canonical_sha256"] = contract_sha256
+    sources["archive_contract"]["checkout_line_ending_normalized"] = bool(
+        contract_sha256 != sources["archive_contract"]["sha256"]
+    )
     if args.expected_contract_sha256 and contract_sha256 != args.expected_contract_sha256:
         failures.append("archive_contract_hash")
     if failures:
