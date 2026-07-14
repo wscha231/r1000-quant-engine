@@ -157,12 +157,36 @@ def test_rank_comparison_is_reported() -> None:
         assert summary["rank_comparison"]["top_n_removed"] == ["BBB"]
 
 
+def test_contemporaneous_base_rank_is_deterministic_and_not_prior_rank() -> None:
+    scored = pd.DataFrame(
+        [
+            {"ticker": "ZZZ", "score": 1.0},
+            {"ticker": "AAA", "score": 1.0},
+            {"ticker": "BBB", "score": 2.0},
+        ]
+    )
+    ranked, _ = build_overlay(
+        scored,
+        decision_date=pd.Timestamp("2026-07-10"),
+        signals=pd.DataFrame(),
+        listing=pd.DataFrame(),
+        earnings_calendar=pd.DataFrame(),
+        top_n=3,
+    )
+    by_ticker = ranked.set_index("ticker")
+    assert by_ticker.loc["BBB", "free_data_base_selection_rank"] == 1
+    assert by_ticker.loc["AAA", "free_data_base_selection_rank"] == 2
+    assert by_ticker.loc["ZZZ", "free_data_base_selection_rank"] == 3
+    assert by_ticker.loc["AAA", "free_data_selection_rank"] < by_ticker.loc["ZZZ", "free_data_selection_rank"]
+
+
 def main() -> None:
     test_overlay_promotes_confirmed_forward_evidence_and_penalizes_delisted()
     test_cli_writes_research_only_outputs()
     test_missing_forward_and_lifecycle_evidence_remain_neutral()
     test_rank_comparison_is_reported()
-    print(json.dumps({"status": "PASS", "tests": 4}, sort_keys=True))
+    test_contemporaneous_base_rank_is_deterministic_and_not_prior_rank()
+    print(json.dumps({"status": "PASS", "tests": 5}, sort_keys=True))
 
 
 if __name__ == "__main__":

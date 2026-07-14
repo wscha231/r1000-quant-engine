@@ -5,6 +5,28 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 12:10 KST - Recover and automate the bounded forward paper ledger
+
+- scope:
+  - Restore the lost v2 fixed-cohort forward ledger and attach it to the existing bounded 993-name daily estimate archive without backfilling signals or changing portfolios.
+  - Limit daily checkout and price refresh work to the inputs required by this paper-only lane.
+- files:
+  - `tools/run_free_data_selection_overlay.py` ->restores the contemporaneous base-rank field and missing-neutral v2 overlay contract.
+  - `tools/run_free_data_forward_paper_ledger.py` ->restores append-only 30/30/30 cohorts, elapsed 21D/63D/126D outcomes, and frozen review gates.
+  - `tools/build_forward_paper_price_universe.py` ->builds the bounded current-cohort plus unresolved-observation plus SPY price set.
+  - `.github/workflows/earnings_estimates_daily.yml` ->runs the forward archive after a completed-session gate and persists global/per-run state.
+  - `.github/workflows/free_historical_data_backfill.yml` ->restores the original manual v2 ledger wiring.
+  - `tests/*forward_paper*`, `tests/free_data_selection_overlay_smoke.py`, and `tests/earnings_estimate_workflow_rotation_smoke.py` ->guard fixed cohorts, no backfill, immutable membership, bounded inputs, and workflow persistence.
+  - `docs/CODEX_RUN287_FORWARD_PAPER_LEDGER_RECOVERY_RESULT_20260714.md` ->records current evidence, hashes, freshness caveat, and promotion gates.
+- result:
+  - The restored core is byte-for-byte equivalent to commit `2f3c9750` for the five original v2 files.
+  - Existing local state remains 30 observations, 10 distinct true-forward tickers, zero resolved outcomes, and `UNDERPOWERED`; no untracked output was removed.
+  - New observations require exact base top-30, overlay top-30, and ranks 31-60 control cohorts; prices are refreshed only for current cohorts, unresolved prior rows, and SPY from 2026-07-01 forward.
+  - Daily checkout excludes dated full-rebuild copies while keeping the canonical latest baseline and queue shards.
+- caveat:
+  - The canonical tracked score snapshot is dated 2026-06-24. Daily estimate overlays disclose and use that available base state but are not a same-day full-universe score recomputation.
+  - The lane remains paper-only and cannot proceed to portfolio A/B until every frozen sample and outcome gate passes.
+
 ### 11:45 KST - Bound PR CI checkout to code and the canonical latest baseline
 
 - scope:

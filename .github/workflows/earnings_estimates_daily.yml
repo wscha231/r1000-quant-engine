@@ -91,6 +91,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          sparse-checkout: |
+            .github
+            cloud_results/full_rebuild/latest_global_alpha_universe
+            data_static
+            outputs/forward_estimate_universe_plan_20260709
+            tools
+          sparse-checkout-cone-mode: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -110,6 +117,9 @@ jobs:
           path: |
             data_pit/events/earnings_estimates
             data_pit/events/earnings_revision_signals.parquet
+            cache_prices_forward_paper
+            outputs/free_data_forward_paper_ledger
+            outputs/free_data_selection_overlay
           key: earnings-estimates-daily-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             earnings-estimates-daily-${{ runner.os }}-
@@ -166,6 +176,28 @@ jobs:
           if rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
             timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
               data_pit/events/earnings_revision_signals.parquet || true
+          fi
+          mkdir -p data_pit/free outputs/free_data_forward_paper_ledger \
+            outputs/free_data_selection_overlay_previous cache_prices_forward_paper
+          if rclone lsf "$BASE""data_pit/free/av_listing_status.parquet" >/dev/null 2>&1; then
+            timeout 2m rclone copyto "$BASE""data_pit/free/av_listing_status.parquet" \
+              data_pit/free/av_listing_status.parquet || true
+          fi
+          if rclone lsf "$BASE""data_pit/events/earnings_calendar_history.parquet" >/dev/null 2>&1; then
+            timeout 2m rclone copyto "$BASE""data_pit/events/earnings_calendar_history.parquet" \
+              data_pit/events/earnings_calendar_history.parquet || true
+          fi
+          if rclone lsf "$BASE""research_state/free_data_forward_paper_ledger" >/dev/null 2>&1; then
+            timeout 3m rclone copy "$BASE""research_state/free_data_forward_paper_ledger" \
+              outputs/free_data_forward_paper_ledger/ || true
+          fi
+          if rclone lsf "$BASE""research_state/free_data_selection_overlay" >/dev/null 2>&1; then
+            timeout 3m rclone copy "$BASE""research_state/free_data_selection_overlay" \
+              outputs/free_data_selection_overlay_previous/ || true
+          fi
+          if rclone lsf "$BASE""research_state/free_data_forward_paper_price_cache" >/dev/null 2>&1; then
+            timeout 5m rclone copy "$BASE""research_state/free_data_forward_paper_price_cache" \
+              cache_prices_forward_paper/ --transfers 4 --checkers 8 || true
           fi
 
       - name: Resolve ticker set and universe shard
@@ -377,6 +409,58 @@ jobs:
             --queue-csv outputs/earnings_estimates_daily/collection_queue.csv \
             --queue-report outputs/earnings_estimates_daily/collection_queue_report.md
 
+      - name: Resolve completed NYSE session for forward paper archive
+        id: forward_market
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/free_data_forward_paper_ledger
+          python tools/run_daily_market_session_gate.py \
+            --output outputs/free_data_forward_paper_ledger/market_session_gate.json \
+            --min-close-age-minutes 90 \
+            --max-close-age-hours 36
+
+      - name: Append bounded forward paper cohorts and resolve elapsed outcomes
+        if: steps.forward_market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
+          BASELINE_ARGS=()
+          if [ -s outputs/free_data_selection_overlay_previous/ranked_universe.csv ]; then
+            BASELINE_ARGS=(--baseline-ranked outputs/free_data_selection_overlay_previous/ranked_universe.csv)
+          elif [ -s outputs/free_data_selection_overlay/ranked_universe.csv ]; then
+            BASELINE_ARGS=(--baseline-ranked outputs/free_data_selection_overlay/ranked_universe.csv)
+          fi
+          python tools/run_free_data_selection_overlay.py \
+            --scored "$LATEST/scored_latest.csv" \
+            --estimate-signals data_pit/events/earnings_revision_signals.parquet \
+            --listing-status data_pit/free/av_listing_status.parquet \
+            --earnings-calendar data_pit/events/earnings_calendar_history.parquet \
+            --decision-date "$LAST_NYSE_SESSION_DATE" \
+            "${BASELINE_ARGS[@]}" \
+            --top-n 30 \
+            --output-dir outputs/free_data_selection_overlay
+          python tools/build_forward_paper_price_universe.py \
+            --ranked-universe outputs/free_data_selection_overlay/ranked_universe.csv \
+            --current-status outputs/free_data_forward_paper_ledger/current_status.csv \
+            --output outputs/free_data_forward_paper_ledger/price_universe.csv \
+            --summary outputs/free_data_forward_paper_ledger/price_universe_summary.json \
+            --benchmark SPY
+          python tools/build_replay_price_cache.py \
+            --books outputs/free_data_forward_paper_ledger/price_universe.csv \
+            --output-dir cache_prices_forward_paper \
+            --start 2026-07-01 \
+            --refresh-stale-days 1 \
+            --batch-size 40
+          python tools/run_free_data_forward_paper_ledger.py \
+            --candidates outputs/free_data_selection_overlay/selected_candidates.csv \
+            --ranked-universe outputs/free_data_selection_overlay/ranked_universe.csv \
+            --overlay-summary outputs/free_data_selection_overlay/summary.json \
+            --price-cache cache_prices_forward_paper \
+            --output-dir outputs/free_data_forward_paper_ledger \
+            --benchmark SPY \
+            --as-of-date "$LAST_NYSE_SESSION_DATE"
+
       - name: Save earnings estimate archive cache
         if: always()
         uses: actions/cache/save@v4
@@ -384,6 +468,9 @@ jobs:
           path: |
             data_pit/events/earnings_estimates
             data_pit/events/earnings_revision_signals.parquet
+            cache_prices_forward_paper
+            outputs/free_data_forward_paper_ledger
+            outputs/free_data_selection_overlay
           key: earnings-estimates-daily-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload earnings estimate artifact
@@ -395,6 +482,9 @@ jobs:
             data_pit/events/earnings_estimates/
             data_pit/events/earnings_revision_signals.parquet
             outputs/earnings_estimates_daily/
+            outputs/free_data_selection_overlay/
+            outputs/free_data_forward_paper_ledger/
+            cache_prices_forward_paper/replay_price_cache_manifest.json
           retention-days: 30
 
       - name: Sync earnings estimate archive to Google Drive
@@ -422,5 +512,22 @@ jobs:
           fi
           if [ -d outputs/earnings_estimates_daily ]; then
             timeout 3m rclone copy outputs/earnings_estimates_daily "$BASE""outputs/earnings_estimates_daily/" \
+              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          fi
+          if [ -d outputs/free_data_selection_overlay ]; then
+            timeout 3m rclone copy outputs/free_data_selection_overlay \
+              "$BASE""research_state/free_data_selection_overlay/" || true
+            timeout 3m rclone copy outputs/free_data_selection_overlay \
+              "$BASE""research_runs/forward_paper/${GITHUB_RUN_ID}/free_data_selection_overlay/" || true
+          fi
+          if [ -d outputs/free_data_forward_paper_ledger ]; then
+            timeout 3m rclone copy outputs/free_data_forward_paper_ledger \
+              "$BASE""research_state/free_data_forward_paper_ledger/" || true
+            timeout 3m rclone copy outputs/free_data_forward_paper_ledger \
+              "$BASE""research_runs/forward_paper/${GITHUB_RUN_ID}/free_data_forward_paper_ledger/" || true
+          fi
+          if [ -d cache_prices_forward_paper ]; then
+            timeout 5m rclone copy cache_prices_forward_paper \
+              "$BASE""research_state/free_data_forward_paper_price_cache/" \
               --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
           fi
