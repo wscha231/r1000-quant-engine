@@ -115,10 +115,11 @@ signal-stability problem.
 
 ## Next sequence
 
-1. Build a no-order candidate-risk packet for every proposed new buy, beginning
-   with `AMAT`, `ARM`, `COHU`, `DELL`, `FTNT`, `PANW`, and `STX`. Apply the same
-   past-only 1/5/21/63/126-session diagnostics used by the holding watch.
-2. Append the selector output after each completed eligible close. Start an
+1. The no-order candidate-risk packet is complete for `AMAT`, `ARM`, `COHU`,
+   `DELL`, `FTNT`, `PANW`, and `STX`: STX is ALERT; AMAT and COHU are WATCH;
+   the other four are NORMAL but not buy-authorized.
+2. Append the unchanged selector and risk output after each completed eligible
+   close. Start an
    early stability review after four distinct decision weeks, but do not
    promote before at least 12 decision-week blocks and resolved forward
    outcomes satisfy the existing forward evidence contract.
@@ -142,5 +143,7 @@ signal-stability problem.
 - Local PR validation: `165/165` passed in `427.1` seconds.
 - Output packet:
   `outputs/run287_current_selector_no_write_20260714_close_20260713_v2/`.
+- Candidate-risk packet:
+  `outputs/run287_candidate_risk_watch_20260714_close_20260713/`.
 - The earlier non-risk-intersection packet remains preserved as append-only
   evidence under the same name without `_v2`.

@@ -1,0 +1,58 @@
+{
+  "schema_version": "run287-candidate-risk-watch-contract-v1",
+  "scope": "current_proposed_new_entry_price_risk_pretrade_review",
+  "base_holding_risk_contract": "docs/run287_holding_risk_watch_contract.json",
+  "candidate_derivation": {
+    "source": "verified_no_write_selector_marked_official_advisory_comparison",
+    "rules": [
+      "ticker_not_cash",
+      "advisory_weight_gt_zero",
+      "marked_weight_lte_zero"
+    ],
+    "deduplicate_across_scenarios": true,
+    "selector_weights_may_be_changed": false
+  },
+  "price_contract": {
+    "historical_source": "hash_verified_selector_price_map",
+    "current_increment": "hash_verified_provider_price_overlap",
+    "benchmark": "SPY",
+    "require_exact_completed_close": true,
+    "minimum_overlap_rows": 20,
+    "maximum_overlap_relative_error": 0.00001,
+    "future_rows_allowed": false
+  },
+  "evaluation": {
+    "reuse_functions": [
+      "tools.build_run287_holding_risk_watch.price_features",
+      "tools.build_run287_holding_risk_watch.classify"
+    ],
+    "horizons_trading_days": [1, 5, 21, 63, 126],
+    "same_date_rerun_policy": "same_ticker_asof_payload_must_match_exactly_or_fail_closed",
+    "missing_policy": "neutral_no_forced_trade"
+  },
+  "research_registration": {
+    "signal": "proposed_candidate_past_only_price_damage",
+    "mechanism": "current_pretrade_review_no_selector_or_book_mutation",
+    "book": "run287_current_selector_proposed_new_entries",
+    "window": "forward_from_2026-07-13",
+    "semantic_difference_from_rejected_work": "operator_risk_measurement_only_no_stop_no_exit_delay_no_partial_resize_no_cluster_cap_no_tilt"
+  },
+  "promotion": {
+    "portfolio_transition_allowed": false,
+    "risk_state_may_authorize_buy": false,
+    "normal_state_is_not_alpha_evidence": true,
+    "alert_or_watch_requires_manual_review": true
+  },
+  "safety": {
+    "advisory_only": true,
+    "orders_generated": false,
+    "target_books_mutated": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}
