@@ -1,5 +1,5 @@
 {
-  "schema_version": "run287-sec-management-guidance-scout-contract-v1",
+  "schema_version": "run287-sec-management-guidance-scout-contract-v2",
   "research_key": "sec_management_guidance_revision+accepted_time_source_screen_no_portfolio_mutation+run287_source_only+2019-06-03_2026-07-10",
   "purpose": "Bounded no-email feasibility scout for management guidance disclosed in SEC filings.",
   "source": {
@@ -21,6 +21,8 @@
     ],
     "available_from": "exact SEC acceptanceDateTime",
     "filed_date_fallback_allowed": false,
+    "raw_submission_acceptance_header_match_required": true,
+    "missing_or_mismatched_acceptance_policy": "block the entire bounded scout and publish no candidate evidence",
     "amendment_policy": "An amendment becomes available only at its own accepted_at timestamp."
   },
   "bounded_scout": {
@@ -48,6 +50,8 @@
       "capex"
     ],
     "boilerplate_only_is_candidate": false,
+    "calendar_year_alone_is_numeric_guidance": false,
+    "candidate_window_cap": null,
     "automatic_signal_value_allowed": false,
     "manual_schema_review_required": true
   },

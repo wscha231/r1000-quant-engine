@@ -24,7 +24,12 @@ ACCESSIONS = {
 }
 
 
-def write_fixture(root: Path, *, missing_acceptance: bool = False) -> argparse.Namespace:
+def write_fixture(
+    root: Path,
+    *,
+    missing_acceptance: bool = False,
+    mismatched_raw_acceptance: bool = False,
+) -> argparse.Namespace:
     sample = pd.DataFrame(
         [
             {
@@ -52,8 +57,9 @@ def write_fixture(root: Path, *, missing_acceptance: bool = False) -> argparse.N
                 "accepted_at": "" if missing_acceptance and ticker == "ADR1" else "2024-05-01T20:15:00+00:00",
             }
         )
+        raw_acceptance = "20240502161500" if mismatched_raw_acceptance and ticker == "ADR1" else "20240501161500"
         raw = (
-            "<SEC-DOCUMENT><DOCUMENT><TYPE>EX-99.1\n<TEXT><html><body>"
+            f"<SEC-DOCUMENT><ACCEPTANCE-DATETIME>{raw_acceptance}<DOCUMENT><TYPE>EX-99.1\n<TEXT><html><body>"
             "The company raises its fiscal 2025 outlook and expects revenue between "
             "$100 million and $110 million."
             "</body></html></TEXT></DOCUMENT></SEC-DOCUMENT>"
@@ -89,6 +95,15 @@ def main() -> int:
         "Forward-looking statements include projections and expectations involving revenue of $1 billion."
     )
     assert boilerplate == []
+    year_only = guidance_candidates("Management expects revenue growth in fiscal 2027.")
+    assert year_only == [], year_only
+    four_distinct = guidance_candidates(
+        " ".join(
+            f"Management expects adjusted EPS of ${value:.2f} for fiscal {year}."
+            for value, year in [(4.1, 2027), (4.2, 2028), (4.3, 2029), (4.4, 2030)]
+        )
+    )
+    assert len(four_distinct) == 4, four_distinct
 
     with tempfile.TemporaryDirectory() as tmp:
         args = write_fixture(Path(tmp))
@@ -98,6 +113,8 @@ def main() -> int:
         assert summary["candidate_filing_count"] == 3
         assert summary["candidate_ticker_count"] == 3
         assert summary["exact_acceptance_ratio"] == 1.0
+        assert summary["raw_header_acceptance_match_ratio"] == 1.0
+        assert summary["quarantined_missing_acceptance_count"] == 0
         assert summary["provider_email_required"] is False
         assert summary["api_key_required"] is False
         assert summary["historical_consensus_requirement_satisfied"] is False
@@ -115,6 +132,16 @@ def main() -> int:
         summary = run(args)
         assert summary["status"] == "BLOCKED_PIT", summary
         assert summary["exact_acceptance_ratio"] < 1.0
+        assert summary["quarantined_missing_acceptance_count"] == 1
+        assert summary["download_attempt_count"] == 0
+        assert summary["candidate_count"] == 0
+
+    with tempfile.TemporaryDirectory() as tmp:
+        args = write_fixture(Path(tmp), mismatched_raw_acceptance=True)
+        summary = run(args)
+        assert summary["status"] == "BLOCKED_PIT_RAW_HEADER", summary
+        assert summary["raw_header_acceptance_mismatch_count"] == 1
+        assert summary["candidate_count"] == 0
 
     print("sec_management_guidance_scout_smoke: PASS")
     return 0

@@ -172,6 +172,7 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
     frames: list[pd.DataFrame] = []
     chunk_records: list[dict[str, Any]] = []
     errors: list[str] = []
+    terminal_block: dict[str, Any] = {}
     ranges = chunk_ranges(start, end, args.chunk_days)
     if args.max_chunks > 0:
         ranges = ranges[: args.max_chunks]
@@ -205,6 +206,16 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
             )
         except Exception as exc:
             errors.append(f"{chunk_start.isoformat()}_{chunk_end.isoformat()}: {sanitize_text(exc)}")
+            response = getattr(exc, "response", None)
+            status_code = int(getattr(response, "status_code", 0) or 0)
+            if status_code in {401, 402, 403}:
+                terminal_block = {
+                    "reason": "vendor_entitlement_or_auth_block",
+                    "http_status": status_code,
+                    "endpoint": FMP_BASE,
+                    "do_not_retry_same_endpoint_without_access_change": True,
+                }
+                break
             if args.max_errors >= 0 and len(errors) > args.max_errors:
                 break
 
@@ -223,7 +234,9 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
         "chunk_days": int(args.chunk_days),
         "chunks_attempted": len(chunk_records) + len(errors),
         "chunks_succeeded": len(chunk_records),
+        "chunks_unattempted": max(0, len(ranges) - len(chunk_records) - len(errors)),
         "errors": errors,
+        "terminal_block": terminal_block,
         "output": output.as_posix(),
         "row_count": int(len(combined)),
         "covered_ticker_count": covered_tickers,

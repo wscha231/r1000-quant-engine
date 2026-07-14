@@ -12,18 +12,76 @@ All entries must be written in English. Entries must be predictable and machine-
   - Keep this source-only lane separate from the frozen analyst-consensus/provider gate and all portfolio logic.
 - files:
   - `docs/run287_sec_management_guidance_scout_contract.json` ->freezes the bounded source, document, PIT, and no-promotion rules.
-  - `tools/run_sec_management_guidance_scout.py` ->downloads or reuses complete SEC submissions, hashes them, and discovers strict numeric-guidance candidates.
-  - `tests/sec_management_guidance_scout_smoke.py` ->covers exact acceptance, boilerplate rejection, offline cache reuse, and all no-promotion flags.
+  - `tools/run_sec_management_guidance_scout.py` ->downloads or reuses complete SEC submissions, verifies raw acceptance headers, quarantines missing PIT rows, and discovers untrusted guidance candidates.
+  - `tests/sec_management_guidance_scout_smoke.py` ->covers exact acceptance, raw-header mismatch, year-only rejection, no three-window cap, offline cache reuse, and all no-promotion flags.
   - `docs/CODEX_RUN287_EMAIL_FREE_GUIDANCE_SCOUT_RESULT_20260714.md` ->records the real 10-name/80-filing result and remaining gaps.
   - `tools/run_pr_validation.py` ->registers the new smoke.
 - result:
   - Indexed all 10 selected names including all five ADR/global names after a two-ticker NVS/RIO gap fill.
   - Downloaded 80 of 80 bounded submissions with exact accepted-time coverage of 100%.
-  - Found 17 strict candidate filings across NVS, PG, RIO, VZ, and YMM.
+  - Found 17 untrusted heuristic candidate filings across NVS, PG, RIO, VZ, and YMM; post-run audit requires all 80 filings to be labeled before precision/recall claims.
+  - Hardened offline replay matched 80/80 raw SEC acceptance headers, blocked no PIT rows, and reduced the candidate filing set to 16 without return labels.
   - No returns, portfolio A/B, book mutation, fullrun, production, or live trading ran.
 - caveat:
   - SEC management guidance does not reconstruct historical analyst consensus or delisting returns.
-  - The next step is manual schema review of 17 filings, not full-universe collection.
+  - The next step is a frozen 80-filing gold set with detailed review of the 16 hardened candidates, not full-universe collection.
+### 07:35 KST - Add exact-close held-security risk watch and provider-ready sample message
+
+- scope:
+  - Add a forward-only, per-held-security price-risk warning layer after the exact completed-session close.
+  - Preserve rejected stop/resize/cap mechanisms and prepare the existing deterministic 50-row PIT request for zero-cost provider dispatch.
+- files:
+  - `docs/run287_holding_risk_watch_contract.json` ->freezes past-only quantiles, states, missing-neutral handling, and non-executable actions.
+  - `tools/build_run287_holding_risk_watch.py` ->measures held-name shock, trend, drawdown, volatility, and one-day loss contribution with an append-only idempotent archive.
+  - `tests/run287_holding_risk_watch_smoke.py` ->covers shock detection, trend damage, missing-neutral behavior, future-row exclusion, exact-close success, and same-date idempotency.
+  - `.github/workflows/daily_operating_selection_refresh.yml` ->runs the watch after the paper account mark and persists it through GitHub artifacts/cache and Google Drive paper archive.
+  - `tools/build_pit_estimate_guidance_sample_request.py` ->writes a provider-ready `provider_request.md` that authorizes no purchase or paid work.
+  - `tests/pit_estimate_guidance_sample_request_smoke.py` ->checks the provider message and its SHA-256.
+  - `tests/workflow_artifact_smoke.py` ->checks daily holding-risk ordering, exact-close requirement, and persistence paths.
+  - `docs/CODEX_RUN287_HOLDING_RISK_WATCH_RESULT_20260714.md` ->records the actual 2026-07-13 diagnostic and next gates.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the broad-regime blind spot and no-execution boundary.
+- symbols_added:
+  - `tools.build_run287_holding_risk_watch.build_watch`
+  - `tools.build_run287_holding_risk_watch.price_features`
+  - `tools.build_run287_holding_risk_watch.classify`
+  - `tools.build_run287_holding_risk_watch.archive_rows`
+- symbols_changed:
+  - `tools.build_pit_estimate_guidance_sample_request.write_outputs` ->adds the provider-ready request message and hash.
+  - `tools.run_pr_validation.DEFAULT_TESTS` ->includes the held-security risk smoke.
+- breaking_changes:
+  - none; target books, cash policy, paper orders, historical metrics, production, and live trading are unchanged.
+- outputs:
+  - `outputs/run287_holding_risk_watch_20260714_close_20260713/` ->actual exact-close alerts and append-only history.
+  - `outputs/run287_pit_estimate_guidance_sample_request_20260714_v2/` ->unchanged deterministic CSV selection plus provider-ready message.
+- validation:
+  - held-security risk, PIT sample request, and daily workflow artifact smokes ->PASS.
+  - do-not-repeat preflight ->`ALLOWED_NEW_COMBINATION` with no exact prior match.
+  - local standard PR validation ->139/143 PASS; the same four sparse-checkout omissions remain and all new/adjacent tests pass.
+- risks_or_notes:
+  - Current alerts are review evidence only and cannot justify a sell/trim rule without forward outcomes and a separately approved A/B.
+  - No provider request was dispatched, no purchase was authorized, and no fullrun was executed.
+### 23:30 KST - Make the long full rebuild manual-only and fail closed
+
+- scope:
+  - Remove the weekly full-rebuild cron that executed without the separately required Run287 approval.
+  - Reject manual dispatches before expensive work unless exact approval, commit, input-manifest, and cost evidence is supplied.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->keeps only `workflow_dispatch`, validates approval evidence first, serializes approved runs, and blocks production policy in the current research scope.
+  - `tests/smoke_test.py` ->locks the absence of schedule/cron and the presence of the manual approval guard.
+  - `docs/CODEX_FULLRUN_SCHEDULE_GOVERNANCE_RESULT_20260714.md` ->records the scheduled-run incident, root cause, fix, and validation boundary.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the incident and do-not-repeat rules.
+- breaking_changes:
+  - Full rebuilds can no longer run on a schedule.
+  - Manual dispatch now requires `FULLRUN_APPROVED`, the exact dispatched commit SHA, a frozen source-manifest SHA-256, and expected runner minutes.
+  - `alphaops_vnext_production` is blocked while the current scope remains research-only.
+- validation:
+  - fullrun ->NOT RUN by contract.
+  - targeted full-rebuild workflow smoke and YAML parse ->PASS.
+  - adjacent seven-year-lock and workflow-artifact PR validation ->2/2 PASS.
+  - full GitHub PR validation ->pending until the branch is pushed.
+- risks_or_notes:
+  - GitHub Actions run `29249021773` is retained as incident evidence; its failed outputs are not a valid baseline.
+  - Existing untracked outputs and downloaded artifacts were preserved.
 
 ### 07:10 KST - Freeze long estimate/guidance outcomes and build the zero-cost sample request
 

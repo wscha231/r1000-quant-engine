@@ -14,8 +14,10 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -34,8 +36,12 @@ GUIDANCE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 STRONG_GUIDANCE_PATTERN = re.compile(
-    GUIDANCE_PATTERN.pattern,
-    GUIDANCE_PATTERN.flags,
+    r"\b(?:we\s+(?:now\s+)?(?:expect|anticipate|forecast|project)|"
+    r"(?:the\s+)?(?:company|management)\s+(?:now\s+)?(?:expects|anticipates|forecasts|projects)|"
+    r"(?:raise|raises|raised|lower|lowers|lowered|reaffirm|reaffirms|reaffirmed|"
+    r"maintain|maintains|maintained|update|updates|updated|provide|provides|provided)"
+    r"\s+(?:its\s+|our\s+|the\s+)?(?:guidance|outlook))\b",
+    re.IGNORECASE,
 )
 FUTURE_PERIOD_PATTERN = re.compile(
     r"\b(?:fiscal|fy\s*['’]?\d{2,4}|quarter|full[- ]year|year ending|next year|q[1-4]|20\d{2})\b",
@@ -50,9 +56,14 @@ METRIC_PATTERNS = {
     "capex": re.compile(r"\b(?:capex|capital expenditures?)\b", re.IGNORECASE),
 }
 NUMBER_PATTERN = re.compile(
-    r"(?:[$€£]\s*)?[-+]?\d[\d,]*(?:\.\d+)?\s*(?:%|percent|million|billion|thousand|m|bn|b)?",
+    r"(?:"
+    r"[$€£]\s*[-+]?\d[\d,]*(?:\.\d+)?\s*(?:million|billion|thousand|m|bn|b)?|"
+    r"[-+]?\d[\d,]*\.\d+\s*(?:%|percent|million|billion|thousand|m|bn|b)?|"
+    r"[-+]?\d[\d,]*(?:\.\d+)?\s*(?:%|percent|million|billion|thousand|m|bn|b)\b"
+    r")",
     re.IGNORECASE,
 )
+ACCEPTANCE_HEADER_PATTERN = re.compile(rb"<ACCEPTANCE-DATETIME>\s*(\d{14})", re.IGNORECASE)
 ALLOWED_COLUMNS = [
     "ticker",
     "cik10",
@@ -76,6 +87,26 @@ def repo_path(value: str | Path) -> Path:
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def raw_acceptance_utc(value: bytes) -> str:
+    """Parse the SEC complete-submission acceptance header as exact UTC."""
+    match = ACCEPTANCE_HEADER_PATTERN.search(value[:250_000])
+    if not match:
+        return ""
+    try:
+        eastern = datetime.strptime(match.group(1).decode("ascii"), "%Y%m%d%H%M%S").replace(
+            tzinfo=ZoneInfo("America/New_York")
+        )
+    except (UnicodeDecodeError, ValueError):
+        return ""
+    return eastern.astimezone(timezone.utc).isoformat()
+
+
+def timestamps_equal(left: Any, right: Any) -> bool:
+    left_ts = pd.to_datetime(left, errors="coerce", utc=True)
+    right_ts = pd.to_datetime(right, errors="coerce", utc=True)
+    return bool(pd.notna(left_ts) and pd.notna(right_ts) and left_ts == right_ts)
 
 
 def normalize_bool(value: Any) -> bool:
@@ -190,7 +221,7 @@ def plain_text(value: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def guidance_candidates(text: str, *, max_candidates: int = 3) -> list[dict[str, str]]:
+def guidance_candidates(text: str, *, max_candidates: int = 0) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     for match in GUIDANCE_PATTERN.finditer(text):
         start = max(0, match.start() - 120)
@@ -204,7 +235,7 @@ def guidance_candidates(text: str, *, max_candidates: int = 3) -> list[dict[str,
             continue
         snippet = window.strip()[:900]
         candidates.append({"metrics": "|".join(metrics), "snippet": snippet})
-        if len(candidates) >= max_candidates:
+        if max_candidates > 0 and len(candidates) >= max_candidates:
             break
     return candidates
 
@@ -254,20 +285,23 @@ def prepare_scan_rows(
     start: str,
     end: str,
     max_filings_per_ticker: int,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     if filings.empty:
-        return filings.copy()
+        return filings.copy(), filings.copy()
     out = filings[filings["ticker"].isin(set(selected["ticker"])) & filings["form_type"].isin(allowed_forms)].copy()
     out["accepted_ts"] = pd.to_datetime(out["accepted_at"], errors="coerce", utc=True)
     out["filing_ts"] = pd.to_datetime(out["filing_date"], errors="coerce", utc=True)
+    # filed is used only to keep missing-acceptance rows visible for PIT
+    # quarantine diagnostics. It is never used as available_from or scanned.
     effective = out["accepted_ts"].fillna(out["filing_ts"])
     start_ts = pd.to_datetime(start, utc=True)
     end_ts = pd.to_datetime(end, utc=True) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-    out = out[effective.between(start_ts, end_ts, inclusive="both")]
-    out = out.sort_values(["ticker", "accepted_ts", "accession_number"], ascending=[True, False, False])
+    eligible = out[effective.between(start_ts, end_ts, inclusive="both")].copy()
+    eligible = eligible.sort_values(["ticker", "accepted_ts", "accession_number"], ascending=[True, False, False])
+    bounded = eligible
     if max_filings_per_ticker > 0:
-        out = out.groupby("ticker", sort=False, as_index=False).head(max_filings_per_ticker)
-    return out.reset_index(drop=True)
+        bounded = eligible.groupby("ticker", sort=False, as_index=False).head(max_filings_per_ticker)
+    return eligible.reset_index(drop=True), bounded.reset_index(drop=True)
 
 
 def write_report(summary: dict[str, Any], coverage: pd.DataFrame, output_dir: Path) -> None:
@@ -280,6 +314,8 @@ def write_report(summary: dict[str, Any], coverage: pd.DataFrame, output_dir: Pa
         f"- Indexed ADR/global tickers: `{summary['indexed_adr_count']}`",
         f"- Filing downloads: `{summary['download_success_count']}/{summary['download_attempt_count']}`",
         f"- Exact acceptance ratio: `{summary['exact_acceptance_ratio']:.2%}`",
+        f"- Raw-header acceptance match ratio: `{summary['raw_header_acceptance_match_ratio']:.2%}`",
+        f"- Quarantined missing-acceptance rows: `{summary['quarantined_missing_acceptance_count']}`",
         f"- Guidance candidate filings: `{summary['candidate_filing_count']}` across `{summary['candidate_ticker_count']}` tickers",
         f"- Guidance candidate passage rows: `{summary['candidate_count']}`",
         "",
@@ -288,13 +324,14 @@ def write_report(summary: dict[str, Any], coverage: pd.DataFrame, output_dir: Pa
         "",
         "## Coverage",
         "",
-        "| Ticker | ADR/global | Indexed filings | Scanned | Downloads | Candidate filings | Candidate rows | State |",
-        "|---|---:|---:|---:|---:|---:|---:|---|",
+        "| Ticker | ADR/global | Indexed | Bounded | Scanned | PIT quarantine | Downloads | Candidate filings | Candidate rows | State |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for _, row in coverage.iterrows():
         lines.append(
             f"| {row['ticker']} | {bool(row['is_adr_global_listing'])} | {int(row['indexed_filing_count'])} | "
-            f"{int(row['scanned_filing_count'])} | {int(row['download_success_count'])} | "
+            f"{int(row['bounded_filing_count'])} | {int(row['scanned_filing_count'])} | "
+            f"{int(row['pit_quarantined_count'])} | {int(row['download_success_count'])} | "
             f"{int(row['candidate_filing_count'])} | {int(row['candidate_count'])} | {row['coverage_state']} |"
         )
     output_dir.joinpath("report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -307,7 +344,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     filings = load_filings(args.filings_index)
     allowed_forms = {str(x).upper() for x in contract["source"]["allowed_forms"]}
     allowed_doc_types = {str(x).upper() for x in contract["source"]["allowed_document_types"]}
-    scan_rows = prepare_scan_rows(
+    eligible_rows, bounded_rows = prepare_scan_rows(
         filings,
         selected,
         allowed_forms=allowed_forms,
@@ -315,6 +352,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         end=args.history_end,
         max_filings_per_ticker=int(args.max_filings_per_ticker),
     )
+    quarantined_rows = bounded_rows[bounded_rows["accepted_ts"].isna()].copy()
+    exact_rows = bounded_rows[bounded_rows["accepted_ts"].notna()].copy()
+    # One missing exact acceptance blocks the entire bounded scout. Do not
+    # download or create candidates from the remaining rows in that run.
+    scan_rows = exact_rows.iloc[0:0].copy() if not quarantined_rows.empty else exact_rows
 
     output_dir = repo_path(args.output_dir)
     cache_dir = repo_path(args.cache_dir)
@@ -322,6 +364,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     user_agent = str(args.user_agent or os.environ.get("SEC_USER_AGENT") or "")
     candidate_rows: list[dict[str, Any]] = []
     download_rows: list[dict[str, Any]] = []
+    raw_header_mismatch_count = 0
 
     for _, row in scan_rows.iterrows():
         ticker = str(row["ticker"])
@@ -342,9 +385,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "source_url": url,
                 "download_state": state,
                 "download_success": raw is not None,
+                "raw_header_accepted_at": "",
+                "raw_header_exact_match": None,
             }
         )
         if raw is None:
+            continue
+        raw_header_accepted_at = raw_acceptance_utc(raw)
+        raw_header_exact_match = timestamps_equal(raw_header_accepted_at, row.get("accepted_at", ""))
+        download_rows[-1]["raw_header_accepted_at"] = raw_header_accepted_at
+        download_rows[-1]["raw_header_exact_match"] = raw_header_exact_match
+        if not raw_header_exact_match:
+            raw_header_mismatch_count += 1
             continue
         raw_hash = sha256_bytes(raw)
         decoded = raw.decode("utf-8", errors="replace")
@@ -370,27 +422,39 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     }
                 )
 
+    # A raw-header mismatch invalidates the scout as a whole. Partial exact
+    # candidates are not published as usable discovery evidence.
+    if raw_header_mismatch_count:
+        candidate_rows = []
     candidates = pd.DataFrame(candidate_rows, columns=ALLOWED_COLUMNS).drop_duplicates("candidate_id")
     candidate_filings = aggregate_candidate_filings(candidates)
     downloads = pd.DataFrame(download_rows)
     selected_tickers = selected["ticker"].tolist()
-    indexed = set(scan_rows["ticker"].tolist()) if not scan_rows.empty else set()
+    indexed = set(eligible_rows["ticker"].tolist()) if not eligible_rows.empty else set()
     candidate_counts = candidates.groupby("ticker").size().to_dict() if not candidates.empty else {}
     candidate_filing_counts = (
         candidate_filings.groupby("ticker").size().to_dict() if not candidate_filings.empty else {}
     )
+    indexed_counts = eligible_rows.groupby("ticker").size().to_dict() if not eligible_rows.empty else {}
+    bounded_counts = bounded_rows.groupby("ticker").size().to_dict() if not bounded_rows.empty else {}
     scan_counts = scan_rows.groupby("ticker").size().to_dict() if not scan_rows.empty else {}
+    quarantine_counts = quarantined_rows.groupby("ticker").size().to_dict() if not quarantined_rows.empty else {}
     download_success_counts = (
         downloads[downloads["download_success"]].groupby("ticker").size().to_dict() if not downloads.empty else {}
     )
     coverage_rows: list[dict[str, Any]] = []
     for _, row in selected.iterrows():
         ticker = row["ticker"]
-        indexed_count = int(scan_counts.get(ticker, 0))
+        indexed_count = int(indexed_counts.get(ticker, 0))
+        bounded_count = int(bounded_counts.get(ticker, 0))
+        scanned_count = int(scan_counts.get(ticker, 0))
+        quarantine_count = int(quarantine_counts.get(ticker, 0))
         success_count = int(download_success_counts.get(ticker, 0))
         candidate_count = int(candidate_counts.get(ticker, 0))
         candidate_filing_count = int(candidate_filing_counts.get(ticker, 0))
-        if indexed_count == 0:
+        if quarantine_count:
+            state = "BLOCKED_PIT_MISSING_ACCEPTANCE"
+        elif indexed_count == 0:
             state = "NO_ELIGIBLE_SEC_INDEX"
         elif success_count == 0:
             state = "DOWNLOAD_BLOCKED"
@@ -403,7 +467,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "ticker": ticker,
                 "is_adr_global_listing": bool(row["is_adr_bool"]),
                 "indexed_filing_count": indexed_count,
-                "scanned_filing_count": indexed_count,
+                "bounded_filing_count": bounded_count,
+                "scanned_filing_count": scanned_count,
+                "pit_quarantined_count": quarantine_count,
                 "download_success_count": success_count,
                 "candidate_count": candidate_count,
                 "candidate_filing_count": candidate_filing_count,
@@ -414,13 +480,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     attempted = int(len(downloads))
     succeeded = int(downloads["download_success"].sum()) if attempted else 0
-    exact = int(scan_rows["accepted_ts"].notna().sum()) if not scan_rows.empty else 0
-    exact_ratio = float(exact / len(scan_rows)) if len(scan_rows) else 0.0
+    exact = int(exact_rows["accepted_ts"].notna().sum()) if not exact_rows.empty else 0
+    exact_ratio = float(exact / len(bounded_rows)) if len(bounded_rows) else 0.0
     success_ratio = float(succeeded / attempted) if attempted else 0.0
+    raw_header_checked_count = int(
+        downloads.get("raw_header_exact_match", pd.Series(dtype="bool")).notna().sum()
+    ) if not downloads.empty else 0
+    raw_header_match_count = int(
+        downloads.get("raw_header_exact_match", pd.Series(dtype="bool")).fillna(False).sum()
+    ) if not downloads.empty else 0
+    raw_header_match_ratio = (
+        float(raw_header_match_count / raw_header_checked_count) if raw_header_checked_count else 0.0
+    )
     indexed_adr_count = int(coverage.loc[coverage["is_adr_global_listing"], "indexed_filing_count"].gt(0).sum())
     thresholds = contract["bounded_scout"]
-    if len(scan_rows) and exact_ratio < float(thresholds["minimum_exact_acceptance_ratio"]):
+    if len(bounded_rows) and exact_ratio < float(thresholds["minimum_exact_acceptance_ratio"]):
         status = "BLOCKED_PIT"
+    elif raw_header_mismatch_count:
+        status = "BLOCKED_PIT_RAW_HEADER"
     elif attempted and success_ratio < float(thresholds["minimum_download_success_ratio"]):
         status = "BLOCKED_DOWNLOAD"
     elif indexed_adr_count < int(thresholds["minimum_indexed_adr_count"]):
@@ -440,12 +517,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "selected_tickers": selected_tickers,
         "indexed_ticker_count": int(len(indexed)),
         "indexed_adr_count": indexed_adr_count,
+        "indexed_filing_count": int(len(eligible_rows)),
+        "bounded_filing_count": int(len(bounded_rows)),
         "scan_filing_count": int(len(scan_rows)),
         "download_attempt_count": attempted,
         "download_success_count": succeeded,
         "download_success_ratio": success_ratio,
         "exact_acceptance_count": exact,
         "exact_acceptance_ratio": exact_ratio,
+        "quarantined_missing_acceptance_count": int(len(quarantined_rows)),
+        "raw_header_acceptance_checked_count": raw_header_checked_count,
+        "raw_header_acceptance_match_count": raw_header_match_count,
+        "raw_header_acceptance_match_ratio": raw_header_match_ratio,
+        "raw_header_acceptance_mismatch_count": int(raw_header_mismatch_count),
         "candidate_count": int(len(candidates)),
         "candidate_filing_count": int(len(candidate_filings)),
         "candidate_ticker_count": int(candidates["ticker"].nunique()) if not candidates.empty else 0,

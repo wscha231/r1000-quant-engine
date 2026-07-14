@@ -56,11 +56,11 @@ The final scout inspected at most eight recent 8-K/6-K submissions per ticker:
 - indexed ADR/global tickers: `5/5`;
 - complete submissions downloaded: `80/80`;
 - exact accepted-time coverage: `80/80` (`100%`);
-- strict numeric-guidance candidate filings: `17` across `5` tickers;
+- untrusted heuristic candidate filings: `17` across `5` tickers;
 - candidate passage rows: `42`;
 - status: `READY_FOR_MANUAL_SCHEMA_REVIEW`.
 
-Candidate filing counts were:
+Heuristic candidate filing counts were:
 
 | Ticker | Candidate filings | Registered metric evidence |
 |---|---:|---|
@@ -70,9 +70,37 @@ Candidate filing counts were:
 | VZ | 2 | EPS, EBITDA |
 | YMM | 7 | revenue, capex |
 
-SLF, CCJ, PHM, TPL, and RITM had no strict numeric-guidance candidate in their
+SLF, CCJ, PHM, TPL, and RITM had no heuristic candidate in their
 eight most recent eligible submissions. Missing remains neutral; absence in
 this small scout is not a negative event.
+
+## Post-run hardening audit
+
+The 17 filings are discovery candidates, not 17 validated numeric guidance
+events. Review found likely false positives from calendar years, qualitative
+outlook text, physical-volume disclosures, one-time transaction effects, and
+same-event republications. Same-metric and same-fiscal-period prior guidance
+may reduce the number of pairable revision events much further.
+
+The integrated scanner therefore fails closed when any bounded row lacks exact
+acceptance or when the SEC complete-submission acceptance header disagrees with
+the index. It no longer treats a calendar year alone as a numeric value and no
+longer stops after the first three text windows.
+
+The hardened v2 offline rerun reused the same cached documents and complete
+indexes without a network call:
+
+- indexed/scanned issuers: `10/10`, including ADR/global `5/5`;
+- bounded submissions: `80/80`;
+- exact index acceptance: `80/80`;
+- raw SEC header acceptance match: `80/80`;
+- missing or mismatched acceptance: `0`;
+- heuristic candidate filings: `16` (`NVS 3, PG 4, RIO 1, VZ 2, YMM 6`);
+- candidate passage windows: `73`, including overlaps and therefore not unique events;
+- status: `READY_FOR_MANUAL_SCHEMA_REVIEW`.
+
+The reduction from 17 to 16 candidate filings came from rejecting a year-only
+qualitative YMM passage. No return label or portfolio result was consulted.
 
 ## What is and is not solved
 
@@ -111,8 +139,9 @@ back-projected into 2019-2026.
 
 ## Cost-efficient next gate
 
-Do not scan all filings yet. First manually review the 17 candidate filings and
-build an exact parser for:
+Do not scan all issuer histories yet. First label all 80 inspected filings so
+false-negative recall can be measured, and apply detailed schema labels to the
+16 candidate filings. Then build an exact parser for:
 
 - metric (`eps` or `revenue` first);
 - fiscal period and period type;
@@ -122,10 +151,11 @@ build an exact parser for:
 - revision pairing against the prior management guidance for the same metric
   and fiscal period.
 
-Expansion to all 45 active names is allowed only if the 17-filing review
-reaches at least 90% precision and at least 80% of true EPS/revenue guidance
-filings can be expressed in the registered schema. Those thresholds must be
-checked before any return labels are joined.
+Expansion to all 45 active names is allowed only if the frozen 80-filing review
+reaches at least 90% precision, at least 80% recall, and at least 80% registered
+schema completeness for true EPS/revenue guidance. Raw-header PIT agreement
+must remain 100%. Those thresholds must be checked before any return labels
+are joined.
 
 Only after the active-sample source screen passes may the fixed 63-session
 primary outcome and 21/126/252/504-session direction checks run. Portfolio A/B
@@ -138,3 +168,4 @@ remains prohibited until that separate source screen passes.
 - `tests/sec_management_guidance_scout_smoke.py`
 - `outputs/run287_sec_guidance_foreign_gap_index_20260714/`
 - `outputs/run287_sec_management_guidance_scout_20260714/`
+- `outputs/run287_sec_management_guidance_scout_20260714_hardened_v2/`
