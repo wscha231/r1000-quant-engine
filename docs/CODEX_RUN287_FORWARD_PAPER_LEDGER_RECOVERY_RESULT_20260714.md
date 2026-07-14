@@ -93,3 +93,42 @@ at 21D, and 8 at 63D, followed by the frozen return, bootstrap, drawdown, and
 
 PIT Russell membership and delisting-return bias also remain unresolved, so a
 future paper pass cannot by itself make the system production-ready.
+
+## First end-to-end run
+
+The merged workflow was dispatched once on `master` as GitHub Actions run
+[`29303018492`](https://github.com/wscha231/r1000-quant-engine/actions/runs/29303018492)
+at commit `29060b0c3731cd74b11818e17ec8af378ac2625b`. It completed successfully in
+7 minutes 3 seconds.
+
+- Checkout: 18 seconds.
+- Completed-session gate: `2026-07-13` close at `2026-07-13T20:00:00Z`.
+- Source observation: `2026-07-14T03:16:59Z`, after that close; therefore the
+  new cohort's first eligible reference is the next NYSE close, not 7/13.
+- Full ranked rows: 741.
+- Exact new cohort: base top-30 `30`, overlay top-30 `30`, ranks 31-60 control
+  `30`; 60 unique cohort tickers and no capture blocker.
+- New signal observations: 60.
+- Existing observations receiving their first next-close reference: 30.
+- Total ledger observations: 90 across two decision dates and 60 unique
+  tickers.
+- Distinct true-forward tickers: 11; resolved 63D outcomes: 0; status remains
+  `UNDERPOWERED`.
+- Bounded price cache: 61 tickers, 61 written, zero failures, actual bars from
+  `2026-07-01` through `2026-07-13`.
+- New ledger event-log SHA-256:
+  `e36035a1cb64a3d8c001da6b7a958af1b8bfcda415676b722acab99876c189b9`.
+- New current-status SHA-256:
+  `f9e15d31acb52a6c241dff9c01ed4e6f92bc27f2d84a9b8300fc178ee7c00ef6`.
+
+The deliberately small manual collection attempted 16 watchlist tickers and
+found true estimate rows for 10 (`62.5%`). The collector reported
+`blocked_partial_coverage` with vendor-blocked errors, but the contract kept
+missing names neutral and the cumulative archive supplied 13 matched forward
+rows for the overlay. This run validates the forward-ledger integration, not
+the scheduled 993-name queue's completeness.
+
+GitHub artifact upload and Google Drive current/per-run persistence completed.
+Post-run `rclone check --one-way` found zero differences for all eight ledger
+files and all four overlay files; the dedicated Drive price cache contains 62
+objects including its manifest.

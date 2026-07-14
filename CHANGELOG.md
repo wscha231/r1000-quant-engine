@@ -5,6 +5,22 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 12:25 KST - Verify the first exact-cohort forward paper archive run
+
+- scope:
+  - Execute one bounded 16-name manual daily archive after PR #276 merged and verify artifact plus Google Drive durability end to end.
+- run:
+  - GitHub Actions `29303018492` at merge commit `29060b0c3731cd74b11818e17ec8af378ac2625b` ->success in 7m03s.
+- result:
+  - The market gate selected the completed 2026-07-13 NYSE close; the source observation was 2026-07-14T03:16:59Z, so the new cohort's next-close reference remains pending until the following close.
+  - Exact base top-30, overlay top-30, and ranks 31-60 control cohorts passed with 60 unique current names and no blocker.
+  - The ledger appended 60 new signal observations and 30 next-close references for prior rows, reaching 90 observations over two decision dates.
+  - The bounded cache wrote all 61 requested cohort/unresolved/benchmark tickers with zero failures and bars through 2026-07-13.
+  - Artifact and Drive persistence completed; Drive checks found zero differences for current ledger and overlay state.
+- caveat:
+  - The manual watchlist collector found estimates for 10 of 16 tickers and reported partial vendor coverage; missing evidence remained neutral.
+  - This validates the archive path, not 993-name queue completeness, 21D/63D outcomes, CAGR/MDD, portfolio A/B, or production readiness.
+
 ### 12:10 KST - Recover and automate the bounded forward paper ledger
 
 - scope:
