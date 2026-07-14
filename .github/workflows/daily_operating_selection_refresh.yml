@@ -20,6 +20,7 @@ on:
     - cron: '15 1 * * 2-6'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -29,7 +30,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -64,12 +65,19 @@ jobs:
           fi
           python tools/run_daily_market_session_gate.py "${ARGS[@]}"
 
+      - name: Fetch pinned Run287 policy commit
+        if: steps.market.outputs.ready == 'yes'
+        run: git fetch --no-tags --depth=1 origin 15176b588d5bb0792bce1df6367758d795a8a33a
+
       - name: Restore GitHub cache
         if: steps.market.outputs.ready == 'yes'
         uses: actions/cache/restore@v4
         with:
           path: |
             cache_prices
+            cache_macro
+            models
+            feature_store/scored_oos_latest.parquet
             data_raw/free
             data_pit/free
             data_pit/sec
@@ -82,6 +90,14 @@ jobs:
             collector-cache-${{ runner.os }}-
             replay-price-cache-${{ runner.os }}-
 
+      - name: Restore Run287 research-static archive cache
+        if: steps.market.outputs.ready == 'yes'
+        id: run287-research-static-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: run287_static_archive/run287_exact_static_archive_v1.zip
+          key: run287-research-static-${{ runner.os }}-66ca4b6a6a61cb7e-v1
+
       - name: Restore validated forward paper state cache
         if: steps.market.outputs.ready == 'yes'
         uses: actions/cache/restore@v4
@@ -89,6 +105,9 @@ jobs:
           path: |
             outputs/daily_simulated_fill_ledger
             outputs/holding_risk_watch
+            outputs/run287_exact_packet_upstream
+            outputs/run287_exact_packet_input_sources
+            outputs/run287_exact_packet_input_registry
             outputs/run287_decision_observation_archive
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
@@ -130,6 +149,7 @@ jobs:
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
       - name: Restore persistent data and operating outputs
+        id: persistent-restore
         if: steps.market.outputs.ready == 'yes'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
@@ -156,7 +176,24 @@ jobs:
               fi
             }
             restore_dir cache_prices cache_prices
+            restore_dir cache_macro cache_macro
+            restore_dir models models
+            restore_file() {
+              local remote="$1"
+              local local_file="$2"
+              mkdir -p "$(dirname "$local_file")"
+              if rclone lsf "$BASE$remote" >/dev/null 2>&1; then
+                echo "[gdrive] restore file $remote -> $local_file"
+                timeout 6m rclone copyto "$BASE$remote" "$local_file" --stats 30s --stats-one-line || true
+              else
+                echo "[gdrive] missing file $remote"
+              fi
+            }
+            restore_file feature_store/scored_oos_latest.parquet feature_store/scored_oos_latest.parquet
             restore_dir data_raw/free data_raw/free
+            if [ ! -s data_raw/free/sec/company_tickers.json ]; then
+              restore_file data_raw/sec/company_tickers.json data_raw/free/sec/company_tickers.json
+            fi
             restore_dir data_pit/free data_pit/free
             restore_dir data_pit/sec data_pit/sec
             restore_dir data_pit/etf_holdings data_pit/etf_holdings
@@ -185,6 +222,46 @@ jobs:
             restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
             restore_dir paper_archive/run287_risk_outcome_price_cache outputs/run287_risk_outcome_price_cache
           fi
+
+      - name: Restore verified Run287 research-static archive
+        if: steps.market.outputs.ready == 'yes'
+        id: run287-research-static
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          ARCHIVE="run287_static_archive/run287_exact_static_archive_v1.zip"
+          mkdir -p "$(dirname "$ARCHIVE")" outputs/run287_exact_static_restore
+          if [ ! -s "$ARCHIVE" ] && [ "${GDRIVE_READY:-no}" = "yes" ] && command -v rclone >/dev/null 2>&1; then
+            if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+              BASE="gdrive:"
+            else
+              BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+            fi
+            timeout 8m rclone copyto \
+              "${BASE}research_static/run287_exact_static_archive_v1.zip" \
+              "$ARCHIVE" \
+              --stats 30s --stats-one-line || true
+          fi
+          if [ ! -s "$ARCHIVE" ]; then
+            echo "[run287-static] verified research archive unavailable; exact upstream will skip"
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python tools/restore_run287_exact_static_archive.py \
+            --archive "$ARCHIVE" \
+            --expected-archive-sha256 66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84 \
+            --destination-root run287_research_static \
+            --output outputs/run287_exact_static_restore/status.json
+          echo "ready=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Save Run287 research-static archive cache
+        if: steps.market.outputs.ready == 'yes' && steps.run287-research-static-cache.outputs.cache-hit != 'true' && steps.run287-research-static.outputs.ready == 'yes'
+        uses: actions/cache/save@v4
+        with:
+          path: run287_static_archive/run287_exact_static_archive_v1.zip
+          key: run287-research-static-${{ runner.os }}-66ca4b6a6a61cb7e-v1
 
       - name: Record completed market session gate
         if: steps.market.outputs.ready == 'yes'
@@ -472,6 +549,17 @@ jobs:
             --output-dir outputs/holding_risk_watch \
             --require-exact-close \
             2>&1 | tee outputs/full_rebuild_logs/daily_holding_risk_watch.log
+          export SEC_USER_AGENT="${SEC_USER_AGENT:-R1000QuantEngine research andrewcha231@gmail.com}"
+          if python tools/run_run287_exact_packet_upstream.py \
+            --valuation-date "$PAPER_AS_OF" \
+            --decision-time-utc "$RISK_AVAILABLE_FROM" \
+            --attempt-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --allow-network \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_exact_packet_upstream.log; then
+            echo "[daily-operating] bounded exact-packet upstream completed or safely skipped"
+          else
+            echo "[daily-operating] bounded exact-packet upstream blocked; registry will fail closed"
+          fi
           if python tools/build_run287_exact_packet_input_registry.py \
             --source-bundle outputs/run287_exact_packet_input_sources/source_bundle.json \
             --valuation-date "$PAPER_AS_OF" \
@@ -584,6 +672,8 @@ jobs:
             outputs/account_ledger_preview/
             outputs/daily_simulated_fill_ledger/
             outputs/holding_risk_watch/
+            outputs/run287_exact_packet_upstream/
+            outputs/run287_exact_packet_input_sources/
             outputs/run287_exact_packet_input_registry/
             outputs/run287_exact_packet_producer/
             outputs/run287_current_selector_no_write_exact_close_*/
@@ -602,6 +692,7 @@ jobs:
             outputs/full_rebuild_logs/daily_user_current_contract.log
             outputs/full_rebuild_logs/daily_paper_bootstrap.log
             outputs/full_rebuild_logs/daily_holding_risk_watch.log
+            outputs/full_rebuild_logs/daily_run287_exact_packet_upstream.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
@@ -617,6 +708,9 @@ jobs:
           path: |
             outputs/daily_simulated_fill_ledger
             outputs/holding_risk_watch
+            outputs/run287_exact_packet_upstream
+            outputs/run287_exact_packet_input_sources
+            outputs/run287_exact_packet_input_registry
             outputs/run287_decision_observation_archive
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
@@ -640,7 +734,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -685,6 +779,9 @@ jobs:
         with:
           path: |
             cache_prices
+            cache_macro
+            models
+            feature_store/scored_oos_latest.parquet
             data_raw/free
             data_pit/free
             data_pit/sec

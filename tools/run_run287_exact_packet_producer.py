@@ -118,6 +118,22 @@ def resolve_portable_path(raw: str, *, owner: Path | None = None) -> Path:
             return relative.resolve()
     parts = normalized_parts(raw)
     anchors = ("outputs", "cache_prices", "data_pit", "data_raw", "models", "feature_store")
+    # A verified archive may preserve the repository-relative tree beneath a
+    # dedicated restore root (for example ``run287_research_static/outputs``).
+    # Prefer that owner's same-anchor tree before the live repository tree;
+    # this is an exact relative-path mapping, not basename or latest discovery.
+    if owner is not None:
+        for anchor in anchors:
+            if anchor not in parts:
+                continue
+            owner_anchor = next(
+                (ancestor for ancestor in (owner.parent, *owner.parents) if ancestor.name == anchor),
+                None,
+            )
+            if owner_anchor is not None:
+                candidate = owner_anchor.parent.joinpath(*parts[parts.index(anchor) :])
+                if candidate.exists():
+                    return candidate.resolve()
     for anchor in anchors:
         if anchor in parts:
             candidate = REPO_ROOT.joinpath(*parts[parts.index(anchor) :])

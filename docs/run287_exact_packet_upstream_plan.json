@@ -1,0 +1,121 @@
+{
+  "schema_version": "run287-exact-packet-upstream-plan-v1",
+  "status": "READY_BOUNDED_EXACT_PACKET_UPSTREAM_PLAN_REVIEW_ONLY",
+  "purpose": "same-close price, macro, SEC, decision-frame, score-stack, crisis, benchmark, and explicit source-bundle production",
+  "paths": {
+    "universe": {
+      "path": "run287_research_static/outputs/free_historical_data_coverage/universe_coverage.csv",
+      "sha256": "e371910e96339a53e7dbad84f4c38e03c828b333a3646fa47f45acea790c0338"
+    },
+    "base_selection_context": {
+      "path": "run287_research_static/outputs/run287_feature_frame_full_selection_context_20260712_commit_61f1b36b/pilot_selection_context.parquet",
+      "sha256": "68e1c77535f960f12ddb1cc78a4ad12085c148c19a0853e5718fe28c504a9614"
+    },
+    "base_score_stack": {
+      "path": "run287_research_static/outputs/run287_current_score_stack_audit_20260712_commit_09f76972/ticker_order_score_stack.csv",
+      "sha256": "14815aeead18897b104cdece20cc11ca4033f62af91fa9b6dc48087325acad21"
+    },
+    "frozen_score_stack_manifest": {
+      "path": "run287_research_static/outputs/run287_current_score_stack_audit_20260712_commit_09f76972/manifest.json",
+      "sha256": "2322a668a2b500f217b780ad28763e93ac5f6773a6f98b56438123caf561f2da"
+    },
+    "model_classification": {
+      "path": "models/phase4_latest_cat_cls.cbm",
+      "sha256": "e58c0344bd4613a2f028a2cb6d45461778d4e7b4bb2f3a983636f7d9fda30d66"
+    },
+    "model_regression": {
+      "path": "models/phase4_latest_cat_reg.cbm",
+      "sha256": "fada904d1d21514f59ca9e7739c57645ed5f06dfc9b13c758483153c07f242c8"
+    },
+    "model_bundle": {
+      "path": "models/model_bundle_latest.json",
+      "sha256": "8d7679267f59c3a50ebe749a78807dfc1f3041b12f560a52c9840eb523a609c2"
+    },
+    "model_meta": {
+      "path": "models/phase4_latest_scoring_meta.json",
+      "sha256": "ebc0dee36c0838027b807e8673d798d190097e993fa9a73bd0acf0bf42d00e4c"
+    },
+    "scored_oos": {
+      "path": "feature_store/scored_oos_latest.parquet",
+      "sha256": "3990b1ab02786c34632a4fa3fabd99f5b07a3d44ddab914c96b9e24677802949"
+    },
+    "company_tickers": {
+      "path": "data_raw/free/sec/company_tickers.json"
+    },
+    "sec_identity_index": {
+      "path": "data_pit/sec/sec_filings_index.parquet"
+    },
+    "benchmark_seed": {
+      "path": "run287_research_static/outputs/run287_benchmark_event_sidecar_20260711_commit_127ee12d/inputs/isolated_engine/cache_macro/fred_benchmark_sp500_SP500.parquet",
+      "sha256": "99efdbd7dc7b014ad984abc895389e9c2571e6da67671f971deb7cf334c9a8db"
+    },
+    "selector_contract_manifest": {
+      "path": "run287_research_static/outputs/run287_current_selector_contract_audit_20260712_commit_0d07efea/manifest.json",
+      "sha256": "647475ceaf2109d7dc7c7dfd18865679de86dc5afd102a090481e118bab4a02f"
+    },
+    "pinned_import_manifest": {
+      "path": "run287_research_static/outputs/run287_pinned_policy_import_audit_20260712_commit_e871541c/manifest.json",
+      "sha256": "b59db75e6eea74989fd72946cb3b72af65a401dddb5738970ddd2b3d4febab6d"
+    },
+    "price_map_manifest": {
+      "path": "run287_research_static/outputs/run287_current_selector_price_map_20260712_commit_86df01e0/manifest.json",
+      "sha256": "cfb22d3b82ed32915973ee4f1ec3ea1d536f90de6dfc04f0a2d48327bcce92cf"
+    },
+    "main_prior_book": {
+      "path": "run287_research_static/run287_static_anchor/outputs/alphaops_vnext/official_main_target_book.csv",
+      "sha256": "3e863068e118af3f832b9490defc38baa9f4b0718e024e2870f44bd27a979f22"
+    },
+    "concentrated_prior_book": {
+      "path": "run287_research_static/run287_static_anchor/outputs/alphaops_vnext/official_concentrated_target_book.csv",
+      "sha256": "3fa0f6fa0aa41aa3ec830f476dae5e94882527a7f520531b80390bfbddb26a78"
+    },
+    "target_generation_manifest": {
+      "path": "run287_research_static/run287_static_anchor/outputs/alphaops_vnext/target_generation_input_manifest.json",
+      "sha256": "7451166d8132c7e3fbd3eb75f7ecdd095e86e482b9202c2e0e0a2b1189ba6ff7"
+    },
+    "official_daily_crisis_state": {
+      "path": "run287_research_static/run287_static_anchor/outputs/alphaops_vnext/daily_crisis_state.csv",
+      "sha256": "9516ea00fa9580aef9aa3d41c01d4b48f3ad1b14650dffdd500fa3ee5bf67a31"
+    },
+    "official_crisis_thresholds": {
+      "path": "data_static/run287_exact_packet/best_thresholds.json",
+      "sha256": "d108c017e301f6929e1441827d5a19c02beb0d89727dbbff40f94f3e504d2da2"
+    }
+  },
+  "directories": {
+    "price_cache": "cache_prices",
+    "model_root": "models",
+    "source_macro_dirs": [
+      "cache_macro",
+      "data_pit/macro"
+    ]
+  },
+  "network_budgets": {
+    "scored_latest_provider_batches": 32,
+    "macro": 24,
+    "benchmark": 1,
+    "recent_sec": 64,
+    "companyfacts": 8,
+    "selector_benchmark": 0,
+    "maximum_total_recorded_requests": 130
+  },
+  "runtime": {
+    "stage_timeout_seconds": 900,
+    "price_batch_size": 40,
+    "expected_context_count": 989,
+    "expected_model_feature_count": 238,
+    "expected_macro_price_file_count": 9,
+    "expected_macro_file_count": 14,
+    "expected_policy_commit": "15176b588d5bb0792bce1df6367758d795a8a33a"
+  },
+  "safety": {
+    "research_only": true,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "orders_allowed": false,
+    "target_book_write_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false,
+    "premium_provider_allowed": false
+  }
+}

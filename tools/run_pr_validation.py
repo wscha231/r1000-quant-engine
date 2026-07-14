@@ -173,6 +173,8 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_candidate_risk_watch_smoke.py", []),
     ("tests/run287_exact_packet_input_registry_smoke.py", []),
     ("tests/run287_exact_packet_producer_smoke.py", []),
+    ("tests/run287_exact_packet_source_bundle_smoke.py", []),
+    ("tests/run287_exact_packet_upstream_smoke.py", []),
     ("tests/run287_nasdaq_zeeh_sample_smoke.py", []),
     ("tests/run287_decision_observation_archive_smoke.py", []),
     ("tests/run287_risk_outcome_archive_smoke.py", []),
