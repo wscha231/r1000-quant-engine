@@ -215,6 +215,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/pit_membership_audit_smoke.py", []),
     ("tests/pit_membership_producer_smoke.py", []),
     ("tests/daily_user_current_contract_smoke.py", []),
+    ("tests/run287_daily_paper_bootstrap_smoke.py", []),
     ("tests/daily_simulated_fill_ledger_smoke.py", []),
     ("tests/daily_market_close_gate_smoke.py", []),
     ("tests/public_portfolio_dashboard_smoke.py", []),
