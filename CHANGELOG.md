@@ -5,6 +5,23 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 14:30 KST - Audit refreshed research ranks against exact-close paper holdings
+
+- scope:
+  - Join the 2026-07-13 `scored_latest` research ranks to the marked paper accounts and held-security risk watch without running the registered selector.
+  - Expose rank gaps and current cash weights while keeping every pair diagnostic and non-executable.
+- files:
+  - `tools/audit_run287_scored_latest_selector_diff.py` ->writes held, challenger, and rank-gap review artifacts with fail-closed exact-date and completeness gates.
+  - `tests/run287_scored_latest_selector_diff_smoke.py` ->guards no orders, no book mutation, incomplete-frame blocking, and mixed-date rejection.
+  - `docs/CODEX_RUN287_SCORED_LATEST_SELECTOR_DIFF_RESULT_20260714.md` ->records current marked weights, research-rank gaps, and the next gate.
+- result:
+  - Main marked cash is 11.2533%; eight of 14 holdings have a research rank, four are inside the simple top 14, and six are ineligible in the partial frame.
+  - Concentrated marked cash is 17.4686%; all five holdings are ranked but only MU is inside the simple top five.
+  - Fourteen rank-gap pairs were emitted as `NONE_REVIEW_ONLY`; zero target weights, orders, or fullruns were produced.
+- caveat:
+  - Every scored row has `decision_feature_complete=false` and `decision_ranking_allowed=false`; research rank is not a registered selector result.
+  - The score was observed after the 2026-07-13 close and cannot authorize same-close execution.
+
 ### 12:40 KST - Restore and lock the rejected SEC filing-quality source screen
 
 - scope:
