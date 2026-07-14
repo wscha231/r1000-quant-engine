@@ -5,6 +5,26 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 09:28 KST - Add a bounded no-email SEC management-guidance scout
+
+- scope:
+  - Test whether exact accepted-time management guidance can be recovered from SEC 8-K/6-K filings without vendor email, purchase, login, or API key.
+  - Keep this source-only lane separate from the frozen analyst-consensus/provider gate and all portfolio logic.
+- files:
+  - `docs/run287_sec_management_guidance_scout_contract.json` ->freezes the bounded source, document, PIT, and no-promotion rules.
+  - `tools/run_sec_management_guidance_scout.py` ->downloads or reuses complete SEC submissions, hashes them, and discovers strict numeric-guidance candidates.
+  - `tests/sec_management_guidance_scout_smoke.py` ->covers exact acceptance, boilerplate rejection, offline cache reuse, and all no-promotion flags.
+  - `docs/CODEX_RUN287_EMAIL_FREE_GUIDANCE_SCOUT_RESULT_20260714.md` ->records the real 10-name/80-filing result and remaining gaps.
+  - `tools/run_pr_validation.py` ->registers the new smoke.
+- result:
+  - Indexed all 10 selected names including all five ADR/global names after a two-ticker NVS/RIO gap fill.
+  - Downloaded 80 of 80 bounded submissions with exact accepted-time coverage of 100%.
+  - Found 17 strict candidate filings across NVS, PG, RIO, VZ, and YMM.
+  - No returns, portfolio A/B, book mutation, fullrun, production, or live trading ran.
+- caveat:
+  - SEC management guidance does not reconstruct historical analyst consensus or delisting returns.
+  - The next step is manual schema review of 17 filings, not full-universe collection.
+
 ### 07:10 KST - Freeze long estimate/guidance outcomes and build the zero-cost sample request
 
 - scope:

@@ -1,0 +1,71 @@
+{
+  "schema_version": "run287-sec-management-guidance-scout-contract-v1",
+  "research_key": "sec_management_guidance_revision+accepted_time_source_screen_no_portfolio_mutation+run287_source_only+2019-06-03_2026-07-10",
+  "purpose": "Bounded no-email feasibility scout for management guidance disclosed in SEC filings.",
+  "source": {
+    "provider": "SEC EDGAR",
+    "authentication_required": false,
+    "commercial_contact_required": false,
+    "allowed_forms": [
+      "8-K",
+      "8-K/A",
+      "6-K",
+      "6-K/A"
+    ],
+    "allowed_document_types": [
+      "8-K",
+      "6-K",
+      "EX-99",
+      "EX-99.1",
+      "EX-99.2"
+    ],
+    "available_from": "exact SEC acceptanceDateTime",
+    "filed_date_fallback_allowed": false,
+    "amendment_policy": "An amendment becomes available only at its own accepted_at timestamp."
+  },
+  "bounded_scout": {
+    "ticker_limit": 10,
+    "max_filings_per_ticker": 8,
+    "adr_first": true,
+    "history_start": "2019-06-03",
+    "history_end": "2026-07-10",
+    "minimum_download_success_ratio": 0.8,
+    "minimum_exact_acceptance_ratio": 1.0,
+    "minimum_indexed_adr_count": 3
+  },
+  "candidate_rule": {
+    "same_text_window_requires": [
+      "forward guidance term",
+      "registered financial metric",
+      "numeric value or range"
+    ],
+    "registered_metrics": [
+      "eps",
+      "revenue",
+      "sales",
+      "margin",
+      "ebitda",
+      "capex"
+    ],
+    "boilerplate_only_is_candidate": false,
+    "automatic_signal_value_allowed": false,
+    "manual_schema_review_required": true
+  },
+  "relationship_to_existing_provider_gate": {
+    "replaces_pit_consensus_requirement": false,
+    "satisfies_consensus_guidance_pair_requirement": false,
+    "may_be_backfilled_into_existing_composite": false,
+    "separate_signal_semantics": "management-guidance revision versus prior management guidance",
+    "missing_policy": "neutral"
+  },
+  "prohibited": {
+    "join_forward_returns_in_scout": true,
+    "portfolio_ab": true,
+    "portfolio_mutation": true,
+    "fullrun": true,
+    "production": true,
+    "live_trading": true,
+    "automatic_orders": true,
+    "relax_existing_provider_gate": true
+  }
+}
