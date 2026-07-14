@@ -5,6 +5,29 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 23:30 KST - Make the long full rebuild manual-only and fail closed
+
+- scope:
+  - Remove the weekly full-rebuild cron that executed without the separately required Run287 approval.
+  - Reject manual dispatches before expensive work unless exact approval, commit, input-manifest, and cost evidence is supplied.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->keeps only `workflow_dispatch`, validates approval evidence first, serializes approved runs, and blocks production policy in the current research scope.
+  - `tests/smoke_test.py` ->locks the absence of schedule/cron and the presence of the manual approval guard.
+  - `docs/CODEX_FULLRUN_SCHEDULE_GOVERNANCE_RESULT_20260714.md` ->records the scheduled-run incident, root cause, fix, and validation boundary.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the incident and do-not-repeat rules.
+- breaking_changes:
+  - Full rebuilds can no longer run on a schedule.
+  - Manual dispatch now requires `FULLRUN_APPROVED`, the exact dispatched commit SHA, a frozen source-manifest SHA-256, and expected runner minutes.
+  - `alphaops_vnext_production` is blocked while the current scope remains research-only.
+- validation:
+  - fullrun ->NOT RUN by contract.
+  - targeted full-rebuild workflow smoke and YAML parse ->PASS.
+  - adjacent seven-year-lock and workflow-artifact PR validation ->2/2 PASS.
+  - full GitHub PR validation ->pending until the branch is pushed.
+- risks_or_notes:
+  - GitHub Actions run `29249021773` is retained as incident evidence; its failed outputs are not a valid baseline.
+  - Existing untracked outputs and downloaded artifacts were preserved.
+
 ### 07:10 KST - Freeze long estimate/guidance outcomes and build the zero-cost sample request
 
 - scope:
