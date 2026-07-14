@@ -2528,3 +2528,54 @@ Expected contract:
   - `tools/audit_run287_next_scheduled_artifact_gate.py`
   - `tests/run287_next_scheduled_artifact_gate_smoke.py`
   - `docs/CODEX_RUN287_NEXT_SCHEDULED_ARTIFACT_GATE_RESULT_20260715.md`
+
+### 2026-07-15 - Active listing coverage is not delisted coverage
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-delisted-coverage-truth-20260715`
+  - successful collection artifact `29064427303`
+- Context:
+  - The free-data coverage summary labeled a 990/993 ticker match as
+    `active/delisted listing lifecycle`, while the underlying Alpha Vantage
+    artifact had 14,140 active rows and zero delisted rows.
+- Attempt:
+  - Classified non-CSV provider bytes before parsing, preserved and hashed the
+    two-byte `{}` response, and split active versus delisted evidence in the
+    coverage table, summary, and report.
+  - Re-audited the real 993-name universe and current downloaded estimate
+    snapshots without any new private-key provider request.
+- Result:
+  - Active current-universe reference coverage is 990/993; delisted source
+    rows and current-universe delisted matches are both zero.
+  - Forward estimates increased from 13 to 17 true-estimate names, about
+    +0.40pp, below the frozen +5pp repeat threshold.
+  - Full local PR validation passed `176/176` in `219.97` seconds.
+- Failure or caveat:
+  - The official docs expose a delisted query, but both the actual keyed run
+    and the official historical demo currently returned `{}` rather than CSV.
+  - Current active identity coverage does not solve historical Russell
+    membership, delisted outcomes, or symbol-predecessor joins.
+- Root cause:
+  - The coverage audit reduced a mixed lifecycle file to one ticker set and
+    discarded `source_state`, so active-only bytes could inherit a broader
+    lifecycle label.
+- Reusable lesson:
+  - Preserve source-state semantics through coverage reporting; row presence
+    must never prove a component that the response did not contain.
+  - A syntactically successful HTTP response can still be unusable evidence;
+    classify content before parsing and retain the raw hash.
+- Next action:
+  - Keep the historical A/B gate closed, continue bounded forward archives,
+    and accept only a 50-row exact-time PIT sample with real delisted and ADR
+    evidence before joining returns.
+- Do-not-repeat:
+  - Do not call active listing matches survivorship or delisted coverage.
+  - Do not coerce `{}` into an empty but successful CSV source.
+  - Do not rerun a failed source arm for a +0.40pp coverage change.
+  - Do not use current identity snapshots as historical universe membership.
+- Evidence files:
+  - `tools/collect_alphavantage_listing_status.py`
+  - `tools/audit_free_historical_data_coverage.py`
+  - `tests/free_historical_data_backfill_smoke.py`
+  - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`

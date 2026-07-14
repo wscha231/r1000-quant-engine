@@ -26,7 +26,7 @@ import requests
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AV_BASE = "https://www.alphavantage.co/query"
-SCHEMA_VERSION = "alphavantage-listing-status-v1"
+SCHEMA_VERSION = "alphavantage-listing-status-v2"
 
 
 def utc_now() -> str:
@@ -47,6 +47,21 @@ def sanitize_text(value: Any) -> str:
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def response_format(payload: bytes) -> str:
+    """Classify provider bytes before a JSON error is mistaken for empty CSV."""
+    stripped = (payload or b"").strip()
+    if stripped == b"{}":
+        return "empty_json_object"
+    if stripped == b"[]":
+        return "empty_json_array"
+    if stripped.startswith((b"{", b"[")):
+        return "json"
+    first_line = stripped.splitlines()[0].lower() if stripped else b""
+    if b"symbol" in first_line and b"," in first_line:
+        return "csv"
+    return "empty" if not stripped else "unknown"
 
 
 def read_csv_payload(payload: bytes, *, source_state: str, collected_at: str) -> pd.DataFrame:
@@ -152,7 +167,12 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
                 payload = raw_path.read_bytes()
             else:
                 raise RuntimeError("missing_api_key_and_no_existing_raw")
-            frame = read_csv_payload(payload, source_state=state, collected_at=collected_at)
+            payload_format = response_format(payload)
+            if payload_format == "csv":
+                frame = read_csv_payload(payload, source_state=state, collected_at=collected_at)
+            else:
+                frame = read_csv_payload(b"", source_state=state, collected_at=collected_at)
+                warnings.append(f"{state}_non_csv_provider_response:{payload_format}")
             frames.append(frame)
             if state == "delisted" and len(frame) == 0:
                 warnings.append("delisted_state_returned_zero_rows")
@@ -165,12 +185,15 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
                     "bytes": len(payload),
                     "sha256": sha256_bytes(payload),
                     "rows": int(len(frame)),
+                    "response_format": payload_format,
+                    "usable_listing_rows": bool(payload_format == "csv" and len(frame) > 0),
                 }
             )
         except Exception as exc:
             errors.append(f"{state}: {sanitize_text(exc)}")
 
-    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    usable_frames = [frame for frame in frames if not frame.empty]
+    combined = pd.concat(usable_frames, ignore_index=True) if usable_frames else pd.DataFrame()
     if not combined.empty:
         combined = combined.sort_values(["symbol", "source_state"]).drop_duplicates(["symbol", "source_state"], keep="last")
         combined.to_parquet(output, index=False)
@@ -187,6 +210,12 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
         "row_count": int(len(combined)),
         "active_rows": int((combined["source_state"] == "active").sum()) if not combined.empty else 0,
         "delisted_rows": int((combined["source_state"] == "delisted").sum()) if not combined.empty else 0,
+        "delisted_source_available": bool(
+            not combined.empty and (combined["source_state"] == "delisted").any()
+        ),
+        "delisted_sample_minimum_row_gate_met": bool(
+            not combined.empty and int((combined["source_state"] == "delisted").sum()) >= 5
+        ),
         "errors": errors,
         "warnings": warnings,
         "status": (
