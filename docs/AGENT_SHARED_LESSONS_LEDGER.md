@@ -1576,3 +1576,52 @@ Expected contract:
   - `outputs/run287_scored_latest_refresh_20260714_close_20260713_v2/manifest.json`
   - `outputs/free_data_selection_overlay_scored_20260713_v2/summary.json`
   - `docs/CODEX_RUN287_SCORED_LATEST_REFRESH_RESULT_20260714.md`
+
+### 2026-07-14 - A refreshed research rank is not a decision-complete selector input
+
+- Agent: Codex
+- Branch/PR/run:
+  - `codex/run287-scored-latest-selector-diff-20260714`
+  - local selector-diff audit; no fullrun, selector, book mutation, or execution
+- Context:
+  - The 2026-07-13 exact-close score refresh needed to be compared with current
+    paper holdings and individual-risk warnings before choosing the next data
+    and selector step.
+- Attempt:
+  - Joined the immutable 989-row score snapshot to both 2026-07-10 paper
+    accounts as marked on 2026-07-13 and to the exact-close risk watch.
+  - Emitted held-name, top-challenger, and rank-gap review tables with every row
+    explicitly non-executable.
+- Result:
+  - Main marked cash is 11.2533%; eight of 14 holdings are research ranked,
+    four are inside the simple top 14, and six are ineligible in this frame.
+  - Concentrated marked cash is 17.4686%; all five holdings are ranked, but only
+    MU is inside the simple top five.
+  - The audit emitted 14 review pairs and zero target weights or orders.
+- Failure or caveat:
+  - All 989 rows have `decision_feature_complete=false` and
+    `decision_ranking_allowed=false`. Technical data is current, but the frame
+    deliberately carries frozen non-technical context.
+  - Simple rank gaps omit sleeves, prior-hold transition rules, issuer
+    duplication, cash sizing, turnover, and cost controls.
+- Root cause:
+  - The bounded score refresh was designed to update current technical ranking
+    without the cost or mutation surface of fullrun. It therefore cannot be
+    silently promoted into the registered selector path.
+- Reusable lesson:
+  - Keep research ranking, registered selector eligibility, and executable
+    target generation as separate states in both code and reporting.
+  - Mark-to-market cash after a decline is an observed residual, not evidence
+    that a new cash target was deliberately selected.
+- Next action:
+  - Build a bounded decision-complete exact-close frame, then rerun the pinned
+    selector in advisory mode with strict/prior-hold scenarios and transition
+    cost estimates. Continue to prohibit book or order writes.
+- Do-not-repeat:
+  - Do not trade the rank-gap pairs or infer exits for ineligible prior holdings.
+  - Do not use the 2026-07-13 close for a score observed after that close.
+  - Do not label 2026-07-13 mark-to-market values as new seven-year CAGR/MDD.
+- Evidence files:
+  - `outputs/run287_scored_latest_selector_diff_20260714_close_20260713/`
+  - `tools/audit_run287_scored_latest_selector_diff.py`
+  - `docs/CODEX_RUN287_SCORED_LATEST_SELECTOR_DIFF_RESULT_20260714.md`
