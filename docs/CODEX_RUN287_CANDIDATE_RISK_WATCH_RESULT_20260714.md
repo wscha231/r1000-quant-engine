@@ -89,7 +89,8 @@ Canonical output hashes after the idempotent rerun:
 
 ## Remaining gate
 
-The one-date transition is still blocked by material turnover, existing-held
+The first selector/risk decision is now stored under the frozen append-only
+decision observation archive. The one-date transition is still blocked by material turnover, existing-held
 risk conflicts in Main, STX/AMAT/COHU candidate warnings, and lack of
 multi-week selector stability. Continue the exact same selector scenarios and
 risk contract across distinct completed decision weeks. Do not create a

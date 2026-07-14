@@ -1,0 +1,56 @@
+{
+  "schema_version": "run287-decision-observation-archive-contract-v1",
+  "scope": "exact_close_selector_and_candidate_risk_forward_observation_archive",
+  "required_statuses": {
+    "selector": "READY_CURRENT_SELECTOR_NO_WRITE_REVIEW_REQUIRED",
+    "candidate_risk": [
+      "READY_CANDIDATE_RISK_REVIEW_ONLY",
+      "READY_CANDIDATE_RISK_REVIEW_ONLY_WITH_DATA_INSUFFICIENT"
+    ]
+  },
+  "frozen_identity": {
+    "pinned_policy_commit": "15176b588d5bb0792bce1df6367758d795a8a33a",
+    "selector_contract_manifest_sha256": "647475ceaf2109d7dc7c7dfd18865679de86dc5afd102a090481e118bab4a02f",
+    "holding_risk_contract_sha256": "afc30695761d6ee6a35ea269b03257fbac2c1bbca9fe90cca9df47bcf5c35657",
+    "candidate_risk_contract_sha256": "8e03bc1ae2653cbd2104e3ce4dcba012920cff91e93c61d7e3f33beb60423345",
+    "scenario_keys": [
+      "concentrated:strict_registered_current",
+      "main:prior_hold_transition_bridge",
+      "main:strict_registered_current"
+    ]
+  },
+  "candidate_derivation": {
+    "ticker_not_cash": true,
+    "advisory_weight_gt_zero": true,
+    "marked_weight_lte_zero": true,
+    "risk_packet_union_must_match_exactly": true
+  },
+  "chronology": {
+    "completed_close_required": true,
+    "selector_and_risk_date_must_match": true,
+    "older_than_latest_observation_allowed": false,
+    "same_date_policy": "normalized_payload_must_match_exactly_or_fail_closed",
+    "append_granularity": "completed_session",
+    "decision_week_definition": "ISO_year_week"
+  },
+  "review_gates": {
+    "early_stability_review_distinct_weeks": 4,
+    "minimum_distinct_weeks_before_any_promotion_review": 12,
+    "resolved_forward_outcomes_required": true,
+    "archive_may_promote": false
+  },
+  "safety": {
+    "review_only": true,
+    "selector_execution_allowed": false,
+    "candidate_risk_may_authorize_buy": false,
+    "orders_generated": false,
+    "target_books_mutated": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}

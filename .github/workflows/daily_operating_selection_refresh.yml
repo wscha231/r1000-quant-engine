@@ -89,6 +89,7 @@ jobs:
           path: |
             outputs/daily_simulated_fill_ledger
             outputs/holding_risk_watch
+            outputs/run287_decision_observation_archive
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             daily-paper-ledger-${{ runner.os }}-
@@ -178,6 +179,7 @@ jobs:
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
             restore_dir paper_archive/run287_daily_simulated_fill_ledger outputs/daily_simulated_fill_ledger
             restore_dir paper_archive/run287_holding_risk_watch outputs/holding_risk_watch
+            restore_dir paper_archive/run287_decision_observation_archive outputs/run287_decision_observation_archive
           fi
 
       - name: Record completed market session gate
@@ -452,6 +454,13 @@ jobs:
             --output-dir outputs/holding_risk_watch \
             --require-exact-close \
             2>&1 | tee outputs/full_rebuild_logs/daily_holding_risk_watch.log
+          python tools/archive_run287_decision_observation.py \
+            --discover-root outputs \
+            --allow-missing \
+            --valuation-date "$PAPER_AS_OF" \
+            --expected-contract-sha256 7cb0bd4a86493ae861f32338f13ff17fbf3997fc23657381d79005b750cfbdc2 \
+            --output-dir outputs/run287_decision_observation_archive \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/daily_operating_snapshot.log || true
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/daily_user_portfolio_reports.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log || true
@@ -504,6 +513,7 @@ jobs:
             outputs/account_ledger_preview/
             outputs/daily_simulated_fill_ledger/
             outputs/holding_risk_watch/
+            outputs/run287_decision_observation_archive/
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -514,6 +524,7 @@ jobs:
             data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log
             outputs/full_rebuild_logs/daily_holding_risk_watch.log
+            outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
@@ -525,6 +536,7 @@ jobs:
           path: |
             outputs/daily_simulated_fill_ledger
             outputs/holding_risk_watch
+            outputs/run287_decision_observation_archive
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Sync daily operating artifact to Google Drive
@@ -545,7 +557,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_decision_observation_archive outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -574,6 +586,9 @@ jobs:
           test -s outputs/holding_risk_watch/summary.json
           rclone copy outputs/daily_simulated_fill_ledger "${BASE}paper_archive/run287_daily_simulated_fill_ledger/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           rclone copy outputs/holding_risk_watch "${BASE}paper_archive/run287_holding_risk_watch/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          if [ -s outputs/run287_decision_observation_archive/manifest.json ]; then
+            rclone copy outputs/run287_decision_observation_archive "${BASE}paper_archive/run287_decision_observation_archive/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          fi
 
       - name: Save refreshed GitHub cache
         if: always() && steps.market.outputs.ready == 'yes'

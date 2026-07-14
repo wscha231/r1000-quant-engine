@@ -1886,3 +1886,60 @@ Expected contract:
   - `tools/build_run287_candidate_risk_watch.py`
   - `tests/run287_candidate_risk_watch_smoke.py`
   - `docs/CODEX_RUN287_CANDIDATE_RISK_WATCH_RESULT_20260714.md`
+
+### 2026-07-14 - Conditional exact-packet ingestion must not substitute another selector
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-decision-week-archive-20260714`
+  - first exact-close decision observation for `2026-07-13` / `2026-W29`
+- Context:
+  - The no-write selector and proposed-candidate risk packets were valid, but
+    no durable common archive existed for distinct-date and decision-week
+    stability measurement.
+- Attempt:
+  - Added a frozen identity contract for the policy commit, selector contract,
+    held-risk contract, candidate-risk contract, and three scenario keys.
+  - Normalized decision, scenario, position/cash, and candidate-risk events into
+    separate append-only histories with same-date exact-payload enforcement.
+  - Wired conditional ingestion and archive persistence into the completed-close
+    daily workflow after the held-risk step.
+- Result:
+  - The first run appended 1 decision, 3 scenarios, 50 position/cash rows, and
+    7 candidate-risk rows. The exact rerun appended zero in every family.
+  - There is one decision date and one ISO week, so neither the four-week early
+    review nor twelve-week minimum gate is met. Archive promotion stays false.
+  - A missing current-date Run287 packet records SKIPPED without overwriting the
+    last READY manifest or history. Cache, GitHub artifact, and Drive persistence
+    are wired under `paper_archive/run287_decision_observation_archive`.
+  - Local standard PR validation passed `167/167` in `212.23` seconds.
+- Failure or caveat:
+  - The workflow ingests only an already validated exact Run287 packet. It does
+    not yet generate the decision frame, score stack, selector, or candidate
+    risk packet automatically.
+  - The existing daily operating selector is semantically different and is not
+    accepted as a fallback.
+- Root cause:
+  - The repaired Run287 current-decision stages were developed as hash-pinned
+    local research tools; the daily workflow predates that pipeline and only
+    produces its separate operating outputs.
+- Reusable lesson:
+  - Separate durable archive ingestion from upstream packet generation. A safe
+    missing-input skip is better than silently changing selector semantics.
+  - Exclude environment-specific paths and timestamps from same-date event
+    identity, while freezing semantic rows and policy/contract identities.
+- Next action:
+  - Design a separate cost-audited exact Run287 packet producer workflow. Do
+    not invoke fullrun or reuse the daily operating selector to fill missing
+    weeks.
+- Do-not-repeat:
+  - Do not count a skipped day as a decision observation or decision week.
+  - Do not accept an older observation after a newer archived close.
+  - Do not interpret four or twelve weeks alone as promotion without resolved
+    forward outcomes and a separate approval gate.
+- Evidence files:
+  - `outputs/run287_decision_observation_archive/manifest.json`
+  - `docs/run287_decision_observation_archive_contract.json`
+  - `tools/archive_run287_decision_observation.py`
+  - `tests/run287_decision_observation_archive_smoke.py`
+  - `docs/CODEX_RUN287_DECISION_OBSERVATION_ARCHIVE_RESULT_20260714.md`
