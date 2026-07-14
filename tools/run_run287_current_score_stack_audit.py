@@ -210,6 +210,19 @@ def compare_frames(
     return rows
 
 
+def prepare_context_for_stack(selection_context: pd.DataFrame) -> pd.DataFrame:
+    """Remove embedded predictions before joining freshly verified heads.
+
+    Current selection-context snapshots may carry predictions from an older
+    scoring date.  Leaving those columns in place makes the merge create
+    ``*_x``/``*_y`` names; the registered engine then cannot find the expected
+    names and silently substitutes zeros.  Score columns are intentionally not
+    dropped because every registered score-stack stage overwrites its outputs.
+    """
+    stale = [column for column in PREDICTION_COLUMNS if column in selection_context]
+    return selection_context.drop(columns=stale).copy()
+
+
 def execute_stack(
     selection_context: pd.DataFrame,
     predictions: pd.DataFrame,
@@ -217,7 +230,7 @@ def execute_stack(
     adaptive_state: Mapping[str, Any],
     regime_weights: Mapping[str, Any] | None,
 ) -> tuple[pd.DataFrame, list[str]]:
-    frame = selection_context.copy()
+    frame = prepare_context_for_stack(selection_context)
     frame["ticker"] = frame["ticker"].astype(str).str.upper().str.strip()
     prediction_frame = predictions.copy()
     prediction_frame["ticker"] = (
