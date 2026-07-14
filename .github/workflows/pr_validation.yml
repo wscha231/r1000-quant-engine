@@ -48,6 +48,33 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          # Historical full-rebuild snapshots dominate the Git tree but are
+          # not inputs to Tier-1 validation. Keep every code/test directory
+          # and the canonical latest baseline used by smoke tests.
+          sparse-checkout: |
+            .github
+            aggressive
+            auto_learning_v2
+            backtest_results
+            cloud_results/full_rebuild/latest_global_alpha_universe
+            cloud_results/ic_monitor
+            cloud_results/paper_runs
+            cloud_results/performance_ledger
+            cloud_results/scanner
+            cloud_results/tactical_alpha
+            cloud_results/theme_discovery
+            data_static
+            docs
+            outputs
+            outputs_advisor
+            outputs_advisor_v2
+            outputs_advisor_v3
+            outputs_advisor_v4
+            reports
+            research
+            tests
+            tools
+          sparse-checkout-cone-mode: true
 
       - name: Setup Python
         uses: actions/setup-python@v5

@@ -13,6 +13,8 @@ FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_upd
 DATA_PREFLIGHT_WORKFLOW = ROOT / ".github" / "workflows" / "data_readiness_preflight.yml"
 DAILY_OPERATING_WORKFLOW = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
 PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "pages_deploy.yml"
+PR_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "pr_validation.yml"
+PORTFOLIO_GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "portfolio_system_guard.yml"
 PIPELINE = ROOT / "r1000_pipeline.py"
 
 MONTHLY_BOOK_TOKENS = [
@@ -46,6 +48,41 @@ def test_workflow_yaml_files_parse() -> None:
             yaml.safe_load(path.read_text(encoding="utf-8"))
         except Exception as exc:
             raise AssertionError(f"{path.name} is not valid YAML: {exc}") from exc
+
+
+def test_pr_workflows_sparse_checkout_only_required_rebuild_data() -> None:
+    required_paths = [
+        ".github",
+        "aggressive",
+        "auto_learning_v2",
+        "backtest_results",
+        "cloud_results/full_rebuild/latest_global_alpha_universe",
+        "cloud_results/ic_monitor",
+        "cloud_results/paper_runs",
+        "cloud_results/performance_ledger",
+        "cloud_results/scanner",
+        "cloud_results/tactical_alpha",
+        "cloud_results/theme_discovery",
+        "data_static",
+        "docs",
+        "outputs",
+        "reports",
+        "research",
+        "tests",
+        "tools",
+    ]
+    for workflow in (PR_VALIDATION_WORKFLOW, PORTFOLIO_GUARD_WORKFLOW):
+        text = workflow.read_text(encoding="utf-8")
+        assert "sparse-checkout: |" in text, workflow.name
+        assert "sparse-checkout-cone-mode: true" in text, workflow.name
+        for path in required_paths:
+            assert f"            {path}\n" in text, f"{workflow.name}: {path}"
+        sparse_block = text.split("sparse-checkout: |", 1)[1].split(
+            "sparse-checkout-cone-mode:", 1
+        )[0]
+        assert "cloud_results/full_rebuild/latest_global_alpha_universe" in sparse_block
+        assert "cloud_results/full_rebuild/failed_runs" not in sparse_block
+        assert "cloud_results/full_rebuild/202" not in sparse_block
 
 
 def test_workflow_keeps_monthly_books() -> None:
@@ -970,6 +1007,7 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
 
 def main() -> int:
     test_workflow_yaml_files_parse()
+    test_pr_workflows_sparse_checkout_only_required_rebuild_data()
     test_workflow_keeps_monthly_books()
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()

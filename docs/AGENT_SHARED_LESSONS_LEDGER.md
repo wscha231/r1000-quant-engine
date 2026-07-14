@@ -1312,3 +1312,50 @@ Expected contract:
   - `tests/sec_guidance_goldset_review_gate_smoke.py`
   - `docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_REVIEW_GATE_RESULT_20260714.md`
   - `outputs/run287_sec_guidance_goldset_review_gate_20260714/`
+### 2026-07-14 - PR CI spends more time fetching archived rebuilds than validating
+
+- Agent: Codex with GitHub dependency audit agent
+- Branch/PR/run:
+  - `codex/ci-sparse-checkout-cost-20260714`
+  - read-only timing audit of PR #271 through #274 followed by workflow-only fix
+- Context:
+  - Repeated PR checks took about five minutes in checkout before tests or the
+    portfolio guard could start.
+- Attempt:
+  - Compared job-step timings and measured the master Git tree by subtree.
+  - Added identical cone-mode sparse checkout contracts to the two PR workflows.
+- Result:
+  - Seven observed checkouts across PR #271-#273 took 300-321 seconds.
+  - PR #273 fetched for 289 seconds and checked out files for about 31 seconds;
+    its 145 tests then took 107 seconds, while the guard's post-checkout work
+    took about five seconds.
+  - The 6.36 GiB master tree is approximately 99.6% `cloud_results/`, dominated
+    by repeated dated full-rebuild snapshots. The bounded checkout retains all
+    code/test directories and `latest_global_alpha_universe` while excluding
+    dated and failed-run copies.
+- Failure or caveat:
+  - `fetch-depth: 1` limits history but not blobs in the current tree.
+  - Sparse checkout can expose a hidden test dependency on an archived path;
+    complete PR validation and guard success are mandatory before merge.
+- Root cause:
+  - Large run artifacts are stored as ordinary Git blobs, and the workflows
+    had no sparse path filter. Push and pull-request events also run duplicate
+    validation for the same open-PR SHA.
+- Reusable lesson:
+  - Keep immutable run archives in Actions/Drive and keep only a canonical
+    manifest or latest baseline in the code checkout.
+  - Optimize the checkout tree before dropping validation coverage.
+- Next action:
+  - Measure the sparse-checkout PR job timings and merge only if full validation
+    and the portfolio guard remain green.
+  - Consider removing duplicate push validation in a separate decision; do not
+    combine that trigger-policy change with this data-path change.
+- Do-not-repeat:
+  - Do not restore the entire dated `cloud_results/full_rebuild` archive to
+    automatic PR jobs merely to hide an undeclared dependency.
+  - Do not rewrite Git history, delete user artifacts, or move LFS data as part
+    of this reversible workflow optimization.
+- Evidence files:
+  - `.github/workflows/pr_validation.yml`
+  - `.github/workflows/portfolio_system_guard.yml`
+  - `tests/workflow_artifact_smoke.py`
