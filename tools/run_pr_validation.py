@@ -180,6 +180,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_complete_current_cross_section_verifier_smoke.py", []),
     ("tests/run287_current_decision_frame_contract_smoke.py", []),
     ("tests/run287_current_decision_score_only_smoke.py", []),
+    ("tests/run287_current_decision_score_stack_smoke.py", []),
     ("tests/free_data_selection_overlay_smoke.py", []),
     ("tests/free_data_forward_paper_ledger_smoke.py", []),
     ("tests/forward_paper_price_universe_smoke.py", []),

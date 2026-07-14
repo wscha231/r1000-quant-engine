@@ -1703,3 +1703,61 @@ Expected contract:
   - `tools/run_run287_current_decision_score_only.py`
   - `tests/run287_current_decision_score_only_smoke.py`
   - `docs/CODEX_RUN287_CURRENT_DECISION_SCORE_ONLY_20260714.md`
+
+### 2026-07-14 - Score-stack parity must verify live prediction passthrough, not only deterministic zeros
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-current-score-stack-20260714`
+  - non-ranking score-stack audit for completed NYSE session `2026-07-13`
+- Context:
+  - The complete 989 x 238 current-decision frame and four frozen linear heads
+    had passed, but the older score-stack audit could not be trusted as a score
+    control: every emitted linear and CatBoost prediction was zero.
+- Attempt:
+  - Froze the current decision and score-only manifests plus the older READY
+    score-stack manifest as an engine-artifact anchor.
+  - Removed embedded stale `pred_*` fields before joining the six current
+    non-ranker heads, then verified CatBoost batch/chunk parity, adaptive
+    weights, exact prediction passthrough, ticker order, and two-run registered
+    stack determinism.
+  - Added low-cost regression fixtures that do not require CatBoost.
+- Result:
+  - All six active heads are finite, nonzero, and nonconstant across 989 names.
+  - Fresh prediction passthrough passed 6/6, CatBoost parity 2/2, and registered
+    stack determinism 13/13.
+  - The registered engine marks 347 tickers eligible; the frozen DD corporate
+    action quarantine is retained. No sort, rank, selector, sizing, book write,
+    backtest, fullrun, network request, or trade ran.
+  - Local PR validation passed `161/161` in 340.7 seconds.
+- Failure or caveat:
+  - The 2026-07-10 score-stack packet's deterministic parity was a false comfort
+    because both compared runs consumed the same silent zeros. Its score values
+    must never be used as a parity control.
+  - `decision_feature_complete` and PIT universe membership remain false. This
+    output is a current advisory substrate, not historical alpha evidence.
+- Root cause:
+  - The context already carried prediction fields. A merge created suffixed
+    columns, so registered scoring could not find the expected names and used
+    its missing-column zero defaults.
+- Reusable lesson:
+  - Before a current model join, remove stale predictions explicitly and prove
+    the fresh values survive the join. Determinism alone cannot detect a
+    deterministic all-zero failure.
+  - Use an older READY packet only to pin immutable engine artifacts when its
+    emitted values are independently shown to be invalid.
+- Next action:
+  - Run a separate no-write Main/Concentrated selector audit from the immutable
+    current score stack, followed by advisory turnover and 25/50/100 bps cost
+    comparison. Keep target books, fullrun, and trading disabled.
+- Do-not-repeat:
+  - Do not merge fresh predictions into a context that still owns `pred_*`.
+  - Do not accept score-stack parity without nonzero/nonconstant head activity
+    and exact input-to-output passthrough checks.
+  - Do not merge PR #280 or use its incomplete partial ranking as current
+    selector evidence.
+- Evidence files:
+  - `outputs/run287_current_decision_score_stack_20260714_close_20260713/manifest.json`
+  - `tools/run_run287_current_decision_score_stack_audit.py`
+  - `tests/run287_current_decision_score_stack_smoke.py`
+  - `docs/CODEX_RUN287_SYSTEM_FLOW_AND_SCORE_STACK_20260714.md`
