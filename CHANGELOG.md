@@ -5,6 +5,21 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-14
 
+### 11:45 KST - Bound PR CI checkout to code and the canonical latest baseline
+
+- scope:
+  - Remove dated full-rebuild copies from the two automatic PR checkout trees while preserving all code, tests, small cloud evidence, and the canonical latest portfolio baseline.
+- files:
+  - `.github/workflows/pr_validation.yml` ->uses cone-mode sparse checkout for Tier-1 validation inputs.
+  - `.github/workflows/portfolio_system_guard.yml` ->uses the same bounded checkout while retaining `latest_global_alpha_universe`.
+  - `tests/workflow_artifact_smoke.py` ->guards required paths and blocks accidental archived/failed-run inclusion.
+- result:
+  - Baseline PR #271-#274 evidence shows 300-321 second checkouts; PR #273 tests took 107 seconds and its guard took about five seconds after checkout.
+  - The master tree is about 6.36 GiB and `cloud_results/` accounts for about 99.6%; the bounded tree is expected to remove about 91% of checkout payload.
+  - This workflow change must pass the complete PR validation and portfolio guard before merge; no test set or portfolio input is intentionally removed.
+- caveat:
+  - Hidden dependencies on dated historical rebuild paths would fail CI and must be added explicitly rather than restoring the full archive.
+
 ### 11:30 KST - Close the bounded SEC guidance heuristic at the precision gate
 
 - scope:
