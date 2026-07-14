@@ -2410,3 +2410,70 @@ Expected contract:
   - `tests/collect_earnings_estimates_smoke.py`
   - `tests/earnings_estimate_archive_manifest_smoke.py`
   - `docs/CODEX_RUN287_ESTIMATE_QUEUE_COST_CONTROL_RESULT_20260715.md`
+
+### 2026-07-15 - Exact daily packets need a portable upstream source bundle
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-exact-source-bundle-orchestrator-20260715`
+  - local portable validation for the 2026-07-13 close
+- Context:
+  - The exact registry, selector/risk producer, append-only observation archive,
+    and outcome resolver existed, but the daily workflow never created their
+    required twelve-path source bundle.
+  - Frozen selector manifests referenced 363 exact historical parquet files
+    whose hashes differ from current cache files.
+- Attempt:
+  - Added a ten-stage, explicit-path, bounded upstream orchestrator and an
+    immutable source-bundle publisher.
+  - Built a deterministic hash-indexed static archive, uploaded it under the
+    Drive `research_static` folder, added collision-safe restore logic, and
+    cached the archive after its first workflow download.
+  - Added same-date validated reuse so a retry performs zero provider calls.
+- Result:
+  - Static archive SHA-256 is
+    `66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84`;
+    it contains 387 verified files including all 363 frozen price sources.
+  - Isolated real-data portability produced a READY input registry with zero
+    contract failure and all 363 price hashes matching.
+  - A no-network preflight found all inputs for the 993-name universe and
+    estimated 25 price batches.
+  - Full local PR validation passed `175/175` in `218.29` seconds.
+- Failure or caveat:
+  - This automation creates forward evidence; it does not improve historical
+    CAGR/MDD by itself and does not reopen either failed historical SEC lane.
+  - The first scheduled completed-close artifact is still needed to verify the
+    Linux runner's real stage counts and first automatically archived packet.
+- Root cause:
+  - Downstream fail-closed consumers were automated before their expensive,
+    path-sensitive upstream manifests and frozen price substrate were made
+    portable.
+- Reusable lesson:
+  - Preserve frozen evidence by exact hash; never substitute a same-name current
+    cache file for an old source manifest.
+  - Put large immutable research anchors in a verified archive with a fixed
+    hash, then cache it; keep dynamic same-close inputs outside that archive.
+  - A same-date retry should revalidate and reuse immutable evidence with zero
+    calls, not create a second data cut after seeing the first result.
+- Next action:
+  - Let the next post-settlement scheduled daily workflow produce the first
+    automatic exact packet, then audit stage statuses, request counts, registry,
+    observation archive, and resolved 1D diagnostic without changing a rule.
+  - Continue waiting for the existing 21D direction and 63D mechanism-review
+    gates and for a separate historical PIT source-screen winner.
+- Do-not-repeat:
+  - Do not discover a selected book's source inputs by latest directory or
+    basename.
+  - Do not replace any of the 363 frozen price files with a newer cache byte.
+  - Do not manually dispatch before the market-close settlement buffer or rerun
+    a valid same-date bundle.
+  - Do not call this infrastructure change a historical CAGR/MDD improvement.
+- Evidence files:
+  - `docs/run287_exact_packet_upstream_plan.json`
+  - `tools/build_run287_exact_packet_source_bundle.py`
+  - `tools/run_run287_exact_packet_upstream.py`
+  - `tools/build_run287_exact_static_archive.py`
+  - `tools/restore_run287_exact_static_archive.py`
+  - `tests/run287_exact_packet_source_bundle_smoke.py`
+  - `tests/run287_exact_packet_upstream_smoke.py`
+  - `docs/CODEX_RUN287_EXACT_PACKET_UPSTREAM_RESULT_20260715.md`

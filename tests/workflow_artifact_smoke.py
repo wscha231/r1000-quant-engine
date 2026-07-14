@@ -953,6 +953,21 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/holding_risk_watch/",
         "daily_holding_risk_watch.log",
         "paper_archive/run287_holding_risk_watch",
+        "tools/run_run287_exact_packet_upstream.py",
+        "outputs/run287_exact_packet_upstream/",
+        "outputs/run287_exact_packet_input_sources/",
+        "daily_run287_exact_packet_upstream.log",
+        "--attempt-id \"${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}\"",
+        "--allow-network",
+        "run287_exact_static_archive_v1.zip",
+        "66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84",
+        "tools/restore_run287_exact_static_archive.py",
+        "run287_research_static",
+        "research_static/run287_exact_static_archive_v1.zip",
+        "git fetch --no-tags --depth=1 origin 15176",
+        "feature_store/scored_oos_latest.parquet",
+        "restore_dir models models",
+        "restore_file data_raw/sec/company_tickers.json data_raw/free/sec/company_tickers.json",
         "tools/build_run287_exact_packet_input_registry.py",
         "outputs/run287_exact_packet_input_registry/",
         "run287_exact_packet_input_sources/source_bundle.json",
@@ -1005,13 +1020,14 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         assert forbidden not in text, forbidden
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
     holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
+    exact_upstream_idx = text.index("python tools/run_run287_exact_packet_upstream.py")
     input_registry_idx = text.index("python tools/build_run287_exact_packet_input_registry.py")
     exact_packet_idx = text.index("python tools/run_run287_exact_packet_producer.py")
     decision_archive_idx = text.index("python tools/archive_run287_decision_observation.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
     assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
-    assert holding_risk_idx < input_registry_idx < exact_packet_idx < decision_archive_idx < snapshot_idx, "exact input registration, packet production, and archive ingestion must run after the exact-close risk watch and before reports"
+    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < decision_archive_idx < snapshot_idx, "bounded upstream, exact input registration, packet production, and archive ingestion must run after the exact-close risk watch and before reports"
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
 
