@@ -175,6 +175,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_exact_packet_producer_smoke.py", []),
     ("tests/run287_nasdaq_zeeh_sample_smoke.py", []),
     ("tests/run287_decision_observation_archive_smoke.py", []),
+    ("tests/run287_risk_outcome_archive_smoke.py", []),
     ("tests/run287_scored_latest_refresh_smoke.py", []),
     ("tests/direct_fullrun_guard_smoke.py", []),
     ("tests/run287_macro_sidecar_smoke.py", []),

@@ -2125,3 +2125,66 @@ Expected contract:
   - `docs/CODEX_RUN287_NASDAQ_ZEEH_SAMPLE_PROBE_RESULT_20260714.md`
   - `outputs/run287_nasdaq_zeeh_sample/20260714_local_preflight/`
   - `outputs/run287_exact_packet_input_registry_20260714_local/`
+
+### 2026-07-14 - Risk warnings need resolved downside and recovery outcomes
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-risk-outcome-strengthening-20260714`
+  - local `run287_risk_outcome_archive_20260714_local`
+- Context:
+  - The exact-close held and candidate risk watches produced review states, but
+    every archived candidate row remained `UNRESOLVED` and there was no tool to
+    learn whether warnings predicted additional weakness or a strong rebound.
+  - Converting the 2026-07-13 semiconductor shock directly into a stop, exit,
+    resize, cluster cap, or cash rule would repeat rejected hindsight tuning.
+- Attempt:
+  - Added a separate append-only outcome archive for held and proposed-candidate
+    risk observations.
+  - Frozen adjusted-close/SPY outcomes at 1, 5, 21, 63, and 126 sessions, with
+    signal-close and next-close-actionable metrics kept separate.
+  - Added return, excess return, maximum drawdown, maximum gain, and trough
+    recovery so downside protection and right-tail CAGR cost are both visible.
+  - Wired an unresolved-only daily price queue with a 150-ticker hard cap,
+    GitHub persistence, and Google Drive persistence when configured.
+- Result:
+  - The first 2026-07-13 capture recorded 26 immutable observations: 19 held
+    and seven candidate rows across six ALERT, nine WATCH, and 11 NORMAL states.
+  - The bounded queue contains 22 securities plus SPY.  Forward outcomes are
+    correctly zero because no session after the signal close had elapsed at
+    the fixed as-of date.
+  - Missing initial source safely skips; restored prior signals continue to
+    resolve even when a later exact packet skips.
+  - Targeted risk, archive, workflow, and direct-fullrun tests pass.
+  - Full local PR validation passed `171/171` in `216.25` seconds.
+  - No book, cash, order, historical CAGR/MDD, fullrun, production, or live
+    trading state changed.
+- Failure or caveat:
+  - The first 1D outcome is unavailable until the 2026-07-14 close; the first
+    63D endpoint is 2026-10-09.
+  - One week and zero resolved outcomes cannot select an execution mechanism.
+- Root cause:
+  - Warning generation and performance evidence were separated by a missing
+    outcome-resolution step.  Without recovery metrics, a naive MDD defense
+    could discard right-tail winners and reduce CAGR.
+- Reusable lesson:
+  - Evaluate both maximum subsequent drawdown and recovery/right-tail return
+    before proposing a defensive action.
+  - Preserve old unresolved observations even when today's upstream packet is
+    absent; a source skip must not stop elapsed outcomes from resolving.
+  - Separate signal-close predictiveness from next-close tradability.
+- Next action:
+  - Continue bounded daily collection.  Review 1D only as a diagnostic, 21D as
+    early direction, and 63D only after the frozen 12-week and sample gates.
+- Do-not-repeat:
+  - Do not claim the watch avoided the loss that occurred before it was built.
+  - Do not tune thresholds from the 2026-07-13 shock.
+  - Do not turn one warning or one horizon into a stop/exit/resize/cash rule.
+  - Do not zero-fill missing or delisted price paths.
+  - Do not count forward outcome evidence as seven-year CAGR/MDD proof.
+- Evidence files:
+  - `docs/run287_risk_outcome_archive_contract.json`
+  - `tools/resolve_run287_risk_outcomes.py`
+  - `tests/run287_risk_outcome_archive_smoke.py`
+  - `docs/CODEX_RUN287_RISK_OUTCOME_ARCHIVE_RESULT_20260714.md`
+  - `outputs/run287_risk_outcome_archive_20260714_local/`
