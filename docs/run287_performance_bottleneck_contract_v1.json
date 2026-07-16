@@ -1,0 +1,23 @@
+{
+  "schema_version": "run287-performance-bottleneck-contract-v1",
+  "purpose": "Rank current CAGR/MDD bottlenecks without tuning or opening an unqualified A/B.",
+  "canonical_generated_baselines": {
+    "main": {"cagr": 0.344032, "max_dd": -0.253619, "cagr_target": 0.35, "max_dd_target": -0.25},
+    "concentrated": {"cagr": 0.490971, "max_dd": -0.229552, "cagr_target": 0.50, "max_dd_target": -0.25}
+  },
+  "diagnostic_metric_mode": "broker_ledger_next_close",
+  "selection_edge_rule": "selected-minus-missed mean and median SPY excess return must be positive at 21, 63, and 126 trading days for each portfolio",
+  "broad_cash_redeploy_rule": "cash-rejected missed leaders must have positive mean and median 63-day SPY excess return in each portfolio",
+  "generic_exit_delay_rule": "sold-minus-replacement mean and median return must be positive at both 63 and 126 trading days in each portfolio",
+  "execution_or_risk_overlay_rule": "delta CAGR and delta MDD versus broker baseline must both be nonnegative in each portfolio",
+  "historical_ab_rule": "next-single-A/B readiness must explicitly open one source-screened arm",
+  "forward_risk_rule": "risk outcome archive must meet its frozen mechanism-review gate before any action arm",
+  "do_not_repeat_registry": "docs/run287_do_not_repeat_registry.json",
+  "research_only": true,
+  "threshold_tuning_allowed": false,
+  "historical_backtest_dispatched": false,
+  "fullrun_dispatched": false,
+  "portfolio_mutation_allowed": false,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false
+}

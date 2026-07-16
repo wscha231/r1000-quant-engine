@@ -63,8 +63,27 @@ def normalize_ticker(value: Any) -> str:
 
 
 def yfinance_symbol(ticker: str) -> str:
-    # Yahoo uses dashes for class-share tickers such as BRK.B.
-    return str(ticker).replace(".", "-")
+    # Yahoo uses dashes for US class-share tickers such as BRK.B, while listed
+    # foreign symbols use dot suffixes (for example 000660.KS). Preserve known
+    # exchange suffixes so research-only global candidates remain fetchable.
+    text = str(ticker).upper().strip()
+    exchange_suffixes = (
+        ".KS",
+        ".KQ",
+        ".T",
+        ".HK",
+        ".TW",
+        ".L",
+        ".TO",
+        ".V",
+        ".AX",
+        ".SI",
+        ".NS",
+        ".BO",
+    )
+    if text.endswith(exchange_suffixes):
+        return text
+    return text.replace(".", "-")
 
 
 def collect_book_tickers(paths: list[Path]) -> tuple[set[str], pd.Timestamp | None, pd.Timestamp | None]:
@@ -212,6 +231,34 @@ def stale_cache_tickers(
     return stale
 
 
+def tickers_missing_session_date(
+    output_dir: Path,
+    tickers: set[str],
+    required_session_date: pd.Timestamp | None,
+) -> list[str]:
+    """Return cached tickers without an exact bar for the required session."""
+    if required_session_date is None:
+        return []
+    required = pd.Timestamp(required_session_date).tz_localize(None).normalize()
+    missing: list[str] = []
+    for ticker in sorted(tickers):
+        path = output_dir / px_cache_name(ticker)
+        if not path.exists():
+            missing.append(ticker)
+            continue
+        try:
+            frame = pd.read_parquet(path)
+        except Exception:
+            missing.append(ticker)
+            continue
+        index = pd.DatetimeIndex(pd.to_datetime(frame.index, errors="coerce"))
+        if index.tz is not None:
+            index = index.tz_localize(None)
+        if required not in index.normalize():
+            missing.append(ticker)
+    return missing
+
+
 def normalize_download_frame(data: pd.DataFrame, ticker: str, symbol: str) -> pd.DataFrame:
     if data.empty:
         return pd.DataFrame()
@@ -297,7 +344,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         today=today,
         refresh_stale_days=args.refresh_stale_days,
     )
-    download_targets = sorted(set(missing) | set(stale))
+    required_session_raw = str(getattr(args, "required_session_date", "") or "").strip()
+    required_session = pd.Timestamp(required_session_raw).normalize() if required_session_raw else None
+    required_session_missing_before = tickers_missing_session_date(
+        output_dir,
+        set(tickers),
+        required_session,
+    )
+    download_targets = sorted(set(missing) | set(stale) | set(required_session_missing_before))
     result: dict[str, Any] = {
         "books": [str(path) for path in book_paths],
         "scored": str(repo_path(args.scored)) if args.scored else "",
@@ -310,6 +364,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "missing_before": len(missing),
         "stale_before": len(stale),
         "refresh_stale_days": int(args.refresh_stale_days),
+        "required_session_date": required_session.date().isoformat() if required_session is not None else "",
+        "required_session_missing_before": required_session_missing_before,
+        "required_session_missing_before_count": len(required_session_missing_before),
         "download_target_count": len(download_targets),
         "requested_start": start_dt.date().isoformat(),
         "requested_end": end_dt.date().isoformat(),
@@ -321,6 +378,38 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         download_result = download_prices(download_targets, result["requested_start"], result["requested_end"], output_dir, args.batch_size)
         result.update(download_result)
         result["status"] = "completed"
+    required_session_missing_after = tickers_missing_session_date(
+        output_dir,
+        set(tickers),
+        required_session,
+    )
+    if required_session_missing_after and not args.dry_run:
+        # A batch response can contain a usable history for most symbols while
+        # silently omitting the newest bar for one symbol. Retry only those
+        # symbols individually before failing the exact-close contract.
+        retry_result = download_prices(
+            required_session_missing_after,
+            result["requested_start"],
+            result["requested_end"],
+            output_dir,
+            1,
+        )
+        result["required_session_retry_count"] = len(required_session_missing_after)
+        result["required_session_retry_written"] = int(retry_result.get("written", 0))
+        result["required_session_retry_failed"] = list(retry_result.get("failed", []))
+        required_session_missing_after = tickers_missing_session_date(
+            output_dir,
+            set(tickers),
+            required_session,
+        )
+    else:
+        result["required_session_retry_count"] = 0
+        result["required_session_retry_written"] = 0
+        result["required_session_retry_failed"] = []
+    result["required_session_missing_after"] = required_session_missing_after
+    result["required_session_missing_after_count"] = len(required_session_missing_after)
+    if required_session_missing_after and not args.dry_run:
+        result["status"] = "blocked_missing_required_session"
     result["existing_cache_count_after"] = existing_cache_count(output_dir, set(tickers))
     actual_start, actual_end, actual_ticker_count = cached_date_range(output_dir, set(tickers))
     result["start"] = actual_start.date().isoformat() if actual_start is not None else result["requested_start"]
@@ -354,6 +443,11 @@ def parse_args() -> argparse.Namespace:
         default=2,
         help="Refresh cached tickers whose latest cached bar is older than this many calendar days; use -1 to disable.",
     )
+    parser.add_argument(
+        "--required-session-date",
+        default="",
+        help="Require an exact cached bar for every selected ticker on YYYY-MM-DD and retry missing bars individually.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -361,7 +455,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     payload = run(parse_args())
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
+    return 2 if payload.get("status") == "blocked_missing_required_session" else 0
 
 
 if __name__ == "__main__":
