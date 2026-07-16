@@ -2988,3 +2988,48 @@ Expected contract:
   - `tests/run287_cagr_first_objective_smoke.py`
   - `docs/CODEX_RUN287_CAGR_FIRST_OBJECTIVE_RESULT_20260716.md`
   - `outputs/run287_cagr_first_objective_audit_20260716/summary.json`
+
+### 2026-07-17 - Market-cap-normalized SEC capital actions fail the source screen
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-sec-capital-actions-20260717`
+  - `outputs/sec_capital_allocation_event_20260717/`
+- Context:
+  - The user requested a historical backtest of equity issuance, convertible financing, share repurchases, and retirements normalized by contemporaneous market capitalization.
+  - This was a semantically new exact-accepted SEC source and therefore had to pass a source screen before any portfolio CAGR/MDD arm.
+- Attempt:
+  - Joined Companyfacts action facts to exact SEC submissions `accepted_at` by accession, with no `filed` fallback.
+  - Annualized matched 60-410 day flow facts and divided net repurchase less common-equity and convertible proceeds by exact-available shares times the last completed raw close.
+  - Used adjusted close only for 21/63/126-session returns and evaluated SPY excess returns with filing-week bootstrap blocks.
+  - Added a fail-closed market-cap quality gate after real rows exposed class-specific share contexts of 1 or 100 shares; invalid observations are neutral, not repaired from future data.
+- Result:
+  - 21,893 exact event states across 895 issuers from 2018-01-04 through 2026-07-02; market-cap coverage is 80.99% after 4,162 invalid/missing rows are neutralized.
+  - The fixed 1% classification produced 9,914 positive, 1,418 negative, and 10,561 neutral events.
+  - Primary 63D SPY-excess positive-minus-negative spread is -0.8943pp full, -1.6377pp OOS2, and -2.2212pp OOS.
+  - OOS2 and OOS filing-week bootstrap 95% lower bounds are -4.7109pp and -7.0630pp; the verdict is `REJECT_SOURCE_SCREEN`.
+  - No fixed-book/generated-book portfolio A/B, target, weight, cash, order, fullrun, production, or live state changed.
+- Failure or caveat:
+  - Companyfacts share contexts can be class-specific or malformed for issuer-market-cap use; raw close must be paired with shares, while adjusted close is reserved for returns.
+  - Repurchase observations are common but did not predict positive excess returns; convertible-only OOS had only 98 resolved 63D rows and is underpowered as a separate hypothesis.
+  - Current ticker/CIK identity is not historical membership, delisted coverage remains incomplete, and multi-class market cap can omit another class.
+- Root cause:
+  - Capital allocation records are economically real but not a standalone cross-sectional alpha in this universe/window. Buybacks can follow mature valuation regimes, while issuance can fund productive growth; the sign alone is insufficient.
+- Reusable lesson:
+  - Treat market-cap normalization as a data contract, not a shortcut: reject implausible share contexts and never multiply split-adjusted prices by unadjusted reported shares.
+  - Require a source screen before portfolio integration; sufficient event count does not rescue consistently negative OOS direction.
+  - Do not mine the surprising convertible diagnostic after seeing returns; preregister a semantically new quality/valuation interaction only if independent evidence supports it.
+- Next action:
+  - Keep canonical Main and Concentrated books unchanged.
+  - Continue the append-only forward decision/outcome lane and seek a semantically new PIT source; do not retune the 1% materiality threshold.
+- Do-not-repeat:
+  - `sec_capital_allocation_event+exact_accepted_market_cap_normalized_source_screen+single_source_sec_events+2018-01-04_2026-07-02`
+  - Do not turn this rejected source into a buyback tilt, issuance veto, convertible replacement, or threshold grid.
+  - Do not repair invalid historical shares with later/current shares or selected-book market caps.
+- Evidence files:
+  - `docs/run287_sec_capital_allocation_event_contract_v1.json`
+  - `tools/run_sec_capital_allocation_event.py`
+  - `tests/sec_capital_allocation_event_smoke.py`
+  - `docs/CODEX_RUN287_SEC_CAPITAL_ALLOCATION_SOURCE_SCREEN_RESULT_20260717.md`
+  - `outputs/sec_capital_allocation_event_20260717/summary.json`
+  - `outputs/sec_capital_allocation_event_20260717/source_screen_summary.json`

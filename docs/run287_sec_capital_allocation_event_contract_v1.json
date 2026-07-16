@@ -1,0 +1,50 @@
+{
+  "contract": "run287_sec_capital_allocation_event_v1",
+  "status": "preregistered_research_only",
+  "availability": {
+    "join": "Companyfacts accn to SEC submissions accession_number",
+    "available_from": "exact acceptanceDateTime",
+    "filed_fallback": "forbidden",
+    "missing": "neutral"
+  },
+  "actions": {
+    "positive": "common-share repurchase; retirement is confirmation and not double-counted",
+    "negative": "cash common-equity issuance plus convertible-debt and convertible-preferred proceeds",
+    "excluded": "employee options, share compensation, acquisition consideration, debt balance without proceeds"
+  },
+  "normalization": {
+    "flow": "reported USD times 365 divided by matching period duration days",
+    "market_cap": "exact-available shares outstanding times raw close at last completed NYSE session",
+    "market_cap_quality_gate": "shares >= 100000 and USD market cap between 1000000 and 20000000000000; invalid is neutral",
+    "return_price": "adjusted close",
+    "materiality": 0.01
+  },
+  "signal": {
+    "name": "sec_capital_allocation_event",
+    "positive": "net_capital_return_intensity >= 0.01",
+    "negative": "net_capital_return_intensity <= -0.01",
+    "neutral": "otherwise",
+    "threshold_grid": false
+  },
+  "source_screen": {
+    "entry": "first NYSE close strictly after exact accepted_at",
+    "primary_horizon_sessions": 63,
+    "secondary_horizons_sessions": [21, 126],
+    "return_basis": "SPY excess return",
+    "oos_start": "2024-07-01",
+    "oos2_start": "2023-01-01",
+    "power_gate_per_oos": {"positive": 100, "negative": 100, "filing_weeks": 12},
+    "pass": "full/OOS/OOS2 63D spread > 0 and OOS/OOS2 filing-week bootstrap lower >= 0"
+  },
+  "stop_rules": {
+    "underpowered_or_reject": "no portfolio A/B and no retuning",
+    "fullrun": false,
+    "production_or_live": false
+  },
+  "pit_caveats": [
+    "pit_universe_label_clean=false",
+    "current identity map is not historical membership",
+    "multi-class issuer market cap can be incomplete",
+    "Companyfacts tag absence is not evidence of zero action"
+  ]
+}
