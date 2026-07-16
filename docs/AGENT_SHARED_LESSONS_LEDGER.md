@@ -2944,3 +2944,47 @@ Expected contract:
   - `tools/run_run287_continuous_learning_daily.py`
   - `tests/run287_continuous_learning_daily_smoke.py`
   - `docs/CODEX_RUN287_CURRENT_PORTFOLIO_AND_CAGR_MDD_RESEARCH_20260716.md`
+
+### 2026-07-16 - CAGR-first rescoring finds a Main edge but rejects its era concentration
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - `outputs/run287_cagr_first_objective_audit_20260716/`
+  - `outputs/run287_cagr_first_growth_confirmation_tilt10_sensitivity_20260716/`
+- Context:
+  - The user explicitly prioritized CAGR maximization over the previous -25% MDD pass/fail target.
+  - Existing failed A/B evidence had to be re-scored before creating another challenger or repeating a threshold grid.
+- Attempt:
+  - Re-scored 28 completed A/B arms under full/OOS/OOS2 positive dCAGR, Sharpe delta >= -0.05, next-close, integer-share, 25bps, and no-forward-return gates.
+  - Selected the highest-CAGR core pass and replayed only that fixed Main growth-confirmation tilt10 book at 25/50/100bps under cash-carry and zero-yield.
+  - Attributed the 25bps cash-carry incremental ending equity by ticker and fixed era buckets.
+- Result:
+  - Main tilt10 produced 35.7897% CAGR versus 33.8057%, dCAGR +1.9839pp, OOS +2.6163pp, OOS2 +3.7505pp, Sharpe +0.0604, and MDD -25.9265%.
+  - Relative full/OOS/OOS2 CAGR direction remained positive in all six cash/cost sensitivities.
+  - No Concentrated arm passed full/OOS/OOS2 direction; the prior W4 SEC candidate remains OOS-negative.
+  - MRVL was the top ticker contributor at 22.07%, but `2025_plus` supplied 59.59% of net incremental P&L and failed the frozen 50% era gate.
+  - Final verdict is `REJECT_GROWTH_FIRST_CONCENTRATION`; the 126-session embargo replay was skipped by the early-stop rule.
+  - No target, weight, cash, order, fullrun, production, or live state changed.
+- Failure or caveat:
+  - Removing an MDD gate can expose a genuine historical growth edge without establishing durability across regimes.
+  - Absolute CAGR falls sharply as costs rise even though the relative direction survives.
+- Root cause:
+  - The direct growth tilt benefited disproportionately from 2025-plus growth leaders and lost incremental P&L in the 2022 bear era.
+- Reusable lesson:
+  - Re-score completed evidence when the user changes the objective; do not relabel that as a new experiment.
+  - Keep provenance, OOS/OOS2, cost, and concentration gates even when MDD is diagnostic-only.
+  - Stop before embargo or generated-book work when a cheaper fixed-era attribution gate already fails.
+- Next action:
+  - Keep Main and Concentrated canonical books unchanged.
+  - Do not tune growth tilt percentages. Wait for a semantically new PIT source or matured forward transition evidence before another historical arm.
+- Do-not-repeat:
+  - Do not promote tilt10 from its headline 35.79% CAGR.
+  - Do not remove the era concentration gate after seeing the 59.59% result.
+  - Do not rerun direct-growth tilt05/tilt10 or search adjacent tilt values.
+- Evidence files:
+  - `docs/run287_cagr_first_objective_contract_v1.json`
+  - `tools/audit_run287_cagr_first_objective.py`
+  - `tests/run287_cagr_first_objective_smoke.py`
+  - `docs/CODEX_RUN287_CAGR_FIRST_OBJECTIVE_RESULT_20260716.md`
+  - `outputs/run287_cagr_first_objective_audit_20260716/summary.json`

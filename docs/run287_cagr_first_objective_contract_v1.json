@@ -1,0 +1,54 @@
+{
+  "schema_version": "run287-cagr-first-objective-contract-v1",
+  "objective": {
+    "primary_metric": "net_geometric_cagr",
+    "selection_rule": "highest_full_period_delta_cagr_among_core_gate_passes",
+    "max_drawdown_role": "diagnostic_only_not_a_pass_fail_gate",
+    "reason": "user_explicitly_prioritized_cagr_over_the_previous_minus_25pct_mdd_target_on_2026_07_16"
+  },
+  "core_gates": {
+    "full_delta_cagr_positive": true,
+    "oos_delta_cagr_positive": true,
+    "oos2_delta_cagr_positive": true,
+    "minimum_delta_sharpe": -0.05,
+    "used_forward_return_in_ranking": false,
+    "fill_mode": "next_close",
+    "integer_shares": true,
+    "reference_cost_bps_per_side": 25.0
+  },
+  "required_sensitivities": {
+    "cash_modes": [
+      "cash_carry",
+      "zero_yield"
+    ],
+    "cost_bps_per_side": [
+      25,
+      50,
+      100
+    ],
+    "full_delta_cagr_positive": true,
+    "oos_delta_cagr_positive": true,
+    "oos2_delta_cagr_positive": true
+  },
+  "generalization_gates": {
+    "maximum_single_ticker_share_of_net_incremental_pnl": 0.5,
+    "maximum_single_era_share_of_net_incremental_pnl": 0.5,
+    "reference_scenario": "cash_carry_25bps",
+    "embargo_walk_forward_sessions": 126,
+    "embargo_walk_forward_required_before_promotion": true
+  },
+  "reuse_policy": {
+    "existing_completed_arm_may_be_rescored": true,
+    "new_threshold_or_tilt_grid_allowed": false,
+    "do_not_repeat_registry_remains_binding_for_new_experiments": true
+  },
+  "safety": {
+    "research_only": true,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false,
+    "target_book_mutation_allowed": false,
+    "orders_generated": false,
+    "pit_universe_label_clean": false
+  }
+}
