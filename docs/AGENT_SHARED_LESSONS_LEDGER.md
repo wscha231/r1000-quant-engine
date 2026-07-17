@@ -3076,3 +3076,57 @@ Expected contract:
   - `tools/analyze_run287_semiconductor_damage.py`
   - `tests/sec_capital_action_timing_smoke.py`
   - `tests/run287_semiconductor_damage_smoke.py`
+
+### 2026-07-17 - Durable-quality review and the trade answer notebook must remain separate from execution
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-durable-quality-learning-20260717`
+  - `outputs/run287_exact_debt_snapshot_20260717/`
+  - `outputs/run287_durable_quality_learning_20260717_close_20260716/`
+  - `outputs/run287_historical_trade_answer_notebook_20260717/`
+- Context:
+  - The user requested companies with resilient debt, economic/technology moats, and an automatically improving buy/hold/sell checklist.
+  - The existing moat proxy mixed market, institutional, and size features, while the available `debt_to_equity` input was a total-liabilities proxy rather than exact debt.
+- Attempt:
+  - Built an exact-accepted SEC assets/cash/debt sidecar for 10-Q/K, 20-F, 40-F, and 6-K filings and amendments.
+  - Separated balance resilience, economic durability, technology reinvestment, and market confirmation, with missing-neutral scoring plus fail-closed coverage gates.
+  - Built a company-deduplicated review queue and current buy/hold/sell checklist without changing portfolio state.
+  - Graded the actual Google Drive trade journal at fixed 21/63-session post-exit horizons and added the review sidecars to the daily continuous-learning path.
+- Result:
+  - The 989-name universe has 921 exact-acceptance statements, 729 exact debt/cash/assets complete names, 189 partial names, two missing Companyfacts members, zero filed fallbacks, and zero future rows.
+  - Complete quantitative review names are GOOG/GOOGL, EXPE, and LIN; all still require accepted filing textual-moat review and forward evidence before any A/B.
+  - The historical notebook contains 740 trades and 723 resolved exit paths: 446 good defensive exits, 277 possible premature-exit reviews, and 263 wrong entries.
+  - One-period holds had a 51.36% wrong-entry rate; the rate fell to 34.14%, 19.01%, and 9.80% for 2-3, 4-6, and 7-plus periods. This diagnoses entry quality/churn but does not prove a longer-hold rule.
+  - Incremental SEC refresh reused 723 exact-complete rows and refreshed 266 in about 20 seconds, while refreshing six prior complete names that had newer accepted statements.
+  - No model, score, rank, selector, target, cash, order, backtest, fullrun, production, or live state changed.
+- Failure or caveat:
+  - Quantitative moat evidence is not a verified business moat. Textual pricing power, switching cost, network/data, IP/process, customer concentration, cyclicality, and disruption review is still missing.
+  - A sold stock's later outperformance does not prove a wrong sale until the actual replacement return is joined.
+  - Current ticker/CIK identity is not PIT membership; ADR, home-listing, delisted, and predecessor coverage remain incomplete.
+- Root cause:
+  - Prior research could rank accounting and price proxies but could not distinguish exact debt from total liabilities or connect trade decisions to fixed forward answers.
+- Reusable lesson:
+  - Measure debt from same-accession exact accepted facts; missing is never zero.
+  - Separate business quality from market confirmation so a strong company in current damage becomes a review divergence rather than an automatic buy.
+  - Freeze incremental buying on missing evidence or WATCH/ALERT, but require an exact fundamental break before an automatic-sale hypothesis.
+  - Learn from fixed 63D/21D outcomes; never let one-day outcomes mutate a checklist.
+- Next action:
+  - Join each historical exit to its actual replacement basket and compute replacement-relative opportunity cost.
+  - Append structured accepted 10-K/20-F textual moat evidence for the company-deduplicated review queue.
+  - Open at most one preregistered hold/replace challenger only after the fixed forward evidence gate and user approval.
+- Do-not-repeat:
+  - Do not call total liabilities debt or missing debt zero.
+  - Do not treat a quantitative moat score as proof or a candidate queue as a buy list.
+  - Do not label post-exit continuation a wrong sale without the realized replacement counterfactual.
+  - Do not tune holding periods, leverage thresholds, or sell rules from these descriptive cohorts.
+  - Do not auto-retrain, auto-promote, or connect this layer to orders.
+- Evidence files:
+  - `docs/run287_durable_quality_learning_contract_v1.json`
+  - `tools/build_run287_exact_debt_snapshot.py`
+  - `tools/build_run287_durable_quality_learning.py`
+  - `tools/build_run287_historical_trade_answer_notebook.py`
+  - `tests/run287_exact_debt_snapshot_smoke.py`
+  - `tests/run287_durable_quality_learning_smoke.py`
+  - `tests/run287_historical_trade_answer_notebook_smoke.py`
+  - `docs/CODEX_RUN287_DURABLE_QUALITY_AND_TRADE_LEARNING_RESULT_20260717.md`

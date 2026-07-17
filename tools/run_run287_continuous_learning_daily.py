@@ -24,6 +24,8 @@ if str(ROOT) not in sys.path:
 from tools import audit_run287_model_health as model_health  # noqa: E402
 from tools import audit_run287_policy_attribution as policy_attribution  # noqa: E402
 from tools import build_run287_decision_outcome_ledger as ledger  # noqa: E402
+from tools import build_run287_durable_quality_learning as quality_learning  # noqa: E402
+from tools import build_run287_exact_debt_snapshot as exact_debt  # noqa: E402
 
 
 def repo_path(value: str | Path) -> Path:
@@ -233,6 +235,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     ledger_result = ledger.run(ledger_args)
     policy_result: dict[str, Any] = {}
     health_result: dict[str, Any] = {}
+    quality_result: dict[str, Any] = {}
+    debt_result: dict[str, Any] = {}
     universe_count = 0
     queue_count = 0
     collection_start = ""
@@ -256,6 +260,73 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 generated_at_utc=args.recorded_at_utc,
             )
         )
+        risk_watch_raw = str(getattr(args, "risk_watch", "") or "").strip()
+        debt_snapshot_raw = str(getattr(args, "exact_debt_snapshot", "") or "").strip()
+        risk_watch_path = repo_path(risk_watch_raw) if risk_watch_raw else Path()
+        debt_snapshot_path = repo_path(debt_snapshot_raw) if debt_snapshot_raw else Path()
+        decision_payload = read_json(paths["decision_manifest"])
+        decision_time_utc = str(
+            decision_payload.get("decision_time_utc")
+            or producer.get("available_from")
+            or args.recorded_at_utc
+        )
+        companyfacts_path = repo_path(
+            str(getattr(args, "companyfacts_zip", "data_raw/free/sec/companyfacts.zip"))
+        )
+        sec_index_path = repo_path(
+            str(getattr(args, "sec_index", "data_pit/sec/sec_filings_index.parquet"))
+        )
+        if debt_snapshot_raw and companyfacts_path.is_file() and sec_index_path.is_file():
+            try:
+                debt_output_dir = debt_snapshot_path.parent
+                debt_result = exact_debt.build(
+                    SimpleNamespace(
+                        selection_context=str(paths["decision_context"]),
+                        companyfacts_zip=str(companyfacts_path),
+                        sec_index=str(sec_index_path),
+                        decision_time_utc=decision_time_utc,
+                        prior_snapshot=(
+                            str(debt_snapshot_path) if debt_snapshot_path.is_file() else ""
+                        ),
+                        output_dir=str(debt_output_dir),
+                    )
+                )
+                debt_snapshot_path = debt_output_dir / "exact_debt_snapshot.csv"
+            except Exception as exc:  # debt sidecar cannot block the causal ledger
+                debt_result = {
+                    "status": "BLOCKED_RUN287_EXACT_DEBT_SNAPSHOT",
+                    "reason": f"{type(exc).__name__}:{exc}",
+                }
+                debt_snapshot_path = Path()
+        else:
+            debt_result = {
+                "status": "SKIPPED_RUN287_EXACT_DEBT_SNAPSHOT_SOURCE_MISSING",
+                "companyfacts_zip_exists": companyfacts_path.is_file(),
+                "sec_index_exists": sec_index_path.is_file(),
+            }
+            debt_snapshot_path = Path()
+        try:
+            quality_result = quality_learning.build(
+                SimpleNamespace(
+                    selection_context=str(paths["decision_context"]),
+                    current_status=str(output_dir / "current_status.parquet"),
+                    decision_time_utc=decision_time_utc,
+                    risk_watch=str(risk_watch_path) if risk_watch_path.is_file() else "",
+                    exact_debt_snapshot=(
+                        str(debt_snapshot_path) if debt_snapshot_path.is_file() else ""
+                    ),
+                    output_dir=str(output_dir / "durable_quality_learning"),
+                )
+            )
+        except Exception as exc:  # review sidecar cannot block the causal ledger
+            quality_result = {
+                "status": "BLOCKED_RUN287_DURABLE_QUALITY_LEARNING",
+                "reason": f"{type(exc).__name__}:{exc}",
+                "model_mutated": False,
+                "selector_mutated": False,
+                "target_books_mutated": False,
+                "orders_generated": False,
+            }
     status = (
         "READY_RUN287_CONTINUOUS_LEARNING_DAILY_REVIEW_ONLY"
         if ledger_result.get("status") == ledger.READY_STATUS
@@ -277,6 +348,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "price_collection_start_date": collection_start,
         "policy_attribution_status": policy_result.get("status", "NOT_RUN"),
         "model_health_status": health_result.get("status", "NOT_RUN"),
+        "exact_debt_snapshot_status": debt_result.get("status", "NOT_RUN"),
+        "exact_debt_prior_reused_count": int(
+            debt_result.get("prior_snapshot_reused_count", 0) or 0
+        ),
+        "exact_debt_refreshed_ticker_count": int(
+            debt_result.get("refreshed_ticker_count", 0) or 0
+        ),
+        "durable_quality_learning_status": quality_result.get("status", "NOT_RUN"),
+        "durable_quality_candidate_company_count": int(
+            quality_result.get("candidate_company_count", 0) or 0
+        ),
+        "durable_quality_answer_ready_count": int(
+            quality_result.get("answer_ready_count", 0) or 0
+        ),
         "model_mutated": False,
         "score_mutated": False,
         "rank_mutated": False,
@@ -302,6 +387,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--paper-root", default="outputs/daily_simulated_fill_ledger")
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--max-price-queue", type=int, default=150)
+    parser.add_argument("--risk-watch", default="outputs/holding_risk_watch/holding_risk_watch.csv")
+    parser.add_argument("--exact-debt-snapshot", default="outputs/run287_exact_debt_snapshot/exact_debt_snapshot.csv")
+    parser.add_argument("--companyfacts-zip", default="data_raw/free/sec/companyfacts.zip")
+    parser.add_argument("--sec-index", default="data_pit/sec/sec_filings_index.parquet")
     parser.add_argument("--decision-date", default="")
     parser.add_argument("--as-of-date", required=True)
     parser.add_argument("--recorded-at-utc", required=True)

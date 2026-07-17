@@ -112,6 +112,7 @@ jobs:
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
             outputs/run287_decision_outcome_ledger
+            outputs/run287_exact_debt_snapshot
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             daily-paper-ledger-${{ runner.os }}-
@@ -737,6 +738,7 @@ jobs:
             outputs/run287_risk_outcome_archive/
             outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
             outputs/run287_decision_outcome_ledger/
+            outputs/run287_exact_debt_snapshot/
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -772,6 +774,7 @@ jobs:
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
             outputs/run287_decision_outcome_ledger
+            outputs/run287_exact_debt_snapshot
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Sync daily operating artifact to Google Drive
@@ -792,7 +795,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_decision_outcome_ledger outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_decision_outcome_ledger outputs/run287_exact_debt_snapshot outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -832,6 +835,9 @@ jobs:
           fi
           if [ -s outputs/run287_decision_outcome_ledger/manifest.json ]; then
             rclone copy outputs/run287_decision_outcome_ledger "${BASE}paper_archive/run287_decision_outcome_ledger/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          fi
+          if [ -s outputs/run287_exact_debt_snapshot/summary.json ]; then
+            rclone copy outputs/run287_exact_debt_snapshot "${BASE}paper_archive/run287_exact_debt_snapshot/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           fi
 
       - name: Save refreshed GitHub cache
