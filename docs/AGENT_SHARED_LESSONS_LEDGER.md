@@ -3033,3 +3033,46 @@ Expected contract:
   - `docs/CODEX_RUN287_SEC_CAPITAL_ALLOCATION_SOURCE_SCREEN_RESULT_20260717.md`
   - `outputs/sec_capital_allocation_event_20260717/summary.json`
   - `outputs/sec_capital_allocation_event_20260717/source_screen_summary.json`
+
+### 2026-07-17 - Pre-pricing does not rescue capital actions; semiconductor damage needs factor/residual separation
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-sec-capital-actions-20260717`
+  - `outputs/sec_capital_allocation_timing_20260717/`
+  - `outputs/run287_holding_risk_watch_full_20260717_close_20260716/`
+  - `outputs/run287_semiconductor_damage_20260717_close_20260716/`
+- Context:
+  - The user asked whether capital actions were already priced before SEC acceptance, whether other horizons work, and whether the system reacted to the ongoing semiconductor collapse.
+- Attempt:
+  - Decomposed frozen capital-action events into pre-5/21/63D, acceptance reaction, and post-1/5/21/63/126/252/504D SPY-excess windows without changing the signal.
+  - Collected exact 2026-07-16 closes for all held names and semiconductor benchmarks and reran the past-only holding-risk watch.
+  - Added a descriptive SOXX factor-damage and held-name SOXX-residual diagnostic, plus historical next-close shock outcomes.
+- Result:
+  - Capital-action positive events were already -0.63% SPY-excess before acceptance and remained -2.01% at 63D, -2.31% at 126D, and -5.27% at 252D OOS. Pre-pricing does not explain away the rejection.
+  - Main lost 2.41% on 2026-07-16 and is -1.28% from its 2026-07-13 paper seed. Concentrated lost 8.99% and is -14.53% from seed, with 0.84% cash.
+  - Concentrated direct semiconductor weight is 59.13% and broader hardware weight is 99.16%. WDC and SNDK are both past-2.5%-tail SOXX residual shocks.
+  - SOXX is WATCH with trend and drawdown damage; its rolling 1D tail did not fire because repeated crashes moved the past threshold to -4.93%.
+  - Historical tail and damage events generally rebounded; OOS transition samples are below 12. The verdict is `UNDERPOWERED_NO_PORTFOLIO_ACTION`.
+  - No target, weight, cash, order, fullrun, production, or live state changed.
+- Failure or caveat:
+  - Companyfacts acceptance is not necessarily first disclosure of a repurchase or financing action.
+  - The current memory-versus-big-tech rotation counterfactual is one inspected episode and cannot define a rule.
+  - Next-close execution cannot protect a loss that occurs before the next actionable close.
+- Reusable lesson:
+  - Display one-day shock, multi-session factor damage, and security factor-residual damage separately; rolling tail thresholds adapt during a crash.
+  - A risk alert and an exit edge are different claims. Historical post-shock rebounds require an independent fundamental-break gate before testing a sale or replacement.
+  - Use actual first-disclosure authorization/offering events rather than filing-period cumulative Companyfacts amounts for the next capital-action lane.
+- Next action:
+  - Add the factor/residual columns to daily advisory publishing after review, with no execution hook.
+  - Accumulate at least 12 OOS factor episodes and 200 resolved security outcomes before one fixed shadow A/B.
+  - Build exact accepted-time first-disclosure repurchase/convertible event extraction as the next historical source.
+- Do-not-repeat:
+  - Do not create an immediate semiconductor exit, cash floor, sector cap, or big-tech rotation rule from the current episode.
+  - Do not tune the capital-action horizon or materiality threshold after seeing these results.
+- Evidence files:
+  - `docs/CODEX_RUN287_CAPITAL_TIMING_AND_SEMI_DAMAGE_RESULT_20260717.md`
+  - `tools/analyze_sec_capital_action_timing.py`
+  - `tools/analyze_run287_semiconductor_damage.py`
+  - `tests/sec_capital_action_timing_smoke.py`
+  - `tests/run287_semiconductor_damage_smoke.py`
