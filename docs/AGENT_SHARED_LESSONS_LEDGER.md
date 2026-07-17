@@ -3226,3 +3226,50 @@ Expected contract:
   - `docs/run287_exact_fundamental_break_contract_v1.json`
   - `tools/build_run287_exact_fundamental_breaks.py`
   - `docs/CODEX_RUN287_SAME_CLOSE_AND_FUNDAMENTAL_BREAK_RESULT_20260717.md`
+
+### 2026-07-18 - Exact-close packets must distinguish terminal securities, taxonomy missingness, and adjusted-price restatements
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-durable-quality-learning-20260717`
+  - `outputs/run287_exact_packet_upstream/attempts/local-20260717-close-20260716-neutral-v12/`
+  - `outputs/run287_exact_packet_input_registry_20260718_close_20260716/`
+  - `outputs/run287_exact_packet_producer_20260718_close_20260716_v2/`
+- Context:
+  - The 2026-07-16 exact-close upstream chain was blocked by one missing GTLS close and then by NKE/GE canonical operating-income coverage.
+  - The completed selector packet later exposed MRVL/MU/UMC adjusted-close overlap mismatches.
+- Attempt:
+  - Added an exact SEC terminal-lifecycle exclusion contract for the completed GTLS cash acquisition rather than carrying or fabricating a close.
+  - Added exact-accession-scoped single-field missing-neutral declarations for NKE and GE, with no synthesis or stale-value carry.
+  - Made append-only stage resume follow hash-verified manifest pointers across attempts and follow the reused macro manifest's actual cache directory.
+  - Hash-pinned a dated SOXX source and kept the candidate overlap tolerance fixed while separating raw-close identity from dividend-driven adjusted-history restatement.
+- Result:
+  - Upstream, registry, and no-write selector/risk producer are READY for the 2026-07-16 close.
+  - The decision frame contains 988 active tickers plus one verified terminal ticker, 238 model features, 87/87 exact accepted SEC rows, zero future rows, and zero missing-neutral violations.
+  - Resume completed with zero additional network requests.
+  - The no-write selector proposes 7.87%-9.12% Main cash and 61.95% Concentrated cash, but turnover is 93%-99% and the candidate-risk gate finds 4 ALERT and 3 WATCH names. No transition is allowed.
+  - No target, cash, order, backtest, fullrun, production, or live state changed; historical CAGR/MDD evidence is unchanged.
+- Failure or caveat:
+  - Current ticker/CIK identity is still not a PIT membership history.
+  - Exact-accession missing-neutral declarations are date-specific diagnostics, not permanent issuer exemptions.
+  - A GREEN broad-market state does not make semiconductor candidates safe, and a high-cash advisory snapshot is not a validated allocation rule.
+- Reusable lesson:
+  - Terminal corporate actions must remove a security through accepted-time evidence, never through a fake final close.
+  - When one exact filing taxonomy component is absent, allow only a preregistered accession-and-field match and leave the value neutral.
+  - Verify provider overlap with raw closes; replace the recent provider adjusted-history window and rebase older history when dividend adjustments are restated.
+  - A resumable pipeline must follow manifest provenance, not reconstruct a stage directory from the newest attempt id.
+- Next action:
+  - Append the immutable packet to the forward causal archive and resolve fixed 1/5/21/63/126-session outcomes.
+  - Keep the high-cash Concentrated snapshot review-only until independent forward and historical gates support a challenger.
+- Do-not-repeat:
+  - Do not carry GTLS forward, fabricate its 2026-07-16 close, or silently shrink the 989-name contract.
+  - Do not synthesize NKE/GE operating income or turn the accession-specific exception into a ticker-wide waiver.
+  - Do not relax the overlap tolerance to accommodate adjusted-close restatements.
+  - Do not execute the 61.95% cash recommendation or tune risk/cash thresholds from this one semiconductor episode.
+- Evidence files:
+  - `data_static/run287_exact_packet/terminal_lifecycle_events.csv`
+  - `docs/run287_exact_packet_upstream_plan.json`
+  - `docs/CODEX_RUN287_EXACT_CLOSE_PACKET_RESULT_20260718.md`
+  - `tools/run_run287_exact_packet_upstream.py`
+  - `tools/build_run287_current_decision_frame.py`
+  - `tools/build_run287_candidate_risk_watch.py`

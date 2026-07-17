@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -43,7 +44,8 @@ from tools.build_run287_feature_frame_pilot import (  # noqa: E402
 )
 
 
-SCHEMA_VERSION = "run287-current-decision-frame-v1"
+SCHEMA_VERSION = "run287-current-decision-frame-v2"
+SEC_ACCESSION_PATTERN = re.compile(r"^\d{10}-\d{2}-\d{6}$")
 
 
 def repo_path(value: str | Path) -> Path:
@@ -145,6 +147,58 @@ def normalize_period_columns(frame: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
+def parse_partial_core_missing_neutral(
+    values: Any,
+) -> dict[tuple[str, str], str]:
+    """Parse exact-accession-scoped missing-neutral declarations.
+
+    A declaration never supplies or carries a value. It only permits one
+    named core field to remain missing for one exact accepted accession; the
+    frozen scaler must still turn that missing input into its neutral value.
+    """
+    mappings: dict[tuple[str, str], str] = {}
+    for raw in list(values or []):
+        identity, separator, field_text = str(raw).partition("=")
+        ticker, identity_separator, accession = identity.partition("|")
+        ticker = ticker.upper().strip()
+        accession = accession.strip()
+        field = field_text.strip()
+        if (
+            not separator
+            or not identity_separator
+            or not ticker
+            or not SEC_ACCESSION_PATTERN.fullmatch(accession)
+            or not field
+        ):
+            raise ValueError(
+                "expected TICKER|ACCESSION=core_field, got " + repr(raw)
+            )
+        if field not in CORE_FUNDAMENTAL_MINIMUM_FIELDS:
+            raise ValueError(f"unknown partial-core field for {ticker}: {field}")
+        key = (ticker, accession)
+        if key in mappings:
+            raise ValueError(f"duplicate partial-core declaration: {ticker}|{accession}")
+        mappings[key] = field
+    return mappings
+
+
+def partial_core_missing_neutral_allowed(
+    *,
+    declared_field: str | None,
+    missing_core_fields: set[str],
+    core_coverage: int,
+    expected_selected_count: int,
+    expected_exact_record_count: int,
+) -> bool:
+    return bool(
+        declared_field
+        and missing_core_fields == {declared_field}
+        and core_coverage == len(CORE_FUNDAMENTAL_MINIMUM_FIELDS) - 1
+        and expected_selected_count > 0
+        and expected_exact_record_count > 0
+    )
+
+
 def build(args: argparse.Namespace) -> dict[str, Any]:
     latest_path = repo_path(args.scored_latest_manifest)
     macro_path = repo_path(args.macro_manifest)
@@ -159,12 +213,32 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if pd.isna(decision_time):
         raise ValueError("valid decision_time_utc is required")
     valuation_date = pd.Timestamp(args.valuation_close_date).date().isoformat()
+    blockers: list[str] = []
+    try:
+        partial_core_contract = parse_partial_core_missing_neutral(
+            getattr(args, "expected_partial_core_missing_neutral", None)
+        )
+    except ValueError as exc:
+        blockers.append(f"partial_core_missing_neutral_contract:{exc}")
+        partial_core_contract = {}
+    partial_core_applied_keys: set[tuple[str, str]] = set()
 
     latest_manifest = read_json(latest_path)
     macro_manifest = read_json(macro_path)
     benchmark_manifest = read_json(benchmark_path)
     sec_manifest = read_json(sec_path)
     companyfacts_manifest = read_json(companyfacts_path)
+    latest_coverage = latest_manifest.get("coverage") or {}
+    expected_context_count = int(
+        latest_coverage.get("current_context_count") or -1
+    )
+    terminal_exclusion_count = int(
+        latest_coverage.get("terminal_lifecycle_exclusion_count") or 0
+    )
+    base_context_count = int(
+        latest_coverage.get("base_context_count")
+        or (expected_context_count + terminal_exclusion_count)
+    )
     expected_status = {
         "scored_latest": latest_manifest.get("status") == "READY_RESEARCH_SCORED_LATEST",
         "macro": macro_manifest.get("status") == "READY_CONSERVATIVE_MACRO_SIDECAR",
@@ -172,7 +246,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "sec_delta": sec_manifest.get("status") == "READY_RECENT_SEC_ACCEPTED_DELTA",
         "companyfacts": companyfacts_manifest.get("status") == "READY_RECENT_COMPANYFACTS_DELTA",
     }
-    blockers = [f"upstream_status:{key}" for key, value in expected_status.items() if not value]
+    blockers.extend(
+        f"upstream_status:{key}" for key, value in expected_status.items() if not value
+    )
     manifest_dates = {
         str(latest_manifest.get("session_date") or ""),
         str(macro_manifest.get("valuation_close_date") or ""),
@@ -196,8 +272,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     model_meta_path = source_path(latest_path, latest_manifest, "model_meta")
     context = pd.read_parquet(context_path)
     context["ticker"] = context["ticker"].astype(str).str.upper().str.strip()
-    if len(context) != 989 or context["ticker"].duplicated().any():
-        blockers.append("selection_context_989_unique_contract")
+    if (
+        expected_context_count <= 0
+        or base_context_count != 989
+        or expected_context_count + terminal_exclusion_count != base_context_count
+        or len(context) != expected_context_count
+        or context["ticker"].duplicated().any()
+    ):
+        blockers.append("selection_context_active_plus_terminal_989_contract")
     model_meta = read_json(model_meta_path)
     model_features = [str(value) for value in model_meta.get("model_features") or []]
     if len(model_features) != 238 or set(model_features) != set(model_meta.get("scaler") or {}):
@@ -268,6 +350,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         selected = select_accession_field_records(exact)
         panel = build_exact_fundamental_panel(selected)
         expected_panel = panel[panel.get("accession_number", pd.Series(dtype=str)).astype(str).eq(accession)] if not panel.empty else pd.DataFrame()
+        expected_exact = exact[
+            exact.get("accession_number", pd.Series(dtype=str)).astype(str).eq(accession)
+        ] if not exact.empty else pd.DataFrame()
+        expected_selected = selected[
+            selected.get("accession_number", pd.Series(dtype=str)).astype(str).eq(accession)
+        ] if not selected.empty else pd.DataFrame()
+        declared_partial_field = partial_core_contract.get((ticker, accession))
+        missing_core_fields: set[str] = set()
+        core_coverage = 0
+        partial_core_missing_neutral_applied = False
         if len(expected_panel) != 1:
             ticker_blockers.append(f"expected_accession_panel_count:{len(expected_panel)}")
         if ticker_blockers:
@@ -278,7 +370,29 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if pd.isna(latest_available) or latest_available > decision_time:
                 ticker_blockers.append("fundamental_available_after_decision")
             core_coverage = int(latest_fundamental[list(CORE_FUNDAMENTAL_MINIMUM_FIELDS)].notna().sum())
-            if core_coverage != len(CORE_FUNDAMENTAL_MINIMUM_FIELDS):
+            missing_core_fields = {
+                field
+                for field in CORE_FUNDAMENTAL_MINIMUM_FIELDS
+                if pd.isna(latest_fundamental.get(field))
+            }
+            partial_core_missing_neutral_applied = partial_core_missing_neutral_allowed(
+                declared_field=declared_partial_field,
+                missing_core_fields=missing_core_fields,
+                core_coverage=core_coverage,
+                expected_selected_count=len(expected_selected),
+                expected_exact_record_count=len(expected_exact),
+            )
+            if declared_partial_field is not None and not partial_core_missing_neutral_applied:
+                ticker_blockers.append(
+                    "partial_core_missing_neutral_mismatch:expected="
+                    + declared_partial_field
+                    + ":actual="
+                    + ",".join(sorted(missing_core_fields))
+                )
+            if (
+                not partial_core_missing_neutral_applied
+                and core_coverage != len(CORE_FUNDAMENTAL_MINIMUM_FIELDS)
+            ):
                 ticker_blockers.append(
                     f"core_component_coverage:{core_coverage}/{len(CORE_FUNDAMENTAL_MINIMUM_FIELDS)}"
                 )
@@ -286,6 +400,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 ticker_blockers.append("selected_exact_acceptance_not_100pct")
             if not selected.empty and pd.to_datetime(selected["available_from"], errors="coerce", utc=True).gt(decision_time).any():
                 ticker_blockers.append("future_selected_companyfacts_row")
+            if partial_core_missing_neutral_applied and ticker_blockers:
+                partial_core_missing_neutral_applied = False
+            elif partial_core_missing_neutral_applied:
+                partial_core_applied_keys.add((ticker, accession))
         if not ticker_blockers:
             price = float(pd.to_numeric(pd.Series([base_row.get("current_price_live", base_row.get("px"))]), errors="coerce").iloc[0])
             latest_fundamental = apply_current_valuation_overrides(
@@ -331,8 +449,21 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "exact_record_count": int(len(exact)), "selected_record_count": int(len(selected)),
             "panel_row_count": int(len(panel)), "candidate_fact_count": counters.get("candidate_fact_count", 0),
             "future_available_fact_count": counters.get("future_available_fact_count", 0),
+            "core_component_coverage": core_coverage,
+            "missing_core_fields": "|".join(sorted(missing_core_fields)),
+            "declared_partial_core_missing_field": declared_partial_field or "",
+            "partial_core_missing_neutral_applied": partial_core_missing_neutral_applied,
             "blockers": "|".join(ticker_blockers),
         })
+
+    unapplied_partial_contracts = sorted(
+        set(partial_core_contract).difference(partial_core_applied_keys)
+    )
+    if unapplied_partial_contracts:
+        blockers.append(
+            "partial_core_missing_neutral_not_applied:"
+            + ",".join(f"{ticker}|{accession}" for ticker, accession in unapplied_partial_contracts)
+        )
 
     macro_row = macro_current.iloc[0]
     for column, value in macro_row.items():
@@ -367,7 +498,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     context = context.sort_values("ticker").reset_index(drop=True)
     raw_model = context.reindex(columns=model_features).apply(pd.to_numeric, errors="coerce")
     scaled_matrix = apply_scaler(context, model_meta.get("scaler") or {}, model_features)
-    if scaled_matrix.shape != (989, 238) or not np.isfinite(scaled_matrix).all():
+    if scaled_matrix.shape != (expected_context_count, 238) or not np.isfinite(scaled_matrix).all():
         blockers.append("scaled_model_matrix_contract")
     scaled = pd.DataFrame(scaled_matrix, columns=model_features)
     scaled.insert(0, "ticker", context["ticker"])
@@ -448,6 +579,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "research_only": True,
         "coverage": {
             "decision_ticker_count": int(len(context)),
+            "base_context_count": base_context_count,
+            "terminal_lifecycle_exclusion_count": terminal_exclusion_count,
+            "terminal_lifecycle_excluded_tickers": list(
+                latest_coverage.get("terminal_lifecycle_excluded_tickers") or []
+            ),
             "model_feature_count": len(model_features),
             "selection_context_column_count": int(len(context.columns)),
             "raw_model_feature_finite_ratio": float(raw_model.notna().to_numpy().mean()),
@@ -458,6 +594,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "sec_candidate_count": int(len(sec_delta)),
             "fundamental_refresh_candidate_count": int(len(statements)),
             "fundamental_refresh_resolved_count": int(sum(not row.get("blockers") for row in fundamental_audits)),
+            "partial_core_missing_neutral_declared_count": len(partial_core_contract),
+            "partial_core_missing_neutral_applied_count": len(partial_core_applied_keys),
+            "partial_core_missing_neutral_applied_tickers": sorted(
+                {ticker for ticker, _ in partial_core_applied_keys}
+            ),
         },
         "source_inputs": {
             "scored_latest_manifest": fingerprint(latest_path),
@@ -495,6 +636,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--valuation-close-date", required=True)
     parser.add_argument("--decision-time-utc", required=True)
     parser.add_argument("--missing-neutral-tolerance", type=float, default=1e-12)
+    parser.add_argument(
+        "--expected-partial-core-missing-neutral",
+        action="append",
+        default=[],
+        help=(
+            "Repeat as TICKER|ACCESSION=core_field. Allows exactly one named "
+            "missing core field for that exact accession; the value remains missing-neutral."
+        ),
+    )
     parser.add_argument("--output-dir", required=True)
     return parser.parse_args()
 

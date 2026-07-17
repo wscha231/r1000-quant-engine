@@ -80,6 +80,10 @@
     "official_crisis_thresholds": {
       "path": "data_static/run287_exact_packet/best_thresholds.json",
       "sha256": "d108c017e301f6929e1441827d5a19c02beb0d89727dbbff40f94f3e504d2da2"
+    },
+    "terminal_lifecycle_events": {
+      "path": "data_static/run287_exact_packet/terminal_lifecycle_events.csv",
+      "sha256": "8f38aa39747034be3d09f34cb0991f68440368924490b3b0f44e6792151cb0f7"
     }
   },
   "directories": {
@@ -94,19 +98,31 @@
     "scored_latest_provider_batches": 32,
     "macro": 24,
     "benchmark": 1,
-    "recent_sec": 64,
+    "recent_sec": 80,
     "companyfacts": 8,
     "selector_benchmark": 0,
     "maximum_total_recorded_requests": 130
   },
   "runtime": {
     "stage_timeout_seconds": 900,
-    "price_batch_size": 40,
+    "price_batch_size": 100,
     "expected_context_count": 989,
     "expected_model_feature_count": 238,
     "expected_macro_price_file_count": 9,
     "expected_macro_file_count": 14,
-    "expected_policy_commit": "15176b588d5bb0792bce1df6367758d795a8a33a"
+    "expected_policy_commit": "15176b588d5bb0792bce1df6367758d795a8a33a",
+    "expected_partial_core_missing_neutral_by_valuation_date": {
+      "2026-07-16": [
+        "GE|0000040545-26-000049=op_income_ttm",
+        "NKE|0000320187-26-000088=op_income_ttm"
+      ]
+    },
+    "selector_benchmark_price_by_valuation_date": {
+      "2026-07-16": {
+        "path": "outputs/run287_semiconductor_shock_price_cache_20260717/772a0d2cc3a93b46.parquet",
+        "sha256": "6d24de2fe6ee35969e8d06ad8958c300e44f88a1bea083cc865a28da5a92fa95"
+      }
+    }
   },
   "safety": {
     "research_only": true,

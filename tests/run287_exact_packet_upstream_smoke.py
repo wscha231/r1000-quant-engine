@@ -23,6 +23,8 @@ from tools.run_run287_exact_packet_upstream import (
     build,
     existing_bundle_records,
     nyse_sec_index_dates,
+    resolve_selector_benchmark_source,
+    resume_stage_manifest_paths,
 )
 
 
@@ -47,6 +49,7 @@ PATH_LABELS = (
     "target_generation_manifest",
     "official_daily_crisis_state",
     "official_crisis_thresholds",
+    "terminal_lifecycle_events",
 )
 
 
@@ -55,6 +58,7 @@ def arguments(root: Path, plan: Path, attempt: str) -> argparse.Namespace:
         valuation_date="2026-07-13",
         decision_time_utc="2026-07-14T05:00:00Z",
         attempt_id=attempt,
+        resume_attempt_id="",
         plan=str(plan),
         path_override=[],
         directory_override=[],
@@ -161,6 +165,57 @@ class UpstreamSmoke(unittest.TestCase):
             result = existing_bundle_records(root, "2026-07-13")
             self.assertIsNotNone(result)
             self.assertEqual(result[1], {"decision_manifest": "exact.json"})
+
+    def test_resume_follows_hash_verified_stage_audit_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "older" / "manifest.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"status":"READY"}\n', encoding="utf-8")
+            status_path = root / "resume" / "status.json"
+            status_path.parent.mkdir(parents=True)
+            status = {
+                "stage_audit": [
+                    {
+                        "name": "scored_latest",
+                        "failures": [],
+                        "manifest": {
+                            "path": str(manifest),
+                            "sha256": sha256_file(manifest),
+                        },
+                    }
+                ]
+            }
+            self.assertEqual(
+                resume_stage_manifest_paths(status, status_path),
+                {"scored_latest": manifest},
+            )
+            self.assertEqual(
+                resume_stage_manifest_paths(status, status_path)[
+                    "scored_latest"
+                ].parent,
+                manifest.parent,
+            )
+
+    def test_dated_selector_benchmark_source_is_hash_pinned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "soxx.parquet"
+            source.write_bytes(b"exact-close-source")
+            runtime = {
+                "selector_benchmark_price_by_valuation_date": {
+                    "2026-07-16": {
+                        "path": str(source),
+                        "sha256": sha256_file(source),
+                    }
+                }
+            }
+            cache, audit, failures = resolve_selector_benchmark_source(
+                runtime, "2026-07-16", root / "default"
+            )
+            self.assertEqual(cache, root)
+            self.assertEqual(failures, [])
+            self.assertTrue(audit["hash_matches"])
 
     def test_network_retry_reuses_validated_same_date_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

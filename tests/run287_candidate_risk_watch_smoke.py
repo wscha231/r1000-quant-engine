@@ -147,6 +147,39 @@ def main() -> None:
             row["ticker"]: sha256_file(Path(row["path"])) for row in price_rows
         }
 
+        # A later provider snapshot may restate historical adjusted closes
+        # after a dividend while raw closes remain identical. This must not be
+        # treated as a ticker/source mismatch or introduce a splice jump.
+        restated_provider = provider.copy()
+        restated_dates = pd.to_datetime(
+            restated_provider["Date"], errors="coerce", utc=True
+        ).dt.tz_convert(None)
+        restated_mask = (
+            restated_provider["ticker"].eq("NORMAL")
+            & restated_dates.lt(ASOF - pd.offsets.BDay(5))
+        )
+        restated_provider.loc[restated_mask, "Adj Close"] *= 0.98
+        restated_audit, restated_failures = build_isolated_cache(
+            candidates=candidates,
+            price_map=price_map,
+            provider=restated_provider,
+            macro_cache=macro_cache,
+            expected_spy_sha256=spy_hash,
+            isolated_cache=root / "restated_isolated",
+            valuation=ASOF,
+            minimum_overlap=20,
+            maximum_relative_error=1e-5,
+        )
+        assert restated_failures == [], restated_failures
+        restated_normal = restated_audit.set_index("ticker").loc["NORMAL"]
+        assert float(restated_normal["provider_overlap_max_relative_error"]) == 0.0
+        assert float(
+            restated_normal["provider_adjusted_overlap_max_relative_error"]
+        ) > 0.01
+        assert abs(
+            float(restated_normal["historical_adjustment_rebase_factor"]) - 0.98
+        ) < 1e-12
+
         base_contract = json.loads(
             (ROOT / "docs" / "run287_holding_risk_watch_contract.json").read_text(
                 encoding="utf-8"

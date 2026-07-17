@@ -28,7 +28,7 @@
       "required_status": "PASS"
     },
     "exact_upstream": {
-      "schema_version": "run287-exact-packet-upstream-orchestrator-v1",
+      "schema_version": "run287-exact-packet-upstream-orchestrator-v2",
       "allowed_statuses": [
         "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY",
         "READY_EXISTING_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY"

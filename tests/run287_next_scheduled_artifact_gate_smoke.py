@@ -97,7 +97,7 @@ def fixture(td: str, *, one_day_completed: int = 26) -> dict[str, Path]:
         "rows": [{"ticker": "SPY", "actual_price_date": "2026-07-14", "exact_close_present": True}],
     })
     write_json(paths["upstream"], {
-        "schema_version": "run287-exact-packet-upstream-orchestrator-v1",
+        "schema_version": "run287-exact-packet-upstream-orchestrator-v2",
         "status": "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY",
         "valuation_price_cutoff_date": "2026-07-14", "upstream_ready": True, "research_only": True,
         "historical_cagr_mdd_evidence_changed": False,

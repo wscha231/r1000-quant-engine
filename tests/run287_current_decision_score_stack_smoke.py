@@ -17,6 +17,9 @@ from tools.run_run287_current_decision_score_stack_audit import (  # noqa: E402
     ACTIVE_PREDICTION_COLUMNS,
     prediction_activity_rows,
 )
+from tools.run_run287_current_decision_score_only import (  # noqa: E402
+    decision_frame_schema_supported,
+)
 from tools.run_run287_current_score_stack_audit import (  # noqa: E402
     PREDICTION_COLUMNS,
     compare_frames,
@@ -87,9 +90,16 @@ def test_prediction_passthrough_comparison_is_exact_and_fail_closed() -> None:
     assert mismatch[0]["mismatch_count"] == 1
 
 
+def test_score_stack_accepts_only_registered_decision_frame_schemas() -> None:
+    assert decision_frame_schema_supported("run287-current-decision-frame-v1")
+    assert decision_frame_schema_supported("run287-current-decision-frame-v2")
+    assert not decision_frame_schema_supported("run287-current-decision-frame-v3")
+
+
 if __name__ == "__main__":
     test_stale_predictions_are_removed_before_fresh_join()
     test_prediction_activity_rejects_silent_all_zero_heads()
     test_prediction_activity_accepts_finite_varying_heads()
     test_prediction_passthrough_comparison_is_exact_and_fail_closed()
+    test_score_stack_accepts_only_registered_decision_frame_schemas()
     print("run287_current_decision_score_stack_smoke: PASS")
