@@ -3176,3 +3176,53 @@ Expected contract:
   - `tools/audit_run287_dual_tempo_policy.py`
   - `tests/run287_dual_tempo_policy_smoke.py`
   - `docs/CODEX_RUN287_DUAL_TEMPO_POLICY_RESULT_20260717.md`
+
+### 2026-07-17 - Latest-close valuation is not same-close selector provenance
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-durable-quality-learning-20260717`
+  - GitHub daily operating run `29554723038`
+  - `outputs/run287_same_close_selector_snapshot_20260717_close_20260716/`
+  - `outputs/run287_fundamental_breaks_20260717_close_20260716/`
+  - `outputs/run287_dual_tempo_policy_20260717_close_20260716_v3/`
+- Context:
+  - The dual-tempo rotation gate required a same-close superior challenger and an exact-accepted fundamental break.
+  - The latest successful daily artifact claimed current 2026-07-16 operating books, while the prior SEC filing-quality source screen was already frozen as rejected.
+- Attempt:
+  - Downloaded and audited the successful GitHub artifact rather than trusting its top-level freshness label.
+  - Separated selector signal date, valuation close, and evidence availability, and required an explicit rank-recomputation flag plus selector-qualification columns.
+  - Built a conservative filing-break sidecar from exact accepted comparable filings and the frozen source-screen verdict.
+  - Wired both gates into the continuous-learning and dual-tempo review-only path.
+- Result:
+  - Main's 17 rows were revalued at the 2026-07-16 close but had no auditable signal source date; Concentrated's three rows retained a 2026-05-08 feature date.
+  - Neither portfolio contained an explicit same-close rank recomputation or selector-qualified challenger.
+  - GLW and PR had negative latest comparable exact filings, but both are review-only. The frozen source verdict is `REJECT_SOURCE_SCREEN`, and the event archive ends 2026-07-09 instead of covering the 2026-07-16 operating close.
+  - Confirmed breaks and rotations remain zero; Main stays `WATCH` and Concentrated stays `DEFEND`.
+  - No target, weight, cash, order, score, model, fullrun, production, or live state changed.
+- Failure or caveat:
+  - `daily_operating_selection_refresh` restores and revalues current target books; it does not recompute a decision-complete full-universe selector.
+  - Negative accounting components do not become an exit edge merely because a currently held stock is under price pressure.
+  - The current exact event archive cannot prove that no newer filing arrived after 2026-07-09.
+- Root cause:
+  - The legacy candidate builder backfilled missing `rebalance_date` with the valuation close, collapsing two distinct clocks and manufacturing apparent Main freshness.
+  - The only available exact filing-quality event semantics failed their preregistered OOS uncertainty gates.
+- Reusable lesson:
+  - A current price date proves valuation freshness, not signal freshness.
+  - Require explicit signal provenance, explicit recomputation, and qualification fields before calling a challenger same-close.
+  - A rejected source signal may populate a review queue but must never be relabeled as a confirmed break or action gate.
+- Next action:
+  - Produce one bounded decision-complete full-cross-section selector snapshot with truthful same-close provenance.
+  - Catch the accepted-time SEC archive up through the latest completed operating session.
+  - Continue fixed 21/63-day forward state outcomes; do not open a portfolio A/B until both confirmation gates pass.
+- Do-not-repeat:
+  - Do not infer a selector date from a valuation-alignment `rebalance_date`.
+  - Do not substitute the tactical-alpha plan or restored target ranks for the registered selector.
+  - Do not retune or rename `sec_filing_quality_event` after its frozen rejection.
+  - Do not use GLW or PR's negative review label as an automatic sell or cash-raising trigger.
+- Evidence files:
+  - `docs/run287_same_close_selector_snapshot_contract_v1.json`
+  - `tools/audit_run287_same_close_selector_snapshot.py`
+  - `docs/run287_exact_fundamental_break_contract_v1.json`
+  - `tools/build_run287_exact_fundamental_breaks.py`
+  - `docs/CODEX_RUN287_SAME_CLOSE_AND_FUNDAMENTAL_BREAK_RESULT_20260717.md`

@@ -352,16 +352,34 @@ jobs:
           out = pd.concat(frames, ignore_index=True, sort=False)
           out["ticker"] = out["ticker"].astype(str).str.upper().str.strip()
           out = out[out["ticker"].ne("") & out["ticker"].ne("NAN")].copy()
-          date_cols = [c for c in ["rebalance_date", "feature_date", "as_of_date", "last_trade_date"] if c in out.columns]
-          if date_cols:
-              parsed = pd.DataFrame({c: pd.to_datetime(out[c], errors="coerce") for c in date_cols})
-              row_dates = parsed.max(axis=1)
+          # Keep the selector signal clock separate from the latest valuation
+          # close.  A restored target book is not a same-close selector rerun.
+          source_date_cols = [
+              c for c in ["signal_source_date", "selector_decision_date", "feature_date", "as_of_date", "rebalance_date"]
+              if c in out.columns
+          ]
+          if source_date_cols:
+              parsed = pd.DataFrame({c: pd.to_datetime(out[c], errors="coerce") for c in source_date_cols})
+              source_dates = parsed.max(axis=1)
           else:
-              row_dates = pd.Series(pd.NaT, index=out.index)
+              source_dates = pd.Series(pd.NaT, index=out.index)
           cutoff = pd.Timestamp(latest_close_date)
-          row_dates = row_dates.where(row_dates.notna(), cutoff)
-          row_dates = row_dates.mask(row_dates > cutoff, cutoff)
-          out["rebalance_date"] = pd.to_datetime(row_dates, errors="coerce").dt.strftime("%Y-%m-%d")
+          source_dates = source_dates.mask(source_dates > cutoff)
+          out["signal_source_date"] = pd.to_datetime(source_dates, errors="coerce").dt.strftime("%Y-%m-%d")
+          out["valuation_close_date"] = latest_close_date
+          if "same_close_rank_recomputed" in out.columns:
+              explicit_recompute = out["same_close_rank_recomputed"].astype(str).str.lower().isin(["1", "true", "yes"])
+          else:
+              explicit_recompute = pd.Series(False, index=out.index)
+          out["same_close_rank_recomputed"] = explicit_recompute & source_dates.eq(cutoff)
+          out["candidate_snapshot_role"] = out["same_close_rank_recomputed"].map(
+              {True: "SAME_CLOSE_SELECTOR_CANDIDATE", False: "RESTORED_TARGET_REVALUATION_ONLY"}
+          )
+          effective_dates = source_dates.where(source_dates.notna(), cutoff)
+          out["rebalance_date"] = pd.to_datetime(effective_dates, errors="coerce").dt.strftime("%Y-%m-%d")
+          out["rebalance_date_role"] = source_dates.notna().map(
+              {True: "SOURCE_SIGNAL_DATE", False: "VALUATION_ALIGNMENT_ONLY"}
+          )
           out = out.drop_duplicates(subset=["rebalance_date", "ticker"], keep="last")
           output = Path("outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv")
           output.parent.mkdir(parents=True, exist_ok=True)
@@ -370,6 +388,14 @@ jobs:
           PY
           CANDIDATE_BOOK="outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv"
           if [ -s "$CANDIDATE_BOOK" ]; then
+            python tools/audit_run287_same_close_selector_snapshot.py \
+              --candidate-book "$CANDIDATE_BOOK" \
+              --session-json outputs/daily_market_session_gate/session.json \
+              --recorded-at-utc "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+              --source-run-id "${GITHUB_RUN_ID}" \
+              --source-commit-sha "${GITHUB_SHA}" \
+              --output-dir outputs/run287_same_close_selector_snapshot \
+              2>&1 | tee outputs/full_rebuild_logs/daily_same_close_selector_snapshot.log
             echo "[daily-operating] building SEC-enriched candidate replay from $CANDIDATE_BOOK" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
             timeout 8m python tools/run_sec_enriched_candidate_replay.py \
               --candidate-book "$CANDIDATE_BOOK" \
@@ -474,6 +500,12 @@ jobs:
           coverage_path = Path("outputs/daily_market_session_gate/close_price_coverage.json")
           session = json.loads(session_path.read_text(encoding="utf-8")) if session_path.exists() else {}
           coverage = json.loads(coverage_path.read_text(encoding="utf-8")) if coverage_path.exists() else {}
+          selector_snapshot_path = Path("outputs/run287_same_close_selector_snapshot/summary.json")
+          selector_snapshot = (
+              json.loads(selector_snapshot_path.read_text(encoding="utf-8"))
+              if selector_snapshot_path.exists()
+              else {}
+          )
           completed_session_date = os.environ.get("LAST_NYSE_SESSION_DATE", "")
           exact_close_ready = bool(
               session.get("ready") is True
@@ -505,6 +537,9 @@ jobs:
               "selection_allowed": bool(status.get("selection_allowed", False)),
               "promotion_allowed": bool(status.get("promotion_allowed", False)),
               "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
+              "same_close_selector_snapshot_status": selector_snapshot.get("status", "missing"),
+              "same_close_selector_ready_portfolio_count": int(selector_snapshot.get("ready_portfolio_count", 0) or 0),
+              "same_close_challenger_allowed": selector_snapshot.get("status") == "READY_SAME_CLOSE_SELECTOR_SNAPSHOT",
               "data_freshness_contract": "outputs/data_freshness_contract/status.json",
               "canonical_output_note": "This workflow syncs review artifacts under research_runs only; it does not update canonical production outputs.",
           }
@@ -518,7 +553,9 @@ jobs:
               "- live_trading_enabled: `false`\n"
               "- production_mutation_allowed: `false`\n"
               "- human_approval_required: `true`\n"
-              "- source_of_truth_level: `GITHUB_ARTIFACT`\n",
+              "- source_of_truth_level: `GITHUB_ARTIFACT`\n"
+              f"- same_close_selector_snapshot_status: `{summary['same_close_selector_snapshot_status']}`\n"
+              f"- same_close_challenger_allowed: `{str(summary['same_close_challenger_allowed']).lower()}`\n",
               encoding="utf-8",
           )
           if os.environ.get("STRICT_SELECTION", "true").lower() == "true" and not summary["selection_allowed"]:
@@ -719,6 +756,7 @@ jobs:
             outputs/daily_market_snapshot/
             outputs/daily_market_session_gate/
             outputs/daily_operating_selection_refresh/
+            outputs/run287_same_close_selector_snapshot/
             outputs/data_readiness/
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
@@ -739,6 +777,7 @@ jobs:
             outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
             outputs/run287_decision_outcome_ledger/
             outputs/run287_exact_debt_snapshot/
+            outputs/run287_fundamental_breaks/
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -750,6 +789,7 @@ jobs:
             outputs/full_rebuild_logs/daily_user_current_contract.log
             outputs/full_rebuild_logs/daily_paper_bootstrap.log
             outputs/full_rebuild_logs/daily_holding_risk_watch.log
+            outputs/full_rebuild_logs/daily_same_close_selector_snapshot.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_upstream.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log

@@ -24,9 +24,11 @@ if str(ROOT) not in sys.path:
 from tools import audit_run287_model_health as model_health  # noqa: E402
 from tools import audit_run287_policy_attribution as policy_attribution  # noqa: E402
 from tools import audit_run287_dual_tempo_policy as dual_tempo  # noqa: E402
+from tools import audit_run287_same_close_selector_snapshot as selector_snapshot  # noqa: E402
 from tools import build_run287_decision_outcome_ledger as ledger  # noqa: E402
 from tools import build_run287_durable_quality_learning as quality_learning  # noqa: E402
 from tools import build_run287_exact_debt_snapshot as exact_debt  # noqa: E402
+from tools import build_run287_exact_fundamental_breaks as exact_breaks  # noqa: E402
 
 
 def repo_path(value: str | Path) -> Path:
@@ -239,6 +241,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     quality_result: dict[str, Any] = {}
     debt_result: dict[str, Any] = {}
     dual_tempo_result: dict[str, Any] = {}
+    selector_snapshot_result: dict[str, Any] = {}
+    fundamental_break_result: dict[str, Any] = {}
     universe_count = 0
     queue_count = 0
     collection_start = ""
@@ -330,6 +334,95 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "orders_generated": False,
             }
         quality_universe_path = output_dir / "durable_quality_learning" / "durable_quality_universe.csv"
+        selector_candidate_raw = str(getattr(
+            args,
+            "selector_candidate_book",
+            "outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv",
+        ) or "").strip()
+        selector_session_raw = str(getattr(
+            args, "selector_session_json", "outputs/daily_market_session_gate/session.json"
+        ) or "").strip()
+        selector_candidate_path = repo_path(selector_candidate_raw) if selector_candidate_raw else Path()
+        selector_session_path = repo_path(selector_session_raw) if selector_session_raw else Path()
+        selector_readiness_path = Path()
+        if selector_candidate_path.is_file() and selector_session_path.is_file():
+            try:
+                selector_output = output_dir / "same_close_selector_snapshot"
+                selector_snapshot_result = selector_snapshot.build(
+                    SimpleNamespace(
+                        contract=str(repo_path(getattr(
+                            args,
+                            "same_close_selector_contract",
+                            "docs/run287_same_close_selector_snapshot_contract_v1.json",
+                        ))),
+                        candidate_book=str(selector_candidate_path),
+                        session_json=str(selector_session_path),
+                        recorded_at_utc=args.recorded_at_utc,
+                        source_run_id=str(producer.get("source_run_id") or ""),
+                        source_commit_sha=str(producer.get("source_commit_sha") or ""),
+                        output_dir=str(selector_output),
+                    )
+                )
+                selector_readiness_path = selector_output / "selector_snapshot_readiness.csv"
+            except Exception as exc:  # provenance audit must fail closed, not block the ledger
+                selector_snapshot_result = {
+                    "status": "BLOCKED_SAME_CLOSE_SELECTOR_PROVENANCE",
+                    "reason": f"{type(exc).__name__}:{exc}",
+                }
+        else:
+            selector_snapshot_result = {
+                "status": "BLOCKED_SAME_CLOSE_SELECTOR_PROVENANCE_INPUT_MISSING",
+                "candidate_book_exists": selector_candidate_path.is_file(),
+                "session_json_exists": selector_session_path.is_file(),
+            }
+
+        fundamental_breaks_path = repo_path(getattr(
+            args, "fundamental_breaks", "outputs/run287_fundamental_breaks/confirmed_breaks.csv"
+        ))
+        filing_events_raw = str(getattr(
+            args,
+            "filing_quality_events",
+            "outputs/sec_filing_quality_event/sec_filing_quality_events.parquet",
+        ) or "").strip()
+        filing_screen_raw = str(getattr(
+            args,
+            "filing_source_screen_summary",
+            "outputs/sec_filing_quality_event/source_screen_summary.json",
+        ) or "").strip()
+        filing_events_path = repo_path(filing_events_raw) if filing_events_raw else Path()
+        filing_screen_path = repo_path(filing_screen_raw) if filing_screen_raw else Path()
+        if risk_watch_path.is_file() and filing_events_path.is_file() and filing_screen_path.is_file():
+            try:
+                fundamental_break_result = exact_breaks.build(
+                    SimpleNamespace(
+                        contract=str(repo_path(getattr(
+                            args,
+                            "fundamental_break_contract",
+                            "docs/run287_exact_fundamental_break_contract_v1.json",
+                        ))),
+                        events=str(filing_events_path),
+                        source_screen_summary=str(filing_screen_path),
+                        held_risk_watch=str(risk_watch_path),
+                        decision_time_utc=decision_time_utc,
+                        recorded_at_utc=args.recorded_at_utc,
+                        output_dir=str(fundamental_breaks_path.parent),
+                    )
+                )
+                fundamental_breaks_path = fundamental_breaks_path.parent / "confirmed_breaks.csv"
+            except Exception as exc:  # exact break input fails closed
+                fundamental_break_result = {
+                    "status": "BLOCKED_RUN287_EXACT_FUNDAMENTAL_BREAKS",
+                    "reason": f"{type(exc).__name__}:{exc}",
+                }
+                fundamental_breaks_path = Path()
+        else:
+            fundamental_break_result = {
+                "status": "SKIPPED_RUN287_EXACT_FUNDAMENTAL_BREAK_SOURCE_MISSING",
+                "events_exists": filing_events_path.is_file(),
+                "source_screen_exists": filing_screen_path.is_file(),
+            }
+            fundamental_breaks_path = Path()
+
         if risk_watch_path.is_file() and quality_universe_path.is_file():
             try:
                 dual_tempo_result = dual_tempo.build(
@@ -353,10 +446,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             args, "factor_residuals",
                             "outputs/run287_semiconductor_damage/current_sector_residuals.csv",
                         ))),
-                        fundamental_breaks=str(repo_path(getattr(
-                            args, "fundamental_breaks",
-                            "outputs/run287_fundamental_breaks/confirmed_breaks.csv",
-                        ))),
+                        fundamental_breaks=str(fundamental_breaks_path) if fundamental_breaks_path.is_file() else "",
+                        selector_readiness=(
+                            str(selector_readiness_path) if selector_readiness_path.is_file() else ""
+                        ),
                         output_dir=str(output_dir / "dual_tempo_policy"),
                     )
                 )
@@ -411,6 +504,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "dual_tempo_policy_status": dual_tempo_result.get("status", "NOT_RUN"),
         "dual_tempo_portfolio_states": dual_tempo_result.get("portfolio_states", {}),
         "dual_tempo_rotate_count": int(dual_tempo_result.get("rotate_count", 0) or 0),
+        "same_close_selector_snapshot_status": selector_snapshot_result.get("status", "NOT_RUN"),
+        "same_close_selector_ready_portfolio_count": int(
+            selector_snapshot_result.get("ready_portfolio_count", 0) or 0
+        ),
+        "exact_fundamental_break_status": fundamental_break_result.get("status", "NOT_RUN"),
+        "confirmed_exact_fundamental_break_count": int(
+            fundamental_break_result.get("confirmed_break_count", 0) or 0
+        ),
         "model_mutated": False,
         "score_mutated": False,
         "rank_mutated": False,
@@ -445,6 +546,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--factor-summary", default="outputs/run287_semiconductor_damage/summary.json")
     parser.add_argument("--factor-residuals", default="outputs/run287_semiconductor_damage/current_sector_residuals.csv")
     parser.add_argument("--fundamental-breaks", default="outputs/run287_fundamental_breaks/confirmed_breaks.csv")
+    parser.add_argument("--fundamental-break-contract", default="docs/run287_exact_fundamental_break_contract_v1.json")
+    parser.add_argument("--filing-quality-events", default="outputs/sec_filing_quality_event/sec_filing_quality_events.parquet")
+    parser.add_argument("--filing-source-screen-summary", default="outputs/sec_filing_quality_event/source_screen_summary.json")
+    parser.add_argument("--same-close-selector-contract", default="docs/run287_same_close_selector_snapshot_contract_v1.json")
+    parser.add_argument("--selector-candidate-book", default="outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv")
+    parser.add_argument("--selector-session-json", default="outputs/daily_market_session_gate/session.json")
     parser.add_argument("--decision-date", default="")
     parser.add_argument("--as-of-date", required=True)
     parser.add_argument("--recorded-at-utc", required=True)

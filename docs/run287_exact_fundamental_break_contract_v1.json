@@ -1,0 +1,33 @@
+{
+  "schema_version": "run287-exact-fundamental-break-contract-v1",
+  "mode": "research_only_review_sidecar",
+  "objective": "distinguish exact-accepted comparable filing deterioration from price damage without reusing a rejected source signal as an action gate",
+  "source_signal": "sec_filing_quality_event",
+  "confirmation_gate": {
+    "exact_acceptance_required": true,
+    "minimum_comparable_components": 3,
+    "available_from_must_not_follow_decision_time": true,
+    "source_screen_required_verdict": "PASS_SOURCE_SCREEN",
+    "rejected_source_screen_can_confirm_break": false,
+    "missing_is_neutral": true
+  },
+  "statuses": {
+    "CONFIRMED_EXACT_ACCEPTED_BREAK": "negative comparable filing and all confirmation gates pass",
+    "NEGATIVE_EXACT_FILING_REVIEW_ONLY": "negative comparable filing exists but source validation or archive-coverage gate is closed",
+    "NO_EXACT_BREAK_EVIDENCE": "latest comparable filing is nonnegative or unavailable"
+  },
+  "stop_rule": {
+    "rejected_signal_relabeling_prohibited": true,
+    "threshold_or_component_retuning_prohibited": true,
+    "portfolio_ab_allowed_when_source_screen_rejected": false
+  },
+  "safety": {
+    "advisory_only": true,
+    "weight_mutation_allowed": false,
+    "cash_mutation_allowed": false,
+    "order_generation_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false
+  }
+}

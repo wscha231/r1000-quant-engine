@@ -213,6 +213,33 @@ def selector_context(
     return result, incumbents
 
 
+def apply_selector_readiness(
+    selectors: dict[str, dict[str, Any]], path: Path
+) -> dict[str, dict[str, Any]]:
+    """Require explicit same-close provenance in addition to decision dates."""
+    readiness: dict[str, dict[str, Any]] = {}
+    if path.is_file():
+        frame = pd.read_csv(path, low_memory=False)
+        required = {"portfolio_kind", "same_close_selector_ready", "readiness_status"}
+        if not required.issubset(frame.columns):
+            raise ValueError(
+                f"selector readiness file missing columns: {sorted(required - set(frame.columns))}"
+            )
+        frame["portfolio_kind"] = frame["portfolio_kind"].astype(str).str.lower().str.strip()
+        readiness = frame.drop_duplicates("portfolio_kind", keep="last").set_index("portfolio_kind").to_dict("index")
+    for portfolio, selector in selectors.items():
+        evidence = readiness.get(portfolio, {})
+        ready = as_bool(evidence.get("same_close_selector_ready"))
+        selector["selector_provenance_ready"] = ready
+        selector["selector_provenance_status"] = str(
+            evidence.get("readiness_status") or "MISSING_SAME_CLOSE_SELECTOR_PROVENANCE"
+        )
+        selector["selector_fresh_for_risk"] = bool(
+            as_bool(selector.get("selector_fresh_for_risk")) and ready
+        )
+    return selectors
+
+
 def recent_recovery(history: pd.DataFrame, portfolio: str, ticker: str, current_clear: bool) -> bool:
     if history.empty or not current_clear:
         return False
@@ -366,6 +393,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     factor_summary_path = repo_path(args.factor_summary) if str(args.factor_summary or "").strip() else Path()
     residual_path = repo_path(args.factor_residuals) if str(args.factor_residuals or "").strip() else Path()
     breaks_path = repo_path(args.fundamental_breaks) if str(args.fundamental_breaks or "").strip() else Path()
+    readiness_raw = str(getattr(args, "selector_readiness", "") or "").strip()
+    readiness_path = repo_path(readiness_raw) if readiness_raw else Path()
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     contract = read_json(contract_path)
@@ -385,6 +414,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     quality_map = quality.set_index("ticker").to_dict("index")
     held = set(zip(risk["portfolio_kind"], risk["ticker"]))
     selectors, incumbents = selector_context(current, risk_as_of, held)
+    selectors = apply_selector_readiness(selectors, readiness_path)
     market = market_context(regime_path, latest_regime_path)
     factor_summary = read_json(factor_summary_path) if factor_summary_path.is_file() else {}
     factor_state = str(factor_summary.get("factor_risk_state") or "NOT_AVAILABLE").upper()
@@ -495,6 +525,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "regime_manifest": fingerprint(regime_path), "latest_regime_text": fingerprint(latest_regime_path),
             "factor_summary": fingerprint(factor_summary_path), "factor_residuals": fingerprint(residual_path),
             "fundamental_breaks": fingerprint(breaks_path),
+            "selector_readiness": fingerprint(readiness_path),
         },
         "advisory_only": True,
         "model_mutated": False,
@@ -526,6 +557,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--factor-summary", default="")
     parser.add_argument("--factor-residuals", default="")
     parser.add_argument("--fundamental-breaks", default="")
+    parser.add_argument("--selector-readiness", default="")
     parser.add_argument("--output-dir", default="outputs/run287_dual_tempo_policy")
     return parser.parse_args()
 

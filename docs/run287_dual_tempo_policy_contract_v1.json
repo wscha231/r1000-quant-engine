@@ -31,6 +31,7 @@
     "exact_accepted_fundamental_break_required": true,
     "selector_qualified_challenger_required": true,
     "challenger_decision_date_must_equal_or_follow_risk_asof": true,
+    "explicit_same_close_selector_provenance_required": true,
     "scheduled_next_close_only": true
   },
   "portfolio_review": {

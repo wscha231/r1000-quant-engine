@@ -42,6 +42,7 @@ def main() -> None:
         regime_path = root / "regime.json"
         latest_path = root / "latest_regime.txt"
         breaks_path = root / "breaks.csv"
+        readiness_path = root / "selector_readiness.csv"
         output = root / "out"
         pd.DataFrame([
             {"as_of_date": "2026-07-16", "available_from": "2026-07-17T04:15:00Z", "portfolio_kind": "main", "ticker": "AAA", "current_weight": 0.25, "risk_state": "NORMAL"},
@@ -71,12 +72,16 @@ def main() -> None:
             "break_status": "CONFIRMED_EXACT_ACCEPTED_BREAK",
             "available_from": "2026-07-17T03:00:00Z",
         }]).to_csv(breaks_path, index=False)
+        pd.DataFrame([
+            {"portfolio_kind": "main", "same_close_selector_ready": True, "readiness_status": "READY_SAME_CLOSE_SELECTOR_SNAPSHOT"},
+            {"portfolio_kind": "concentrated", "same_close_selector_ready": True, "readiness_status": "READY_SAME_CLOSE_SELECTOR_SNAPSHOT"},
+        ]).to_csv(readiness_path, index=False)
         args = argparse.Namespace(
             contract=str(ROOT / "docs" / "run287_dual_tempo_policy_contract_v1.json"),
             risk_watch=str(risk_path), quality_universe=str(quality_path),
             current_status=str(current_path), regime_manifest=str(regime_path),
             latest_regime_text=str(latest_path), factor_summary="", factor_residuals="",
-            fundamental_breaks=str(breaks_path), output_dir=str(output),
+            fundamental_breaks=str(breaks_path), selector_readiness=str(readiness_path), output_dir=str(output),
         )
         result = dual.build(args)
         detail = pd.read_csv(output / "security_tempo_state.csv").set_index("ticker")
@@ -94,6 +99,21 @@ def main() -> None:
         assert result["target_books_mutated"] is False
         assert result["cash_policy_mutated"] is False
 
+        blocked_readiness = pd.DataFrame([
+            {"portfolio_kind": "main", "same_close_selector_ready": False, "readiness_status": "BLOCKED_SAME_CLOSE_SELECTOR_PROVENANCE"},
+            {"portfolio_kind": "concentrated", "same_close_selector_ready": False, "readiness_status": "BLOCKED_SAME_CLOSE_SELECTOR_PROVENANCE"},
+        ])
+        blocked_readiness.to_csv(readiness_path, index=False)
+        blocked_output = root / "blocked"
+        args.output_dir = str(blocked_output)
+        blocked = dual.build(args)
+        blocked_detail = pd.read_csv(blocked_output / "security_tempo_state.csv").set_index("ticker")
+        assert blocked_detail.loc["DDD", "tempo_state"] == "DEFEND"
+        assert blocked["rotate_count"] == 0
+        assert not bool(blocked_detail["selector_fresh_for_risk"].any())
+
+        args.output_dir = str(output)
+        blocked_readiness.assign(same_close_selector_ready=True, readiness_status="READY_SAME_CLOSE_SELECTOR_SNAPSHOT").to_csv(readiness_path, index=False)
         same = dual.build(args)
         assert same["history_row_count"] == 4
 
