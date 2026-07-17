@@ -3130,3 +3130,49 @@ Expected contract:
   - `tests/run287_durable_quality_learning_smoke.py`
   - `tests/run287_historical_trade_answer_notebook_smoke.py`
   - `docs/CODEX_RUN287_DURABLE_QUALITY_AND_TRADE_LEARNING_RESULT_20260717.md`
+
+### 2026-07-17 - Buffett patience and Chameleon speed require separate evidence clocks
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-durable-quality-learning-20260717`
+  - `outputs/run287_dual_tempo_policy_20260717_close_20260716_v2/`
+- Context:
+  - The user clarified that the final system should react quickly like a chameleon when conditions change but hold durable compounders patiently like Buffett.
+  - The broad market was benign while the semiconductor factor and concentrated holdings were damaged, exposing the limitation of one shared market-regime switch.
+- Attempt:
+  - Added a fixed `COMPOUND_HOLD/WATCH/DEFEND/ROTATE/REBUILD/DATA_INSUFFICIENT` review-only state contract.
+  - Joined exact-close holding risk, durable-quality evidence, broad regime, fresh factor/residual damage, selector freshness, and optional exact-accepted fundamental breaks.
+  - Required both an exact fundamental break and a fresh superior selector challenger before `ROTATE` can fire.
+  - Added append-only same-date-conflict-checked state history and integrated the audit into the daily continuous-learning orchestrator.
+- Result:
+  - At the 2026-07-16 close, the broad market is `BENIGN` while SOXX is `WATCH`.
+  - Main is `WATCH`: GLW, GOOG, and ON are `DEFEND`, while 14 positions are `WATCH`; defensive weight is 27.66%.
+  - Concentrated is `DEFEND`: CIEN and WDC are price-risk alerts, and SNDK has a fresh SOXX-residual alert; 99.16% of equity is defensive.
+  - All six defensive rows are blocked from rotation because no exact fundamental-break row exists and the latest selector decision is stale at 2026-07-13.
+  - GOOG passes the strict quantitative durable-quality gate but remains `DEFEND` due to current risk, demonstrating that quality is neither an automatic add nor an automatic exit override.
+  - No portfolio, cash, target, order, model, score, rank, selector, fullrun, production, or live state changed.
+- Failure or caveat:
+  - No current holding reaches `COMPOUND_HOLD` under the strict complete-evidence gate. This is an evidence-coverage result, not proof that every holding lacks a moat.
+  - The separate tactical-alpha 2026-07-16 trade plan is not the frozen Run287 selector and cannot be substituted as a challenger without parity and provenance checks.
+  - One current state cannot establish CAGR/MDD improvement or the value of a state transition.
+- Root cause:
+  - Broad regime, factor regime, security damage, SEC fundamentals, and selector rankings update on different clocks. Collapsing them into one signal either reacts too slowly to concentrated damage or churns durable holdings on noise.
+- Reusable lesson:
+  - Fast response means fast review, not unconditional fast selling.
+  - Buffett-style holding requires verified durability plus absence of an exact break; price weakness alone cannot invalidate the thesis.
+  - Chameleon-style rotation requires exact break evidence and a same-close superior challenger; stale ranks cannot authorize a trade.
+  - Require two clear observations before `REBUILD` to avoid chasing a one-day rebound.
+- Next action:
+  - Build the exact-accepted fundamental-break sidecar and same-close selector snapshot.
+  - Append states and resolve fixed 21/63-day outcomes before one shadow A/B.
+- Do-not-repeat:
+  - Do not use the broad `GREEN/normal` regime to ignore factor or security damage.
+  - Do not turn `ALERT` or factor residual damage into an automatic sell.
+  - Do not rotate into a stale challenger or infer an exact fundamental break from a low quality score.
+  - Do not tune state thresholds from the current semiconductor episode.
+- Evidence files:
+  - `docs/run287_dual_tempo_policy_contract_v1.json`
+  - `tools/audit_run287_dual_tempo_policy.py`
+  - `tests/run287_dual_tempo_policy_smoke.py`
+  - `docs/CODEX_RUN287_DUAL_TEMPO_POLICY_RESULT_20260717.md`

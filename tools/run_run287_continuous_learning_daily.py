@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 
 from tools import audit_run287_model_health as model_health  # noqa: E402
 from tools import audit_run287_policy_attribution as policy_attribution  # noqa: E402
+from tools import audit_run287_dual_tempo_policy as dual_tempo  # noqa: E402
 from tools import build_run287_decision_outcome_ledger as ledger  # noqa: E402
 from tools import build_run287_durable_quality_learning as quality_learning  # noqa: E402
 from tools import build_run287_exact_debt_snapshot as exact_debt  # noqa: E402
@@ -237,6 +238,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     health_result: dict[str, Any] = {}
     quality_result: dict[str, Any] = {}
     debt_result: dict[str, Any] = {}
+    dual_tempo_result: dict[str, Any] = {}
     universe_count = 0
     queue_count = 0
     collection_start = ""
@@ -327,6 +329,50 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "target_books_mutated": False,
                 "orders_generated": False,
             }
+        quality_universe_path = output_dir / "durable_quality_learning" / "durable_quality_universe.csv"
+        if risk_watch_path.is_file() and quality_universe_path.is_file():
+            try:
+                dual_tempo_result = dual_tempo.build(
+                    SimpleNamespace(
+                        contract=str(repo_path(getattr(
+                            args, "dual_tempo_contract",
+                            "docs/run287_dual_tempo_policy_contract_v1.json",
+                        ))),
+                        risk_watch=str(risk_watch_path),
+                        quality_universe=str(quality_universe_path),
+                        current_status=str(output_dir / "current_status.parquet"),
+                        regime_manifest=str(source_path(producer, "crisis_manifest")),
+                        latest_regime_text=str(repo_path(getattr(
+                            args, "latest_regime_text",
+                            "cloud_results/paper_runs/latest_regime.txt",
+                        ))),
+                        factor_summary=str(repo_path(getattr(
+                            args, "factor_summary", "outputs/run287_semiconductor_damage/summary.json"
+                        ))),
+                        factor_residuals=str(repo_path(getattr(
+                            args, "factor_residuals",
+                            "outputs/run287_semiconductor_damage/current_sector_residuals.csv",
+                        ))),
+                        fundamental_breaks=str(repo_path(getattr(
+                            args, "fundamental_breaks",
+                            "outputs/run287_fundamental_breaks/confirmed_breaks.csv",
+                        ))),
+                        output_dir=str(output_dir / "dual_tempo_policy"),
+                    )
+                )
+            except Exception as exc:  # review sidecar cannot block the causal ledger
+                dual_tempo_result = {
+                    "status": "BLOCKED_RUN287_DUAL_TEMPO_POLICY",
+                    "reason": f"{type(exc).__name__}:{exc}",
+                    "orders_generated": False,
+                    "target_books_mutated": False,
+                }
+        else:
+            dual_tempo_result = {
+                "status": "SKIPPED_RUN287_DUAL_TEMPO_POLICY_INPUT_MISSING",
+                "risk_watch_exists": risk_watch_path.is_file(),
+                "quality_universe_exists": quality_universe_path.is_file(),
+            }
     status = (
         "READY_RUN287_CONTINUOUS_LEARNING_DAILY_REVIEW_ONLY"
         if ledger_result.get("status") == ledger.READY_STATUS
@@ -362,6 +408,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "durable_quality_answer_ready_count": int(
             quality_result.get("answer_ready_count", 0) or 0
         ),
+        "dual_tempo_policy_status": dual_tempo_result.get("status", "NOT_RUN"),
+        "dual_tempo_portfolio_states": dual_tempo_result.get("portfolio_states", {}),
+        "dual_tempo_rotate_count": int(dual_tempo_result.get("rotate_count", 0) or 0),
         "model_mutated": False,
         "score_mutated": False,
         "rank_mutated": False,
@@ -391,6 +440,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exact-debt-snapshot", default="outputs/run287_exact_debt_snapshot/exact_debt_snapshot.csv")
     parser.add_argument("--companyfacts-zip", default="data_raw/free/sec/companyfacts.zip")
     parser.add_argument("--sec-index", default="data_pit/sec/sec_filings_index.parquet")
+    parser.add_argument("--dual-tempo-contract", default="docs/run287_dual_tempo_policy_contract_v1.json")
+    parser.add_argument("--latest-regime-text", default="cloud_results/paper_runs/latest_regime.txt")
+    parser.add_argument("--factor-summary", default="outputs/run287_semiconductor_damage/summary.json")
+    parser.add_argument("--factor-residuals", default="outputs/run287_semiconductor_damage/current_sector_residuals.csv")
+    parser.add_argument("--fundamental-breaks", default="outputs/run287_fundamental_breaks/confirmed_breaks.csv")
     parser.add_argument("--decision-date", default="")
     parser.add_argument("--as-of-date", required=True)
     parser.add_argument("--recorded-at-utc", required=True)

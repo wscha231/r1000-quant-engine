@@ -202,6 +202,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_decision_outcome_ledger_smoke.py", []),
     ("tests/run287_continuous_learning_daily_smoke.py", []),
     ("tests/run287_durable_quality_learning_smoke.py", []),
+    ("tests/run287_dual_tempo_policy_smoke.py", []),
     ("tests/run287_exact_debt_snapshot_smoke.py", []),
     ("tests/run287_historical_trade_answer_notebook_smoke.py", []),
     ("tests/run287_policy_attribution_smoke.py", []),
