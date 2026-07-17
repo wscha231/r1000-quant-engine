@@ -1,0 +1,36 @@
+{
+  "schema_version": "run287-same-close-selector-snapshot-contract-v1",
+  "mode": "research_only_provenance_audit",
+  "objective": "separate restored target revaluation from a decision-complete same-close selector recomputation",
+  "required_clocks": [
+    "market_session_date",
+    "signal_source_date",
+    "valuation_close_date",
+    "available_from"
+  ],
+  "ready_gate": {
+    "signal_source_date_equals_market_session_date": true,
+    "valuation_close_date_equals_market_session_date": true,
+    "same_close_rank_recomputed_explicit_true": true,
+    "selector_qualification_columns_required": [
+      "selector_selected",
+      "final_rank",
+      "decision_feature_complete_bool"
+    ],
+    "at_least_one_complete_selected_candidate": true,
+    "future_rows_allowed": false
+  },
+  "legacy_rule": {
+    "rebalance_date_without_explicit_signal_provenance_is_not_a_signal_date": true,
+    "restored_target_book_is_not_a_challenger_snapshot": true,
+    "missing_is_ready": false
+  },
+  "safety": {
+    "advisory_only": true,
+    "selector_mutation_allowed": false,
+    "target_book_mutation_allowed": false,
+    "order_generation_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false
+  }
+}

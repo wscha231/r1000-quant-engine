@@ -32,6 +32,7 @@ def write_fixture(
     *,
     ranking_enabled: bool = False,
     feature_available_from: str = "2026-07-13T23:59:59+00:00",
+    decision_schema: str = "run287-current-decision-frame-v2",
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     scaled_path = root / "scaled.parquet"
@@ -78,7 +79,7 @@ def write_fixture(
     checkpoint.write_json(meta_path, meta)
 
     manifest = {
-        "schema_version": "run287-current-decision-frame-v1",
+        "schema_version": decision_schema,
         "status": "READY_COMPLETE_CURRENT_DECISION_FRAME",
         "valuation_price_cutoff_date": "2026-07-13",
         "decision_time_utc": "2026-07-14T05:00:00+00:00",
@@ -160,6 +161,17 @@ def test_ready_lane_preserves_order_and_never_ranks() -> None:
         ).all()
 
 
+def test_v1_decision_schema_remains_backward_compatible() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest = write_fixture(
+            root, decision_schema="run287-current-decision-frame-v1"
+        )
+        expected_hash = checkpoint.fingerprint(manifest)["sha256"]
+        payload = build(args_for(manifest, root / "v1_ready", expected_hash))
+        assert payload["status"] == READY_STATUS
+
+
 def test_wrong_manifest_hash_blocks_before_scoring() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -201,6 +213,7 @@ def test_future_feature_and_ranking_enabled_both_fail_closed() -> None:
 
 if __name__ == "__main__":
     test_ready_lane_preserves_order_and_never_ranks()
+    test_v1_decision_schema_remains_backward_compatible()
     test_wrong_manifest_hash_blocks_before_scoring()
     test_future_feature_and_ranking_enabled_both_fail_closed()
     print("run287_current_decision_score_only_smoke: PASS")

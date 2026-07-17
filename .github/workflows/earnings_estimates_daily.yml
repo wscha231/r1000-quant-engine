@@ -426,21 +426,43 @@ jobs:
         run: |
           set -euo pipefail
           LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
-          BASELINE_ARGS=()
-          if [ -s outputs/free_data_selection_overlay_previous/ranked_universe.csv ]; then
-            BASELINE_ARGS=(--baseline-ranked outputs/free_data_selection_overlay_previous/ranked_universe.csv)
-          elif [ -s outputs/free_data_selection_overlay/ranked_universe.csv ]; then
-            BASELINE_ARGS=(--baseline-ranked outputs/free_data_selection_overlay/ranked_universe.csv)
+          PRIOR_DECISION_DATE=""
+          if [ -s outputs/free_data_selection_overlay_previous/summary.json ]; then
+            PRIOR_DECISION_DATE="$(python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("outputs/free_data_selection_overlay_previous/summary.json")
+          try:
+              print(str(json.loads(path.read_text(encoding="utf-8")).get("decision_date") or ""))
+          except Exception:
+              print("")
+          PY
+          )"
           fi
-          python tools/run_free_data_selection_overlay.py \
-            --scored "$LATEST/scored_latest.csv" \
-            --estimate-signals data_pit/events/earnings_revision_signals.parquet \
-            --listing-status data_pit/free/av_listing_status.parquet \
-            --earnings-calendar data_pit/events/earnings_calendar_history.parquet \
-            --decision-date "$LAST_NYSE_SESSION_DATE" \
-            "${BASELINE_ARGS[@]}" \
-            --top-n 30 \
-            --output-dir outputs/free_data_selection_overlay
+          if [ "$PRIOR_DECISION_DATE" = "$LAST_NYSE_SESSION_DATE" ] && \
+             [ -s outputs/free_data_selection_overlay_previous/ranked_universe.csv ] && \
+             [ -s outputs/free_data_selection_overlay_previous/selected_candidates.csv ]; then
+            echo "[forward-paper] reusing immutable same-session overlay for $LAST_NYSE_SESSION_DATE"
+            mkdir -p outputs/free_data_selection_overlay
+            cp -a outputs/free_data_selection_overlay_previous/. outputs/free_data_selection_overlay/
+          else
+            BASELINE_ARGS=()
+            if [ -s outputs/free_data_selection_overlay_previous/ranked_universe.csv ]; then
+              BASELINE_ARGS=(--baseline-ranked outputs/free_data_selection_overlay_previous/ranked_universe.csv)
+            elif [ -s outputs/free_data_selection_overlay/ranked_universe.csv ]; then
+              BASELINE_ARGS=(--baseline-ranked outputs/free_data_selection_overlay/ranked_universe.csv)
+            fi
+            python tools/run_free_data_selection_overlay.py \
+              --scored "$LATEST/scored_latest.csv" \
+              --estimate-signals data_pit/events/earnings_revision_signals.parquet \
+              --listing-status data_pit/free/av_listing_status.parquet \
+              --earnings-calendar data_pit/events/earnings_calendar_history.parquet \
+              --decision-date "$LAST_NYSE_SESSION_DATE" \
+              "${BASELINE_ARGS[@]}" \
+              --top-n 30 \
+              --output-dir outputs/free_data_selection_overlay
+          fi
           python tools/build_forward_paper_price_universe.py \
             --ranked-universe outputs/free_data_selection_overlay/ranked_universe.csv \
             --current-status outputs/free_data_forward_paper_ledger/current_status.csv \

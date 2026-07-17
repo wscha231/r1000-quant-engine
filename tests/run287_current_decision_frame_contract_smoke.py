@@ -15,8 +15,17 @@ if str(ROOT) not in sys.path:
 from tools.build_run287_current_decision_frame import (  # noqa: E402
     normalize_acceptance_columns,
     normalize_period_columns,
+    parse_partial_core_missing_neutral,
+    partial_core_missing_neutral_allowed,
     values_differ,
 )
+
+
+def test_active_plus_terminal_context_count_contract_shape() -> None:
+    base_context_count = 989
+    terminal_exclusion_count = 1
+    expected_context_count = 988
+    assert expected_context_count + terminal_exclusion_count == base_context_count
 
 
 def test_mixed_sec_dates_normalize_without_changing_instants() -> None:
@@ -37,7 +46,30 @@ def test_numeric_delta_tolerance_and_missing_change() -> None:
     assert values_differ(float("nan"), 0.0) is True
 
 
+def test_partial_core_contract_is_exact_accession_scoped() -> None:
+    parsed = parse_partial_core_missing_neutral(
+        ["NKE|0000320187-26-000088=op_income_ttm"]
+    )
+    assert parsed == {("NKE", "0000320187-26-000088"): "op_income_ttm"}
+    assert partial_core_missing_neutral_allowed(
+        declared_field=parsed[("NKE", "0000320187-26-000088")],
+        missing_core_fields={"op_income_ttm"},
+        core_coverage=4,
+        expected_selected_count=8,
+        expected_exact_record_count=12,
+    )
+    assert not partial_core_missing_neutral_allowed(
+        declared_field=None,
+        missing_core_fields={"op_income_ttm"},
+        core_coverage=4,
+        expected_selected_count=8,
+        expected_exact_record_count=12,
+    )
+
+
 if __name__ == "__main__":
     test_mixed_sec_dates_normalize_without_changing_instants()
     test_numeric_delta_tolerance_and_missing_change()
+    test_active_plus_terminal_context_count_contract_shape()
+    test_partial_core_contract_is_exact_accession_scoped()
     print("run287_current_decision_frame_contract_smoke: PASS")

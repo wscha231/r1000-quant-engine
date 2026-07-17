@@ -1,0 +1,109 @@
+{
+  "schema_version": "run287-selector-provenance-audit-contract-v1",
+  "research_only": true,
+  "as_of_date": "2026-07-13",
+  "decision_time_utc": "2026-07-14T05:00:00+00:00",
+  "pinned_policy_commit": "15176b588d5bb0792bce1df6367758d795a8a33a",
+  "expected_scenario_keys": [
+    "concentrated:strict_registered_current",
+    "main:prior_hold_transition_bridge",
+    "main:strict_registered_current"
+  ],
+  "expected_archived_row_count": 50,
+  "expected_divergence_tickers": [
+    "COHU",
+    "DELL",
+    "FLEX",
+    "MRVL",
+    "UMC"
+  ],
+  "source_files": {
+    "selector_manifest": {
+      "path": "outputs/run287_current_selector_no_write_20260714_close_20260713_v2/manifest.json",
+      "sha256": "f692e3648c6d02adcd63b35d21f38e8d71c308fda550660feff0c59585c546dc"
+    },
+    "decision_archive_manifest": {
+      "path": "outputs/run287_decision_observation_archive/manifest.json",
+      "sha256": "12e9e413d27ca947fb615af3eaea5c16f7acb560871eb1b9407dfece12e57754"
+    },
+    "candidate_funnel_manifest": {
+      "path": "outputs/run287_candidate_evaluation_funnel_20260715_v7/manifest.json",
+      "sha256": "bdb840274adfab4923e7dad88c69b381a7ba221981cea6a4d066f4c3d257f71d"
+    },
+    "operating_summary": {
+      "path": "outputs/daily_operating_selection_refresh_29305572139/outputs/reports/operating_target_books_summary.json",
+      "sha256": "030588a8daf2e38e3854fb537ffc72474f5afda1fc7315cc7136effd51d1585e"
+    },
+    "main_operating_book": {
+      "path": "outputs/daily_operating_selection_refresh_29305572139/outputs/reports/operating_main_target_book.csv",
+      "sha256": "49ad286bad3993635c722e24546350ad6895624cc8a0551459d78908aea0be0d"
+    },
+    "concentrated_operating_book": {
+      "path": "outputs/daily_operating_selection_refresh_29305572139/outputs/reports/operating_concentrated_target_book.csv",
+      "sha256": "ae5b1968732582a6c38626e7142109f5c87089b80de9797e70d093bec7f3ef73"
+    },
+    "paper_summary": {
+      "path": "outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/summary.json",
+      "sha256": "bf37111b27a5aeb45536549f6777e01e5fb553b50e58fb3c5f544e5b48ee0d60"
+    },
+    "main_paper_manifest": {
+      "path": "outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/main/manifest.json",
+      "sha256": "ea31c92c9bdafc7cd1c48d022895c9ed2b597440d6ce2749d6c60ef079e33659"
+    },
+    "main_account_state": {
+      "path": "outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/main/account_state_latest.json",
+      "sha256": "a171e8de23176fca1a76d7c0e622f390f122ecfb9cf2976a0095268a356c0889"
+    },
+    "main_positions": {
+      "path": "outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/main/positions_latest.csv",
+      "sha256": "08ecb2e1f7f74cf99af3f13215f058e57a65e1a212c9843365147de2881d832a"
+    },
+    "concentrated_paper_manifest": {
+      "path": "outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/concentrated/manifest.json",
+      "sha256": "8842e35ed63c23a1249af8de0e563231e8cfdcf8c8d12582e90fb10589032962"
+    },
+    "concentrated_account_state": {
+      "path": "outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/concentrated/account_state_latest.json",
+      "sha256": "2193f082a8ff31167a6d0004ee4604313d97aa5f1c2f18eeb9f525972dc3f636"
+    },
+    "concentrated_positions": {
+      "path": "outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/concentrated/positions_latest.csv",
+      "sha256": "903028539377db0b0b9cf4beb9f98a3694ecd0d6549ab72c555b933c23303427"
+    }
+  },
+  "reason_codes": [
+    "ADVISORY_CREATED_AFTER_OPERATING_NO_WRITE",
+    "OPERATING_CREATED_BY_SEPARATE_EARLIER_SELECTOR",
+    "PARALLEL_PATH_SELECTION_OVERLAP",
+    "NEITHER_CURRENT_PATH_SELECTED",
+    "CASH_RECONCILED_SEPARATELY"
+  ],
+  "divergence_reason_code": "ADVISORY_CREATED_AFTER_OPERATING_NO_WRITE",
+  "cash_component_by_stage": {
+    "assign_weights": "initial_unallocated_cash",
+    "apply_concentrated_hold_decay_trim": "hold_decay_trim_residual",
+    "apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap": "weak_rs_new_entry_cap_residual",
+    "apply_concentrated_replacement_quality_swap": "replacement_swap_net_cash",
+    "apply_regime_capacity_overlay": "regime_capacity_multiplier_residual",
+    "apply_main_post_selection_topn_filter": "topn_filter_residual",
+    "apply_main_ai_capex_momentum_tilt": "growth_tilt_redistribution"
+  },
+  "tolerances": {
+    "selector_weight": 1e-12,
+    "weight_conservation": 1e-12,
+    "cash_usd": 0.01
+  },
+  "prohibited_actions": [
+    "model_change",
+    "score_change",
+    "rank_change",
+    "selector_change",
+    "target_book_change",
+    "cash_policy_change",
+    "order_generation",
+    "backtest",
+    "fullrun",
+    "production",
+    "live_trading"
+  ]
+}

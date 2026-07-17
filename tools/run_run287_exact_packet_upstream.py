@@ -44,7 +44,7 @@ from tools.run_run287_exact_packet_producer import (  # noqa: E402
 )
 
 
-SCHEMA_VERSION = "run287-exact-packet-upstream-orchestrator-v1"
+SCHEMA_VERSION = "run287-exact-packet-upstream-orchestrator-v2"
 PLAN_SCHEMA = "run287-exact-packet-upstream-plan-v1"
 PLAN_STATUS = "READY_BOUNDED_EXACT_PACKET_UPSTREAM_PLAN_REVIEW_ONLY"
 READY_STATUS = "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY"
@@ -218,6 +218,53 @@ def manifest_request_count(payload: Mapping[str, Any]) -> int:
     return 0
 
 
+def resume_stage_manifest_paths(
+    prior_status: Mapping[str, Any], prior_status_path: Path
+) -> dict[str, Path]:
+    """Recover only immutable manifest pointers recorded by a prior attempt.
+
+    A resumed attempt can itself have reused stages from an older attempt. The
+    stage audit is therefore the authoritative chain, provided the recorded
+    manifest fingerprint still matches exactly.
+    """
+    manifests: dict[str, Path] = {}
+    for audit in prior_status.get("stage_audit") or []:
+        if not isinstance(audit, Mapping) or audit.get("failures"):
+            continue
+        name = str(audit.get("name") or "").strip()
+        record = audit.get("manifest") or {}
+        raw_path = str(record.get("path") or "")
+        expected_hash = str(record.get("sha256") or "")
+        if not name or not raw_path or not expected_hash:
+            continue
+        path = resolve_portable_path(raw_path, owner=prior_status_path)
+        if path.is_file() and sha256_file(path) == expected_hash:
+            manifests[name] = path
+    return manifests
+
+
+def resolve_selector_benchmark_source(
+    runtime: Mapping[str, Any], valuation_date: str, default_cache: Path
+) -> tuple[Path, dict[str, Any] | None, list[str]]:
+    """Resolve an optional exact-date, hash-pinned benchmark cache file."""
+    records = runtime.get("selector_benchmark_price_by_valuation_date") or {}
+    record = records.get(valuation_date) if isinstance(records, Mapping) else None
+    if not record:
+        return default_cache, None, []
+    raw_path = str((record or {}).get("path") or "")
+    expected_hash = str((record or {}).get("sha256") or "").lower()
+    path = repo_path(raw_path)
+    audit = fingerprint(path)
+    audit["expected_sha256"] = expected_hash
+    audit["hash_matches"] = bool(expected_hash and audit.get("sha256") == expected_hash)
+    failures: list[str] = []
+    if not path.is_file():
+        failures.append("selector_benchmark_price_missing")
+    elif not expected_hash or audit.get("sha256") != expected_hash:
+        failures.append("selector_benchmark_price_hash")
+    return path.parent, audit, failures
+
+
 def run_stage(
     *,
     name: str,
@@ -359,6 +406,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     runtime = plan.get("runtime") or {}
     budgets = plan.get("network_budgets") or {}
+    selector_benchmark_cache, selector_benchmark_source_audit, selector_failures = (
+        resolve_selector_benchmark_source(runtime, valuation_date, price_cache)
+    )
+    failures.extend(selector_failures)
     expected_context = int(runtime.get("expected_context_count") or 0)
     universe_rows = 0
     if paths.get("universe") and paths["universe"].is_file():
@@ -383,7 +434,50 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "estimated_scored_latest_provider_batches": estimated_batches,
         "decision_time_utc": decision_time.isoformat(),
         "sec_user_agent_configured": bool(sec_user_agent and "@" in sec_user_agent),
+        "selector_benchmark_source_audit": selector_benchmark_source_audit,
     }
+    resume_root: Path | None = None
+    resume_manifests: dict[str, Path] = {}
+    resume_id = str(getattr(args, "resume_attempt_id", "") or "").strip()
+    if resume_id:
+        resume_id = clean_attempt_id(resume_id)
+        if resume_id == attempt_id:
+            failures.append("resume_attempt_matches_new_attempt")
+        else:
+            candidate = output_root / "attempts" / resume_id
+            prior_status_path = candidate / "status.json"
+            if not prior_status_path.is_file():
+                failures.append("resume_attempt_status_missing")
+            else:
+                prior_status = read_json(prior_status_path)
+                prior_preflight = prior_status.get("preflight") or {}
+                prior_inputs = prior_preflight.get("input_audit") or {}
+                prior_directories = prior_preflight.get("directory_audit") or {}
+                if str(prior_status.get("valuation_price_cutoff_date") or "") != valuation_date:
+                    failures.append("resume_attempt_valuation_date_mismatch")
+                if str(prior_preflight.get("decision_time_utc") or "") != decision_time.isoformat():
+                    failures.append("resume_attempt_decision_time_mismatch")
+                for label, current in input_audit.items():
+                    prior = prior_inputs.get(label) or {}
+                    if str(current.get("sha256") or "") != str(prior.get("sha256") or ""):
+                        failures.append(f"resume_attempt_input_hash:{label}")
+                for label, current in directory_audit.items():
+                    prior = prior_directories.get(label) or {}
+                    if str(current.get("path") or "") != str(prior.get("path") or ""):
+                        failures.append(f"resume_attempt_directory:{label}")
+                if not any(value.startswith("resume_attempt_") for value in failures):
+                    resume_root = candidate
+                    resume_manifests = resume_stage_manifest_paths(
+                        prior_status, prior_status_path
+                    )
+                    preflight["resume_attempt"] = {
+                        "attempt_id": resume_id,
+                        "status": str(prior_status.get("status") or ""),
+                        "status_manifest": fingerprint(prior_status_path),
+                        "input_hashes_match": True,
+                        "directory_paths_match": True,
+                        "reusable_stage_manifest_count": len(resume_manifests),
+                    }
     if failures:
         payload = base_payload(SKIPPED_STATUS, valuation_date, started)
         payload["skip_reasons"] = failures
@@ -468,6 +562,60 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         expected_status: str,
         date_field: str,
     ) -> dict[str, Any] | None:
+        if resume_root is not None:
+            prior_manifest_path = resume_manifests.get(
+                name, resume_root / name / "manifest.json"
+            )
+            if prior_manifest_path.is_file():
+                prior_manifest = read_json(prior_manifest_path)
+                reuse_failures: list[str] = []
+                if prior_manifest.get("status") != expected_status:
+                    reuse_failures.append("status")
+                if (
+                    date_field
+                    and str(prior_manifest.get(date_field) or "") != valuation_date
+                ):
+                    reuse_failures.append("date")
+                for flag in (
+                    "backtest_executed",
+                    "fullrun_executed",
+                    "orders_generated",
+                    "target_books_mutated",
+                    "production_activation_allowed",
+                    "live_trading_enabled",
+                ):
+                    if flag in prior_manifest and prior_manifest.get(flag) is not False:
+                        reuse_failures.append(f"unsafe_flag:{flag}")
+                for label, record in (prior_manifest.get("outputs") or {}).items():
+                    if not isinstance(record, Mapping) or not record.get("path"):
+                        continue
+                    output_path = resolve_portable_path(
+                        str(record["path"]), owner=prior_manifest_path
+                    )
+                    expected_hash = str(record.get("sha256") or "")
+                    if not output_path.is_file():
+                        reuse_failures.append(f"missing_output:{label}")
+                    elif expected_hash and sha256_file(output_path) != expected_hash:
+                        reuse_failures.append(f"output_hash:{label}")
+                if not reuse_failures:
+                    audit = {
+                        "name": name,
+                        "tool": tool,
+                        "return_code": 0,
+                        "status": prior_manifest.get("status"),
+                        "manifest": fingerprint(prior_manifest_path),
+                        "log": fingerprint(resume_root / "logs" / f"{name}.log"),
+                        "network_requests_executed": 0,
+                        "original_network_requests_executed": manifest_request_count(
+                            prior_manifest
+                        ),
+                        "elapsed_seconds": 0.0,
+                        "reused_from_attempt": resume_id,
+                        "failures": [],
+                    }
+                    stage_audits.append(audit)
+                    manifests[name] = prior_manifest_path
+                    return prior_manifest
         manifest_path = output_dir / "manifest.json"
         manifest, audit = run_stage(
             name=name,
@@ -495,6 +643,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "tools/run_run287_scored_latest_refresh.py",
         [
             "--session-date", valuation_date,
+            "--decision-time-utc", decision_time.isoformat(),
             "--universe", str(paths["universe"]),
             "--base-selection-context", str(paths["base_selection_context"]),
             "--base-score-stack", str(paths["base_score_stack"]),
@@ -503,6 +652,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "--scored-oos", str(paths["scored_oos"]),
             "--batch-size", str(runtime.get("price_batch_size") or 40),
             "--provider-symbol-override", "IAC=PPLI",
+            "--terminal-lifecycle-events", str(paths["terminal_lifecycle_events"]),
             "--output-dir", str(scored_dir),
             "--canonical-output", str(scored_dir / "canonical_scored_latest.csv"),
             "--allow-network-refresh",
@@ -513,6 +663,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     )
     if scored is None:
         return finish_blocked(attempt_root, valuation_date, started, preflight, stage_audits)
+    scored_dir = manifests["scored_latest"].parent
 
     macro_dir = attempt_root / "macro"
     macro_values = [
@@ -531,6 +682,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     )
     if macro is None:
         return finish_blocked(attempt_root, valuation_date, started, preflight, stage_audits)
+    # A resumed macro stage can live in an older append-only attempt. All
+    # downstream cache references must follow its verified manifest location,
+    # not the empty directory reserved for the new attempt.
+    macro_dir = manifests["macro"].parent
 
     benchmark_dir = attempt_root / "benchmark_event"
     benchmark = execute(
@@ -582,6 +737,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         return finish_blocked(attempt_root, valuation_date, started, preflight, stage_audits)
 
     decision_dir = attempt_root / "decision_frame"
+    partial_core_contracts = list(
+        (
+            runtime.get("expected_partial_core_missing_neutral_by_valuation_date")
+            or {}
+        ).get(valuation_date)
+        or []
+    )
+    partial_core_values: list[str] = []
+    for declaration in partial_core_contracts:
+        partial_core_values.extend(
+            ["--expected-partial-core-missing-neutral", str(declaration)]
+        )
     decision = execute(
         "decision_frame", "tools/build_run287_current_decision_frame.py",
         [
@@ -592,6 +759,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "--companyfacts-manifest", str(manifests["recent_companyfacts"]),
             "--valuation-close-date", valuation_date,
             "--decision-time-utc", decision_time.isoformat(),
+            *partial_core_values,
             "--output-dir", str(decision_dir),
         ],
         decision_dir, "READY_COMPLETE_CURRENT_DECISION_FRAME", "valuation_price_cutoff_date",
@@ -678,7 +846,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         [
             "--crisis-manifest", str(manifests["crisis"]),
             "--expected-crisis-sha256", sha256_file(manifests["crisis"]),
-            "--source-cache", str(price_cache),
+            "--source-cache", str(selector_benchmark_cache),
             "--valuation-date", valuation_date,
             "--output-dir", str(soxx_dir),
         ],
@@ -749,6 +917,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--valuation-date", required=True)
     parser.add_argument("--decision-time-utc", default="")
     parser.add_argument("--attempt-id", required=True)
+    parser.add_argument(
+        "--resume-attempt-id",
+        default="",
+        help="Reuse only hash/date-validated READY stages from this prior attempt.",
+    )
     parser.add_argument(
         "--plan", default="docs/run287_exact_packet_upstream_plan.json"
     )

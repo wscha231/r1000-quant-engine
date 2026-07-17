@@ -32,6 +32,7 @@ from r1000_config import EngineConfig  # noqa: E402
 from r1000_pipeline import compute_adaptive_ensemble_state  # noqa: E402
 from tools import stage_run287_price_batch as checkpoint  # noqa: E402
 from tools.run_run287_current_decision_score_only import (  # noqa: E402
+    decision_frame_schema_supported,
     normalized_tickers,
     utc_timestamp,
 )
@@ -214,8 +215,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         == input_audits["decision_frame_manifest"].get("sha256"),
     }
     checks = {
-        "decision_schema": decision.get("schema_version")
-        == "run287-current-decision-frame-v1",
+        "decision_schema": decision_frame_schema_supported(
+            decision.get("schema_version")
+        ),
         "decision_ready": decision.get("status")
         == "READY_COMPLETE_CURRENT_DECISION_FRAME",
         "decision_complete": decision.get("current_decision_data_complete") is True,

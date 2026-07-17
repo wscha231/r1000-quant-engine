@@ -1,0 +1,110 @@
+{
+  "schema_version": "run287-durable-quality-learning-contract-v1",
+  "mode": "research_only_review_sidecar",
+  "objective": "identify durable businesses and learn from entry hold exit decisions without automatic portfolio mutation",
+  "measurement_layers": {
+    "balance_resilience": [
+      "exact_net_debt_to_assets",
+      "liabilities_to_assets_proxy",
+      "debt_to_equity_delta_4q",
+      "interest_coverage",
+      "fcf_margin",
+      "dilution_penalty"
+    ],
+    "economic_durability": [
+      "roic_approx",
+      "gross_margin_ttm",
+      "op_margin_ttm",
+      "margin_stability_8q",
+      "capital_efficiency_score",
+      "fcf_margin",
+      "sales_cagr_3y"
+    ],
+    "technology_reinvestment": [
+      "rd_intensity",
+      "rule_of_40",
+      "gross_margin_ttm",
+      "sales_cagr_3y"
+    ],
+    "market_confirmation": [
+      "rs_sector_6m",
+      "near_52w_high_pct",
+      "price_above_ma200",
+      "dynamic_leader_score"
+    ]
+  },
+  "interpretation": {
+    "quantitative_moat_is_proof": false,
+    "textual_business_moat_review_required": true,
+    "total_liabilities_is_debt": false,
+    "missing_debt_is_zero": false,
+    "share_classes_deduplicated_by_cik_for_company_review": true,
+    "financial_sector_requires_special_balance_sheet_review": true
+  },
+  "candidate_gate": {
+    "complete_core_quality_coverage_min": 0.55,
+    "economic_durability_score_min": 0.20,
+    "balance_resilience_score_min": 0.0,
+    "market_confirmation_score_min": 0.0,
+    "exact_debt_component_coverage_required": 1.0,
+    "pit_future_row_allowed": false,
+    "selector_or_rank_effect": "none_review_queue_only"
+  },
+  "trade_checklist": {
+    "buy_or_add": [
+      "pit_no_future",
+      "core_quality_coverage",
+      "balance_not_red",
+      "economic_durability",
+      "market_confirmation",
+      "holding_risk_clear"
+    ],
+    "sell_or_replace": [
+      "price_alert_alone_never_authorizes_sale",
+      "exact_fundamental_break_required",
+      "selector_approved_challenger_required",
+      "scheduled_next_close_only"
+    ],
+    "incremental_buy_freeze": [
+      "market_damage",
+      "holding_risk_watch_or_alert",
+      "data_incomplete",
+      "balance_risk",
+      "durability_weak"
+    ]
+  },
+  "answer_notebook": {
+    "primary_horizon_sessions": 63,
+    "secondary_horizon_sessions": 21,
+    "one_day_outcome_can_change_checklist": false,
+    "entry_grade": "realized_return_and_same_period_spy_alpha",
+    "exit_grade": "next_close_post_exit_ticker_minus_spy",
+    "replacement_relative_answer_known": false,
+    "possible_premature_exit_is_proof_of_wrong_sale": false
+  },
+  "automatic_learning_gate": {
+    "minimum_distinct_forward_decision_weeks": 26,
+    "minimum_resolved_63d_outcomes": 200,
+    "minimum_distinct_tickers": 50,
+    "decision_week_block_bootstrap_lower_95": ">=0",
+    "cost_50bps_direction": "positive",
+    "maximum_single_ticker_or_week_contribution": 0.10,
+    "automatic_retraining_allowed": false,
+    "automatic_checklist_change_allowed": false,
+    "automatic_champion_promotion_allowed": false,
+    "human_approval_required": true
+  },
+  "safety": {
+    "model_mutation_allowed": false,
+    "score_mutation_allowed": false,
+    "rank_mutation_allowed": false,
+    "selector_mutation_allowed": false,
+    "target_book_mutation_allowed": false,
+    "cash_policy_mutation_allowed": false,
+    "order_generation_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false,
+    "pit_universe_label_clean": false
+  }
+}

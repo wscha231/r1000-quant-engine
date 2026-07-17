@@ -44,6 +44,16 @@ from tools.run_run287_current_model_score_dryrun import (  # noqa: E402
 SCHEMA_VERSION = "run287-current-decision-score-only-v1"
 READY_STATUS = "READY_CURRENT_DECISION_SCORE_ONLY_NONRANKING"
 BLOCKED_STATUS = "BLOCKED_CURRENT_DECISION_SCORE_ONLY"
+ALLOWED_DECISION_FRAME_SCHEMAS = frozenset(
+    {
+        "run287-current-decision-frame-v1",
+        "run287-current-decision-frame-v2",
+    }
+)
+
+
+def decision_frame_schema_supported(value: Any) -> bool:
+    return str(value or "") in ALLOWED_DECISION_FRAME_SCHEMAS
 
 
 def utc_timestamp(value: Any) -> pd.Timestamp | None:
@@ -148,8 +158,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     coverage = decision.get("coverage") or {}
     decision_checks = {
-        "schema": decision.get("schema_version")
-        == "run287-current-decision-frame-v1",
+        "schema": decision_frame_schema_supported(decision.get("schema_version")),
         "ready": decision.get("status") == "READY_COMPLETE_CURRENT_DECISION_FRAME",
         "current_data_complete": decision.get("current_decision_data_complete")
         is True,

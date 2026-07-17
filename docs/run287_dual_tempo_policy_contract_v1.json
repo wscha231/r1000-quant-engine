@@ -1,0 +1,74 @@
+{
+  "schema_version": "run287-dual-tempo-policy-contract-v1",
+  "mode": "research_only_review_sidecar",
+  "objective": "hold durable compounders patiently while accelerating review when market factor or security evidence deteriorates",
+  "states": {
+    "COMPOUND_HOLD": "risk_normal_and_durable_quality_complete_and_market_benign",
+    "WATCH": "one_or_more_warning_or_incomplete_evidence_without_defend_or_rotate_evidence",
+    "DEFEND": "security_alert_or_factor_residual_alert_without_confirmed_fundamental_break_and_fresh_challenger",
+    "ROTATE": "defend_evidence_plus_exact_accepted_fundamental_break_plus_fresh_selector_qualified_superior_challenger",
+    "REBUILD": "two_clear_observations_after_recent_defend_or_rotate_with_durable_quality_intact",
+    "DATA_INSUFFICIENT": "exact_close_risk_or_quality_identity_missing"
+  },
+  "state_precedence": [
+    "DATA_INSUFFICIENT",
+    "ROTATE",
+    "DEFEND",
+    "REBUILD",
+    "WATCH",
+    "COMPOUND_HOLD"
+  ],
+  "durable_quality_gate": {
+    "exact_debt_component_coverage": 1.0,
+    "core_quality_coverage_min": 0.55,
+    "economic_durability_score_min": 0.20,
+    "balance_resilience_score_min": 0.0,
+    "future_rows_allowed": false,
+    "textual_moat_review_still_required": true
+  },
+  "rotate_gate": {
+    "price_alert_alone_is_sufficient": false,
+    "exact_accepted_fundamental_break_required": true,
+    "selector_qualified_challenger_required": true,
+    "challenger_decision_date_must_equal_or_follow_risk_asof": true,
+    "explicit_same_close_selector_provenance_required": true,
+    "scheduled_next_close_only": true
+  },
+  "portfolio_review": {
+    "defend_alert_fraction_min": 0.3333333333333333,
+    "small_concentrated_position_count_max": 5,
+    "small_concentrated_alert_count_min": 2,
+    "weight_or_cash_mutation": "none"
+  },
+  "response_tempo": {
+    "COMPOUND_HOLD": "daily_monitor_filing_review_no_rank_only_exit",
+    "WATCH": "review_after_each_completed_close_freeze_incremental_buy_if_security_warning",
+    "DEFEND": "same_after_close_manual_review_before_next_actionable_close",
+    "ROTATE": "scheduled_next_close_shadow_review_only",
+    "REBUILD": "scheduled_staged_reentry_review_after_two_clear_observations",
+    "DATA_INSUFFICIENT": "missing_neutral_no_action"
+  },
+  "forward_gate": {
+    "primary_horizon_sessions": 63,
+    "secondary_horizon_sessions": 21,
+    "minimum_distinct_decision_weeks": 26,
+    "minimum_resolved_63d_outcomes": 200,
+    "minimum_distinct_tickers": 50,
+    "one_day_outcome_can_change_policy": false,
+    "automatic_promotion_allowed": false,
+    "human_approval_required": true
+  },
+  "safety": {
+    "advisory_only": true,
+    "model_mutation_allowed": false,
+    "score_mutation_allowed": false,
+    "rank_mutation_allowed": false,
+    "selector_mutation_allowed": false,
+    "target_book_mutation_allowed": false,
+    "cash_policy_mutation_allowed": false,
+    "order_generation_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false
+  }
+}

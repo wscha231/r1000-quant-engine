@@ -926,6 +926,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/sec_enriched_candidate_replay/",
         "--require-current-latest-target",
         "--required-tickers SPY QQQ SMH SOXX",
+        '--required-session-date "$LAST_NYSE_SESSION_DATE"',
         "--max-scored 0",
         "Refresh daily macro snapshot",
         "tools/macro_daily_snapshot.py",
