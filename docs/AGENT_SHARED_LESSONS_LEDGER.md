@@ -2602,7 +2602,15 @@ Expected contract:
   - Source, Drive archive, and Drive recovery backup each contain 20 files.
     `rclone check --checksum --one-way` reported 20 matches and zero
     differences for the restored canonical state.
-  - Focused bootstrap and workflow smokes passed `2/2`.
+  - Manual workflow run `29624921914` restored both exact 2026-07-13 account
+    hashes with `created_account_count=0`; the new continuity guard therefore
+    worked against the real Drive/cache restore order.
+  - The same run then failed closed at exact-close coverage because SOXX ended
+    at 2026-07-16 while the required session was 2026-07-17. The refresh tool
+    had treated a cache exactly two calendar days old as fresh under `age > 2`.
+  - Added `--refresh-through-date "$LAST_NYSE_SESSION_DATE"` so every selected
+    ticker behind the required market session is refreshed regardless of its
+    calendar-age bucket. Focused validation passed `3/3`.
 - Failure or caveat:
   - The Google Drive connector could read the archive but returned HTTP 403
     for raw-file replacement because that app lacked file-specific write
@@ -2610,6 +2618,8 @@ Expected contract:
     bounded recovery instead.
   - This repairs forward-paper continuity only. It does not change historical
     CAGR/MDD, target weights, orders, or production state.
+  - Run `29624921914` did not advance the paper ledger because exact-close
+    coverage correctly blocked on SOXX before review outputs were built.
 - Root cause:
   - The bootstrap correctly refused partial ledger state but had no canonical
     genesis-date contract. Complete absence was therefore indistinguishable
@@ -2619,12 +2629,15 @@ Expected contract:
     cache/Drive restore. Missing persistence after genesis must fail closed,
     not reset equity to starting capital.
 - Next action:
-  - Verify the 2026-07-17 completed-close daily artifact restores seed date
-    2026-07-13 and advances both equity curves without `seeded_this_run=true`.
+  - Rerun the bounded daily workflow with the required-session refresh fix and
+    verify the 2026-07-17 artifact advances both equity curves from seed date
+    2026-07-13 without `seeded_this_run=true`.
 - Do-not-repeat:
   - Do not infer continuity from a successful workflow conclusion.
   - Do not accept a later exact-close bootstrap merely because all prices are
     available.
+  - Do not use calendar-age freshness as a substitute for required-session
+    close coverage.
   - Do not overwrite a displaced archive without preserving a recovery copy.
 - Evidence files:
   - `tools/bootstrap_run287_daily_paper_accounts.py`

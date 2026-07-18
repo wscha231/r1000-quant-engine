@@ -289,6 +289,7 @@ jobs:
               --books "${BOOKS[@]}" \
               --output-dir cache_prices \
               --required-tickers SPY QQQ SMH SOXX \
+              --refresh-through-date "$LAST_NYSE_SESSION_DATE" \
               --refresh-stale-days 2 \
               --max-scored 0 \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log || \

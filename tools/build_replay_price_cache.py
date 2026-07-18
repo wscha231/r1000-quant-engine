@@ -212,6 +212,21 @@ def stale_cache_tickers(
     return stale
 
 
+def cache_tickers_behind_date(
+    output_dir: Path,
+    tickers: set[str],
+    required_through_date: pd.Timestamp | None,
+) -> list[str]:
+    if required_through_date is None:
+        return []
+    behind: list[str] = []
+    for ticker in sorted(tickers):
+        max_dt = cached_max_date(output_dir, ticker)
+        if max_dt is None or max_dt < required_through_date:
+            behind.append(ticker)
+    return behind
+
+
 def normalize_download_frame(data: pd.DataFrame, ticker: str, symbol: str) -> pd.DataFrame:
     if data.empty:
         return pd.DataFrame()
@@ -280,6 +295,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.max_tickers and args.max_tickers > 0:
         tickers = sorted(set(tickers[: int(args.max_tickers)]) | required_tickers)
     today = pd.Timestamp.utcnow().tz_localize(None).normalize()
+    refresh_through_raw = str(getattr(args, "refresh_through_date", "") or "").strip()
+    refresh_through_date = pd.Timestamp(refresh_through_raw).normalize() if refresh_through_raw else None
     if args.start:
         start_dt = pd.Timestamp(args.start).normalize()
     else:
@@ -297,7 +314,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         today=today,
         refresh_stale_days=args.refresh_stale_days,
     )
-    download_targets = sorted(set(missing) | set(stale))
+    behind_required_date = cache_tickers_behind_date(output_dir, set(tickers), refresh_through_date)
+    download_targets = sorted(set(missing) | set(stale) | set(behind_required_date))
     result: dict[str, Any] = {
         "books": [str(path) for path in book_paths],
         "scored": str(repo_path(args.scored)) if args.scored else "",
@@ -310,6 +328,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "missing_before": len(missing),
         "stale_before": len(stale),
         "refresh_stale_days": int(args.refresh_stale_days),
+        "refresh_through_date": refresh_through_date.date().isoformat() if refresh_through_date is not None else "",
+        "behind_refresh_through_before": len(behind_required_date),
         "download_target_count": len(download_targets),
         "requested_start": start_dt.date().isoformat(),
         "requested_end": end_dt.date().isoformat(),
@@ -353,6 +373,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="Refresh cached tickers whose latest cached bar is older than this many calendar days; use -1 to disable.",
+    )
+    parser.add_argument(
+        "--refresh-through-date",
+        default="",
+        help="Refresh every selected ticker whose latest cached bar is before this required session date.",
     )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
