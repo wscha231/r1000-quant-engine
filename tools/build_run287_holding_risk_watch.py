@@ -467,12 +467,30 @@ def archive_rows(path: Path, rows: pd.DataFrame) -> int:
             payload = json.loads(line)
             existing[str(payload["event_id"])] = payload
     new_rows: list[dict[str, Any]] = []
-    for payload in rows.to_dict("records"):
+    for row_number, payload in enumerate(rows.to_dict("records")):
         clean_payload = json.loads(json.dumps(payload, default=json_default))
         event_id = str(clean_payload["event_id"])
         if event_id in existing:
-            if canonical_hash(existing[event_id]) != canonical_hash(clean_payload):
+            prior_payload = existing[event_id]
+            prior_available_from = str(prior_payload.get("available_from") or "")
+            current_available_from = str(clean_payload.get("available_from") or "")
+            if not prior_available_from or not current_available_from:
+                raise ValueError(
+                    f"same-date holding risk event missing available_from: {event_id}"
+                )
+            comparable_payload = {
+                **clean_payload,
+                "available_from": prior_available_from,
+            }
+            if canonical_hash(prior_payload) != canonical_hash(comparable_payload):
                 raise ValueError(f"same-date holding risk event changed: {event_id}")
+            # A retry of the same completed session is the same event. Preserve
+            # the first observed availability instead of letting wall-clock
+            # retry time make an append-only row non-idempotent.
+            if current_available_from != prior_available_from:
+                rows.at[rows.index[row_number], "available_from"] = (
+                    prior_available_from
+                )
             continue
         existing[event_id] = clean_payload
         new_rows.append(clean_payload)

@@ -137,13 +137,28 @@ def main() -> None:
 
         output = root / "holding_risk_watch"
         first = write_outputs(output, summary, rows)
-        second = write_outputs(output, summary, rows)
+        first_history = (output / "risk_history.jsonl").read_text(encoding="utf-8")
+        retry_rows = rows.copy()
+        retry_rows["available_from"] = "2026-07-14T01:00:00Z"
+        retry_summary = {**summary, "available_from": "2026-07-14T01:00:00Z"}
+        second = write_outputs(output, retry_summary, retry_rows)
         assert first["history_appended_count"] == len(rows)
         assert second["history_appended_count"] == 0
+        assert retry_rows["available_from"].eq("2026-07-13T20:30:00Z").all()
+        assert (output / "risk_history.jsonl").read_text(encoding="utf-8") == first_history
         assert (output / "holding_risk_watch.csv").exists()
         assert (output / "risk_history.jsonl").exists()
         assert len((output / "risk_history.jsonl").read_text(encoding="utf-8").splitlines()) == len(rows)
         assert "FREEZE_INCREMENTAL_BUY_AND_MANUAL_REVIEW" in (output / "report.md").read_text(encoding="utf-8")
+
+        changed_rows = rows.copy()
+        changed_rows.loc[changed_rows.index[0], "risk_state"] = "CHANGED"
+        try:
+            write_outputs(output, summary, changed_rows)
+        except ValueError as exc:
+            assert "same-date holding risk event changed" in str(exc)
+        else:
+            raise AssertionError("same-date semantic mutation must fail closed")
 
     print("run287_holding_risk_watch_smoke: PASS")
 
