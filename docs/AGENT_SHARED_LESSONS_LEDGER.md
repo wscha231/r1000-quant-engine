@@ -2586,6 +2586,7 @@ Expected contract:
 - Branch/run:
   - `codex/run287-paper-ledger-continuity-20260718`
   - affected successful run `29554723038`
+  - recovery proof runs `29624921914` and `29625744031`
 - Context:
   - The 2026-07-16 daily operating job found neither a GitHub paper-state
     cache nor the dedicated Google Drive paper archive and therefore created a
@@ -2611,6 +2612,17 @@ Expected contract:
   - Added `--refresh-through-date "$LAST_NYSE_SESSION_DATE"` so every selected
     ticker behind the required market session is refreshed regardless of its
     calendar-age bucket. Focused validation passed `3/3`.
+  - Bounded rerun `29625744031` completed successfully with exact-close
+    coverage `24/24`, `23` required-session price refreshes, and zero refresh
+    failures. Both accounts reported `seeded_this_run=false` and retained the
+    canonical 2026-07-13 seed.
+  - The 2026-07-17 review-only marks were Main equity `$97,724.6624`, cash
+    `1.3988%`, forward return/MDD `-2.2753%`; Concentrated equity
+    `$84,279.8008`, cash `0.8472%`, forward return/MDD `-15.7202%`.
+    These four-session observations remain `UNDERPOWERED` for CAGR inference.
+  - The workflow persisted the advanced 20-file ledger to the dedicated Drive
+    archive. A post-run `rclone check --checksum --one-way` found 20 matches
+    and zero differences between the artifact and Drive.
 - Failure or caveat:
   - The Google Drive connector could read the archive but returned HTTP 403
     for raw-file replacement because that app lacked file-specific write
@@ -2620,6 +2632,11 @@ Expected contract:
     CAGR/MDD, target weights, orders, or production state.
   - Run `29624921914` did not advance the paper ledger because exact-close
     coverage correctly blocked on SOXX before review outputs were built.
+  - The daily workflow can now advance marks and holding-risk review through
+    2026-07-17, but its exact selector packet still fails closed at
+    `scored_latest`: GTLS has no 2026-07-17 close because its verified cash
+    merger ended trading after 2026-07-15. The terminal-lifecycle evidence and
+    scorer handling exist on draft PR #299, not on `master` or this focused PR.
 - Root cause:
   - The bootstrap correctly refused partial ledger state but had no canonical
     genesis-date contract. Complete absence was therefore indistinguishable
@@ -2629,9 +2646,10 @@ Expected contract:
     cache/Drive restore. Missing persistence after genesis must fail closed,
     not reset equity to starting capital.
 - Next action:
-  - Rerun the bounded daily workflow with the required-session refresh fix and
-    verify the 2026-07-17 artifact advances both equity curves from seed date
-    2026-07-13 without `seeded_this_run=true`.
+  - Merge the focused persistence/required-session fix only after review, then
+    split the minimal verified GTLS terminal-lifecycle handling out of draft
+    PR #299 so the exact selector packet can advance without importing that
+    PR's unrelated research surface.
 - Do-not-repeat:
   - Do not infer continuity from a successful workflow conclusion.
   - Do not accept a later exact-close bootstrap merely because all prices are
