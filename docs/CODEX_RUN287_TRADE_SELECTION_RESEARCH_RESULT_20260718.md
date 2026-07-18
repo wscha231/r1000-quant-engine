@@ -63,8 +63,8 @@ The frozen high-signal state required all three existing conditions:
 - drop signal stack count at least 7.
 
 It was compared with all other actual target-book drops. The primary metric is
-63-session SPY excess return. Bootstrap resamples filing/decision-week blocks
-2,000 times with a fixed seed.
+63-session SPY excess return. Bootstrap resamples decision-week blocks 2,000
+times with a fixed seed.
 
 | Portfolio | Window | High n | Comparator n | Mean spread | 95% block-bootstrap lower |
 |---|---|---:|---:|---:|---:|
