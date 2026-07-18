@@ -2579,3 +2579,59 @@ Expected contract:
   - `tools/audit_free_historical_data_coverage.py`
   - `tests/free_historical_data_backfill_smoke.py`
   - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`
+
+### 2026-07-18 - Forward estimate row count is not PIT or paper readiness
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-forward-evidence-gate-20260718`
+  - Google Drive archive through 2026-07-18 and paper ledger through the
+    2026-07-17 close
+- Context:
+  - The durable estimate archive had grown for several days, but there was no
+    single current verdict joining archive integrity, true estimate coverage,
+    PIT limitations, and forward paper readiness.
+- Attempt:
+  - Audited eight existing Drive snapshots without a provider call and joined
+    them to the append-only archive index, 993-name collection checkpoint, and
+    durable forward paper ledger.
+  - Added a daily fail-closed evidence gate and persisted it in the GitHub
+    artifact, cache, and Drive research state.
+- Result:
+  - All eight current snapshot hashes match their latest date-index rows; there
+    are zero duplicate ticker/date rows and zero future-availability rows.
+  - True estimate coverage is 35/993, up 22 names or 2.2155pp from the frozen
+    13-name baseline, still below the +5pp repeat threshold.
+  - The ledger has 22/50 distinct true-forward tickers, 0/200 resolved 63D
+    outcomes, and zero completed 21D/63D week blocks.
+  - Status is `UNDERPOWERED_FORWARD_PAPER`; historical CAGR/MDD is unchanged.
+  - Full local PR validation passed `177/177` test files.
+- Failure or caveat:
+  - All 1,329 `available_from` values are date-only, and stable vendor event
+    IDs, delisted metadata, ADR/global identity metadata, and clean PIT universe
+    labels are absent.
+  - Finnhub remains entitlement-blocked; the latest run returned six FMP true
+    estimates from 55 attempts and avoided 92 estimate requests.
+- Root cause:
+  - Forward archive breadth, historical PIT provenance, and elapsed paper
+    outcomes are different evidence dimensions and were previously discussed
+    through separate summaries.
+- Reusable lesson:
+  - Count estimate coverage only where `has_forward_estimate>0`; numeric zero
+    placeholders on neutral rows are not evidence.
+  - A healthy forward archive may continue collecting while both historical
+    source-screen and paper-promotion gates remain closed.
+- Next action:
+  - Continue bounded incremental collection until 50 distinct true-forward
+    paper tickers, then wait for the frozen 200 resolved 63D outcomes and 12/8
+    decision-week blocks without retuning.
+- Do-not-repeat:
+  - Do not call attempted symbols true estimate coverage.
+  - Do not use date-only current snapshots in historical rebalances.
+  - Do not reopen the failed historical arm for a +2.2155pp coverage change.
+  - Do not promote paper readiness into seven-year CAGR/MDD evidence.
+- Evidence files:
+  - `docs/run287_forward_estimate_evidence_gate_contract.json`
+  - `tools/audit_run287_forward_estimate_evidence_gate.py`
+  - `tests/run287_forward_estimate_evidence_gate_smoke.py`
+  - `docs/CODEX_RUN287_FORWARD_ESTIMATE_EVIDENCE_GATE_RESULT_20260718.md`

@@ -79,6 +79,8 @@ def test_workflow_appends_bounded_forward_paper_archive_after_completed_session(
         "--start 2026-07-01",
         "--refresh-stale-days 1",
         "tools/run_free_data_forward_paper_ledger.py",
+        "tools/audit_run287_forward_estimate_evidence_gate.py",
+        "outputs/run287_forward_estimate_evidence_gate",
         "--ranked-universe outputs/free_data_selection_overlay/ranked_universe.csv",
         "--price-cache cache_prices_forward_paper",
         '--as-of-date "$LAST_NYSE_SESSION_DATE"',

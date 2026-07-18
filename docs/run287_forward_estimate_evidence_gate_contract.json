@@ -1,0 +1,37 @@
+{
+  "schema_version": "run287-forward-estimate-evidence-gate-contract-v1",
+  "archive": {
+    "forward_only": true,
+    "missing_estimate_policy": "neutral_has_forward_estimate_must_be_true",
+    "future_availability_rows_allowed": 0,
+    "duplicate_ticker_date_rows_allowed": 0,
+    "snapshot_hash_must_match_latest_date_index_row": true
+  },
+  "historical_source_screen": {
+    "allowed_from_free_forward_archive": false,
+    "required_exact_timezone_available_from_ratio": 1.0,
+    "required_stable_vendor_event_id": true,
+    "required_delisted_metadata": true,
+    "required_adr_global_identity_metadata": true,
+    "required_pit_universe_label_clean": true,
+    "same_arm_repeat_minimum_coverage_increase_percentage_points": 5.0
+  },
+  "forward_paper_review": {
+    "distinct_true_forward_tickers": 50,
+    "resolved_unique_63d_outcomes": 200,
+    "decision_week_blocks_21d": 12,
+    "decision_week_blocks_63d": 8,
+    "review_only": true,
+    "historical_backtest_acceptance": false
+  },
+  "safety": {
+    "backtest": false,
+    "fullrun": false,
+    "orders": false,
+    "target_book_mutation": false,
+    "selector_weight_change": false,
+    "cash_policy_change": false,
+    "production": false,
+    "live_trading": false
+  }
+}

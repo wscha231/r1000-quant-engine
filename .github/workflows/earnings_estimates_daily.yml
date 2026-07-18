@@ -462,6 +462,20 @@ jobs:
             --benchmark SPY \
             --as-of-date "$LAST_NYSE_SESSION_DATE"
 
+      - name: Audit forward estimate evidence gate
+        if: steps.forward_market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/audit_run287_forward_estimate_evidence_gate.py \
+            --snapshot-dir data_pit/events/earnings_estimates \
+            --archive-index data_pit/events/earnings_estimates/archive_index.jsonl \
+            --collection-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
+            --paper-ledger-summary outputs/free_data_forward_paper_ledger/summary.json \
+            --output-dir outputs/run287_forward_estimate_evidence_gate \
+            --universe-size 993 \
+            --baseline-true-ticker-count 13 \
+            --repeat-coverage-increase-pp 5
+
       - name: Save earnings estimate archive cache
         if: always()
         uses: actions/cache/save@v4
@@ -472,6 +486,7 @@ jobs:
             cache_prices_forward_paper
             outputs/free_data_forward_paper_ledger
             outputs/free_data_selection_overlay
+            outputs/run287_forward_estimate_evidence_gate
           key: earnings-estimates-daily-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload earnings estimate artifact
@@ -485,6 +500,7 @@ jobs:
             outputs/earnings_estimates_daily/
             outputs/free_data_selection_overlay/
             outputs/free_data_forward_paper_ledger/
+            outputs/run287_forward_estimate_evidence_gate/
             cache_prices_forward_paper/replay_price_cache_manifest.json
           retention-days: 30
 
@@ -526,6 +542,12 @@ jobs:
               "$BASE""research_state/free_data_forward_paper_ledger/" || true
             timeout 3m rclone copy outputs/free_data_forward_paper_ledger \
               "$BASE""research_runs/forward_paper/${GITHUB_RUN_ID}/free_data_forward_paper_ledger/" || true
+          fi
+          if [ -d outputs/run287_forward_estimate_evidence_gate ]; then
+            timeout 3m rclone copy outputs/run287_forward_estimate_evidence_gate \
+              "$BASE""research_state/run287_forward_estimate_evidence_gate/" || true
+            timeout 3m rclone copy outputs/run287_forward_estimate_evidence_gate \
+              "$BASE""research_runs/forward_paper/${GITHUB_RUN_ID}/run287_forward_estimate_evidence_gate/" || true
           fi
           if [ -d cache_prices_forward_paper ]; then
             timeout 5m rclone copy cache_prices_forward_paper \
