@@ -680,7 +680,6 @@ def load_reusable_same_session_manifest(
     portfolio_dir: Path,
     bootstrap_path: Path,
     target_path: Path,
-    preview_root: Path,
     as_of_date: pd.Timestamp,
     cost_bps: float,
     max_fill_lag_days: int,
@@ -812,10 +811,6 @@ def load_reusable_same_session_manifest(
     require(int(safe_float(meta.get("pending_order_count"), -1)) == len(pending), "state_meta_pending_count")
     require(int(safe_float(meta.get("fill_count"), -1)) == len(fills), "state_meta_fill_count")
     require(int(safe_float(meta.get("rejection_count"), -1)) == len(rejections), "state_meta_rejection_count")
-
-    preview_dir = preview_root / portfolio
-    for name in ("preview_metrics.json", "order_batch_manifest.json", "orders_preview.csv", "target_weights.csv"):
-        require((preview_dir / name).exists(), f"preview_missing:{name}")
 
     if errors:
         raise ValueError(
@@ -958,12 +953,38 @@ def run_portfolio(
         portfolio_dir=portfolio_dir,
         bootstrap_path=bootstrap_path,
         target_path=target_path,
-        preview_root=preview_root,
         as_of_date=as_of_date,
         cost_bps=cost_bps,
         max_fill_lag_days=max_fill_lag_days,
     )
     if reusable is not None:
+        preview_dir = preview_root / portfolio
+        required_preview_files = (
+            "preview_metrics.json",
+            "order_batch_manifest.json",
+            "orders_preview.csv",
+            "target_weights.csv",
+        )
+        missing_preview_files = [
+            name for name in required_preview_files if not (preview_dir / name).is_file()
+        ]
+        if missing_preview_files:
+            preview = build_order_preview(
+                account_path=portfolio_dir / "account_state_latest.json",
+                target_path=target_path,
+                price_cache=price_cache,
+                output_dir=preview_dir,
+                portfolio=portfolio,
+                as_of_date=as_of_date,
+                cost_bps=cost_bps,
+            )
+            if preview.get("status") != "completed":
+                raise ValueError(
+                    f"same-session paper account preview failed for {portfolio}: "
+                    f"{preview.get('reason')}"
+                )
+        reusable["same_session_preview_rebuilt"] = bool(missing_preview_files)
+        reusable["same_session_preview_missing_before_rebuild"] = missing_preview_files
         return reusable
     account, state, seeded = load_or_seed_account(
         portfolio_dir=portfolio_dir,
@@ -1144,6 +1165,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "historical_cagr_mdd_replacement_allowed": False,
         "same_session_reused_portfolio_count": sum(
             1 for payload in results.values() if payload.get("same_session_reused") is True
+        ),
+        "same_session_preview_rebuilt_portfolio_count": sum(
+            1 for payload in results.values() if payload.get("same_session_preview_rebuilt") is True
         ),
         "generated_at_utc": utc_now(),
     }

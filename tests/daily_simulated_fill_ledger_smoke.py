@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -240,9 +241,27 @@ def test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_
         write_prices(cache, "AAA", [100.0, 999.0, 103.0])
         revised = run(args_for(root, "2026-01-05"))
         assert revised["same_session_reused_portfolio_count"] == 2
+        assert revised["same_session_preview_rebuilt_portfolio_count"] == 0
         for portfolio in ("main", "concentrated"):
             assert revised["portfolios"][portfolio]["same_session_reused"] is True
+            assert revised["portfolios"][portfolio]["same_session_preview_rebuilt"] is False
             assert directory_hashes(root / "paper" / portfolio) == before[portfolio]
+
+        for portfolio in ("main", "concentrated"):
+            shutil.rmtree(root / "previews" / portfolio)
+        rebuilt = run(args_for(root, "2026-01-05"))
+        assert rebuilt["same_session_reused_portfolio_count"] == 2
+        assert rebuilt["same_session_preview_rebuilt_portfolio_count"] == 2
+        for portfolio in ("main", "concentrated"):
+            assert rebuilt["portfolios"][portfolio]["same_session_preview_rebuilt"] is True
+            assert directory_hashes(root / "paper" / portfolio) == before[portfolio]
+            for name in (
+                "preview_metrics.json",
+                "order_batch_manifest.json",
+                "orders_preview.csv",
+                "target_weights.csv",
+            ):
+                assert (root / "previews" / portfolio / name).is_file()
 
         target = pd.read_csv(root / "targets" / "main.csv")
         target.loc[target["ticker"] == "AAA", "weight"] = 0.30

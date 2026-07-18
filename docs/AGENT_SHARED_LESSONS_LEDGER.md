@@ -2636,15 +2636,22 @@ Expected contract:
     ledger correctly rejected the changed 2026-07-17 mark, but the old path had
     already written `account_state_latest.json` before raising.
   - The ledger retry path now validates manifest, target/seed hashes, cost and
-    lag policy, account/curve/position consistency, preview presence, pending
-    counts, and the fill/rejection event chain before reusing a same-session
-    mark. A price-only cache revision is ignored after the first exact mark;
-    target, seed, policy, or stored-state changes fail closed before any
-    portfolio state file is written.
+    lag policy, account/curve/position consistency, pending counts, and the
+    fill/rejection event chain before reusing a same-session mark. A price-only
+    cache revision is ignored after the first exact mark; target, seed, policy,
+    or stored-state changes fail closed before any portfolio state file is
+    written.
   - Focused fixture validation passed, including a deliberately revised same-day
     close and a changed-target negative control. A copied real artifact from
     successful run `29625744031` reused both 2026-07-17 portfolio marks, with
     zero hash differences across all 30 portfolio and preview files.
+  - Bounded run `29630940290` exposed one restore-contract gap: the dedicated
+    Drive archive intentionally persists the ledger but not disposable
+    `account_ledger_preview` files. Reuse validation therefore stopped on four
+    missing preview files before reaching the lifecycle scorer. The retry path
+    now leaves the verified portfolio state frozen and rebuilds only a missing
+    advisory preview from that frozen account; existing previews remain
+    byte-for-byte unchanged.
 - Failure or caveat:
   - The Google Drive connector could read the archive but returned HTTP 403
     for raw-file replacement because that app lacked file-specific write
@@ -2655,10 +2662,11 @@ Expected contract:
   - Run `29624921914` did not advance the paper ledger because exact-close
     coverage correctly blocked on SOXX before review outputs were built.
   - The daily workflow can now advance marks and holding-risk review through
-    2026-07-17, but its exact selector packet still fails closed at
+    2026-07-17, but `master` and this focused PR still fail closed at
     `scored_latest`: GTLS has no 2026-07-17 close because its verified cash
-    merger ended trading after 2026-07-15. The terminal-lifecycle evidence and
-    scorer handling exist on draft PR #299, not on `master` or this focused PR.
+    merger ended trading after 2026-07-15. Minimal terminal-lifecycle evidence
+    and scorer handling are isolated on stacked draft PR #301; broader research
+    changes remain on draft PR #299.
 - Root cause:
   - The bootstrap correctly refused partial ledger state but had no canonical
     genesis-date contract. Complete absence was therefore indistinguishable
