@@ -674,6 +674,168 @@ def forward_metrics(curve: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def load_reusable_same_session_manifest(
+    *,
+    portfolio: str,
+    portfolio_dir: Path,
+    bootstrap_path: Path,
+    target_path: Path,
+    preview_root: Path,
+    as_of_date: pd.Timestamp,
+    cost_bps: float,
+    max_fill_lag_days: int,
+) -> dict[str, Any] | None:
+    """Reuse an already-committed mark for the same market session.
+
+    Provider caches can revise a close after the first exact-session mark was
+    archived.  Re-marking the same date would mutate an append-only forward
+    curve.  Reuse is therefore allowed only when the complete stored state and
+    every non-price input still match; any mismatch fails closed before a state
+    file is written.
+    """
+
+    requested_date = as_of_date.date().isoformat()
+    manifest = read_json(portfolio_dir / "manifest.json")
+    account = read_json(portfolio_dir / "account_state_latest.json")
+    curve = read_csv(portfolio_dir / "equity_curve.csv")
+    manifest_date = clean_date(manifest.get("as_of_date"))
+    account_date = clean_date(account.get("as_of_date"))
+    curve_dates = (
+        pd.to_datetime(curve.get("date", pd.Series(dtype=str)), errors="coerce").dt.strftime("%Y-%m-%d")
+        if not curve.empty
+        else pd.Series(dtype=str)
+    )
+    curve_has_requested = bool((curve_dates == requested_date).any())
+
+    if manifest_date != requested_date:
+        if account_date == requested_date or curve_has_requested:
+            raise ValueError(
+                f"incomplete same-session paper state for {portfolio}; refusing recovery mutation"
+            )
+        return None
+
+    errors: list[str] = []
+
+    def require(condition: bool, reason: str) -> None:
+        if not condition:
+            errors.append(reason)
+
+    target = normalized_target(target_path, portfolio, as_of_date)
+    digest = target_hash(target)
+    effective_date = target_effective_date(target_path, as_of_date)
+    effective_text = effective_date.date().isoformat() if effective_date is not None else None
+    require(str(manifest.get("schema_version") or "") == "daily-simulated-fill-ledger-manifest-v1", "manifest_schema")
+    require(str(manifest.get("portfolio_kind") or "").lower() == portfolio, "manifest_portfolio")
+    require(str(manifest.get("fill_mode") or "").lower() == "next_close", "fill_mode")
+    require(manifest.get("integer_shares") is True, "integer_shares")
+    require(manifest.get("review_only") is True, "manifest_review_only")
+    require(manifest.get("live_trading_enabled") is False, "manifest_live_trading")
+    require(manifest.get("production_mutation_allowed") is False, "manifest_production_mutation")
+    require(math.isclose(float(safe_float(manifest.get("cost_bps_per_side"), np.nan)), cost_bps, abs_tol=1e-9), "cost_bps")
+    require(int(safe_float(manifest.get("max_fill_lag_days"), -1)) == int(max_fill_lag_days), "max_fill_lag_days")
+    require(str(manifest.get("target_hash") or "") == digest, "target_hash")
+    require(str(manifest.get("target_sha256") or "") == file_hash(target_path), "target_sha256")
+    require(str(manifest.get("seed_account_sha256") or "") == file_hash(bootstrap_path), "seed_account_sha256")
+    require(manifest.get("target_effective_date") == effective_text, "target_effective_date")
+
+    require(bool(account), "account_missing")
+    require(account_date == requested_date, "account_as_of_date")
+    require(str(account.get("portfolio_kind") or "").lower() == portfolio, "account_portfolio")
+    require(account.get("review_only") is True, "account_review_only")
+    require(account.get("live_trading_enabled") is False, "account_live_trading")
+    require(account.get("production_mutation_allowed") is False, "account_production_mutation")
+
+    matching_curve = curve.loc[curve_dates == requested_date].copy() if not curve.empty else pd.DataFrame()
+    require(len(matching_curve) == 1, "equity_curve_same_date_count")
+    require(not curve_dates.empty and str(curve_dates.iloc[-1]) == requested_date, "equity_curve_latest_date")
+    if len(matching_curve) == 1 and account:
+        curve_row = matching_curve.iloc[0]
+        for field in ("equity_usd", "cash_usd", "stock_value_usd"):
+            require(
+                math.isclose(
+                    float(safe_float(curve_row.get(field), np.nan)),
+                    float(safe_float(account.get(field), np.nan)),
+                    rel_tol=1e-9,
+                    abs_tol=1e-6,
+                ),
+                f"equity_curve_{field}",
+            )
+        require(
+            int(safe_float(curve_row.get("position_count"), -1))
+            == int(safe_float(account.get("position_count"), -2)),
+            "equity_curve_position_count",
+        )
+
+    positions = read_csv(portfolio_dir / "positions_latest.csv")
+    account_positions = account.get("positions") if isinstance(account.get("positions"), list) else []
+    require(len(positions) == len(account_positions), "positions_row_count")
+    require(len(account_positions) == int(safe_float(account.get("position_count"), -1)), "account_position_count")
+    if account_positions:
+        account_position_map = {
+            clean_ticker(row.get("ticker")): float(safe_float(row.get("shares"), np.nan))
+            for row in account_positions
+            if isinstance(row, dict) and clean_ticker(row.get("ticker"))
+        }
+        stored_position_map = {
+            clean_ticker(row.get("ticker")): float(safe_float(row.get("shares"), np.nan))
+            for row in positions.to_dict("records")
+            if clean_ticker(row.get("ticker"))
+        }
+        require(account_position_map.keys() == stored_position_map.keys(), "positions_tickers")
+        require(
+            all(
+                math.isclose(account_position_map[ticker], stored_position_map[ticker], abs_tol=1e-9)
+                for ticker in account_position_map.keys() & stored_position_map.keys()
+            ),
+            "positions_shares",
+        )
+
+    pending = read_csv(portfolio_dir / "pending_orders.csv")
+    fills = read_csv(portfolio_dir / "fills.csv")
+    rejections = read_csv(portfolio_dir / "rejections.csv")
+    try:
+        sequence, chain_hash, _client_ids = validate_event_chain(fills, rejections)
+    except ValueError as exc:
+        errors.append(f"event_chain:{exc}")
+        sequence, chain_hash = -1, ""
+    require(int(safe_float(manifest.get("pending_order_count"), -1)) == len(pending), "manifest_pending_count")
+    require(int(safe_float(manifest.get("fill_count"), -1)) == len(fills), "manifest_fill_count")
+    require(int(safe_float(manifest.get("rejection_count"), -1)) == len(rejections), "manifest_rejection_count")
+    require(int(safe_float(manifest.get("event_sequence"), -1)) == sequence, "manifest_event_sequence")
+    require(str(manifest.get("event_chain_hash") or "") == chain_hash, "manifest_event_chain_hash")
+    require(int(safe_float(account.get("pending_order_count"), -1)) == len(pending), "account_pending_count")
+
+    meta = read_json(portfolio_dir / "state_meta.json")
+    require(clean_date(meta.get("as_of_date")) == requested_date, "state_meta_as_of_date")
+    require(int(safe_float(meta.get("event_sequence"), -1)) == sequence, "state_meta_event_sequence")
+    require(str(meta.get("event_chain_hash") or "") == chain_hash, "state_meta_event_chain_hash")
+    require(int(safe_float(meta.get("pending_order_count"), -1)) == len(pending), "state_meta_pending_count")
+    require(int(safe_float(meta.get("fill_count"), -1)) == len(fills), "state_meta_fill_count")
+    require(int(safe_float(meta.get("rejection_count"), -1)) == len(rejections), "state_meta_rejection_count")
+
+    preview_dir = preview_root / portfolio
+    for name in ("preview_metrics.json", "order_batch_manifest.json", "orders_preview.csv", "target_weights.csv"):
+        require((preview_dir / name).exists(), f"preview_missing:{name}")
+
+    if errors:
+        raise ValueError(
+            f"same-session paper ledger reuse validation failed for {portfolio}: {','.join(errors)}"
+        )
+
+    reused = dict(manifest)
+    reused.update(
+        {
+            "seeded_this_run": False,
+            "resolved_fills_this_run": 0,
+            "resolved_rejections_this_run": 0,
+            "enqueued_this_run": 0,
+            "same_session_reused": True,
+            "same_session_reuse_reason": "verified_first_exact_mark_preserved",
+        }
+    )
+    return reused
+
+
 def build_order_preview(
     *,
     account_path: Path,
@@ -791,6 +953,18 @@ def run_portfolio(
 ) -> dict[str, Any]:
     portfolio_dir = state_root / portfolio
     portfolio_dir.mkdir(parents=True, exist_ok=True)
+    reusable = load_reusable_same_session_manifest(
+        portfolio=portfolio,
+        portfolio_dir=portfolio_dir,
+        bootstrap_path=bootstrap_path,
+        target_path=target_path,
+        preview_root=preview_root,
+        as_of_date=as_of_date,
+        cost_bps=cost_bps,
+        max_fill_lag_days=max_fill_lag_days,
+    )
+    if reusable is not None:
+        return reusable
     account, state, seeded = load_or_seed_account(
         portfolio_dir=portfolio_dir,
         bootstrap_path=bootstrap_path,
@@ -968,6 +1142,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "live_trading_enabled": False,
         "production_mutation_allowed": False,
         "historical_cagr_mdd_replacement_allowed": False,
+        "same_session_reused_portfolio_count": sum(
+            1 for payload in results.values() if payload.get("same_session_reused") is True
+        ),
         "generated_at_utc": utc_now(),
     }
     write_json(state_root / "summary.json", summary)

@@ -2623,6 +2623,28 @@ Expected contract:
   - The workflow persisted the advanced 20-file ledger to the dedicated Drive
     archive. A post-run `rclone check --checksum --one-way` found 20 matches
     and zero differences between the artifact and Drive.
+  - Subsequent same-session retry runs exposed two additional append-only
+    boundaries. Run `29627879721` rejected a duplicate holding-risk event whose
+    only change was `available_from`; run `29628711412` then showed that a
+    provider/cache revision can also change the recomputed risk payload. The
+    retry path now reuses the first verified 2026-07-17 risk snapshot only when
+    account hashes, contract hash, stored output hashes, event IDs, and safety
+    flags all match. Any semantic input or stored-output change remains blocked.
+  - Run `29629644686` passed required-session close coverage and reached review
+    output construction, but a same-date provider revision changed Main equity
+    from `$97,724.66236877441` to `$97,724.71708679199` (about `$0.055`). The
+    ledger correctly rejected the changed 2026-07-17 mark, but the old path had
+    already written `account_state_latest.json` before raising.
+  - The ledger retry path now validates manifest, target/seed hashes, cost and
+    lag policy, account/curve/position consistency, preview presence, pending
+    counts, and the fill/rejection event chain before reusing a same-session
+    mark. A price-only cache revision is ignored after the first exact mark;
+    target, seed, policy, or stored-state changes fail closed before any
+    portfolio state file is written.
+  - Focused fixture validation passed, including a deliberately revised same-day
+    close and a changed-target negative control. A copied real artifact from
+    successful run `29625744031` reused both 2026-07-17 portfolio marks, with
+    zero hash differences across all 30 portfolio and preview files.
 - Failure or caveat:
   - The Google Drive connector could read the archive but returned HTTP 403
     for raw-file replacement because that app lacked file-specific write
@@ -2645,6 +2667,9 @@ Expected contract:
   - Persistent paper systems need a pinned genesis identity in addition to
     cache/Drive restore. Missing persistence after genesis must fail closed,
     not reset equity to starting capital.
+  - Append-only forward marks need same-session idempotency at the orchestration
+    boundary. Provider revisions must not trigger a second valuation write for
+    an already archived date, and validation must happen before partial writes.
 - Next action:
   - Merge the focused persistence/required-session fix only after review, then
     split the minimal verified GTLS terminal-lifecycle handling out of draft
@@ -2659,7 +2684,9 @@ Expected contract:
   - Do not overwrite a displaced archive without preserving a recovery copy.
 - Evidence files:
   - `tools/bootstrap_run287_daily_paper_accounts.py`
+  - `tools/run_daily_simulated_fill_ledger.py`
   - `tests/run287_daily_paper_bootstrap_smoke.py`
+  - `tests/daily_simulated_fill_ledger_smoke.py`
   - `.github/workflows/daily_operating_selection_refresh.yml`
   - `outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/`
   - `outputs/run287_paper_drive_backup_pre_recovery_20260718_1006/`

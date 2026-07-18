@@ -2,6 +2,7 @@
 """Smoke checks for the review-only next-close forward paper ledger."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -88,6 +89,13 @@ def args_for(root: Path, as_of_date: str) -> SimpleNamespace:
     )
 
 
+def directory_hashes(path: Path) -> dict[str, str]:
+    return {
+        file.relative_to(path).as_posix(): hashlib.sha256(file.read_bytes()).hexdigest()
+        for file in sorted(item for item in path.rglob("*") if item.is_file())
+    }
+
+
 def test_pending_resolves_once_at_next_close() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -136,10 +144,12 @@ def test_pending_resolves_once_at_next_close() -> None:
 
         third = run(args_for(root, "2026-01-06"))
         assert third["status"] == "completed"
+        assert third["same_session_reused_portfolio_count"] == 2
         for portfolio in ("main", "concentrated"):
             fills = pd.read_csv(root / "paper" / portfolio / "fills.csv")
             assert len(fills) == 2
             assert fills["client_order_id"].is_unique
+            assert third["portfolios"][portfolio]["same_session_reused"] is True
 
         main_dir = root / "paper" / "main"
         pending_path = main_dir / "pending_orders.csv"
@@ -209,9 +219,49 @@ def test_bootstrap_does_not_retrade_an_already_effective_target() -> None:
             assert meta["last_enqueue_status"] == "BOOTSTRAP_TARGET_ASSUMED_APPLIED"
 
 
+def test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_closed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+        write_prices(cache, "BBB", [50.0, 51.0, 52.0])
+        for portfolio in ("main", "concentrated"):
+            write_seed(root / "seed" / f"{portfolio}.json", portfolio)
+            write_target(root / "targets" / f"{portfolio}.csv")
+
+        first = run(args_for(root, "2026-01-05"))
+        assert first["same_session_reused_portfolio_count"] == 0
+        before = {
+            portfolio: directory_hashes(root / "paper" / portfolio)
+            for portfolio in ("main", "concentrated")
+        }
+
+        write_prices(cache, "AAA", [100.0, 999.0, 103.0])
+        revised = run(args_for(root, "2026-01-05"))
+        assert revised["same_session_reused_portfolio_count"] == 2
+        for portfolio in ("main", "concentrated"):
+            assert revised["portfolios"][portfolio]["same_session_reused"] is True
+            assert directory_hashes(root / "paper" / portfolio) == before[portfolio]
+
+        target = pd.read_csv(root / "targets" / "main.csv")
+        target.loc[target["ticker"] == "AAA", "weight"] = 0.30
+        target.to_csv(root / "targets" / "main.csv", index=False)
+        try:
+            run(args_for(root, "2026-01-05"))
+        except ValueError as exc:
+            assert "same-session paper ledger reuse validation failed for main" in str(exc)
+            assert "target_hash" in str(exc)
+        else:
+            raise AssertionError("same-session target mutation was silently accepted")
+        for portfolio in ("main", "concentrated"):
+            assert directory_hashes(root / "paper" / portfolio) == before[portfolio]
+
+
 def main() -> int:
     test_pending_resolves_once_at_next_close()
     test_bootstrap_does_not_retrade_an_already_effective_target()
+    test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_closed()
     print("daily_simulated_fill_ledger_smoke: PASS")
     return 0
 
