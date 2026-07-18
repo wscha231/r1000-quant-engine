@@ -202,6 +202,20 @@
       "blocked_reuse": true,
       "do_not_repeat_key": "target_weight_direction+partial_resize_two_signal_confirmation+generated_baseline_books+2019-06-03_2026-07-10",
       "evidence": ["docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md", "outputs/run287_partial_resize_two_signal_20260713/summary.json"]
+    },
+    {
+      "id": "sec_balance_sheet_resilience_event",
+      "signal": "sec_balance_sheet_resilience_event",
+      "mechanism": "exact_accepted_time_within_issuer_change_source_screen",
+      "book": "single_source_sec_events",
+      "window": "2018-01-02_2026-07-09",
+      "status": "REJECT_SOURCE_SCREEN",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "sec_balance_sheet_resilience_event+exact_accepted_time_within_issuer_change_source_screen+single_source_sec_events+2018-01-02_2026-07-09",
+      "evidence": [
+        "docs/CODEX_RUN287_SEC_BALANCE_SHEET_RESILIENCE_SOURCE_SCREEN_RESULT_20260718.md",
+        "outputs/sec_balance_sheet_resilience_event_20260718_v2/source_screen_summary.json"
+      ]
     }
   ]
 }
