@@ -1,0 +1,62 @@
+{
+  "contract": "run287_sec_balance_sheet_resilience_event_v1",
+  "status": "preregistered_research_only",
+  "do_not_repeat_key": "sec_balance_sheet_resilience_event+exact_accepted_time_within_issuer_change_source_screen+single_source_sec_events+2018-01-02_2026-07-09",
+  "availability": {
+    "join": "Companyfacts accn to SEC submissions accession_number",
+    "available_from": "exact acceptanceDateTime",
+    "filed_fallback": "forbidden",
+    "future_row_policy": "abort the research if available_from is after decision_time",
+    "missing": "neutral"
+  },
+  "filings": {
+    "included": ["10-Q", "10-Q/A", "10-K", "10-K/A"],
+    "amendment_policy": "an amendment changes the state only from its own exact accepted_at; it is compared with the latest earlier fiscal-period state",
+    "current_period_rule": "balance-sheet components must share the filing period_of_report",
+    "prior_period_rule": "latest earlier fiscal period accepted before the current filing, 45 through 460 calendar days earlier",
+    "debt_scope_rule": "current and prior states must use the same complete debt scope"
+  },
+  "components": {
+    "debt_to_assets": "total debt divided by assets",
+    "net_debt_to_assets": "total debt less cash and cash equivalents, divided by assets",
+    "required_component_count": 2,
+    "unit": "USD",
+    "zero_or_missing_assets": "neutral"
+  },
+  "signal": {
+    "name": "sec_balance_sheet_resilience_event",
+    "positive": "both ratios are no higher than the prior comparable state and at least one is strictly lower",
+    "negative": "both ratios are no lower than the prior comparable state and at least one is strictly higher",
+    "neutral": "otherwise, including missing or incomparable component scope",
+    "cross_sectional_threshold": false,
+    "magnitude_threshold": false,
+    "threshold_grid": false,
+    "decay": false
+  },
+  "source_screen": {
+    "entry": "first NYSE close strictly after exact accepted_at",
+    "primary_horizon_sessions": 63,
+    "secondary_horizons_sessions": [21, 126],
+    "return_basis": "SPY excess return",
+    "oos_start": "2024-07-01",
+    "oos2_start": "2023-01-01",
+    "power_gate_per_oos": {
+      "positive": 100,
+      "negative": 100,
+      "filing_weeks": 12
+    },
+    "pass": "full, OOS, and OOS2 63D positive-minus-negative spread greater than zero and OOS/OOS2 filing-week bootstrap 95% lower bound at least zero"
+  },
+  "stop_rules": {
+    "underpowered_or_reject": "no portfolio A/B and no retuning",
+    "source_screen_pass": "only then preregister one fixed-book arm",
+    "fullrun": false,
+    "production_or_live": false
+  },
+  "pit_caveats": [
+    "pit_universe_label_clean=false",
+    "current identity map is not historical membership",
+    "Companyfacts tag absence is not zero debt or zero cash",
+    "foreign issuers without comparable Companyfacts remain neutral"
+  ]
+}

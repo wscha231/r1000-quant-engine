@@ -2579,3 +2579,57 @@ Expected contract:
   - `tools/audit_free_historical_data_coverage.py`
   - `tests/free_historical_data_backfill_smoke.py`
   - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`
+
+### 2026-07-18 - Exact-accepted balance-sheet resilience is directionally positive but fails confidence
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-sec-balance-source-screen-20260718`
+  - `outputs/sec_balance_sheet_resilience_event_20260718_v2`
+- Context:
+  - The generated-book gaps remain Main `+0.5968%p` CAGR plus `0.3619%p`
+    MDD recovery and Concentrated `+0.9029%p` CAGR.
+  - Filing quality, reporting timeliness, market-confirmed fundamental,
+    capital allocation, and the growth embargo arm were already closed.
+- Attempt:
+  - Preregistered one threshold-free issuer change signal using exact accepted
+    Companyfacts assets, cash, and complete debt scope.
+  - Compared debt/assets and net-debt/assets with the latest earlier comparable
+    fiscal-period state and ran the fixed 21/63/126-session SPY-excess source
+    screen. No portfolio A/B or fullrun was run.
+- Result:
+  - Built 27,168 unique issuer-accession states across 915 issuers; 6,646 were
+    positive, 4,696 negative, and 15,826 neutral.
+  - The 63-session spread was positive full (`+0.093%p`), OOS2
+    (`+0.375%p`), and OOS (`+1.365%p`).
+  - OOS2 and OOS filing-week bootstrap lower bounds were `-0.669%p` and
+    `-0.129%p`, so the verdict is `REJECT_SOURCE_SCREEN`.
+  - A cache-based rerun reproduced all segment metrics exactly.
+- Failure or caveat:
+  - Direction is encouraging but not statistically durable under the frozen
+    gate. Full-history 126-session direction is also negative.
+  - Current ticker/CIK identity is not PIT membership, and foreign issuers
+    without comparable Companyfacts remain neutral.
+- Root cause:
+  - Balance-sheet deleveraging alone does not separate future relative returns
+    consistently enough across filing-week clusters.
+- Reusable lesson:
+  - A positive point estimate is not a promotion gate. Preserve the
+    preregistered confidence bound and stop before portfolio A/B.
+  - Cache accession-level facts after the expensive ZIP pass; the exact replay
+    can then be reproduced without repeating 1.39GB extraction.
+- Next action:
+  - Do not mine another Companyfacts threshold. Continue the true-forward
+    archive or open the contracted PIT estimate/guidance sample gate, with
+    separate approval before any paid acquisition.
+- Do-not-repeat:
+  - `sec_balance_sheet_resilience_event+exact_accepted_time_within_issuer_change_source_screen+single_source_sec_events+2018-01-02_2026-07-09`
+  - Do not move the 63-session endpoint, narrow the prior-period gap, add a
+    magnitude threshold, weaken the bootstrap gate, or attach this source to
+    the rejected growth arm after seeing the result.
+- Evidence files:
+  - `docs/run287_sec_balance_sheet_resilience_event_contract_v1.json`
+  - `tools/run_sec_balance_sheet_resilience_event.py`
+  - `tests/sec_balance_sheet_resilience_event_smoke.py`
+  - `docs/CODEX_RUN287_SEC_BALANCE_SHEET_RESILIENCE_SOURCE_SCREEN_RESULT_20260718.md`
+  - `outputs/sec_balance_sheet_resilience_event_20260718_v2/source_screen_summary.json`
