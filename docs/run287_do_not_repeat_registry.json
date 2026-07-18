@@ -202,6 +202,34 @@
       "blocked_reuse": true,
       "do_not_repeat_key": "target_weight_direction+partial_resize_two_signal_confirmation+generated_baseline_books+2019-06-03_2026-07-10",
       "evidence": ["docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md", "outputs/run287_partial_resize_two_signal_20260713/summary.json"]
+    },
+    {
+      "id": "issuer_prior_trade_answer_memory",
+      "signal": "most_recent_completed_same_ticker_trade_answer",
+      "mechanism": "reentry_veto_or_boost",
+      "book": "run287_generated_books",
+      "window": "2019-04-30_2026-02-27",
+      "status": "REJECT_OOS_DIRECTION_AND_VARIABLE_HOLDING_LABEL",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "most_recent_completed_same_ticker_trade_answer+reentry_veto_or_boost+run287_generated_books+2019-04-30_2026-02-27",
+      "evidence": [
+        "docs/CODEX_RUN287_TRADE_SELECTION_RESEARCH_RESULT_20260718.md",
+        "outputs/run287_trade_selection_research_audit_20260718/summary.json"
+      ]
+    },
+    {
+      "id": "right_tail_drop_high_signal_retention",
+      "signal": "right_tail_drop_high_signal",
+      "mechanism": "conditional_retention_after_target_drop",
+      "book": "run287_generated_books",
+      "window": "2019-06-03_2026-07-02",
+      "status": "REJECT_SOURCE_SCREEN",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "right_tail_drop_high_signal+conditional_retention_after_target_drop+run287_generated_books+2019-06-03_2026-07-02",
+      "evidence": [
+        "docs/CODEX_RUN287_TRADE_SELECTION_RESEARCH_RESULT_20260718.md",
+        "outputs/run287_trade_selection_research_audit_20260718/summary.json"
+      ]
     }
   ]
 }

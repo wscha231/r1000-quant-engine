@@ -1,0 +1,43 @@
+{
+  "schema_version": "run287-trade-selection-research-gate-contract-v1",
+  "research_only": true,
+  "posthoc_closure_not_preregistered_pass": true,
+  "signal": "right_tail_drop_high_signal",
+  "mechanism": "conditional_retention_after_target_drop",
+  "book": "run287_generated_books",
+  "window": "2019-06-03_2026-07-02",
+  "signal_formula": {
+    "drop_skill_evidence_flag": true,
+    "candidate_rank_percentile_min": 0.8,
+    "drop_signal_stack_count_min": 7
+  },
+  "fixed_windows": {
+    "full_start": "1900-01-01",
+    "oos2_start": "2023-01-01",
+    "oos_start": "2024-07-01"
+  },
+  "source_screen": {
+    "primary_horizon_sessions": 63,
+    "secondary_horizon_sessions": 126,
+    "min_events_per_state_oos2_oos": 50,
+    "min_decision_week_blocks_oos2_oos": 12,
+    "positive_direction_required_full_oos2_oos": true,
+    "week_cluster_bootstrap_samples": 2000,
+    "week_cluster_bootstrap_95_lower_required_oos2_oos": 0.0
+  },
+  "hard_stops": [
+    "future_return_used_in_signal_or_ranking",
+    "full_oos2_or_oos_63d_direction_not_positive",
+    "oos2_or_oos_underpowered",
+    "oos2_or_oos_week_cluster_bootstrap_lower_negative"
+  ],
+  "forbidden_actions": [
+    "threshold_retuning_after_results",
+    "fixed_book_when_source_screen_fails",
+    "generated_book_when_source_screen_fails",
+    "fullrun",
+    "target_book_mutation",
+    "cash_policy_mutation",
+    "production_or_live_trading"
+  ]
+}
