@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.build_run287_holding_risk_watch import build_watch, write_outputs  # noqa: E402
+from tools.build_run287_holding_risk_watch import (  # noqa: E402
+    build_watch,
+    load_reusable_same_session_snapshot,
+    write_outputs,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -150,6 +154,39 @@ def main() -> None:
         assert (output / "risk_history.jsonl").exists()
         assert len((output / "risk_history.jsonl").read_text(encoding="utf-8").splitlines()) == len(rows)
         assert "FREEZE_INCREMENTAL_BUY_AND_MANUAL_REVIEW" in (output / "report.md").read_text(encoding="utf-8")
+
+        reused = load_reusable_same_session_snapshot(
+            output,
+            account_paths={
+                "main": main_account,
+                "concentrated": concentrated_account,
+            },
+            contract_path=contract_path,
+            asof=ASOF,
+            require_exact_close=False,
+        )
+        assert reused is not None
+        assert reused["same_session_reused"] is True
+
+        main_payload = json.loads(main_account.read_text(encoding="utf-8"))
+        main_account.write_text(
+            json.dumps({**main_payload, "cash_usd": 10_001.0}), encoding="utf-8"
+        )
+        try:
+            load_reusable_same_session_snapshot(
+                output,
+                account_paths={
+                    "main": main_account,
+                    "concentrated": concentrated_account,
+                },
+                contract_path=contract_path,
+                asof=ASOF,
+                require_exact_close=False,
+            )
+        except ValueError as exc:
+            assert "account_hash:main" in str(exc)
+        else:
+            raise AssertionError("same-session account mutation must fail closed")
 
         changed_rows = rows.copy()
         changed_rows.loc[changed_rows.index[0], "risk_state"] = "CHANGED"

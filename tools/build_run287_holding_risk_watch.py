@@ -553,6 +553,109 @@ def write_outputs(output_dir: Path, summary: dict[str, Any], rows: pd.DataFrame)
     return summary
 
 
+def load_reusable_same_session_snapshot(
+    output_dir: Path,
+    *,
+    account_paths: dict[str, Path],
+    contract_path: Path,
+    asof: pd.Timestamp,
+    require_exact_close: bool,
+) -> dict[str, Any] | None:
+    """Reuse an immutable first observation for an already archived session."""
+
+    summary_path = output_dir / "summary.json"
+    if not summary_path.is_file():
+        return None
+    summary = read_json(summary_path)
+    expected_date = pd.Timestamp(asof).normalize().date().isoformat()
+    if str(summary.get("as_of_date") or "") != expected_date:
+        return None
+
+    failures: list[str] = []
+    status = str(summary.get("status") or "")
+    if not status.startswith("READY_"):
+        failures.append("status")
+    if bool(summary.get("require_exact_close")) != bool(require_exact_close):
+        failures.append("require_exact_close")
+    if require_exact_close and summary.get("missing_exact_close_rows"):
+        failures.append("missing_exact_close_rows")
+    if summary.get("advisory_only") is not True:
+        failures.append("advisory_only")
+    for flag in (
+        "orders_generated",
+        "target_books_mutated",
+        "cash_policy_changed",
+        "production_activation_allowed",
+        "live_trading_enabled",
+        "fullrun_dispatched",
+    ):
+        if summary.get(flag) is not False:
+            failures.append(flag)
+
+    input_hashes = summary.get("input_hashes") or {}
+    prior_account_hashes = input_hashes.get("accounts") or {}
+    for portfolio, path in account_paths.items():
+        if sha256_file(path) != str(prior_account_hashes.get(portfolio) or ""):
+            failures.append(f"account_hash:{portfolio}")
+    if sha256_file(contract_path) != str(input_hashes.get("contract") or ""):
+        failures.append("contract_hash")
+
+    current_path = output_dir / "holding_risk_watch.csv"
+    history_path = output_dir / "risk_history.jsonl"
+    report_path = output_dir / "report.md"
+    output_hashes = summary.get("output_hashes") or {}
+    if sha256_file(current_path) != str(
+        output_hashes.get("holding_risk_watch_sha256") or ""
+    ):
+        failures.append("holding_risk_watch_hash")
+    if sha256_file(history_path) != str(output_hashes.get("risk_history_sha256") or ""):
+        failures.append("risk_history_hash")
+    if not report_path.is_file() or report_path.stat().st_size <= 0:
+        failures.append("report")
+
+    try:
+        current = pd.read_csv(current_path, dtype={"event_id": str}, low_memory=False)
+    except Exception:
+        current = pd.DataFrame()
+        failures.append("holding_risk_watch_read")
+    if len(current) != int(summary.get("held_row_count") or -1):
+        failures.append("held_row_count")
+    if current.empty or "event_id" not in current or current["event_id"].duplicated().any():
+        failures.append("event_id")
+    elif not current["as_of_date"].astype(str).eq(expected_date).all():
+        failures.append("row_as_of_date")
+    if require_exact_close and not current.empty:
+        exact = current.get("price_exact_asof", pd.Series(False, index=current.index))
+        if not exact.astype(str).str.lower().isin({"true", "1"}).all():
+            failures.append("row_exact_close")
+
+    history_ids: set[str] = set()
+    history_count = 0
+    if history_path.is_file():
+        try:
+            for line in history_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                history_ids.add(str(payload["event_id"]))
+                history_count += 1
+        except Exception:
+            failures.append("risk_history_read")
+    if history_count != int(summary.get("history_event_count") or -1):
+        failures.append("history_event_count")
+    if not current.empty and not set(current["event_id"].astype(str)).issubset(history_ids):
+        failures.append("current_events_not_archived")
+
+    if failures:
+        raise ValueError(
+            "same_session_holding_risk_snapshot_invalid:" + ",".join(sorted(set(failures)))
+        )
+    reused = dict(summary)
+    reused["same_session_reused"] = True
+    reused["reuse_reason"] = "account_contract_and_output_hashes_match"
+    return reused
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--main-account", default="outputs/daily_simulated_fill_ledger/main/account_state_latest.json")
@@ -574,12 +677,24 @@ def main() -> int:
     if not contract:
         print(json.dumps({"status": "BLOCKED_CONTRACT", "contract": str(contract_path)}, indent=2))
         return 2
+    account_paths = {
+        "main": repo_path(args.main_account),
+        "concentrated": repo_path(args.concentrated_account),
+    }
+    output_dir = repo_path(args.output_dir)
+    reusable = load_reusable_same_session_snapshot(
+        output_dir,
+        account_paths=account_paths,
+        contract_path=contract_path,
+        asof=asof,
+        require_exact_close=bool(args.require_exact_close),
+    )
+    if reusable is not None:
+        print(json.dumps(reusable, indent=2, sort_keys=True, default=json_default))
+        return 0
     available_from = args.available_from or f"{asof.date().isoformat()}T23:59:59Z"
     summary, rows = build_watch(
-        account_paths={
-            "main": repo_path(args.main_account),
-            "concentrated": repo_path(args.concentrated_account),
-        },
+        account_paths=account_paths,
         price_cache=repo_path(args.price_cache),
         contract=contract,
         contract_path=contract_path,
@@ -587,7 +702,7 @@ def main() -> int:
         available_from=available_from,
         require_exact_close=bool(args.require_exact_close),
     )
-    persisted = write_outputs(repo_path(args.output_dir), summary, rows)
+    persisted = write_outputs(output_dir, summary, rows)
     print(json.dumps(persisted, indent=2, sort_keys=True, default=json_default))
     return 0 if persisted["status"].startswith("READY_") else 2
 
