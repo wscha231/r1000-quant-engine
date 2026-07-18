@@ -2579,3 +2579,63 @@ Expected contract:
   - `tools/audit_free_historical_data_coverage.py`
   - `tests/free_historical_data_backfill_smoke.py`
   - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`
+
+### 2026-07-18 - Trade answers do not justify a recent-only conditional exit delay
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-trade-cohort-selector-audit-20260718`
+  - `outputs/run287_trade_selection_research_audit_20260718`
+- Context:
+  - The frozen selector already showed a strong selected-versus-missed edge,
+    but the user asked whether historical buy/sell answers could strengthen
+    selection and raise CAGR.
+  - Generic exit delay, rank/RS replacement, score sizing, broad cash floors,
+    and weak technical/fundamental proxy combinations were already rejected.
+- Attempt:
+  - Classified 740 Main trades by the most recent fully completed same-ticker
+    answer available before each new entry.
+  - Audited 526 Main and 270 Concentrated target-book drops with fixed
+    next-close 63/126-session SPY-excess labels.
+  - Froze a narrow high-signal drop state at skill evidence true, candidate
+    rank percentile at least 0.80, and signal stack at least 7; evaluated full,
+    OOS2, and OOS with 2,000 decision-week block bootstraps.
+- Result:
+  - Same-ticker prior-answer spread was +2.3780%p full but reversed to
+    -2.0676%p OOS2 and -3.0768%p OOS. Its unequal realized holding label also
+    prevents portfolio promotion.
+  - Main high-signal-drop 63D spread was -2.6209%p full, -3.2248%p OOS2, and
+    +1.1287%p OOS; Concentrated was -0.7687%p, -0.3071%p, and +2.8075%p.
+  - All OOS/OOS2 clustered lower bounds were negative. OOS high-signal counts
+    were only 44 Main and 32 Concentrated versus the frozen 50 minimum.
+  - Final verdict is `REJECT_SOURCE_SCREEN`; no portfolio replay ran.
+- Failure or caveat:
+  - The available historical trade notebook contains Main only, while the
+    right-tail winner list is partial because fully closed winners may be
+    absent from `positions_latest`.
+  - Recent OOS point estimates are positive but cannot override negative full
+    and OOS2 direction or negative clustered confidence.
+- Root cause:
+  - Memorable recent semiconductor rebounds make conditional retention look
+    attractive, but the same ex-ante rank/stack state did not separate better
+    drop outcomes over the full and OOS2 history.
+- Reusable lesson:
+  - Analyze actual exits with a fixed horizon and a replacement-aware or
+    comparator-aware label; never promote a variable-holding trade answer.
+  - A recent-only sign reversal is a concept-drift observation for forward
+    monitoring, not permission to change a historical endpoint.
+- Next action:
+  - Keep historical fixed/generated-book A/B closed until a genuinely
+    independent PIT source passes full/OOS2/OOS screening.
+  - Continue the bounded forward archive without backfilling it into the
+    seven-year metric.
+- Do-not-repeat:
+  - Do not re-open same-ticker answer memory on the same variable-holding label.
+  - Do not re-open conditional exit delay by changing rank percentile or stack
+    thresholds on the same drop history.
+  - Do not run a broker replay after this failed source screen.
+- Evidence files:
+  - `docs/run287_trade_selection_research_gate_contract_v1.json`
+  - `tools/audit_run287_trade_selection_research.py`
+  - `tests/run287_trade_selection_research_audit_smoke.py`
+  - `docs/CODEX_RUN287_TRADE_SELECTION_RESEARCH_RESULT_20260718.md`
