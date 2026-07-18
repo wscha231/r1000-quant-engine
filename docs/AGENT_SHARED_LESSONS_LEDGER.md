@@ -2579,3 +2579,56 @@ Expected contract:
   - `tools/audit_free_historical_data_coverage.py`
   - `tests/free_historical_data_backfill_smoke.py`
   - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`
+
+### 2026-07-18 - A successful daily job must not silently replace the forward-paper genesis
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-paper-ledger-continuity-20260718`
+  - affected successful run `29554723038`
+- Context:
+  - The 2026-07-16 daily operating job found neither a GitHub paper-state
+    cache nor the dedicated Google Drive paper archive and therefore created a
+    new $100,000 seed, losing the valid 2026-07-13 forward-performance anchor.
+- Attempt:
+  - Preserved the displaced 2026-07-16 Drive state both locally and under a
+    separate Drive recovery-backup folder.
+  - Restored the validated 2026-07-13 review-only ledger to the dedicated Drive
+    archive with `rclone copy`; no remote or local files were deleted.
+  - Added an explicit `--expected-seed-date 2026-07-13` continuity contract.
+    A later session may reuse that frozen seed or a matching restored account,
+    but it may not manufacture a replacement seed.
+- Result:
+  - Source, Drive archive, and Drive recovery backup each contain 20 files.
+    `rclone check --checksum --one-way` reported 20 matches and zero
+    differences for the restored canonical state.
+  - Focused bootstrap and workflow smokes passed `2/2`.
+- Failure or caveat:
+  - The Google Drive connector could read the archive but returned HTTP 403
+    for raw-file replacement because that app lacked file-specific write
+    authorization. The already configured local rclone remote completed the
+    bounded recovery instead.
+  - This repairs forward-paper continuity only. It does not change historical
+    CAGR/MDD, target weights, orders, or production state.
+- Root cause:
+  - The bootstrap correctly refused partial ledger state but had no canonical
+    genesis-date contract. Complete absence was therefore indistinguishable
+    from a legitimate first launch.
+- Reusable lesson:
+  - Persistent paper systems need a pinned genesis identity in addition to
+    cache/Drive restore. Missing persistence after genesis must fail closed,
+    not reset equity to starting capital.
+- Next action:
+  - Verify the 2026-07-17 completed-close daily artifact restores seed date
+    2026-07-13 and advances both equity curves without `seeded_this_run=true`.
+- Do-not-repeat:
+  - Do not infer continuity from a successful workflow conclusion.
+  - Do not accept a later exact-close bootstrap merely because all prices are
+    available.
+  - Do not overwrite a displaced archive without preserving a recovery copy.
+- Evidence files:
+  - `tools/bootstrap_run287_daily_paper_accounts.py`
+  - `tests/run287_daily_paper_bootstrap_smoke.py`
+  - `.github/workflows/daily_operating_selection_refresh.yml`
+  - `outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/`
+  - `outputs/run287_paper_drive_backup_pre_recovery_20260718_1006/`

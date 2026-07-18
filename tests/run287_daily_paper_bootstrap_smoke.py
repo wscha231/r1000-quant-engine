@@ -54,6 +54,7 @@ def bootstrap_args(root: Path, as_of_date: str) -> SimpleNamespace:
         main_target=str(root / "targets" / "main.csv"),
         concentrated_target=str(root / "targets" / "concentrated.csv"),
         as_of_date=as_of_date,
+        expected_seed_date=as_of_date,
         starting_capital=2_000.0,
         cost_bps=25.0,
     )
@@ -143,9 +144,42 @@ def test_bootstrap_rejects_non_exact_close_and_incomplete_state() -> None:
             raise AssertionError("bootstrap reset an incomplete ledger state")
 
 
+def test_bootstrap_refuses_late_reseed_and_wrong_restored_seed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        write_prices(root / "prices", "AAA", ["2026-07-13", "2026-07-16"], [100.0, 95.0])
+        for portfolio in ("main", "concentrated"):
+            write_target(root / "targets" / f"{portfolio}.csv", "2026-07-13")
+
+        late_args = bootstrap_args(root, "2026-07-16")
+        late_args.expected_seed_date = "2026-07-13"
+        try:
+            run_bootstrap(late_args)
+        except ValueError as exc:
+            assert "refusing late bootstrap" in str(exc)
+        else:
+            raise AssertionError("bootstrap silently replaced the canonical paper seed")
+
+        seed_args = bootstrap_args(root, "2026-07-13")
+        seed_args.expected_seed_date = "2026-07-13"
+        run_bootstrap(seed_args)
+        run_ledger(ledger_args(root, "2026-07-13"))
+        state_path = root / "paper" / "main" / "account_state_latest.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["seed_as_of_date"] = "2026-07-16"
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        try:
+            run_bootstrap(late_args)
+        except ValueError as exc:
+            assert "paper seed date mismatch" in str(exc)
+        else:
+            raise AssertionError("bootstrap accepted a restored account with the wrong seed date")
+
+
 def main() -> int:
     test_bootstrap_is_exact_close_idempotent_and_ledger_compatible()
     test_bootstrap_rejects_non_exact_close_and_incomplete_state()
+    test_bootstrap_refuses_late_reseed_and_wrong_restored_seed()
     print("run287_daily_paper_bootstrap_smoke: PASS")
     return 0
 

@@ -944,6 +944,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/daily_simulated_fill_ledger/bootstrap/main_account.json",
         "outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json",
         "daily_paper_bootstrap.log",
+        "--expected-seed-date 2026-07-13",
         "--starting-capital 100000",
         "tools/run_daily_simulated_fill_ledger.py",
         "outputs/daily_simulated_fill_ledger/",

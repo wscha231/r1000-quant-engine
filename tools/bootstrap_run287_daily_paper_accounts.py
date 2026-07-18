@@ -129,6 +129,19 @@ def validate_existing_bootstrap(payload: dict[str, Any], portfolio: str, cost_bp
         raise ValueError(f"existing bootstrap cost mismatch for {portfolio}")
 
 
+def validate_seed_date(payload: dict[str, Any], portfolio: str, expected_seed_date: pd.Timestamp | None) -> None:
+    if expected_seed_date is None:
+        return
+    raw = payload.get("seed_as_of_date") or payload.get("as_of_date")
+    actual = pd.to_datetime(raw, errors="coerce")
+    if pd.isna(actual) or pd.Timestamp(actual).normalize() != expected_seed_date:
+        actual_text = "missing" if pd.isna(actual) else pd.Timestamp(actual).date().isoformat()
+        raise ValueError(
+            f"paper seed date mismatch for {portfolio}: expected "
+            f"{expected_seed_date.date().isoformat()}, got {actual_text}"
+        )
+
+
 def has_prior_ledger_state(portfolio_dir: Path) -> bool:
     if (portfolio_dir / "manifest.json").exists() or (portfolio_dir / "state_meta.json").exists():
         return True
@@ -241,6 +254,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("--as-of-date must be a completed market date")
     starting_capital = float(args.starting_capital)
     cost_bps = float(args.cost_bps)
+    expected_seed_raw = str(getattr(args, "expected_seed_date", "") or "").strip()
+    expected_seed_date = pd.Timestamp(expected_seed_raw).normalize() if expected_seed_raw else None
+    if expected_seed_date is not None and pd.isna(expected_seed_date):
+        raise ValueError("--expected-seed-date must be a valid market date")
     if not math.isfinite(starting_capital) or starting_capital <= 0:
         raise ValueError("--starting-capital must be positive")
     if not math.isfinite(cost_bps) or cost_bps < 0:
@@ -254,26 +271,40 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         state_path = portfolio_dir / "account_state_latest.json"
         bootstrap_path = bootstrap_dir / f"{portfolio}_account.json"
         state = read_json(state_path)
+        existing = read_json(bootstrap_path)
         if state:
             if state.get("review_only") is not True or state.get("live_trading_enabled") is not False:
                 raise ValueError(f"restored paper account safety flags invalid for {portfolio}")
+            validate_seed_date(state, portfolio, expected_seed_date)
+            if expected_seed_date is not None:
+                if not existing:
+                    raise ValueError(f"missing frozen bootstrap anchor for restored {portfolio} paper state")
+                validate_existing_bootstrap(existing, portfolio, cost_bps)
+                validate_seed_date(existing, portfolio, expected_seed_date)
             results[portfolio] = {
                 "status": "RESTORED_STATE_PRESENT",
                 "account_path": str(state_path),
                 "account_sha256": file_hash(state_path),
             }
             continue
-        existing = read_json(bootstrap_path)
         if existing:
             if has_prior_ledger_state(portfolio_dir):
                 raise ValueError(f"paper ledger state is incomplete for {portfolio}; refusing bootstrap reset")
             validate_existing_bootstrap(existing, portfolio, cost_bps)
+            validate_seed_date(existing, portfolio, expected_seed_date)
             results[portfolio] = {
                 "status": "REUSED_FROZEN_BOOTSTRAP",
                 "account_path": str(bootstrap_path),
                 "account_sha256": file_hash(bootstrap_path),
             }
             continue
+
+        if expected_seed_date is not None and as_of_date != expected_seed_date:
+            raise ValueError(
+                f"missing canonical paper state for {portfolio} after seed date "
+                f"{expected_seed_date.date().isoformat()}; refusing late bootstrap on "
+                f"{as_of_date.date().isoformat()}"
+            )
 
         target_path = repo_path(getattr(args, f"{portfolio}_target"))
         account, evidence = build_account(
@@ -297,6 +328,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": "run287-daily-paper-bootstrap-v1",
         "status": "READY_REVIEW_ONLY_PAPER_BOOTSTRAP",
         "as_of_date": as_of_date.date().isoformat(),
+        "expected_seed_date": expected_seed_date.date().isoformat() if expected_seed_date is not None else None,
         "starting_capital_usd": starting_capital,
         "cost_bps_per_side": cost_bps,
         "created_account_count": created,
@@ -322,6 +354,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--main-target", default="outputs/reports/operating_main_target_book.csv")
     parser.add_argument("--concentrated-target", default="outputs/reports/operating_concentrated_target_book.csv")
     parser.add_argument("--as-of-date", required=True)
+    parser.add_argument(
+        "--expected-seed-date",
+        default="",
+        help="Canonical first paper session; blocks creation of a replacement seed on later dates.",
+    )
     parser.add_argument("--starting-capital", type=float, default=100000.0)
     parser.add_argument("--cost-bps", type=float, default=25.0)
     return parser.parse_args()
