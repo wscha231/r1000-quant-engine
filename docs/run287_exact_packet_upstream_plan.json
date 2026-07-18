@@ -80,6 +80,10 @@
     "official_crisis_thresholds": {
       "path": "data_static/run287_exact_packet/best_thresholds.json",
       "sha256": "d108c017e301f6929e1441827d5a19c02beb0d89727dbbff40f94f3e504d2da2"
+    },
+    "terminal_lifecycle_events": {
+      "path": "data_static/run287_exact_packet/terminal_lifecycle_events.csv",
+      "sha256": "8f38aa39747034be3d09f34cb0991f68440368924490b3b0f44e6792151cb0f7"
     }
   },
   "directories": {
