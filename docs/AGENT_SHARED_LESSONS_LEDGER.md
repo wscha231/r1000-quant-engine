@@ -2579,3 +2579,58 @@ Expected contract:
   - `tools/audit_free_historical_data_coverage.py`
   - `tests/free_historical_data_backfill_smoke.py`
   - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`
+
+### 2026-07-18 - Full/OOS-positive growth tilt failed the recent 126-session embargo fold
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-sec-balance-resilience-20260718`
+  - `outputs/run287_growth_embargo_walk_forward_20260718/`
+- Context:
+  - Main `growth_confirmation_top_quintile_tilt10` had full-period CAGR
+    35.7897% and positive legacy OOS/OOS2 deltas, but MDD was -25.9265%, one
+    era supplied 59.59% of incremental P&L, and the required 126-session
+    embargo check had not been completed.
+- Attempt:
+  - Kept the formula and tilt fixed, used the existing 25 bps cash-carry
+    broker-ledger curves, and evaluated two non-overlapping test segments only
+    after 126 common trading sessions were completely embargoed.
+  - Audited five target-book provenance date columns and the source summary's
+    `used_forward_return_in_ranking=false` assertion.
+- Result:
+  - The post-2022 fold passed with dCAGR +9.4606 pp and dSharpe +0.2447.
+  - The post-2024H1 fold failed with dCAGR -0.1993 pp despite dSharpe +0.0031.
+  - Provenance violations were zero, so the rejection is performance
+    non-generalization rather than detected future-row leakage.
+  - Status is `REJECT_EMBARGO_FOLD`; no accepted-time debt veto was built.
+- Failure or caveat:
+  - This fixed deterministic policy was not retrained per fold, and the output
+    explicitly does not claim walk-forward model retraining.
+  - Historical PIT membership and delisted bias remain unresolved.
+- Root cause:
+  - Positive overlapping OOS windows hid temporal instability. Once a full
+    126-session gap isolated the recent segment, incremental CAGR turned
+    negative, consistent with the existing era-concentration failure.
+- Reusable lesson:
+  - A positive long OOS window is not enough when it overlaps a dominant era.
+    Require disjoint, embargoed recent segments before spending on a
+    neutralizer or source sidecar for that arm.
+  - Stop at the first negative gate; adding a new veto after observing the
+    failed segment is retuning, not independent validation.
+- Next action:
+  - Keep this Main growth lane closed. If exact accepted-time balance-sheet
+    data is pursued later, preregister it as a standalone source screen and do
+    not attach it to this rejected arm unless the do-not-repeat exception is
+    independently satisfied.
+  - Continue the independent 988-name selector/candidate substrate work for
+    Concentrated rather than adding an underpowered sector sell rule.
+- Do-not-repeat:
+  - `growth_confirmation_score+top_quintile_tilt10_fixed_policy_126_session_embargo+run287_generated_main+post_2022_and_post_2024h1_embargo_to_2026-07-02`
+  - Do not move fold endpoints, shorten the embargo, tune tilt, or add a debt
+    veto to rescue the failed recent fold.
+- Evidence files:
+  - `docs/run287_growth_embargo_contract_v1.json`
+  - `tools/audit_run287_growth_embargo.py`
+  - `tests/run287_growth_embargo_smoke.py`
+  - `docs/CODEX_RUN287_GROWTH_EMBARGO_RESULT_20260718.md`
+  - `outputs/run287_growth_embargo_walk_forward_20260718/summary.json`

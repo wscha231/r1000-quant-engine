@@ -1,0 +1,39 @@
+{
+  "schema_version": "run287-growth-embargo-contract-v1",
+  "policy": {
+    "signal": "growth_confirmation_score",
+    "arm": "growth_confirmation_top_quintile_tilt10",
+    "policy_formula_fixed_across_folds": true,
+    "retraining_claimed": false,
+    "threshold_tuning_allowed": false
+  },
+  "folds": [
+    {
+      "name": "post_2022_embargo",
+      "train_end": "2022-12-30",
+      "test_end": "2024-06-28"
+    },
+    {
+      "name": "post_2024h1_embargo",
+      "train_end": "2024-06-28",
+      "test_end": "2026-07-02"
+    }
+  ],
+  "gates": {
+    "embargo_sessions": 126,
+    "minimum_test_sessions_per_fold": 60,
+    "each_fold_delta_cagr_positive": true,
+    "each_fold_minimum_delta_sharpe": -0.05,
+    "future_row_violation_count": 0,
+    "used_forward_return_in_ranking": false
+  },
+  "safety": {
+    "research_only": true,
+    "fullrun_allowed": false,
+    "target_book_mutation_allowed": false,
+    "orders_generated": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false,
+    "pit_universe_label_clean": false
+  }
+}
