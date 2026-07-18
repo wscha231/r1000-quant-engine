@@ -202,6 +202,20 @@
       "blocked_reuse": true,
       "do_not_repeat_key": "target_weight_direction+partial_resize_two_signal_confirmation+generated_baseline_books+2019-06-03_2026-07-10",
       "evidence": ["docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md", "outputs/run287_partial_resize_two_signal_20260713/summary.json"]
+    },
+    {
+      "id": "growth_confirmation_tilt10_embargo",
+      "signal": "growth_confirmation_score",
+      "mechanism": "top_quintile_tilt10_fixed_policy_126_session_embargo",
+      "book": "run287_generated_main",
+      "window": "post_2022_and_post_2024h1_embargo_to_2026-07-02",
+      "status": "REJECT_RECENT_EMBARGO_CAGR_WORSE",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "growth_confirmation_score+top_quintile_tilt10_fixed_policy_126_session_embargo+run287_generated_main+post_2022_and_post_2024h1_embargo_to_2026-07-02",
+      "evidence": [
+        "docs/CODEX_RUN287_GROWTH_EMBARGO_RESULT_20260718.md",
+        "outputs/run287_growth_embargo_walk_forward_20260718/summary.json"
+      ]
     }
   ]
 }
