@@ -1,13 +1,20 @@
 # Run287 PIT estimate/guidance provider cost screen - 2026-07-15
 
+> Supersession note: the later GPT Pro P1 review raised the minimum from a
+> 50-row schema sample to **50 unique securities plus at least 200 historical
+> event rows**. The provider ranking below remains useful, but a 50-row result
+> can now be only a diagnostic precursor. The controlling contract and result
+> are `docs/run287_pit_estimate_guidance_sample_contract_v2.json` and
+> `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SAMPLE_V2_RESULT_20260715.md`.
+
 ## Decision
 
 Do not purchase or subscribe to a historical estimate/guidance feed yet.  The
 public schemas reviewed below do not prove Run287's decisive requirements:
 100% exact timezone-bearing `observed_at`/`available_from`, stable historical
 security identity, delisted outcomes, ADR/global identity, and point-in-time
-revision history.  A paid plan is considered only after a zero-cost 50-row
-sample passes the frozen source-data gate.
+revision history. A paid plan is considered only after a zero-cost
+50-security/200-event sample passes the frozen source-data gate.
 
 ## Provider ranking
 

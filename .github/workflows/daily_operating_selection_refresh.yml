@@ -111,6 +111,7 @@ jobs:
             outputs/run287_decision_observation_archive
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
+            outputs/run287_decision_outcome_ledger
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             daily-paper-ledger-${{ runner.os }}-
@@ -221,6 +222,7 @@ jobs:
             restore_dir paper_archive/run287_decision_observation_archive outputs/run287_decision_observation_archive
             restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
             restore_dir paper_archive/run287_risk_outcome_price_cache outputs/run287_risk_outcome_price_cache
+            restore_dir paper_archive/run287_decision_outcome_ledger outputs/run287_decision_outcome_ledger
           fi
 
       - name: Restore verified Run287 research-static archive
@@ -290,6 +292,7 @@ jobs:
               --output-dir cache_prices \
               --required-tickers SPY QQQ SMH SOXX \
               --refresh-stale-days 2 \
+              --required-session-date "$LAST_NYSE_SESSION_DATE" \
               --max-scored 0 \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log || \
               echo "[daily-operating] price cache refresh failed or timed out; continuing to freshness contract" | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
@@ -653,6 +656,58 @@ jobs:
             --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
             2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log || true
 
+      - name: Append review-only Run287 decision outcome ledger
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          RECORDED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          LEDGER_ARGS=(
+            --producer-status outputs/run287_exact_packet_producer/status.json
+            --operating-main outputs/reports/operating_main_target_book.csv
+            --operating-concentrated outputs/reports/operating_concentrated_target_book.csv
+            --paper-root outputs/daily_simulated_fill_ledger
+            --price-cache cache_prices
+            --as-of-date "$LAST_NYSE_SESSION_DATE"
+            --recorded-at-utc "$RECORDED_AT"
+            --max-price-queue 150
+            --output-dir outputs/run287_decision_outcome_ledger
+          )
+          python tools/run_run287_continuous_learning_daily.py "${LEDGER_ARGS[@]}" \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_continuous_learning.log || \
+            echo "[daily-operating] continuous-learning ledger blocked or skipped; operating artifacts remain reviewable" | tee -a outputs/full_rebuild_logs/daily_run287_continuous_learning.log
+          if [ -s outputs/run287_decision_outcome_ledger/price_collection_queue.csv ]; then
+            QUEUE_COUNT="$(python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          path = Path('outputs/run287_decision_outcome_ledger/price_collection_queue.csv')
+          print(len(pd.read_csv(path)) if path.is_file() else 0)
+          PY
+            )"
+            if [ "${QUEUE_COUNT:-0}" -gt 0 ]; then
+              COLLECTION_START="$(python - <<'PY'
+          import pandas as pd
+          frame = pd.read_csv('outputs/run287_decision_outcome_ledger/price_collection_queue.csv')
+          print(pd.to_datetime(frame['rebalance_date'], errors='coerce').min().date())
+          PY
+              )"
+              COLLECTION_END="$(date -u -d "$LAST_NYSE_SESSION_DATE + 1 day" +'%Y-%m-%d')"
+              timeout 10m python tools/build_replay_price_cache.py \
+                --books outputs/run287_decision_outcome_ledger/price_collection_queue.csv \
+                --output-dir cache_prices \
+                --start "$COLLECTION_START" \
+                --end "$COLLECTION_END" \
+                --required-tickers SPY QQQ \
+                --required-session-date "$LAST_NYSE_SESSION_DATE" \
+                --refresh-stale-days -1 \
+                --max-scored 0 \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_continuous_learning.log || \
+                echo "[daily-operating] bounded decision-outcome price queue incomplete; it will retry on a later session" | tee -a outputs/full_rebuild_logs/daily_run287_continuous_learning.log
+              python tools/run_run287_continuous_learning_daily.py "${LEDGER_ARGS[@]}" \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_continuous_learning.log || \
+                echo "[daily-operating] post-collection outcome resolution blocked; no policy mutation occurred" | tee -a outputs/full_rebuild_logs/daily_run287_continuous_learning.log
+            fi
+          fi
+
       - name: Upload daily operating artifact
         if: always() && steps.market.outputs.ready == 'yes'
         uses: actions/upload-artifact@v4
@@ -681,6 +736,7 @@ jobs:
             outputs/run287_decision_observation_archive/
             outputs/run287_risk_outcome_archive/
             outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
+            outputs/run287_decision_outcome_ledger/
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -697,6 +753,7 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
+            outputs/full_rebuild_logs/daily_run287_continuous_learning.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
@@ -714,6 +771,7 @@ jobs:
             outputs/run287_decision_observation_archive
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
+            outputs/run287_decision_outcome_ledger
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Sync daily operating artifact to Google Drive
@@ -734,7 +792,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_decision_outcome_ledger outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -771,6 +829,9 @@ jobs:
           fi
           if [ -d outputs/run287_risk_outcome_price_cache ]; then
             rclone copy outputs/run287_risk_outcome_price_cache "${BASE}paper_archive/run287_risk_outcome_price_cache/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          fi
+          if [ -s outputs/run287_decision_outcome_ledger/manifest.json ]; then
+            rclone copy outputs/run287_decision_outcome_ledger "${BASE}paper_archive/run287_decision_outcome_ledger/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           fi
 
       - name: Save refreshed GitHub cache

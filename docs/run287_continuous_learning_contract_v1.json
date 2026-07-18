@@ -1,0 +1,133 @@
+{
+  "schema_version": "run287-continuous-learning-contract-v1",
+  "mode": "research_only_append_only_no_write",
+  "primary_key": [
+    "decision_date",
+    "ticker",
+    "portfolio_kind",
+    "scenario"
+  ],
+  "expected_universe_count": 989,
+  "expected_model_feature_count": 238,
+  "prediction_heads": [
+    "pred_lin_ret",
+    "pred_lin_p",
+    "pred_future_winner_ret",
+    "pred_future_winner_p",
+    "pred_cat_ret",
+    "pred_cat_p"
+  ],
+  "outcome_horizons_sessions": [
+    1,
+    5,
+    21,
+    63,
+    126,
+    252
+  ],
+  "benchmark_tickers": [
+    "SPY",
+    "QQQ"
+  ],
+  "sector_etf_map": {
+    "Communication Services": "XLC",
+    "Consumer Discretionary": "XLY",
+    "Consumer Staples": "XLP",
+    "Energy": "XLE",
+    "Financials": "XLF",
+    "Health Care": "XLV",
+    "Industrials": "XLI",
+    "Information Technology": "XLK",
+    "Materials": "XLB",
+    "Real Estate": "XLRE",
+    "Utilities": "XLU"
+  },
+  "selector_reason_priority": [
+    "selected_projection",
+    "explicit_rejection_audit",
+    "terminal_removed_stage",
+    "registered_model_ineligible"
+  ],
+  "required_outputs": [
+    "decision_events.jsonl",
+    "outcome_events.jsonl",
+    "current_status.parquet",
+    "selector_operating_fill_reconciliation.csv",
+    "selection_attribution.csv",
+    "entry_timing_attribution.csv",
+    "hold_exit_attribution.csv",
+    "sizing_cash_attribution.csv",
+    "execution_attribution.csv",
+    "manifest.json"
+  ],
+  "decision_gates": {
+    "unique_ticker_count": 989,
+    "prediction_head_count": 6,
+    "model_feature_count": 238,
+    "future_row_count": 0,
+    "missing_selector_reason_count": 0,
+    "duplicate_primary_key_count": 0,
+    "operating_share_count_exact": true,
+    "cash_reconciliation_tolerance_usd": 0.01,
+    "same_date_rerun": "byte_identical_event_log_or_semantic_no_op"
+  },
+  "attribution_control": {
+    "uses_future_outcome_to_match": false,
+    "same_decision_date": true,
+    "same_sector_preferred": true,
+    "nearest_published_rank": true,
+    "nearest_log_market_cap": true,
+    "nearest_252d_volatility": true,
+    "without_replacement": true
+  },
+  "model_health": {
+    "data_drift": [
+      "raw_feature_finite_ratio",
+      "stale_source_ratio",
+      "pit_block_ratio"
+    ],
+    "feature_drift": [
+      "psi",
+      "ks"
+    ],
+    "prediction_drift": [
+      "head_distribution",
+      "head_correlation",
+      "ensemble_weight_entropy"
+    ],
+    "performance_drift": [
+      "rank_ic_63d",
+      "selected_control_spread_63d",
+      "hit_rate_63d",
+      "mae_mfe_63d"
+    ],
+    "automatic_retraining_allowed": false,
+    "automatic_promotion_allowed": false
+  },
+  "promotion_review_gate": {
+    "minimum_distinct_forward_decision_weeks": 26,
+    "minimum_resolved_63d_observations": 200,
+    "minimum_distinct_tickers": 50,
+    "selected_control_63d_spread": ">0",
+    "decision_week_block_bootstrap_lower_95": ">=0",
+    "cost_50bps_direction": "positive",
+    "champion_mdd_degradation_allowed": false,
+    "maximum_single_ticker_or_week_improvement_contribution": 0.10,
+    "user_approval_required": true
+  },
+  "safety": {
+    "model_mutation_allowed": false,
+    "score_mutation_allowed": false,
+    "rank_mutation_allowed": false,
+    "selector_mutation_allowed": false,
+    "target_book_mutation_allowed": false,
+    "cash_policy_mutation_allowed": false,
+    "order_generation_allowed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false,
+    "pit_universe_label_clean": false,
+    "missing_outcome_policy": "pending_neutral_never_drop"
+  }
+}

@@ -2579,3 +2579,368 @@ Expected contract:
   - `tools/audit_free_historical_data_coverage.py`
   - `tests/free_historical_data_backfill_smoke.py`
   - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`
+
+### 2026-07-15 - Candidate absence is a staged funnel problem, not an add-to-universe instruction
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - final local diagnostics `outputs/run287_candidate_evaluation_funnel_20260715_v7/`
+- Context:
+  - A 45-name AI-infrastructure memo contained 14 names outside the frozen 993-name context and several current-context names absent from the operating books.
+  - Directly appending them would erase whether the cause was identity, source coverage, score gates, selector policy, short listing history, or stale/provenance divergence.
+- Attempt:
+  - Added a non-promoting research intake and complete candidate-stage audit.
+  - Collected all 45 full available price histories, targeted exact accepted-time SEC history for 15 tickers/issuers, and bounded per-CIK Companyfacts JSON.
+  - Distinguished authoritative short-listing history from a failed backfill and kept the `SKHY` SEC issuer proxy separate from `000660.KS` home-market evidence.
+- Result:
+  - Funnel: 31 current-context, 14 outside-context, 7 current targets, 6 score-gate rejects, 13 advisory rejects, and 5 advisory-selected/operating divergences.
+  - Settled-through-2026-07-14 price collection succeeded 45/45; 38 are canonical-seven-year eligible and 7 have genuine shorter listing histories.
+  - Exact accepted-time SEC and Companyfacts coverage are each 44/45; only `000660.KS` remains an explicit home-market source gap.
+  - Focused smokes passed and no portfolio, universe, order, backtest, fullrun, production, or live state changed.
+- Failure or caveat:
+  - The operating artifact is selected-only, so exact current operating rejection reasons remain unavailable; advisory reasons are non-causal diagnostics.
+  - PIT membership, delisted returns, and symbol-predecessor history remain unresolved. A 45-name shadow context cannot be promoted to historical CAGR/MDD evidence.
+- Root cause:
+  - Candidate discovery, data coverage, scoring eligibility, selector decision, and operating-book persistence were previously represented by different artifacts without one joined funnel.
+  - A missing old bar was not distinguished from a security that simply did not exist before its listing.
+  - A same-calendar-date foreign-market daily bar can still be intraday when the local exchange has not closed.
+- Reusable lesson:
+  - Route discovered names through research intake ->identity/data audit ->shadow feature context ->fixed gates; never use direct universe insertion to discover why a name was absent.
+  - Mark full available short history as complete but canonical-window-ineligible.
+  - Keep issuer-level SEC evidence separate from listing-specific home-market evidence.
+  - Freeze cross-market research prices only through a completed common session; retain pre-close downloads as non-authoritative provenance.
+- Next action:
+  - Build a missing-neutral shadow feature context for the 14 outside names and reconcile the five same-date advisory/operating divergences with an exact selector-input archive.
+  - Keep historical A/B closed until PIT membership and delisted outcomes are supplied.
+- Do-not-repeat:
+  - Do not append memo names directly to the operating universe.
+  - Do not infer operating rejection causality from selected-only target books or historical rejection rows.
+  - Do not repeatedly request pre-listing price bars or fabricate them.
+  - Do not substitute `SKHY` SEC history for `000660.KS` listing-specific Korean history.
+- Evidence files:
+  - `docs/run287_candidate_evaluation_intake_20260715.csv`
+  - `tools/audit_run287_candidate_evaluation_funnel.py`
+  - `tools/fetch_companyfacts_for_sec_index.py`
+  - `tools/audit_run287_candidate_full_history.py`
+  - `outputs/run287_candidate_full_history_20260715/coverage_audit_settled_20260714/manifest.json`
+  - `docs/CODEX_RUN287_CANDIDATE_EVALUATION_AND_FULL_HISTORY_20260715.md`
+
+### 2026-07-15 - Finite scaled features do not make a partial candidate context rankable
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - `outputs/run287_candidate_shadow_context_20260715_close_20260714/`
+- Context:
+  - Fourteen names outside the current 989-name decision frame needed a comparable research context before anyone could diagnose their score or selector eligibility.
+  - The latest completed common trading close was 2026-07-14, but the existing macro engine table still ended on 2026-07-13.
+- Attempt:
+  - Reused the current engine's daily technical producer, exact accepted-time SEC-to-Companyfacts join, frozen 238-feature schema, and frozen scaler.
+  - Requested a fresh bounded macro sidecar and required its source row to equal the candidate valuation close.
+  - Preserved raw missing values and allowed neutral zero only after the frozen scaler transformation.
+- Result:
+  - Exact-close technical context is ready for 14/14 candidates and exact accepted-time fundamental panels for 12/14.
+  - `000660.KS` remains a home-market filing gap; `SKHY` remains a new-ADR statement/history gap.
+  - Raw model-feature finite coverage is 32.0228%, while scaled finite coverage is 100% with zero missing-neutral violations.
+  - Future price and fundamental rows are both zero; no model score, rank, selector, portfolio A/B, target, cash, order, universe mutation, fullrun, production, or live action occurred.
+- Failure or caveat:
+  - The macro sidecar failed closed with `macro_row_not_exact_close:2026-07-13!=2026-07-14`; its otherwise finite 9/9 market and 13/13 FRED components were not used.
+  - Sector, industry, benchmark, and a fair cross-sectional reference for outside-universe candidates are not yet complete.
+  - Current-snapshot identities still do not repair PIT membership or delisted-return bias.
+- Root cause:
+  - A scaler can turn every missing raw input into a finite neutral value, so scaled finiteness measures numerical safety rather than evidence completeness.
+  - A nominally fresh component bundle can still be stale at the joined engine-row level.
+- Reusable lesson:
+  - Report raw evidence coverage next to scaled finiteness and never equate the two.
+  - Require the joined macro row, not only its source fetch timestamps, to match the valuation close.
+  - Keep outside-universe context non-ranking until the reference-distribution and source-parity contract is preregistered.
+- Next action:
+  - Obtain an independent Pro review of the highest-information next gate: candidate context comparability, selector causal provenance, PIT/delisted acquisition, forward archive maturity, or public freshness.
+  - Implement only the chosen bounded artifact; keep historical A/B and fullrun closed.
+- Do-not-repeat:
+  - Do not label scaled 100% finite coverage as source-complete.
+  - Do not use a 2026-07-13 macro row for a 2026-07-14 valuation.
+  - Do not rank the 14 names against 989 names by silently changing the cross-sectional reference.
+  - Do not substitute SEC issuer evidence for `000660.KS` home-market evidence or pre-listing history for `SKHY`.
+- Evidence files:
+  - `tools/build_run287_candidate_shadow_context.py`
+  - `tests/run287_candidate_shadow_context_smoke.py`
+  - `outputs/run287_candidate_shadow_context_20260715_close_20260714/manifest.json`
+  - `outputs/run287_macro_sidecar_20260715_close_20260714_shadow/manifest.json`
+  - `docs/CODEX_RUN287_CANDIDATE_SHADOW_CONTEXT_RESULT_20260715.md`
+  - `docs/CODEX_RUN287_GPT_PRO_REVIEW_HANDOFF_20260715.md`
+
+### 2026-07-15 - Same-date advisory and operating books were parallel paths, not one persistence chain
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - final `outputs/run287_selector_provenance_audit_20260715_close_20260713_v2/`
+  - retained fail-closed diagnostic `outputs/run287_selector_provenance_audit_20260715_close_20260713/`
+- Context:
+  - Five memo names appeared in the same-date no-write advisory but not in the daily operating target books.
+  - Without timestamps, hashes, policy-stage cash, and paper-account lineage, the difference could be misread as selector rejection, unfilled orders, or lost alpha.
+- Attempt:
+  - Pinned the three advisory scenarios, all 50 archived position/cash rows, both daily operating books, both paper accounts, and the five-name reconciliation queue.
+  - Reconstructed the full advisory/operating/paper union, stage-by-stage cash, integer bootstrap shares, and input availability.
+- Result:
+  - 50/50 archived rows, 5/5 divergences, 3/3 weight sums, 7/7 availability rows, and 20/20 paper shares pass with zero selector error and USD 0.00 cash error.
+  - The operating books were generated 15,227.248529 seconds before the advisory packet. The advisory packet explicitly prohibited target generation, target mutation, orders, and execution.
+  - All five names receive the preregistered reason `ADVISORY_CREATED_AFTER_OPERATING_NO_WRITE`; recoverable implementation leakage count is zero.
+  - Main/Concentrated paper cash of 1.3670%/0.7140% is pure integer-share bootstrap rounding for this daily operating snapshot.
+- Failure or caveat:
+  - The first audit attempt failed closed at selector-weight reproduction because the audit treated projection cash as residual even though the projection already contained an explicit `CASH` row.
+  - Fixing the audit produced an exact v2 result, but the separate daily operating selector still lacks a complete per-ticker causal taxonomy.
+  - This integrity result does not change historical CAGR/MDD and does not authorize a replay.
+- Root cause:
+  - Multiple artifacts called current or operating were generated by distinct pipelines and times, while the later exact Run287 selector was intentionally no-write.
+  - Ambiguous naming made a safe review boundary look like a persistence failure.
+- Reusable lesson:
+  - Compare generation time, write authority, target hash, paper membership, shares, and cash before interpreting portfolio differences as alpha.
+  - If a projection contains an explicit cash row, reproduce that row directly; do not infer a second residual cash value.
+  - Distinguish official/generated Run287 books, daily operating selection books, no-write advisory projections, and paper accounts in every report.
+- Next action:
+  - Do not replay this divergence. Continue the append-only forward archive and move the next bounded historical-alpha gate to a 50-security, 200-event PIT estimate/guidance sample validator.
+  - Require separate approval before any paid extract, historical A/B, target change, or fullrun.
+- Do-not-repeat:
+  - Do not call advisory-only selections missed trades when the packet postdates the operating book and cannot write.
+  - Do not lower cash or add a gross floor before attributing cap, trim, regime, rounding, fee, and rejection components.
+  - Do not conflate daily operating paper cash with the official generated-book cash baseline.
+  - Do not hide missing operating-selector reasons behind `UNKNOWN` or ticker-specific narratives.
+- Evidence files:
+  - `docs/run287_selector_provenance_audit_contract_v1.json`
+  - `tools/audit_run287_selector_provenance.py`
+  - `tests/run287_selector_provenance_audit_smoke.py`
+  - `outputs/run287_selector_provenance_audit_20260715_close_20260713_v2/manifest.json`
+  - `outputs/run287_selector_provenance_audit_20260715_close_20260713_v2/divergence_reconciliation.csv`
+  - `outputs/run287_selector_provenance_audit_20260715_close_20260713_v2/cash_waterfall.csv`
+  - `docs/CODEX_RUN287_SELECTOR_PROVENANCE_AUDIT_RESULT_20260715.md`
+
+### 2026-07-15 - A 50-row estimate sample is not a 50-security PIT sample
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - `outputs/run287_pit_estimate_guidance_sample_audit_v2_20260715_local_free/`
+- Context:
+  - The next bounded historical-alpha gate required 50 unique securities, at least 200 estimate/guidance events, exact availability, delisted/ADR/predecessor identity, and reproducible as-of queries.
+  - Earlier artifacts requested 50 rows and the local forward archive contained one fetch-date snapshot.
+- Attempt:
+  - Froze a new provider-neutral 20 active / 10 delisted / 10 ADR-home / 10 predecessor security contract.
+  - Added exact-time, revision-lineage, identity, future-row, ten-query as-of reproduction, license/retention, and USD 300 ceiling checks.
+  - Ran a non-promoting inventory audit against the downloaded 2026-07-09 forward-estimate artifact and the old 50-row request.
+- Result:
+  - A compliant synthetic package reaches only `READY_PIT_SAMPLE_SCHEMA_GATE_ONLY`; date-only/future rows, ADR bridge loss, or wrong as-of results fail closed.
+  - The local artifact has 863 snapshot rows and 13 forward-estimate rows, but zero qualifying historical PIT events because `available_from` is the fetch date.
+  - It also has zero stable provider security IDs, delisted outcomes, ADR/home bridges, predecessor continuity, as-of reproductions, and rights manifests. Zero rows were promoted to historical PIT.
+  - No paid action, return join, alpha screen, A/B, selector/book/order change, fullrun, production, or live action occurred.
+- Failure or caveat:
+  - The result remains blocked until an external or self-service sample supplies all four v2 files; free SEC actuals cannot fill a consensus-estimate revision gap.
+  - Passing this gate will still not prove alpha or improve CAGR/MDD.
+- Root cause:
+  - A row count does not prove security diversity, history depth, revision state, lifecycle identity, or exact availability.
+  - Fetch-time snapshots are valid true-forward observations only from their collection date onward.
+- Reusable lesson:
+  - Count unique stable securities separately from event rows.
+  - Require issuer/security/listing bridges and verified outcomes before calling delisted or ADR coverage complete.
+  - Never coerce a date or fetch timestamp into original availability, and never relabel actual filings as analyst revisions.
+- Next action:
+  - Continue the existing append-only forward archive within the zero-cost circuit breaker.
+  - Run v2 once when a free four-file sample is available; request separate approval before any paid extract or historical return join.
+- Do-not-repeat:
+  - Do not call the old 50-row request sufficient under the v2 contract.
+  - Do not retry FMP 402 or Finnhub entitlement failures to manufacture coverage.
+  - Do not merge ADR/home price histories or project current identifiers backward.
+  - Do not treat `READY_PIT_SAMPLE_SCHEMA_GATE_ONLY` as an alpha or portfolio pass.
+- Evidence files:
+  - `docs/run287_pit_estimate_guidance_sample_contract_v2.json`
+  - `tools/audit_run287_pit_estimate_guidance_sample_v2.py`
+  - `tests/run287_pit_estimate_guidance_sample_v2_smoke.py`
+  - `outputs/run287_pit_estimate_guidance_sample_audit_v2_20260715_local_free/manifest.json`
+  - `outputs/run287_pit_estimate_guidance_sample_audit_v2_20260715_local_free/local_material_gap.csv`
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SAMPLE_V2_RESULT_20260715.md`
+
+### 2026-07-15 - The selector edge is positive; broad cash and exit retuning are not the missing alpha
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - `outputs/run287_performance_bottleneck_decision_20260715/`
+- Context:
+  - The user asked when CAGR/MDD strengthening would actually begin after the PIT source gate blocked the next historical A/B.
+  - The official broker artifact already contained selection, exit, cash, execution, risk, and factor diagnostics that could identify the next bottleneck at zero external cost.
+- Attempt:
+  - Recomputed selected-versus-missed leader spreads, cash-rejected leader outcomes, sold-versus-replacement counterfactuals, and execution/position-risk deltas.
+  - Joined the current no-eligible-A/B state, one-week forward risk state, MDD concentration finding, and do-not-repeat registry.
+  - Kept canonical generated baselines separate from broker-ledger diagnostic metrics.
+- Result:
+  - Selected leaders beat missed leaders in mean and median SPY excess return at 21/63/126D in both portfolios; 63D mean spreads are +5.12pp Main and +5.65pp Concentrated.
+  - Cash-rejected missed leaders have negative 63D mean and median excess return in both portfolios, so broad redeployment is unsupported.
+  - Generic exit delay is not jointly positive at 63/126D; historical execution and position-risk overlays do not jointly improve CAGR/MDD.
+  - Concentrated has a high single-name MDD finding: PLTR contributed 34% of the top-30 negative position P&L in the 2025-02-18 to 2025-04-08 drawdown at a 33.6% maximum weight.
+  - Final status is `BLOCKED_NO_ELIGIBLE_HISTORICAL_CHALLENGER`; no backtest, threshold change, target/cash/order mutation, fullrun, production, or live action occurred.
+- Failure or caveat:
+  - The first diagnostic invocation used the artifact wrapper rather than its nested `outputs/` root, so legacy sidecars failed closed. The failed evidence remains preserved.
+  - The official download pruned some raw target/journal files, so the final aggregator uses the official artifact's already-completed hash-pinned selection, entry/exit, and cash audits plus newly rerun trade/operating diagnostics.
+- Root cause:
+  - Large cash and many premature-sell labels looked like easy performance levers, but matched forward evidence did not support broad action.
+  - The strongest observed MDD concentration cannot distinguish an eligible individual-risk mechanism until the forward warning archive matures.
+- Reusable lesson:
+  - Protect a selector when selected-minus-missed mean and median spreads are consistently positive.
+  - Do not infer a cash-deployment edge from cash drag alone; test the actual ex-ante names rejected by cash.
+  - Count sold-minus-replacement outcomes before interpreting premature-sell flags as an exit-delay opportunity.
+  - Keep metric paths explicit: broker diagnostics explain mechanisms but do not replace generated-book acceptance metrics.
+- Next action:
+  - Open one fixed-book A/B immediately if an external PIT revision source passes schema and source-screen gates.
+  - Otherwise continue individual-risk and forward-paper archives; do not review action before frozen event/week gates mature.
+- Do-not-repeat:
+  - Do not lower cash, add a gross floor, or buy every missed leader.
+  - Do not add generic hold delay, stop, replacement, cluster cap, or execution grid.
+  - Do not use the PLTR drawdown alone to select a cap threshold.
+  - Do not call the late-2026 forward review window a guaranteed promotion date.
+- Evidence files:
+  - `docs/run287_performance_bottleneck_contract_v1.json`
+  - `tools/audit_run287_performance_bottlenecks.py`
+  - `tests/run287_performance_bottleneck_smoke.py`
+  - `outputs/run287_performance_bottleneck_decision_20260715/manifest.json`
+  - `outputs/run287_performance_bottleneck_decision_20260715/component_decision.csv`
+  - `docs/CODEX_RUN287_PERFORMANCE_BOTTLENECK_RESULT_20260715.md`
+
+### 2026-07-16 - Aggregate cache freshness is not exact per-ticker close coverage
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - failed GitHub run `29388570121`
+  - successful forward run `29387336555`
+  - `outputs/run287_exact_close_cache_recovery_smoke_20260716/`
+- Context:
+  - The next completed-close cycle needed to advance operating paper state and append-only forward evidence without fabricating the still-open 2026-07-15 US close.
+  - The latest operating refresh reported an aggregate cache end date of 2026-07-14 but failed paper bootstrap on AMAT's missing exact 2026-07-14 bar.
+  - A second run for the same 2026-07-13 forward decision preserved the first observations but produced immutable conflicts after using the first overlay as its own prior-rank baseline.
+- Attempt:
+  - Added an optional exact-session requirement to the bounded price-cache builder, included missing exact-date tickers in the download set, and retried only remaining omissions one ticker at a time.
+  - Wired the NYSE gate's completed-session date into the operating refresh.
+  - Reused the durable first overlay when a later forward-archive run encounters the same completed session.
+- Result:
+  - A real bounded AMAT-only fetch recovered the exact 2026-07-14 bar with zero remaining exact-date omissions.
+  - Latest successful forward evidence is 154 signal observations over three decision dates, 74 unique tickers, 14 distinct true-forward tickers, and zero resolved 63-day outcomes.
+  - Targeted cache/workflow smokes, the 17-case ledger smoke, workflow artifact smoke, compilation, YAML parse, and diff checks pass.
+  - No score, rank, selector rule, target, weight, cash, order, universe, backtest, fullrun, production, or live-trading state changed.
+- Failure or caveat:
+  - An aggregate maximum cache date can be supplied by a different ticker and therefore cannot satisfy an exact-close portfolio contract.
+  - Intraday providers can expose an in-progress current-day daily row; the market-session gate, not the cache maximum, remains the authoritative valuation date.
+  - The forward lane remains `UNDERPOWERED` with zero completed 63-day true-forward outcomes.
+- Root cause:
+  - Batch downloads were accepted when a ticker returned any non-empty history, without verifying the exact completed session per ticker.
+  - Same-session recomputation changed only prior-rank diagnostics because the durable output had replaced the intended previous-session baseline.
+- Reusable lesson:
+  - Validate exact session membership per required ticker and retry only omissions; never infer complete close coverage from the aggregate cache maximum.
+  - Keep the first contemporaneous signal snapshot immutable and make same-session reruns no-op for signal capture while still allowing price/outcome resolution.
+  - Do not publish or select an in-progress daily bar merely because a data vendor exposes it.
+- Next action:
+  - Verify the first post-close 2026-07-15 scheduled artifacts for exact per-ticker coverage and a blocker-free append.
+  - Continue the forward archive; open no portfolio A/B until the external PIT source gate passes or the preregistered forward sample gates mature.
+- Do-not-repeat:
+  - Do not treat manifest `end` as proof that every ticker has that date.
+  - Do not recompute a same-decision overlay against itself as the prior baseline.
+  - Do not use the 2026-07-15 vendor row before the completed-session gate selects it.
+  - Do not change cash, cap, stop, exit, or weights to compensate for an evidence-pipeline failure.
+- Evidence files:
+  - `tools/build_replay_price_cache.py`
+  - `.github/workflows/daily_operating_selection_refresh.yml`
+  - `.github/workflows/earnings_estimates_daily.yml`
+  - `tests/replay_price_cache_smoke.py`
+  - `tests/earnings_estimate_workflow_rotation_smoke.py`
+  - `outputs/daily_operating_selection_refresh_29388570121/`
+  - `outputs/earnings_estimates_daily_29387336555/`
+  - `outputs/run287_exact_close_cache_recovery_smoke_20260716/replay_price_cache_manifest.json`
+  - `docs/CODEX_RUN287_DAILY_EVIDENCE_DURABILITY_RESULT_20260716.md`
+
+### 2026-07-16 - Attribution must precede another CAGR/MDD challenger
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - `outputs/run287_decision_outcome_ledger_20260716_close_20260713/`
+- Context:
+  - The current platform had scoring, selection, operating, and paper-fill components but no all-universe causal ledger joining each decision to a future outcome.
+  - Adding another alpha, cash rule, or exit threshold before locating the actual performance leak would repeat the prior tuning pattern.
+- Attempt:
+  - Added an append-only decision/outcome contract and producer for all 989 tickers across three advisory scenarios.
+  - Joined the 238 raw/scaled inputs, six registered and published heads, score/rank, selector reason, operating weights, integer simulated shares, cash, and safety state.
+  - Added fixed-control policy attribution and data/feature/prediction/performance drift audits.
+- Result:
+  - The 2026-07-13 exact-close capture contains 2,967 decision rows, 989 unique tickers, 238 features, and six heads with zero future rows, missing reasons, duplicate keys, or operating-share mismatches.
+  - Cash reconciliation is within one cent and a same-date rerun is a semantic no-op with a byte-identical decision log.
+  - Ledger capture is ready review-only; policy attribution and model health are correctly underpowered with zero resolved 63-day rows and one decision date.
+  - No score, rank, selector, model, target, cash, order, fullrun, production, or live-trading state changed.
+- Failure or caveat:
+  - The causal ledger cannot yet claim a selection, entry, exit, sizing, or model edge because forward outcomes have not matured.
+  - PIT membership, delisted outcomes, symbol predecessors, and ADR/home-listing identity remain incomplete.
+- Root cause:
+  - Historical research outputs measured components in separate sidecars, so advisory-to-operating differences and future performance could not be attributed from one immutable key.
+- Reusable lesson:
+  - Record every eligible and rejected name, not only selections, before interpreting future winners or losers.
+  - Treat same-date recomputation as a no-op and append outcomes separately when horizons mature.
+  - Separate descriptive decomposition from a causal A/B; never promote from attribution alone.
+- Next action:
+  - Append this ledger after each completed-close cycle and resolve fixed 1/5/21/63/126/252-session outcomes.
+  - Open only one preregistered challenger after the 26-week, 200 resolved 63D observation, and 50-ticker forward gate plus user approval.
+- Do-not-repeat:
+  - Do not optimize a threshold, entry delay, cash target, or exit rule from incomplete outcome rows.
+  - Do not auto-retrain or auto-promote a challenger.
+  - Do not treat an underpowered forward verdict as evidence that the current CAGR/MDD has improved or failed.
+- Evidence files:
+  - `docs/run287_continuous_learning_contract_v1.json`
+  - `tools/build_run287_decision_outcome_ledger.py`
+  - `tools/audit_run287_policy_attribution.py`
+  - `tools/audit_run287_model_health.py`
+  - `tests/run287_decision_outcome_ledger_smoke.py`
+  - `tests/run287_policy_attribution_smoke.py`
+  - `docs/CODEX_RUN287_CONTINUOUS_LEARNING_P0_RESULT_20260716.md`
+
+### 2026-07-16 - Portfolio-specific divergence matters more than one shared selector switch
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-candidate-evaluation-gap-20260715`
+  - `outputs/run287_decision_outcome_ledger_20260716_close_20260713_v2/`
+  - `outputs/run287_holding_risk_watch_full_20260716_close_20260715/`
+- Context:
+  - The user asked to continue, report current holdings/performance, and identify a credible CAGR/MDD improvement path.
+  - The official operating paper account was still seeded at the 2026-07-13 exact close while the 2026-07-15 completed close was available.
+- Attempt:
+  - Marked all 20 operating holdings to the exact 2026-07-15 close and reran holding risk with sufficient history.
+  - Resolved the all-universe ledger's first one-session outcomes using a critical-first, rotating bounded price queue.
+  - Compared fixed exact-selector shadows with current operating accounts using next-close, integer shares, and 25 bps.
+- Result:
+  - Main operating returned -0.91% on 2026-07-15 and +1.15% since the seed; Concentrated returned -7.65% and -6.08% respectively.
+  - Concentrated risk states are WDC ALERT plus CIEN/SNDK WATCH; Main has six WATCH and eleven NORMAL names.
+  - Main strict and prior-hold shadows returned -3.40% and -3.22% net; the Concentrated strict shadow returned -1.66% net with 36.55% realized cash after rounding/cost.
+  - Main one-session selection spread is -2.37 pp; Concentrated is +1.32 pp. These are descriptive and underpowered for the 63D gate.
+  - Advisory-to-operating gross absolute weight divergence is 179.8% Main strict, 192.4% Main bridge, and 165.9% Concentrated.
+  - No portfolio, cash, order, production, or live state changed.
+- Failure or caveat:
+  - The first ledger version read only a legacy advisory cash alias and recorded zero advisory cash. The immutable first output was preserved and a corrected v2 was created using the canonical `cash_weight` field.
+  - One decision date and one resolved session cannot demonstrate a CAGR/MDD improvement.
+- Root cause:
+  - Exact selector recommendations and operating books are materially different paths, so selector research improvements cannot appear in operating performance automatically.
+  - Concentrated operating exposure remained approximately 99% invested across three damaged names, while the no-write selector proposed five different names and 34% target cash.
+- Reusable lesson:
+  - Measure Main and Concentrated independently; the same selector transition can protect one portfolio and damage the other.
+  - Preserve cash-field aliases at ingestion but report the canonical source field.
+  - Prioritize selected, operating, and filled tickers in bounded outcome collection before rotating through the remaining universe.
+- Next action:
+  - Continue a Concentrated advisory-transition shadow only; keep Main operating unchanged.
+  - Accumulate 21/63/126D fixed-control evidence before any operating promotion.
+  - Keep WDC incremental buying frozen for manual review; do not infer an automatic sale.
+- Do-not-repeat:
+  - Do not switch both portfolios to the same advisory path from a single volatile session.
+  - Do not add a new cash threshold, cluster cap, stop, or exit-delay grid.
+  - Do not call one-day protection a seven-year CAGR/MDD improvement.
+- Evidence files:
+  - `tools/run_run287_continuous_learning_daily.py`
+  - `tests/run287_continuous_learning_daily_smoke.py`
+  - `docs/CODEX_RUN287_CURRENT_PORTFOLIO_AND_CAGR_MDD_RESEARCH_20260716.md`

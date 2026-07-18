@@ -3,6 +3,157 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-07-16
+
+### 13:30 KST - Add all-universe causal ledger and daily outcome learning loop
+
+- scope:
+  - Join all 989 decision-frame names to registered/published predictions, selector reasons, operating targets, integer simulated fills, cash, and fixed future outcomes.
+  - Attribute selection, entry, hold/exit, sizing/cash, and execution without changing any portfolio policy.
+  - Persist the append-only ledger through the daily operating workflow and collect a critical-first rotating 150-name price queue.
+- files:
+  - `docs/run287_continuous_learning_contract_v1.json` ->freezes the 989-name, 238-feature, six-head, no-mutation contract and forward promotion gate.
+  - `tools/build_run287_decision_outcome_ledger.py` ->writes immutable decision/outcome events and current reconciliation state.
+  - `tools/audit_run287_policy_attribution.py` and `tools/audit_run287_model_health.py` ->produce fixed-control policy attribution and drift diagnostics.
+  - `tools/run_run287_continuous_learning_daily.py` and `.github/workflows/daily_operating_selection_refresh.yml` ->append/resolve the ledger after an exact packet and persist it review-only.
+  - focused smoke tests and result documents ->lock cash aliases, exact integer shares, semantic no-op reruns, priority queueing, and no production mutation.
+- result:
+  - The corrected v2 capture contains 2,967 decision events for 989 tickers and three scenarios, plus 888 resolved one-session outcome events, with zero future rows, missing selector reasons, duplicate keys, share mismatches, or cash reconciliation failures.
+  - Main operating returned -0.91% on the 2026-07-15 session while the Main strict shadow returned -3.40% net; Concentrated operating returned -7.65% while its strict shadow returned -1.66% net.
+  - Holding risk identifies WDC ALERT, CIEN/SNDK WATCH, and six Main WATCH names when adequate history is present.
+  - Primary 63-session attribution and model-health gates remain underpowered; automatic retraining and promotion remain disabled.
+- caveat:
+  - The first local ledger output used only the legacy advisory cash alias and was preserved; v2 reads the canonical selector `cash_weight` field.
+  - One resolved session is not a CAGR/MDD improvement and does not authorize a selector or operating-book transition.
+
+### 01:25 KST - Make daily exact-close recovery and forward capture idempotent
+
+- scope:
+  - Diagnose the latest scheduled operating-refresh failure and the same-session forward-ledger conflict before the 2026-07-15 US close completed.
+  - Preserve the first immutable signal observation while allowing later same-session runs to resolve prices and outcomes without recomputing prior-rank diagnostics.
+  - Require every selected ticker to contain the market gate's exact completed-session bar, with one bounded individual retry for batch omissions.
+- evidence:
+  - GitHub run `29388570121` failed correctly at paper bootstrap because AMAT lacked the exact 2026-07-14 bar even though the aggregate cache manifest ended on 2026-07-14.
+  - GitHub run `29304288757` preserved all original 2026-07-13 events but reported immutable conflicts because its regenerated same-date overlay used the first run as its own prior-rank baseline.
+  - GitHub run `29387336555` successfully advanced the append-only ledger through decision date 2026-07-14: 154 observations across three dates, 74 unique tickers, 14 distinct true-forward tickers, and zero resolved 63-day outcomes.
+- files:
+  - `tools/build_replay_price_cache.py` ->adds `--required-session-date`, exact-date coverage diagnostics, one-symbol retries, and a fail-closed status.
+  - `.github/workflows/daily_operating_selection_refresh.yml` ->passes the completed session selected by the NYSE gate into the cache contract.
+  - `.github/workflows/earnings_estimates_daily.yml` ->reuses the durable first overlay when the restored decision date already equals the current completed session.
+  - focused smoke tests ->lock exact-date recovery, same-session reuse tokens, workflow artifact wiring, and YAML validity.
+  - `docs/CODEX_RUN287_DAILY_EVIDENCE_DURABILITY_RESULT_20260716.md` ->records the operational result and its relationship to the CAGR/MDD research gates.
+- result:
+  - A real bounded AMAT-only cache run recovered the exact 2026-07-14 bar with `required_session_missing_after_count=0` and no retry.
+  - All targeted smokes, the 17-case forward-ledger suite, workflow artifact checks, Python compilation, and workflow YAML parsing pass.
+  - No score, rank, selector policy, target, weight, cash, order, universe, backtest, fullrun, production, or live-trading state changed.
+- caveat:
+  - This patch protects the evidence pipeline; it does not itself change the generated-book CAGR/MDD baselines.
+  - At 01:21 KST the 2026-07-15 US session had not closed, so no 2026-07-15 close was published or used.
+
+## 2026-07-15
+
+### 18:25 KST - Rank CAGR/MDD bottlenecks and block unsupported retuning
+
+- scope:
+  - Reuse the official Run287 broker artifact's historical selection, exit-counterfactual, cash/reentry, execution, and risk diagnostics to identify the highest-information next performance lane.
+  - Compare the results with the do-not-repeat registry, current single-A/B readiness, and the forward risk gate without dispatching a new backtest or fullrun.
+  - Keep broker-ledger diagnostic metrics separate from the canonical generated-book baselines.
+- files:
+  - `docs/run287_performance_bottleneck_contract_v1.json` ->freezes the current generated baselines, targets, comparison rules, and no-tuning safety contract.
+  - `tools/audit_run287_performance_bottlenecks.py` ->aggregates selection, cash, exit, execution, concentration, source, and forward evidence into one component decision.
+  - `tests/run287_performance_bottleneck_smoke.py` and `tools/run_pr_validation.py` ->lock gap arithmetic, selection-edge protection, unsupported-arm blocking, and no-fullrun behavior.
+  - `docs/CODEX_RUN287_PERFORMANCE_BOTTLENECK_RESULT_20260715.md` ->records the measured bottlenecks and earliest credible strengthening windows.
+- result:
+  - Selected ex-ante leaders beat missed leaders in mean and median SPY excess return at 21/63/126 days in both books; the 63-day mean spread is +5.12pp for Main and +5.65pp for Concentrated.
+  - Cash-rejected missed leaders have negative 63-day mean and median excess return in both books, so broad cash redeployment is not supported.
+  - Generic exit delay is not jointly positive at 63/126 days, and the existing execution/position-risk overlays do not jointly improve CAGR and MDD in both books.
+  - Concentrated has one high single-name MDD-concentration finding, but cap/stop families are already rejected and the forward individual-risk archive has one decision week and zero resolved outcomes.
+  - Final status is `BLOCKED_NO_ELIGIBLE_HISTORICAL_CHALLENGER`; the current target gap is Main +0.5968pp CAGR/+0.3619pp MDD and Concentrated +0.9029pp CAGR with MDD already passing.
+- caveat:
+  - An initial local diagnostic pointed the legacy sidecars at the artifact wrapper rather than its `outputs/` root; the blocked result is preserved and v2 uses the correct source path.
+  - A new fixed-book A/B can begin immediately after one external PIT source passes its source gate and screen; otherwise the forward risk lane remains time- and sample-gated.
+
+### 17:40 KST - Freeze and enforce the 50-security/200-event PIT sample contract
+
+- scope:
+  - Implement the next GPT Pro P1 gate after selector provenance: validate a provider sample as 50 unique securities and at least 200 historical estimate/guidance events rather than treating 50 arbitrary rows as sufficient.
+  - Require exact timezone-bearing availability, stable issuer/security/listing identity, delisted outcomes, ADR/home bridges, predecessor continuity, deterministic as-of reproduction, and storage/reproduction rights before any alpha screen.
+  - Audit the existing free local forward snapshot without converting fetch dates or SEC actuals into historical estimate revisions.
+- files:
+  - `docs/run287_pit_estimate_guidance_sample_contract_v2.json` ->freezes the four 20/10/10/10 strata, 200-event and revision/guidance minimums, identity fields, ten as-of queries, rights, and USD 300 hard ceiling.
+  - `tools/audit_run287_pit_estimate_guidance_sample_v2.py` ->implements the fail-closed provider gate plus a non-promoting local-forward inventory mode.
+  - `tests/run287_pit_estimate_guidance_sample_v2_smoke.py` and `tools/run_pr_validation.py` ->lock exact-time, future-row, revision lineage, ADR/home separation, as-of reproduction, rights, and no-promotion behavior.
+  - `docs/CODEX_RUN287_PIT_ESTIMATE_GUIDANCE_SAMPLE_V2_RESULT_20260715.md` ->records the measured local gap and the next accepted package.
+- result:
+  - Synthetic compliant inputs pass `READY_PIT_SAMPLE_SCHEMA_GATE_ONLY`; date-only/future rows, missing ADR bridges, and incorrect as-of results fail closed.
+  - The current local artifact has 863 ticker snapshot rows but only 13 forward-estimate rows, uses fetch date as `available_from`, and supplies zero qualifying historical PIT events, stable IDs, delisted outcomes, ADR/home bridges, predecessor chains, as-of reproductions, or rights manifests.
+  - The real local run is therefore `BLOCKED_PIT_SAMPLE_CONTRACT_LOCAL_FORWARD_ONLY`, and zero local rows were promoted to historical PIT evidence.
+  - No email, signup, paid request, return join, alpha screen, portfolio A/B, score/rank/selector change, target/order mutation, fullrun, production, or live-trading action occurred.
+- caveat:
+  - The prior 50-row request and bounded ZACKS/EEH probe remain useful schema diagnostics but do not satisfy the new 50-security/200-event gate.
+  - A schema/PIT pass will still not be an alpha pass; source screening and fixed-book validation remain separately gated.
+
+### 17:05 KST - Reconcile selector, operating, and paper paths at the pinned close
+
+- scope:
+  - Implement the common P0 recommendation from two independent Pro reviews: explain the complete 2026-07-13 advisory/operating/paper union before adding alpha or changing cash policy.
+  - Preregister immutable source hashes, the five divergence tickers, reason codes, weight/cash tolerances, and prohibited mutations.
+  - Reconstruct advisory cash by policy stage and daily paper cash by target hash, integer shares, and exact-close account state.
+- files:
+  - `docs/run287_selector_provenance_audit_contract_v1.json` ->pins the exact inputs, policy commit, three scenarios, five names, and stop gates.
+  - `tools/audit_run287_selector_provenance.py` ->writes an append-only causal union, divergence reconciliation, cash waterfall, execution ledger, and availability audit.
+  - `tests/run287_selector_provenance_audit_smoke.py` and `tools/run_pr_validation.py` ->lock hash failure, semantic idempotence, explicit-cash, no-mutation, and integer-share/cash contracts.
+  - `docs/CODEX_RUN287_SELECTOR_PROVENANCE_AUDIT_RESULT_20260715.md` ->records the measured result and next gate.
+- result:
+  - All 50 archived selector rows, three scenario weight totals, five preregistered divergences, seven availability rows, and 20 paper share counts reconcile exactly; maximum paper cash error is USD 0.00.
+  - The operating books were produced 15,227.248529 seconds before the later advisory packet, and that packet was contractually no-write. The five-name difference is therefore intentional parallel-path separation, not a recovered implementation-alpha defect.
+  - Advisory cash is fully attributed by registered stages. Daily operating paper cash is 1.3670% for Main and 0.7140% for Concentrated, entirely from integer-share bootstrap rounding in this snapshot.
+  - No model, score, rank, selector, target, cash policy, order, backtest, fullrun, production, or live-trading state changed.
+- caveat:
+  - The audit explains path separation but does not make the separate daily operating selector's per-ticker taxonomy complete.
+  - The first diagnostic run failed closed because the audit double-counted an explicit `CASH` projection row; the failed output remains preserved and v2 passes after the semantics were corrected and regression-tested.
+
+### 13:50 KST - Build a partial outside-candidate shadow context and Pro review handoff
+
+- scope:
+  - Extend the 14 outside-context candidate queue into an exact-close, exact-acceptance, missing-neutral shadow feature context without scoring or ranking the names.
+  - Reuse the frozen 238-feature model schema and scaler while preserving raw source absence and fail-closing stale macro evidence.
+  - Consolidate the July 10-15 research, operational freshness gaps, closed lanes, bottlenecks, and next-decision questions into a self-contained GPT Pro review handoff.
+- files:
+  - `tools/build_run287_candidate_shadow_context.py` ->builds append-only raw/scaled feature context and source provenance without calling prediction, selector, backtest, or fullrun paths.
+  - `tests/run287_candidate_shadow_context_smoke.py` and `tools/run_pr_validation.py` ->lock exact-close, missing-neutral, append-only, and no-mutation contracts into focused validation.
+  - `docs/CODEX_RUN287_CANDIDATE_SHADOW_CONTEXT_RESULT_20260715.md` ->records measured coverage, the stale-macro blocker, and the non-ranking decision.
+  - `docs/CODEX_RUN287_GPT_PRO_REVIEW_HANDOFF_20260715.md` ->provides the baselines, timeline, failed lanes, current bottlenecks, candidate data result, and a constrained next-step review prompt.
+- result:
+  - Exact 2026-07-14 technical context is ready for 14/14 candidates and exact accepted-time fundamental panels for 12/14; `000660.KS` and `SKHY` remain explicit technical-only cases.
+  - Raw frozen-model feature coverage is 32.0228%; frozen-scaler output is finite at 100% with zero missing-neutral violations, but that does not authorize cross-sectional ranking.
+  - Future price and fundamental row counts are zero. No target, weight, cash, order, universe, model score, selector, backtest, fullrun, production, or live-trading state changed.
+- caveat:
+  - The fresh 2026-07-14 macro attempt remained `BLOCKED_MACRO_CONTRACT` because the source engine row ended on 2026-07-13; all macro features therefore stayed neutral.
+  - The public dashboard remains a 2026-07-10 research snapshot and is documented as an operational freshness gap rather than presented as a current target book.
+
+### 12:05 KST - Diagnose candidate exclusions and freeze full available histories
+
+- scope:
+  - Preserve 45 AI-infrastructure names in a research-only intake instead of appending them to the operating universe.
+  - Separate current score gates, advisory selector outcomes, operating-book provenance gaps, data gaps, and structural short-listing history.
+  - Acquire bounded full available price, exact accepted-time SEC, and issuer Companyfacts history without running a fullrun or changing either portfolio.
+- files:
+  - `tools/audit_run287_candidate_evaluation_funnel.py` ->emits an append-only stage audit and bounded acquisition queue without inventing operating rejection reasons.
+  - `tools/fetch_companyfacts_for_sec_index.py` ->fetches full issuer Companyfacts JSON for explicit CIKs under a hard request budget.
+  - `tools/audit_run287_candidate_full_history.py` ->hashes and freezes price, SEC, Companyfacts, short-listing, and home-market gaps.
+  - `tools/build_replay_price_cache.py` ->preserves foreign exchange suffixes such as `.KS` while retaining US class-share translation.
+  - `docs/run287_candidate_evaluation_intake_20260715.csv` and focused smokes ->freeze the non-promoting intake and safety contracts.
+  - `docs/CODEX_RUN287_CANDIDATE_EVALUATION_AND_FULL_HISTORY_20260715.md` ->records evidence, limitations, and the next shadow-context gate.
+- result:
+  - The 45-name funnel contains 31 current-context and 14 outside-context names; 7 are currently selected, 6 fail current score gates, 13 are advisory-rejected, and 5 are advisory-selected/operating-book divergences.
+  - Full available price history downloaded 45/45 with zero failures and was re-frozen through the completed common 2026-07-14 session; 38 have the canonical seven-year span and 7 are genuine short-listing histories.
+  - Exact accepted-time SEC and Companyfacts coverage each reach 44/45. `000660.KS` remains an explicit home-market filing gap; `SKHY` is an issuer proxy and is never relabeled as listing-specific Korean history.
+  - Four focused smoke suites pass; no target, weight, cash, order, universe, backtest, fullrun, production, or live-trading state changed.
+- caveat:
+  - The current universe is not PIT historical membership and delisted returns are absent, so the histories do not authorize an official seven-year portfolio test or a CAGR/MDD claim.
+  - Same-date no-write advisory reasons are diagnostic rather than causal operating-book reasons.
+
 ## 2026-07-14
 
 ### 12:40 KST - Restore and lock the rejected SEC filing-quality source screen
