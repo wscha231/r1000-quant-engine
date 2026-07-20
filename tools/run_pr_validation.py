@@ -70,6 +70,8 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/market_leader_challenger_smoke.py", []),
     ("tests/superperformance_trader_replay_smoke.py", []),
     ("tests/crisis_state_engine_smoke.py", []),
+    ("tests/run287_crisis_policy_smoke.py", []),
+    ("tests/run287_crisis_policy_evaluation_smoke.py", []),
     ("tests/integrated_theme_leader_crisis_replay_smoke.py", []),
     ("tests/strategy_logic_ledger_smoke.py", []),
     ("tests/broker_crisis_reentry_replay_smoke.py", []),

@@ -3934,17 +3934,21 @@ def test_sec_13f_refresh_uses_historical_submissions() -> None:
         assert token in collector, f"SEC submissions collector missing historical archive token {token}"
 
 
-@_test("structural.daily_crisis_monitor_has_hysteresis_and_shakeout_guard")
-def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
+@_test("structural.daily_crisis_monitor_uses_canonical_state_and_shakeout_guard")
+def test_daily_crisis_monitor_uses_canonical_state_and_shakeout_guard() -> None:
     src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
     engine = (ROOT / "tools" / "crisis_state_engine.py").read_text(encoding="utf-8")
+    policy = (ROOT / "tools" / "run287_crisis_policy.py").read_text(encoding="utf-8")
     wf = (ROOT / ".github" / "workflows" / "daily_crisis_monitor.yml").read_text(encoding="utf-8")
     for token in [
         "GREEN",
         "WATCH",
-        "DEFENSE_REVIEW",
-        "CRISIS_DEFENSE",
-        "REENTRY_READY",
+        "DEFENSE",
+        "CRISIS",
+        "REENTRY_STAGE_1",
+        "REENTRY_STAGE_2",
+        "REENTRY_STAGE_3",
+        "DEGRADED_DATA",
         "VIX-only cash raise is forbidden",
         "single_name_shakeout_cash_raise_forbidden",
         "long_crisis_daily_features.parquet",
@@ -3953,6 +3957,8 @@ def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
         assert token in src, f"daily crisis monitor missing {token}"
     for token in ["future_labels_excluded", "observable_feature_frame", "build_historical_daily_crisis_state"]:
         assert token in engine, f"shared crisis state engine missing {token}"
+    for token in ["transition_state", "apply_selective_defense", "component_availability"]:
+        assert token in policy, f"canonical crisis policy missing {token}"
     assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
     assert "outputs/long_crisis_learning" in wf and "data_pit/macro" in wf
 

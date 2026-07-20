@@ -46,6 +46,8 @@ def test_historical_crisis_state_reuses_long_crisis_gate_pit_safely() -> None:
                 "liquidity_confirmation_score": [0.05] * 15 + [0.70] * 15 + [0.05] * (len(feature_dates) - 30),
                 "market_trend_damage_score": [0.05] * 15 + [0.65] * 15 + [0.05] * (len(feature_dates) - 30),
                 "credit_stress_score": [0.05] * len(feature_dates),
+                "qqq_below_ma200": [0.0] * len(feature_dates),
+                "volatility_stress_score": [0.10] * len(feature_dates),
                 "future_63d_drawdown": [-0.50] * len(feature_dates),
                 "false_alarm_no_drawdown_63d": [1] * len(feature_dates),
             },
@@ -73,9 +75,9 @@ def test_historical_crisis_state_reuses_long_crisis_gate_pit_safely() -> None:
         assert "future_63d_drawdown" not in states.columns
         assert "false_alarm_no_drawdown_63d" not in states.columns
         assert states["future_labels_excluded"].eq(True).all()
-        assert "CRISIS_DEFENSE" in set(states["crisis_state"]), states["crisis_state"].value_counts().to_dict()
-        assert "REENTRY_READY" in set(states["crisis_state"]), states["crisis_state"].value_counts().to_dict()
-        reentry = states[states["crisis_state"].eq("REENTRY_READY")]
+        assert "CRISIS" in set(states["crisis_state"]), states["crisis_state"].value_counts().to_dict()
+        assert states["crisis_state"].astype(str).str.startswith("REENTRY_STAGE_").any()
+        reentry = states[states["crisis_state"].astype(str).str.startswith("REENTRY_STAGE_")]
         assert reentry["reentry_stage"].astype(str).str.startswith("REENTRY_STAGE_").any()
         assert states["cash_gate_reason"].astype(str).str.contains("systemic_confirmation_pass").any()
 

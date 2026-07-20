@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Extend the official Run287 crisis state to the current valuation close.
 
-The extension is current-decision-only.  It seeds hysteresis from the pinned
-official daily state, builds current long-crisis inputs from the already
-verified no-network cache, and executes only the crisis functions loaded from
-the official policy Git commit.  Future label columns are removed before state
-inference.  No rank, selector, sizing, target book, backtest, fullrun, or live
-trading path is invoked.
+The extension is current-decision-only. It seeds hysteresis from the pinned
+official daily state and builds long-crisis features with the pinned historical
+feature implementation. State transition, availability, and re-entry use the
+current canonical Run287 policy shared with replay and target construction.
+Future label columns are physically removed before inference. No rank,
+selector, target book, fullrun, or live-trading path is invoked.
 """
 from __future__ import annotations
 
@@ -30,10 +30,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run287_pinned_git_import import pinned_import_context  # noqa: E402
+from tools import crisis_state_engine as canonical_engine  # noqa: E402
+from tools.run287_crisis_policy import CANONICAL_STATES  # noqa: E402
 
 
-SCHEMA_VERSION = "run287-current-crisis-state-sidecar-v1"
-VALID_STATES = {"GREEN", "WATCH", "DEFENSE_REVIEW", "CRISIS_DEFENSE", "REENTRY_READY"}
+SCHEMA_VERSION = "run287-current-crisis-state-sidecar-v2"
+VALID_STATES = set(CANONICAL_STATES)
 
 
 def repo_path(value: str | Path) -> Path:
@@ -172,11 +174,6 @@ def extend_state(
         "raw_state": last_raw,
         "raw_state_streak": trailing_count(prior["raw_state"], last_raw),
     }
-    reentry_count = (
-        trailing_count(prior["crisis_state"], "REENTRY_READY")
-        if last_state == "REENTRY_READY"
-        else 0
-    )
     cutoff = pd.Timestamp(prior["date"].max()).normalize()
     extension_dates = pd.bdate_range(cutoff + pd.Timedelta(days=1), valuation_date)
     price = price_states.copy()
@@ -209,25 +206,25 @@ def extend_state(
         )
         price_state = str(price_row.get("price_state") or "GREEN")
         raw_state = engine.stronger_state(price_state, long_state)
-        crisis_state, history = engine.apply_hysteresis(raw_state, history)
-        if crisis_state == "REENTRY_READY":
-            reentry_count += 1
-            reentry_stage = (
-                "REENTRY_STAGE_1"
-                if reentry_count <= 5
-                else "REENTRY_STAGE_2"
-                if reentry_count <= 15
-                else "REENTRY_STAGE_3"
-            )
-            reentry_trigger = "confirmed_reentry_after_defense"
-        else:
-            reentry_count = 0
-            reentry_stage = ""
-            reentry_trigger = str(
-                price_row.get("price_trigger")
-                or meta.get("cash_gate_reason")
-                or raw_state
-            )
+        observed = {**feature_row.to_dict(), **price_row}
+        availability = engine.component_availability(
+            observed,
+            decision_time=dt,
+            available_from=feature_date,
+        )
+        crisis_state, history = engine.apply_hysteresis(
+            raw_state,
+            history,
+            values=observed,
+            availability=availability,
+        )
+        reentry_stage = crisis_state if crisis_state.startswith("REENTRY_STAGE_") else ""
+        reentry_trigger = str(
+            history.get("transition_reason")
+            or price_row.get("price_trigger")
+            or meta.get("cash_gate_reason")
+            or raw_state
+        )
         price_score = float(price_row.get("price_crisis_score") or 0.0)
         long_score = float(meta.get("crisis_score") or 0.0)
         rows.append(
@@ -247,6 +244,13 @@ def extend_state(
                 "liquidity_confirmation_score": float(meta.get("liquidity_confirmation_score") or 0.0),
                 "market_trend_damage_score": float(meta.get("market_trend_damage_score") or 0.0),
                 "credit_stress_score": float(meta.get("credit_stress_score") or 0.0),
+                "volatility_stress_score": float(feature_row.get("volatility_stress_score") or 0.0),
+                "rate_shock_score": float(feature_row.get("rate_shock_score") or 0.0),
+                "qqq_close": feature_row.get("qqq_close", np.nan),
+                "qqq_ma200": feature_row.get("qqq_ma200", np.nan),
+                "qqq_below_ma200": feature_row.get("qqq_below_ma200", np.nan),
+                "vix_zscore_252d": feature_row.get("vix_zscore_252d", np.nan),
+                "hy_oas_zscore_252d": feature_row.get("hy_oas_zscore_252d", np.nan),
                 "long_crisis_feature_date": feature_date.date().isoformat() if feature_date is not None else "",
                 "future_labels_excluded": True,
                 "raw_state": raw_state,
@@ -254,6 +258,15 @@ def extend_state(
                 "crisis_score": max(price_score, long_score),
                 "reentry_stage": reentry_stage,
                 "reentry_trigger": reentry_trigger,
+                "reentry_score": float(history.get("reentry_score") or 0.0),
+                "reentry_multiplier": float(history.get("reentry_multiplier") or 1.0),
+                "component_availability": json.dumps(
+                    engine.availability_records(availability), sort_keys=True
+                ),
+                "missing_components": "|".join(history.get("missing_components") or []),
+                "missing_critical_components": "|".join(
+                    history.get("missing_critical_components") or []
+                ),
                 "state_source": (
                     "long_crisis"
                     if engine.STATE_RANK.get(long_state, 0)
@@ -399,7 +412,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     try:
         with pinned_import_context(pinned_commit, REPO_ROOT) as loader:
             builder = importlib.import_module("tools.run_long_crisis_dataset_builder")
-            engine = importlib.import_module("tools.crisis_state_engine")
+            engine = canonical_engine
             market = builder.load_price_close(cache_prices, "SPY")
             qqq = builder.load_price_close(cache_prices, "QQQ")
             macro: dict[str, pd.Series] = {}
@@ -533,7 +546,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "valuation_price_cutoff_date": args.valuation_date,
         "decision_time_utc": macro_manifest.get("decision_time_utc"),
         "macro_available_from": macro_manifest.get("macro_available_from"),
-        "current_state": {
+            "current_state": {
             "date": str(final.get("date") or ""),
             "crisis_state": str(final.get("crisis_state") or ""),
             "raw_state": str(final.get("raw_state") or ""),
@@ -545,6 +558,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "cash_gate_reason": str(final.get("cash_gate_reason") or ""),
             "cash_gate_allowed": bool(final.get("cash_gate_allowed")),
             "long_crisis_feature_date": str(final.get("long_crisis_feature_date") or ""),
+            "reentry_score": float(final.get("reentry_score") or 0.0),
+            "reentry_multiplier": float(final.get("reentry_multiplier") or 1.0),
+            "missing_components": str(final.get("missing_components") or ""),
+            "missing_critical_components": str(final.get("missing_critical_components") or ""),
         },
         "extension": {
             **seed,
@@ -570,10 +587,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "pinned_runtime": {
             "source_commit": pinned_commit,
             "loaded_module_count": int(len(runtime_modules)),
-            "all_modules_from_pinned_git_objects": bool(
+            "feature_modules_from_pinned_git_objects": bool(
                 runtime_modules["source_mode"].eq("pinned_git_object").all()
                 and runtime_modules["source_commit"].eq(pinned_commit).all()
             ),
+            "canonical_state_engine_path": str(Path(canonical_engine.__file__).resolve()),
+            "canonical_state_engine_sha256": sha256(Path(canonical_engine.__file__).resolve()),
             "crisis_functions_called": True,
             "selector_functions_called": False,
         },

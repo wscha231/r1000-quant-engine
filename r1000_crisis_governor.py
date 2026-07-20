@@ -33,6 +33,8 @@ from typing import Mapping, Optional
 import numpy as np
 import pandas as pd
 
+from tools.run287_crisis_policy import apply_selective_defense
+
 
 # ---------------------------------------------------------------------------
 # Zone classification (E5 backbone)
@@ -120,47 +122,39 @@ def apply_exposure_ladder(
     cfg_thresholds: Optional[Mapping[str, float]] = None,
     cash_ticker: str = "CASH",
 ) -> pd.Series:
-    """Re-shape an existing weight vector to obey the exposure ladder.
+    """Compatibility facade over the canonical selective-defense policy.
 
-    Algorithm:
-      1. Compute current cash weight (or 0 if no cash row).
-      2. Determine target cash range from crisis_score zone.
-      3. If current_cash < floor -> scale non-cash weights down proportionally
-         to lift cash to floor (preserves relative ranking inside non-cash).
-      4. If current_cash > ceiling -> trim cash to ceiling, re-distribute
-         saved weight to non-cash proportionally.
-      5. Re-normalise to sum exactly to 1.0 (handles tiny float drift).
-
-    weights must be indexed by ticker. The function does NOT mutate the input.
+    The historical implementation uniformly scaled every non-cash holding and
+    therefore ignored ``trim_broken_only`` and replacement semantics. Callers
+    that have holding evidence should call ``apply_selective_defense`` directly;
+    this evidence-free facade uses deterministic low-conviction order and never
+    silently renormalizes surviving holdings.
     """
     target = target or evaluate_exposure_target(crisis_score, cfg_thresholds=cfg_thresholds)
     w = weights.copy().astype(float)
     if w.empty:
         return w
-    cash_mask = w.index.astype(str).str.upper() == cash_ticker.upper()
-    cash_weight = float(w[cash_mask].sum())
-    noncash_sum = float(w[~cash_mask].sum())
-    total = cash_weight + noncash_sum
+    total = float(w.sum())
     if total <= 0:
         return w
-    new_cash = float(np.clip(cash_weight, target.target_cash_floor * total,
-                              target.target_cash_ceiling * total))
-    new_noncash_sum = total - new_cash
-    # Scale non-cash proportionally
-    if noncash_sum > 0 and new_noncash_sum > 0:
-        scale = new_noncash_sum / noncash_sum
-        w.loc[~cash_mask] = w.loc[~cash_mask] * scale
-    # Distribute new cash to first cash row, or append a synthetic CASH row
-    if cash_mask.any():
-        w.loc[cash_mask] = 0.0
-        first_cash_idx = w.index[cash_mask][0]
-        w.loc[first_cash_idx] = new_cash
-    else:
-        w = pd.concat([w, pd.Series({cash_ticker: new_cash})])
-    s = float(w.sum())
-    if s > 0:
-        w = w / s
-    return w
+    w = w / total
+    if cash_ticker.upper() != "CASH":
+        w.index = ["CASH" if str(item).upper() == cash_ticker.upper() else item for item in w.index]
+    state = {
+        "normal": "GREEN",
+        "caution": "WATCH",
+        "defense": "DEFENSE",
+        "crisis": "CRISIS",
+    }[target.zone]
+    governed, _audit, _summary = apply_selective_defense(
+        pd.DataFrame({"ticker": w.index.astype(str), "weight": w.values}),
+        state=state,
+        portfolio_kind="concentrated",
+    )
+    result = governed.set_index("ticker")["weight"]
+    if cash_ticker.upper() != "CASH":
+        result.index = [cash_ticker if str(item).upper() == "CASH" else item for item in result.index]
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,16 @@ def fixture(root: Path) -> argparse.Namespace:
         },
     )
     decision = root / "decision.json"
+    selection_context = root / "selection_context.parquet"
+    pd.DataFrame(
+        {
+            "ticker": ["OLD", "NEW", "KEEP", "RISKY"],
+            "market_breadth_above_ma200": [0.62] * 4,
+            "market_breadth_above_ma150": [0.67] * 4,
+            "market_sector_participation": [0.58] * 4,
+            "market_leadership_narrowing": [0.20] * 4,
+        }
+    ).to_parquet(selection_context, index=False)
     write_json(
         decision,
         {
@@ -70,6 +80,35 @@ def fixture(root: Path) -> argparse.Namespace:
             "valuation_price_cutoff_date": DATE,
             "decision_time_utc": DECISION_TIME,
             "feature_available_from": "2026-07-17T04:10:00+00:00",
+            "outputs": {"selection_context": record(selection_context)},
+        },
+    )
+    crisis_row = root / "current_crisis_state.csv"
+    pd.DataFrame(
+        [
+            {
+                "date": DATE,
+                "crisis_state": "GREEN",
+                "crisis_score": 0.10,
+                "market_trend_damage_score": 0.10,
+                "qqq_below_ma200": 0.0,
+                "hy_oas_zscore_252d": 0.1,
+                "vix_zscore_252d": 0.1,
+                "liquidity_confirmation_score": 0.1,
+                "rate_shock_score": 0.1,
+                "reentry_score": 0.8,
+                "reentry_multiplier": 1.0,
+            }
+        ]
+    ).to_csv(crisis_row, index=False)
+    crisis = root / "crisis.json"
+    write_json(
+        crisis,
+        {
+            "status": "READY_CURRENT_CRISIS_STATE_NONSELECTING",
+            "valuation_price_cutoff_date": DATE,
+            "feature_contract": {"future_labels_used_for_state": False},
+            "outputs": {"current_crisis_state": record(crisis_row)},
         },
     )
     projection = root / "projection.csv"
@@ -152,6 +191,7 @@ def fixture(root: Path) -> argparse.Namespace:
             "valuation_price_cutoff_date": DATE,
             "selector_manifest": record(selector),
             "candidate_risk_summary": record(risk),
+            "source_inputs": {"crisis_manifest": record(crisis)},
         },
     )
     return argparse.Namespace(
@@ -166,6 +206,9 @@ def refresh_producer(root: Path) -> None:
     producer = json.loads(producer_path.read_text(encoding="utf-8"))
     producer["selector_manifest"] = record(root / "selector.json")
     producer["candidate_risk_summary"] = record(root / "risk.json")
+    producer.setdefault("source_inputs", {})["crisis_manifest"] = record(
+        root / "crisis.json"
+    )
     write_json(producer_path, producer)
 
 
@@ -252,10 +295,39 @@ def test_future_feature_and_date_mismatch_fail_closed() -> None:
         assert "date_mismatch:decision" in blocked["contract_failures"]
 
 
+def test_rejected_crisis_policy_is_shadow_only() -> None:
+    scratch = ROOT / "_tmp_tests"
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="same_close_crisis_shadow_", dir=scratch) as temp:
+        root = Path(temp)
+        args = fixture(root)
+        crisis_rows = pd.read_csv(root / "current_crisis_state.csv")
+        crisis_rows["crisis_state"] = "CRISIS"
+        crisis_rows["crisis_score"] = 0.90
+        crisis_rows.to_csv(root / "current_crisis_state.csv", index=False)
+        crisis = json.loads((root / "crisis.json").read_text(encoding="utf-8"))
+        crisis["outputs"]["current_crisis_state"] = record(
+            root / "current_crisis_state.csv"
+        )
+        write_json(root / "crisis.json", crisis)
+        refresh_producer(root)
+        result = gate.build(args)
+        assert result["status"] == gate.READY_STATUS
+        assert result["crisis_policy_applied_to_operating_target"] is False
+        operating = pd.read_csv(result["outputs"]["main_target_book"]["path"])
+        shadow = pd.read_csv(
+            result["outputs"]["main_crisis_shadow_target_book"]["path"]
+        )
+        assert abs(float(operating.loc[operating["ticker"].ne("CASH"), "weight"].sum()) - 0.80) < 1e-12
+        assert abs(float(shadow.loc[shadow["ticker"].ne("CASH"), "weight"].sum()) - 0.50) < 1e-12
+        assert result["crisis_policy_promotion_status"] == "REJECTED_HISTORICAL_FIXED_BOOK"
+
+
 def main() -> int:
     test_ready_deterministic_risk_intersection_and_cost_contract()
     test_revaluation_only_or_inactive_head_writes_no_target()
     test_future_feature_and_date_mismatch_fail_closed()
+    test_rejected_crisis_policy_is_shadow_only()
     print("run287_same_close_target_books_smoke: PASS")
     return 0
 

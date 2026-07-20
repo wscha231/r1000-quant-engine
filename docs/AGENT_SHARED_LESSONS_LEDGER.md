@@ -2880,3 +2880,36 @@ Expected contract:
   - `tools/build_run287_same_close_target_books.py`
   - `tests/run287_same_close_target_books_smoke.py`
   - `docs/CODEX_RUN287_P2_SAME_CLOSE_SELECTOR_RESULT_20260720.md`
+## 2026-07-20 — P3 canonical crisis state, selective defense, and re-entry
+
+- Scope: issue #306 P3, bounded fixed-book research only.
+- Canonical implementation: `tools/run287_crisis_policy.py` with eight states,
+  fixed component weights, exact `0.40/0.60/0.75` re-entry thresholds,
+  `0.25/0.60/1.00` gross multipliers, six Reserve reasons, and lexicographic
+  selective sells. Missing components are not renormalized and critical
+  missing data enters `DEGRADED_DATA`.
+- The legacy uniform noncash scaler was a real implementation gap: behavioral
+  flags were computed but not enforced. It is replaced by a compatibility
+  facade over the canonical selective policy.
+- Exact generated-book zero-yield result at 25 bps/side:
+  - Main: `33.5352269% / -25.6526842%` baseline versus
+    `22.7350546% / -21.5507252%` P3.
+  - Concentrated: `47.6897570% / -23.2216426%` baseline versus
+    `31.4554902% / -23.2630311%` P3.
+- Verdict: `REJECTED_POLICY_PROMOTION`. Main MDD improved but CAGR lost
+  `10.8002pp`; Concentrated CAGR lost `16.2343pp` and MDD worsened slightly.
+  Green cash traps and very slow 95% gross recovery also failed the gate.
+- Historical selective-sell evidence was underpowered: only low-conviction
+  fallback fired (`606` Main, `259` Concentrated); thesis, trend, explicit
+  loss/beta/vol, and duplicate exposure fields were absent from the historical
+  target books. Do not claim selective-defense alpha from this run.
+- `do_not_repeat`:
+  `canonical_crisis_selective_defense+fixed_025_060_100_reentry+generated_books+2019-06-03_2026-07-10`.
+  Do not retune thresholds or use cash carry to rescue this arm.
+- Current 2026-07-16 no-network sidecar v2 passed as canonical GREEN with no
+  missing critical component and physically excluded nine future-label
+  columns. Same-close operating targets remain champion; the rejected policy
+  writes separate shadow targets only.
+- Full Tier-1 PR validation passed `181/181` in `576.74s`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false.

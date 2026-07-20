@@ -27,8 +27,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from r1000_crisis_governor import apply_exposure_ladder, evaluate_exposure_target  # noqa: E402
+from r1000_crisis_governor import evaluate_exposure_target  # noqa: E402
 from r1000_long_crisis_liquidity import cash_raise_decision  # noqa: E402
+from tools.run287_crisis_policy import (  # noqa: E402
+    RESERVE_REASONS,
+    apply_selective_defense,
+    component_availability,
+    transition_state,
+)
 from tools.run_broker_ledger_replay import (  # noqa: E402
     CASH_TICKERS,
     filter_concentrated_champion,
@@ -286,11 +292,10 @@ def _schedule_dates(targets: pd.DataFrame, features: pd.DataFrame, thresholds: d
     feat = features[(features.index >= min_dt) & (features.index <= max_dt)].copy()
     if feat.empty:
         return base_dates
-    score = pd.to_numeric(feat["crisis_score"], errors="coerce").fillna(0.0)
-    active = score.ge(low) | score.shift(1).fillna(0.0).ge(low)
-    zone = score.map(lambda x: evaluate_exposure_target(float(x), cfg_thresholds=thresholds).zone)
-    zone_change = zone.ne(zone.shift(1))
-    feature_dates = [pd.Timestamp(x).normalize() for x in feat.index[active | zone_change]]
+    # Re-entry thresholds can change while crisis_score is already back in the
+    # normal zone. Evaluate every observable feature date and deduplicate
+    # unchanged weights later; otherwise stage progression is only logged.
+    feature_dates = [pd.Timestamp(x).normalize() for x in feat.index]
     return sorted(set(base_dates + feature_dates))
 
 
@@ -361,6 +366,11 @@ def build_governed_book(
     rows: list[dict[str, Any]] = []
     audit: list[dict[str, Any]] = []
     prior_weights: dict[str, float] | None = None
+    state_history: dict[str, Any] = {
+        "state": "GREEN",
+        "raw_state": "",
+        "raw_state_streak": 0,
+    }
     base_dates = [pd.Timestamp(x).normalize() for x in sorted(targets["rebalance_date"].dropna().unique())]
 
     for dt in dates:
@@ -377,12 +387,64 @@ def build_governed_book(
         gate_meta = _cash_gate_for_feature_row(feature_row, raw_crisis_score, thresholds, cash_hard_gate)
         crisis_score = float(gate_meta["effective_crisis_score"])
         target = evaluate_exposure_target(crisis_score, cfg_thresholds=thresholds)
-        should_apply = mode != "off" and (target.zone != "normal" or allow_normal_cash_deploy)
-        adjusted = (
-            apply_exposure_ladder(weights, crisis_score, target=target)
-            if should_apply
-            else weights.copy()
+        raw_state = {
+            "normal": "GREEN",
+            "caution": "WATCH",
+            "defense": "DEFENSE",
+            "crisis": "CRISIS",
+        }[target.zone]
+        prior_raw = str(state_history.get("raw_state") or "")
+        streak = int(state_history.get("raw_state_streak") or 0)
+        streak = streak + 1 if raw_state == prior_raw else 1
+        feature_asof = (
+            pd.Timestamp(features[features.index <= dt].index[-1]).normalize()
+            if not features[features.index <= dt].empty
+            else None
         )
+        availability = component_availability(
+            feature_row.to_dict(),
+            decision_time=dt,
+            available_from=feature_asof,
+        )
+        state_decision = transition_state(
+            raw_state=raw_state,
+            prior_state=state_history.get("state") or "GREEN",
+            raw_state_streak=streak,
+            values=feature_row.to_dict(),
+            availability=availability,
+        )
+        state_history = {
+            "state": state_decision.state,
+            "raw_state": raw_state,
+            "raw_state_streak": streak,
+        }
+        should_apply = mode != "off" and (
+            state_decision.state != "GREEN" or allow_normal_cash_deploy
+        )
+        if should_apply:
+            adjusted_frame, selective_actions, policy_summary = apply_selective_defense(
+                pd.DataFrame(
+                    {"ticker": weights.index.astype(str), "weight": weights.values}
+                ),
+                state=state_decision.state,
+                portfolio_kind=portfolio_kind,
+                evidence=period,
+            )
+            adjusted = adjusted_frame.set_index("ticker")["weight"]
+        else:
+            adjusted = weights.copy()
+            selective_actions = []
+            policy_summary = {
+                "reserve_reasons": {
+                    "capacity_unallocated": float(
+                        adjusted[
+                            [idx for idx in adjusted.index if str(idx).upper() in CASH_TICKERS]
+                        ].sum()
+                    )
+                },
+                "selective_sell_counts_by_reason": {},
+                "uniform_noncash_scaling_used": False,
+            }
         total = float(adjusted.sum())
         if total > 0:
             adjusted = adjusted / total
@@ -393,7 +455,7 @@ def build_governed_book(
         prior_weights = rounded
         event_reason = "base_rebalance"
         if should_apply:
-            event_reason = f"crisis_governor_{target.zone}"
+            event_reason = f"canonical_crisis_policy_{state_decision.state.lower()}"
         elif target.zone == "normal" and dt != base_dt:
             event_reason = "crisis_governor_reentry"
         snapshot_rows = _rows_for_snapshot(
@@ -409,6 +471,20 @@ def build_governed_book(
             event_reason=event_reason,
             gate_meta=gate_meta,
         )
+        for snapshot_row in snapshot_rows:
+            snapshot_row["canonical_crisis_state"] = state_decision.state
+            snapshot_row["reentry_score"] = state_decision.reentry_score
+            snapshot_row["reentry_multiplier"] = state_decision.reentry_multiplier
+            for reserve_reason in RESERVE_REASONS:
+                snapshot_row[reserve_reason] = (
+                    float(
+                        (policy_summary.get("reserve_reasons") or {}).get(
+                            reserve_reason, 0.0
+                        )
+                    )
+                    if str(snapshot_row.get("ticker") or "").upper() in CASH_TICKERS
+                    else 0.0
+                )
         rows.extend(snapshot_rows)
         audit.append(
             {
@@ -419,10 +495,28 @@ def build_governed_book(
                 "crisis_score": crisis_score,
                 "raw_crisis_score": raw_crisis_score,
                 "crisis_zone": target.zone,
+                "canonical_crisis_state": state_decision.state,
+                "reentry_score": state_decision.reentry_score,
+                "reentry_multiplier": state_decision.reentry_multiplier,
+                "missing_components": "|".join(state_decision.missing_components),
+                "missing_critical_components": "|".join(
+                    state_decision.missing_critical_components
+                ),
                 "event_reason": event_reason,
                 "stock_weight": float(adjusted[[idx for idx in adjusted.index if str(idx).upper() not in CASH_TICKERS]].sum()),
                 "cash_weight": float(adjusted[[idx for idx in adjusted.index if str(idx).upper() in CASH_TICKERS]].sum()),
                 "row_count": len(snapshot_rows),
+                "selective_sell_count": len(selective_actions),
+                "selective_sell_counts_by_reason": json.dumps(
+                    policy_summary.get("selective_sell_counts_by_reason") or {},
+                    sort_keys=True,
+                ),
+                "reserve_reasons": json.dumps(
+                    policy_summary.get("reserve_reasons") or {}, sort_keys=True
+                ),
+                "uniform_noncash_scaling_used": bool(
+                    policy_summary.get("uniform_noncash_scaling_used", False)
+                ),
                 **{k: v for k, v in gate_meta.items() if k != "effective_crisis_score"},
             }
         )
