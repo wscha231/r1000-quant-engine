@@ -1082,6 +1082,7 @@ def load_reusable_same_session_manifest(
     as_of_date: pd.Timestamp,
     cost_bps: float,
     max_fill_lag_days: int,
+    suppress_new_orders: bool,
 ) -> dict[str, Any] | None:
     """Reuse an already-committed mark for the same market session.
 
@@ -1131,11 +1132,24 @@ def load_reusable_same_session_manifest(
     require(manifest.get("production_mutation_allowed") is False, "manifest_production_mutation")
     require(math.isclose(float(safe_float(manifest.get("cost_bps_per_side"), np.nan)), cost_bps, abs_tol=1e-9), "cost_bps")
     require(int(safe_float(manifest.get("max_fill_lag_days"), -1)) == int(max_fill_lag_days), "max_fill_lag_days")
-    require(str(manifest.get("target_hash") or "") == digest, "target_hash")
-    require(str(manifest.get("target_sha256") or "") == file_hash(target_path), "target_sha256")
-    require(str(manifest.get("source_target_sha256") or "") == file_hash(source_target_path), "source_target_sha256")
+    target_changed = bool(
+        str(manifest.get("target_hash") or "") != digest
+        or str(manifest.get("target_sha256") or "") != file_hash(target_path)
+        or str(manifest.get("source_target_sha256") or "") != file_hash(source_target_path)
+    )
+    prior_suppressed = manifest.get("new_order_generation_suppressed") is True
+    allow_suppressed_to_target_transition = bool(
+        target_changed and prior_suppressed and not suppress_new_orders
+    )
+    if not allow_suppressed_to_target_transition:
+        require(not target_changed, "target_identity")
     require(str(manifest.get("seed_account_sha256") or "") == file_hash(bootstrap_path), "seed_account_sha256")
-    require(manifest.get("target_effective_date") == effective_text, "target_effective_date")
+    if not allow_suppressed_to_target_transition:
+        require(manifest.get("target_effective_date") == effective_text, "target_effective_date")
+        require(
+            manifest.get("new_order_generation_suppressed") is suppress_new_orders,
+            "new_order_generation_suppressed",
+        )
     require(str(manifest.get("security_lifecycle_source_sha256") or "") == lifecycle.source_sha256, "security_lifecycle_source_sha256")
     require(str(manifest.get("security_lifecycle_snapshot_hash") or "") == lifecycle.snapshot_hash, "security_lifecycle_snapshot_hash")
 
@@ -1218,6 +1232,9 @@ def load_reusable_same_session_manifest(
         raise ValueError(
             f"same-session paper ledger reuse validation failed for {portfolio}: {','.join(errors)}"
         )
+
+    if allow_suppressed_to_target_transition:
+        return None
 
     reused = dict(manifest)
     reused.update(
@@ -1361,6 +1378,7 @@ def run_portfolio(
     cost_bps: float,
     max_fill_lag_days: int,
     lifecycle: SecurityLifecycleSnapshot,
+    suppress_new_orders: bool,
 ) -> dict[str, Any]:
     portfolio_dir = state_root / portfolio
     portfolio_dir.mkdir(parents=True, exist_ok=True)
@@ -1383,6 +1401,7 @@ def run_portfolio(
         as_of_date=as_of_date,
         cost_bps=cost_bps,
         max_fill_lag_days=max_fill_lag_days,
+        suppress_new_orders=suppress_new_orders,
     )
     if reusable is not None:
         preview_dir = preview_root / portfolio
@@ -1395,7 +1414,7 @@ def run_portfolio(
         missing_preview_files = [
             name for name in required_preview_files if not (preview_dir / name).is_file()
         ]
-        if missing_preview_files:
+        if missing_preview_files and not suppress_new_orders:
             preview = build_order_preview(
                 account_path=portfolio_dir / "account_state_latest.json",
                 target_path=target_path,
@@ -1482,18 +1501,6 @@ def run_portfolio(
     write_csv(portfolio_dir / "positions_latest.csv", positions)
 
     preview_dir = preview_root / portfolio
-    preview = build_order_preview(
-        account_path=account_path,
-        target_path=target_path,
-        price_cache=price_cache,
-        output_dir=preview_dir,
-        portfolio=portfolio,
-        as_of_date=as_of_date,
-        cost_bps=cost_bps,
-        provider_symbol_overrides=lifecycle.provider_symbol_overrides,
-    )
-    if preview.get("status") != "completed":
-        raise ValueError(f"paper account preview failed for {portfolio}: {preview.get('reason')}")
     target = normalized_target(target_path, portfolio, as_of_date)
     digest = target_hash(target)
     effective_date = target_effective_date(source_target_path, as_of_date)
@@ -1514,17 +1521,38 @@ def run_portfolio(
                 "last_enqueue_count": 0,
             }
         )
-    pending, meta, enqueued = enqueue_preview_orders(
-        portfolio=portfolio,
-        portfolio_dir=portfolio_dir,
-        preview_dir=preview_dir,
-        target=target,
-        target_digest=digest,
-        as_of_date=as_of_date,
-        meta=meta,
-        pending=pending,
-        cost_bps=cost_bps,
-    )
+    if suppress_new_orders:
+        enqueued = 0
+        meta.update(
+            {
+                "last_enqueue_status": "SUPPRESSED_PENDING_SAME_CLOSE_SELECTOR",
+                "last_enqueue_count": 0,
+            }
+        )
+    else:
+        preview = build_order_preview(
+            account_path=account_path,
+            target_path=target_path,
+            price_cache=price_cache,
+            output_dir=preview_dir,
+            portfolio=portfolio,
+            as_of_date=as_of_date,
+            cost_bps=cost_bps,
+            provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+        )
+        if preview.get("status") != "completed":
+            raise ValueError(f"paper account preview failed for {portfolio}: {preview.get('reason')}")
+        pending, meta, enqueued = enqueue_preview_orders(
+            portfolio=portfolio,
+            portfolio_dir=portfolio_dir,
+            preview_dir=preview_dir,
+            target=target,
+            target_digest=digest,
+            as_of_date=as_of_date,
+            meta=meta,
+            pending=pending,
+            cost_bps=cost_bps,
+        )
     marked_account["pending_order_count"] = int(len(pending))
     write_json(account_path, marked_account)
     curve = update_equity_curve(
@@ -1577,6 +1605,7 @@ def run_portfolio(
         "resolved_fills_this_run": resolved["resolved_fills"],
         "resolved_rejections_this_run": resolved["resolved_rejections"],
         "enqueued_this_run": enqueued,
+        "new_order_generation_suppressed": bool(suppress_new_orders),
         "pending_order_count": int(len(pending)),
         "fill_count": int(len(fills)),
         "rejection_count": int(len(rejections)),
@@ -1597,6 +1626,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     price_cache = repo_path(args.price_cache)
     preview_root = repo_path(args.order_preview_root)
     as_of_date = pd.Timestamp(args.as_of_date).normalize()
+    suppress_new_orders = bool(getattr(args, "suppress_new_orders", False))
     if pd.isna(as_of_date):
         raise ValueError("--as-of-date must be a completed market date")
     state_root.parent.mkdir(parents=True, exist_ok=True)
@@ -1671,6 +1701,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 cost_bps=float(args.cost_bps),
                 max_fill_lag_days=int(args.max_fill_lag_days),
                 lifecycle=lifecycle,
+                suppress_new_orders=suppress_new_orders,
             )
         same_session_count = sum(
             1 for payload in results.values() if payload.get("same_session_reused") is True
@@ -1698,6 +1729,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "historical_cagr_mdd_replacement_allowed": False,
             "same_session_reused_portfolio_count": same_session_count,
             "same_session_preview_rebuilt_portfolio_count": preview_rebuilt_count,
+            "new_order_generation_suppressed": suppress_new_orders,
             "generated_at_utc": utc_now(),
         }
         if same_session_count == len(PORTFOLIOS):
@@ -1750,6 +1782,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument(
+        "--suppress-new-orders",
+        action="store_true",
+        help="Resolve prior pending orders and mark accounts, but create no new preview/order.",
+    )
     return parser.parse_args()
 
 

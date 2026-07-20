@@ -238,7 +238,8 @@ def normalize_latest_target(frame: pd.DataFrame, portfolio: str) -> pd.DataFrame
     out["portfolio_kind"] = portfolio
     out["operating_target_source"] = f"{portfolio}_latest_target"
     out["decision_frequency"] = "event_driven_latest_close"
-    out["operating_decision_semantics"] = "latest_target_recommendation_appended_to_historical_book"
+    out["operating_decision_semantics"] = "RESTORED_TARGET_REVALUATION_ONLY"
+    out["same_close_selector_recomputed"] = False
     return out
 
 
@@ -382,6 +383,7 @@ def build_book(
             latest_rows["operating_signal_source_date"] = date_text(latest_target_date)
             latest_rows["operating_latest_price_date"] = date_text(price_close)
             latest_rows["operating_appended"] = True
+            latest_rows["same_close_selector_recomputed"] = False
             latest_rows = fill_latest_concentrated_filter_metadata(
                 latest_rows,
                 portfolio=portfolio,
@@ -440,6 +442,8 @@ def build_book(
         "freshness_error": freshness_error,
         "append_reason": append_reason,
         "decision_frequency": "event_driven_latest_close",
+        "same_close_selector_recomputed": False,
+        "selection_status": "RESTORED_TARGET_REVALUATION_ONLY",
         **sec_metadata,
     }
     return combined, summary
@@ -449,8 +453,8 @@ def render_report(payload: dict[str, Any]) -> str:
     lines = [
         "# Operating Target Books",
         "",
-        "Broker replay should use these operating target books when simulating the current account.",
-        "Historical research books remain available, but they may be monthly and stale.",
+        "These books are restored-target valuation/bootstrap inputs only.",
+        "They are not evidence that the same-close selector was recomputed.",
         "",
         "| Portfolio | Rows | History max | Output max | Latest target source | Latest close | Operating signal | Appended | Current |",
         "| --- | ---: | --- | --- | --- | --- | --- | ---: | ---: |",
@@ -470,7 +474,7 @@ def render_report(payload: dict[str, Any]) -> str:
             )
         )
     lines.append("")
-    lines.append("A latest operating signal can be dated to the latest available close and filled by broker replay at the next available close.")
+    lines.append("A fresh paper target requires the separate same-close selector contract and must not be inferred from this revaluation output.")
     lines.append("")
     return "\n".join(lines)
 
@@ -511,6 +515,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "latest_run": str(latest_run),
         "price_cache": str(price_cache),
+        "same_close_selector_recomputed": False,
+        "selection_status": "RESTORED_TARGET_REVALUATION_ONLY",
         "books": summaries,
         "outputs": {
             **outputs,

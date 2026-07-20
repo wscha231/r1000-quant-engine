@@ -215,8 +215,21 @@ def build_isolated_cache(
         base = raw_base.loc[raw_base.index <= valuation].copy()
         current = raw_current.loc[raw_current.index <= valuation].copy()
         common = base.index.intersection(current.index)
-        base_close = close_series(base).reindex(common)
-        current_close = close_series(current).reindex(common)
+        # Raw closes are the stable identity contract. Adjusted-close history
+        # can be legitimately restated when a dividend becomes known between
+        # snapshots, so comparing Adj Close here creates false source breaks.
+        # Preserve total-return continuity below by replacing the provider
+        # overlap and rebasing only the older frozen history.
+        base_close = (
+            pd.to_numeric(base["Close"], errors="coerce").reindex(common)
+            if "Close" in base
+            else pd.Series(np.nan, index=common, dtype=float)
+        )
+        current_close = (
+            pd.to_numeric(current["Close"], errors="coerce").reindex(common)
+            if "Close" in current
+            else pd.Series(np.nan, index=common, dtype=float)
+        )
         relative = (
             (base_close - current_close).abs()
             / current_close.abs().replace(0.0, np.nan)
@@ -227,8 +240,46 @@ def build_isolated_cache(
         if not math.isfinite(overlap_max) or overlap_max > maximum_relative_error:
             failures.append(f"overlap_mismatch:{ticker}:{overlap_max}")
         base_max = pd.Timestamp(base.index.max()).normalize() if not base.empty else pd.NaT
-        increment = current.loc[current.index > base_max].copy() if pd.notna(base_max) else current.copy()
-        combined = pd.concat([base, increment], axis=0).sort_index().groupby(level=0).last()
+        adjusted_relative = pd.Series(dtype=float)
+        adjustment_rebase_factor = 1.0
+        if "Adj Close" in base and "Adj Close" in current and len(common):
+            base_adjusted = pd.to_numeric(
+                base["Adj Close"], errors="coerce"
+            ).reindex(common)
+            current_adjusted = pd.to_numeric(
+                current["Adj Close"], errors="coerce"
+            ).reindex(common)
+            adjusted_relative = (
+                (base_adjusted - current_adjusted).abs()
+                / current_adjusted.abs().replace(0.0, np.nan)
+            ).replace([np.inf, -np.inf], np.nan).dropna()
+            valid_ratio = (
+                current_adjusted / base_adjusted.replace(0.0, np.nan)
+            ).replace([np.inf, -np.inf], np.nan).dropna()
+            if valid_ratio.empty:
+                failures.append(f"adjustment_rebase_unavailable:{ticker}")
+            else:
+                adjustment_rebase_factor = float(valid_ratio.iloc[0])
+        provider_start = (
+            pd.Timestamp(current.index.min()).normalize() if not current.empty else pd.NaT
+        )
+        historical = (
+            base.loc[base.index < provider_start].copy()
+            if pd.notna(provider_start)
+            else base.copy()
+        )
+        if "Adj Close" in historical:
+            historical["Adj Close"] = (
+                pd.to_numeric(historical["Adj Close"], errors="coerce")
+                * adjustment_rebase_factor
+            )
+        provider_replacement = current.copy()
+        combined = (
+            pd.concat([historical, provider_replacement], axis=0)
+            .sort_index()
+            .groupby(level=0)
+            .last()
+        )
         combined = combined.loc[combined.index <= valuation].copy()
         destination = isolated_cache / px_cache_name(ticker)
         combined.to_parquet(destination)
@@ -246,8 +297,22 @@ def build_isolated_cache(
                 "source_future_rows_excluded": base_future_rows,
                 "provider_overlap_count": int(len(relative)),
                 "provider_overlap_max_relative_error": overlap_max,
+                "provider_adjusted_overlap_max_relative_error": (
+                    float(adjusted_relative.max())
+                    if not adjusted_relative.empty
+                    else math.inf
+                ),
+                "historical_adjustment_rebase_factor": adjustment_rebase_factor,
                 "provider_future_rows_excluded": provider_future_rows,
-                "increment_row_count": int(len(increment)),
+                "increment_row_count": (
+                    int((current.index > base_max).sum())
+                    if pd.notna(base_max)
+                    else int(len(current))
+                ),
+                "provider_history_replacement_count": int(len(provider_replacement)),
+                "provider_replacement_date_min": (
+                    provider_start.date().isoformat() if pd.notna(provider_start) else ""
+                ),
                 "isolated_path": str(destination),
                 "isolated_sha256": sha256_file(destination),
                 "isolated_row_count": int(len(combined)),

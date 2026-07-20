@@ -16,7 +16,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_daily_simulated_fill_ledger import run, validate_event_chain  # noqa: E402
+from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
+    normalized_target,
+    run,
+    target_hash,
+    validate_event_chain,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -75,7 +80,9 @@ def write_target(path: Path) -> None:
     ).to_csv(path, index=False)
 
 
-def args_for(root: Path, as_of_date: str, lifecycle: str = "") -> SimpleNamespace:
+def args_for(
+    root: Path, as_of_date: str, lifecycle: str = "", suppress_new_orders: bool = False
+) -> SimpleNamespace:
     return SimpleNamespace(
         state_dir=str(root / "paper"),
         price_cache=str(root / "cache_prices"),
@@ -89,6 +96,7 @@ def args_for(root: Path, as_of_date: str, lifecycle: str = "") -> SimpleNamespac
         security_lifecycle_events=lifecycle,
         cost_bps=25.0,
         max_fill_lag_days=7,
+        suppress_new_orders=suppress_new_orders,
     )
 
 
@@ -316,11 +324,56 @@ def test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_
             assert directory_hashes(root / "paper" / portfolio) == before[portfolio]
 
 
+def test_suppressed_mark_can_transition_once_to_fresh_same_close_target() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+        write_prices(cache, "BBB", [50.0, 51.0, 52.0])
+        for portfolio in ("main", "concentrated"):
+            seed_path = root / "seed" / f"{portfolio}.json"
+            target_path = root / "targets" / f"{portfolio}.csv"
+            write_seed(seed_path, portfolio)
+            write_target(target_path)
+            seed = json.loads(seed_path.read_text(encoding="utf-8"))
+            original = normalized_target(target_path, portfolio, pd.Timestamp("2026-01-05"))
+            seed["assumed_applied_target_hash"] = target_hash(original)
+            seed["target_sha256"] = hashlib.sha256(target_path.read_bytes()).hexdigest()
+            seed_path.write_text(json.dumps(seed), encoding="utf-8")
+
+        suppressed = run(args_for(root, "2026-01-05", suppress_new_orders=True))
+        assert suppressed["new_order_generation_suppressed"] is True
+        for portfolio in ("main", "concentrated"):
+            manifest = json.loads(
+                (root / "paper" / portfolio / "manifest.json").read_text(encoding="utf-8")
+            )
+            assert manifest["new_order_generation_suppressed"] is True
+            assert manifest["enqueued_this_run"] == 0
+
+        for portfolio in ("main", "concentrated"):
+            path = root / "targets" / f"{portfolio}.csv"
+            target = pd.read_csv(path)
+            target.loc[target["ticker"].eq("AAA"), "weight"] = 0.40
+            target.loc[target["ticker"].eq("BBB"), "weight"] = 0.35
+            target.to_csv(path, index=False)
+
+        selected = run(args_for(root, "2026-01-05"))
+        assert selected["new_order_generation_suppressed"] is False
+        for portfolio in ("main", "concentrated"):
+            manifest = selected["portfolios"][portfolio]
+            assert manifest["new_order_generation_suppressed"] is False
+            assert manifest["enqueued_this_run"] > 0
+            pending = pd.read_csv(root / "paper" / portfolio / "pending_orders.csv")
+            assert not pending.empty
+
+
 def main() -> int:
     test_pending_resolves_once_at_next_close()
     test_verified_cash_merger_settles_without_future_close_and_cancels_pending()
     test_bootstrap_does_not_retrade_an_already_effective_target()
     test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_closed()
+    test_suppressed_mark_can_transition_once_to_fresh_same_close_target()
     print("daily_simulated_fill_ledger_smoke: PASS")
     return 0
 

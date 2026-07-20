@@ -20,6 +20,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -48,6 +49,18 @@ SCHEMA_VERSION = "run287-current-selector-no-write-v1"
 READY_STATUS = "READY_CURRENT_SELECTOR_NO_WRITE_REVIEW_REQUIRED"
 BLOCKED_STATUS = "BLOCKED_CURRENT_SELECTOR_NO_WRITE"
 POLICY_COMMIT = "15176b588d5bb0792bce1df6367758d795a8a33a"
+
+
+def next_nyse_session(valuation_date: str) -> str:
+    valuation = pd.Timestamp(valuation_date).normalize()
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=valuation, end_date=valuation + pd.Timedelta(days=10)
+    )
+    sessions = pd.DatetimeIndex(schedule.index).tz_localize(None).normalize()
+    future = sessions[sessions > valuation]
+    if future.empty:
+        raise ValueError("next NYSE session unavailable")
+    return pd.Timestamp(future[0]).date().isoformat()
 
 
 def repo_path(value: str | Path) -> Path:
@@ -426,6 +439,54 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if str(holding_summary.get("as_of_date") or "") != args.valuation_date:
         failures.append("holding_watch_not_current")
 
+    date_contract = {
+        "decision_manifest": ("valuation_price_cutoff_date", args.valuation_date),
+        "score_stack_manifest": ("valuation_price_cutoff_date", args.valuation_date),
+        "crisis_manifest": ("valuation_price_cutoff_date", args.valuation_date),
+        "price_manifest": ("session_date", args.valuation_date),
+        "macro_manifest": ("valuation_close_date", args.valuation_date),
+        "soxx_manifest": ("valuation_price_cutoff_date", args.valuation_date),
+    }
+    for name, (field, expected_date) in date_contract.items():
+        if str(manifests[name].get(field) or "") != expected_date:
+            failures.append(f"date:{name}:{field}")
+    feature_available = pd.to_datetime(
+        manifests["decision_manifest"].get("feature_available_from"),
+        errors="coerce",
+        utc=True,
+    )
+    decision_time = pd.to_datetime(
+        manifests["decision_manifest"].get("decision_time_utc"),
+        errors="coerce",
+        utc=True,
+    )
+    holding_available = pd.to_datetime(
+        holding_summary.get("available_from"), errors="coerce", utc=True
+    )
+    if pd.isna(feature_available) or pd.isna(decision_time):
+        failures.append("decision_timestamp_invalid")
+    elif feature_available > decision_time:
+        failures.append("future_feature_available_from")
+    selector_times = [
+        value for value in (decision_time, holding_available) if pd.notna(value)
+    ]
+    if not selector_times:
+        failures.append("selector_decision_time_unavailable")
+        selector_decision_time = pd.Timestamp(
+            f"{args.valuation_date}T23:59:59Z"
+        )
+    else:
+        selector_decision_time = max(selector_times)
+    timestamp_contract = {
+        "signal_source_date": args.valuation_date,
+        "feature_as_of_date": args.valuation_date,
+        "valuation_close_date": args.valuation_date,
+        "selector_decision_time_utc": selector_decision_time.isoformat(),
+        "target_effective_date": args.valuation_date,
+        "order_eligible_close_date": next_nyse_session(args.valuation_date),
+        "same_close_selector_recomputed": True,
+    }
+
     context = pd.read_parquet(context_path)
     stack = pd.read_csv(stack_path, low_memory=False)
     candidate = merge_stack_precedence(context, stack)
@@ -599,6 +660,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         ["portfolio_kind", "scenario", "advisory_weight"],
         ascending=[True, True, False],
     ).reset_index(drop=True)
+    for field, value in timestamp_contract.items():
+        projection[field] = value
     transition = pd.concat(transitions, ignore_index=True)
     rejection = pd.concat(rejections, ignore_index=True)
     telemetry = pd.DataFrame(telemetry_rows)
@@ -643,6 +706,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "selector_no_write_passed": True,
         "contract_failures": [],
         "valuation_price_cutoff_date": args.valuation_date,
+        "timestamp_contract": timestamp_contract,
+        "same_close_selector_recomputed": True,
         "decision_basis": "latest completed US trading close",
         "pinned_policy_commit": pinned_commit,
         "registered_new_entry_pool_count": int(len(registered)),

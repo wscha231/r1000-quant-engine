@@ -346,7 +346,7 @@ jobs:
             2>&1 | tee outputs/full_rebuild_logs/daily_market_snapshot.log || \
             echo "[daily-operating] daily market snapshot failed or timed out; freshness contract will warn" | tee -a outputs/full_rebuild_logs/daily_market_snapshot.log
 
-      - name: Refresh SEC-enriched candidate replay
+      - name: Label restored-target revaluation input
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
@@ -357,8 +357,6 @@ jobs:
           import os
           import pandas as pd
 
-          latest_close = pd.to_datetime(os.environ.get("LAST_NYSE_CLOSE_UTC", ""), errors="coerce")
-          latest_close_date = latest_close.date().isoformat() if pd.notna(latest_close) else pd.Timestamp.utcnow().date().isoformat()
           paths = [Path("outputs/portfolio_latest.csv"), Path("outputs/concentrated_portfolio_latest.csv")]
           frames = []
           for path in paths:
@@ -380,17 +378,16 @@ jobs:
               row_dates = parsed.max(axis=1)
           else:
               row_dates = pd.Series(pd.NaT, index=out.index)
-          cutoff = pd.Timestamp(latest_close_date)
-          row_dates = row_dates.where(row_dates.notna(), cutoff)
-          row_dates = row_dates.mask(row_dates > cutoff, cutoff)
           out["rebalance_date"] = pd.to_datetime(row_dates, errors="coerce").dt.strftime("%Y-%m-%d")
+          out["selection_status"] = "RESTORED_TARGET_REVALUATION_ONLY"
+          out["same_close_selector_recomputed"] = False
           out = out.drop_duplicates(subset=["rebalance_date", "ticker"], keep="last")
-          output = Path("outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv")
+          output = Path("outputs/daily_operating_selection_refresh/restored_target_revaluation_candidate_book.csv")
           output.parent.mkdir(parents=True, exist_ok=True)
           out.to_csv(output, index=False)
-          print(f"[daily-operating] latest target candidate book rows={len(out)} path={output}")
+          print(f"[daily-operating] restored target revaluation rows={len(out)} path={output}")
           PY
-          CANDIDATE_BOOK="outputs/daily_operating_selection_refresh/latest_target_candidate_book.csv"
+          CANDIDATE_BOOK="outputs/daily_operating_selection_refresh/restored_target_revaluation_candidate_book.csv"
           if [ -s "$CANDIDATE_BOOK" ]; then
             echo "[daily-operating] building SEC-enriched candidate replay from $CANDIDATE_BOOK" | tee outputs/full_rebuild_logs/daily_sec_enriched_candidate_replay.log
             timeout 8m python tools/run_sec_enriched_candidate_replay.py \
@@ -528,6 +525,8 @@ jobs:
               "close_price_coverage_status": coverage.get("status", "missing"),
               "selection_allowed": bool(status.get("selection_allowed", False)),
               "promotion_allowed": bool(status.get("promotion_allowed", False)),
+              "selection_status": "RESTORED_TARGET_REVALUATION_ONLY",
+              "same_close_selector_recomputed": False,
               "recommendation_status": status.get("recommendation_status", "DO_NOT_USE_REVIEW_REQUIRED"),
               "data_freshness_contract": "outputs/data_freshness_contract/status.json",
               "canonical_output_note": "This workflow syncs review artifacts under research_runs only; it does not update canonical production outputs.",
@@ -545,8 +544,9 @@ jobs:
               "- source_of_truth_level: `GITHUB_ARTIFACT`\n",
               encoding="utf-8",
           )
-          if os.environ.get("STRICT_SELECTION", "true").lower() == "true" and not summary["selection_allowed"]:
-              raise SystemExit(2)
+          # P2 owns the final fail-closed selection decision.  Data freshness
+          # is recorded here, but a restored target can never authorize a new
+          # paper order or set same_close_selector_recomputed=true.
           PY
 
       - name: Build operating review outputs
@@ -556,6 +556,11 @@ jobs:
           mkdir -p outputs/full_rebuild_logs
           PAPER_AS_OF="$LAST_NYSE_SESSION_DATE"
           RISK_AVAILABLE_FROM="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          DATE_TOKEN="${PAPER_AS_OF//-/}"
+          SAME_CLOSE_DIR="outputs/run287_same_close_decision/${DATE_TOKEN}"
+          # First settle prior next-close orders and freeze the exact-close
+          # account mark.  This pass is transaction-safe but may not create a
+          # new preview or order from a restored target.
           python tools/run_daily_simulated_fill_ledger.py \
             --state-dir outputs/daily_simulated_fill_ledger \
             --price-cache cache_prices \
@@ -569,7 +574,8 @@ jobs:
             --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv \
             --cost-bps 25 \
             --max-fill-lag-days 7 \
-            2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger.log
+            --suppress-new-orders \
+            2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
           python tools/build_run287_holding_risk_watch.py \
             --main-account outputs/daily_simulated_fill_ledger/main/account_state_latest.json \
             --concentrated-account outputs/daily_simulated_fill_ledger/concentrated/account_state_latest.json \
@@ -613,7 +619,60 @@ jobs:
           else
             echo "[daily-operating] exact packet producer blocked; archive will fail closed or skip"
           fi
-          DATE_TOKEN="${PAPER_AS_OF//-/}"
+          SAME_CLOSE_READY=no
+          if python tools/build_run287_same_close_target_books.py \
+            --producer-status outputs/run287_exact_packet_producer/status.json \
+            --valuation-date "$PAPER_AS_OF" \
+            --output-dir "$SAME_CLOSE_DIR" \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_same_close_target_books.log; then
+            SAME_CLOSE_READY=yes
+            cp "$SAME_CLOSE_DIR/same_close_main_target_book.csv" outputs/reports/operating_main_target_book.csv
+            cp "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" outputs/reports/operating_concentrated_target_book.csv
+            # A second same-session transaction is permitted only after the
+            # suppressed mark and only when the target identity changed.  It
+            # enqueues review-only orders eligible for the next NYSE close.
+            python tools/run_daily_simulated_fill_ledger.py \
+              --state-dir outputs/daily_simulated_fill_ledger \
+              --price-cache cache_prices \
+              --order-preview-root outputs/account_ledger_preview \
+              --main-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
+              --concentrated-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
+              --main-target "$SAME_CLOSE_DIR/same_close_main_target_book.csv" \
+              --concentrated-target "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" \
+              --as-of-date "$PAPER_AS_OF" \
+              --decision-time-utc "$RISK_AVAILABLE_FROM" \
+              --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv \
+              --cost-bps 25 \
+              --max-fill-lag-days 7 \
+              2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger.log
+          else
+            echo "[daily-operating] same-close selector blocked; prior fills/marks retained and zero new orders generated"
+          fi
+          export SAME_CLOSE_READY
+          export SAME_CLOSE_DIR
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary_path = Path("outputs/daily_operating_selection_refresh/summary.json")
+          summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
+          status_path = Path(os.environ["SAME_CLOSE_DIR"]) / "status.json"
+          status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+          ready = os.environ.get("SAME_CLOSE_READY") == "yes" and status.get("status") == "READY_SAME_CLOSE_PAPER_TARGETS"
+          summary.update(
+              selection_status=status.get("status", "BLOCKED_SAME_CLOSE_SELECTOR"),
+              same_close_selector_recomputed=bool(ready and status.get("same_close_selector_recomputed") is True),
+              selector_decision_time_utc=status.get("selector_decision_time_utc"),
+              target_effective_date=status.get("target_effective_date"),
+              order_eligible_close_date=status.get("order_eligible_close_date"),
+              same_close_decision_status=str(status_path),
+              new_order_generation_allowed=bool(ready),
+              live_trading_enabled=False,
+              production_mutation_allowed=False,
+          )
+          summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
           ARCHIVE_ARGS=(
             --discover-root outputs/run287_exact_packet_discovery_disabled
             --allow-missing
@@ -706,6 +765,7 @@ jobs:
             outputs/run287_exact_packet_input_sources/
             outputs/run287_exact_packet_input_registry/
             outputs/run287_exact_packet_producer/
+            outputs/run287_same_close_decision/
             outputs/run287_current_selector_no_write_exact_close_*/
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_decision_observation_archive/
@@ -721,10 +781,12 @@ jobs:
             data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log
             outputs/full_rebuild_logs/daily_paper_bootstrap.log
+            outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
             outputs/full_rebuild_logs/daily_holding_risk_watch.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_upstream.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
+            outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
             outputs/full_rebuild_logs/data_freshness_contract.log
@@ -773,7 +835,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
