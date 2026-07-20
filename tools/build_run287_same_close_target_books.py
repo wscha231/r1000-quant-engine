@@ -27,11 +27,16 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run287_crisis_policy import (  # noqa: E402
     SCHEMA_VERSION as CRISIS_POLICY_SCHEMA_VERSION,
-    RESERVE_REASONS,
     apply_selective_defense,
     availability_records,
     canonical_state,
     component_availability,
+)
+from tools.reserve_asset_policy import (  # noqa: E402
+    DEFAULT_CURRENT_PAPER_MODE,
+    RESERVE_REASONS,
+    reserve_reason_reconciliation,
+    resolve_reserve_asset_policy,
 )
 
 
@@ -583,6 +588,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     risk_actions: dict[str, list[dict[str, Any]]] = {}
     crisis_actions: dict[str, list[dict[str, Any]]] = {}
     crisis_policy: dict[str, dict[str, Any]] = {}
+    reserve_reconciliations: dict[str, dict[str, Any]] = {}
+    reserve_policy = resolve_reserve_asset_policy(
+        DEFAULT_CURRENT_PAPER_MODE,
+        context="current_paper",
+    )
     turnover: dict[str, dict[str, Any]] = {}
     for portfolio, scenario in SCENARIOS.items():
         selected = projection.loc[
@@ -636,6 +646,26 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         target.loc[target["ticker"].eq("CASH"), "capacity_unallocated"] = float(
             target.loc[target["ticker"].eq("CASH"), "weight"].sum()
         )
+        target_reconciliation = reserve_reason_reconciliation(
+            target,
+            policy=reserve_policy,
+            weight_col="weight",
+        )
+        shadow_reconciliation = reserve_reason_reconciliation(
+            crisis_shadow,
+            policy=reserve_policy,
+            weight_col="weight",
+        )
+        target["reserve_asset_policy_schema"] = target_reconciliation["schema_version"]
+        target["reserve_asset_mode"] = reserve_policy.mode
+        target["reserve_reason_reconciled"] = True
+        crisis_shadow["reserve_asset_policy_schema"] = shadow_reconciliation["schema_version"]
+        crisis_shadow["reserve_asset_mode"] = reserve_policy.mode
+        crisis_shadow["reserve_reason_reconciled"] = True
+        reserve_reconciliations[portfolio] = {
+            "operating_target": target_reconciliation,
+            "crisis_shadow_target": shadow_reconciliation,
+        }
         target["portfolio_kind"] = portfolio
         crisis_shadow["portfolio_kind"] = portfolio
         target["selector_scenario"] = scenario
@@ -723,6 +753,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             for portfolio, rows in risk_actions.items()
         },
         "canonical_crisis_state": crisis_context,
+        "reserve_asset_policy": reserve_policy.audit(),
+        "reserve_reason_reconciliation": reserve_reconciliations,
         "crisis_policy_promotion_status": "REJECTED_HISTORICAL_FIXED_BOOK",
         "crisis_policy_applied_to_operating_target": False,
         "crisis_policy_shadow_only": True,

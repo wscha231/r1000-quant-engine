@@ -31,6 +31,19 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series, px_cache_name, price_on_or_after, price_on_or_before
+from tools.reserve_asset_policy import (
+    BLOCKED_SHORT_HISTORY,
+    BROKER_CASH_OR_MMF,
+    DGS3MO_CARRY,
+    RESERVE_MODES,
+    RESERVE_REASONS,
+    ReserveAssetPolicy,
+    account_reserve_reason_reconciliation,
+    apply_reserve_asset_to_targets,
+    assert_no_double_count,
+    reserve_history_status,
+    resolve_reserve_asset_policy,
+)
 
 
 CASH_TICKERS = {"CASH", "__CASH__"}
@@ -353,6 +366,7 @@ def normalize_targets(
             "portfolio_selection_path",
             "concentrated_selection_source",
             "portfolio_defensive_rotation_action",
+            *RESERVE_REASONS,
         ]
         if c in d.columns
     ]
@@ -366,6 +380,7 @@ def normalize_targets(
             **({"portfolio_selection_path": "last"} if "portfolio_selection_path" in d.columns else {}),
             **({"concentrated_selection_source": "last"} if "concentrated_selection_source" in d.columns else {}),
             **({"portfolio_defensive_rotation_action": "last"} if "portfolio_defensive_rotation_action" in d.columns else {}),
+            **{reason: "sum" for reason in RESERVE_REASONS if reason in d.columns},
         }
     )
     return d.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
@@ -507,6 +522,7 @@ class LedgerState:
     realized_pnl: dict[str, float] = field(default_factory=dict)
     cash_interest_accrued: float = 0.0
     last_cash_accrual_date: pd.Timestamp | None = None
+    cash_rate_future_use_count: int = 0
 
 
 def accrue_cash_interest(
@@ -532,26 +548,42 @@ def accrue_cash_interest(
             "cash_net_annual_rate": np.nan,
             "cash_interest_days": 0,
         }
-    days = max(0, (date - pd.Timestamp(state.last_cash_accrual_date).normalize()).days)
-    rate = lookup_cash_rate(cash_rate_table, date)
-    raw_rate_pct = safe_float(rate.get("rate_pct")) if rate else 0.0
-    gross_annual = max(raw_rate_pct / 100.0, 0.0)
+    prior_date = pd.Timestamp(state.last_cash_accrual_date).normalize()
+    days = max(0, (date - prior_date).days)
     haircut = max(float(cash_carry_config.haircut_bps), 0.0) / 10000.0
-    net_annual = max(gross_annual - haircut, 0.0)
-    credit = max(float(state.cash), 0.0) * net_annual * (days / max(float(cash_carry_config.day_count), 1.0))
-    if credit > 0:
-        state.cash += float(credit)
-        state.cash_interest_accrued += float(credit)
+    credit = 0.0
+    latest_rate: dict[str, Any] | None = None
+    latest_net_annual = 0.0
+    # Forward-fill only from information available on each accrued calendar
+    # day.  A rate first published on Monday is never applied backward to the
+    # preceding weekend.
+    for accrual_date in pd.date_range(prior_date + pd.Timedelta(days=1), date, freq="D"):
+        rate = lookup_cash_rate(cash_rate_table, pd.Timestamp(accrual_date))
+        raw_rate_pct = safe_float(rate.get("rate_pct")) if rate else 0.0
+        gross_annual = max(raw_rate_pct / 100.0, 0.0)
+        net_annual = max(gross_annual - haircut, 0.0)
+        daily_credit = max(float(state.cash), 0.0) * net_annual / max(float(cash_carry_config.day_count), 1.0)
+        if daily_credit > 0:
+            state.cash += float(daily_credit)
+            state.cash_interest_accrued += float(daily_credit)
+            credit += float(daily_credit)
+        if rate:
+            available = pd.Timestamp(rate.get("available_from")).normalize()
+            if available > pd.Timestamp(accrual_date).normalize():
+                state.cash_rate_future_use_count += 1
+            latest_rate = rate
+            latest_net_annual = net_annual
     state.last_cash_accrual_date = date
     return {
         "cash_interest_daily": float(credit),
         "cash_interest_accrued_to_date": float(state.cash_interest_accrued),
-        "cash_rate_used": raw_rate_pct if rate else np.nan,
-        "cash_rate_available_from": rate.get("available_from") if rate else "",
-        "cash_rate_source": rate.get("rate_source") if rate else str(cash_carry_config.rate_source).upper(),
-        "cash_rate_date": rate.get("rate_date") if rate else "",
-        "cash_net_annual_rate": float(net_annual),
+        "cash_rate_used": safe_float(latest_rate.get("rate_pct")) if latest_rate else np.nan,
+        "cash_rate_available_from": latest_rate.get("available_from") if latest_rate else "",
+        "cash_rate_source": latest_rate.get("rate_source") if latest_rate else str(cash_carry_config.rate_source).upper(),
+        "cash_rate_date": latest_rate.get("rate_date") if latest_rate else "",
+        "cash_net_annual_rate": float(latest_net_annual),
         "cash_interest_days": int(days),
+        "cash_rate_future_use_count": int(state.cash_rate_future_use_count),
     }
 
 
@@ -792,6 +824,9 @@ def latest_account_state(
     integer_shares: bool,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     equity, values = account_equity(state, prices, as_of_date)
+    reserve_policy_payload = metrics.get("reserve_asset_policy") or {}
+    reserve_ticker = str(reserve_policy_payload.get("asset_ticker") or "")
+    reserve_tradeable = bool(reserve_policy_payload.get("tradeable"))
     rows: list[dict[str, Any]] = []
     for ticker in sorted(state.shares.keys()):
         qty = float(state.shares.get(ticker, 0.0))
@@ -800,8 +835,7 @@ def latest_account_state(
         px = price_at_or_before(prices, ticker, as_of_date)
         market_value = float(values.get(ticker, 0.0))
         basis = float(state.cost_basis.get(ticker, np.nan))
-        rows.append(
-            {
+        position_row = {
                 "as_of_date": pd.Timestamp(as_of_date).date().isoformat(),
                 "ticker": ticker,
                 "shares": qty,
@@ -812,7 +846,9 @@ def latest_account_state(
                 "unrealized_pnl_usd": float(market_value - qty * basis) if np.isfinite(basis) else np.nan,
                 "realized_pnl_usd": float(state.realized_pnl.get(ticker, 0.0)),
             }
-        )
+        if reserve_policy_payload:
+            position_row["reserve_asset"] = bool(reserve_tradeable and ticker == reserve_ticker)
+        rows.append(position_row)
     positions = pd.DataFrame(rows)
     total_fees = (
         float(pd.to_numeric(trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
@@ -838,6 +874,47 @@ def latest_account_state(
         "total_fees_usd": total_fees,
         "positions": rows,
     }
+    if reserve_policy_payload:
+        reserve_asset_value = float(values.get(reserve_ticker, 0.0)) if reserve_tradeable else 0.0
+        reserve_value = float(state.cash) + reserve_asset_value
+        target_reconciliation = metrics.get("reserve_reason_reconciliation") or {
+            "reserve_weight": reserve_value / equity if equity > 0 else 0.0,
+            "reason_weights": {reason: 0.0 for reason in RESERVE_REASONS},
+            "mode": reserve_policy_payload.get("mode"),
+            "asset_ticker": reserve_ticker,
+        }
+        actual_reconciliation = account_reserve_reason_reconciliation(
+            target_reconciliation,
+            actual_reserve_weight=reserve_value / equity if equity > 0 else 0.0,
+        )
+        account.update(
+            {
+                "stock_value_usd": float(
+                    sum(
+                        value
+                        for ticker, value in values.items()
+                        if not (reserve_tradeable and ticker == reserve_ticker)
+                    )
+                ),
+                "position_count": int(
+                    sum(
+                        1
+                        for row in rows
+                        if not bool(row.get("reserve_asset"))
+                    )
+                ),
+                "reserve_asset_policy": reserve_policy_payload,
+                "reserve_asset_value_usd": reserve_asset_value,
+                "reserve_value_usd": reserve_value,
+                "reserve_weight": float(reserve_value / equity) if equity > 0 else np.nan,
+                "target_reserve_reason_reconciliation": target_reconciliation,
+                "reserve_reason_reconciliation": actual_reconciliation,
+                **{
+                    reason: float(actual_reconciliation["reason_weights"][reason])
+                    for reason in RESERVE_REASONS
+                },
+            }
+        )
     if str(metrics.get("cash_carry_mode") or CASH_CARRY_MODE_NONE) != CASH_CARRY_MODE_NONE:
         account.update(
             {
@@ -868,11 +945,37 @@ def replay(
     oos2_start: str | None = None,
     oos2_end: str | None = None,
     cash_carry_config: CashCarryConfig | None = None,
+    reserve_asset_policy: ReserveAssetPolicy | None = None,
+    reserve_mode: str | None = None,
     partial_resize_two_signal_confirmation: bool = False,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
-    carry_enabled = cash_carry_enabled(cash_carry_config)
+    reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
+    if reserve_asset_policy is None:
+        compatibility_mode = (
+            DGS3MO_CARRY
+            if cash_carry_enabled(cash_carry_config)
+            else BROKER_CASH_OR_MMF
+        )
+        reserve_asset_policy = resolve_reserve_asset_policy(
+            reserve_mode or compatibility_mode,
+            context="current_paper",
+        )
+    if reserve_asset_policy.cash_interest_enabled and not cash_carry_enabled(cash_carry_config):
+        cash_carry_config = CashCarryConfig(
+            mode=CASH_CARRY_MODE_RISK_FREE,
+            rate_source=cash_carry_config.rate_source,
+            rate_lag_days=cash_carry_config.rate_lag_days,
+            haircut_bps=cash_carry_config.haircut_bps,
+            day_count=cash_carry_config.day_count,
+            rate_path=cash_carry_config.rate_path,
+        )
+    carry_enabled = reserve_asset_policy.cash_interest_enabled
+    assert_no_double_count(
+        reserve_asset_policy,
+        cash_interest_enabled=carry_enabled,
+    )
     cash_rate_table = load_cash_rate_series(cash_carry_config, price_cache) if carry_enabled else pd.DataFrame()
     if carry_enabled and cash_rate_table.empty:
         payload = {
@@ -935,9 +1038,48 @@ def replay(
         (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
 
+    targets, reserve_reason_audit = apply_reserve_asset_to_targets(
+        targets,
+        policy=reserve_asset_policy,
+        weight_col="weight",
+        date_col="rebalance_date",
+    )
+
     tickers = sorted({str(x).upper() for x in targets["ticker"].unique() if str(x).upper() not in CASH_TICKERS})
     prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
+    if reserve_asset_policy.tradeable:
+        stock_prices = [
+            px
+            for ticker, px in prices.items()
+            if ticker != reserve_asset_policy.asset_ticker and not px.empty
+        ]
+        required_start = pd.Timestamp(targets["rebalance_date"].min()).normalize()
+        required_end = max(
+            (pd.Timestamp(px.index.max()).normalize() for px in stock_prices),
+            default=pd.Timestamp(targets["rebalance_date"].max()).normalize(),
+        )
+        history = reserve_history_status(
+            prices.get(reserve_asset_policy.asset_ticker, pd.DataFrame()),
+            policy=reserve_asset_policy,
+            required_start=required_start,
+            required_end=required_end,
+            max_fill_lag_days=max_fill_lag_days,
+        )
+        if history.get("status") == BLOCKED_SHORT_HISTORY:
+            payload = {
+                "status": BLOCKED_SHORT_HISTORY,
+                "reason": "tradeable Reserve adjusted-close history does not cover the stock book",
+                "target_book": str(target_book),
+                "price_cache": str(price_cache),
+                "reserve_asset_policy": reserve_asset_policy.audit(),
+                "reserve_history": history,
+                "metric_mode": "DO_NOT_USE",
+                "valid_for_production": False,
+                "research_only": True,
+            }
+            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            return payload
     calendar_prices: dict[str, pd.DataFrame] = {}
     if carry_enabled:
         for ticker in DEFAULT_CASH_CARRY_CALENDAR_TICKERS:
@@ -980,7 +1122,13 @@ def replay(
             for row in target.itertuples(index=False)
             if str(row.ticker).upper() not in CASH_TICKERS
         }
-        target_gross = float(sum(max(0.0, weight) for weight in target_weights.values()))
+        target_gross = float(
+            sum(
+                max(0.0, weight)
+                for ticker, weight in target_weights.items()
+                if ticker != reserve_asset_policy.asset_ticker
+            )
+        )
         risk_gross_reduction = bool(
             previous_target_gross is not None
             and target_gross < float(previous_target_gross) - 1e-12
@@ -1180,7 +1328,23 @@ def replay(
                     "price": px if px is not None else np.nan,
                 }
             )
-        cash_row = {"date": fill_dt.date().isoformat(), "cash_usd": float(state.cash), "equity_usd": float(equity_after), "cash_weight": float(state.cash / equity_after) if equity_after > 0 else np.nan}
+        cash_row = {
+            "date": fill_dt.date().isoformat(),
+            "cash_usd": float(state.cash),
+            "equity_usd": float(equity_after),
+            "cash_weight": float(state.cash / equity_after) if equity_after > 0 else np.nan,
+        }
+        if reserve_explicit:
+            reserve_asset_value = float(values_after.get(reserve_asset_policy.asset_ticker, 0.0)) if reserve_asset_policy.tradeable else 0.0
+            reserve_value = float(state.cash) + reserve_asset_value
+            cash_row.update(
+                {
+                    "reserve_asset_value_usd": reserve_asset_value,
+                    "reserve_value_usd": reserve_value,
+                    "reserve_weight": float(reserve_value / equity_after) if equity_after > 0 else np.nan,
+                    "reserve_asset_mode": reserve_asset_policy.mode,
+                }
+            )
         if carry_enabled:
             cash_row["cash_interest_accrued_to_date"] = float(state.cash_interest_accrued)
         cash_rows.append(cash_row)
@@ -1210,13 +1374,37 @@ def replay(
                 "position_count": int(sum(1 for qty in state.shares.values() if abs(qty) > 1e-12)),
                 "fill_mode": fill_mode,
             }
+            if reserve_explicit:
+                reserve_asset_value = float(values.get(reserve_asset_policy.asset_ticker, 0.0)) if reserve_asset_policy.tradeable else 0.0
+                reserve_value = float(state.cash) + reserve_asset_value
+                equity_row.update(
+                    {
+                        "stock_value_usd": float(
+                            sum(
+                                value
+                                for ticker, value in values.items()
+                                if ticker != reserve_asset_policy.asset_ticker
+                            )
+                        ),
+                        "reserve_asset_value_usd": reserve_asset_value,
+                        "reserve_value_usd": reserve_value,
+                        "reserve_weight": float(reserve_value / equity) if equity > 0 else np.nan,
+                        "reserve_asset_mode": reserve_asset_policy.mode,
+                        "position_count": int(
+                            sum(
+                                1
+                                for ticker, qty in state.shares.items()
+                                if abs(qty) > 1e-12 and ticker != reserve_asset_policy.asset_ticker
+                            )
+                        ),
+                    }
+                )
             if carry_enabled:
                 equity_row.update(cash_interest_fields)
             equity_rows.append(equity_row)
             for ticker, value in values.items():
                 px = price_at_or_before(prices, ticker, date)
-                holdings_rows.append(
-                    {
+                holding_row = {
                         "date": pd.Timestamp(date).date().isoformat(),
                         "ticker": ticker,
                         "shares": float(state.shares.get(ticker, 0.0)),
@@ -1226,7 +1414,9 @@ def replay(
                         "cost_basis": float(state.cost_basis.get(ticker, np.nan)),
                         "unrealized_pnl_usd": float(value - state.shares.get(ticker, 0.0) * state.cost_basis.get(ticker, 0.0)),
                     }
-                )
+                if reserve_explicit:
+                    holding_row["reserve_asset"] = bool(ticker == reserve_asset_policy.asset_ticker)
+                holdings_rows.append(holding_row)
 
     equity_df = pd.DataFrame(equity_rows)
     if equity_df.empty or "date" not in equity_df.columns:
@@ -1287,6 +1477,38 @@ def replay(
             **weight_diag,
         }
     )
+    if reserve_explicit:
+        reserve_trades = (
+            trades_df.loc[trades_df.get("ticker", pd.Series(dtype=str)).astype(str).eq(reserve_asset_policy.asset_ticker)]
+            if not trades_df.empty
+            else pd.DataFrame()
+        )
+        latest_reserve = float(pd.to_numeric(equity_df.get("reserve_weight"), errors="coerce").dropna().iloc[-1])
+        average_reserve = float(pd.to_numeric(equity_df.get("reserve_weight"), errors="coerce").dropna().mean())
+        reason_records = reserve_reason_audit.to_dict("records")
+        latest_reason = reason_records[-1] if reason_records else {}
+        metrics.update(
+            {
+                "reserve_asset_policy": reserve_asset_policy.audit(),
+                "reserve_asset_mode": reserve_asset_policy.mode,
+                "reserve_asset_ticker": reserve_asset_policy.asset_ticker,
+                "reserve_price_mode": "adjusted_close_total_return" if reserve_asset_policy.tradeable else "cash_ledger",
+                "reserve_cash_interest_enabled": bool(carry_enabled),
+                "reserve_distribution_separately_credited": False,
+                "reserve_double_count_check": "PASS",
+                "average_reserve_weight": average_reserve,
+                "latest_reserve_weight": latest_reserve,
+                "reserve_trade_count": int(len(reserve_trades)),
+                "reserve_turnover_usd": float(pd.to_numeric(reserve_trades.get("gross_value", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()),
+                "reserve_fees_usd": float(pd.to_numeric(reserve_trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()),
+                "reserve_reason_reconciliation": latest_reason,
+                "reserve_reason_reconciled_all_dates": bool(
+                    reserve_reason_audit.get("reconciled", pd.Series(dtype=bool)).fillna(False).all()
+                ),
+                "production_activation_allowed": False,
+                "research_only": True,
+            }
+        )
     if partial_resize_two_signal_confirmation:
         reason_counts = (
             partial_resize_df["reason"].value_counts().to_dict()
@@ -1321,8 +1543,17 @@ def replay(
                 "cash_carry_day_count": int(cash_carry_config.day_count),
                 "cash_interest_accrued_usd": float(state.cash_interest_accrued),
                 "cash_interest_accrued_pct_starting_capital": float(state.cash_interest_accrued / max(float(starting_capital), 1e-12)),
+                "cash_rate_future_use_count": int(state.cash_rate_future_use_count),
                 "cash_carry_calendar_tickers": list(calendar_prices.keys()),
             }
+        )
+
+    if reserve_explicit:
+        reserve_reason_audit.to_json(
+            output_dir / "reserve_reason_audit.json",
+            orient="records",
+            indent=2,
+            date_format="iso",
         )
 
     equity_df.to_csv(output_dir / "equity_curve.csv", index=False)
@@ -1447,6 +1678,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cash-carry-haircut-bps", type=float, default=None, help="Annual haircut subtracted from the raw cash rate; default 50bps.")
     parser.add_argument("--cash-carry-day-count", type=int, default=None, help="Day-count denominator for cash interest; default ACT/365.")
     parser.add_argument(
+        "--reserve-mode",
+        choices=list(RESERVE_MODES),
+        default="",
+        help="Canonical ReserveAssetPolicy mode. Empty preserves legacy zero-yield replay parity.",
+    )
+    parser.add_argument(
         "--partial-resize-two-signal-confirmation",
         action="store_true",
         help="Research-only: defer held-name partial resizes until the same direction repeats at the next decision; entries, exits, and target-gross risk cuts remain immediate.",
@@ -1500,6 +1737,7 @@ def main() -> int:
             day_count=args.cash_carry_day_count,
             rate_path=args.cash_rate_path,
         ),
+        reserve_mode=args.reserve_mode or None,
         partial_resize_two_signal_confirmation=bool(args.partial_resize_two_signal_confirmation),
     )
     print(json.dumps(payload, indent=2, default=str))

@@ -12,6 +12,8 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
+from tools.reserve_asset_policy import RESERVE_REASONS
+
 
 SCHEMA_VERSION = "run287-canonical-crisis-policy-v1"
 CANONICAL_STATES = (
@@ -42,14 +44,6 @@ LEGACY_STATE_ALIASES = {
     "REENTRY_READY": "REENTRY_STAGE_1",
 }
 FUTURE_LABEL_COLUMNS = {"false_alarm_no_drawdown_63d"}
-RESERVE_REASONS = (
-    "crisis_reserve",
-    "capacity_unallocated",
-    "reentry_pending",
-    "data_block_reserve",
-    "transaction_buffer",
-    "residual_cash",
-)
 SELL_PRIORITY_REASONS = (
     "THESIS_BREAK",
     "RS_TREND_BREAK",
