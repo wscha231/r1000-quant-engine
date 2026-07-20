@@ -3018,3 +3018,40 @@ Expected contract:
   `187/187` in `730.57s`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-07-20 - P7 canonical private operating scorecard
+
+- Scope: issue #306 P7. Added one private/review-only command that aggregates
+  validated P3-P6 artifacts by reference and emits JSON plus Markdown without
+  copying source archives.
+- Every metric records source path, SHA-256, as-of date, metric mode, evidence
+  class, and availability. Historical, current paper, and true-forward lanes
+  cannot overwrite one another.
+- Actual headline historical evidence is `TRUSTED`: Main
+  `34.4032% / -25.3629%`, Concentrated `49.0968% / -22.9560%`. The evidence is
+  through 2026-07-10; the 2026-07-20 generation date is not a July 17 market
+  refresh.
+- Current durable paper execution is `UNAVAILABLE` because its summary and
+  checksum manifest are absent locally. The P0 transaction tests are not used
+  as a substitute for a real current account.
+- True-forward evidence remains `UNDERPOWERED`: 10 distinct tickers and zero
+  resolved 21/63/126-day outcomes as of 2026-07-10; 252-day evidence is not in
+  the current contract and is `UNAVAILABLE`.
+- Attribution shows positive selector-versus-matched-control evidence, short
+  32/33-day median holds, underpowered exit counterfactuals, rejected
+  crisis/re-entry shadow policy, positive Reserve carry that is not selection
+  alpha, and material 25-to-100bp CAGR drag.
+- Historical mean Reserve is 29.31% Main and 40.80% Concentrated and is almost
+  entirely `capacity_unallocated`, not crisis defense. This explains why high
+  Concentrated cash cannot be described as an active volatility call.
+- Ten redundant P3-P6 results are registered as `ABSORBED_SOURCE`. Their files
+  remain in place; the scorecard stores provenance and values only.
+- Fixture tests prove that missing sections remain null/`UNAVAILABLE`, a paper
+  account reset makes headline performance `NOT_TRUSTED`, and metric-definition
+  changes require a migration note.
+- Evidence: `docs/CODEX_RUN287_P7_OPERATING_SCORECARD_RESULT_20260720.md` and
+  `_tmp_tests/p7_operating_scorecard_actual_v3_20260720/operating_scorecard.json`.
+- Repository pytest passed `129/129`; full Tier-1 PR validation passed
+  `188/188` in `479.59s`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false.
