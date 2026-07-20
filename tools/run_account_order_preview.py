@@ -25,6 +25,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run_broker_ledger_replay import CASH_TICKERS, repo_path, safe_float
 from tools.run_weekly_evaluation import load_price_series, price_on_or_before
+from tools.reserve_asset_policy import (
+    DEFAULT_CURRENT_PAPER_MODE,
+    RESERVE_MODES,
+    RESERVE_REASONS,
+    account_reserve_reason_reconciliation,
+    apply_reserve_asset_to_targets,
+    reserve_reason_reconciliation,
+    resolve_reserve_asset_policy,
+)
 
 
 DEFAULT_OUTPUT_DIR = "outputs/account_ledger_preview"
@@ -104,7 +113,14 @@ def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str 
     d = d[(d["ticker"] != "") & (d["target_weight"] > 1e-12)].copy()
     keep = ["ticker", "target_weight"] + [
         col
-        for col in ["Name", "sector", "portfolio_sleeve_label", "portfolio_selection_path", "raw_score"]
+        for col in [
+            "Name",
+            "sector",
+            "portfolio_sleeve_label",
+            "portfolio_selection_path",
+            "raw_score",
+            *RESERVE_REASONS,
+        ]
         if col in d.columns
     ]
     out = d[keep].copy()
@@ -116,6 +132,7 @@ def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str 
             **({"portfolio_sleeve_label": "last"} if "portfolio_sleeve_label" in out.columns else {}),
             **({"portfolio_selection_path": "last"} if "portfolio_selection_path" in out.columns else {}),
             **({"raw_score": "last"} if "raw_score" in out.columns else {}),
+            **{reason: "sum" for reason in RESERVE_REASONS if reason in out.columns},
         }
     )
     return out.sort_values("target_weight", ascending=False).reset_index(drop=True)
@@ -360,6 +377,8 @@ def build_projected_positions_after_orders(
     current: pd.DataFrame,
     orders: pd.DataFrame,
     starting_cash: float,
+    reserve_asset_ticker: str = "CASH",
+    reserve_asset_tradeable: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Project account weights after applying the preview orders.
 
@@ -404,23 +423,28 @@ def build_projected_positions_after_orders(
 
     rows: list[dict[str, Any]] = []
     stock_value = 0.0
+    reserve_asset_value = 0.0
     for ticker, lot in sorted(lots.items()):
         shares = safe_float(lot.get("shares"), 0.0)
         if shares <= 1e-12:
             continue
         price = safe_float(lot.get("price"), np.nan)
         market_value = shares * price
-        stock_value += market_value
+        if reserve_asset_tradeable and ticker == reserve_asset_ticker:
+            reserve_asset_value += market_value
+        else:
+            stock_value += market_value
         rows.append(
             {
-                "row_type": "equity",
+                "row_type": "reserve" if reserve_asset_tradeable and ticker == reserve_asset_ticker else "equity",
                 "ticker": ticker,
                 "projected_shares": shares,
                 "reference_price": price,
                 "projected_market_value_usd": market_value,
             }
         )
-    projected_equity = stock_value + projected_cash
+    projected_reserve = projected_cash + reserve_asset_value
+    projected_equity = stock_value + projected_reserve
     if projected_equity > 0:
         for row in rows:
             row["projected_weight"] = safe_float(row.get("projected_market_value_usd"), 0.0) / projected_equity
@@ -442,6 +466,9 @@ def build_projected_positions_after_orders(
         "projected_cash_usd": float(projected_cash),
         "projected_cash_weight": float(projected_cash / projected_equity) if projected_equity > 0 else np.nan,
         "projected_stock_value_usd": float(stock_value),
+        "projected_reserve_asset_value_usd": float(reserve_asset_value),
+        "projected_reserve_value_usd": float(projected_reserve),
+        "projected_reserve_weight": float(projected_reserve / projected_equity) if projected_equity > 0 else np.nan,
         "projected_position_count": int(sum(1 for row in rows if row.get("row_type") == "equity")),
     }
     return frame, metrics
@@ -520,6 +547,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return payload
     positions = load_positions(account)
     target = normalize_target(read_csv(target_path), args.portfolio_kind, args.target_date)
+    reserve_mode = str(getattr(args, "reserve_mode", "") or DEFAULT_CURRENT_PAPER_MODE)
+    reserve_policy = resolve_reserve_asset_policy(reserve_mode, context="current_paper")
+    reserve_mode_explicit = bool(str(getattr(args, "reserve_mode", "") or "").strip())
+    if reserve_mode_explicit:
+        target, _reserve_audit = apply_reserve_asset_to_targets(
+            target,
+            policy=reserve_policy,
+            weight_col="target_weight",
+        )
+    reserve_reconciliation = reserve_reason_reconciliation(
+        target,
+        policy=reserve_policy,
+        weight_col="target_weight",
+    )
     account_source_kind = "simulated_broker_replay" if "broker_replay" in str(account_path).replace("\\", "/") else "account_state_file"
     target_source_kind = "unified_target" if "unified_target" in target_path.name else "sleeve_model_target"
     as_of = infer_as_of_date(
@@ -530,6 +571,32 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         price_cache=price_cache,
         provider_symbol_overrides=provider_symbol_overrides,
     )
+    if reserve_policy.tradeable:
+        reserve_price_date, reserve_price = latest_price(
+            price_cache,
+            reserve_policy.asset_ticker,
+            as_of,
+            provider_symbol_overrides,
+        )
+        if (
+            reserve_price_date is None
+            or reserve_price_date != as_of
+            or reserve_price is None
+            or reserve_price <= 0
+        ):
+            payload = {
+                "status": "BLOCKED_RESERVE_EXACT_CLOSE",
+                "reason": "tradeable Reserve requires the exact completed-session adjusted close",
+                "reserve_asset_policy": reserve_policy.audit(),
+                "as_of_date": as_of.date().isoformat(),
+                "price_cache": str(price_cache),
+                "live_trading_enabled": False,
+            }
+            (output_dir / "preview_metrics.json").write_text(
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
+            )
+            return payload
     current, equity, cash = current_account_view(
         account_state=account,
         positions=positions,
@@ -563,8 +630,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         current=current,
         orders=orders,
         starting_cash=cash,
+        reserve_asset_ticker=reserve_policy.asset_ticker,
+        reserve_asset_tradeable=reserve_policy.tradeable,
     )
     projected.to_csv(output_dir / "projected_positions_after_orders.csv", index=False)
+    projected_reserve_reconciliation = account_reserve_reason_reconciliation(
+        reserve_reconciliation,
+        actual_reserve_weight=float(projected_metrics.get("projected_reserve_weight") or 0.0),
+    )
     manifest_payload = {
         "schema_version": "account-ledger-preview-order-batch-v1",
         "portfolio_kind": args.portfolio_kind,
@@ -585,15 +658,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     fees = float(pd.to_numeric(orders.get("estimated_fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not orders.empty else 0.0
     if not target.empty:
         target_weights = pd.to_numeric(target.get("target_weight", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
-        cash_mask = target["ticker"].astype(str).str.upper().eq("CASH")
-        target_stock_weight = float(target_weights.loc[~cash_mask].sum())
-        explicit_cash_weight = float(target_weights.loc[cash_mask].sum())
-        target_cash_weight = explicit_cash_weight if cash_mask.any() else max(0.0, 1.0 - target_stock_weight)
+        reserve_mask = target["ticker"].astype(str).str.upper().isin(
+            {"CASH", "__CASH__", reserve_policy.asset_ticker}
+        )
+        target_stock_weight = float(target_weights.loc[~reserve_mask].sum())
+        explicit_cash_weight = float(target_weights.loc[reserve_mask].sum())
+        target_cash_weight = explicit_cash_weight if reserve_mask.any() else max(0.0, 1.0 - target_stock_weight)
     else:
         target_stock_weight = 0.0
         target_cash_weight = 0.0
     if abs(target_cash_weight) < 1e-9:
         target_cash_weight = 0.0
+    current_reserve_asset_value = (
+        float(
+            pd.to_numeric(
+                current.loc[
+                    current.get("ticker", pd.Series(dtype=str)).astype(str).str.upper().eq(reserve_policy.asset_ticker),
+                    "market_value_usd",
+                ],
+                errors="coerce",
+            ).fillna(0.0).sum()
+        )
+        if reserve_policy.tradeable and not current.empty
+        else 0.0
+    )
+    current_reserve_value = float(cash + current_reserve_asset_value)
     payload = {
         "status": "completed",
         "schema_version": "account-ledger-preview-v1",
@@ -610,11 +699,29 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "equity_usd": float(equity),
         "cash_usd": float(cash),
         "cash_weight": float(cash / equity) if equity > 0 else np.nan,
+        "reserve_asset_value_usd": current_reserve_asset_value,
+        "reserve_value_usd": current_reserve_value,
+        "reserve_weight": float(current_reserve_value / equity) if equity > 0 else np.nan,
         "target_stock_weight": float(target_stock_weight),
         "target_cash_weight": float(target_cash_weight),
+        "target_reserve_weight": float(target_cash_weight),
+        "reserve_asset_policy": reserve_policy.audit(),
+        "reserve_asset_mode": reserve_policy.mode,
+        "reserve_reason_reconciliation": reserve_reconciliation,
+        "projected_reserve_reason_reconciliation": projected_reserve_reconciliation,
+        "reserve_reason_reconciled": True,
+        "reserve_mode_explicit": reserve_mode_explicit,
         **projected_metrics,
         "position_count": int(len(current)),
-        "target_count": int(len(target[target["ticker"].astype(str).str.upper() != "CASH"])) if not target.empty else 0,
+        "target_count": int(
+            len(
+                target[
+                    ~target["ticker"].astype(str).str.upper().isin(
+                        {"CASH", "__CASH__", reserve_policy.asset_ticker}
+                    )
+                ]
+            )
+        ) if not target.empty else 0,
         "order_count": int(len(orders)),
         "buy_count": int((orders.get("side", pd.Series(dtype=str)) == "BUY").sum()) if not orders.empty else 0,
         "sell_count": int((orders.get("side", pd.Series(dtype=str)) == "SELL").sum()) if not orders.empty else 0,
@@ -648,6 +755,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-trade-usd", type=float, default=25.0)
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--provider-symbol-override", action="append", default=[])
+    parser.add_argument(
+        "--reserve-mode",
+        choices=list(RESERVE_MODES),
+        default="",
+        help=f"ReserveAssetPolicy mode; default {DEFAULT_CURRENT_PAPER_MODE}.",
+    )
     return parser.parse_args()
 
 

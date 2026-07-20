@@ -32,6 +32,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run_account_order_preview import normalize_target  # noqa: E402
 from tools.run_broker_ledger_replay import CASH_TICKERS  # noqa: E402
+from tools.reserve_asset_policy import (  # noqa: E402
+    DEFAULT_CURRENT_PAPER_MODE,
+    RESERVE_REASONS,
+    account_reserve_reason_reconciliation,
+    reserve_reason_reconciliation,
+    resolve_reserve_asset_policy,
+)
 from tools.run287_paper_ledger_integrity import (  # noqa: E402
     INTEGRITY_FILE,
     PaperLedgerIntegrityError,
@@ -116,13 +123,21 @@ def target_for_date(target_path: Path, portfolio: str, as_of_date: pd.Timestamp)
     target = normalize_target(raw, portfolio, as_of_date.date().isoformat())
     if target.empty:
         raise ValueError(f"empty target allocation for {portfolio}")
-    target = target[["ticker", "target_weight"]].copy()
+    target = target[
+        ["ticker", "target_weight"]
+        + [reason for reason in RESERVE_REASONS if reason in target.columns]
+    ].copy()
     target["ticker"] = target["ticker"].map(clean_ticker)
     target["target_weight"] = pd.to_numeric(target["target_weight"], errors="coerce")
     target = target[(target["ticker"] != "") & target["target_weight"].notna()].copy()
     if target.empty or (target["target_weight"] < -1e-12).any():
         raise ValueError(f"invalid target allocation for {portfolio}")
-    target = target.groupby("ticker", as_index=False)["target_weight"].sum().sort_values("ticker").reset_index(drop=True)
+    target = target.groupby("ticker", as_index=False).agg(
+        {
+            "target_weight": "sum",
+            **{reason: "sum" for reason in RESERVE_REASONS if reason in target.columns},
+        }
+    ).sort_values("ticker").reset_index(drop=True)
     total = float(target["target_weight"].sum())
     if total <= 0 or total > 1.0 + 1e-9:
         raise ValueError(f"target weight sum outside (0,1] for {portfolio}: {total}")
@@ -226,6 +241,19 @@ def build_account(
         "sell_before_buy": True,
         "cash_must_be_nonnegative": True,
     }
+    reserve_policy = resolve_reserve_asset_policy(
+        DEFAULT_CURRENT_PAPER_MODE,
+        context="current_paper",
+    )
+    target_reserve_reconciliation = reserve_reason_reconciliation(
+        target,
+        policy=reserve_policy,
+        weight_col="target_weight",
+    )
+    reserve_reconciliation = account_reserve_reason_reconciliation(
+        target_reserve_reconciliation,
+        actual_reserve_weight=cash / starting_capital,
+    )
     account = {
         "schema_version": "run287-daily-paper-bootstrap-account-v1",
         "portfolio_kind": portfolio,
@@ -243,6 +271,16 @@ def build_account(
         "cost_bps_per_side": float(cost_bps),
         "integer_shares": True,
         "cash_carry_mode": "none",
+        "reserve_asset_policy": reserve_policy.audit(),
+        "reserve_asset_mode": reserve_policy.mode,
+        "reserve_asset_ticker": reserve_policy.asset_ticker,
+        "reserve_weight": cash / starting_capital,
+        "target_reserve_reason_reconciliation": target_reserve_reconciliation,
+        "reserve_reason_reconciliation": reserve_reconciliation,
+        **{
+            reason: float(reserve_reconciliation["reason_weights"][reason])
+            for reason in RESERVE_REASONS
+        },
         "positions": positions,
         "realized_pnl_by_ticker": {},
         "target_sha256": file_hash(target_path),

@@ -56,6 +56,16 @@ from tools.security_lifecycle import (  # noqa: E402
     resolve_security_lifecycle,
     verified_settlement_by_ticker,
 )
+from tools.reserve_asset_policy import (  # noqa: E402
+    DEFAULT_CURRENT_PAPER_MODE,
+    RESERVE_MODES,
+    RESERVE_REASONS,
+    ReserveAssetPolicy,
+    account_reserve_reason_reconciliation,
+    apply_reserve_asset_to_targets,
+    reserve_reason_reconciliation,
+    resolve_reserve_asset_policy,
+)
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -188,14 +198,34 @@ def materialize_lifecycle_adjusted_target(
     portfolio: str,
     as_of_date: pd.Timestamp,
     lifecycle: SecurityLifecycleSnapshot,
+    reserve_policy: ReserveAssetPolicy,
+    reserve_mode_explicit: bool,
 ) -> tuple[Path, pd.DataFrame]:
     """Write the effective target without silently reallocating terminal weight."""
 
     target = normalized_target(source_target_path, portfolio, as_of_date)
+    if reserve_mode_explicit:
+        target, _reserve_audit = apply_reserve_asset_to_targets(
+            target,
+            policy=reserve_policy,
+            weight_col="target_weight",
+        )
+    if reserve_policy.tradeable and reserve_policy.asset_ticker in lifecycle.terminal_tickers:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_RESERVE_LIFECYCLE",
+            f"Reserve asset is terminal at decision time: {reserve_policy.asset_ticker}",
+        )
     adjusted = filter_terminal_tickers(target, lifecycle)
     rows = adjusted.rename(columns={"target_weight": "weight"}).copy()
     rows.insert(0, "rebalance_date", as_of_date.date().isoformat())
-    write_csv(output_path, rows, ["rebalance_date", "ticker", "weight"])
+    columns = ["rebalance_date", "ticker", "weight"]
+    if reserve_mode_explicit:
+        columns.extend(
+            column
+            for column in [*RESERVE_REASONS, "reserve_asset_policy_schema", "reserve_asset_mode", "reserve_asset_ticker", "reserve_asset_tradeable", "reserve_reason_reconciled"]
+            if column in rows.columns
+        )
+    write_csv(output_path, rows, columns)
     return output_path, adjusted
 
 
@@ -903,6 +933,8 @@ def mark_account(
     cost_bps: float,
     seed_path: Path,
     provider_symbol_overrides: dict[str, str] | None = None,
+    reserve_policy: ReserveAssetPolicy,
+    reserve_reconciliation: dict[str, Any],
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     prices = load_prices(
         price_cache, set(state.shares), provider_symbol_overrides
@@ -910,6 +942,16 @@ def mark_account(
     equity, values = account_equity(state, prices, as_of_date)
     if equity <= 0 or state.cash < -1e-6:
         raise ValueError(f"invalid paper account equity/cash for {portfolio}")
+    reserve_asset_value = (
+        float(values.get(reserve_policy.asset_ticker, 0.0))
+        if reserve_policy.tradeable
+        else 0.0
+    )
+    reserve_value = float(state.cash) + reserve_asset_value
+    actual_reconciliation = account_reserve_reason_reconciliation(
+        reserve_reconciliation,
+        actual_reserve_weight=reserve_value / equity,
+    )
     position_rows: list[dict[str, Any]] = []
     for ticker in sorted(state.shares):
         quantity = float(state.shares.get(ticker, 0.0))
@@ -941,6 +983,9 @@ def mark_account(
                 "cost_basis": basis,
                 "unrealized_pnl_usd": market_value - quantity * basis,
                 "realized_pnl_usd": float(state.realized_pnl.get(ticker, 0.0)),
+                "reserve_asset": bool(
+                    reserve_policy.tradeable and ticker == reserve_policy.asset_ticker
+                ),
             }
         )
     total_fees = (
@@ -961,13 +1006,31 @@ def mark_account(
         "equity_usd": float(equity),
         "cash_usd": float(state.cash),
         "cash_weight": float(state.cash / equity),
-        "stock_value_usd": float(sum(values.values())),
-        "position_count": len(position_rows),
+        "stock_value_usd": float(
+            sum(
+                value
+                for ticker, value in values.items()
+                if ticker != reserve_policy.asset_ticker or not reserve_policy.tradeable
+            )
+        ),
+        "reserve_asset_value_usd": reserve_asset_value,
+        "reserve_value_usd": reserve_value,
+        "position_count": sum(1 for row in position_rows if not row["reserve_asset"]),
         "fill_mode": "next_close",
         "cost_bps_per_side": float(cost_bps),
         "integer_shares": True,
         "cash_carry_mode": "none",
         "cash_carry_note": "forward execution monitor; official historical cash-carry metrics remain separate",
+        "reserve_asset_policy": reserve_policy.audit(),
+        "reserve_asset_mode": reserve_policy.mode,
+        "reserve_asset_ticker": reserve_policy.asset_ticker,
+        "reserve_weight": float(actual_reconciliation["actual_reserve_weight"]),
+        "target_reserve_reason_reconciliation": reserve_reconciliation,
+        "reserve_reason_reconciliation": actual_reconciliation,
+        **{
+            reason: float(actual_reconciliation["reason_weights"][reason])
+            for reason in RESERVE_REASONS
+        },
         "positions": position_rows,
         "realized_pnl_by_ticker": {key: float(value) for key, value in sorted(state.realized_pnl.items())},
         "total_realized_pnl_usd": float(sum(state.realized_pnl.values())),
@@ -1260,6 +1323,7 @@ def build_order_preview(
     as_of_date: pd.Timestamp,
     cost_bps: float,
     provider_symbol_overrides: dict[str, str] | None = None,
+    reserve_mode: str = DEFAULT_CURRENT_PAPER_MODE,
 ) -> dict[str, Any]:
     return run_order_preview(
         SimpleNamespace(
@@ -1280,6 +1344,7 @@ def build_order_preview(
                     (provider_symbol_overrides or {}).items()
                 )
             ],
+            reserve_mode=reserve_mode,
         )
     )
 
@@ -1379,6 +1444,8 @@ def run_portfolio(
     max_fill_lag_days: int,
     lifecycle: SecurityLifecycleSnapshot,
     suppress_new_orders: bool,
+    reserve_policy: ReserveAssetPolicy,
+    reserve_mode_explicit: bool,
 ) -> dict[str, Any]:
     portfolio_dir = state_root / portfolio
     portfolio_dir.mkdir(parents=True, exist_ok=True)
@@ -1390,6 +1457,13 @@ def run_portfolio(
         portfolio=portfolio,
         as_of_date=as_of_date,
         lifecycle=lifecycle,
+        reserve_policy=reserve_policy,
+        reserve_mode_explicit=reserve_mode_explicit,
+    )
+    reserve_reconciliation = reserve_reason_reconciliation(
+        _adjusted_target,
+        policy=reserve_policy,
+        weight_col="target_weight",
     )
     reusable = load_reusable_same_session_manifest(
         portfolio=portfolio,
@@ -1424,6 +1498,7 @@ def run_portfolio(
                 as_of_date=as_of_date,
                 cost_bps=cost_bps,
                 provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+                reserve_mode=reserve_policy.mode,
             )
             if preview.get("status") != "completed":
                 raise ValueError(
@@ -1495,6 +1570,8 @@ def run_portfolio(
         cost_bps=cost_bps,
         seed_path=bootstrap_path,
         provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+        reserve_policy=reserve_policy,
+        reserve_reconciliation=reserve_reconciliation,
     )
     account_path = portfolio_dir / "account_state_latest.json"
     write_json(account_path, marked_account)
@@ -1539,6 +1616,7 @@ def run_portfolio(
             as_of_date=as_of_date,
             cost_bps=cost_bps,
             provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+            reserve_mode=reserve_policy.mode,
         )
         if preview.get("status") != "completed":
             raise ValueError(f"paper account preview failed for {portfolio}: {preview.get('reason')}")
@@ -1600,6 +1678,8 @@ def run_portfolio(
         "security_lifecycle_snapshot_hash": lifecycle.snapshot_hash,
         "security_lifecycle_terminal_tickers": sorted(lifecycle.terminal_tickers),
         "security_lifecycle_actions": lifecycle_actions,
+        "reserve_asset_policy": reserve_policy.audit(),
+        "reserve_reason_reconciliation": reserve_reconciliation,
         "event_sequence": sequence,
         "event_chain_hash": chain_hash,
         "resolved_fills_this_run": resolved["resolved_fills"],
@@ -1627,6 +1707,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     preview_root = repo_path(args.order_preview_root)
     as_of_date = pd.Timestamp(args.as_of_date).normalize()
     suppress_new_orders = bool(getattr(args, "suppress_new_orders", False))
+    reserve_mode_raw = str(getattr(args, "reserve_mode", "") or "").strip()
+    reserve_mode_explicit = bool(reserve_mode_raw)
+    reserve_policy = resolve_reserve_asset_policy(
+        reserve_mode_raw or DEFAULT_CURRENT_PAPER_MODE,
+        context="current_paper",
+    )
     if pd.isna(as_of_date):
         raise ValueError("--as-of-date must be a completed market date")
     state_root.parent.mkdir(parents=True, exist_ok=True)
@@ -1664,6 +1750,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 .map(clean_ticker)
                 .tolist()
             )
+        if reserve_policy.tradeable:
+            active_tickers.add(reserve_policy.asset_ticker)
         lifecycle_value = str(
             getattr(args, "security_lifecycle_events", "") or ""
         ).strip()
@@ -1702,6 +1790,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 max_fill_lag_days=int(args.max_fill_lag_days),
                 lifecycle=lifecycle,
                 suppress_new_orders=suppress_new_orders,
+                reserve_policy=reserve_policy,
+                reserve_mode_explicit=reserve_mode_explicit,
             )
         same_session_count = sum(
             1 for payload in results.values() if payload.get("same_session_reused") is True
@@ -1722,6 +1812,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "portfolios": results,
             "genesis_identity_hash": identity["genesis_identity_hash"],
             "security_lifecycle": lifecycle.audit(),
+            "reserve_asset_policy": reserve_policy.audit(),
             "review_only": True,
             "simulated": True,
             "live_trading_enabled": False,
@@ -1782,6 +1873,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument(
+        "--reserve-mode",
+        choices=list(RESERVE_MODES),
+        default="",
+        help=f"ReserveAssetPolicy mode; default {DEFAULT_CURRENT_PAPER_MODE}.",
+    )
     parser.add_argument(
         "--suppress-new-orders",
         action="store_true",

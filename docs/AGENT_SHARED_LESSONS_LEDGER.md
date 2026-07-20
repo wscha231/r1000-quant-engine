@@ -2913,3 +2913,34 @@ Expected contract:
 - Full Tier-1 PR validation passed `181/181` in `576.74s`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-07-20 - P4 canonical ReserveAssetPolicy
+
+- Scope: issue #306 P4, bounded same-stock-book Reserve comparison only.
+- Added one canonical policy for `BROKER_CASH_OR_MMF`, `DGS3MO_CARRY`,
+  `BIL_TOTAL_RETURN`, and `SGOV_TOTAL_RETURN`. Historical research defaults to
+  DGS3MO; current forward paper remains broker cash/MMF unless explicitly
+  changed by a later user-approved migration.
+- Zero-yield exact parity passed for Main and Concentrated, including exact
+  trade CSV hashes. All completed modes reconciled the six Reserve reasons.
+- DGS3MO used past-only daily forward-fill and ACT/365 with zero future-rate
+  uses. It produced Main `34.4032% / -25.3629%` and Concentrated
+  `49.0968% / -22.9560%`.
+- BIL produced Main `33.7965% / -25.8378%` and Concentrated
+  `47.8700% / -23.0549%`. Main MDD worsened, and 85 Reserve fills added
+  material fees, so BIL is not the common default.
+- SGOV returned `BLOCKED_SHORT_HISTORY`: history starts 2020-06-01 versus the
+  required 2019-05-31 generated-book start. The endpoint was not shortened.
+- `do_not_repeat`:
+  `bil_total_return+fixed_generated_books+2019-05-31_2026-07-10+25bps`.
+  Do not tune a trading threshold or cite Concentrated alone to rescue common
+  BIL adoption.
+- Reusable lesson: Reserve accounting can close part of a CAGR gap, but it is
+  not selection alpha. A tradeable cash substitute must clear MDD after its
+  own fills and fees, and incomplete ETF history must block rather than splice.
+- Evidence: `_tmp_tests/p4_reserve_actual_v2_20260720/summary.json` and
+  `reserve_mode_metrics.csv` (local untracked research output).
+- Repository smoke tests passed `129/129`; full Tier-1 PR validation passed
+  `183/183` in `744.61s`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false.

@@ -1,0 +1,54 @@
+{
+  "schema_version": "run287-reserve-asset-policy-contract-v1",
+  "policy_schema_version": "run287-reserve-asset-policy-v1",
+  "supported_modes": [
+    "BROKER_CASH_OR_MMF",
+    "DGS3MO_CARRY",
+    "BIL_TOTAL_RETURN",
+    "SGOV_TOTAL_RETURN"
+  ],
+  "blocked_short_history_status": "BLOCKED_SHORT_HISTORY",
+  "defaults": {
+    "historical_research": "DGS3MO_CARRY",
+    "current_forward_paper": "BROKER_CASH_OR_MMF"
+  },
+  "reserve_reasons": [
+    "crisis_reserve",
+    "capacity_unallocated",
+    "reentry_pending",
+    "data_block_reserve",
+    "transaction_buffer",
+    "residual_cash"
+  ],
+  "dgs3mo_contract": {
+    "day_count": "ACT/365",
+    "rate_units": "percent",
+    "available_from_must_be_lte_accrual_date": true,
+    "fill_direction": "past_only_forward_fill",
+    "future_rate_use_allowed": false,
+    "default_haircut_bps": 50
+  },
+  "tradeable_etf_contract": {
+    "price_mode": "adjusted_close_total_return",
+    "fill_mode": "next_close",
+    "integer_shares": true,
+    "costs_apply": true,
+    "security_lifecycle_required": true,
+    "cash_interest_separately_credited": false,
+    "distribution_separately_credited": false
+  },
+  "integration": {
+    "historical_broker_replay": "tools/run_broker_ledger_replay.py",
+    "same_close_target_overlay": "tools/build_run287_same_close_target_books.py",
+    "order_preview": "tools/run_account_order_preview.py",
+    "paper_account_bootstrap": "tools/bootstrap_run287_daily_paper_accounts.py",
+    "paper_fill_ledger": "tools/run_daily_simulated_fill_ledger.py",
+    "bounded_evaluator": "tools/evaluate_run287_reserve_asset_policy.py"
+  },
+  "promotion": {
+    "automatic_mode_change_allowed": false,
+    "tradeable_reserve_rejected_if_mdd_worsens": true,
+    "production_enabled": false,
+    "live_trading_enabled": false
+  }
+}
