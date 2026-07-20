@@ -1,0 +1,4 @@
+rebalance_date,target_n,weighting_mode,active_rebalance_interval_months,net_return,turnover,bench_return,cash_weight
+2025-10-31,5,score_power,1,0.03,0.10,0.01,0.15
+2025-11-28,5,score_power,1,-0.01,0.12,-0.02,0.15
+2025-12-31,5,score_power,1,0.04,0.08,0.02,0.15

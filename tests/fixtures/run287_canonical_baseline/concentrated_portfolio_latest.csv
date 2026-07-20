@@ -1,0 +1,2 @@
+rebalance_date,ticker,weight,target_stock_names,weighting_mode
+2026-01-10,AAA,1.0,5,score_power

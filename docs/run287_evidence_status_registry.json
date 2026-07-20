@@ -1,0 +1,47 @@
+{
+  "schema_version": "run287-evidence-status-registry-v1",
+  "as_of": "2026-07-20",
+  "active": [
+    {
+      "path": "tests/fixtures/run287_canonical_baseline/manifest.json",
+      "label": "ACTIVE_CI_FIXTURE",
+      "purpose": "checksum-locked small baseline for Tier-1 and Portfolio System Guard"
+    },
+    {
+      "path": "docs/CODEX_RUN287_P7_OPERATING_SCORECARD_RESULT_20260720.md",
+      "label": "ACTIVE_OPERATING_SCORECARD_CONTRACT",
+      "purpose": "canonical internal review scorecard contract; source data through 2026-07-10"
+    },
+    {
+      "path": "docs/CODEX_RUN287_P8_REPO_CI_ARTIFACT_HYGIENE_RESULT_20260720.md",
+      "label": "ACTIVE_REPOSITORY_POLICY",
+      "purpose": "current Git, CI, manifest, retention, and restoration policy"
+    }
+  ],
+  "historical": [
+    {
+      "path_glob": "docs/CODEX_RUN287_P[0-6]_*.md",
+      "label": "HISTORICAL_EVIDENCE_PRESERVED",
+      "purpose": "immutable prior-stage evidence; values are not a current market refresh"
+    },
+    {
+      "path_glob": "cloud_results/full_rebuild/**",
+      "label": "HISTORICAL_LARGE_ARTIFACT_EXTERNAL_OR_LEGACY_GIT",
+      "purpose": "preserved evidence; do not add new dated bundles or rewrite history"
+    },
+    {
+      "path_glob": "outputs/**",
+      "label": "RUNTIME_OR_REVIEW_OUTPUT",
+      "purpose": "not canonical unless referenced by an active manifest and checksum verified"
+    }
+  ],
+  "rules": {
+    "unlabeled_generated_result_is_canonical": false,
+    "external_artifact_requires_manifest": true,
+    "checksum_failure_is_trusted": false,
+    "history_rewrite_allowed": false,
+    "artifact_deletion_allowed": false,
+    "fullrun_allowed": false,
+    "production_or_live_allowed": false
+  }
+}

@@ -53,7 +53,7 @@ def test_auto_learning_v2_runner_writes_expected_outputs() -> None:
         research_dir = tmp_path / "research"
         summary = run(
             Namespace(
-                latest_run=str(REPO_ROOT / "cloud_results" / "full_rebuild" / "latest_global_alpha_universe"),
+                latest_run=str(REPO_ROOT / "tests" / "fixtures" / "run287_canonical_baseline"),
                 output_dir=str(out_dir),
                 research_dir=str(research_dir),
                 human_approved=False,

@@ -17,7 +17,7 @@ def test_orchestrator_replay_records_missing_concentrated_monthly() -> None:
     with TemporaryDirectory() as tmp:
         result = run(
             Namespace(
-                latest_run=str(REPO_ROOT / "cloud_results" / "full_rebuild" / "latest_global_alpha_universe"),
+                latest_run=str(REPO_ROOT / "tests" / "fixtures" / "run287_canonical_baseline"),
                 output_dir=str(Path(tmp) / "orchestrator_replay"),
                 concentrated_monthly="",
                 target_n=5,
