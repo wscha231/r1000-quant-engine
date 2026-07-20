@@ -2820,3 +2820,63 @@ Expected contract:
   - `tools/run_daily_simulated_fill_ledger.py`
   - `tests/security_lifecycle_smoke.py`
   - `docs/CODEX_RUN287_P1_SECURITY_LIFECYCLE_RESULT_20260720.md`
+
+### 2026-07-20 - A current price mark is not a current selector decision
+
+- Agent: Codex
+- Branch/PR:
+  - `codex/run287-same-close-selector-20260720`
+  - issue #306 P2
+- Context:
+  - The scheduled workflow appended the latest price date to restored targets,
+    built paper orders from those rows, and only afterward ran the real
+    989-name score/selector path as no-write advisory output.
+- Attempt:
+  - Added a seven-field timestamp contract and an exact same-close paper target
+    gate over selector, model-head, holding-risk, candidate-risk, and source
+    hashes.
+  - Added a transaction-safe suppressed mark pass so prior orders are resolved
+    before risk/selection while bad selector provenance creates zero new order.
+  - Ported only the adjusted-close restatement repair needed for candidate-risk
+    source continuity; draft PR #299's unrelated changes were not mixed in.
+- Result:
+  - Restored books now report `RESTORED_TARGET_REVALUATION_ONLY` and
+    `same_close_selector_recomputed=false`.
+  - A bounded actual 2026-07-16 replay passed all six active model-head and
+    timestamp/hash gates after the legitimate dividend restatement repair.
+  - Full Tier-1 PR validation passed `179/179` in `555.59s`.
+  - The paper target hashes were
+    `b771bf9046d113d2780f05954df810577914f6e0660cb29c6e391a97d8a277f1`
+    (Main) and
+    `0f1bf3afa242825241615606744685e734d387dea0eab39bceea245def5e815b`
+    (Concentrated).
+- Failure or caveat:
+  - The one-date risk intersection leaves Main 46.7804% cash and Concentrated
+    88.6000% cash with 93.59%/99.16% one-way turnover. It is shadow evidence,
+    not an approved transition or evidence of improved CAGR/MDD.
+  - PIT universe membership remains unclean, so production remains blocked.
+- Root cause:
+  - Valuation freshness, feature freshness, selection recomputation, and order
+    eligibility were represented by one overloaded date. A later price could
+    therefore make an old decision appear current.
+- Reusable lesson:
+  - Set `same_close_selector_recomputed=true` only when the feature, score,
+    selector, valuation, risk, and target hashes form one date-consistent
+    decision bundle. Marking an account and deciding its next target are
+    separate transactions.
+- Next action:
+  - Merge P2, then implement P3's single defense/re-entry state machine. Do not
+    tune P2's one-date veto or cash outcome.
+- Do-not-repeat:
+  - Do not overwrite a restored target's decision date with a current price
+    date.
+  - Do not create a new order before exact-date selector and risk provenance
+    pass.
+  - Do not treat adjusted-close dividend restatement as raw-price identity
+    failure; compare raw overlap and rebase old adjusted history.
+  - Do not tune the risk veto after seeing one date's cash or turnover.
+- Evidence files:
+  - `docs/run287_same_close_target_contract.json`
+  - `tools/build_run287_same_close_target_books.py`
+  - `tests/run287_same_close_target_books_smoke.py`
+  - `docs/CODEX_RUN287_P2_SAME_CLOSE_SELECTOR_RESULT_20260720.md`

@@ -1,0 +1,51 @@
+{
+  "schema_version": "run287-same-close-target-contract-v1",
+  "scope": "forward paper target generation after one completed NYSE close",
+  "required_timestamp_fields": [
+    "signal_source_date",
+    "feature_as_of_date",
+    "valuation_close_date",
+    "selector_decision_time_utc",
+    "target_effective_date",
+    "order_eligible_close_date",
+    "same_close_selector_recomputed"
+  ],
+  "selector_scenarios": {
+    "main": "prior_hold_transition_bridge",
+    "concentrated": "strict_registered_current"
+  },
+  "active_prediction_heads": [
+    "pred_lin_ret",
+    "pred_lin_p",
+    "pred_future_winner_ret",
+    "pred_future_winner_p",
+    "pred_cat_ret",
+    "pred_cat_p"
+  ],
+  "prediction_head_gate": "every head must be finite, nonzero, and nonconstant",
+  "risk_intersection": {
+    "new_entry": "selector alpha admits the candidate only when exact-date candidate risk is NORMAL",
+    "held_incremental_buy": "cap at marked weight when held state is ALERT or WATCH or action freezes incremental buys",
+    "released_weight": "retain as CASH without reallocating to another security",
+    "missing": "neutral for alpha features but fail closed for a proposed new-entry risk row"
+  },
+  "turnover_and_cost": {
+    "cash_included_in_turnover": true,
+    "cash_excluded_from_equity_fee": true,
+    "fee_sensitivity_bps_per_asset_side": [25, 50, 100]
+  },
+  "execution": {
+    "fill_mode": "next_close",
+    "target_effective_date": "valuation_close_date",
+    "order_eligible_close_date": "first NYSE session strictly after valuation_close_date",
+    "integer_shares": true
+  },
+  "safety": {
+    "paper_only": true,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false,
+    "fullrun_allowed": false,
+    "pit_universe_label_clean": false,
+    "restored_target_may_set_same_close_selector_recomputed": false
+  }
+}

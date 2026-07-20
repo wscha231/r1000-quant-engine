@@ -888,7 +888,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "data_pit/macro",
         "Refresh current price cache",
         "Build daily market snapshot",
-        "Refresh SEC-enriched candidate replay",
+        "Label restored-target revaluation input",
         "Build operating target books",
         "tools/build_replay_price_cache.py",
         "tools/build_daily_market_snapshot.py",
@@ -909,9 +909,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "using restored SEC-enriched candidate replay",
         "SEC-enriched candidate replay failed or timed out",
         "daily_sec_enriched_candidate_replay.log",
-        "latest_target_candidate_book.csv",
+        "restored_target_revaluation_candidate_book.csv",
+        "RESTORED_TARGET_REVALUATION_ONLY",
+        "same_close_selector_recomputed",
         "daily_candidate_source",
-        "LAST_NYSE_CLOSE_UTC",
         "LAST_NYSE_SESSION_DATE",
         "tools/run_daily_market_session_gate.py",
         "--min-close-age-minutes 90",
@@ -980,6 +981,11 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/run287_exact_packet_producer/",
         "run287_exact_packet_input_registry/registry.json",
         "daily_run287_exact_packet_producer.log",
+        "tools/build_run287_same_close_target_books.py",
+        "outputs/run287_same_close_decision/",
+        "daily_run287_same_close_target_books.log",
+        "--suppress-new-orders",
+        "zero new orders generated",
         "run287_current_selector_no_write_exact_close_",
         "run287_candidate_risk_watch_exact_close_",
         "exact_packet_ready",
@@ -1027,11 +1033,13 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     exact_upstream_idx = text.index("python tools/run_run287_exact_packet_upstream.py")
     input_registry_idx = text.index("python tools/build_run287_exact_packet_input_registry.py")
     exact_packet_idx = text.index("python tools/run_run287_exact_packet_producer.py")
+    same_close_idx = text.index("python tools/build_run287_same_close_target_books.py")
+    selected_paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py", paper_idx + 1)
     decision_archive_idx = text.index("python tools/archive_run287_decision_observation.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
     assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
-    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < decision_archive_idx < snapshot_idx, "bounded upstream, exact input registration, packet production, and archive ingestion must run after the exact-close risk watch and before reports"
+    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < decision_archive_idx < snapshot_idx, "bounded upstream, exact input registration, packet production, same-close target gating, selected paper order generation, and archive ingestion must run after the exact-close risk watch and before reports"
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
 
