@@ -2579,3 +2579,179 @@ Expected contract:
   - `tools/audit_free_historical_data_coverage.py`
   - `tests/free_historical_data_backfill_smoke.py`
   - `docs/CODEX_RUN287_DELISTED_COVERAGE_TRUTH_RESULT_20260715.md`
+
+### 2026-07-18 - A successful daily job must not silently replace the forward-paper genesis
+
+- Agent: Codex
+- Branch/run:
+  - `codex/run287-paper-ledger-continuity-20260718`
+  - affected successful run `29554723038`
+  - recovery proof runs `29624921914` and `29625744031`
+- Context:
+  - The 2026-07-16 daily operating job found neither a GitHub paper-state
+    cache nor the dedicated Google Drive paper archive and therefore created a
+    new $100,000 seed, losing the valid 2026-07-13 forward-performance anchor.
+- Attempt:
+  - Preserved the displaced 2026-07-16 Drive state both locally and under a
+    separate Drive recovery-backup folder.
+  - Restored the validated 2026-07-13 review-only ledger to the dedicated Drive
+    archive with `rclone copy`; no remote or local files were deleted.
+  - Added an explicit `--expected-seed-date 2026-07-13` continuity contract.
+    A later session may reuse that frozen seed or a matching restored account,
+    but it may not manufacture a replacement seed.
+- Result:
+  - Source, Drive archive, and Drive recovery backup each contain 20 files.
+    `rclone check --checksum --one-way` reported 20 matches and zero
+    differences for the restored canonical state.
+  - Manual workflow run `29624921914` restored both exact 2026-07-13 account
+    hashes with `created_account_count=0`; the new continuity guard therefore
+    worked against the real Drive/cache restore order.
+  - The same run then failed closed at exact-close coverage because SOXX ended
+    at 2026-07-16 while the required session was 2026-07-17. The refresh tool
+    had treated a cache exactly two calendar days old as fresh under `age > 2`.
+  - Added `--refresh-through-date "$LAST_NYSE_SESSION_DATE"` so every selected
+    ticker behind the required market session is refreshed regardless of its
+    calendar-age bucket. Focused validation passed `3/3`.
+  - Bounded rerun `29625744031` completed successfully with exact-close
+    coverage `24/24`, `23` required-session price refreshes, and zero refresh
+    failures. Both accounts reported `seeded_this_run=false` and retained the
+    canonical 2026-07-13 seed.
+  - The 2026-07-17 review-only marks were Main equity `$97,724.6624`, cash
+    `1.3988%`, forward return/MDD `-2.2753%`; Concentrated equity
+    `$84,279.8008`, cash `0.8472%`, forward return/MDD `-15.7202%`.
+    These four-session observations remain `UNDERPOWERED` for CAGR inference.
+  - The workflow persisted the advanced 20-file ledger to the dedicated Drive
+    archive. A post-run `rclone check --checksum --one-way` found 20 matches
+    and zero differences between the artifact and Drive.
+  - Subsequent same-session retry runs exposed two additional append-only
+    boundaries. Run `29627879721` rejected a duplicate holding-risk event whose
+    only change was `available_from`; run `29628711412` then showed that a
+    provider/cache revision can also change the recomputed risk payload. The
+    retry path now reuses the first verified 2026-07-17 risk snapshot only when
+    account hashes, contract hash, stored output hashes, event IDs, and safety
+    flags all match. Any semantic input or stored-output change remains blocked.
+  - Run `29629644686` passed required-session close coverage and reached review
+    output construction, but a same-date provider revision changed Main equity
+    from `$97,724.66236877441` to `$97,724.71708679199` (about `$0.055`). The
+    ledger correctly rejected the changed 2026-07-17 mark, but the old path had
+    already written `account_state_latest.json` before raising.
+  - The ledger retry path now validates manifest, target/seed hashes, cost and
+    lag policy, account/curve/position consistency, pending counts, and the
+    fill/rejection event chain before reusing a same-session mark. A price-only
+    cache revision is ignored after the first exact mark; target, seed, policy,
+    or stored-state changes fail closed before any portfolio state file is
+    written.
+  - Focused fixture validation passed, including a deliberately revised same-day
+    close and a changed-target negative control. A copied real artifact from
+    successful run `29625744031` reused both 2026-07-17 portfolio marks, with
+    zero hash differences across all 30 portfolio and preview files.
+  - Bounded run `29630940290` exposed one restore-contract gap: the dedicated
+    Drive archive intentionally persists the ledger but not disposable
+    `account_ledger_preview` files. Reuse validation therefore stopped on four
+    missing preview files before reaching the lifecycle scorer. The retry path
+    now leaves the verified portfolio state frozen and rebuilds only a missing
+    advisory preview from that frozen account; existing previews remain
+    byte-for-byte unchanged.
+- Failure or caveat:
+  - The Google Drive connector could read the archive but returned HTTP 403
+    for raw-file replacement because that app lacked file-specific write
+    authorization. The already configured local rclone remote completed the
+    bounded recovery instead.
+  - This repairs forward-paper continuity only. It does not change historical
+    CAGR/MDD, target weights, orders, or production state.
+  - Run `29624921914` did not advance the paper ledger because exact-close
+    coverage correctly blocked on SOXX before review outputs were built.
+  - The daily workflow can now advance marks and holding-risk review through
+    2026-07-17, but `master` and this focused PR still fail closed at
+    `scored_latest`: GTLS has no 2026-07-17 close because its verified cash
+    merger ended trading after 2026-07-15. Minimal terminal-lifecycle evidence
+    and scorer handling are isolated on stacked draft PR #301; broader research
+    changes remain on draft PR #299.
+- Root cause:
+  - The bootstrap correctly refused partial ledger state but had no canonical
+    genesis-date contract. Complete absence was therefore indistinguishable
+    from a legitimate first launch.
+- Reusable lesson:
+  - Persistent paper systems need a pinned genesis identity in addition to
+    cache/Drive restore. Missing persistence after genesis must fail closed,
+    not reset equity to starting capital.
+  - Append-only forward marks need same-session idempotency at the orchestration
+    boundary. Provider revisions must not trigger a second valuation write for
+    an already archived date, and validation must happen before partial writes.
+- Next action:
+  - Merge the focused persistence/required-session fix only after review, then
+    split the minimal verified GTLS terminal-lifecycle handling out of draft
+    PR #299 so the exact selector packet can advance without importing that
+    PR's unrelated research surface.
+- Do-not-repeat:
+  - Do not infer continuity from a successful workflow conclusion.
+  - Do not accept a later exact-close bootstrap merely because all prices are
+    available.
+  - Do not use calendar-age freshness as a substitute for required-session
+    close coverage.
+  - Do not overwrite a displaced archive without preserving a recovery copy.
+- Evidence files:
+  - `tools/bootstrap_run287_daily_paper_accounts.py`
+  - `tools/run_daily_simulated_fill_ledger.py`
+  - `tests/run287_daily_paper_bootstrap_smoke.py`
+  - `tests/daily_simulated_fill_ledger_smoke.py`
+  - `.github/workflows/daily_operating_selection_refresh.yml`
+  - `outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/`
+  - `outputs/run287_paper_drive_backup_pre_recovery_20260718_1006/`
+
+### 2026-07-20 - A forward-paper session is one directory transaction, not two portfolio writes
+
+- Agent: Codex
+- Branch/PR:
+  - `codex/run287-paper-ledger-continuity-20260718`
+  - draft PR #300; issue #306 P0
+- Context:
+  - Same-session reuse had been repaired, but a new-session run still wrote
+    Main files before validating Concentrated. Root summaries, bootstrap
+    summaries, and Drive copies also lacked one exact checksum contract.
+- Attempt:
+  - Compute bootstrap accounts and both portfolio sessions in isolated sibling
+    directories, validate the complete candidate, and publish the directory
+    bundle through recovery-backed atomic renames.
+  - Added a deterministic genesis identity and exact-file SHA-256 snapshot
+    manifest. Restore validates before replacement; Drive save writes and checks
+    a run-specific recovery copy before syncing the canonical archive.
+  - Required exact completed-session closes for held, target, and pending
+    securities and rejected duplicate client order IDs and negative cash.
+- Result:
+  - A 20-business-session fixture retained the original seed and account IDs,
+    produced 20 equity observations, and returned a byte-identical state hash
+    on same-session retry.
+  - A stale Concentrated close failed after Main candidate computation with zero
+    durable changes. An injected interruption after the first directory publish
+    restored both state and preview hashes exactly.
+  - Focused PR validation passed `6/6` in `26.25s`; full Tier-1 PR
+    validation passed `177/177` in `475.61s`. No fullrun was executed.
+- Failure or caveat:
+  - Existing legacy archives have no new checksum. They may be migrated only by
+    a successful semantic validation and transactional session; checksum
+    mismatch is always fail-closed.
+  - This does not improve historical CAGR/MDD and does not authorize production
+    or live trading.
+- Root cause:
+  - File-level append-only checks were present, but the orchestration boundary
+    was not a transaction. A later failure could therefore expose a mixed-date
+    two-portfolio state.
+- Reusable lesson:
+  - Durable multi-account paper state needs validate-first/write-second at the
+    directory generation level. Same-session idempotency must include the root
+    summary and integrity manifest, not only each portfolio subdirectory.
+- Next action:
+  - Update draft PR #300 and request review. Do not begin P1 until P0 is
+    merged or explicitly closed.
+- Do-not-repeat:
+  - Do not write Main before Concentrated has validated.
+  - Do not restore or replace canonical paper state without exact checksums and
+    a recovery copy.
+  - Do not use a prior close as the current exact-session mark.
+- Evidence files:
+  - `tools/run287_paper_ledger_integrity.py`
+  - `tools/run_daily_simulated_fill_ledger.py`
+  - `tools/bootstrap_run287_daily_paper_accounts.py`
+  - `tests/run287_paper_ledger_transaction_smoke.py`
+  - `docs/CODEX_RUN287_P0_PAPER_LEDGER_TRANSACTION_RESULT_20260720.md`

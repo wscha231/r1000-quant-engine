@@ -58,6 +58,7 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
                 max_tickers=0,
                 required_tickers=[],
                 refresh_stale_days=2,
+                refresh_through_date="",
                 dry_run=True,
             )
         )
@@ -89,6 +90,7 @@ def test_replay_price_cache_always_includes_required_tickers() -> None:
                 max_tickers=1,
                 required_tickers=["SPY", "QQQ"],
                 refresh_stale_days=-1,
+                refresh_through_date="",
                 dry_run=True,
             )
         )
@@ -97,7 +99,40 @@ def test_replay_price_cache_always_includes_required_tickers() -> None:
         assert payload["download_target_count"] == 3
 
 
+def test_replay_price_cache_refreshes_through_required_session() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        book = root / "book.csv"
+        pd.DataFrame([{"rebalance_date": "2026-07-17", "ticker": "AAA", "weight": 1.0}]).to_csv(
+            book, index=False
+        )
+        cache = root / "cache_prices"
+        write_price(cache, "AAA", "2026-07-17")
+        write_price(cache, "SOXX", "2026-07-16")
+
+        payload = run(
+            Namespace(
+                books=[str(book)],
+                scored="",
+                max_scored=0,
+                output_dir=str(cache),
+                start="",
+                end="",
+                batch_size=40,
+                max_tickers=0,
+                required_tickers=["SOXX"],
+                refresh_stale_days=-1,
+                refresh_through_date="2026-07-17",
+                dry_run=True,
+            )
+        )
+        assert payload["refresh_through_date"] == "2026-07-17"
+        assert payload["behind_refresh_through_before"] == 1
+        assert payload["download_target_count"] == 1
+
+
 if __name__ == "__main__":
     test_replay_price_cache_marks_stale_existing_tickers()
     test_replay_price_cache_always_includes_required_tickers()
+    test_replay_price_cache_refreshes_through_required_session()
     print("replay_price_cache_smoke: PASS")

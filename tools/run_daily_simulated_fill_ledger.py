@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import json
 import math
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,16 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run_account_order_preview import normalize_target, run as run_order_preview  # noqa: E402
 from tools.run_broker_ledger_replay import LedgerState, account_equity, execute_order, safe_float  # noqa: E402
+from tools.run287_paper_ledger_integrity import (  # noqa: E402
+    INTEGRITY_FILE,
+    PaperLedgerIntegrityError,
+    atomic_publish_bundle,
+    clone_directory,
+    directory_hashes,
+    recover_interrupted_publish,
+    verify_integrity_manifest,
+    write_integrity_manifest,
+)
 from tools.run_weekly_evaluation import load_price_series, price_on_or_after, price_on_or_before  # noqa: E402
 
 
@@ -221,6 +232,16 @@ def load_or_seed_account(
     if not account:
         account = read_json(bootstrap_path)
         validate_seed_account(account, portfolio, as_of_date, cost_bps)
+        seed_date = pd.to_datetime(account.get("seed_as_of_date") or account.get("as_of_date"), errors="coerce")
+        canonical_genesis = (
+            str(account.get("schema_version") or "") == "run287-daily-paper-bootstrap-account-v1"
+            or bool(account.get("account_id"))
+        )
+        if canonical_genesis and pd.notna(seed_date) and as_of_date > pd.Timestamp(seed_date).normalize():
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_MISSING_PERSISTENCE_AFTER_GENESIS",
+                f"missing {portfolio} durable state after genesis {pd.Timestamp(seed_date).date().isoformat()}",
+            )
         seeded = True
     else:
         if account.get("review_only") is not True or account.get("live_trading_enabled") is not False:
@@ -231,6 +252,138 @@ def load_or_seed_account(
     return account, state_from_account(account), seeded
 
 
+def validate_restored_snapshot(portfolio_dir: Path, portfolio: str) -> None:
+    """Validate a prior committed portfolio before advancing its state."""
+    account_path = portfolio_dir / "account_state_latest.json"
+    if not account_path.is_file():
+        return
+    required = (
+        "positions_latest.csv",
+        "pending_orders.csv",
+        "fills.csv",
+        "rejections.csv",
+        "equity_curve.csv",
+        "state_meta.json",
+        "manifest.json",
+    )
+    missing = [name for name in required if not (portfolio_dir / name).is_file()]
+    if missing:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", f"incomplete restored {portfolio} snapshot; missing={missing}"
+        )
+    account = read_json(account_path)
+    manifest = read_json(portfolio_dir / "manifest.json")
+    meta = read_json(portfolio_dir / "state_meta.json")
+    curve = read_csv(portfolio_dir / "equity_curve.csv")
+    pending = read_csv(portfolio_dir / "pending_orders.csv")
+    fills = read_csv(portfolio_dir / "fills.csv")
+    rejections = read_csv(portfolio_dir / "rejections.csv")
+    errors: list[str] = []
+    account_date = clean_date(account.get("as_of_date"))
+    manifest_date = clean_date(manifest.get("as_of_date"))
+    meta_date = clean_date(meta.get("as_of_date"))
+    curve_dates = pd.to_datetime(curve.get("date", pd.Series(dtype=str)), errors="coerce").dropna()
+    curve_date = curve_dates.iloc[-1].date().isoformat() if not curve_dates.empty else ""
+    if not account_date or len({account_date, manifest_date, meta_date, curve_date}) != 1:
+        errors.append("as_of_date_mismatch")
+    for payload, label in ((account, "account"), (manifest, "manifest"), (meta, "meta")):
+        if str(payload.get("portfolio_kind") or "").lower() != portfolio:
+            errors.append(f"{label}_portfolio")
+        if payload.get("review_only") is not True or payload.get("live_trading_enabled") is not False:
+            errors.append(f"{label}_safety")
+    try:
+        sequence, chain_hash, client_ids = validate_event_chain(fills, rejections)
+    except ValueError as exc:
+        errors.append(f"event_chain:{exc}")
+        sequence, chain_hash, client_ids = -1, "", set()
+    event_client_ids = [
+        str(value) for value in pd.concat(
+            [fills.get("client_order_id", pd.Series(dtype=str)), rejections.get("client_order_id", pd.Series(dtype=str))],
+            ignore_index=True,
+        ).fillna("").tolist() if str(value)
+    ]
+    if len(event_client_ids) != len(set(event_client_ids)) or len(client_ids) != len(set(event_client_ids)):
+        errors.append("duplicate_resolved_client_order_id")
+    pending_ids = [str(value) for value in pending.get("client_order_id", pd.Series(dtype=str)).fillna("").tolist() if str(value)]
+    if len(pending_ids) != len(set(pending_ids)) or set(pending_ids) & set(event_client_ids):
+        errors.append("duplicate_pending_client_order_id")
+    expected_counts = {
+        "pending_order_count": len(pending),
+        "fill_count": len(fills),
+        "rejection_count": len(rejections),
+        "event_sequence": sequence,
+    }
+    for key, expected in expected_counts.items():
+        if int(safe_float(manifest.get(key), -1)) != expected or int(safe_float(meta.get(key), -1)) != expected:
+            errors.append(f"stored_{key}")
+    if str(manifest.get("event_chain_hash") or "") != chain_hash or str(meta.get("event_chain_hash") or "") != chain_hash:
+        errors.append("stored_event_chain_hash")
+    if int(safe_float(account.get("pending_order_count"), -1)) != len(pending):
+        errors.append("account_pending_order_count")
+    state_from_account(account)
+    if errors:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", f"restored {portfolio} snapshot validation failed: {','.join(errors)}"
+        )
+
+
+def ensure_genesis_identity(
+    *,
+    state_root: Path,
+    bootstrap_paths: dict[str, Path],
+    target_paths: dict[str, Path],
+    cost_bps: float,
+    max_fill_lag_days: int,
+) -> dict[str, Any]:
+    portfolios: dict[str, Any] = {}
+    seed_dates: set[str] = set()
+    starting_capitals: set[float] = set()
+    for portfolio in PORTFOLIOS:
+        account = read_json(bootstrap_paths[portfolio])
+        validate_seed_account(account, portfolio, pd.Timestamp.max.normalize(), cost_bps)
+        seed_date = clean_date(account.get("seed_as_of_date") or account.get("as_of_date"))
+        if not seed_date:
+            raise PaperLedgerIntegrityError("BLOCKED_INTEGRITY", f"missing genesis date for {portfolio}")
+        seed_dates.add(seed_date)
+        capital = float(safe_float(account.get("starting_capital_usd"), safe_float(account.get("equity_usd"), 0.0)))
+        if capital <= 0:
+            raise PaperLedgerIntegrityError("BLOCKED_INTEGRITY", f"invalid genesis capital for {portfolio}")
+        starting_capitals.add(capital)
+        seed_target = normalized_target(target_paths[portfolio], portfolio, pd.Timestamp(seed_date))
+        digest = str(account.get("assumed_applied_target_hash") or target_hash(seed_target))
+        portfolios[portfolio] = {
+            "account_id": str(account.get("account_id") or f"run287-paper-{portfolio}-{seed_date}"),
+            "starting_capital_usd": capital,
+            "target_hash": digest,
+            "target_sha256": str(account.get("target_sha256") or file_hash(target_paths[portfolio])),
+            "bootstrap_account_sha256": file_hash(bootstrap_paths[portfolio]),
+        }
+    contract = {
+        "fill_mode": "next_close",
+        "integer_shares": True,
+        "cost_bps_per_side": float(cost_bps),
+        "max_fill_lag_days": int(max_fill_lag_days),
+        "sell_before_buy": True,
+        "cash_must_be_nonnegative": True,
+    }
+    identity = {
+        "schema_version": "run287-paper-genesis-identity-v1",
+        "seed_dates": sorted(seed_dates),
+        "starting_capitals_usd": sorted(starting_capitals),
+        "portfolios": portfolios,
+        "execution_contract": contract,
+        "policy_hash": canonical_hash({"schema": "run287-paper-policy-v1", "portfolios": portfolios, "contract": contract}),
+    }
+    identity["genesis_identity_hash"] = canonical_hash(identity)
+    path = state_root / "genesis_identity.json"
+    existing = read_json(path)
+    if existing and existing != identity:
+        raise PaperLedgerIntegrityError("BLOCKED_INTEGRITY", "genesis identity changed")
+    if not existing:
+        write_json(path, identity)
+    return identity
+
+
 def load_prices(price_cache: Path, tickers: set[str]) -> dict[str, pd.DataFrame]:
     prices: dict[str, pd.DataFrame] = {}
     for ticker in sorted({clean_ticker(value) for value in tickers if clean_ticker(value)}):
@@ -238,6 +391,25 @@ def load_prices(price_cache: Path, tickers: set[str]) -> dict[str, pd.DataFrame]
         if not frame.empty:
             prices[ticker] = frame
     return prices
+
+
+def require_exact_session_closes(
+    *, price_cache: Path, tickers: set[str], as_of_date: pd.Timestamp, context: str
+) -> None:
+    required = {clean_ticker(value) for value in tickers if clean_ticker(value) not in {"", "CASH", "USD"}}
+    prices = load_prices(price_cache, required)
+    failures: list[str] = []
+    for ticker in sorted(required):
+        actual_date, price = price_on_or_before(prices.get(ticker, pd.DataFrame()), as_of_date, "close")
+        actual_date = pd.Timestamp(actual_date).normalize() if actual_date is not None else None
+        value = float(price) if price is not None else math.nan
+        if actual_date != as_of_date or not math.isfinite(value) or value <= 0:
+            failures.append(ticker)
+    if failures:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_MISSING_EXACT_CLOSE",
+            f"missing exact completed-session {context} closes on {as_of_date.date().isoformat()}: {failures}",
+        )
 
 
 def event_payload_for_hash(row: dict[str, Any]) -> dict[str, Any]:
@@ -275,6 +447,8 @@ def validate_event_chain(fills: pd.DataFrame, rejections: pd.DataFrame) -> tuple
         event_ids.add(event_id)
         client_id = str(row.get("client_order_id") or "")
         if client_id:
+            if client_id in client_ids:
+                raise ValueError("forward paper client order id is duplicated")
             client_ids.add(client_id)
     return last_sequence, previous, client_ids
 
@@ -333,6 +507,14 @@ def resolve_pending_orders(
             "resolved_fills": 0,
             "resolved_rejections": 0,
         }
+
+    pending_client_ids = [
+        str(value) for value in pending.get("client_order_id", pd.Series(dtype=str)).fillna("").tolist()
+    ]
+    if any(not value for value in pending_client_ids) or len(pending_client_ids) != len(set(pending_client_ids)):
+        raise PaperLedgerIntegrityError("BLOCKED_INTEGRITY", "pending client order id is missing or duplicated")
+    if set(pending_client_ids) & resolved_client_ids:
+        raise PaperLedgerIntegrityError("BLOCKED_INTEGRITY", "pending client order id was already resolved")
 
     candidates: list[tuple[pd.Timestamp, int, int, dict[str, Any], float]] = []
     keep_pending: list[dict[str, Any]] = []
@@ -529,8 +711,19 @@ def mark_account(
         quantity = float(state.shares.get(ticker, 0.0))
         if quantity <= 1e-12:
             continue
-        _date, price = price_on_or_before(prices.get(ticker, pd.DataFrame()), as_of_date, "close")
-        price = float(price) if price is not None else float(state.cost_basis.get(ticker, 0.0))
+        exact_date, price = price_on_or_before(prices.get(ticker, pd.DataFrame()), as_of_date, "close")
+        exact_date = pd.Timestamp(exact_date).normalize() if exact_date is not None else None
+        if exact_date is None or exact_date != as_of_date or price is None:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_MISSING_EXACT_CLOSE",
+                f"missing exact completed-session close for held {ticker} on {as_of_date.date().isoformat()}",
+            )
+        price = float(price)
+        if not math.isfinite(price) or price <= 0:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_MISSING_EXACT_CLOSE",
+                f"invalid exact completed-session close for held {ticker} on {as_of_date.date().isoformat()}",
+            )
         market_value = float(values.get(ticker, quantity * price))
         basis = float(state.cost_basis.get(ticker, price))
         position_rows.append(
@@ -674,6 +867,163 @@ def forward_metrics(curve: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def load_reusable_same_session_manifest(
+    *,
+    portfolio: str,
+    portfolio_dir: Path,
+    bootstrap_path: Path,
+    target_path: Path,
+    as_of_date: pd.Timestamp,
+    cost_bps: float,
+    max_fill_lag_days: int,
+) -> dict[str, Any] | None:
+    """Reuse an already-committed mark for the same market session.
+
+    Provider caches can revise a close after the first exact-session mark was
+    archived.  Re-marking the same date would mutate an append-only forward
+    curve.  Reuse is therefore allowed only when the complete stored state and
+    every non-price input still match; any mismatch fails closed before a state
+    file is written.
+    """
+
+    requested_date = as_of_date.date().isoformat()
+    manifest = read_json(portfolio_dir / "manifest.json")
+    account = read_json(portfolio_dir / "account_state_latest.json")
+    curve = read_csv(portfolio_dir / "equity_curve.csv")
+    manifest_date = clean_date(manifest.get("as_of_date"))
+    account_date = clean_date(account.get("as_of_date"))
+    curve_dates = (
+        pd.to_datetime(curve.get("date", pd.Series(dtype=str)), errors="coerce").dt.strftime("%Y-%m-%d")
+        if not curve.empty
+        else pd.Series(dtype=str)
+    )
+    curve_has_requested = bool((curve_dates == requested_date).any())
+
+    if manifest_date != requested_date:
+        if account_date == requested_date or curve_has_requested:
+            raise ValueError(
+                f"incomplete same-session paper state for {portfolio}; refusing recovery mutation"
+            )
+        return None
+
+    errors: list[str] = []
+
+    def require(condition: bool, reason: str) -> None:
+        if not condition:
+            errors.append(reason)
+
+    target = normalized_target(target_path, portfolio, as_of_date)
+    digest = target_hash(target)
+    effective_date = target_effective_date(target_path, as_of_date)
+    effective_text = effective_date.date().isoformat() if effective_date is not None else None
+    require(str(manifest.get("schema_version") or "") == "daily-simulated-fill-ledger-manifest-v1", "manifest_schema")
+    require(str(manifest.get("portfolio_kind") or "").lower() == portfolio, "manifest_portfolio")
+    require(str(manifest.get("fill_mode") or "").lower() == "next_close", "fill_mode")
+    require(manifest.get("integer_shares") is True, "integer_shares")
+    require(manifest.get("review_only") is True, "manifest_review_only")
+    require(manifest.get("live_trading_enabled") is False, "manifest_live_trading")
+    require(manifest.get("production_mutation_allowed") is False, "manifest_production_mutation")
+    require(math.isclose(float(safe_float(manifest.get("cost_bps_per_side"), np.nan)), cost_bps, abs_tol=1e-9), "cost_bps")
+    require(int(safe_float(manifest.get("max_fill_lag_days"), -1)) == int(max_fill_lag_days), "max_fill_lag_days")
+    require(str(manifest.get("target_hash") or "") == digest, "target_hash")
+    require(str(manifest.get("target_sha256") or "") == file_hash(target_path), "target_sha256")
+    require(str(manifest.get("seed_account_sha256") or "") == file_hash(bootstrap_path), "seed_account_sha256")
+    require(manifest.get("target_effective_date") == effective_text, "target_effective_date")
+
+    require(bool(account), "account_missing")
+    require(account_date == requested_date, "account_as_of_date")
+    require(str(account.get("portfolio_kind") or "").lower() == portfolio, "account_portfolio")
+    require(account.get("review_only") is True, "account_review_only")
+    require(account.get("live_trading_enabled") is False, "account_live_trading")
+    require(account.get("production_mutation_allowed") is False, "account_production_mutation")
+
+    matching_curve = curve.loc[curve_dates == requested_date].copy() if not curve.empty else pd.DataFrame()
+    require(len(matching_curve) == 1, "equity_curve_same_date_count")
+    require(not curve_dates.empty and str(curve_dates.iloc[-1]) == requested_date, "equity_curve_latest_date")
+    if len(matching_curve) == 1 and account:
+        curve_row = matching_curve.iloc[0]
+        for field in ("equity_usd", "cash_usd", "stock_value_usd"):
+            require(
+                math.isclose(
+                    float(safe_float(curve_row.get(field), np.nan)),
+                    float(safe_float(account.get(field), np.nan)),
+                    rel_tol=1e-9,
+                    abs_tol=1e-6,
+                ),
+                f"equity_curve_{field}",
+            )
+        require(
+            int(safe_float(curve_row.get("position_count"), -1))
+            == int(safe_float(account.get("position_count"), -2)),
+            "equity_curve_position_count",
+        )
+
+    positions = read_csv(portfolio_dir / "positions_latest.csv")
+    account_positions = account.get("positions") if isinstance(account.get("positions"), list) else []
+    require(len(positions) == len(account_positions), "positions_row_count")
+    require(len(account_positions) == int(safe_float(account.get("position_count"), -1)), "account_position_count")
+    if account_positions:
+        account_position_map = {
+            clean_ticker(row.get("ticker")): float(safe_float(row.get("shares"), np.nan))
+            for row in account_positions
+            if isinstance(row, dict) and clean_ticker(row.get("ticker"))
+        }
+        stored_position_map = {
+            clean_ticker(row.get("ticker")): float(safe_float(row.get("shares"), np.nan))
+            for row in positions.to_dict("records")
+            if clean_ticker(row.get("ticker"))
+        }
+        require(account_position_map.keys() == stored_position_map.keys(), "positions_tickers")
+        require(
+            all(
+                math.isclose(account_position_map[ticker], stored_position_map[ticker], abs_tol=1e-9)
+                for ticker in account_position_map.keys() & stored_position_map.keys()
+            ),
+            "positions_shares",
+        )
+
+    pending = read_csv(portfolio_dir / "pending_orders.csv")
+    fills = read_csv(portfolio_dir / "fills.csv")
+    rejections = read_csv(portfolio_dir / "rejections.csv")
+    try:
+        sequence, chain_hash, _client_ids = validate_event_chain(fills, rejections)
+    except ValueError as exc:
+        errors.append(f"event_chain:{exc}")
+        sequence, chain_hash = -1, ""
+    require(int(safe_float(manifest.get("pending_order_count"), -1)) == len(pending), "manifest_pending_count")
+    require(int(safe_float(manifest.get("fill_count"), -1)) == len(fills), "manifest_fill_count")
+    require(int(safe_float(manifest.get("rejection_count"), -1)) == len(rejections), "manifest_rejection_count")
+    require(int(safe_float(manifest.get("event_sequence"), -1)) == sequence, "manifest_event_sequence")
+    require(str(manifest.get("event_chain_hash") or "") == chain_hash, "manifest_event_chain_hash")
+    require(int(safe_float(account.get("pending_order_count"), -1)) == len(pending), "account_pending_count")
+
+    meta = read_json(portfolio_dir / "state_meta.json")
+    require(clean_date(meta.get("as_of_date")) == requested_date, "state_meta_as_of_date")
+    require(int(safe_float(meta.get("event_sequence"), -1)) == sequence, "state_meta_event_sequence")
+    require(str(meta.get("event_chain_hash") or "") == chain_hash, "state_meta_event_chain_hash")
+    require(int(safe_float(meta.get("pending_order_count"), -1)) == len(pending), "state_meta_pending_count")
+    require(int(safe_float(meta.get("fill_count"), -1)) == len(fills), "state_meta_fill_count")
+    require(int(safe_float(meta.get("rejection_count"), -1)) == len(rejections), "state_meta_rejection_count")
+
+    if errors:
+        raise ValueError(
+            f"same-session paper ledger reuse validation failed for {portfolio}: {','.join(errors)}"
+        )
+
+    reused = dict(manifest)
+    reused.update(
+        {
+            "seeded_this_run": False,
+            "resolved_fills_this_run": 0,
+            "resolved_rejections_this_run": 0,
+            "enqueued_this_run": 0,
+            "same_session_reused": True,
+            "same_session_reuse_reason": "verified_first_exact_mark_preserved",
+        }
+    )
+    return reused
+
+
 def build_order_preview(
     *,
     account_path: Path,
@@ -727,6 +1077,12 @@ def enqueue_preview_orders(
     manifest = read_json(preview_dir / "order_batch_manifest.json")
     batch_id = str(manifest.get("order_batch_id") or "")
     queued: list[dict[str, Any]] = []
+    order_client_ids = [
+        str(value) for value in orders.get("client_order_id", pd.Series(dtype=str)).fillna("").tolist()
+        if str(value)
+    ]
+    if len(order_client_ids) != len(set(order_client_ids)):
+        raise PaperLedgerIntegrityError("BLOCKED_INTEGRITY", f"duplicate preview client order id for {portfolio}")
     for priority, row in enumerate(orders.to_dict("records"), start=1):
         status = str(row.get("status") or "")
         quantity = float(safe_float(row.get("quantity"), 0.0))
@@ -791,6 +1147,46 @@ def run_portfolio(
 ) -> dict[str, Any]:
     portfolio_dir = state_root / portfolio
     portfolio_dir.mkdir(parents=True, exist_ok=True)
+    validate_restored_snapshot(portfolio_dir, portfolio)
+    reusable = load_reusable_same_session_manifest(
+        portfolio=portfolio,
+        portfolio_dir=portfolio_dir,
+        bootstrap_path=bootstrap_path,
+        target_path=target_path,
+        as_of_date=as_of_date,
+        cost_bps=cost_bps,
+        max_fill_lag_days=max_fill_lag_days,
+    )
+    if reusable is not None:
+        preview_dir = preview_root / portfolio
+        required_preview_files = (
+            "preview_metrics.json",
+            "order_batch_manifest.json",
+            "orders_preview.csv",
+            "target_weights.csv",
+        )
+        missing_preview_files = [
+            name for name in required_preview_files if not (preview_dir / name).is_file()
+        ]
+        if missing_preview_files:
+            preview = build_order_preview(
+                account_path=portfolio_dir / "account_state_latest.json",
+                target_path=target_path,
+                price_cache=price_cache,
+                output_dir=preview_dir,
+                portfolio=portfolio,
+                as_of_date=as_of_date,
+                cost_bps=cost_bps,
+            )
+            if preview.get("status") != "completed":
+                raise ValueError(
+                    f"same-session paper account preview failed for {portfolio}: "
+                    f"{preview.get('reason')}"
+                )
+        reusable["same_session_preview_rebuilt"] = bool(missing_preview_files)
+        reusable["same_session_preview_missing_before_rebuild"] = missing_preview_files
+        reusable["result_status"] = "PREVIEW_REBUILT" if missing_preview_files else "SAME_SESSION_REUSE"
+        return reusable
     account, state, seeded = load_or_seed_account(
         portfolio_dir=portfolio_dir,
         bootstrap_path=bootstrap_path,
@@ -803,6 +1199,16 @@ def run_portfolio(
     fills = read_csv(portfolio_dir / "fills.csv")
     rejections = read_csv(portfolio_dir / "rejections.csv")
     meta = read_json(portfolio_dir / "state_meta.json")
+    target_for_close = normalized_target(target_path, portfolio, as_of_date)
+    required_close_tickers = set(state.shares)
+    required_close_tickers.update(target_for_close.get("ticker", pd.Series(dtype=str)).tolist())
+    required_close_tickers.update(pending.get("ticker", pd.Series(dtype=str)).tolist())
+    require_exact_session_closes(
+        price_cache=price_cache,
+        tickers=required_close_tickers,
+        as_of_date=as_of_date,
+        context=f"{portfolio} held/target/pending",
+    )
 
     pending, fills, rejections, resolved = resolve_pending_orders(
         portfolio=portfolio,
@@ -931,6 +1337,7 @@ def run_portfolio(
         "live_trading_enabled": False,
         "production_mutation_allowed": False,
         "historical_cagr_mdd_replacement_allowed": False,
+        "result_status": "GENESIS" if seeded else "RESTORED_CONTINUATION",
     }
     write_json(portfolio_dir / "manifest.json", manifest)
     return manifest
@@ -940,38 +1347,104 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     state_root = repo_path(args.state_dir)
     price_cache = repo_path(args.price_cache)
     preview_root = repo_path(args.order_preview_root)
-    state_root.mkdir(parents=True, exist_ok=True)
     as_of_date = pd.Timestamp(args.as_of_date).normalize()
     if pd.isna(as_of_date):
         raise ValueError("--as-of-date must be a completed market date")
-
-    results: dict[str, Any] = {}
-    for portfolio in PORTFOLIOS:
-        results[portfolio] = run_portfolio(
-            portfolio=portfolio,
-            state_root=state_root,
-            bootstrap_path=repo_path(getattr(args, f"{portfolio}_bootstrap_account")),
-            target_path=repo_path(getattr(args, f"{portfolio}_target")),
-            price_cache=price_cache,
-            preview_root=preview_root,
-            as_of_date=as_of_date,
+    state_root.parent.mkdir(parents=True, exist_ok=True)
+    preview_root.parent.mkdir(parents=True, exist_ok=True)
+    journal_path = state_root.parent / f".{state_root.name}.transaction.json"
+    recover_interrupted_publish(journal_path)
+    prior_integrity = (
+        verify_integrity_manifest(state_root, require=True)
+        if (state_root / INTEGRITY_FILE).is_file()
+        else {"status": "LEGACY_UNATTESTED", "snapshot_hash": ""}
+    )
+    stage_state = clone_directory(state_root, state_root.parent, f".{state_root.name}.candidate-")
+    stage_preview = clone_directory(preview_root, preview_root.parent, f".{preview_root.name}.candidate-")
+    bootstrap_paths = {
+        portfolio: repo_path(getattr(args, f"{portfolio}_bootstrap_account")) for portfolio in PORTFOLIOS
+    }
+    target_paths = {portfolio: repo_path(getattr(args, f"{portfolio}_target")) for portfolio in PORTFOLIOS}
+    failpoint = str(getattr(args, "transaction_failpoint", "") or "")
+    try:
+        identity = ensure_genesis_identity(
+            state_root=stage_state,
+            bootstrap_paths=bootstrap_paths,
+            target_paths=target_paths,
             cost_bps=float(args.cost_bps),
             max_fill_lag_days=int(args.max_fill_lag_days),
         )
-    summary = {
-        "schema_version": "daily-simulated-fill-ledger-summary-v1",
-        "status": "completed",
-        "as_of_date": as_of_date.date().isoformat(),
-        "portfolios": results,
-        "review_only": True,
-        "simulated": True,
-        "live_trading_enabled": False,
-        "production_mutation_allowed": False,
-        "historical_cagr_mdd_replacement_allowed": False,
-        "generated_at_utc": utc_now(),
-    }
-    write_json(state_root / "summary.json", summary)
-    return summary
+        results: dict[str, Any] = {}
+        for portfolio in PORTFOLIOS:
+            results[portfolio] = run_portfolio(
+                portfolio=portfolio,
+                state_root=stage_state,
+                bootstrap_path=bootstrap_paths[portfolio],
+                target_path=target_paths[portfolio],
+                price_cache=price_cache,
+                preview_root=stage_preview,
+                as_of_date=as_of_date,
+                cost_bps=float(args.cost_bps),
+                max_fill_lag_days=int(args.max_fill_lag_days),
+            )
+        same_session_count = sum(
+            1 for payload in results.values() if payload.get("same_session_reused") is True
+        )
+        preview_rebuilt_count = sum(
+            1 for payload in results.values() if payload.get("same_session_preview_rebuilt") is True
+        )
+        summary = {
+            "schema_version": "daily-simulated-fill-ledger-summary-v1",
+            "status": "completed",
+            "result_status": (
+                "PREVIEW_REBUILT" if preview_rebuilt_count else
+                "SAME_SESSION_REUSE" if same_session_count == len(PORTFOLIOS) else
+                "GENESIS" if all(payload.get("result_status") == "GENESIS" for payload in results.values()) else
+                "RESTORED_CONTINUATION"
+            ),
+            "as_of_date": as_of_date.date().isoformat(),
+            "portfolios": results,
+            "genesis_identity_hash": identity["genesis_identity_hash"],
+            "review_only": True,
+            "simulated": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+            "historical_cagr_mdd_replacement_allowed": False,
+            "same_session_reused_portfolio_count": same_session_count,
+            "same_session_preview_rebuilt_portfolio_count": preview_rebuilt_count,
+            "generated_at_utc": utc_now(),
+        }
+        if same_session_count == len(PORTFOLIOS):
+            # The committed ledger, including its root summary and checksum,
+            # remains byte-identical.  Missing review-only previews may be
+            # reconstructed independently from the frozen account mark.
+            if directory_hashes(stage_preview) != directory_hashes(preview_root):
+                preview_journal = preview_root.parent / f".{preview_root.name}.preview-transaction.json"
+                atomic_publish_bundle(
+                    [(stage_preview, preview_root)],
+                    journal_path=preview_journal,
+                    failpoint=failpoint,
+                )
+            return summary
+
+        write_json(stage_state / "summary.json", summary)
+        write_integrity_manifest(
+            stage_state,
+            as_of_date=as_of_date.date().isoformat(),
+            previous_snapshot_hash=str(prior_integrity.get("snapshot_hash") or ""),
+        )
+        verify_integrity_manifest(stage_state, require=True)
+        atomic_publish_bundle(
+            [(stage_preview, preview_root), (stage_state, state_root)],
+            journal_path=journal_path,
+            validators=[lambda: verify_integrity_manifest(state_root, require=True)],
+            failpoint=failpoint,
+        )
+        return summary
+    finally:
+        for candidate in (stage_state, stage_preview):
+            if candidate.is_dir():
+                shutil.rmtree(candidate)
 
 
 def parse_args() -> argparse.Namespace:
@@ -993,7 +1466,8 @@ def main() -> int:
     try:
         payload = run(parse_args())
     except Exception as exc:
-        print(json.dumps({"status": "blocked", "reason": f"{type(exc).__name__}: {exc}"}, indent=2))
+        status = exc.status if isinstance(exc, PaperLedgerIntegrityError) else "BLOCKED_INTEGRITY"
+        print(json.dumps({"status": status, "reason": f"{type(exc).__name__}: {exc}"}, indent=2))
         return 2
     print(json.dumps(payload, indent=2, default=str))
     return 0
