@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       latest_run:
-        description: "Existing latest rebuild artifact directory"
+        description: "Checksum-manifested baseline directory; unsupported paths fail closed"
         type: string
-        default: "cloud_results/full_rebuild/latest_global_alpha_universe"
+        default: "tests/fixtures/run287_canonical_baseline"
       strict_targets:
         description: "Fail when main/concentrated target gates are not met"
         type: boolean
@@ -30,20 +30,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          # The guard reads the canonical latest baseline, not dated rebuild
-          # copies. Preserve all code/test inputs while excluding those copies.
+          # The guard reads a small checksum-locked canonical fixture. Large
+          # historical/runtime artifacts are restored only in manual lanes.
           sparse-checkout: |
             .github
             aggressive
             auto_learning_v2
             backtest_results
-            cloud_results/full_rebuild/latest_global_alpha_universe
-            cloud_results/ic_monitor
-            cloud_results/paper_runs
-            cloud_results/performance_ledger
-            cloud_results/scanner
-            cloud_results/tactical_alpha
-            cloud_results/theme_discovery
             data_static
             docs
             outputs
@@ -70,31 +63,39 @@ jobs:
             tools/run_orchestrator_replay.py \
             tools/run_portfolio_goal_search.py \
             tools/run_concentrated_position_risk_replay.py \
+            tools/verify_run287_artifact_manifest.py \
             tests/portfolio_system_guard_smoke.py \
             tests/auto_learning_v2_smoke.py \
             tests/orchestrator_replay_smoke.py \
             tests/portfolio_goal_search_smoke.py
 
+      - name: Resolve checksum-verified baseline
+        env:
+          REQUESTED_LATEST_RUN: ${{ inputs.latest_run }}
+        run: |
+          LATEST="${REQUESTED_LATEST_RUN:-tests/fixtures/run287_canonical_baseline}"
+          python tools/verify_run287_artifact_manifest.py \
+            --resolve-baseline "$LATEST" \
+            --output /tmp/run287_baseline_resolution.json
+          RESOLVED=$(python -c 'import json; print(json.load(open("/tmp/run287_baseline_resolution.json"))["resolved_path"])')
+          echo "RUN287_LATEST_RUN=$RESOLVED" >> "$GITHUB_ENV"
+
       - name: Run AutoLearning v2 snapshot
         if: ${{ github.event_name == 'pull_request' || inputs.refresh_auto_learning_v2 }}
         run: |
-          LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
-          python tools/run_auto_learning_v2.py --latest-run "$LATEST"
+          python tools/run_auto_learning_v2.py --latest-run "$RUN287_LATEST_RUN"
 
       - name: Run concentrated orchestrator replay
         run: |
-          LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
-          python tools/run_orchestrator_replay.py --latest-run "$LATEST"
+          python tools/run_orchestrator_replay.py --latest-run "$RUN287_LATEST_RUN"
 
       - name: Run portfolio goal search
         run: |
-          LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
-          python tools/run_portfolio_goal_search.py --latest-run "$LATEST"
+          python tools/run_portfolio_goal_search.py --latest-run "$RUN287_LATEST_RUN"
 
       - name: Run portfolio system guard
         run: |
-          LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
-          ARGS="--latest-run $LATEST"
+          ARGS="--latest-run $RUN287_LATEST_RUN"
           # PR cadence enforces CONTRACTS (book shape / concentration), not the
           # aspirational CAGR/MDD goals: --strict-targets exits non-zero while
           # the 35%/50% goals are unmet, which would fail every PR regardless
@@ -103,19 +104,9 @@ jobs:
           # cannot fail unrelated PRs; only violations the PR introduces fail.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             ARGS="$ARGS --enforce-contracts"
-            # Explicit refspec: a bare `git fetch origin <branch>` may only
-            # update FETCH_HEAD without creating the origin/<branch> tracking
-            # ref on shallow CI checkouts, silently skipping the baseline and
-            # losing the inherited-violation downgrade. FETCH_HEAD fallback
-            # covers remotes where the refspec form is rejected.
-            git fetch origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" --depth=1 \
-              || git fetch origin "${{ github.base_ref }}" --depth=1 || true
             for KIND in main concentrated; do
-              BOOK="cloud_results/full_rebuild/latest_global_alpha_universe/reports/operating_${KIND}_target_book.csv"
-              if git show "origin/${{ github.base_ref }}:$BOOK" > "/tmp/baseline_${KIND}_target_book.csv" 2>/dev/null \
-                || git show "FETCH_HEAD:$BOOK" > "/tmp/baseline_${KIND}_target_book.csv" 2>/dev/null; then
-                ARGS="$ARGS --baseline-${KIND}-target-book /tmp/baseline_${KIND}_target_book.csv"
-              fi
+              BOOK="$RUN287_LATEST_RUN/reports/operating_${KIND}_target_book.csv"
+              ARGS="$ARGS --baseline-${KIND}-target-book $BOOK"
             done
           fi
           if [ "${{ inputs.strict_targets }}" = "true" ]; then

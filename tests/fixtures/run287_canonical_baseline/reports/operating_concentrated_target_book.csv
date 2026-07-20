@@ -1,0 +1,4 @@
+rebalance_date,ticker,weight,industry_group,target_stock_names,weighting_mode,crisis_state
+2026-01-09,AAA,0.40,G1,5,score_power,GREEN
+2026-01-09,BBB,0.30,G2,5,score_power,GREEN
+2026-01-09,CCC,0.30,G3,5,score_power,GREEN

@@ -3055,3 +3055,34 @@ Expected contract:
   `188/188` in `479.59s`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-07-20 - P8 canonical CI fixture and fail-closed artifact contract
+
+- Scope: issue #306 P8. Repository/CI/artifact hygiene only; no alpha arm and
+  no historical artifact deletion or Git history rewrite.
+- The tracked tree measured 6,838,888,405 bytes across 11,737 files; existing
+  `cloud_results/` represented about 6.81 GB. These legacy bytes are preserved.
+- Replaced the roughly 581 MB Tier-1 canonical rebuild dependency with a
+  deterministic 26-file fixture: 4,629 payload bytes and about 9.4 KB including
+  its exhaustive SHA-256 manifest.
+- Fixture replay passed AutoLearning v2, orchestrator replay, portfolio goal
+  search, and Portfolio System Guard with zero guard hard errors.
+- Arbitrary manual baselines now fail explicitly as
+  `UNSUPPORTED_BASELINE_PATH` unless an exhaustive compatible manifest verifies
+  every payload file and rejects undeclared files.
+- Pull-request validation no longer also runs on every non-master branch push,
+  removing one duplicate same-SHA validation while preserving PR coverage.
+- PR sparse checkout no longer includes `cloud_results/`; a merge guard blocks
+  new runtime blobs, dated/failed output bundles, and ordinary Git blobs over
+  2 MiB without deleting them.
+- Core hidden dated baseline dependencies are zero. Active versus historical
+  evidence labels are registered in `docs/run287_evidence_status_registry.json`.
+- This work improves the trust and cost of later CAGR/MDD research; it does not
+  change official Main `34.4032% / -25.3629%` or Concentrated
+  `49.0968% / -22.9560%` metrics.
+- Evidence: `docs/CODEX_RUN287_P8_REPO_CI_ARTIFACT_HYGIENE_RESULT_20260720.md`
+  and local `_tmp_tests/p8_repo_ci_hygiene/repo_ci_hygiene_audit.json`.
+- Repository pytest passed `129/129`; full Tier-1 PR validation passed
+  `189/189` in `348.21s`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false.

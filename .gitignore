@@ -2,6 +2,14 @@ __pycache__/
 *.bak.py
 .tmp_*/
 tmp_test_*/
+_tmp_tests/
+outputs/after-close-daily-*/
+outputs/after_close_daily_*/
+outputs/daily_operating_selection_refresh_*/
+outputs/run287_*/
+# Runtime/research outputs stay on disk or in external artifacts. Existing
+# tracked evidence remains tracked; new files require an intentional `git add -f`.
+outputs/
 *.pyc
 artifacts/
 catboost_info/

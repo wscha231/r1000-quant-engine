@@ -1,0 +1,4 @@
+rebalance_date,ticker,weight,period_forward_return,regime_state,raw_score
+2025-10-31,AAA,1.0,0.02,bull,1.0
+2025-11-28,AAA,1.0,-0.01,neutral,1.0
+2025-12-31,AAA,1.0,0.03,strong_bull,1.0

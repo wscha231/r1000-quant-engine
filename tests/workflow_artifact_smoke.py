@@ -56,13 +56,6 @@ def test_pr_workflows_sparse_checkout_only_required_rebuild_data() -> None:
         "aggressive",
         "auto_learning_v2",
         "backtest_results",
-        "cloud_results/full_rebuild/latest_global_alpha_universe",
-        "cloud_results/ic_monitor",
-        "cloud_results/paper_runs",
-        "cloud_results/performance_ledger",
-        "cloud_results/scanner",
-        "cloud_results/tactical_alpha",
-        "cloud_results/theme_discovery",
         "data_static",
         "docs",
         "outputs",
@@ -80,9 +73,27 @@ def test_pr_workflows_sparse_checkout_only_required_rebuild_data() -> None:
         sparse_block = text.split("sparse-checkout: |", 1)[1].split(
             "sparse-checkout-cone-mode:", 1
         )[0]
-        assert "cloud_results/full_rebuild/latest_global_alpha_universe" in sparse_block
-        assert "cloud_results/full_rebuild/failed_runs" not in sparse_block
-        assert "cloud_results/full_rebuild/202" not in sparse_block
+        assert "cloud_results/" not in sparse_block
+        assert "tests" in sparse_block
+
+
+def test_pr_validation_does_not_duplicate_same_sha_push_and_pr_jobs() -> None:
+    text = PR_VALIDATION_WORKFLOW.read_text(encoding="utf-8")
+    trigger_block = text.split("on:", 1)[1].split("permissions:", 1)[0]
+    assert "pull_request:" in trigger_block
+    assert "workflow_dispatch:" in trigger_block
+    assert "push:" not in trigger_block
+    assert "check_run287_artifact_hygiene.py" in text
+
+
+def test_portfolio_guard_requires_checksum_locked_fixture() -> None:
+    text = PORTFOLIO_GUARD_WORKFLOW.read_text(encoding="utf-8")
+    assert 'default: "tests/fixtures/run287_canonical_baseline"' in text
+    assert "verify_run287_artifact_manifest.py" in text
+    assert "RUN287_LATEST_RUN" in text
+    assert "UNSUPPORTED_BASELINE_PATH" in (
+        ROOT / "tools" / "verify_run287_artifact_manifest.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_workflow_keeps_monthly_books() -> None:
@@ -1062,6 +1073,8 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
 def main() -> int:
     test_workflow_yaml_files_parse()
     test_pr_workflows_sparse_checkout_only_required_rebuild_data()
+    test_pr_validation_does_not_duplicate_same_sha_push_and_pr_jobs()
+    test_portfolio_guard_requires_checksum_locked_fixture()
     test_workflow_keeps_monthly_books()
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()
