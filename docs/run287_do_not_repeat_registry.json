@@ -216,6 +216,20 @@
         "docs/CODEX_RUN287_P5_HOLD_EXIT_REPLACEMENT_RESULT_20260720.md",
         "_tmp_tests/p5_hold_exit_actual_v2_20260720/summary.json"
       ]
+    },
+    {
+      "id": "canonical_sector_relative_strength_materialization",
+      "signal": "canonical_sector_relative_strength",
+      "mechanism": "materialize_missing_rs_sector_3m",
+      "book": "alphaops_vnext_regenerated_main15_concentrated5",
+      "window": "2019-05-31_2026-05-29",
+      "status": "REJECT_OOS_AND_COST",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "canonical_sector_relative_strength+materialize_missing_rs_sector_3m+alphaops_vnext_regenerated_main15_concentrated5+2019-05-31_2026-05-29",
+      "evidence": [
+        "docs/CODEX_RUN287_P6_CANDIDATE_GATE_STABILITY_RESULT_20260720.md",
+        "_tmp_tests/p6_sector_rs_broker_ab_20260720/summary.json"
+      ]
     }
   ]
 }

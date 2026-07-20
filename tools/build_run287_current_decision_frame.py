@@ -44,6 +44,17 @@ from tools.build_run287_feature_frame_pilot import (  # noqa: E402
 
 
 SCHEMA_VERSION = "run287-current-decision-frame-v1"
+P6_CRITICAL_SELECTION_FIELDS = (
+    "mom_3m",
+    "rs_benchmark_3m",
+    "rs_sector_3m",
+    "price_above_ma200",
+    "dollar_vol_20d",
+    "industry_group_strength_score",
+    "sector_adjusted_quality_score",
+    "capital_efficiency_score",
+    "fundamental_reliability_score",
+)
 
 
 def repo_path(value: str | Path) -> Path:
@@ -405,10 +416,25 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     pd.DataFrame(fundamental_audits).to_csv(audit_path, index=False)
     pd.DataFrame(changed_rows).to_csv(delta_values_path, index=False)
     pd.DataFrame(fundamental_rows).to_parquet(overrides_path, index=False)
+    critical_numeric = context.reindex(columns=P6_CRITICAL_SELECTION_FIELDS).apply(
+        pd.to_numeric, errors="coerce"
+    )
+    critical_missing = critical_numeric.isna()
+    critical_missing_fields = critical_missing.apply(
+        lambda row: "|".join(
+            column for column, missing in row.items() if bool(missing)
+        ),
+        axis=1,
+    )
+    neutralized_feature_count = raw_model.isna().sum(axis=1).astype(int)
     coverage = pd.DataFrame({
         "ticker": context["ticker"],
         "raw_model_feature_finite_count": raw_model.notna().sum(axis=1),
         "scaled_model_feature_finite_count": np.isfinite(scaled_matrix).sum(axis=1),
+        "neutralized_feature_count": neutralized_feature_count,
+        "critical_missing_fields": critical_missing_fields,
+        "critical_data_complete": critical_missing_fields.eq(""),
+        "data_complete": critical_missing_fields.eq("") & neutralized_feature_count.eq(0),
         "decision_feature_complete": False,
     })
     coverage.to_csv(coverage_path, index=False)
@@ -452,6 +478,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "selection_context_column_count": int(len(context.columns)),
             "raw_model_feature_finite_ratio": float(raw_model.notna().to_numpy().mean()),
             "scaled_model_feature_finite_ratio": float(np.isfinite(scaled_matrix).mean()),
+            "data_complete_ticker_count": int(coverage["data_complete"].sum()),
+            "neutralized_ticker_count": int(
+                coverage["neutralized_feature_count"].gt(0).sum()
+            ),
+            "critical_missing_ticker_count": int(
+                coverage["critical_missing_fields"].ne("").sum()
+            ),
             "scaled_missing_neutral_violation_count": missing_neutral_violations,
             "future_feature_row_count": future_feature_rows,
             "sec_exact_acceptance_count": int(sec_delta["exact_acceptance"].astype(bool).sum()),

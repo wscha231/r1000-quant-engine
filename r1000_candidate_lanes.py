@@ -115,6 +115,52 @@ def numeric(frame: pd.DataFrame, col: str, default: float = 0.0) -> pd.Series:
     return pd.to_numeric(frame[col], errors="coerce").fillna(default)
 
 
+def materialize_sector_relative_strength(
+    frame: pd.DataFrame,
+    *,
+    periods: tuple[tuple[str, str], ...] = (
+        ("mom_1m", "rs_sector_1m"),
+        ("mom_3m", "rs_sector_3m"),
+        ("mom_6m", "rs_sector_6m"),
+        ("mom_12m", "rs_sector_12m"),
+    ),
+    fill_missing_only: bool = False,
+) -> pd.DataFrame:
+    """Materialize the canonical same-date, same-sector momentum residual.
+
+    The calculation is entirely cross-sectional at the decision date.  It
+    never uses a later return.  ``fill_missing_only`` supports append-only
+    repair sidecars: existing finite evidence is preserved and only missing
+    cells receive the canonical value.
+    """
+
+    out = frame.copy()
+    required = {"rebalance_date", "sector"}
+    if not required.issubset(out.columns):
+        missing = ",".join(sorted(required - set(out.columns)))
+        raise ValueError(f"sector relative strength requires:{missing}")
+    dates = pd.to_datetime(out["rebalance_date"], errors="coerce").dt.normalize()
+    sectors = out["sector"].fillna("").astype(str).str.strip()
+    if dates.isna().any() or sectors.eq("").any():
+        raise ValueError("sector relative strength requires valid date and sector")
+    group_keys = [dates, sectors]
+    for momentum_column, output_column in periods:
+        if momentum_column not in out.columns:
+            raise ValueError(f"sector relative strength missing:{momentum_column}")
+        momentum = pd.to_numeric(out[momentum_column], errors="coerce")
+        group_mean = momentum.groupby(group_keys, sort=False).transform("mean")
+        computed = momentum - group_mean
+        if fill_missing_only and output_column in out.columns:
+            existing = pd.to_numeric(out[output_column], errors="coerce")
+            out[output_column] = existing.where(existing.notna(), computed)
+        else:
+            out[output_column] = computed
+        out[output_column] = pd.to_numeric(
+            out[output_column], errors="coerce"
+        ).fillna(0.0)
+    return out
+
+
 def robust_z(values: pd.Series) -> pd.Series:
     x = pd.to_numeric(values, errors="coerce").fillna(0.0)
     med = float(x.median())

@@ -99,6 +99,21 @@ def test_rejected_strict_leadership_persistence_is_blocked() -> None:
     assert result["matched_entry_ids"] == ["leadership_persistence_v2_strict"]
 
 
+def test_rejected_sector_rs_materialization_is_blocked() -> None:
+    result = evaluate_candidate(
+        load_registry(),
+        signal="canonical_sector_relative_strength",
+        mechanism="materialize_missing_rs_sector_3m",
+        book="alphaops_vnext_regenerated_main15_concentrated5",
+        window="2019-05-31_2026-05-29",
+    )
+    assert result["status"] == "BLOCKED_DO_NOT_REPEAT"
+    assert result["allowed"] is False
+    assert result["matched_entry_ids"] == [
+        "canonical_sector_relative_strength_materialization"
+    ]
+
+
 def main() -> int:
     test_exact_rejected_candidate_is_blocked()
     test_coverage_or_real_semantic_change_can_reopen()
@@ -106,6 +121,7 @@ def main() -> int:
     test_rejected_sec_filing_quality_source_screen_is_blocked()
     test_rejected_sec_guidance_keyword_scout_is_blocked()
     test_rejected_strict_leadership_persistence_is_blocked()
+    test_rejected_sector_rs_materialization_is_blocked()
     print("run287_do_not_repeat_registry_smoke: PASS")
     return 0
 
