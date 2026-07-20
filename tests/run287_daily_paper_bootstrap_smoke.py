@@ -139,7 +139,7 @@ def test_bootstrap_rejects_non_exact_close_and_incomplete_state() -> None:
         try:
             run_bootstrap(bootstrap_args(root, "2026-07-14"))
         except ValueError as exc:
-            assert "refusing bootstrap reset" in str(exc)
+            assert "snapshot checksum mismatch" in str(exc) or "refusing bootstrap reset" in str(exc)
         else:
             raise AssertionError("bootstrap reset an incomplete ledger state")
 
@@ -163,6 +163,12 @@ def test_bootstrap_refuses_late_reseed_and_wrong_restored_seed() -> None:
         seed_args = bootstrap_args(root, "2026-07-13")
         seed_args.expected_seed_date = "2026-07-13"
         run_bootstrap(seed_args)
+        try:
+            run_bootstrap(late_args)
+        except ValueError as exc:
+            assert "BLOCKED_MISSING_PERSISTENCE_AFTER_GENESIS" in str(exc)
+        else:
+            raise AssertionError("missing post-genesis persistence silently reseeded the account")
         run_ledger(ledger_args(root, "2026-07-13"))
         state_path = root / "paper" / "main" / "account_state_latest.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -171,7 +177,7 @@ def test_bootstrap_refuses_late_reseed_and_wrong_restored_seed() -> None:
         try:
             run_bootstrap(late_args)
         except ValueError as exc:
-            assert "paper seed date mismatch" in str(exc)
+            assert "snapshot checksum mismatch" in str(exc) or "paper seed date mismatch" in str(exc)
         else:
             raise AssertionError("bootstrap accepted a restored account with the wrong seed date")
 

@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import math
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run_account_order_preview import normalize_target  # noqa: E402
 from tools.run_broker_ledger_replay import CASH_TICKERS  # noqa: E402
+from tools.run287_paper_ledger_integrity import (  # noqa: E402
+    INTEGRITY_FILE,
+    PaperLedgerIntegrityError,
+    atomic_publish_bundle,
+    clone_directory,
+    recover_interrupted_publish,
+    verify_integrity_manifest,
+    write_integrity_manifest,
+)
 from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
 
 
@@ -70,6 +80,11 @@ def file_hash(path: Path) -> str:
 
 def canonical_hash(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def json_payload_file_hash(payload: Any) -> str:
+    encoded = (json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n").encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -160,6 +175,7 @@ def build_account(
     as_of_date: pd.Timestamp,
     starting_capital: float,
     cost_bps: float,
+    max_fill_lag_days: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     target = target_for_date(target_path, portfolio, as_of_date)
     stock_target = target[~target["ticker"].isin(CASH_TICKERS)].copy()
@@ -202,11 +218,20 @@ def build_account(
         for row in target.itertuples(index=False)
     ]
     target_digest = canonical_hash({"schema": "run287-forward-target-v1", "rows": target_rows})
+    execution_contract = {
+        "fill_mode": "next_close",
+        "integer_shares": True,
+        "cost_bps_per_side": float(cost_bps),
+        "max_fill_lag_days": int(max_fill_lag_days),
+        "sell_before_buy": True,
+        "cash_must_be_nonnegative": True,
+    }
     account = {
         "schema_version": "run287-daily-paper-bootstrap-account-v1",
         "portfolio_kind": portfolio,
         "as_of_date": as_of_date.date().isoformat(),
         "seed_as_of_date": as_of_date.date().isoformat(),
+        "account_id": f"run287-paper-{portfolio}-{as_of_date.date().isoformat()}",
         "starting_capital_usd": float(starting_capital),
         "seed_equity_usd": float(starting_capital),
         "equity_usd": float(starting_capital),
@@ -222,6 +247,10 @@ def build_account(
         "realized_pnl_by_ticker": {},
         "target_sha256": file_hash(target_path),
         "assumed_applied_target_hash": target_digest,
+        "execution_policy_hash": canonical_hash(
+            {"schema": "run287-paper-policy-v1", "target_hash": target_digest, "contract": execution_contract}
+        ),
+        "execution_contract": execution_contract,
         "bootstrap_method": "exact_close_target_snapshot_without_historical_trade_backfill",
         "historical_trade_backfill_claimed": False,
         "portfolio_weights_changed": False,
@@ -254,6 +283,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("--as-of-date must be a completed market date")
     starting_capital = float(args.starting_capital)
     cost_bps = float(args.cost_bps)
+    max_fill_lag_days = int(getattr(args, "max_fill_lag_days", 7))
     expected_seed_raw = str(getattr(args, "expected_seed_date", "") or "").strip()
     expected_seed_date = pd.Timestamp(expected_seed_raw).normalize() if expected_seed_raw else None
     if expected_seed_date is not None and pd.isna(expected_seed_date):
@@ -263,9 +293,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if not math.isfinite(cost_bps) or cost_bps < 0:
         raise ValueError("--cost-bps must be non-negative")
 
+    state_root.parent.mkdir(parents=True, exist_ok=True)
+    journal_path = state_root.parent / f".{state_root.name}.bootstrap-transaction.json"
+    recover_interrupted_publish(journal_path)
+    prior_integrity = (
+        verify_integrity_manifest(state_root, require=True)
+        if (state_root / INTEGRITY_FILE).is_file()
+        else {"snapshot_hash": ""}
+    )
+
     bootstrap_dir = state_root / "bootstrap"
     results: dict[str, Any] = {}
     created = 0
+    new_accounts: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     for portfolio in PORTFOLIOS:
         portfolio_dir = state_root / portfolio
         state_path = portfolio_dir / "account_state_latest.json"
@@ -292,6 +332,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 raise ValueError(f"paper ledger state is incomplete for {portfolio}; refusing bootstrap reset")
             validate_existing_bootstrap(existing, portfolio, cost_bps)
             validate_seed_date(existing, portfolio, expected_seed_date)
+            if expected_seed_date is not None and as_of_date > expected_seed_date:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_MISSING_PERSISTENCE_AFTER_GENESIS",
+                    f"missing canonical {portfolio} paper state after genesis {expected_seed_date.date().isoformat()}",
+                )
             results[portfolio] = {
                 "status": "REUSED_FROZEN_BOOTSTRAP",
                 "account_path": str(bootstrap_path),
@@ -314,13 +359,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             as_of_date=as_of_date,
             starting_capital=starting_capital,
             cost_bps=cost_bps,
+            max_fill_lag_days=max_fill_lag_days,
         )
-        write_json(bootstrap_path, account)
+        new_accounts[portfolio] = (account, evidence)
         created += 1
         results[portfolio] = {
             "status": "CREATED_EXACT_CLOSE_BOOTSTRAP",
             "account_path": str(bootstrap_path),
-            "account_sha256": file_hash(bootstrap_path),
+            "account_sha256": json_payload_file_hash(account),
             **evidence,
         }
 
@@ -331,6 +377,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "expected_seed_date": expected_seed_date.date().isoformat() if expected_seed_date is not None else None,
         "starting_capital_usd": starting_capital,
         "cost_bps_per_side": cost_bps,
+        "max_fill_lag_days": max_fill_lag_days,
         "created_account_count": created,
         "results": results,
         "historical_trade_backfill_claimed": False,
@@ -343,7 +390,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "production_mutation_allowed": False,
         "generated_at_utc": utc_now(),
     }
-    write_json(bootstrap_dir / "summary.json", payload)
+    if created:
+        if created != len(PORTFOLIOS):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY", "genesis bootstrap must create both portfolio accounts atomically"
+            )
+        stage_root = clone_directory(state_root, state_root.parent, f".{state_root.name}.bootstrap-candidate-")
+        try:
+            for portfolio, (account, _evidence) in new_accounts.items():
+                write_json(stage_root / "bootstrap" / f"{portfolio}_account.json", account)
+            write_json(stage_root / "bootstrap" / "summary.json", payload)
+            write_integrity_manifest(
+                stage_root,
+                as_of_date=as_of_date.date().isoformat(),
+                previous_snapshot_hash=str(prior_integrity.get("snapshot_hash") or ""),
+            )
+            atomic_publish_bundle(
+                [(stage_root, state_root)],
+                journal_path=journal_path,
+                validators=[lambda: verify_integrity_manifest(state_root, require=True)],
+                failpoint=str(getattr(args, "transaction_failpoint", "") or ""),
+            )
+        finally:
+            if stage_root.is_dir():
+                shutil.rmtree(stage_root)
     return payload
 
 
@@ -361,6 +431,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--starting-capital", type=float, default=100000.0)
     parser.add_argument("--cost-bps", type=float, default=25.0)
+    parser.add_argument("--max-fill-lag-days", type=int, default=7)
     return parser.parse_args()
 
 
@@ -370,7 +441,8 @@ def main() -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     except Exception as exc:
-        print(json.dumps({"status": "BLOCKED", "reason": f"{type(exc).__name__}: {exc}"}, indent=2))
+        status = exc.status if isinstance(exc, PaperLedgerIntegrityError) else "BLOCKED"
+        print(json.dumps({"status": status, "reason": f"{type(exc).__name__}: {exc}"}, indent=2))
         return 2
 
 

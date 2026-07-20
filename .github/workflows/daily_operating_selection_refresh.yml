@@ -216,7 +216,32 @@ jobs:
             cp -a cloud_results/full_rebuild/latest_global_alpha_universe/. outputs/
           fi
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
-            restore_dir paper_archive/run287_daily_simulated_fill_ledger outputs/daily_simulated_fill_ledger
+            PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"
+            PAPER_LOCAL_RECOVERY="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_pre_remote"
+            rm -rf "$PAPER_REMOTE_CANDIDATE" "$PAPER_LOCAL_RECOVERY"
+            restore_dir paper_archive/run287_daily_simulated_fill_ledger "$PAPER_REMOTE_CANDIDATE"
+            if [ -d outputs/daily_simulated_fill_ledger ]; then
+              cp -a outputs/daily_simulated_fill_ledger "$PAPER_LOCAL_RECOVERY"
+            fi
+            if [ -s "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" ] && \
+               python tools/run287_paper_ledger_integrity.py \
+                 --state-dir "$PAPER_REMOTE_CANDIDATE" \
+                 --require-integrity; then
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --install-source "$PAPER_REMOTE_CANDIDATE"
+              echo "[paper-ledger] installed checksum-verified Drive snapshot; pre-install recovery=$PAPER_LOCAL_RECOVERY"
+            elif [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
+                 python tools/run287_paper_ledger_integrity.py \
+                   --state-dir outputs/daily_simulated_fill_ledger \
+                   --require-integrity; then
+              echo "[paper-ledger] Drive snapshot was unverified; retained verified cache/local snapshot"
+            elif [ ! -d outputs/daily_simulated_fill_ledger ] && [ -d "$PAPER_REMOTE_CANDIDATE" ]; then
+              echo "[paper-ledger] one-time legacy restore; ledger semantic validation must migrate it before save"
+              mv "$PAPER_REMOTE_CANDIDATE" outputs/daily_simulated_fill_ledger
+            else
+              echo "[paper-ledger] no checksum-verified remote replacement applied"
+            fi
             restore_dir paper_archive/run287_holding_risk_watch outputs/holding_risk_watch
             restore_dir paper_archive/run287_decision_observation_archive outputs/run287_decision_observation_archive
             restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
@@ -405,6 +430,7 @@ jobs:
             --expected-seed-date 2026-07-13 \
             --starting-capital 100000 \
             --cost-bps 25 \
+            --max-fill-lag-days 7 \
             2>&1 | tee outputs/full_rebuild_logs/daily_paper_bootstrap.log
 
       - name: Require exact completed-session close prices
@@ -703,6 +729,15 @@ jobs:
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
 
+      - name: Verify transactional forward paper snapshot
+        if: success() && steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --require-integrity \
+            --output outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+
       - name: Save validated forward paper state cache
         if: success() && steps.market.outputs.ready == 'yes'
         uses: actions/cache/save@v4
@@ -762,8 +797,17 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           test -s outputs/daily_simulated_fill_ledger/summary.json
+          test -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json
           test -s outputs/holding_risk_watch/summary.json
-          rclone copy outputs/daily_simulated_fill_ledger "${BASE}paper_archive/run287_daily_simulated_fill_ledger/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --require-integrity
+          RECOVERY="${BASE}paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/run287_daily_simulated_fill_ledger"
+          CANONICAL="${BASE}paper_archive/run287_daily_simulated_fill_ledger"
+          rclone copy outputs/daily_simulated_fill_ledger "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          rclone check outputs/daily_simulated_fill_ledger "$RECOVERY/" --checksum --one-way
+          rclone sync outputs/daily_simulated_fill_ledger "$CANONICAL/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          rclone check outputs/daily_simulated_fill_ledger "$CANONICAL/" --checksum --one-way
           rclone copy outputs/holding_risk_watch "${BASE}paper_archive/run287_holding_risk_watch/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           if [ -s outputs/run287_decision_observation_archive/manifest.json ]; then
             rclone copy outputs/run287_decision_observation_archive "${BASE}paper_archive/run287_decision_observation_archive/" --transfers 2 --checkers 4 --stats 30s --stats-one-line

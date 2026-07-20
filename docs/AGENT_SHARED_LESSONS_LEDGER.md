@@ -2698,3 +2698,60 @@ Expected contract:
   - `.github/workflows/daily_operating_selection_refresh.yml`
   - `outputs/run287_daily_pipeline_replay_29305572139/daily_simulated_fill_ledger/`
   - `outputs/run287_paper_drive_backup_pre_recovery_20260718_1006/`
+
+### 2026-07-20 - A forward-paper session is one directory transaction, not two portfolio writes
+
+- Agent: Codex
+- Branch/PR:
+  - `codex/run287-paper-ledger-continuity-20260718`
+  - draft PR #300; issue #306 P0
+- Context:
+  - Same-session reuse had been repaired, but a new-session run still wrote
+    Main files before validating Concentrated. Root summaries, bootstrap
+    summaries, and Drive copies also lacked one exact checksum contract.
+- Attempt:
+  - Compute bootstrap accounts and both portfolio sessions in isolated sibling
+    directories, validate the complete candidate, and publish the directory
+    bundle through recovery-backed atomic renames.
+  - Added a deterministic genesis identity and exact-file SHA-256 snapshot
+    manifest. Restore validates before replacement; Drive save writes and checks
+    a run-specific recovery copy before syncing the canonical archive.
+  - Required exact completed-session closes for held, target, and pending
+    securities and rejected duplicate client order IDs and negative cash.
+- Result:
+  - A 20-business-session fixture retained the original seed and account IDs,
+    produced 20 equity observations, and returned a byte-identical state hash
+    on same-session retry.
+  - A stale Concentrated close failed after Main candidate computation with zero
+    durable changes. An injected interruption after the first directory publish
+    restored both state and preview hashes exactly.
+  - Focused PR validation passed `6/6` in `26.25s`; full Tier-1 PR
+    validation passed `177/177` in `475.61s`. No fullrun was executed.
+- Failure or caveat:
+  - Existing legacy archives have no new checksum. They may be migrated only by
+    a successful semantic validation and transactional session; checksum
+    mismatch is always fail-closed.
+  - This does not improve historical CAGR/MDD and does not authorize production
+    or live trading.
+- Root cause:
+  - File-level append-only checks were present, but the orchestration boundary
+    was not a transaction. A later failure could therefore expose a mixed-date
+    two-portfolio state.
+- Reusable lesson:
+  - Durable multi-account paper state needs validate-first/write-second at the
+    directory generation level. Same-session idempotency must include the root
+    summary and integrity manifest, not only each portfolio subdirectory.
+- Next action:
+  - Update draft PR #300 and request review. Do not begin P1 until P0 is
+    merged or explicitly closed.
+- Do-not-repeat:
+  - Do not write Main before Concentrated has validated.
+  - Do not restore or replace canonical paper state without exact checksums and
+    a recovery copy.
+  - Do not use a prior close as the current exact-session mark.
+- Evidence files:
+  - `tools/run287_paper_ledger_integrity.py`
+  - `tools/run_daily_simulated_fill_ledger.py`
+  - `tools/bootstrap_run287_daily_paper_accounts.py`
+  - `tests/run287_paper_ledger_transaction_smoke.py`
+  - `docs/CODEX_RUN287_P0_PAPER_LEDGER_TRANSACTION_RESULT_20260720.md`
