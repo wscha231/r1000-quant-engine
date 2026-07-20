@@ -948,6 +948,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--expected-seed-date 2026-07-13",
         "--starting-capital 100000",
         "tools/run_daily_simulated_fill_ledger.py",
+        "--decision-time-utc \"$RISK_AVAILABLE_FROM\"",
+        "--security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv",
         "outputs/daily_simulated_fill_ledger/",
         "daily_simulated_fill_ledger.log",
         "paper_archive/run287_daily_simulated_fill_ledger",

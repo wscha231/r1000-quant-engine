@@ -181,6 +181,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_next_scheduled_artifact_gate_smoke.py", []),
     ("tests/run287_next_single_ab_readiness_smoke.py", []),
     ("tests/run287_scored_latest_refresh_smoke.py", []),
+    ("tests/security_lifecycle_smoke.py", []),
     ("tests/direct_fullrun_guard_smoke.py", []),
     ("tests/run287_macro_sidecar_smoke.py", []),
     ("tests/run287_benchmark_event_sidecar_smoke.py", []),

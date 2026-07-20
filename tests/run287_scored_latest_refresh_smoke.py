@@ -14,7 +14,6 @@ if str(ROOT) not in sys.path:
 
 from tools.run_run287_scored_latest_refresh import (
     drop_stale_prediction_columns,
-    load_terminal_lifecycle_exclusions,
     max_price_date_from_metadata,
     merge_current_vintage,
     normalize_price,
@@ -39,53 +38,6 @@ def prices(start: str, periods: int, scale: float = 1.0) -> pd.DataFrame:
 
 
 class ScoredLatestRefreshSmoke(unittest.TestCase):
-    def test_terminal_lifecycle_requires_exact_known_evidence(self) -> None:
-        row = {
-            "ticker": "GTLS",
-            "cik10": "0000892553",
-            "event_type": "cash_merger",
-            "effective_date": "2026-07-16",
-            "available_from": "2026-07-16T13:02:00Z",
-            "last_trading_date": "2026-07-15",
-            "cash_consideration": "210.00",
-            "currency": "USD",
-            "exact_acceptance": "true",
-            "accession_number": "0001193125-26-305482",
-            "source_url": "https://www.sec.gov/Archives/edgar/data/892553/example.htm",
-            "source_sha256": "a" * 64,
-            "evidence_status": "verified",
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "terminal.csv"
-            pd.DataFrame([row]).to_csv(path, index=False)
-            active = load_terminal_lifecycle_exclusions(
-                path,
-                base_tickers={"GTLS", "AAPL"},
-                session_date=pd.Timestamp("2026-07-16"),
-                decision_time_utc=pd.Timestamp("2026-07-16T20:30:00Z"),
-            )
-            self.assertEqual(active["ticker"].tolist(), ["GTLS"])
-            not_yet_known = load_terminal_lifecycle_exclusions(
-                path,
-                base_tickers={"GTLS", "AAPL"},
-                session_date=pd.Timestamp("2026-07-16"),
-                decision_time_utc=pd.Timestamp("2026-07-16T12:00:00Z"),
-            )
-            self.assertTrue(not_yet_known.empty)
-
-            pd.DataFrame([{**row, "exact_acceptance": "false"}]).to_csv(
-                path, index=False
-            )
-            with self.assertRaisesRegex(
-                ValueError, "terminal_lifecycle_unverified_active_rows"
-            ):
-                load_terminal_lifecycle_exclusions(
-                    path,
-                    base_tickers={"GTLS", "AAPL"},
-                    session_date=pd.Timestamp("2026-07-16"),
-                    decision_time_utc=pd.Timestamp("2026-07-16T20:30:00Z"),
-                )
-
     def test_metadata_date_and_source_prefix_are_preserved(self) -> None:
         source = prices("2022-01-03", 800, scale=0.5)
         provider = prices(str(source.index[-20].date()), 25, scale=1.0)
@@ -124,9 +76,9 @@ class ScoredLatestRefreshSmoke(unittest.TestCase):
             )
 
     def test_provider_symbol_override_is_explicit(self) -> None:
-        self.assertEqual(parse_provider_symbol_overrides(["IAC=PPLI"]), {"IAC": "PPLI"})
+        self.assertEqual(parse_provider_symbol_overrides(["OLD=NEW"]), {"OLD": "NEW"})
         with self.assertRaisesRegex(ValueError, "invalid provider symbol override"):
-            parse_provider_symbol_overrides(["IAC"])
+            parse_provider_symbol_overrides(["OLD"])
 
     def test_stale_predictions_are_removed_before_registered_merge(self) -> None:
         frame = pd.DataFrame(

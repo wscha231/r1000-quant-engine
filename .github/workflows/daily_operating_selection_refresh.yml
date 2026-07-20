@@ -565,6 +565,8 @@ jobs:
             --main-target outputs/reports/operating_main_target_book.csv \
             --concentrated-target outputs/reports/operating_concentrated_target_book.csv \
             --as-of-date "$PAPER_AS_OF" \
+            --decision-time-utc "$RISK_AVAILABLE_FROM" \
+            --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv \
             --cost-bps 25 \
             --max-fill-lag-days 7 \
             2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger.log

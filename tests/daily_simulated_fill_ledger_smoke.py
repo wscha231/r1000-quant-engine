@@ -75,7 +75,7 @@ def write_target(path: Path) -> None:
     ).to_csv(path, index=False)
 
 
-def args_for(root: Path, as_of_date: str) -> SimpleNamespace:
+def args_for(root: Path, as_of_date: str, lifecycle: str = "") -> SimpleNamespace:
     return SimpleNamespace(
         state_dir=str(root / "paper"),
         price_cache=str(root / "cache_prices"),
@@ -85,6 +85,8 @@ def args_for(root: Path, as_of_date: str) -> SimpleNamespace:
         main_target=str(root / "targets" / "main.csv"),
         concentrated_target=str(root / "targets" / "concentrated.csv"),
         as_of_date=as_of_date,
+        decision_time_utc=f"{as_of_date}T23:00:00Z",
+        security_lifecycle_events=lifecycle,
         cost_bps=25.0,
         max_fill_lag_days=7,
     )
@@ -166,6 +168,71 @@ def test_pending_resolves_once_at_next_close() -> None:
             assert "hash mismatch" in str(exc)
         else:
             raise AssertionError("tampered forward fill chain was accepted")
+
+
+def test_verified_cash_merger_settles_without_future_close_and_cancels_pending() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+        write_prices(cache, "BBB", [50.0, 51.0, 52.0])
+        lifecycle = root / "security_lifecycle.csv"
+        pd.DataFrame(
+            [
+                {
+                    "stable_security_id": "SECURITY:AAA",
+                    "stable_issuer_id": "ISSUER:AAA",
+                    "ticker": "AAA",
+                    "aliases": "AAA",
+                    "event_type": "cash_merger",
+                    "available_from": "2026-01-06T13:00:00Z",
+                    "effective_date": "2026-01-06",
+                    "last_trading_date": "2026-01-05",
+                    "predecessor_security_id": "",
+                    "successor_security_id": "",
+                    "successor_ticker": "",
+                    "cash_consideration": "110.00",
+                    "delisting_proceeds": "",
+                    "currency": "USD",
+                    "source_url": "https://example.test/filing/aaa",
+                    "accession_number": "0000000000-26-000001",
+                    "stable_event_id": "EVENT:AAA:20260106",
+                    "source_sha256": "a" * 64,
+                    "exact_available_from": "true",
+                    "evidence_status": "verified",
+                    "review_status": "approved",
+                    "notes": "generic cash merger fixture",
+                }
+            ]
+        ).to_csv(lifecycle, index=False)
+        for portfolio in ("main", "concentrated"):
+            write_seed(root / "seed" / f"{portfolio}.json", portfolio)
+            write_target(root / "targets" / f"{portfolio}.csv")
+
+        first = run(args_for(root, "2026-01-05", str(lifecycle)))
+        assert first["status"] == "completed"
+
+        aaa_path = cache / px_cache_name("AAA")
+        aaa = pd.read_parquet(aaa_path)
+        aaa.loc[pd.to_datetime(aaa.index).normalize() <= pd.Timestamp("2026-01-05")].to_parquet(aaa_path)
+        second = run(args_for(root, "2026-01-06", str(lifecycle)))
+        assert second["status"] == "completed"
+        for portfolio in ("main", "concentrated"):
+            directory = root / "paper" / portfolio
+            account = json.loads((directory / "account_state_latest.json").read_text(encoding="utf-8"))
+            fills = pd.read_csv(directory / "fills.csv")
+            rejections = pd.read_csv(directory / "rejections.csv")
+            assert "AAA" not in {row["ticker"] for row in account["positions"]}
+            settlement = fills[fills["event_type"] == "LIFECYCLE_SETTLEMENT"]
+            assert len(settlement) == 1
+            assert float(settlement.iloc[0]["fee_usd"]) == 0.0
+            assert float(settlement.iloc[0]["gross_value"]) == 1_100.0
+            assert "lifecycle_terminal_cancelled" in set(rejections["event_reason"])
+            manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+            assert manifest["security_lifecycle_actions"]["settled_positions"] == 1
+            assert manifest["security_lifecycle_terminal_tickers"] == ["AAA"]
+            validate_event_chain(fills, rejections)
 
 
 def test_bootstrap_does_not_retrade_an_already_effective_target() -> None:
@@ -251,6 +318,7 @@ def test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_
 
 def main() -> int:
     test_pending_resolves_once_at_next_close()
+    test_verified_cash_merger_settles_without_future_close_and_cancels_pending()
     test_bootstrap_does_not_retrade_an_already_effective_target()
     test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_closed()
     print("daily_simulated_fill_ledger_smoke: PASS")

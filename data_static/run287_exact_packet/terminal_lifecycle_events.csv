@@ -1,2 +1,0 @@
-ticker,cik10,event_type,effective_date,available_from,last_trading_date,cash_consideration,currency,exact_acceptance,accession_number,source_url,source_sha256,evidence_status,notes
-GTLS,0000892553,cash_merger,2026-07-16,2026-07-16T13:02:00Z,2026-07-15,210.00,USD,true,0001193125-26-305482,https://www.sec.gov/Archives/edgar/data/892553/000119312526305482/d10289d8k.htm,c91401e63c4624f91d185565df755e112a7755f40bad58f41894ec30ed450dc1,verified,SEC 8-K completed cash merger and requested NYSE delisting; last trading date independently confirmed from the bounded price provider

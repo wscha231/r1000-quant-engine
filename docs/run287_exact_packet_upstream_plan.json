@@ -81,9 +81,9 @@
       "path": "data_static/run287_exact_packet/best_thresholds.json",
       "sha256": "d108c017e301f6929e1441827d5a19c02beb0d89727dbbff40f94f3e504d2da2"
     },
-    "terminal_lifecycle_events": {
-      "path": "data_static/run287_exact_packet/terminal_lifecycle_events.csv",
-      "sha256": "8f38aa39747034be3d09f34cb0991f68440368924490b3b0f44e6792151cb0f7"
+    "security_lifecycle_events": {
+      "path": "data_static/run287_exact_packet/security_lifecycle_events.csv",
+      "sha256": "09e2fd19a127c281dd8f69988d8ac454183133a638752fbb6d7884c947e86f24"
     }
   },
   "directories": {

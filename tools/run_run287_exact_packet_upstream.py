@@ -44,7 +44,7 @@ from tools.run_run287_exact_packet_producer import (  # noqa: E402
 )
 
 
-SCHEMA_VERSION = "run287-exact-packet-upstream-orchestrator-v2"
+SCHEMA_VERSION = "run287-exact-packet-upstream-orchestrator-v3"
 PLAN_SCHEMA = "run287-exact-packet-upstream-plan-v1"
 PLAN_STATUS = "READY_BOUNDED_EXACT_PACKET_UPSTREAM_PLAN_REVIEW_ONLY"
 READY_STATUS = "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY"
@@ -503,8 +503,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "--model-root", str(model_root),
             "--scored-oos", str(paths["scored_oos"]),
             "--batch-size", str(runtime.get("price_batch_size") or 40),
-            "--provider-symbol-override", "IAC=PPLI",
-            "--terminal-lifecycle-events", str(paths["terminal_lifecycle_events"]),
+            "--security-lifecycle-events", str(paths["security_lifecycle_events"]),
             "--output-dir", str(scored_dir),
             "--canonical-output", str(scored_dir / "canonical_scored_latest.csv"),
             "--allow-network-refresh",
