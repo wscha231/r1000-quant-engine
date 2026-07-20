@@ -1,0 +1,71 @@
+{
+  "schema_version": "run287-hold-exit-policy-contract-v1",
+  "policy_id": "leadership_persistence_v2_strict",
+  "sell_taxonomy": [
+    "THESIS_EXIT",
+    "RISK_EXIT",
+    "REPLACEMENT_EXIT",
+    "LIFECYCLE_EXIT",
+    "EXECUTION_RECONCILIATION"
+  ],
+  "leadership_persistence": {
+    "rs_benchmark_3m_percentile_floor": 0.9,
+    "price_above_ma200_floor": 0.5,
+    "main_allowed_leader_tiers": [
+      "DUAL_LEADER",
+      "SECTOR_LEADER"
+    ],
+    "concentrated_allowed_leader_tiers": [
+      "DUAL_LEADER"
+    ],
+    "sector_rs_must_be_positive": true,
+    "industry_group_strength_must_be_positive": true,
+    "warning_trim_or_thesis_break_may_be_suppressed": false,
+    "missing_evidence_is_protected": false
+  },
+  "replacement": {
+    "score_sigma_multiplier": 1.1,
+    "minimum_score_gap": 0.22,
+    "round_trip_cost_penalty": 0.005,
+    "threshold_grid_allowed": false,
+    "selected_challenger_required": true,
+    "complete_evidence_required": true,
+    "lifecycle_and_risk_clear_required": true,
+    "trend_and_relative_strength_alive_required": true,
+    "concentration_may_worsen": false
+  },
+  "replay": {
+    "control_book_mutation_allowed": false,
+    "fill_mode": "next_close",
+    "integer_shares": true,
+    "maximum_fill_lag_days": 7,
+    "primary_cost_bps_per_side": 25,
+    "cost_sensitivity_bps_per_side": [
+      25,
+      50,
+      100
+    ],
+    "reserve_mode": "DGS3MO_CARRY",
+    "oos_start": "2024-07-01",
+    "oos2_start": "2023-01-01",
+    "embargo_sessions": 126,
+    "forward_return_columns_allowed": false
+  },
+  "promotion": {
+    "minimum_delta_cagr": 0.005,
+    "minimum_delta_sharpe": -0.05,
+    "minimum_delta_max_drawdown": -0.03,
+    "oos_and_oos2_must_not_be_materially_negative": true,
+    "single_ticker_or_era_contribution_ceiling": 0.5,
+    "no_op_must_reject": true,
+    "automatic_promotion_allowed": false,
+    "production_enabled": false,
+    "live_trading_enabled": false
+  },
+  "integration": {
+    "policy": "tools/run287_hold_exit_policy.py",
+    "bounded_evaluator": "tools/evaluate_run287_hold_exit_replacement.py",
+    "order_preview": "tools/run_account_order_preview.py",
+    "paper_fill_ledger": "tools/run_daily_simulated_fill_ledger.py"
+  }
+}

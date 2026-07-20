@@ -24,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_broker_ledger_replay import CASH_TICKERS, repo_path, safe_float
+from tools.run287_hold_exit_policy import classify_execution_sell
 from tools.run_weekly_evaluation import load_price_series, price_on_or_before
 from tools.reserve_asset_policy import (
     DEFAULT_CURRENT_PAPER_MODE,
@@ -284,6 +285,7 @@ def build_orders(
     integer_shares: bool,
     min_trade_usd: float,
     limit_margin_pct: float,
+    reserve_asset_ticker: str = "",
 ) -> pd.DataFrame:
     current_map = {
         str(row.ticker): row
@@ -294,6 +296,23 @@ def build_orders(
         str(row.ticker): float(row.target_weight)
         for row in target.itertuples(index=False)
         if str(row.ticker).upper() not in CASH_TICKERS
+    }
+    reserve_ticker = normalize_ticker(reserve_asset_ticker)
+    current_stock_gross = sum(
+        float(getattr(row, "market_value_usd", 0.0)) / max(float(equity), 1e-12)
+        for ticker, row in current_map.items()
+        if ticker != reserve_ticker
+    )
+    target_stock_gross = sum(
+        max(0.0, float(weight)) for ticker, weight in target_map.items()
+        if ticker != reserve_ticker
+    )
+    target_gross_reduced = target_stock_gross < current_stock_gross - 1e-12
+    replacement_tickers = {
+        ticker for ticker, weight in target_map.items()
+        if ticker != reserve_ticker
+        and weight > 1e-12
+        and (ticker not in current_map or float(getattr(current_map[ticker], "shares", 0.0)) <= 1e-12)
     }
     rows: list[dict[str, Any]] = []
     fee_rate = float(cost_bps) / 10000.0
@@ -310,6 +329,15 @@ def build_orders(
         if abs(diff_value) < max(float(min_trade_usd), equity * 0.0005):
             continue
         side = "BUY" if diff_value > 0 else "SELL"
+        sell_taxonomy = "NOT_APPLICABLE"
+        sell_taxonomy_reason = "buy_order"
+        if side == "SELL":
+            sell_taxonomy, sell_taxonomy_reason = classify_execution_sell(
+                ticker=ticker,
+                target_weight=target_weight,
+                target_gross_reduced=target_gross_reduced,
+                replacement_tickers=replacement_tickers,
+            )
         desired_qty = abs(diff_value) / price
         if integer_shares:
             desired_qty = math.floor(desired_qty)
@@ -337,6 +365,8 @@ def build_orders(
                 "order_type": "limit",
                 "time_in_force": "day",
                 "reason": "target_rebalance",
+                "sell_taxonomy": sell_taxonomy,
+                "sell_taxonomy_reason": sell_taxonomy_reason,
             }
         )
     orders = pd.DataFrame(rows)
@@ -622,6 +652,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         integer_shares=not bool(args.fractional_shares),
         min_trade_usd=args.min_trade_usd,
         limit_margin_pct=args.limit_margin_pct,
+        reserve_asset_ticker=reserve_policy.asset_ticker if reserve_policy.tradeable else "",
     )
     current.to_csv(output_dir / "positions_current.csv", index=False)
     target.to_csv(output_dir / "target_weights.csv", index=False)
@@ -725,6 +756,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "order_count": int(len(orders)),
         "buy_count": int((orders.get("side", pd.Series(dtype=str)) == "BUY").sum()) if not orders.empty else 0,
         "sell_count": int((orders.get("side", pd.Series(dtype=str)) == "SELL").sum()) if not orders.empty else 0,
+        "sell_taxonomy_counts": (
+            orders.loc[orders.get("side", pd.Series(dtype=str)).eq("SELL"), "sell_taxonomy"]
+            .value_counts().sort_index().to_dict()
+            if not orders.empty and "sell_taxonomy" in orders.columns else {}
+        ),
+        "unclassified_sell_count": int(
+            orders.loc[orders.get("side", pd.Series(dtype=str)).eq("SELL"), "sell_taxonomy"]
+            .fillna("").eq("").sum()
+            if not orders.empty and "sell_taxonomy" in orders.columns else 0
+        ),
         "buy_gross_usd": buy_gross,
         "sell_gross_usd": sell_gross,
         "estimated_fee_usd": fees,

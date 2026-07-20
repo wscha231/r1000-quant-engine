@@ -86,12 +86,26 @@ def test_rejected_sec_guidance_keyword_scout_is_blocked() -> None:
     assert result["matched_entry_ids"] == ["sec_management_guidance_keyword_scout"]
 
 
+def test_rejected_strict_leadership_persistence_is_blocked() -> None:
+    result = evaluate_candidate(
+        load_registry(),
+        signal="strict_confirmed_leader",
+        mechanism="leadership_persistence_v2_strict",
+        book="generated_books",
+        window="2019-05-31_2026-07-10",
+    )
+    assert result["status"] == "BLOCKED_DO_NOT_REPEAT"
+    assert result["allowed"] is False
+    assert result["matched_entry_ids"] == ["leadership_persistence_v2_strict"]
+
+
 def main() -> int:
     test_exact_rejected_candidate_is_blocked()
     test_coverage_or_real_semantic_change_can_reopen()
     test_new_combination_is_allowed()
     test_rejected_sec_filing_quality_source_screen_is_blocked()
     test_rejected_sec_guidance_keyword_scout_is_blocked()
+    test_rejected_strict_leadership_persistence_is_blocked()
     print("run287_do_not_repeat_registry_smoke: PASS")
     return 0
 

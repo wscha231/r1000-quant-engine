@@ -77,6 +77,9 @@ def test_order_preview_builds_sell_first_orders() -> None:
         assert not orders.empty
         assert orders.iloc[0]["side"] == "SELL"
         assert {"SELL", "BUY"}.issubset(set(orders["side"]))
+        sells = orders[orders["side"].eq("SELL")]
+        assert set(sells["sell_taxonomy"]) == {"EXECUTION_RECONCILIATION"}
+        assert payload["unclassified_sell_count"] == 0
         assert (orders["quantity"] % 1 == 0).all()
         assert "client_order_id" in orders.columns
         assert "idempotency_key" in orders.columns

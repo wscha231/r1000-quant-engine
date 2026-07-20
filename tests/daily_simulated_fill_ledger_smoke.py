@@ -143,6 +143,8 @@ def test_pending_resolves_once_at_next_close() -> None:
             assert pending.empty
             assert fills.iloc[0]["side"] == "SELL"
             assert fills.iloc[1]["side"] == "BUY"
+            assert fills.iloc[0]["sell_taxonomy"] == "EXECUTION_RECONCILIATION"
+            assert fills.iloc[1]["sell_taxonomy"] == "NOT_APPLICABLE"
             assert set(fills["date"]) == {"2026-01-06"}
             assert set(fills["fill_mode"]) == {"next_close"}
             assert set(fills["record_type"]) == {"FORWARD_PAPER"}
