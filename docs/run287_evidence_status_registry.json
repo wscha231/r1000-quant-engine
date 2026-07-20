@@ -16,6 +16,11 @@
       "path": "docs/CODEX_RUN287_P8_REPO_CI_ARTIFACT_HYGIENE_RESULT_20260720.md",
       "label": "ACTIVE_REPOSITORY_POLICY",
       "purpose": "current Git, CI, manifest, retention, and restoration policy"
+    },
+    {
+      "path": "docs/CODEX_RUN287_P9_PROMOTION_ROLLBACK_GATE_RESULT_20260720.md",
+      "label": "ACTIVE_GOVERNANCE_POLICY",
+      "purpose": "single canonical promotion state, forward evidence, approval, and rollback contract"
     }
   ],
   "historical": [

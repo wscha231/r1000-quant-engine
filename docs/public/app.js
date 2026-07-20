@@ -111,7 +111,7 @@ function renderHeader() {
   $("#as-of-close").textContent = formatDate(data.as_of_close);
   $("#generated-at").textContent = formatTimestamp(data.generated_at_utc);
   $("#source-label").textContent = valueOrDash(data.source?.label);
-  $("#decision-label").textContent = valueOrDash(data.status?.decision);
+  $("#decision-label").textContent = valueOrDash(data.status?.promotion_state || data.status?.decision);
   $("#header-status-text").textContent = `${formatDate(data.as_of_close)} 종가 반영`;
   $("#allocation-asof").textContent = formatDate(data.as_of_close);
 }

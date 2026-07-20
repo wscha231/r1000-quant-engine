@@ -3086,3 +3086,40 @@ Expected contract:
   `189/189` in `348.21s`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-07-20 - P9 single promotion and rollback gate
+
+- Scope: issue #306 P9. Governance and long-forward-paper state contract; no
+  alpha arm, fullrun, production activation, or live orders.
+- Added the single state vocabulary `RESEARCH_ONLY`,
+  `SHADOW_OPERATION_READY`, `FORWARD_PAPER_VALIDATING`,
+  `FORWARD_PAPER_REVIEW_READY`,
+  `PRODUCTION_CANDIDATE_USER_APPROVAL_REQUIRED`, and
+  `BLOCKED_OR_ROLLED_BACK`.
+- Canonical state is `RESEARCH_ONLY`. No accepted challenger exists,
+  PIT/delisted evidence remains incomplete, and 63/126D outcomes are unresolved.
+- Fixed forward minimums before further outcomes were inspected: 60 completed
+  sessions, 12 decision weeks, and 200/100/50 resolved 21/63/126D outcomes.
+  Low signal frequency extends time and never lowers these thresholds.
+- Fully passing evidence changes only `maximum_evidence_supported_state`; it
+  never mutates the canonical state. A hash-bound authorization still requires
+  a reviewed state-pointer change.
+- Champion and challenger require separate account IDs and ledger roots with
+  identical data/close/cost/Reserve/lifecycle contracts and paired dates.
+  Collision or mismatch fails closed.
+- Rollback triggers restore the champion policy pointer, preserve forward paper
+  history, and require separate review for any code rollback.
+- Daily workflow, private operating scorecard, public dashboard, and
+  user-current report now consume the same effective state. Legacy local
+  promotion labels cannot authorize production.
+- The downloaded July 16 runtime overlay showed 1 completed session, 1 decision
+  week, and 0 resolved 21/63/126D outcomes: `RESEARCH_ONLY / UNDERPOWERED`, no
+  rollback. This is not a July 17 performance refresh.
+- Current user approval packet is `NOT_ELIGIBLE`; production activation and live
+  trading are false.
+- Evidence: `docs/CODEX_RUN287_P9_PROMOTION_ROLLBACK_GATE_RESULT_20260720.md`
+  and local `_tmp_tests/p9_runtime_overlay/promotion_gate.json`.
+- Repository pytest passed `129/129`; full Tier-1 PR validation passed
+  `190/190` in `260.48s`; P9 gate fixtures passed `9/9`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false.

@@ -1,0 +1,69 @@
+{
+  "schema_version": "run287-promotion-gate-contract-v1",
+  "contract_version": "2026-07-20.1",
+  "states": [
+    "RESEARCH_ONLY",
+    "SHADOW_OPERATION_READY",
+    "FORWARD_PAPER_VALIDATING",
+    "FORWARD_PAPER_REVIEW_READY",
+    "PRODUCTION_CANDIDATE_USER_APPROVAL_REQUIRED",
+    "BLOCKED_OR_ROLLED_BACK"
+  ],
+  "forward_thresholds": {
+    "minimum_completed_market_sessions": 60,
+    "minimum_distinct_decision_weeks": 12,
+    "minimum_resolved_21d_outcomes": 200,
+    "minimum_resolved_63d_outcomes": 100,
+    "minimum_resolved_126d_outcomes": 50
+  },
+  "required_zero_integrity_fields": [
+    "account_reseed_count",
+    "duplicate_fill_count",
+    "duplicate_client_order_id_count",
+    "same_day_fill_count",
+    "future_close_count",
+    "stale_substituted_close_count",
+    "hash_chain_break_count",
+    "negative_cash_count",
+    "lifecycle_silent_deletion_count"
+  ],
+  "required_historical_checks": [
+    "canonical_control_exact_parity",
+    "pit_no_lookahead",
+    "full_pass",
+    "oos_pass",
+    "oos2_pass",
+    "embargo_126_pass",
+    "cost_25bps_pass",
+    "cost_50bps_pass",
+    "cost_100bps_pass",
+    "stress_episodes_pass",
+    "ticker_sector_era_concentration_pass",
+    "scorecard_trusted",
+    "lifecycle_delisted_handling_pass",
+    "do_not_repeat_conflict_absent"
+  ],
+  "rollback_triggers": [
+    "integrity_error",
+    "target_order_provenance_unknown",
+    "oos_or_forward_structural_degradation",
+    "stress_mdd_degradation",
+    "reentry_cash_trap_limit_breach",
+    "turnover_fees_consume_expected_alpha",
+    "data_coverage_semantic_change",
+    "model_head_zero_constant_or_drift_failure",
+    "lifecycle_handling_failure"
+  ],
+  "rules": {
+    "automatic_forward_transition_allowed": false,
+    "automatic_production_activation_allowed": false,
+    "automatic_safe_rollback_allowed": true,
+    "one_official_challenger_at_a_time": true,
+    "champion_and_challenger_ledgers_must_be_distinct": true,
+    "paired_decision_dates_required": true,
+    "lower_signal_frequency_extends_observation_period": true,
+    "lower_signal_frequency_lowers_thresholds": false,
+    "forward_overwrites_historical_acceptance": false,
+    "paper_history_preserved_on_rollback": true
+  }
+}

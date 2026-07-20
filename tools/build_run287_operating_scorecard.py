@@ -19,6 +19,11 @@ from typing import Any
 
 import pandas as pd
 
+try:
+    from tools.run287_promotion_gate import gate_for_consumer
+except ModuleNotFoundError:  # direct `python tools/...` execution
+    from run287_promotion_gate import gate_for_consumer
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = "run287-operating-scorecard-v1"
@@ -152,7 +157,10 @@ def load_sources(registry: dict[str, Any]) -> tuple[dict[str, Any], list[dict[st
     return loaded, records, errors
 
 
-def build_scorecard(registry: dict[str, Any], *, source_registry_path: Path) -> dict[str, Any]:
+def build_scorecard(
+    registry: dict[str, Any], *, source_registry_path: Path,
+    promotion_state_path: Path | None = None,
+) -> dict[str, Any]:
     loaded, source_records, integrity_errors = load_sources(registry)
     records_by_id = {row["source_id"]: row for row in source_records}
     metrics: list[dict[str, Any]] = []
@@ -494,6 +502,7 @@ def build_scorecard(registry: dict[str, Any], *, source_registry_path: Path) -> 
             "forward": evidence_status["true_forward"],
         }
 
+    promotion = gate_for_consumer(explicit=promotion_state_path)
     return {
         "schema_version": SCHEMA_VERSION,
         "metric_definition_version": registry["metric_definition_version"],
@@ -506,6 +515,7 @@ def build_scorecard(registry: dict[str, Any], *, source_registry_path: Path) -> 
         "public_deployment_allowed": False,
         "production_activation_allowed": False,
         "live_trading_enabled": False,
+        "promotion_governance": promotion,
         "historical_acceptance_overwritten_by_forward": False,
         "headline_performance_trust": headline_trust,
         "headline_performance": headlines,
@@ -544,6 +554,16 @@ def render_report(scorecard: dict[str, Any]) -> str:
     lines.extend(["", "## Evidence lanes", "", "| Lane | Status |", "| --- | --- |"])
     for lane, status in scorecard["evidence_status"].items():
         lines.append(f"| {lane} | `{status}` |")
+    promotion = scorecard["promotion_governance"]
+    lines.extend([
+        "",
+        "## Promotion governance",
+        "",
+        f"- promotion_state: `{promotion['promotion_state']}`",
+        f"- rollback_triggered: `{str(promotion['rollback_triggered']).lower()}`",
+        "- production_activation_allowed: `false`",
+        "- live_trading_enabled: `false`",
+    ])
     lines.extend(["", "## Operating sections", "", "| Section | Status | Available / total |", "| --- | --- | ---: |"])
     for section in SECTIONS:
         rows = [row for row in scorecard["metrics"] if row["section"] == section]
@@ -581,13 +601,17 @@ def main() -> int:
     parser.add_argument("--source-registry", default="docs/run287_operating_scorecard_sources.json")
     parser.add_argument("--output-dir", default="outputs/run287_operating_scorecard")
     parser.add_argument("--previous-scorecard")
+    parser.add_argument("--promotion-state")
     args = parser.parse_args()
     registry_path = repo_path(args.source_registry)
     registry = load_registry(registry_path)
     if args.previous_scorecard:
         previous = json.loads(repo_path(args.previous_scorecard).read_text(encoding="utf-8"))
         validate_metric_migration(previous, registry)
-    scorecard = build_scorecard(registry, source_registry_path=registry_path)
+    promotion_path = repo_path(args.promotion_state) if args.promotion_state else None
+    scorecard = build_scorecard(
+        registry, source_registry_path=registry_path, promotion_state_path=promotion_path
+    )
     output_dir = repo_path(args.output_dir)
     write_json(output_dir / "operating_scorecard.json", scorecard)
     (output_dir / "operating_scorecard.md").write_text(render_report(scorecard), encoding="utf-8")

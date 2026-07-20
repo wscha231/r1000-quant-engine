@@ -1,2 +1,5 @@
 data_static/run287_exact_packet/best_thresholds.json text eol=lf
 tests/fixtures/run287_canonical_baseline/** -text
+data_static/run287_promotion_gate_contract.json text eol=lf
+data_static/run287_promotion_state.json text eol=lf
+data_static/run287_promotion_evidence_current.json text eol=lf

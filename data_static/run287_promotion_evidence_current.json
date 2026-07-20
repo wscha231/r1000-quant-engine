@@ -1,0 +1,78 @@
+{
+  "schema_version": "run287-promotion-evidence-v1",
+  "as_of_date": "2026-07-10",
+  "candidate_id": null,
+  "historical": {
+    "canonical_control_exact_parity": true,
+    "pit_no_lookahead": false,
+    "full_pass": false,
+    "oos_pass": false,
+    "oos2_pass": false,
+    "embargo_126_pass": false,
+    "cost_25bps_pass": false,
+    "cost_50bps_pass": false,
+    "cost_100bps_pass": false,
+    "stress_episodes_pass": false,
+    "ticker_sector_era_concentration_pass": false,
+    "scorecard_trusted": true,
+    "lifecycle_delisted_handling_pass": false,
+    "do_not_repeat_conflict_absent": true,
+    "metrics": {
+      "main": {"cagr": 0.344032, "max_drawdown": -0.253629},
+      "concentrated": {"cagr": 0.490968, "max_drawdown": -0.22956}
+    },
+    "limitations": [
+      "No accepted challenger exists.",
+      "PIT universe membership and delisted coverage remain incomplete."
+    ]
+  },
+  "forward_paper": {
+    "completed_market_sessions": 0,
+    "distinct_decision_weeks": 0,
+    "resolved_21d_outcomes": 0,
+    "resolved_63d_outcomes": 0,
+    "resolved_126d_outcomes": 0,
+    "selection_evaluable": false,
+    "exit_evaluable": false,
+    "defense_evaluable": false,
+    "reentry_evaluable": false,
+    "account_reseed_count": 0,
+    "duplicate_fill_count": 0,
+    "duplicate_client_order_id_count": 0,
+    "same_day_fill_count": 0,
+    "future_close_count": 0,
+    "stale_substituted_close_count": 0,
+    "hash_chain_break_count": 0,
+    "negative_cash_count": 0,
+    "lifecycle_silent_deletion_count": 0
+  },
+  "accounts": {
+    "champion": {
+      "account_id": "run287-champion-paper",
+      "ledger_root": "paper_archive/champion/run287-generated-book-champion-20260710",
+      "data_contract_sha256": "canonical-run287-data-contract",
+      "close_contract_sha256": "exact-completed-session-close",
+      "cost_contract_sha256": "next-close-integer-25bps-lag7",
+      "reserve_contract_sha256": "dgs3mo-carry",
+      "lifecycle_contract_sha256": "security-lifecycle-v1"
+    },
+    "challenger": null,
+    "paired_decision_date_count": 0
+  },
+  "rollback": {
+    "integrity_error": false,
+    "target_order_provenance_unknown": false,
+    "oos_or_forward_structural_degradation": false,
+    "stress_mdd_degradation": false,
+    "reentry_cash_trap_limit_breach": false,
+    "turnover_fees_consume_expected_alpha": false,
+    "data_coverage_semantic_change": false,
+    "model_head_zero_constant_or_drift_failure": false,
+    "lifecycle_handling_failure": false
+  },
+  "current_target_reserve_changes": {},
+  "worst_case_failure_modes": [
+    "Forward paper account continuity is not currently available in the canonical local evidence packet.",
+    "A candidate can overfit the historical generated book despite positive full-period CAGR."
+  ]
+}

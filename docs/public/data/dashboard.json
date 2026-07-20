@@ -6502,8 +6502,11 @@
   "status": {
     "decision": "RESEARCH_ONLY",
     "live_trading_enabled": false,
+    "promotion_state": "RESEARCH_ONLY",
+    "promotion_state_source_sha256": "62d8b87966527a6cc5dc6cc5d26fb3c8b28c1c7cf2be7b12126d0402034b5551",
     "production_ready": false,
     "review_only": true,
+    "rollback_triggered": false,
     "simulated_broker_ledger": true
   }
 }

@@ -549,6 +549,19 @@ jobs:
           # paper order or set same_close_selector_recomputed=true.
           PY
 
+      - name: Evaluate single promotion and rollback gate
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          python tools/run_run287_promotion_gate.py \
+            --contract data_static/run287_promotion_gate_contract.json \
+            --state data_static/run287_promotion_state.json \
+            --evidence data_static/run287_promotion_evidence_current.json \
+            --latest-run outputs \
+            --output-dir outputs/run287_promotion_gate \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_promotion_gate.log
+
       - name: Build operating review outputs
         if: steps.market.outputs.ready == 'yes'
         run: |
@@ -770,6 +783,7 @@ jobs:
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_decision_observation_archive/
             outputs/run287_risk_outcome_archive/
+            outputs/run287_promotion_gate/
             outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
@@ -789,6 +803,7 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
+            outputs/full_rebuild_logs/daily_run287_promotion_gate.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
@@ -835,7 +850,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
