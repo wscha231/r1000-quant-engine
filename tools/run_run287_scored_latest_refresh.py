@@ -49,9 +49,13 @@ from tools.run_run287_current_score_stack_audit import (  # noqa: E402
 )
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 from tools import stage_run287_price_batch as checkpoint  # noqa: E402
+from tools.security_lifecycle import (  # noqa: E402
+    filter_terminal_tickers,
+    resolve_security_lifecycle,
+)
 
 
-SCHEMA_VERSION = "run287-scored-latest-refresh-v1"
+SCHEMA_VERSION = "run287-scored-latest-refresh-v3"
 REQUIRED_PRICE_COLUMNS = ("Open", "High", "Low", "Close", "Adj Close", "Volume")
 DEFAULT_CANONICAL = (
     "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"
@@ -381,11 +385,16 @@ def build(
     session = pd.Timestamp(args.session_date).normalize()
     if pd.isna(session):
         raise ValueError("--session-date must be YYYY-MM-DD")
+    decision_time = pd.to_datetime(args.decision_time_utc, errors="coerce", utc=True)
+    if pd.isna(decision_time):
+        raise ValueError(
+            "--decision-time-utc is required and must include a valid timestamp"
+        )
     if not args.allow_network_refresh and download_fn is None:
         raise ValueError("--allow-network-refresh is required")
     PROVIDER_SYMBOL_OVERRIDES.clear()
-    PROVIDER_SYMBOL_OVERRIDES.update(
-        parse_provider_symbol_overrides(args.provider_symbol_override)
+    manual_provider_overrides = parse_provider_symbol_overrides(
+        args.provider_symbol_override
     )
 
     universe_path = repo_path(args.universe)
@@ -417,9 +426,36 @@ def build(
     base["ticker"] = base["ticker"].map(normalize_ticker)
     prior_stack = pd.read_csv(prior_stack_path, low_memory=False)
     prior_stack["ticker"] = prior_stack["ticker"].map(normalize_ticker)
-    tickers = base["ticker"].tolist()
-    if len(base) != 989 or base["ticker"].duplicated().any() or not all(tickers):
+    base_ticker_list = base["ticker"].tolist()
+    if (
+        len(base) != 989
+        or base["ticker"].duplicated().any()
+        or not all(base_ticker_list)
+    ):
         raise ValueError("base_context_989_unique_ticker_contract_failed")
+    lifecycle_path = (
+        repo_path(args.security_lifecycle_events)
+        if str(args.security_lifecycle_events or "").strip()
+        else None
+    )
+    lifecycle = resolve_security_lifecycle(
+        lifecycle_path,
+        session_date=session,
+        decision_time_utc=decision_time,
+        active_tickers=set(base_ticker_list),
+    )
+    for logical, provider in lifecycle.provider_symbol_overrides.items():
+        manual = manual_provider_overrides.get(logical)
+        if manual is not None and manual != provider:
+            raise ValueError(f"provider_symbol_override_conflicts_with_lifecycle:{logical}")
+    PROVIDER_SYMBOL_OVERRIDES.update(lifecycle.provider_symbol_overrides)
+    PROVIDER_SYMBOL_OVERRIDES.update(manual_provider_overrides)
+    terminal_exclusions = lifecycle.terminal_events.copy()
+    terminal_tickers = set(lifecycle.terminal_tickers)
+    base = filter_terminal_tickers(base, lifecycle)
+    tickers = base["ticker"].tolist()
+    if not tickers:
+        raise ValueError("security_lifecycle_excluded_entire_context")
     universe_tickers = {normalize_ticker(value) for value in universe["ticker"]}
     excluded = sorted((universe_tickers - set(tickers)) - {""})
 
@@ -546,6 +582,9 @@ def build(
     pd.concat(provider_rows, ignore_index=True).to_parquet(
         output_dir / "provider_price_overlap.parquet", index=False
     )
+    lifecycle.applicable_events.to_csv(
+        output_dir / "security_lifecycle_applicable_events.csv", index=False
+    )
     pd.DataFrame(batch_audits).to_csv(output_dir / "provider_batch_audit.csv", index=False)
     pd.DataFrame(ticker_audits).to_csv(output_dir / "ticker_refresh_audit.csv", index=False)
     if failures:
@@ -637,6 +676,7 @@ def build(
             "provider_price_overlap.parquet",
             "provider_batch_audit.csv",
             "ticker_refresh_audit.csv",
+            "security_lifecycle_applicable_events.csv",
             "latest_technical_features.csv",
             "selection_context.parquet",
             "scaled_model_input.parquet",
@@ -647,6 +687,7 @@ def build(
         "schema_version": SCHEMA_VERSION,
         "status": "READY_RESEARCH_SCORED_LATEST",
         "session_date": session.date().isoformat(),
+        "decision_time_utc": pd.Timestamp(decision_time).isoformat(),
         "score_available_from": utc_now(),
         "research_only": True,
         "current_decision_only": True,
@@ -665,7 +706,10 @@ def build(
         "provider_symbol_overrides": dict(PROVIDER_SYMBOL_OVERRIDES),
         "coverage": {
             "universe_count": len(universe),
+            "base_context_count": 989,
             "current_context_count": len(context),
+            "security_lifecycle_terminal_exclusion_count": len(terminal_exclusions),
+            "security_lifecycle_terminal_tickers": sorted(terminal_tickers),
             "exact_session_close_count": len(exact),
             "existing_source_cache_count": len(existing),
             "missing_source_cache_count": len(missing_source),
@@ -677,8 +721,17 @@ def build(
         "score_diagnostics": score_diag,
         "comparison_to_prior_canonical": comparison,
         "source_inputs": {
-            name: checkpoint.fingerprint(path) for name, path in input_paths.items()
+            **{
+                name: checkpoint.fingerprint(path)
+                for name, path in input_paths.items()
+            },
+            **(
+                {"security_lifecycle_events": checkpoint.fingerprint(lifecycle_path)}
+                if lifecycle_path is not None
+                else {}
+            ),
         },
+        "security_lifecycle": lifecycle.audit(),
         "outputs": output_records,
         "canonical_output": canonical_rel,
         "performance": {"elapsed_seconds": time.perf_counter() - started},
@@ -694,6 +747,7 @@ def build(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--session-date", required=True)
+    parser.add_argument("--decision-time-utc", required=True)
     parser.add_argument("--universe", required=True)
     parser.add_argument("--base-selection-context", required=True)
     parser.add_argument("--base-score-stack", required=True)
@@ -707,7 +761,12 @@ def parse_args() -> argparse.Namespace:
         "--provider-symbol-override",
         action="append",
         default=[],
-        help="Repeat logical=provider for verified symbol changes, e.g. IAC=PPLI.",
+        help="Repeat logical=provider for a verified symbol change.",
+    )
+    parser.add_argument(
+        "--security-lifecycle-events",
+        default="",
+        help="Shared PIT lifecycle events for terminal settlement and symbol continuity.",
     )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--canonical-output", default=DEFAULT_CANONICAL)

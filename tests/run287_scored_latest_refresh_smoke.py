@@ -76,9 +76,9 @@ class ScoredLatestRefreshSmoke(unittest.TestCase):
             )
 
     def test_provider_symbol_override_is_explicit(self) -> None:
-        self.assertEqual(parse_provider_symbol_overrides(["IAC=PPLI"]), {"IAC": "PPLI"})
+        self.assertEqual(parse_provider_symbol_overrides(["OLD=NEW"]), {"OLD": "NEW"})
         with self.assertRaisesRegex(ValueError, "invalid provider symbol override"):
-            parse_provider_symbol_overrides(["IAC"])
+            parse_provider_symbol_overrides(["OLD"])
 
     def test_stale_predictions_are_removed_before_registered_merge(self) -> None:
         frame = pd.DataFrame(

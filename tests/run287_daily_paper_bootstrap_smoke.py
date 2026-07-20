@@ -70,6 +70,8 @@ def ledger_args(root: Path, as_of_date: str) -> SimpleNamespace:
         main_target=str(root / "targets" / "main.csv"),
         concentrated_target=str(root / "targets" / "concentrated.csv"),
         as_of_date=as_of_date,
+        decision_time_utc=f"{as_of_date}T23:00:00Z",
+        security_lifecycle_events="",
         cost_bps=25.0,
         max_fill_lag_days=7,
     )

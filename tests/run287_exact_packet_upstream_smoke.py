@@ -47,6 +47,7 @@ PATH_LABELS = (
     "target_generation_manifest",
     "official_daily_crisis_state",
     "official_crisis_thresholds",
+    "security_lifecycle_events",
 )
 
 

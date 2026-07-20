@@ -50,6 +50,12 @@ from tools.run287_paper_ledger_integrity import (  # noqa: E402
     write_integrity_manifest,
 )
 from tools.run_weekly_evaluation import load_price_series, price_on_or_after, price_on_or_before  # noqa: E402
+from tools.security_lifecycle import (  # noqa: E402
+    SecurityLifecycleSnapshot,
+    filter_terminal_tickers,
+    resolve_security_lifecycle,
+    verified_settlement_by_ticker,
+)
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -173,6 +179,24 @@ def target_effective_date(target_path: Path, as_of_date: pd.Timestamp) -> pd.Tim
     dates = pd.to_datetime(raw["rebalance_date"], errors="coerce").dropna().dt.normalize()
     eligible = dates[dates <= as_of_date]
     return pd.Timestamp(eligible.max()).normalize() if not eligible.empty else None
+
+
+def materialize_lifecycle_adjusted_target(
+    *,
+    source_target_path: Path,
+    output_path: Path,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+    lifecycle: SecurityLifecycleSnapshot,
+) -> tuple[Path, pd.DataFrame]:
+    """Write the effective target without silently reallocating terminal weight."""
+
+    target = normalized_target(source_target_path, portfolio, as_of_date)
+    adjusted = filter_terminal_tickers(target, lifecycle)
+    rows = adjusted.rename(columns={"target_weight": "weight"}).copy()
+    rows.insert(0, "rebalance_date", as_of_date.date().isoformat())
+    write_csv(output_path, rows, ["rebalance_date", "ticker", "weight"])
+    return output_path, adjusted
 
 
 def state_from_account(account: dict[str, Any]) -> LedgerState:
@@ -384,20 +408,32 @@ def ensure_genesis_identity(
     return identity
 
 
-def load_prices(price_cache: Path, tickers: set[str]) -> dict[str, pd.DataFrame]:
+def load_prices(
+    price_cache: Path,
+    tickers: set[str],
+    provider_symbol_overrides: dict[str, str] | None = None,
+) -> dict[str, pd.DataFrame]:
     prices: dict[str, pd.DataFrame] = {}
     for ticker in sorted({clean_ticker(value) for value in tickers if clean_ticker(value)}):
         frame = load_price_series(price_cache, ticker)
+        provider = (provider_symbol_overrides or {}).get(ticker, ticker)
+        if frame.empty and provider != ticker:
+            frame = load_price_series(price_cache, provider)
         if not frame.empty:
             prices[ticker] = frame
     return prices
 
 
 def require_exact_session_closes(
-    *, price_cache: Path, tickers: set[str], as_of_date: pd.Timestamp, context: str
+    *,
+    price_cache: Path,
+    tickers: set[str],
+    as_of_date: pd.Timestamp,
+    context: str,
+    provider_symbol_overrides: dict[str, str] | None = None,
 ) -> None:
     required = {clean_ticker(value) for value in tickers if clean_ticker(value) not in {"", "CASH", "USD"}}
-    prices = load_prices(price_cache, required)
+    prices = load_prices(price_cache, required, provider_symbol_overrides)
     failures: list[str] = []
     for ticker in sorted(required):
         actual_date, price = price_on_or_before(prices.get(ticker, pd.DataFrame()), as_of_date, "close")
@@ -487,6 +523,170 @@ def append_event(
     return sequence, str(row["event_hash"])
 
 
+def apply_lifecycle_actions(
+    *,
+    portfolio: str,
+    state: LedgerState,
+    pending: pd.DataFrame,
+    fills: pd.DataFrame,
+    rejections: pd.DataFrame,
+    lifecycle: SecurityLifecycleSnapshot,
+    as_of_date: pd.Timestamp,
+    cost_bps: float,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    """Settle verified terminal positions and cancel impossible pending orders."""
+
+    settlement_map = verified_settlement_by_ticker(lifecycle)
+    if not settlement_map:
+        return pending, fills, rejections, {
+            "settled_positions": 0,
+            "cancelled_pending_orders": 0,
+        }
+
+    sequence, previous_hash, resolved_client_ids = validate_event_chain(
+        fills, rejections
+    )
+    fill_rows = fills.to_dict("records") if not fills.empty else []
+    rejection_rows = rejections.to_dict("records") if not rejections.empty else []
+    settled_positions = 0
+    handled_events: set[str] = set()
+
+    for ticker in sorted(set(state.shares) & set(settlement_map)):
+        event = settlement_map[ticker]
+        stable_event_id = str(event["stable_event_id"])
+        if stable_event_id in handled_events:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_LIFECYCLE_EVIDENCE",
+                f"same economic security is held under multiple aliases:{stable_event_id}",
+            )
+        handled_events.add(stable_event_id)
+        quantity = float(state.shares.get(ticker, 0.0))
+        if quantity <= 1e-12:
+            continue
+        client_id = canonical_hash(
+            {
+                "portfolio": portfolio,
+                "stable_event_id": stable_event_id,
+                "event_type": "LIFECYCLE_SETTLEMENT",
+            }
+        )[:32]
+        if client_id in resolved_client_ids:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"settled lifecycle position reappeared:{ticker}",
+            )
+        proceeds_per_share = float(event["verified_proceeds"])
+        gross_value = quantity * proceeds_per_share
+        basis = float(state.cost_basis.get(ticker, proceeds_per_share))
+        state.cash += gross_value
+        state.realized_pnl[ticker] = float(
+            state.realized_pnl.get(ticker, 0.0)
+            + quantity * (proceeds_per_share - basis)
+        )
+        del state.shares[ticker]
+        state.cost_basis.pop(ticker, None)
+        payload = {
+            "portfolio_kind": portfolio,
+            "date": as_of_date.date().isoformat(),
+            "signal_date": str(event["available_from"]),
+            "ticker": ticker,
+            "side": "SETTLEMENT",
+            "quantity": quantity,
+            "requested_quantity": quantity,
+            "fill_price": proceeds_per_share,
+            "gross_value": gross_value,
+            "fee_usd": 0.0,
+            "cash_delta": gross_value,
+            "cash_after": float(state.cash),
+            "shares_after": 0.0,
+            "target_weight": 0.0,
+            "reason": str(event["event_type"]),
+            "fill_mode": "verified_lifecycle_proceeds",
+            "cost_bps_per_side": 0.0,
+            "client_order_id": client_id,
+            "idempotency_key": stable_event_id,
+            "order_batch_id": "LIFECYCLE",
+            "target_hash": lifecycle.snapshot_hash,
+            "execution_status": "SIMULATED_LIFECYCLE_SETTLEMENT",
+            "record_type": "FORWARD_PAPER_LIFECYCLE",
+            "review_only": True,
+            "simulated": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+        }
+        sequence, previous_hash = append_event(
+            rows=fill_rows,
+            sequence=sequence,
+            previous_hash=previous_hash,
+            client_order_id=client_id,
+            event_type="LIFECYCLE_SETTLEMENT",
+            event_date=as_of_date.date().isoformat(),
+            reason=str(event["event_type"]),
+            payload=payload,
+        )
+        resolved_client_ids.add(client_id)
+        settled_positions += 1
+
+    keep_pending: list[dict[str, Any]] = []
+    cancelled_pending_orders = 0
+    for row in pending.to_dict("records") if not pending.empty else []:
+        ticker = clean_ticker(row.get("ticker"))
+        if ticker not in settlement_map:
+            keep_pending.append(row)
+            continue
+        client_id = str(row.get("client_order_id") or "")
+        if not client_id or client_id in resolved_client_ids:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"invalid lifecycle-cancelled pending order:{ticker}",
+            )
+        payload = {
+            "portfolio_kind": portfolio,
+            "date": as_of_date.date().isoformat(),
+            "signal_date": clean_date(row.get("signal_date")),
+            "ticker": ticker,
+            "side": str(row.get("side") or "").upper(),
+            "requested_quantity": safe_float(row.get("quantity"), 0.0),
+            "target_weight": safe_float(row.get("target_weight"), 0.0),
+            "client_order_id": client_id,
+            "idempotency_key": str(row.get("idempotency_key") or ""),
+            "order_batch_id": str(row.get("order_batch_id") or ""),
+            "target_hash": str(row.get("target_hash") or ""),
+            "execution_status": "SIMULATED_REJECTED",
+            "fill_mode": "lifecycle_cancel",
+            "cost_bps_per_side": float(cost_bps),
+            "review_only": True,
+            "simulated": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+        }
+        sequence, previous_hash = append_event(
+            rows=rejection_rows,
+            sequence=sequence,
+            previous_hash=previous_hash,
+            client_order_id=client_id,
+            event_type="REJECTION",
+            event_date=as_of_date.date().isoformat(),
+            reason="lifecycle_terminal_cancelled",
+            payload=payload,
+        )
+        resolved_client_ids.add(client_id)
+        cancelled_pending_orders += 1
+
+    fills_out = pd.DataFrame(fill_rows)
+    rejections_out = pd.DataFrame(rejection_rows)
+    validate_event_chain(fills_out, rejections_out)
+    return (
+        pd.DataFrame(keep_pending, columns=pending.columns),
+        fills_out,
+        rejections_out,
+        {
+            "settled_positions": settled_positions,
+            "cancelled_pending_orders": cancelled_pending_orders,
+        },
+    )
+
+
 def resolve_pending_orders(
     *,
     portfolio: str,
@@ -498,6 +698,7 @@ def resolve_pending_orders(
     as_of_date: pd.Timestamp,
     cost_bps: float,
     max_fill_lag_days: int,
+    provider_symbol_overrides: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
     sequence, previous_hash, resolved_client_ids = validate_event_chain(fills, rejections)
     fill_rows = fills.to_dict("records") if not fills.empty else []
@@ -520,7 +721,7 @@ def resolve_pending_orders(
     keep_pending: list[dict[str, Any]] = []
     stale_rejections: list[tuple[dict[str, Any], str]] = []
     tickers = {clean_ticker(value) for value in pending.get("ticker", pd.Series(dtype=str)).tolist()}
-    prices = load_prices(price_cache, tickers)
+    prices = load_prices(price_cache, tickers, provider_symbol_overrides)
 
     for index, row in enumerate(pending.to_dict("records")):
         client_id = str(row.get("client_order_id") or "")
@@ -701,8 +902,11 @@ def mark_account(
     pending: pd.DataFrame,
     cost_bps: float,
     seed_path: Path,
+    provider_symbol_overrides: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
-    prices = load_prices(price_cache, set(state.shares))
+    prices = load_prices(
+        price_cache, set(state.shares), provider_symbol_overrides
+    )
     equity, values = account_equity(state, prices, as_of_date)
     if equity <= 0 or state.cash < -1e-6:
         raise ValueError(f"invalid paper account equity/cash for {portfolio}")
@@ -873,6 +1077,8 @@ def load_reusable_same_session_manifest(
     portfolio_dir: Path,
     bootstrap_path: Path,
     target_path: Path,
+    source_target_path: Path,
+    lifecycle: SecurityLifecycleSnapshot,
     as_of_date: pd.Timestamp,
     cost_bps: float,
     max_fill_lag_days: int,
@@ -914,9 +1120,9 @@ def load_reusable_same_session_manifest(
 
     target = normalized_target(target_path, portfolio, as_of_date)
     digest = target_hash(target)
-    effective_date = target_effective_date(target_path, as_of_date)
+    effective_date = target_effective_date(source_target_path, as_of_date)
     effective_text = effective_date.date().isoformat() if effective_date is not None else None
-    require(str(manifest.get("schema_version") or "") == "daily-simulated-fill-ledger-manifest-v1", "manifest_schema")
+    require(str(manifest.get("schema_version") or "") == "daily-simulated-fill-ledger-manifest-v2", "manifest_schema")
     require(str(manifest.get("portfolio_kind") or "").lower() == portfolio, "manifest_portfolio")
     require(str(manifest.get("fill_mode") or "").lower() == "next_close", "fill_mode")
     require(manifest.get("integer_shares") is True, "integer_shares")
@@ -927,8 +1133,11 @@ def load_reusable_same_session_manifest(
     require(int(safe_float(manifest.get("max_fill_lag_days"), -1)) == int(max_fill_lag_days), "max_fill_lag_days")
     require(str(manifest.get("target_hash") or "") == digest, "target_hash")
     require(str(manifest.get("target_sha256") or "") == file_hash(target_path), "target_sha256")
+    require(str(manifest.get("source_target_sha256") or "") == file_hash(source_target_path), "source_target_sha256")
     require(str(manifest.get("seed_account_sha256") or "") == file_hash(bootstrap_path), "seed_account_sha256")
     require(manifest.get("target_effective_date") == effective_text, "target_effective_date")
+    require(str(manifest.get("security_lifecycle_source_sha256") or "") == lifecycle.source_sha256, "security_lifecycle_source_sha256")
+    require(str(manifest.get("security_lifecycle_snapshot_hash") or "") == lifecycle.snapshot_hash, "security_lifecycle_snapshot_hash")
 
     require(bool(account), "account_missing")
     require(account_date == requested_date, "account_as_of_date")
@@ -1033,6 +1242,7 @@ def build_order_preview(
     portfolio: str,
     as_of_date: pd.Timestamp,
     cost_bps: float,
+    provider_symbol_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     return run_order_preview(
         SimpleNamespace(
@@ -1047,6 +1257,12 @@ def build_order_preview(
             limit_margin_pct=0.25,
             min_trade_usd=25.0,
             fractional_shares=False,
+            provider_symbol_override=[
+                f"{logical}={provider}"
+                for logical, provider in sorted(
+                    (provider_symbol_overrides or {}).items()
+                )
+            ],
         )
     )
 
@@ -1144,15 +1360,26 @@ def run_portfolio(
     as_of_date: pd.Timestamp,
     cost_bps: float,
     max_fill_lag_days: int,
+    lifecycle: SecurityLifecycleSnapshot,
 ) -> dict[str, Any]:
     portfolio_dir = state_root / portfolio
     portfolio_dir.mkdir(parents=True, exist_ok=True)
     validate_restored_snapshot(portfolio_dir, portfolio)
+    source_target_path = target_path
+    target_path, _adjusted_target = materialize_lifecycle_adjusted_target(
+        source_target_path=source_target_path,
+        output_path=portfolio_dir / "effective_target_latest.csv",
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        lifecycle=lifecycle,
+    )
     reusable = load_reusable_same_session_manifest(
         portfolio=portfolio,
         portfolio_dir=portfolio_dir,
         bootstrap_path=bootstrap_path,
         target_path=target_path,
+        source_target_path=source_target_path,
+        lifecycle=lifecycle,
         as_of_date=as_of_date,
         cost_bps=cost_bps,
         max_fill_lag_days=max_fill_lag_days,
@@ -1177,6 +1404,7 @@ def run_portfolio(
                 portfolio=portfolio,
                 as_of_date=as_of_date,
                 cost_bps=cost_bps,
+                provider_symbol_overrides=lifecycle.provider_symbol_overrides,
             )
             if preview.get("status") != "completed":
                 raise ValueError(
@@ -1199,6 +1427,16 @@ def run_portfolio(
     fills = read_csv(portfolio_dir / "fills.csv")
     rejections = read_csv(portfolio_dir / "rejections.csv")
     meta = read_json(portfolio_dir / "state_meta.json")
+    pending, fills, rejections, lifecycle_actions = apply_lifecycle_actions(
+        portfolio=portfolio,
+        state=state,
+        pending=pending,
+        fills=fills,
+        rejections=rejections,
+        lifecycle=lifecycle,
+        as_of_date=as_of_date,
+        cost_bps=cost_bps,
+    )
     target_for_close = normalized_target(target_path, portfolio, as_of_date)
     required_close_tickers = set(state.shares)
     required_close_tickers.update(target_for_close.get("ticker", pd.Series(dtype=str)).tolist())
@@ -1208,6 +1446,7 @@ def run_portfolio(
         tickers=required_close_tickers,
         as_of_date=as_of_date,
         context=f"{portfolio} held/target/pending",
+        provider_symbol_overrides=lifecycle.provider_symbol_overrides,
     )
 
     pending, fills, rejections, resolved = resolve_pending_orders(
@@ -1220,6 +1459,7 @@ def run_portfolio(
         as_of_date=as_of_date,
         cost_bps=cost_bps,
         max_fill_lag_days=max_fill_lag_days,
+        provider_symbol_overrides=lifecycle.provider_symbol_overrides,
     )
     write_csv(portfolio_dir / "pending_orders.csv", pending, PENDING_COLUMNS)
     write_csv(portfolio_dir / "fills.csv", fills)
@@ -1235,6 +1475,7 @@ def run_portfolio(
         pending=pending,
         cost_bps=cost_bps,
         seed_path=bootstrap_path,
+        provider_symbol_overrides=lifecycle.provider_symbol_overrides,
     )
     account_path = portfolio_dir / "account_state_latest.json"
     write_json(account_path, marked_account)
@@ -1249,12 +1490,13 @@ def run_portfolio(
         portfolio=portfolio,
         as_of_date=as_of_date,
         cost_bps=cost_bps,
+        provider_symbol_overrides=lifecycle.provider_symbol_overrides,
     )
     if preview.get("status") != "completed":
         raise ValueError(f"paper account preview failed for {portfolio}: {preview.get('reason')}")
     target = normalized_target(target_path, portfolio, as_of_date)
     digest = target_hash(target)
-    effective_date = target_effective_date(target_path, as_of_date)
+    effective_date = target_effective_date(source_target_path, as_of_date)
     seed_date = pd.to_datetime(account.get("seed_as_of_date") or account.get("as_of_date"), errors="coerce")
     if (
         seeded
@@ -1295,7 +1537,7 @@ def run_portfolio(
     metrics = forward_metrics(curve)
     meta.update(
         {
-            "schema_version": "daily-simulated-fill-ledger-state-v1",
+            "schema_version": "daily-simulated-fill-ledger-state-v2",
             "portfolio_kind": portfolio,
             "as_of_date": as_of_date.date().isoformat(),
             "event_sequence": sequence,
@@ -1303,6 +1545,7 @@ def run_portfolio(
             "pending_order_count": int(len(pending)),
             "fill_count": int(len(fills)),
             "rejection_count": int(len(rejections)),
+            "security_lifecycle_snapshot_hash": lifecycle.snapshot_hash,
             "review_only": True,
             "live_trading_enabled": False,
             "production_mutation_allowed": False,
@@ -1311,7 +1554,7 @@ def run_portfolio(
     )
     write_json(portfolio_dir / "state_meta.json", meta)
     manifest = {
-        "schema_version": "daily-simulated-fill-ledger-manifest-v1",
+        "schema_version": "daily-simulated-fill-ledger-manifest-v2",
         "portfolio_kind": portfolio,
         "as_of_date": as_of_date.date().isoformat(),
         "seeded_this_run": seeded,
@@ -1322,7 +1565,13 @@ def run_portfolio(
         "target_hash": digest,
         "target_effective_date": effective_date.date().isoformat() if effective_date is not None else None,
         "target_sha256": file_hash(target_path),
+        "source_target_sha256": file_hash(source_target_path),
         "seed_account_sha256": file_hash(bootstrap_path),
+        "security_lifecycle_schema_version": "run287-security-lifecycle-v1",
+        "security_lifecycle_source_sha256": lifecycle.source_sha256,
+        "security_lifecycle_snapshot_hash": lifecycle.snapshot_hash,
+        "security_lifecycle_terminal_tickers": sorted(lifecycle.terminal_tickers),
+        "security_lifecycle_actions": lifecycle_actions,
         "event_sequence": sequence,
         "event_chain_hash": chain_hash,
         "resolved_fills_this_run": resolved["resolved_fills"],
@@ -1367,6 +1616,41 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     target_paths = {portfolio: repo_path(getattr(args, f"{portfolio}_target")) for portfolio in PORTFOLIOS}
     failpoint = str(getattr(args, "transaction_failpoint", "") or "")
     try:
+        active_tickers: set[str] = set()
+        for portfolio in PORTFOLIOS:
+            active_tickers.update(
+                normalized_target(target_paths[portfolio], portfolio, as_of_date)
+                .get("ticker", pd.Series(dtype=str))
+                .map(clean_ticker)
+                .tolist()
+            )
+            account = read_json(stage_state / portfolio / "account_state_latest.json")
+            if not account:
+                account = read_json(bootstrap_paths[portfolio])
+            active_tickers.update(state_from_account(account).shares)
+            active_tickers.update(
+                read_csv(stage_state / portfolio / "pending_orders.csv")
+                .get("ticker", pd.Series(dtype=str))
+                .map(clean_ticker)
+                .tolist()
+            )
+        lifecycle_value = str(
+            getattr(args, "security_lifecycle_events", "") or ""
+        ).strip()
+        lifecycle_path = repo_path(lifecycle_value) if lifecycle_value else None
+        decision_time = pd.to_datetime(
+            getattr(args, "decision_time_utc", ""), errors="coerce", utc=True
+        )
+        if pd.isna(decision_time):
+            raise ValueError(
+                "--decision-time-utc is required and must be timezone-aware"
+            )
+        lifecycle = resolve_security_lifecycle(
+            lifecycle_path,
+            session_date=as_of_date,
+            decision_time_utc=pd.Timestamp(decision_time),
+            active_tickers=active_tickers,
+        )
         identity = ensure_genesis_identity(
             state_root=stage_state,
             bootstrap_paths=bootstrap_paths,
@@ -1386,6 +1670,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 as_of_date=as_of_date,
                 cost_bps=float(args.cost_bps),
                 max_fill_lag_days=int(args.max_fill_lag_days),
+                lifecycle=lifecycle,
             )
         same_session_count = sum(
             1 for payload in results.values() if payload.get("same_session_reused") is True
@@ -1405,6 +1690,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "as_of_date": as_of_date.date().isoformat(),
             "portfolios": results,
             "genesis_identity_hash": identity["genesis_identity_hash"],
+            "security_lifecycle": lifecycle.audit(),
             "review_only": True,
             "simulated": True,
             "live_trading_enabled": False,
@@ -1457,6 +1743,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--main-target", default="outputs/reports/operating_main_target_book.csv")
     parser.add_argument("--concentrated-target", default="outputs/reports/operating_concentrated_target_book.csv")
     parser.add_argument("--as-of-date", required=True)
+    parser.add_argument("--decision-time-utc", required=True)
+    parser.add_argument(
+        "--security-lifecycle-events",
+        default="data_static/run287_exact_packet/security_lifecycle_events.csv",
+    )
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     return parser.parse_args()
@@ -1466,7 +1757,7 @@ def main() -> int:
     try:
         payload = run(parse_args())
     except Exception as exc:
-        status = exc.status if isinstance(exc, PaperLedgerIntegrityError) else "BLOCKED_INTEGRITY"
+        status = str(getattr(exc, "status", "BLOCKED_INTEGRITY"))
         print(json.dumps({"status": status, "reason": f"{type(exc).__name__}: {exc}"}, indent=2))
         return 2
     print(json.dumps(payload, indent=2, default=str))

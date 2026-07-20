@@ -55,6 +55,22 @@ def normalize_ticker(value: Any) -> str:
     return ticker
 
 
+def parse_provider_symbol_overrides(values: list[str]) -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    for raw in values:
+        if "=" not in str(raw):
+            raise ValueError(f"invalid provider symbol override: {raw}")
+        logical, provider = str(raw).split("=", 1)
+        logical = normalize_ticker(logical)
+        provider = normalize_ticker(provider)
+        if not logical or not provider:
+            raise ValueError(f"invalid provider symbol override: {raw}")
+        prior = overrides.setdefault(logical, provider)
+        if prior != provider:
+            raise ValueError(f"conflicting provider symbol override: {logical}")
+    return overrides
+
+
 def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str = "") -> pd.DataFrame:
     if frame.empty or "ticker" not in frame.columns:
         return pd.DataFrame(columns=["ticker", "target_weight"])
@@ -118,8 +134,17 @@ def load_positions(account_state: dict[str, Any]) -> pd.DataFrame:
     return out[(out["ticker"] != "") & (out["shares"].abs() > 1e-12)].copy()
 
 
-def latest_price(price_cache: Path, ticker: str, as_of_date: pd.Timestamp) -> tuple[pd.Timestamp | None, float | None]:
-    px = load_price_series(price_cache, ticker)
+def latest_price(
+    price_cache: Path,
+    ticker: str,
+    as_of_date: pd.Timestamp,
+    provider_symbol_overrides: dict[str, str] | None = None,
+) -> tuple[pd.Timestamp | None, float | None]:
+    logical = normalize_ticker(ticker)
+    provider = (provider_symbol_overrides or {}).get(logical, logical)
+    px = load_price_series(price_cache, logical)
+    if px.empty and provider != logical:
+        px = load_price_series(price_cache, provider)
     if px.empty:
         return None, None
     actual, value = price_on_or_before(px, as_of_date, "close")
@@ -135,6 +160,7 @@ def infer_as_of_date(
     positions: pd.DataFrame,
     target: pd.DataFrame,
     price_cache: Path,
+    provider_symbol_overrides: dict[str, str] | None = None,
 ) -> pd.Timestamp:
     if explicit_as_of_date:
         return pd.Timestamp(explicit_as_of_date).normalize()
@@ -146,7 +172,10 @@ def infer_as_of_date(
         tickers.update(target["ticker"].astype(str).str.upper())
     latest_dates: list[pd.Timestamp] = []
     for ticker in sorted(t for t in tickers if t and t not in CASH_TICKERS):
+        provider = (provider_symbol_overrides or {}).get(ticker, ticker)
         px = load_price_series(price_cache, ticker)
+        if px.empty and provider != ticker:
+            px = load_price_series(price_cache, provider)
         if px.empty:
             continue
         latest_dates.append(pd.Timestamp(px.index.max()).normalize())
@@ -161,13 +190,16 @@ def current_account_view(
     positions: pd.DataFrame,
     price_cache: Path,
     as_of_date: pd.Timestamp,
+    provider_symbol_overrides: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, float, float]:
     rows: list[dict[str, Any]] = []
     cash = safe_float(account_state.get("cash_usd"), 0.0)
     stock_value = 0.0
     for row in positions.itertuples(index=False):
         ticker = str(row.ticker)
-        price_dt, price = latest_price(price_cache, ticker, as_of_date)
+        price_dt, price = latest_price(
+            price_cache, ticker, as_of_date, provider_symbol_overrides
+        )
         if price is None:
             price = safe_float(getattr(row, "price", np.nan), safe_float(row.cost_basis, 0.0))
         value = float(row.shares) * float(price)
@@ -195,13 +227,16 @@ def add_zero_position_target_prices(
     target: pd.DataFrame,
     price_cache: Path,
     as_of_date: pd.Timestamp,
+    provider_symbol_overrides: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     existing = set(current["ticker"].astype(str)) if not current.empty and "ticker" in current.columns else set()
     rows: list[dict[str, Any]] = []
     for ticker in target.get("ticker", pd.Series(dtype=object)).astype(str).str.upper().unique():
         if ticker in existing or ticker in CASH_TICKERS:
             continue
-        price_dt, price = latest_price(price_cache, ticker, as_of_date)
+        price_dt, price = latest_price(
+            price_cache, ticker, as_of_date, provider_symbol_overrides
+        )
         if price is None or price <= 0:
             continue
         rows.append(
@@ -474,6 +509,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     target_path = repo_path(args.target)
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
+    provider_symbol_overrides = parse_provider_symbol_overrides(
+        list(getattr(args, "provider_symbol_override", []) or [])
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     account = read_json(account_path)
     if not account:
@@ -490,13 +528,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         positions=positions,
         target=target,
         price_cache=price_cache,
+        provider_symbol_overrides=provider_symbol_overrides,
     )
-    current, equity, cash = current_account_view(account_state=account, positions=positions, price_cache=price_cache, as_of_date=as_of)
+    current, equity, cash = current_account_view(
+        account_state=account,
+        positions=positions,
+        price_cache=price_cache,
+        as_of_date=as_of,
+        provider_symbol_overrides=provider_symbol_overrides,
+    )
     current = add_zero_position_target_prices(
         current=current,
         target=target,
         price_cache=price_cache,
         as_of_date=as_of,
+        provider_symbol_overrides=provider_symbol_overrides,
     )
     orders = build_orders(
         current=current,
@@ -559,6 +605,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "account_state_as_of_date": str(account.get("as_of_date") or ""),
         "target": str(target_path),
         "price_cache": str(price_cache),
+        "provider_symbol_overrides": dict(sorted(provider_symbol_overrides.items())),
         "as_of_date": as_of.date().isoformat(),
         "equity_usd": float(equity),
         "cash_usd": float(cash),
@@ -600,6 +647,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-margin-pct", type=float, default=0.25)
     parser.add_argument("--min-trade-usd", type=float, default=25.0)
     parser.add_argument("--fractional-shares", action="store_true")
+    parser.add_argument("--provider-symbol-override", action="append", default=[])
     return parser.parse_args()
 
 

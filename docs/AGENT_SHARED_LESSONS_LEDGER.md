@@ -2755,3 +2755,68 @@ Expected contract:
   - `tools/bootstrap_run287_daily_paper_accounts.py`
   - `tests/run287_paper_ledger_transaction_smoke.py`
   - `docs/CODEX_RUN287_P0_PAPER_LEDGER_TRANSACTION_RESULT_20260720.md`
+
+### 2026-07-20 - Missing quotes are lifecycle states, not permission to delete securities
+
+- Agent: Codex
+- Branch/PR:
+  - `codex/run287-gtls-terminal-lifecycle-20260718`
+  - draft PR #301; issue #306 P1
+- Context:
+  - The exact-close scorer stopped permanently when a verified cash merger
+    ended trading. The isolated draft handled one terminal ticker but did not
+    share identity, proceeds, or alias semantics with the paper ledger.
+- Attempt:
+  - Rebased the isolated change on merged P0 and replaced the ticker-specific
+    parser with `run287-security-lifecycle-v1`.
+  - Gave scorer and paper ledger the same PIT resolver for stable IDs, aliases,
+    exact availability, effective/last-trading dates, verified proceeds,
+    source hashes, and review status.
+  - Added fee-free cash-merger settlement, pending-order cancellation, residual
+    cash preservation, and successor-quote fallback inside P0's atomic
+    transaction boundary.
+- Result:
+  - Generic fixtures cover cash merger, future-known and pre-effective events,
+    duplicates, bankruptcy without recovery, ticker rename,
+    predecessor/successor, malformed identity/hash, missing proceeds, and an
+    ordinary active ticker.
+  - A held terminal fixture settled without a future close, cancelled its stale
+    pending order, preserved a valid event chain, and changed zero durable
+    files on failure.
+  - The pinned actual sidecar hash is
+    `09e2fd19a127c281dd8f69988d8ac454183133a638752fbb6d7884c947e86f24`;
+    the 2026-07-17 decision resolves one terminal event and one identity event.
+  - Full Tier-1 validation passed `178/178` in `617.12s`. No fullrun or
+    historical backtest was executed.
+- Failure or caveat:
+  - The local bounded upstream preflight remained skipped because model,
+    price-cache, and static-anchor dependencies are not materialized in this
+    checkout. The lifecycle source itself existed and matched its pinned hash;
+    zero network requests were made.
+  - This is not historical delisted-membership coverage and does not make
+    `pit_universe_label_clean=true`.
+  - P1 does not improve or recalculate CAGR/MDD.
+- Root cause:
+  - Trading symbols, quote availability, and economic-security lifecycle were
+    conflated. Removing the no-quote row could create survivorship bias, while
+    retaining it forever could block every exact-close refresh.
+- Reusable lesson:
+  - Quote absence is evidence of a data/lifecycle problem, never an exit rule.
+    Terminal removal requires exact public evidence plus deterministic economic
+    proceeds; ticker changes require identity continuity rather than historical
+    rewrites.
+- Next action:
+  - Review and merge P1, then start P2 same-close selector recomputation from
+    the merged lifecycle-aware substrate.
+- Do-not-repeat:
+  - Do not hardcode a real ticker in scorer, selector, or ledger logic.
+  - Do not treat active-symbol coverage as delisted/survivorship coverage.
+  - Do not set missing delisting recovery to zero or drop the security.
+  - Do not apply ticker aliases before their exact `available_from` and
+    effective date.
+- Evidence files:
+  - `tools/security_lifecycle.py`
+  - `tools/run_run287_scored_latest_refresh.py`
+  - `tools/run_daily_simulated_fill_ledger.py`
+  - `tests/security_lifecycle_smoke.py`
+  - `docs/CODEX_RUN287_P1_SECURITY_LIFECYCLE_RESULT_20260720.md`
