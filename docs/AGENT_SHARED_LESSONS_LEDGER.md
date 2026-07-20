@@ -2944,3 +2944,36 @@ Expected contract:
   `183/183` in `744.61s`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-07-20 - P5 strict leadership persistence was a no-op
+
+- Scope: issue #306 P5, one preregistered generated-book hold/replacement arm.
+- Added the exact sell taxonomy `THESIS_EXIT`, `RISK_EXIT`,
+  `REPLACEMENT_EXIT`, `LIFECYCLE_EXIT`, and `EXECUTION_RECONCILIATION` to
+  order previews and durable paper-ledger events.
+- Exact DGS3MO control parity passed for Main and Concentrated, including
+  trade count, fees, and trade CSV hashes. Future-return columns were
+  physically excluded from the 47,435-row scored-candidate cache.
+- The strict arm retained zero incumbents. Main remained `34.4032% / -25.3629%`
+  and Concentrated remained `49.0968% / -22.9560%`; every OOS, OOS2, embargo,
+  and 25/50/100 bps delta was zero.
+- Root cause: `rs_sector_3m` was missing for 506 Main and 259 Concentrated
+  departure observations; another 19 and 11 lacked an exact candidate row.
+  Missing evidence is not protection and is an execution/data reconciliation
+  issue, not a thesis break.
+- Holding diagnostics showed 33/32-day median completed holds, zero completed
+  365-day holds, and 42/35 exits followed by re-entry within 63 sessions for
+  Main/Concentrated. This identifies a question, not profitable alpha.
+- Verdict: `REJECT_NO_OP`. Do not tune thresholds or substitute a convenient
+  sector proxy after observing this failure.
+- `do_not_repeat`:
+  `leadership_persistence_v2_strict+generated_books+2019-05-31_2026-07-10+25bps+dgs3mo`.
+- Next action: P6 candidate-gate and model-stability audit must repair or
+  explicitly neutralize the upstream coverage contract before any new hold
+  arm is admissible.
+- Evidence: `docs/CODEX_RUN287_P5_HOLD_EXIT_REPLACEMENT_RESULT_20260720.md`
+  and `_tmp_tests/p5_hold_exit_actual_v2_20260720/summary.json`.
+- Repository pytest passed `129/129`; full Tier-1 PR validation passed
+  `185/185` in `280.63s`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false.

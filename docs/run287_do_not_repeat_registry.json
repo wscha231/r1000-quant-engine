@@ -202,6 +202,20 @@
       "blocked_reuse": true,
       "do_not_repeat_key": "target_weight_direction+partial_resize_two_signal_confirmation+generated_baseline_books+2019-06-03_2026-07-10",
       "evidence": ["docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md", "outputs/run287_partial_resize_two_signal_20260713/summary.json"]
+    },
+    {
+      "id": "leadership_persistence_v2_strict",
+      "signal": "strict_confirmed_leader",
+      "mechanism": "leadership_persistence_v2_strict",
+      "book": "generated_books",
+      "window": "2019-05-31_2026-07-10",
+      "status": "REJECT_NO_OP_MISSING_SECTOR_RS",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "leadership_persistence_v2_strict+generated_books+2019-05-31_2026-07-10+25bps+dgs3mo",
+      "evidence": [
+        "docs/CODEX_RUN287_P5_HOLD_EXIT_REPLACEMENT_RESULT_20260720.md",
+        "_tmp_tests/p5_hold_exit_actual_v2_20260720/summary.json"
+      ]
     }
   ]
 }

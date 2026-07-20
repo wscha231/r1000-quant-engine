@@ -39,6 +39,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run_account_order_preview import normalize_target, run as run_order_preview  # noqa: E402
 from tools.run_broker_ledger_replay import LedgerState, account_equity, execute_order, safe_float  # noqa: E402
+from tools.run287_hold_exit_policy import SELL_TAXONOMY  # noqa: E402
 from tools.run287_paper_ledger_integrity import (  # noqa: E402
     INTEGRITY_FILE,
     PaperLedgerIntegrityError,
@@ -80,6 +81,8 @@ PENDING_COLUMNS = [
     "reference_price",
     "target_weight",
     "reason",
+    "sell_taxonomy",
+    "sell_taxonomy_reason",
     "fill_mode",
     "cost_bps_per_side",
     "client_order_id",
@@ -156,6 +159,19 @@ def clean_ticker(value: Any) -> str:
 def clean_date(value: Any) -> str:
     parsed = pd.to_datetime(value, errors="coerce")
     return "" if pd.isna(parsed) else pd.Timestamp(parsed).date().isoformat()
+
+
+def normalized_sell_taxonomy(row: dict[str, Any]) -> tuple[str, str]:
+    side = str(row.get("side") or "").upper()
+    if side != "SELL":
+        return "NOT_APPLICABLE", "buy_or_non_sell_event"
+    raw = str(row.get("sell_taxonomy") or "").strip().upper()
+    reason = str(row.get("sell_taxonomy_reason") or "").strip()
+    if raw in {"", "NAN", "NONE", "NULL"}:
+        return "EXECUTION_RECONCILIATION", "legacy_pending_order_without_taxonomy"
+    if raw not in SELL_TAXONOMY:
+        raise PaperLedgerIntegrityError("BLOCKED_INTEGRITY", f"invalid sell taxonomy:{raw}")
+    return raw, reason or "canonical_sell_taxonomy"
 
 
 def utc_now() -> str:
@@ -631,6 +647,8 @@ def apply_lifecycle_actions(
             "shares_after": 0.0,
             "target_weight": 0.0,
             "reason": str(event["event_type"]),
+            "sell_taxonomy": "LIFECYCLE_EXIT",
+            "sell_taxonomy_reason": "verified_security_lifecycle",
             "fill_mode": "verified_lifecycle_proceeds",
             "cost_bps_per_side": 0.0,
             "client_order_id": client_id,
@@ -678,6 +696,8 @@ def apply_lifecycle_actions(
             "side": str(row.get("side") or "").upper(),
             "requested_quantity": safe_float(row.get("quantity"), 0.0),
             "target_weight": safe_float(row.get("target_weight"), 0.0),
+            "sell_taxonomy": str(row.get("sell_taxonomy") or "LIFECYCLE_EXIT"),
+            "sell_taxonomy_reason": str(row.get("sell_taxonomy_reason") or "lifecycle_terminal_cancelled"),
             "client_order_id": client_id,
             "idempotency_key": str(row.get("idempotency_key") or ""),
             "order_batch_id": str(row.get("order_batch_id") or ""),
@@ -789,6 +809,7 @@ def resolve_pending_orders(
     for row, reason in stale_rejections:
         client_id = str(row.get("client_order_id") or "")
         signal = clean_date(row.get("signal_date"))
+        sell_taxonomy, sell_taxonomy_reason = normalized_sell_taxonomy(row)
         payload = {
             "portfolio_kind": portfolio,
             "date": as_of_date.date().isoformat(),
@@ -797,6 +818,8 @@ def resolve_pending_orders(
             "side": str(row.get("side") or "").upper(),
             "requested_quantity": safe_float(row.get("quantity"), 0.0),
             "target_weight": safe_float(row.get("target_weight"), 0.0),
+            "sell_taxonomy": sell_taxonomy,
+            "sell_taxonomy_reason": sell_taxonomy_reason,
             "client_order_id": client_id,
             "idempotency_key": str(row.get("idempotency_key") or ""),
             "order_batch_id": str(row.get("order_batch_id") or ""),
@@ -826,6 +849,7 @@ def resolve_pending_orders(
     ):
         client_id = str(row.get("client_order_id") or "")
         requested = float(safe_float(row.get("quantity"), 0.0))
+        sell_taxonomy, sell_taxonomy_reason = normalized_sell_taxonomy(row)
         order = execute_order(
             state=state,
             ticker=clean_ticker(row.get("ticker")),
@@ -844,6 +868,8 @@ def resolve_pending_orders(
                 "side": str(row.get("side") or "").upper(),
                 "requested_quantity": requested,
                 "target_weight": safe_float(row.get("target_weight"), 0.0),
+                "sell_taxonomy": sell_taxonomy,
+                "sell_taxonomy_reason": sell_taxonomy_reason,
                 "client_order_id": client_id,
                 "idempotency_key": str(row.get("idempotency_key") or ""),
                 "order_batch_id": str(row.get("order_batch_id") or ""),
@@ -886,6 +912,8 @@ def resolve_pending_orders(
             "shares_after": float(order.get("shares_after") or 0.0),
             "target_weight": safe_float(row.get("target_weight"), 0.0),
             "reason": str(row.get("reason") or "target_rebalance"),
+            "sell_taxonomy": sell_taxonomy,
+            "sell_taxonomy_reason": sell_taxonomy_reason,
             "fill_mode": "next_close",
             "cost_bps_per_side": float(cost_bps),
             "client_order_id": client_id,
@@ -1391,6 +1419,7 @@ def enqueue_preview_orders(
         client_id = str(row.get("client_order_id") or "")
         if not client_id:
             raise ValueError(f"preview order missing client id for {portfolio}")
+        sell_taxonomy, sell_taxonomy_reason = normalized_sell_taxonomy(row)
         queued.append(
             {
                 "portfolio_kind": portfolio,
@@ -1401,6 +1430,8 @@ def enqueue_preview_orders(
                 "reference_price": float(safe_float(row.get("reference_price"), 0.0)),
                 "target_weight": float(safe_float(row.get("target_weight"), 0.0)),
                 "reason": str(row.get("reason") or "target_rebalance"),
+                "sell_taxonomy": sell_taxonomy,
+                "sell_taxonomy_reason": sell_taxonomy_reason,
                 "fill_mode": "next_close",
                 "cost_bps_per_side": float(cost_bps),
                 "client_order_id": client_id,
