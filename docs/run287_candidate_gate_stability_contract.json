@@ -1,0 +1,80 @@
+{
+  "schema_version": "run287-candidate-gate-stability-contract-v1",
+  "issue": 306,
+  "priority": "P6",
+  "research_only": true,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false,
+  "fullrun_allowed": false,
+  "pit_universe_label_clean": false,
+  "selection_axes": [
+    "quality_balance_sheet",
+    "growth_acceleration",
+    "estimate_guidance_pit",
+    "price_volume_relative_strength",
+    "industry_theme_leadership",
+    "valuation_expectation_risk",
+    "liquidity_lifecycle_data_risk",
+    "portfolio_concentration_capacity"
+  ],
+  "rejection_taxonomy": [
+    "SELECTED",
+    "CANDIDATE_GATE",
+    "DATA_INCOMPLETENESS",
+    "RISK_STATE_OR_CASH",
+    "NAME_OR_SECTOR_CAPACITY",
+    "TREND_OR_RS_FAILURE",
+    "VALUATION_OR_THESIS_FAILURE"
+  ],
+  "prediction_head_requirements": {
+    "required_head_count": 6,
+    "finite": true,
+    "nonzero": true,
+    "nonconstant": true,
+    "stale_prediction_suffix_collision": "FAIL_CLOSED",
+    "silent_zero_fallback": "FAIL_CLOSED",
+    "distribution_drift_without_prior_active_six_head_snapshot": "UNDERPOWERED"
+  },
+  "candidate_integrity_fields": [
+    "data_complete",
+    "critical_data_complete",
+    "neutralized_feature_count",
+    "critical_missing_fields",
+    "missing_neutral_applied"
+  ],
+  "outcome_horizons_sessions": [21, 63, 126, 252],
+  "outcome_windows": ["full", "oos", "oos2"],
+  "comparisons": [
+    "spy_excess",
+    "qqq_excess",
+    "sector_neutral_excess",
+    "selected_vs_nearest_score_rank_control",
+    "complete_vs_neutralized",
+    "rejection_reason_outcomes"
+  ],
+  "single_remediation": {
+    "id": "canonical_rs_sector_3m_materialization",
+    "definition": "mom_3m_minus_same_rebalance_date_sector_mean",
+    "fill_missing_only": true,
+    "uses_forward_return": false,
+    "changes_other_gate_or_threshold": false,
+    "status": "REJECT_OOS_AND_COST",
+    "automatic_selector_activation": false
+  },
+  "promotion_gate": {
+    "not_noop": true,
+    "full_delta_cagr_positive": true,
+    "oos_delta_cagr_nonnegative": true,
+    "oos2_delta_cagr_nonnegative": true,
+    "full_delta_sharpe_min": -0.05,
+    "full_delta_mdd_min_percentage_points": -3.0,
+    "cost_100bps_delta_cagr_positive": true,
+    "turnover_cost_not_exceed_alpha": true,
+    "retune_after_failure_allowed": false
+  },
+  "official_headline_baseline": {
+    "main": {"cagr": 0.344032, "max_drawdown": -0.253629},
+    "concentrated": {"cagr": 0.490968, "max_drawdown": -0.229560},
+    "changed_by_p6": false
+  }
+}

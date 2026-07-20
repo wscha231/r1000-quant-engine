@@ -214,6 +214,7 @@ from r1000_helpers import (
     effective_latest_statement_refresh_days,
     alpha_vantage_pause_seconds,
 )
+from r1000_candidate_lanes import materialize_sector_relative_strength
 
 # Refactor Phase A Stage 3a (2026-04-20): industry feature engineering
 # moved to r1000_features.py (Phase 2 RS + O'Neil leadership + sub-industry
@@ -7546,10 +7547,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         use_mktcap_filter=use_mktcap_filter,
     )
 
-    for _rs_period, _rs_col in [("mom_1m", "rs_sector_1m"), ("mom_3m", "rs_sector_3m"), ("mom_6m", "rs_sector_6m"), ("mom_12m", "rs_sector_12m")]:
-        if _rs_period in monthly.columns:
-            monthly[_rs_col] = monthly.groupby(["rebalance_date", "sector"])[_rs_period].transform(lambda x: x - np.nanmean(x.values))
-            monthly[_rs_col] = pd.to_numeric(monthly[_rs_col], errors="coerce").fillna(0.0)
+    monthly = materialize_sector_relative_strength(monthly)
 
     # Phase 2.3: enrich the monthly frame with yfinance industry metadata so
     # downstream features can compute industry-level relative strength and

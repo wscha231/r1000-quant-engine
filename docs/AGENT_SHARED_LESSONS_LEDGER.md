@@ -2977,3 +2977,44 @@ Expected contract:
   `185/185` in `280.63s`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-07-20 - P6 candidate-gate audit and rejected sector-RS repair
+
+- Scope: issue #306 P6, candidate-funnel/model-stability diagnosis plus one
+  preregistered input remediation. No threshold grid or second arm was run.
+- The 47,435-row candidate artifact had 0% `rs_sector_3m` coverage although
+  `mom_3m`, sector, industry strength, and the other momentum inputs were
+  complete. A same-date sector residual sidecar restored 100% coverage without
+  future-return use.
+- Current bounded score-stack audit passed six of six finite, nonzero,
+  nonconstant prediction heads with no silent-zero fallback or suffix
+  collision. The prior four-head constant-zero snapshot is not a valid drift
+  reference, so distribution drift remains `UNDERPOWERED` until another active
+  six-head snapshot exists.
+- All 989 current candidates used at least one missing-neutral model feature
+  and had a critical field missing; complete-versus-neutralized performance is
+  therefore underpowered. Missing values remain neutral rather than passing a
+  quality gate by exception.
+- Existing selected names beat nearest-score-rank controls in both portfolios,
+  all Full/OOS/OOS2 windows, and 21/63/126/252-session outcomes. The selector
+  has useful nonlinear selection evidence even though raw short-horizon score
+  IC is weak.
+- Stability is a material operating bottleneck: adjacent-month score Spearman
+  was `0.6358`, top-10 overlap `33.57%`, and top-30 overlap `42.62%` across 84
+  pairs. P7 must co-display rank stability, turnover, costs, and outcomes.
+- The repair changed 44/85 Main and 35/85 Concentrated decisions and reduced
+  average cash, but failed. At 25bp, Main dCAGR/dMDD was
+  `-0.67pp / -1.20pp`; Concentrated was `-1.74pp / -1.99pp`. OOS and OOS2
+  dCAGR were negative for both, and 100bp plus turnover-cost gates failed.
+- Verdict: `REJECT_OOS_AND_COST`. The repair is not active in the daily
+  selector and the official `34.4032% / -25.3629%` Main and
+  `49.0968% / -22.9560%` Concentrated baselines are unchanged.
+- `do_not_repeat`:
+  `canonical_sector_relative_strength+materialize_missing_rs_sector_3m+alphaops_vnext_regenerated_main15_concentrated5+2019-05-31_2026-05-29`.
+- Evidence: `docs/CODEX_RUN287_P6_CANDIDATE_GATE_STABILITY_RESULT_20260720.md`,
+  `_tmp_tests/p6_candidate_gate_actual_v2_20260720/summary.json`, and
+  `_tmp_tests/p6_sector_rs_broker_ab_20260720/summary.json`.
+- Repository pytest passed `129/129`; full Tier-1 PR validation passed
+  `187/187` in `730.57s`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false.

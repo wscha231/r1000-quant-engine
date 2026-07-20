@@ -65,6 +65,17 @@ ANCHOR_ARTIFACTS = [
     "scored_oos",
     "verifier_ticker_audit",
 ]
+P6_CRITICAL_SELECTION_FIELDS = (
+    "mom_3m",
+    "rs_benchmark_3m",
+    "rs_sector_3m",
+    "price_above_ma200",
+    "dollar_vol_20d",
+    "industry_group_strength_score",
+    "sector_adjusted_quality_score",
+    "capital_efficiency_score",
+    "fundamental_reliability_score",
+)
 
 
 def blocked_payload(
@@ -156,6 +167,45 @@ def prediction_activity_rows(
             }
         )
     return rows
+
+
+def candidate_integrity_rows(
+    context: pd.DataFrame,
+    ticker_coverage: pd.DataFrame,
+    *,
+    model_feature_count: int,
+) -> pd.DataFrame:
+    """Expose missing-neutral use separately from critical candidate evidence."""
+
+    audited = context.copy()
+    critical = audited.reindex(columns=P6_CRITICAL_SELECTION_FIELDS).apply(
+        pd.to_numeric, errors="coerce"
+    )
+    missing = critical.isna()
+    out = pd.DataFrame({"ticker": normalized_tickers(audited["ticker"])})
+    coverage = ticker_coverage.copy()
+    coverage["ticker"] = normalized_tickers(coverage["ticker"])
+    finite_map = pd.to_numeric(
+        coverage.set_index("ticker")["raw_model_feature_finite_count"],
+        errors="coerce",
+    ).to_dict()
+    out["raw_model_feature_finite_count"] = out["ticker"].map(finite_map)
+    out["neutralized_feature_count"] = (
+        model_feature_count
+        - pd.to_numeric(out["raw_model_feature_finite_count"], errors="coerce")
+    ).clip(lower=0).fillna(model_feature_count).astype(int)
+    out["critical_missing_fields"] = missing.apply(
+        lambda row: "|".join(
+            column for column, value in row.items() if bool(value)
+        ),
+        axis=1,
+    )
+    out["missing_neutral_applied"] = out["neutralized_feature_count"].gt(0)
+    out["critical_data_complete"] = out["critical_missing_fields"].eq("")
+    out["data_complete"] = (
+        out["critical_data_complete"] & ~out["missing_neutral_applied"]
+    )
+    return out
 
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
@@ -363,6 +413,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         failures.append("scaled_schema_order_mismatch")
     if any(column not in linear for column in LINEAR_COLUMNS):
         failures.append("linear_prediction_schema_missing")
+    stale_prediction_columns = sorted(
+        column for column in context.columns if str(column).startswith("pred_")
+    )
+    suffix_collisions = [
+        column for column in stale_prediction_columns
+        if str(column).endswith(("_x", "_y", ".1"))
+    ]
+    if suffix_collisions:
+        failures.append("stale_prediction_suffix_collision:" + ",".join(suffix_collisions))
     if not failures:
         orders = [normalized_tickers(frame["ticker"]).tolist() for frame in frames.values()]
         if any(order != orders[0] for order in orders[1:]):
@@ -513,6 +572,21 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     )
     first["decision_feature_complete"] = False
     first["decision_ranking_allowed"] = False
+    integrity = candidate_integrity_rows(
+        context,
+        ticker_coverage,
+        model_feature_count=expected_features,
+    )
+    integrity_by_ticker = integrity.set_index("ticker")
+    first_tickers = normalized_tickers(first["ticker"])
+    for column in (
+        "data_complete",
+        "critical_data_complete",
+        "neutralized_feature_count",
+        "critical_missing_fields",
+        "missing_neutral_applied",
+    ):
+        first[column] = first_tickers.map(integrity_by_ticker[column].to_dict())
     registered_eligible_count = int(eligible_before_quarantine.sum())
     research_eligible_count = int(first["research_eligible_after_quarantine"].sum())
     if normalized_tickers(first["ticker"]).tolist() != normalized_tickers(
@@ -555,6 +629,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "research_eligible_after_quarantine",
         "decision_feature_complete",
         "decision_ranking_allowed",
+        "data_complete",
+        "critical_data_complete",
+        "neutralized_feature_count",
+        "critical_missing_fields",
+        "missing_neutral_applied",
     ]
     stack_output = first[
         [column for column in output_columns if column in first]
@@ -629,6 +708,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "adaptive_ensemble_audit": adaptive_audit,
         "score_distribution_summary": pd.DataFrame(summary_rows),
         "eligibility_summary": eligibility_summary,
+        "candidate_integrity_audit": integrity,
     }
     outputs: dict[str, Any] = {}
     for name, frame in frames_out.items():
@@ -660,6 +740,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "catboost_scoring_executed": True,
         "adaptive_ensemble_executed": True,
         "stale_prediction_columns_removed_before_join": True,
+        "stale_prediction_columns_detected": stale_prediction_columns,
+        "stale_prediction_suffix_collision_count": len(suffix_collisions),
         "fresh_prediction_passthrough_verified": True,
         "ranking_eligibility_computed": True,
         "decision_feature_complete": False,
@@ -691,6 +773,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "registered_eligible_ticker_count": registered_eligible_count,
             "research_eligible_after_quarantine_count": research_eligible_count,
             "corporate_action_quarantine_ticker_count": len(quarantine_tickers),
+            "data_complete_ticker_count": int(integrity["data_complete"].sum()),
+            "neutralized_ticker_count": int(
+                integrity["missing_neutral_applied"].sum()
+            ),
+            "critical_missing_ticker_count": int(
+                integrity["critical_missing_fields"].ne("").sum()
+            ),
             "catboost_head_parity_pass_count": sum(
                 bool(row["batch_chunk_parity_pass"]) for row in cat_parity_rows
             ),
