@@ -31,6 +31,7 @@ from tools.build_daily_user_current_contract import (  # noqa: E402
     load_order_preview as load_daily_order_preview,
     load_target_weights as load_daily_target_weights,
 )
+from tools.run287_promotion_gate import gate_for_consumer  # noqa: E402
 
 
 HORIZONS: list[tuple[str, pd.DateOffset | None, bool]] = [
@@ -1260,6 +1261,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     price_cache = repo_path(args.price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
+    explicit_promotion = getattr(args, "promotion_state", "")
+    promotion = gate_for_consumer(
+        latest_run,
+        explicit=repo_path(explicit_promotion) if explicit_promotion else None,
+    )
 
     current, current_source_mode, current_source_detail = normalize_current_holdings(latest_run, output_dir)
     metrics = load_official_metrics(latest_run)
@@ -1280,6 +1286,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     write_json(output_dir / "04_official_metrics.json", metrics)
     research = research_sidecar_context(latest_run)
+    research["legacy_promotion_status"] = research.get("promotion_status")
+    research["promotion_status"] = promotion["promotion_state"]
+    research["promotion_state_source_sha256"] = promotion["source_sha256"]
+    research["promotion_rollback_triggered"] = promotion["rollback_triggered"]
     research["current_holdings_snapshot_source_mode"] = current_source_mode
     research["current_holdings_snapshot_source_detail"] = current_source_detail
     research["current_holdings_snapshot_restored"] = current_source_mode in {
@@ -1293,9 +1303,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     status, reasons = build_action_summary(latest_run, metrics, cash)
     blockers = production_blockers(metrics)
-    promotion_valid = not blockers
-    production_promotion_allowed = promotion_valid and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
-    recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not promotion_valid else "REVIEW_REQUIRED"
+    legacy_promotion_valid = not blockers
+    blockers = [*blockers, f"promotion_state:{promotion['promotion_state']}"]
+    promotion_valid = False
+    production_promotion_allowed = False
+    recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not legacy_promotion_valid else "REVIEW_REQUIRED"
     (output_dir / "05_action_summary.md").write_text(
         render_action_summary(status, reasons, metrics, cash, research, broker_rule),
         encoding="utf-8",
@@ -1312,6 +1324,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "recommendation_status": recommendation_status,
         "valid_for_production": promotion_valid,
         "production_promotion_allowed": production_promotion_allowed,
+        "legacy_metric_gate_passed": legacy_promotion_valid,
         "production_blockers": blockers,
         "reason_count": len(reasons),
         "current_holding_rows": int(len(current)),
@@ -1339,6 +1352,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "source_target_case_id": research.get("source_target_case_id"),
         "approved_policy_path": research.get("approved_policy_path"),
         "promotion_status": research.get("promotion_status"),
+        "promotion_state_source_sha256": promotion["source_sha256"],
+        "promotion_rollback_triggered": promotion["rollback_triggered"],
         "shadow_available": bool(research.get("shadow_available")),
         "projected_holdings_path": research.get("projected_holdings_path"),
         "decision_cadence_available": bool(research.get("decision_cadence_available")),
@@ -1365,6 +1380,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default="outputs/user_current")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--promotion-state", default="")
     return parser.parse_args()
 
 

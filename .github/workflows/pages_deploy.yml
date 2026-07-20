@@ -16,6 +16,8 @@ on:
     paths:
       - 'docs/public/**'
       - 'tools/build_public_portfolio_dashboard.py'
+      - 'tools/run287_promotion_gate.py'
+      - 'data_static/run287_promotion_state.json'
       - 'tests/public_portfolio_dashboard_smoke.py'
       - '.github/workflows/pages_deploy.yml'
   workflow_run:
@@ -50,6 +52,8 @@ jobs:
           sparse-checkout: |
             docs/public
             tools/build_public_portfolio_dashboard.py
+            tools/run287_promotion_gate.py
+            data_static/run287_promotion_state.json
             tests/public_portfolio_dashboard_smoke.py
           sparse-checkout-cone-mode: false
 

@@ -1,0 +1,28 @@
+{
+  "schema_version": "run287-promotion-state-v1",
+  "state_revision": 1,
+  "promotion_state": "RESEARCH_ONLY",
+  "effective_from_utc": "2026-07-20T00:00:00Z",
+  "state_reason": "No independently accepted challenger and forward paper evidence is underpowered.",
+  "contract_path": "data_static/run287_promotion_gate_contract.json",
+  "canonical_champion": {
+    "policy_id": "run287-generated-book-champion-20260710",
+    "source_commit": "819cbaa905bab6a455ed3e7c2a2a90ae2824833a",
+    "metric_mode": "broker_ledger_next_close_integer_shares_25bps_dgs3mo_carry",
+    "main_target_book_sha256": "f5e0d4f20c10cacdabb386e607d073e6b6514f9fef89140b14efb96dacac0f9f",
+    "concentrated_target_book_sha256": "7bd110da3ce0cbb0e1887dc33be2d7ee802c8fec75b318d309d7b12bf927a299",
+    "account_namespace": "champion/run287-generated-book-champion-20260710"
+  },
+  "official_challenger": null,
+  "user_approval": {
+    "granted": false,
+    "approved_by": null,
+    "approved_at_utc": null,
+    "approved_scope": null,
+    "evidence_sha256": null
+  },
+  "production_activation_allowed": false,
+  "live_trading_enabled": false,
+  "paper_history_preservation_required": true,
+  "automatic_transition_allowed": false
+}

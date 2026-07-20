@@ -27,6 +27,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+try:
+    from tools.run287_promotion_gate import gate_for_consumer
+except ModuleNotFoundError:  # direct `python tools/...` execution
+    from run287_promotion_gate import gate_for_consumer
+
 
 PORTFOLIOS = ("main", "concentrated")
 PORTFOLIO_LABELS = {"main": "Main", "concentrated": "Concentrated"}
@@ -306,6 +311,9 @@ def empty_dashboard() -> dict[str, Any]:
             "live_trading_enabled": False,
             "production_ready": False,
             "decision": "RESEARCH_ONLY",
+            "promotion_state": "RESEARCH_ONLY",
+            "promotion_state_source_sha256": "",
+            "rollback_triggered": False,
         },
         "privacy": {
             "weights_published": True,
@@ -643,7 +651,12 @@ def validate_public_payload(payload: Any, path: str = "root") -> None:
             raise ValueError(f"secret-like text leaked at {path}")
 
 
-def build_dashboard(source: Path, base_json: Path | None = None, repo_root: Path | None = None) -> dict[str, Any]:
+def build_dashboard(
+    source: Path,
+    base_json: Path | None = None,
+    repo_root: Path | None = None,
+    promotion_state_path: Path | None = None,
+) -> dict[str, Any]:
     base = read_json(base_json) if base_json and base_json.exists() else {}
     if user_current_dir(source) is not None:
         if not base:
@@ -656,6 +669,16 @@ def build_dashboard(source: Path, base_json: Path | None = None, repo_root: Path
         changes = git_changes(repo_root)
         if changes:
             dashboard["changes"] = changes
+    promotion = gate_for_consumer(source, explicit=promotion_state_path)
+    dashboard["status"].update(
+        {
+            "promotion_state": promotion["promotion_state"],
+            "promotion_state_source_sha256": promotion["source_sha256"],
+            "rollback_triggered": promotion["rollback_triggered"],
+            "production_ready": False,
+            "live_trading_enabled": False,
+        }
+    )
     validate_public_payload(dashboard)
     return dashboard
 
@@ -666,6 +689,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-json", default="", help="Previous public JSON used when daily artifacts omit history")
     parser.add_argument("--output", default="docs/public/data/dashboard.json")
     parser.add_argument("--repo-root", default=".")
+    parser.add_argument("--promotion-state", default="")
     return parser.parse_args()
 
 
@@ -674,7 +698,13 @@ def main() -> int:
     source = Path(args.source).resolve()
     base_json = Path(args.base_json).resolve() if args.base_json else None
     output = Path(args.output).resolve()
-    dashboard = build_dashboard(source, base_json=base_json, repo_root=Path(args.repo_root).resolve())
+    promotion_state = Path(args.promotion_state).resolve() if args.promotion_state else None
+    dashboard = build_dashboard(
+        source,
+        base_json=base_json,
+        repo_root=Path(args.repo_root).resolve(),
+        promotion_state_path=promotion_state,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(dashboard, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
     print(
