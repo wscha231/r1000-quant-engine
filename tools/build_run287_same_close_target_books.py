@@ -25,6 +25,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.run287_crisis_policy import (  # noqa: E402
+    SCHEMA_VERSION as CRISIS_POLICY_SCHEMA_VERSION,
+    RESERVE_REASONS,
+    apply_selective_defense,
+    availability_records,
+    canonical_state,
+    component_availability,
+)
+
 
 SCHEMA_VERSION = "run287-same-close-target-books-v1"
 READY_STATUS = "READY_SAME_CLOSE_PAPER_TARGETS"
@@ -260,6 +269,56 @@ def activity_gate(
     return activity, audit, failures
 
 
+def canonical_crisis_context(
+    *,
+    crisis_row: Mapping[str, Any],
+    selection_context: pd.DataFrame,
+    decision_time: Any,
+    available_from: Any,
+) -> dict[str, Any]:
+    values = dict(crisis_row)
+    for field in (
+        "market_breadth_above_ma200",
+        "market_breadth_above_ma150",
+        "market_sector_participation",
+        "market_leadership_narrowing",
+    ):
+        if field in selection_context.columns:
+            observed = pd.to_numeric(selection_context[field], errors="coerce").dropna()
+            if not observed.empty:
+                values[field] = float(observed.median())
+    availability = component_availability(
+        values,
+        decision_time=decision_time,
+        available_from=available_from,
+    )
+    missing_critical = [
+        row.component
+        for row in availability
+        if row.critical and (not row.available or not row.fresh)
+    ]
+    source_state = canonical_state(
+        values.get("crisis_state"), values.get("reentry_stage")
+    )
+    state = "DEGRADED_DATA" if missing_critical else source_state
+    def numeric(name: str, default: float) -> float:
+        value = pd.to_numeric(values.get(name), errors="coerce")
+        return default if pd.isna(value) else float(value)
+
+    return {
+        "schema_version": CRISIS_POLICY_SCHEMA_VERSION,
+        "state": state,
+        "source_state": source_state,
+        "crisis_score": numeric("crisis_score", 0.0),
+        "reentry_score": numeric("reentry_score", 0.0),
+        "reentry_multiplier": numeric("reentry_multiplier", 1.0),
+        "component_availability": availability_records(availability),
+        "missing_critical_components": missing_critical,
+        "future_labels_excluded": True,
+        "universe_breadth_source": "decision_selection_context_cross_section",
+    }
+
+
 def apply_risk_intersection(
     selected: pd.DataFrame,
     comparison: pd.DataFrame,
@@ -442,6 +501,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         )
         score = read_json(score_path)
         decision = read_json(decision_path)
+        crisis_path, inputs["crisis_manifest"] = verified_record(
+            producer_path,
+            (producer.get("source_inputs") or {}).get("crisis_manifest") or {},
+            "crisis_manifest",
+        )
+        crisis = read_json(crisis_path)
+        crisis_row_path, inputs["current_crisis_state"] = verified_output(
+            crisis_path, crisis, "current_crisis_state"
+        )
+        selection_context_path, inputs["selection_context"] = verified_output(
+            decision_path, decision, "selection_context"
+        )
     except Exception as exc:
         failures.append(f"input_contract:{type(exc).__name__}:{exc}")
         return blocked_payload(
@@ -456,6 +527,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         failures.append("candidate_risk_not_ready")
     if score.get("status") != SCORE_STATUS:
         failures.append("score_stack_not_ready")
+    if crisis.get("status") != "READY_CURRENT_CRISIS_STATE_NONSELECTING":
+        failures.append("crisis_state_not_ready")
+    if iso_date(crisis.get("valuation_price_cutoff_date")) != valuation_date:
+        failures.append("crisis_state_date_mismatch")
+    if ((crisis.get("feature_contract") or {}).get("future_labels_used_for_state")) is not False:
+        failures.append("crisis_future_label_contract")
     contract, contract_failures = validate_timestamp_contract(
         selector=selector,
         score=score,
@@ -471,6 +548,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     projection = pd.read_csv(projection_path, low_memory=False)
     comparison = pd.read_csv(comparison_path, low_memory=False)
     risk_rows = pd.read_csv(risk_rows_path, low_memory=False)
+    crisis_rows = pd.read_csv(crisis_row_path, low_memory=False)
+    selection_context = pd.read_parquet(selection_context_path)
     required_projection = {"portfolio_kind", "scenario", "ticker", "advisory_weight"}
     required_comparison = {"portfolio_kind", "scenario", "ticker", "marked_weight"}
     if not required_projection.issubset(projection.columns):
@@ -485,8 +564,25 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             inputs=inputs,
         )
 
+    if len(crisis_rows) != 1:
+        return blocked_payload(
+            output_dir=output_dir,
+            valuation_date=valuation_date,
+            failures=["current_crisis_state_row_count"],
+            inputs=inputs,
+        )
+    crisis_context = canonical_crisis_context(
+        crisis_row=crisis_rows.iloc[0].to_dict(),
+        selection_context=selection_context,
+        decision_time=contract["selector_decision_time_utc"],
+        available_from=decision.get("feature_available_from"),
+    )
+
     targets: dict[str, pd.DataFrame] = {}
+    crisis_shadow_targets: dict[str, pd.DataFrame] = {}
     risk_actions: dict[str, list[dict[str, Any]]] = {}
+    crisis_actions: dict[str, list[dict[str, Any]]] = {}
+    crisis_policy: dict[str, dict[str, Any]] = {}
     turnover: dict[str, dict[str, Any]] = {}
     for portfolio, scenario in SCENARIOS.items():
         selected = projection.loc[
@@ -502,17 +598,59 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             continue
         try:
             target, actions = apply_risk_intersection(selected, detail, risk_rows)
+            evidence_columns = [
+                column
+                for column in (
+                    "ticker",
+                    "holding_state",
+                    "leader_tier",
+                    "alphaops_vnext_score",
+                )
+                if column in selected.columns
+            ]
+            evidence = detail.merge(
+                selected[evidence_columns].drop_duplicates("ticker", keep="last"),
+                on="ticker",
+                how="outer",
+            )
+            crisis_shadow, selective_actions, policy_summary = apply_selective_defense(
+                target,
+                state=crisis_context["state"],
+                portfolio_kind=portfolio,
+                evidence=evidence,
+            )
         except Exception as exc:
-            failures.append(f"risk_intersection:{portfolio}:{type(exc).__name__}:{exc}")
+            failures.append(f"risk_or_crisis_policy:{portfolio}:{type(exc).__name__}:{exc}")
             continue
         for field, value in contract.items():
             target[field] = value
+            crisis_shadow[field] = value
+        target["canonical_crisis_state"] = crisis_context["state"]
+        crisis_shadow["canonical_crisis_state"] = crisis_context["state"]
+        for reason in RESERVE_REASONS:
+            target[reason] = 0.0
+            crisis_shadow[reason] = 0.0
+            crisis_shadow.loc[crisis_shadow["ticker"].eq("CASH"), reason] = float(
+                (policy_summary.get("reserve_reasons") or {}).get(reason, 0.0)
+            )
+        target.loc[target["ticker"].eq("CASH"), "capacity_unallocated"] = float(
+            target.loc[target["ticker"].eq("CASH"), "weight"].sum()
+        )
         target["portfolio_kind"] = portfolio
+        crisis_shadow["portfolio_kind"] = portfolio
         target["selector_scenario"] = scenario
+        crisis_shadow["selector_scenario"] = scenario
         target["rebalance_date"] = valuation_date
+        crisis_shadow["rebalance_date"] = valuation_date
         target["same_close_target_hash"] = target_hash(target[["ticker", "weight"]])
+        crisis_shadow["same_close_target_hash"] = target_hash(
+            crisis_shadow[["ticker", "weight"]]
+        )
         targets[portfolio] = target
+        crisis_shadow_targets[portfolio] = crisis_shadow
         risk_actions[portfolio] = actions
+        crisis_actions[portfolio] = selective_actions
+        crisis_policy[portfolio] = policy_summary
         turnover[portfolio] = turnover_summary(target, detail, portfolio)
     if failures or set(targets) != set(SCENARIOS):
         return blocked_payload(
@@ -524,16 +662,46 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     output_records: dict[str, Any] = {}
     target_hashes: dict[str, str] = {}
+    crisis_shadow_hashes: dict[str, str] = {}
     for portfolio, target in targets.items():
         path = output_dir / f"same_close_{portfolio}_target_book.csv"
         target.to_csv(path, index=False, lineterminator="\n", float_format="%.12g")
         output_records[f"{portfolio}_target_book"] = fingerprint(path)
         target_hashes[portfolio] = str(target["same_close_target_hash"].iloc[0])
+        shadow = crisis_shadow_targets[portfolio]
+        shadow_path = output_dir / f"same_close_{portfolio}_crisis_shadow_target_book.csv"
+        shadow.to_csv(
+            shadow_path, index=False, lineterminator="\n", float_format="%.12g"
+        )
+        output_records[f"{portfolio}_crisis_shadow_target_book"] = fingerprint(
+            shadow_path
+        )
+        crisis_shadow_hashes[portfolio] = str(
+            shadow["same_close_target_hash"].iloc[0]
+        )
     action_path = output_dir / "risk_intersection_audit.csv"
     pd.DataFrame(
         [dict(portfolio_kind=portfolio, **row) for portfolio, rows in risk_actions.items() for row in rows]
     ).to_csv(action_path, index=False, lineterminator="\n", float_format="%.12g")
     output_records["risk_intersection_audit"] = fingerprint(action_path)
+    crisis_action_path = output_dir / "canonical_crisis_policy_audit.csv"
+    pd.DataFrame(
+        [
+            dict(portfolio_kind=portfolio, **row)
+            for portfolio, rows in crisis_actions.items()
+            for row in rows
+        ],
+        columns=[
+            "portfolio_kind",
+            "ticker",
+            "priority",
+            "reason",
+            "weight_before",
+            "trim_weight",
+            "weight_after",
+        ],
+    ).to_csv(crisis_action_path, index=False, lineterminator="\n", float_format="%.12g")
+    output_records["canonical_crisis_policy_audit"] = fingerprint(crisis_action_path)
     decision_snapshot = {
         "schema_version": SCHEMA_VERSION,
         "status": READY_STATUS,
@@ -545,6 +713,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             key: value.get("sha256", "") for key, value in sorted(inputs.items())
         },
         "target_hashes": target_hashes,
+        "crisis_shadow_target_hashes": crisis_shadow_hashes,
         "turnover_and_cost": turnover,
         "risk_intersection": {
             portfolio: {
@@ -552,6 +721,17 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "actions": rows,
             }
             for portfolio, rows in risk_actions.items()
+        },
+        "canonical_crisis_state": crisis_context,
+        "crisis_policy_promotion_status": "REJECTED_HISTORICAL_FIXED_BOOK",
+        "crisis_policy_applied_to_operating_target": False,
+        "crisis_policy_shadow_only": True,
+        "canonical_crisis_policy": {
+            portfolio: {
+                **crisis_policy[portfolio],
+                "selective_sell_actions": crisis_actions[portfolio],
+            }
+            for portfolio in sorted(crisis_policy)
         },
         "target_book_file_written": True,
         "orders_generated": False,

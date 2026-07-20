@@ -32,6 +32,8 @@ def test_daily_crisis_monitor_uses_learned_long_crisis_gate() -> None:
                 "liquidity_confirmation_score": [0.05, 0.10, 0.60],
                 "market_trend_damage_score": [0.05, 0.10, 0.58],
                 "credit_stress_score": [0.02, 0.10, 0.20],
+                "qqq_below_ma200": [0.0, 0.0, 1.0],
+                "volatility_stress_score": [0.10, 0.20, 0.70],
                 "future_63d_drawdown": [0.0, -0.10, -0.30],
                 "future_63d_drawdown_le_15pct": [0, 0, 1],
             },
@@ -58,7 +60,7 @@ def test_daily_crisis_monitor_uses_learned_long_crisis_gate() -> None:
                 long_crisis_thresholds=str(thresholds_path),
             )
         )
-        assert payload["raw_state"] == "DEFENSE_REVIEW", payload
+        assert payload["raw_state"] == "DEFENSE", payload
         assert payload["long_crisis"]["available"] is True
         assert payload["long_crisis"]["future_labels_excluded"] is True
         assert payload["long_crisis"]["cash_gate_reason"] == "systemic_confirmation_pass"
@@ -82,6 +84,7 @@ def test_daily_crisis_monitor_blocks_unconfirmed_vix_only_cash_raise() -> None:
                 "market_trend_damage_score": [0.04, 0.10],
                 "credit_stress_score": [0.01, 0.05],
                 "volatility_stress_score": [0.20, 0.95],
+                "qqq_below_ma200": [0.0, 0.0],
             },
             index=idx,
         ).to_parquet(feature_path)

@@ -14,6 +14,17 @@ from typing import Any
 import pandas as pd
 
 from r1000_long_crisis_liquidity import cash_raise_decision
+from tools.run287_crisis_policy import (
+    CANONICAL_STATES,
+    FUTURE_LABEL_COLUMNS,
+    STATE_RANK,
+    availability_records,
+    canonical_state,
+    component_availability,
+    strip_future_labels,
+    stronger_state as canonical_stronger_state,
+    transition_state,
+)
 
 try:  # Imported lazily enough to keep the engine usable from tests.
     from tools.run_weekly_evaluation import load_price_series, px_cache_name
@@ -22,10 +33,6 @@ except Exception:  # pragma: no cover - fallback for direct module reuse.
 
     def px_cache_name(ticker: str) -> str:  # type: ignore[no-redef]
         return f"{ticker.upper()}.parquet"
-
-
-STATE_RANK = {"GREEN": 0, "WATCH": 1, "DEFENSE_REVIEW": 2, "CRISIS_DEFENSE": 3}
-FUTURE_LABEL_COLUMNS = {"false_alarm_no_drawdown_63d"}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -76,12 +83,7 @@ def observable_feature_frame(features_path: Path) -> pd.DataFrame:
     d = d[~d.index.isna()].sort_index()
     if d.empty:
         return pd.DataFrame()
-    observable_cols = [
-        col
-        for col in d.columns
-        if not str(col).startswith("future_") and str(col) not in FUTURE_LABEL_COLUMNS
-    ]
-    out = d[observable_cols].copy()
+    out = strip_future_labels(d)
     out.index = pd.DatetimeIndex(out.index).tz_localize(None).normalize()
     return out[~out.index.duplicated(keep="last")].sort_index()
 
@@ -119,7 +121,7 @@ def infer_long_crisis_state_from_row(
     allow_crisis_defense: bool = False,
 ) -> tuple[str, list[str], dict[str, Any]]:
     if row.empty:
-        return "GREEN", [], {
+        return "DEGRADED_DATA", [], {
             "available": False,
             "features": str(features_path or ""),
             "thresholds": str(thresholds_path or ""),
@@ -144,15 +146,31 @@ def infer_long_crisis_state_from_row(
         and decision.allowed
         and decision.reason == "systemic_confirmation_pass"
     ):
-        state = "CRISIS_DEFENSE"
+        state = "CRISIS"
     elif crisis_score >= mid and decision.allowed and decision.reason == "systemic_confirmation_pass":
-        state = "DEFENSE_REVIEW"
+        state = "DEFENSE"
     elif crisis_score >= low:
         state = "WATCH"
     else:
         state = "GREEN"
 
     latest_date = pd.Timestamp(asof_date).normalize() if asof_date is not None else None
+    availability = component_availability(
+        row.to_dict(),
+        decision_time=latest_date,
+        available_from=latest_date,
+    )
+    canonical_input_fields = sorted(
+        {
+            field
+            for item in availability
+            for field in (
+                item.source_field,
+                "qqq_ma200" if item.component == "qqq_trend" else "",
+            )
+            if field and field in row.index
+        }
+    )
     meta = {
         "available": True,
         "features": str(features_path or ""),
@@ -170,6 +188,18 @@ def infer_long_crisis_state_from_row(
         "cash_gate_reason": decision.reason,
         "observable_field_count": int(len(row.index)),
         "future_labels_excluded": True,
+        "component_availability": availability_records(availability),
+        "canonical_state_inputs": {
+            field: safe_float(row.get(field), 0.0) for field in canonical_input_fields
+        },
+        "missing_components": [
+            item.component for item in availability if not item.available or not item.fresh
+        ],
+        "missing_critical_components": [
+            item.component
+            for item in availability
+            if item.critical and (not item.available or not item.fresh)
+        ],
         "state": state,
     }
     reasons = [
@@ -182,7 +212,7 @@ def infer_long_crisis_state_from_row(
 def infer_latest_long_crisis_state(features_path: Path, thresholds_path: Path) -> tuple[str, list[str], dict[str, Any]]:
     latest_date, row = latest_observable_long_crisis_row(features_path)
     if latest_date is None or row.empty:
-        return "GREEN", [], {
+        return "DEGRADED_DATA", [], {
             "available": False,
             "features": str(features_path),
             "thresholds": str(thresholds_path),
@@ -198,52 +228,39 @@ def infer_latest_long_crisis_state(features_path: Path, thresholds_path: Path) -
     )
 
 
-def apply_hysteresis(raw_state: str, history: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def apply_hysteresis(
+    raw_state: str,
+    history: dict[str, Any],
+    *,
+    values: dict[str, Any] | pd.Series | None = None,
+    availability: list[Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     prev = str(history.get("state") or "GREEN")
     streak_state = str(history.get("raw_state") or "")
     streak = int(safe_float(history.get("raw_state_streak"), 0))
-    streak = streak + 1 if raw_state == streak_state else 1
-
-    state = prev if prev in {"GREEN", "WATCH", "DEFENSE_REVIEW", "CRISIS_DEFENSE", "REENTRY_READY"} else "GREEN"
-    if raw_state == "CRISIS_DEFENSE":
-        state = "CRISIS_DEFENSE"
-    elif state == "GREEN":
-        if raw_state == "DEFENSE_REVIEW" and streak >= 2:
-            state = "DEFENSE_REVIEW"
-        elif raw_state == "WATCH" and streak >= 2:
-            state = "WATCH"
-        else:
-            state = "GREEN"
-    elif state == "WATCH":
-        if raw_state == "DEFENSE_REVIEW" and streak >= 2:
-            state = "DEFENSE_REVIEW"
-        elif raw_state == "GREEN" and streak >= 3:
-            state = "GREEN"
-        else:
-            state = "WATCH"
-    elif state in {"DEFENSE_REVIEW", "CRISIS_DEFENSE"}:
-        if raw_state == "GREEN" and streak >= 3:
-            state = "REENTRY_READY"
-        elif raw_state == "DEFENSE_REVIEW":
-            state = "DEFENSE_REVIEW"
-        elif raw_state == "WATCH":
-            state = "DEFENSE_REVIEW"
-        else:
-            state = state
-    elif state == "REENTRY_READY":
-        if raw_state == "GREEN" and streak >= 2:
-            state = "GREEN"
-        elif raw_state == "DEFENSE_REVIEW":
-            state = "DEFENSE_REVIEW"
-        elif raw_state == "WATCH":
-            state = "WATCH"
-        else:
-            state = "REENTRY_READY"
+    canonical_raw = canonical_state(raw_state)
+    canonical_streak_state = canonical_state(streak_state) if streak_state else ""
+    streak = streak + 1 if canonical_raw == canonical_streak_state else 1
+    observed = dict(values) if values is not None else {}
+    component_rows = availability or component_availability(observed)
+    decision = transition_state(
+        raw_state=canonical_raw,
+        prior_state=prev,
+        raw_state_streak=streak,
+        values=observed,
+        availability=component_rows,
+    )
+    state = decision.state
 
     next_history = {
         "state": state,
-        "raw_state": raw_state,
+        "raw_state": canonical_raw,
         "raw_state_streak": streak,
+        "reentry_score": decision.reentry_score,
+        "reentry_multiplier": decision.reentry_multiplier,
+        "transition_reason": decision.transition_reason,
+        "missing_components": list(decision.missing_components),
+        "missing_critical_components": list(decision.missing_critical_components),
         "updated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     return state, next_history
@@ -307,10 +324,10 @@ def price_raw_state(price_cache: Path, start: pd.Timestamp, end: pd.Timestamp) -
         above50 = bool(px >= float(ma50.loc[dt])) if pd.notna(ma50.loc[dt]) else True
         r5 = safe_float(ret5.loc[dt], 0.0)
         if dd <= -0.20 or r5 <= -0.12:
-            state = "CRISIS_DEFENSE"
+            state = "CRISIS"
             trigger = "shock_crash_or_drawdown_below_20pct"
         elif dd <= -0.12 or (dd <= -0.08 and not above50):
-            state = "DEFENSE_REVIEW"
+            state = "DEFENSE"
             trigger = "drawdown_or_ma50_damage"
         elif dd <= -0.06 or not above20:
             state = "WATCH"
@@ -334,7 +351,7 @@ def price_raw_state(price_cache: Path, start: pd.Timestamp, end: pd.Timestamp) -
 
 
 def stronger_state(a: str, b: str) -> str:
-    return a if STATE_RANK.get(a, 0) >= STATE_RANK.get(b, 0) else b
+    return canonical_stronger_state(a, b)
 
 
 def build_historical_daily_crisis_state(
@@ -387,6 +404,22 @@ def build_historical_daily_crisis_state(
                 "liquidity_confirmation_score": safe_float(meta.get("liquidity_confirmation_score"), 0.0),
                 "market_trend_damage_score": safe_float(meta.get("market_trend_damage_score"), 0.0),
                 "credit_stress_score": safe_float(meta.get("credit_stress_score"), 0.0),
+                "volatility_stress_score": safe_float(row.get("volatility_stress_score"), 0.0),
+                "rate_shock_score": safe_float(row.get("rate_shock_score"), 0.0),
+                "qqq_close": safe_float(row.get("qqq_close"), float("nan")),
+                "qqq_ma200": safe_float(row.get("qqq_ma200"), float("nan")),
+                "qqq_below_ma200": safe_float(row.get("qqq_below_ma200"), float("nan")),
+                "vix_zscore_252d": safe_float(row.get("vix_zscore_252d"), float("nan")),
+                "hy_oas_zscore_252d": safe_float(row.get("hy_oas_zscore_252d"), float("nan")),
+                "market_breadth_above_ma200": safe_float(
+                    row.get("market_breadth_above_ma200"), float("nan")
+                ),
+                "market_sector_participation": safe_float(
+                    row.get("market_sector_participation"), float("nan")
+                ),
+                "market_leadership_narrowing": safe_float(
+                    row.get("market_leadership_narrowing"), float("nan")
+                ),
                 "long_crisis_feature_date": meta.get("latest_date") or "",
                 "future_labels_excluded": True,
             }
@@ -395,21 +428,29 @@ def build_historical_daily_crisis_state(
     out = base.merge(long_state_df, on="date", how="left")
 
     history: dict[str, Any] = {"state": "GREEN", "raw_state": "", "raw_state_streak": 0}
-    reentry_count = 0
     rows: list[dict[str, Any]] = []
     for rec in out.to_dict("records"):
         price_state = str(rec.get("price_state") or "GREEN")
         long_state = str(rec.get("long_crisis_state") or "GREEN")
         raw_state = stronger_state(price_state, long_state)
-        state, history = apply_hysteresis(raw_state, history)
-        if state == "REENTRY_READY":
-            reentry_count += 1
-            stage = "REENTRY_STAGE_1" if reentry_count <= 5 else "REENTRY_STAGE_2" if reentry_count <= 15 else "REENTRY_STAGE_3"
-            trigger = "confirmed_reentry_after_defense"
-        else:
-            reentry_count = 0
-            stage = ""
-            trigger = str(rec.get("price_trigger") or rec.get("cash_gate_reason") or raw_state)
+        available_from = rec.get("long_crisis_feature_date") or rec.get("date")
+        availability = component_availability(
+            rec,
+            decision_time=rec.get("date"),
+            available_from=available_from,
+        )
+        state, history = apply_hysteresis(
+            raw_state,
+            history,
+            values=rec,
+            availability=availability,
+        )
+        stage = state if state.startswith("REENTRY_STAGE_") else ""
+        trigger = (
+            str(history.get("transition_reason") or "")
+            if stage
+            else str(rec.get("price_trigger") or rec.get("cash_gate_reason") or raw_state)
+        )
         rows.append(
             {
                 **rec,
@@ -418,6 +459,15 @@ def build_historical_daily_crisis_state(
                 "crisis_score": max(safe_float(rec.get("price_crisis_score")), safe_float(rec.get("long_crisis_score"))),
                 "reentry_stage": stage,
                 "reentry_trigger": trigger,
+                "reentry_score": safe_float(history.get("reentry_score"), 0.0),
+                "reentry_multiplier": safe_float(history.get("reentry_multiplier"), 1.0),
+                "component_availability": json.dumps(
+                    availability_records(availability), sort_keys=True
+                ),
+                "missing_components": "|".join(history.get("missing_components") or []),
+                "missing_critical_components": "|".join(
+                    history.get("missing_critical_components") or []
+                ),
                 "state_source": "long_crisis" if STATE_RANK.get(long_state, 0) > STATE_RANK.get(price_state, 0) else "price_or_combined",
             }
         )

@@ -147,7 +147,8 @@ def test_current_crisis_extension_is_deterministic_and_nonselecting() -> None:
         assert payload["current_state"]["crisis_state"] == "GREEN"
         assert payload["feature_contract"]["future_labels_used_for_state"] is False
         assert payload["extension"]["extension_deterministic"] is True
-        assert payload["pinned_runtime"]["all_modules_from_pinned_git_objects"] is True
+        assert payload["pinned_runtime"]["feature_modules_from_pinned_git_objects"] is True
+        assert payload["pinned_runtime"]["canonical_state_engine_sha256"]
         assert payload["selector_executed"] is False
         assert payload["target_books_mutated"] is False
 

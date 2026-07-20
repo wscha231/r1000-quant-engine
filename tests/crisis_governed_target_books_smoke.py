@@ -51,6 +51,14 @@ def test_crisis_governed_target_book_materializes_broker_replay_rows() -> None:
         feat = pd.DataFrame(index=fidx)
         feat["crisis_score"] = 0.05
         feat.loc[fidx[2:8], "crisis_score"] = 0.85
+        feat["market_trend_damage_score"] = 0.05
+        feat.loc[fidx[2:8], "market_trend_damage_score"] = 0.75
+        feat["qqq_below_ma200"] = 0.0
+        feat.loc[fidx[2:8], "qqq_below_ma200"] = 1.0
+        feat["credit_stress_score"] = 0.05
+        feat.loc[fidx[2:8], "credit_stress_score"] = 0.65
+        feat["volatility_stress_score"] = 0.10
+        feat.loc[fidx[2:8], "volatility_stress_score"] = 0.80
         feat.to_parquet(features)
 
         book, audit, summary = build_governed_book(

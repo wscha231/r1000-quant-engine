@@ -23,6 +23,11 @@ from tools.crisis_state_engine import (  # noqa: E402
     apply_hysteresis,
     infer_latest_long_crisis_state,
 )
+from tools.run287_crisis_policy import (  # noqa: E402
+    apply_selective_defense,
+    component_availability,
+    exposure_policy,
+)
 
 ALLOWED_PAPER_ACTION_TYPES = ("raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op")
 
@@ -67,20 +72,47 @@ def first_existing_column(frame: pd.DataFrame, names: list[str]) -> str | None:
     return None
 
 
-def top_trim_candidates(holdings: pd.DataFrame, limit: int = 5) -> list[dict[str, Any]]:
+def selective_trim_candidates(
+    holdings: pd.DataFrame, state: str, limit: int = 20
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if holdings.empty:
-        return []
+        return [], {}
     ticker_col = first_existing_column(holdings, ["ticker", "symbol"])
     weight_col = first_existing_column(holdings, ["weight", "current_weight", "actual_weight", "target_weight"])
     if not ticker_col or not weight_col:
-        return []
-    work = holdings[[ticker_col, weight_col]].copy()
+        return [], {}
+    work = holdings.copy()
+    work["ticker"] = work[ticker_col].astype(str)
     work["_weight"] = pd.to_numeric(work[weight_col], errors="coerce").fillna(0.0)
-    work = work.sort_values("_weight", ascending=False).head(limit)
-    rows: list[dict[str, Any]] = []
-    for _, row in work.iterrows():
-        rows.append({"ticker": str(row.get(ticker_col)), "current_weight": float(row.get("_weight", 0.0))})
-    return rows
+    total = float(work["_weight"].clip(lower=0.0).sum())
+    if total <= 0:
+        return [], {}
+    work["weight"] = work["_weight"].clip(lower=0.0) / total
+    if not work["ticker"].astype(str).str.upper().eq("CASH").any():
+        work = pd.concat(
+            [work, pd.DataFrame([{"ticker": "CASH", "weight": 0.0}])],
+            ignore_index=True,
+        )
+    targets = work[["ticker", "weight"]].copy()
+    final, audit, summary = apply_selective_defense(
+        targets,
+        state=state,
+        portfolio_kind="main",
+        evidence=work,
+    )
+    _ = final
+    rows = [
+        {
+            "ticker": item["ticker"],
+            "current_weight": item["weight_before"],
+            "trim_weight": item["trim_weight"],
+            "sell_reason": item["reason"],
+            "sell_priority": item["priority"],
+        }
+        for item in audit[:limit]
+        if item["ticker"] != "*"
+    ]
+    return rows, summary
 
 
 def build_paper_action_candidates(
@@ -96,14 +128,19 @@ def build_paper_action_candidates(
         actions.append({"action_type": "no_op", "priority": 0, "context": context})
     elif state == "WATCH":
         actions.append({"action_type": "block_new_buys", "priority": 1, "scope": "new_positions", "context": context})
-    elif state in {"DEFENSE_REVIEW", "CRISIS_DEFENSE"}:
-        target_cash = 0.30 if state == "DEFENSE_REVIEW" else 0.50
+    elif state in {"DEFENSE", "CRISIS", "DEGRADED_DATA"}:
+        trims, policy_summary = selective_trim_candidates(holdings, state)
+        target_cash = float(
+            ((policy_summary.get("policy") or {}).get("target_reserve_weight"))
+            or exposure_policy(state, 1.0, "main").target_reserve_weight
+        )
         actions.append({"action_type": "block_new_buys", "priority": 1, "scope": "new_positions", "context": context})
-        actions.append({"action_type": "raise_cash", "priority": 2, "target_cash_weight": target_cash, "context": context})
-        for item in top_trim_candidates(holdings):
-            actions.append({"action_type": "trim_position", "priority": 3, **item, "context": context})
-    elif state == "REENTRY_READY":
-        actions.append({"action_type": "reentry_watch", "priority": 1, "scope": "approved_watchlist_only", "context": context})
+        actions.append({"action_type": "raise_cash", "priority": 2, "target_cash_weight": target_cash, "reserve_reason": "data_block_reserve" if state == "DEGRADED_DATA" else "crisis_reserve", "context": context})
+        for item in trims:
+            actions.append({"action_type": "trim_position", "priority": 2 + int(item["sell_priority"]), **item, "context": context})
+    elif state.startswith("REENTRY_STAGE_"):
+        policy = exposure_policy(state, 1.0, "main")
+        actions.append({"action_type": "reentry_watch", "priority": 1, "scope": "approved_watchlist_only", "reentry_multiplier": policy.reentry_multiplier, "context": context})
     else:
         actions.append({"action_type": "no_op", "priority": 0, "context": context})
     return [item for item in actions if item.get("action_type") in ALLOWED_PAPER_ACTION_TYPES]
@@ -138,11 +175,16 @@ def infer_raw_state(latest_run: Path, long_crisis_features: Path, long_crisis_th
 
     if "credit" in cash_gate or "liquidity" in cash_gate:
         reasons.append(f"macro liquidity/credit confirmation: {cash_gate}")
-        return "DEFENSE_REVIEW", reasons, long_meta
-    if long_state == "DEFENSE_REVIEW":
-        return "DEFENSE_REVIEW", reasons, long_meta
+        return "DEFENSE", reasons, long_meta
+    if long_state == "CRISIS":
+        return "CRISIS", reasons, long_meta
+    if long_state == "DEFENSE":
+        return "DEFENSE", reasons, long_meta
+    if long_state == "DEGRADED_DATA":
+        reasons.append("critical crisis component unavailable")
+        return "DEGRADED_DATA", reasons, long_meta
     if hard_issues:
-        return "DEFENSE_REVIEW", reasons, long_meta
+        return "DEFENSE", reasons, long_meta
     if confirmations >= 2:
         reasons.append(f"macro confirmation count={confirmations:g}")
         return "WATCH", reasons, long_meta
@@ -167,7 +209,18 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         repo_path(args.long_crisis_features),
         repo_path(args.long_crisis_thresholds),
     )
-    state, next_history = apply_hysteresis(raw_state, history)
+    state_values = dict(long_crisis.get("canonical_state_inputs") or {})
+    state_availability = component_availability(
+        state_values,
+        decision_time=long_crisis.get("latest_date"),
+        available_from=long_crisis.get("latest_date"),
+    )
+    state, next_history = apply_hysteresis(
+        raw_state,
+        history,
+        values=state_values,
+        availability=state_availability,
+    )
 
     holdings = read_csv(latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv")
     leader_rows = 0
@@ -177,7 +230,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     paper_actions = build_paper_action_candidates(state=state, raw_state=raw_state, reasons=reasons, holdings=holdings)
 
     payload = {
-        "schema_version": "daily-crisis-monitor-v1",
+        "schema_version": "daily-crisis-monitor-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
         "auto_trade_allowed": False,
@@ -188,6 +241,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         "raw_state": raw_state,
         "long_crisis": long_crisis,
         "hysteresis": next_history,
+        "component_availability": long_crisis.get("component_availability") or [],
         "reasons": reasons,
         "shakeout_guard": {
             "vix_only_cash_raise_forbidden": True,
@@ -198,9 +252,12 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         "actions": {
             "GREEN": "hold normal operating posture",
             "WATCH": "monitor; do not raise cash without confirmation",
-            "DEFENSE_REVIEW": "review defense; no automatic sell",
-            "CRISIS_DEFENSE": "review defense; no automatic sell",
-            "REENTRY_READY": "review redeployment candidates; no automatic buy",
+            "DEFENSE": "review selective defense; no automatic sell",
+            "CRISIS": "review selective crisis defense; no automatic sell",
+            "REENTRY_STAGE_1": "review 25% normal-gross redeployment; no automatic buy",
+            "REENTRY_STAGE_2": "review 60% normal-gross redeployment; no automatic buy",
+            "REENTRY_STAGE_3": "review normal-policy-capacity redeployment; no automatic buy",
+            "DEGRADED_DATA": "block new risk and apply conservative review cap",
         },
     }
     (output_dir / "crisis_action_status.md").write_text(render_report(payload), encoding="utf-8")

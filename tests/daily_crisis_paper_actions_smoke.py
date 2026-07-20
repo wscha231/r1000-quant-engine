@@ -21,8 +21,8 @@ def test_daily_crisis_paper_actions_are_whitelisted_review_only() -> None:
         ]
     )
     actions = build_paper_action_candidates(
-        state="DEFENSE_REVIEW",
-        raw_state="DEFENSE_REVIEW",
+        state="DEFENSE",
+        raw_state="DEFENSE",
         reasons=["macro liquidity/credit confirmation"],
         holdings=holdings,
     )

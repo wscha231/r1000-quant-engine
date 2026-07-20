@@ -1,0 +1,57 @@
+{
+  "schema_version": "run287-canonical-crisis-policy-contract-v1",
+  "canonical_states": [
+    "GREEN",
+    "WATCH",
+    "DEFENSE",
+    "CRISIS",
+    "REENTRY_STAGE_1",
+    "REENTRY_STAGE_2",
+    "REENTRY_STAGE_3",
+    "DEGRADED_DATA"
+  ],
+  "reentry_score_thresholds": [0.4, 0.6, 0.75],
+  "reentry_gross_multipliers": {
+    "REENTRY_STAGE_1": 0.25,
+    "REENTRY_STAGE_2": 0.6,
+    "REENTRY_STAGE_3": 1.0
+  },
+  "selective_sell_lexicographic_order": [
+    "THESIS_BREAK",
+    "RS_TREND_BREAK",
+    "LOSS_BETA_VOLATILITY",
+    "DUPLICATED_EXPOSURE",
+    "LOW_CONVICTION",
+    "EMERGENCY_PROPORTIONAL"
+  ],
+  "reserve_reasons": [
+    "crisis_reserve",
+    "capacity_unallocated",
+    "reentry_pending",
+    "data_block_reserve",
+    "transaction_buffer",
+    "residual_cash"
+  ],
+  "component_rules": {
+    "fixed_weights_are_never_renormalized_when_missing": true,
+    "future_columns_are_physically_removed": true,
+    "critical_missing_state": "DEGRADED_DATA",
+    "spy_drawdown_may_not_substitute_for_universe_breadth_or_leadership": true
+  },
+  "integration": {
+    "state_machine": "tools/run287_crisis_policy.py",
+    "historical_state_adapter": "tools/crisis_state_engine.py",
+    "current_monitor": "tools/run_daily_crisis_monitor.py",
+    "current_exact_sidecar": "tools/build_run287_current_crisis_state_sidecar.py",
+    "historical_target_builder": "tools/build_crisis_governed_target_books.py",
+    "same_close_shadow_target_builder": "tools/build_run287_same_close_target_books.py",
+    "legacy_weight_facade": "r1000_crisis_governor.py"
+  },
+  "promotion": {
+    "historical_fixed_book_result": "REJECTED_POLICY_PROMOTION",
+    "same_close_operating_target_mutation_allowed": false,
+    "shadow_target_required": true,
+    "production_enabled": false,
+    "live_trading_enabled": false
+  }
+}
