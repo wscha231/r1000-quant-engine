@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "run287-review-complete-gate-v1"
+SCHEMA_VERSION = "run287-review-complete-gate-v2"
 PASS_STATUS = "PASS_REVIEW_COMPLETE"
 BLOCKED_STATUS = "BLOCKED_REVIEW_INCOMPLETE"
 DEFAULT_REVIEWERS = {
@@ -23,6 +23,7 @@ DEFAULT_REVIEWERS = {
     "chatgpt-codex-connector[bot]",
 }
 ACCEPTED_REVIEW_STATES = {"APPROVED", "COMMENTED"}
+WRITE_PERMISSIONS = {"admin", "maintain", "write"}
 
 
 def read_json(path: str | Path) -> Any:
@@ -67,6 +68,8 @@ def exact_head_reviews(
     reviews: Iterable[dict[str, Any]],
     *,
     head_sha: str,
+    head_observed_at: datetime,
+    attested_at: datetime,
     reviewers: set[str],
 ) -> list[dict[str, Any]]:
     matched: list[dict[str, Any]] = []
@@ -77,7 +80,10 @@ def exact_head_reviews(
             continue
         if str(review.get("commit_id") or "").lower() != head_sha:
             continue
-        if parse_time(review.get("submitted_at")) is None:
+        submitted_at = parse_time(review.get("submitted_at"))
+        if submitted_at is None:
+            continue
+        if submitted_at < head_observed_at or submitted_at > attested_at:
             continue
         matched.append(review)
     return matched
@@ -86,7 +92,8 @@ def exact_head_reviews(
 def fresh_clean_reactions(
     reactions: Iterable[dict[str, Any]],
     *,
-    head_committed_at: datetime,
+    head_observed_at: datetime,
+    attested_at: datetime,
     reviewers: set[str],
 ) -> list[dict[str, Any]]:
     matched: list[dict[str, Any]] = []
@@ -96,7 +103,9 @@ def fresh_clean_reactions(
         if str(reaction.get("content") or "") != "+1":
             continue
         created_at = parse_time(reaction.get("created_at"))
-        if created_at is None or created_at < head_committed_at:
+        if created_at is None:
+            continue
+        if created_at < head_observed_at or created_at > attested_at:
             continue
         matched.append(reaction)
     return matched
@@ -105,7 +114,8 @@ def fresh_clean_reactions(
 def evaluate(
     *,
     pull_request: dict[str, Any],
-    head_commit: dict[str, Any],
+    head_observation: dict[str, Any],
+    attestation: dict[str, Any] | None,
     reviews: list[dict[str, Any]],
     reactions: list[dict[str, Any]],
     reviewers: set[str] | None = None,
@@ -119,22 +129,45 @@ def evaluate(
     if bool(pull_request.get("draft")):
         failures.append("pull_request_is_draft")
 
-    commit = head_commit.get("commit")
-    committer = commit.get("committer") if isinstance(commit, dict) else None
-    committed_at = parse_time(committer.get("date") if isinstance(committer, dict) else None)
-    if committed_at is None:
-        failures.append("missing_head_commit_timestamp")
+    observed_sha = str(head_observation.get("head_sha") or "").strip().lower()
+    observed_at = parse_time(head_observation.get("observed_at"))
+    if observed_sha != head_sha:
+        failures.append("head_observation_sha_mismatch")
+    if observed_at is None:
+        failures.append("missing_head_observation_timestamp")
+
+    attestation = attestation if isinstance(attestation, dict) else {}
+    attested_sha = str(attestation.get("head_sha") or "").strip().lower()
+    attested_at = parse_time(attestation.get("created_at"))
+    attestor_permission = str(attestation.get("permission") or "").strip().lower()
+    attestor = str(attestation.get("actor") or "").strip()
+    if not attestation:
+        failures.append("missing_maintainer_attestation")
+    else:
+        if attested_sha != head_sha:
+            failures.append("attestation_sha_mismatch")
+        if attested_at is None:
+            failures.append("missing_attestation_timestamp")
+        if attestor_permission not in WRITE_PERMISSIONS:
+            failures.append("attestor_lacks_write_permission")
+        if not attestor:
+            failures.append("missing_attestor")
+        if observed_at is not None and attested_at is not None and attested_at < observed_at:
+            failures.append("attestation_predates_head_observation")
 
     exact_reviews = exact_head_reviews(
         reviews,
         head_sha=head_sha,
+        head_observed_at=observed_at,
+        attested_at=attested_at,
         reviewers=allowed,
-    ) if head_sha else []
+    ) if head_sha and observed_at is not None and attested_at is not None else []
     clean_reactions = fresh_clean_reactions(
         reactions,
-        head_committed_at=committed_at,
+        head_observed_at=observed_at,
+        attested_at=attested_at,
         reviewers=allowed,
-    ) if committed_at is not None else []
+    ) if observed_at is not None and attested_at is not None else []
 
     evidence_type = ""
     evidence_id: int | str | None = None
@@ -144,7 +177,7 @@ def evaluate(
             exact_reviews,
             key=lambda row: parse_time(row.get("submitted_at")) or datetime.min.replace(tzinfo=timezone.utc),
         )
-        evidence_type = "EXACT_HEAD_REVIEW"
+        evidence_type = "ATTESTED_EXACT_HEAD_REVIEW"
         evidence_id = selected.get("id")
         evidence_at = str(selected.get("submitted_at") or "")
     elif clean_reactions:
@@ -152,7 +185,7 @@ def evaluate(
             clean_reactions,
             key=lambda row: parse_time(row.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc),
         )
-        evidence_type = "FRESH_CLEAN_REACTION"
+        evidence_type = "MAINTAINER_BOUND_CLEAN_REACTION"
         evidence_id = selected.get("id")
         evidence_at = str(selected.get("created_at") or "")
     else:
@@ -165,7 +198,12 @@ def evaluate(
         "passed": passed,
         "pull_request_number": pull_request.get("number"),
         "head_sha": head_sha,
-        "head_committed_at": committed_at.isoformat() if committed_at else None,
+        "head_observed_at": observed_at.isoformat() if observed_at else None,
+        "head_observation_check_run_id": head_observation.get("check_run_id"),
+        "attestor": attestor or None,
+        "attestor_permission": attestor_permission or None,
+        "attested_at": attested_at.isoformat() if attested_at else None,
+        "attestation_source": attestation.get("source") or None,
         "accepted_reviewer_logins": sorted(allowed),
         "evidence_type": evidence_type or None,
         "evidence_id": evidence_id,
@@ -184,7 +222,8 @@ def evaluate(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pull-request", required=True)
-    parser.add_argument("--head-commit", required=True)
+    parser.add_argument("--head-observation", required=True)
+    parser.add_argument("--attestation")
     parser.add_argument("--reviews", required=True)
     parser.add_argument("--reactions", required=True)
     parser.add_argument("--reviewer", action="append", default=[])
@@ -196,7 +235,8 @@ def main() -> int:
     args = parse_args()
     payload = evaluate(
         pull_request=read_json(args.pull_request),
-        head_commit=read_json(args.head_commit),
+        head_observation=read_json(args.head_observation),
+        attestation=read_json(args.attestation) if args.attestation else None,
         reviews=flatten_records(read_json(args.reviews)),
         reactions=flatten_records(read_json(args.reactions)),
         reviewers=set(args.reviewer) if args.reviewer else None,

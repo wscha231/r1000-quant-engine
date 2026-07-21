@@ -3,14 +3,16 @@ name: Review Complete Gate
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
-  pull_request_review:
-    types: [submitted, edited, dismissed]
   issue_comment:
     types: [created, edited]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Pull request number to re-evaluate after a clean Codex +1 reaction
+        description: Pull request number to re-evaluate
+        required: true
+        type: string
+      head_sha:
+        description: Exact 40-character PR head SHA being attested
         required: true
         type: string
 
@@ -24,7 +26,7 @@ jobs:
   evaluate:
     if: >-
       github.event_name != 'issue_comment' ||
-      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/review-complete'))
+      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/review-complete '))
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -38,11 +40,12 @@ jobs:
             tools/check_pr_review_complete.py
           sparse-checkout-cone-mode: false
 
-      - name: Evaluate Codex review evidence for current head
-        id: gate
+      - name: Resolve trusted head observation and maintainer attestation
+        id: context
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+          REQUESTED_HEAD_SHA: ${{ inputs.head_sha }}
         run: |
           set -euo pipefail
           test -n "$PR_NUMBER"
@@ -50,28 +53,140 @@ jobs:
           ROOT="$RUNNER_TEMP/review-complete"
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$ROOT/pr.json"
           HEAD_SHA="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["head"]["sha"])' "$ROOT/pr.json")"
-          gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA" > "$ROOT/head_commit.json"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+          if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ]; then
+            export HEAD_SHA
+            python - <<'PY' > "$ROOT/observation-request.json"
+          import json
+          import os
+          print(json.dumps({
+              "name": "review_head_observed",
+              "head_sha": os.environ["HEAD_SHA"],
+              "status": "completed",
+              "conclusion": "success",
+              "external_id": "head-observation:" + os.environ["GITHUB_RUN_ID"],
+              "output": {
+                  "title": "Trusted default-branch workflow observed this PR head",
+                  "summary": "A later maintainer attestation must bind review evidence to this exact observation.",
+              },
+          }))
+          PY
+            gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" \
+              --input "$ROOT/observation-request.json" > "$ROOT/observation-response.json"
+            python - <<'PY' "$ROOT/observation-response.json" "$ROOT/head-observation.json"
+          import json
+          import sys
+          source = json.load(open(sys.argv[1], encoding="utf-8"))
+          result = {
+              "head_sha": source["head_sha"],
+              "observed_at": source["started_at"],
+              "check_run_id": source["id"],
+              "source": "pull_request_target",
+          }
+          with open(sys.argv[2], "w", encoding="utf-8") as handle:
+              json.dump(result, handle)
+          PY
+            exit 0
+          fi
+
+          export HEAD_SHA
+          if [ "$GITHUB_EVENT_NAME" = "issue_comment" ]; then
+            COMMAND="$(python -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))["comment"]["body"].strip())')"
+            test "$COMMAND" = "/review-complete $HEAD_SHA"
+            ACTOR="$(python -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))["comment"]["user"]["login"])')"
+            ATTESTED_AT="$(python -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))["comment"]["created_at"])')"
+            SOURCE=issue_comment
+          else
+            test "$REQUESTED_HEAD_SHA" = "$HEAD_SHA"
+            ACTOR="$GITHUB_ACTOR"
+            ATTESTED_AT="$(python -c 'from datetime import datetime,timezone; print(datetime.now(timezone.utc).isoformat())')"
+            SOURCE=workflow_dispatch
+          fi
+
+          PERMISSION="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" --jq .permission)"
+          case "$PERMISSION" in
+            admin|maintain|write) ;;
+            *) echo "actor lacks write permission: $ACTOR ($PERMISSION)" >&2; exit 2 ;;
+          esac
+
+          gh api -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?check_name=review_head_observed&filter=latest&per_page=100" \
+            > "$ROOT/observation-runs.json"
+          python - <<'PY' "$ROOT/observation-runs.json" "$ROOT/head-observation.json" "$HEAD_SHA"
+          import json
+          import sys
+          source = json.load(open(sys.argv[1], encoding="utf-8"))
+          head_sha = sys.argv[3].lower()
+          candidates = [
+              row for row in source.get("check_runs", [])
+              if row.get("name") == "review_head_observed"
+              and str(row.get("head_sha") or "").lower() == head_sha
+              and row.get("conclusion") == "success"
+              and (row.get("app") or {}).get("slug") == "github-actions"
+              and row.get("started_at")
+          ]
+          if not candidates:
+              raise SystemExit("missing trusted review_head_observed check")
+          selected = max(candidates, key=lambda row: row["started_at"])
+          result = {
+              "head_sha": selected["head_sha"],
+              "observed_at": selected["started_at"],
+              "check_run_id": selected["id"],
+              "source": "review_head_observed",
+          }
+          with open(sys.argv[2], "w", encoding="utf-8") as handle:
+              json.dump(result, handle)
+          PY
+
+          export ACTOR ATTESTED_AT PERMISSION SOURCE
+          python - <<'PY' > "$ROOT/attestation.json"
+          import json
+          import os
+          print(json.dumps({
+              "head_sha": os.environ["HEAD_SHA"],
+              "created_at": os.environ["ATTESTED_AT"],
+              "actor": os.environ["ACTOR"],
+              "permission": os.environ["PERMISSION"],
+              "source": os.environ["SOURCE"],
+          }))
+          PY
+
+      - name: Evaluate Codex review evidence for current head
+        id: gate
+        if: always() && steps.context.outputs.head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/review-complete"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" > "$ROOT/reviews.json"
           gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/reactions" > "$ROOT/reactions.json"
+          ARGS=()
+          if [ -f "$ROOT/attestation.json" ]; then
+            ARGS+=(--attestation "$ROOT/attestation.json")
+          fi
           set +e
           python tools/check_pr_review_complete.py \
             --pull-request "$ROOT/pr.json" \
-            --head-commit "$ROOT/head_commit.json" \
+            --head-observation "$ROOT/head-observation.json" \
             --reviews "$ROOT/reviews.json" \
             --reactions "$ROOT/reactions.json" \
+            "${ARGS[@]}" \
             --output "$ROOT/result.json"
           GATE_RC=$?
           set -e
-          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "gate_rc=$GATE_RC" >> "$GITHUB_OUTPUT"
           python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print("status="+p["status"]); print("evidence_type="+str(p.get("evidence_type") or "none")); print("failures="+",".join(p["failures"]))' "$ROOT/result.json" >> "$GITHUB_OUTPUT"
 
       - name: Publish required review_complete check on PR head
-        if: always() && steps.gate.outputs.head_sha != ''
+        if: always() && steps.context.outputs.head_sha != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
           GATE_STATUS: ${{ steps.gate.outputs.status }}
           EVIDENCE_TYPE: ${{ steps.gate.outputs.evidence_type }}
           FAILURES: ${{ steps.gate.outputs.failures }}

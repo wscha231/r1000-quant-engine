@@ -1,5 +1,5 @@
 {
-  "schema_version": "run287-review-complete-gate-contract-v1",
+  "schema_version": "run287-review-complete-gate-contract-v2",
   "protected_branch": "master",
   "required_status_checks": [
     "validate",
@@ -12,12 +12,26 @@
     "chatgpt-codex-connector[bot]"
   ],
   "accepted_evidence": [
-    "EXACT_HEAD_REVIEW",
-    "FRESH_CLEAN_REACTION"
+    "ATTESTED_EXACT_HEAD_REVIEW",
+    "MAINTAINER_BOUND_CLEAN_REACTION"
   ],
   "exact_head_review_required_when_review_exists": true,
-  "clean_reaction_must_postdate_head_commit": true,
-  "clean_reaction_manual_refresh_command": "/review-complete",
+  "trusted_head_observation_check": "review_head_observed",
+  "review_evidence_must_postdate_head_observation": true,
+  "maintainer_attestation_required": true,
+  "maintainer_attestation_permissions": [
+    "admin",
+    "maintain",
+    "write"
+  ],
+  "maintainer_attestation_exact_sha_required": true,
+  "clean_reaction_manual_refresh_command": "/review-complete <40-char-head-sha>",
+  "trusted_writable_triggers": [
+    "pull_request_target",
+    "issue_comment",
+    "workflow_dispatch"
+  ],
+  "pull_request_review_trigger_allowed": false,
   "required_conversation_resolution": true,
   "dismiss_stale_reviews": true,
   "required_approving_review_count": 0,
