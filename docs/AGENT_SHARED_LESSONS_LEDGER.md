@@ -3145,6 +3145,10 @@ Expected contract:
 - A separate preview-only crash journal is recovered before staging the next
   run. A synthetic interrupted publish restored the prior preview exactly and
   removed both the uncommitted sentinel and recovery journal.
+- When preview-only and later full-bundle recovery journals coexist, recovery
+  runs oldest/smallest scope first and lets the later full-bundle backup win;
+  otherwise an older preview can overwrite the preview paired with the restored
+  ledger.
 - Main and Concentrated public operating targets publish atomically with ledger
   and preview state. Injected failure after the second published item rolls all
   four destinations back. `accepted_publication.json` binds the accepted files

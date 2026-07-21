@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -335,6 +336,56 @@ def test_interrupted_preview_only_publish_recovers_before_reuse() -> None:
         assert not (preview_root / "crash_sentinel.txt").exists()
 
 
+def test_overlapping_recovery_prefers_newer_state_bundle() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        date = "2026-04-05"
+        prepare(root, [date])
+        run(ledger_args(root, date))
+        preview_root = root / "previews"
+        before = directory_hashes(preview_root)
+        older_backup = root / ".previews.recovery-older-preview"
+        newer_backup = root / ".previews.recovery-newer-state-bundle"
+        shutil.copytree(preview_root, older_backup)
+        (older_backup / "older_uncommitted.txt").write_text("older", encoding="utf-8")
+        shutil.copytree(preview_root, newer_backup)
+        shutil.rmtree(preview_root)
+        preview_root.mkdir()
+        (preview_root / "latest_uncommitted.txt").write_text("candidate", encoding="utf-8")
+
+        entry = lambda backup: {
+            "destination": str(preview_root.resolve()),
+            "backup": str(backup.resolve()),
+            "destination_existed": True,
+        }
+        (root / ".previews.preview-transaction.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "run287-paper-directory-transaction-v1",
+                    "status": "PREPARED",
+                    "entries": [entry(older_backup)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / ".paper.transaction.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "run287-paper-directory-transaction-v1",
+                    "status": "PREPARED",
+                    "entries": [entry(newer_backup)],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        reused = run(ledger_args(root, date))
+        assert reused["result_status"] == "SAME_SESSION_REUSE"
+        assert directory_hashes(preview_root) == before
+        assert not (preview_root / "older_uncommitted.txt").exists()
+        assert not (preview_root / "latest_uncommitted.txt").exists()
+
+
 def test_operating_targets_publish_in_same_atomic_bundle() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -428,6 +479,7 @@ def main() -> int:
     test_suppressed_preview_is_explicit_hash_bound_and_transition_safe()
     test_present_but_stale_preview_is_rebuilt_against_durable_account_and_target()
     test_interrupted_preview_only_publish_recovers_before_reuse()
+    test_overlapping_recovery_prefers_newer_state_bundle()
     test_operating_targets_publish_in_same_atomic_bundle()
     test_legacy_same_session_snapshot_is_semantically_attested_once()
     test_workflow_separates_failed_evidence_from_accepted_paper_state()

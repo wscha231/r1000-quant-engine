@@ -2162,8 +2162,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     preview_root.parent.mkdir(parents=True, exist_ok=True)
     journal_path = state_root.parent / f".{state_root.name}.transaction.json"
     preview_journal_path = preview_root.parent / f".{preview_root.name}.preview-transaction.json"
-    recover_interrupted_publish(journal_path)
     recover_interrupted_publish(preview_journal_path)
+    recover_interrupted_publish(journal_path)
     prior_integrity = (
         verify_integrity_manifest(state_root, require=True)
         if (state_root / INTEGRITY_FILE).is_file()

@@ -38,6 +38,9 @@ hash-bound transaction boundary.
 - The preview-only transaction journal is recovered before any state is cloned;
   an abrupt process interruption cannot leave an uncommitted preview visible
   to the next same-session reuse.
+- If both preview-only and later full-bundle journals exist, the older preview
+  journal is recovered first and the newer full-bundle recovery wins, keeping
+  the final preview aligned with the restored ledger transaction.
 - The supported same-session transition is
   `MARK_ONLY -> SELECTED_TARGET -> MARK_ONLY`. The final mark-only pass may
   replace the review preview but leaves durable ledger bytes unchanged.
@@ -62,8 +65,8 @@ hash-bound transaction boundary.
   absent.
 - The H1 fixture now proves explicit no-order output, same-session transitions,
   stale-preview repair, atomic rollback after `after_publish_2`, public-target
-  parity, preview-journal crash recovery, one-time legacy attestation, and
-  failure-artifact separation.
+  parity, preview-journal crash recovery, overlapping-journal ordering,
+  one-time legacy attestation, and failure-artifact separation.
 - `run287_paper_ledger_transaction_smoke.py`: PASS.
 - Workflow YAML parsing and Python compilation: PASS.
 - Repository pytest: `129 passed`.
