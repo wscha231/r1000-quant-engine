@@ -3123,3 +3123,39 @@ Expected contract:
   `190/190` in `260.48s`; P9 gate fixtures passed `9/9`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-07-21 - Issue #315 G0/H1 review and paper-transaction hardening
+
+- G0 merged as `0ab5b2f203ba7efb93ebcbb3ee170040e4b26012` after two
+  current-head review findings were corrected. `master` now requires strict
+  `validate`, `portfolio_guard`, and trusted `review_complete` checks, resolved
+  conversations, stale-review dismissal, and administrator enforcement.
+- The review gate accepts only an exact `/review-complete <40-char head SHA>`
+  attestation from a write-authorized actor after a trusted head observation
+  and clean current-head Codex review evidence. A GitHub-rejected personal-token
+  bootstrap attempt was recorded and not bypassed.
+- H1 binds each paper preview to exact account, source/effective target,
+  normalized target, order, weight, date, mode, and next-close eligibility
+  hashes. Mark-only now emits explicit `NO_NEW_ORDER` evidence instead of an
+  absent preview.
+- Same-session behavior is deterministic for
+  `MARK_ONLY -> SELECTED_TARGET -> MARK_ONLY`; missing or stale previews are
+  rebuilt from the frozen account, and the final mark-only pass leaves durable
+  ledger bytes unchanged.
+- Main and Concentrated public operating targets publish atomically with ledger
+  and preview state. Injected failure after the second published item rolls all
+  four destinations back. `accepted_publication.json` binds the accepted files
+  and uses portable repository-relative paths where possible.
+- A legacy same-session snapshot is semantically attested at most once and is
+  byte-identical on the next rerun. Failure/evidence artifacts exclude
+  executable targets, user order reports, previews, and ledger state; accepted
+  paper state is uploaded/synced only after success and integrity verification.
+- H1 fixture, Python compilation, workflow YAML parse, repository pytest
+  (`129/129`), and full Tier-1 PR validation (`191/191`, `591.30s`) passed.
+- Official historical evidence is unchanged: Main
+  `34.4032% / -25.3629%`, Concentrated `49.0968% / -22.9560%`, through
+  2026-07-10. This work is not a July 17/20 performance refresh.
+- Evidence:
+  `docs/CODEX_RUN287_G0_H1_TRANSACTION_HARDENING_RESULT_20260721.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.
