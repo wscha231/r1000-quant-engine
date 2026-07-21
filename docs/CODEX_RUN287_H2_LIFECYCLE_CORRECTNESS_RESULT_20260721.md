@@ -62,14 +62,20 @@ The completed fixture set now also proves:
   date and accepts successor rows only from the effective date;
 - an empty source target blocks rather than synthesizing `CASH=1.0`, and a
   missing successor cache cannot fall back across the verified cutover;
+- a successor cache containing only pre-effective or pre-session rows is
+  rejected; a lifecycle-linked preview requires the exact requested successor
+  close after cutover;
 - verified terminal proceeds are included in the resolved snapshot hash.
 
 ## Regression evidence
 
 - Focused H2 suite after review fixes: `52 passed`.
+- Exact-successor regression plus the representative H2 pytest subset:
+  `51 passed`; standalone account-preview smoke: PASS.
 - Repository pytest: `129 passed`.
 - Full Tier-1 PR validation: initial `191/191` in `692.56s`; reviewed-head
-  revalidation `191/191` in `582.37s`.
+  revalidation `191/191` in `582.37s`; exact-successor revalidation `191/191`
+  in `499.92s`.
 - Python compilation and `git diff --check`: PASS.
 
 The tests used temporary fixtures. No durable paper account, public operating

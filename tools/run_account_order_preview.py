@@ -163,9 +163,16 @@ def latest_price(
     provider = (provider_symbol_overrides or {}).get(logical, logical)
     link = (provider_symbol_links or {}).get(logical)
     use_successor = provider != logical
+    effective_date = pd.NaT
     if link:
         last_trade = pd.to_datetime(link.get("last_trading_date"), errors="coerce")
-        if pd.isna(last_trade):
+        effective_date = pd.to_datetime(link.get("effective_date"), errors="coerce")
+        if (
+            pd.isna(last_trade)
+            or pd.isna(effective_date)
+            or pd.Timestamp(last_trade).normalize()
+            >= pd.Timestamp(effective_date).normalize()
+        ):
             return None, None
         use_successor = pd.Timestamp(as_of_date).normalize() > pd.Timestamp(last_trade).normalize()
     primary = provider if use_successor else logical
@@ -178,10 +185,27 @@ def latest_price(
         raise ValueError(f"lifecycle_{boundary}_price_missing:{logical}:{primary}")
     if px.empty:
         return None, None
+    if link:
+        boundary = (
+            pd.Timestamp(effective_date).normalize()
+            if use_successor
+            else pd.Timestamp(last_trade).normalize()
+        )
+        index = pd.DatetimeIndex(px.index).tz_localize(None).normalize()
+        px = px.loc[index >= boundary].copy() if use_successor else px.loc[index <= boundary].copy()
+        if px.empty:
+            side = "successor" if use_successor else "predecessor"
+            raise ValueError(f"lifecycle_{side}_price_missing:{logical}:{primary}")
     actual, value = price_on_or_before(px, as_of_date, "close")
     if actual is None or value is None:
         return None, None
-    return pd.Timestamp(actual).normalize(), float(value)
+    actual_date = pd.Timestamp(actual).normalize()
+    if link and use_successor and actual_date != pd.Timestamp(as_of_date).normalize():
+        raise ValueError(
+            f"lifecycle_successor_exact_close_missing:{logical}:{primary}:"
+            f"{pd.Timestamp(as_of_date).date().isoformat()}"
+        )
+    return actual_date, float(value)
 
 
 def infer_as_of_date(

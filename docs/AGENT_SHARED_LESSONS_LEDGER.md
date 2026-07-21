@@ -3193,9 +3193,14 @@ Expected contract:
   could become `CASH=1.0`, preview could cross the cutover on fallback, the
   dynamic count was not externally anchored, and proceeds were absent from the
   snapshot hash. All five received regression fixtures and fail-closed fixes.
+- Exact-head re-review found one additional valid cutover gap: an existing but
+  stale successor cache could still return a prior successor quote. Successor
+  rows are now filtered to the effective-date side of the boundary and the
+  preview requires the exact requested successor session close.
 - Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
   Tier-1 validation passed `191/191` initially in `692.56s` and again on the
-  reviewed head in `582.37s`.
+  reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`
+  in `499.92s`.
 - Official historical evidence remains Main `34.4032% / -25.3629%` and
   Concentrated `49.0968% / -22.9560%`, through 2026-07-10. This is not a July
   17/20 performance refresh.

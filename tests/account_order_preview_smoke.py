@@ -206,12 +206,47 @@ def test_lifecycle_price_does_not_cross_cutover_on_missing_successor() -> None:
             )
 
 
+def test_lifecycle_price_rejects_stale_successor_after_cutover() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        _write_px(cache, "OLD", [100.0, 101.0], start="2026-01-02")
+        _write_px(cache, "NEW", [120.0], start="2026-01-05")
+        with pytest.raises(ValueError, match="lifecycle_successor_price_missing"):
+            latest_price(
+                cache,
+                "OLD",
+                pd.Timestamp("2026-01-06"),
+                {"OLD": "NEW"},
+                {
+                    "OLD": {
+                        "last_trading_date": "2026-01-05",
+                        "effective_date": "2026-01-06",
+                    }
+                },
+            )
+        _write_px(cache, "NEW", [121.0], start="2026-01-06")
+        with pytest.raises(ValueError, match="lifecycle_successor_exact_close_missing"):
+            latest_price(
+                cache,
+                "OLD",
+                pd.Timestamp("2026-01-07"),
+                {"OLD": "NEW"},
+                {
+                    "OLD": {
+                        "last_trading_date": "2026-01-05",
+                        "effective_date": "2026-01-06",
+                    }
+                },
+            )
+
+
 def main() -> int:
     test_order_preview_builds_sell_first_orders()
     test_concentrated_target_normalization_does_not_force_n3()
     test_order_preview_uses_explicit_cash_target_weight()
     test_lifecycle_price_switches_only_after_predecessor_last_trade()
     test_lifecycle_price_does_not_cross_cutover_on_missing_successor()
+    test_lifecycle_price_rejects_stale_successor_after_cutover()
     print("account_order_preview_smoke: PASS")
     return 0
 
