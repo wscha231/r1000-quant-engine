@@ -1,0 +1,100 @@
+name: Review Complete Gate
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  issue_comment:
+    types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to re-evaluate after a clean Codex +1 reaction
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  checks: write
+
+jobs:
+  evaluate:
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/review-complete'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout trusted gate implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          sparse-checkout: |
+            tools/check_pr_review_complete.py
+          sparse-checkout-cone-mode: false
+
+      - name: Evaluate Codex review evidence for current head
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          test -n "$PR_NUMBER"
+          mkdir -p "$RUNNER_TEMP/review-complete"
+          ROOT="$RUNNER_TEMP/review-complete"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$ROOT/pr.json"
+          HEAD_SHA="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["head"]["sha"])' "$ROOT/pr.json")"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA" > "$ROOT/head_commit.json"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" > "$ROOT/reviews.json"
+          gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/reactions" > "$ROOT/reactions.json"
+          set +e
+          python tools/check_pr_review_complete.py \
+            --pull-request "$ROOT/pr.json" \
+            --head-commit "$ROOT/head_commit.json" \
+            --reviews "$ROOT/reviews.json" \
+            --reactions "$ROOT/reactions.json" \
+            --output "$ROOT/result.json"
+          GATE_RC=$?
+          set -e
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "gate_rc=$GATE_RC" >> "$GITHUB_OUTPUT"
+          python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print("status="+p["status"]); print("evidence_type="+str(p.get("evidence_type") or "none")); print("failures="+",".join(p["failures"]))' "$ROOT/result.json" >> "$GITHUB_OUTPUT"
+
+      - name: Publish required review_complete check on PR head
+        if: always() && steps.gate.outputs.head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
+          GATE_STATUS: ${{ steps.gate.outputs.status }}
+          EVIDENCE_TYPE: ${{ steps.gate.outputs.evidence_type }}
+          FAILURES: ${{ steps.gate.outputs.failures }}
+          CONCLUSION: ${{ steps.gate.outputs.gate_rc == '0' && 'success' || 'failure' }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' > "$RUNNER_TEMP/review-complete-check.json"
+          import json
+          import os
+          print(json.dumps({
+              "name": "review_complete",
+              "head_sha": os.environ["HEAD_SHA"],
+              "status": "completed",
+              "conclusion": os.environ["CONCLUSION"],
+              "output": {
+                  "title": os.environ.get("GATE_STATUS") or "review gate evaluation failed",
+                  "summary": (
+                      "Evidence: " + (os.environ.get("EVIDENCE_TYPE") or "none") + "\n\n" +
+                      "Failures: " + (os.environ.get("FAILURES") or "none") + "\n\n" +
+                      "Unresolved conversations are enforced separately by master branch protection."
+                  ),
+              },
+          }))
+          PY
+          gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            --input "$RUNNER_TEMP/review-complete-check.json"
