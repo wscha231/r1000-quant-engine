@@ -3212,6 +3212,13 @@ Expected contract:
   execution and ledger tickers, pending fills retain both identities, manual
   workflows require an explicit UTC decision time and fail loud, snapshot
   selection is shared, and target pricing follows the audited logical link.
+- The next exact-head review found three caller/safety gaps: Phase A/B quick
+  rescore did not pass the now-required decision timestamp, standalone preview
+  ignored verified terminal lifecycle tickers, and the script-style smoke had
+  gained a CI-unavailable `pytest` import. Quick rescore now requires and
+  forwards UTC decision time without masking sidecar failure, standalone
+  preview fails closed before emitting terminal-ticker orders, and the smoke
+  uses a stdlib assertion context manager.
 - Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
   Tier-1 validation passed `191/191` initially in `692.56s` and again on the
   reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`

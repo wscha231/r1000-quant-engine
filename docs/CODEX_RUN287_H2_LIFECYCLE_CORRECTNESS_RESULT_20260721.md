@@ -78,6 +78,12 @@ The completed fixture set now also proves:
   target snapshot, so an older replay cannot borrow a later decision timestamp;
 - legacy manual sidecar workflows require an explicit UTC decision time for
   lifecycle-aware previews and no longer mask preview failure with `|| true`;
+- Phase A/B quick rescore follows the same decision-time contract and no longer
+  hides a failed sidecar invocation;
+- verified terminal holdings or targets make standalone preview fail closed,
+  preventing a last stale predecessor close from becoming a ready order;
+- script-style Tier-1 smoke coverage remains dependency-minimal and does not
+  assume `pytest` is installed by `requirements_github.txt`;
 - restored absolute lifecycle paths may be rebound only through the exact
   repository-relative `data_static` tree and matching SHA-256;
 - standalone CLI preview invocations now load the canonical lifecycle file;

@@ -36,6 +36,10 @@ on:
         description: 'Optional Full Rebuild run_id to bias the engine-cache restore key toward (leave blank to use the newest cache).'
         type: string
         default: ''
+      decision_time_utc:
+        description: 'Exact selector decision timestamp in UTC for lifecycle PIT filtering'
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -158,7 +162,7 @@ jobs:
       - name: Sidecars (broker_replay + T1 + T2)
         if: always()
         run: |
-          python tools/run_full_rebuild_sidecars.py --profile operating_minimal --artifact-profile operating_minimal --gdrive-sync-mode off || true
+          python tools/run_full_rebuild_sidecars.py --profile operating_minimal --artifact-profile operating_minimal --gdrive-sync-mode off --decision-time-utc "${{ inputs.decision_time_utc }}"
 
       - name: Verdict (Cell E equivalent)
         if: always()

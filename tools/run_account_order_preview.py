@@ -753,6 +753,7 @@ def run(
     target_source_kind = "unified_target" if "unified_target" in target_path.name else "sleeve_model_target"
     lifecycle_value = str(getattr(args, "security_lifecycle_events", "") or "").strip()
     lifecycle_decision_time_utc = ""
+    lifecycle_terminal_tickers: frozenset[str] = frozenset()
     if lifecycle_value and provider_symbol_links is None:
         as_of_text = str(getattr(args, "as_of_date", "") or account.get("as_of_date") or "")
         if not as_of_text:
@@ -796,6 +797,7 @@ def run(
             if prior != successor:
                 raise ValueError(f"conflicting lifecycle provider symbol:{logical}")
         provider_symbol_links = lifecycle.provider_symbol_links
+        lifecycle_terminal_tickers = lifecycle.terminal_tickers
     else:
         as_of = infer_as_of_date(
             explicit_as_of_date=args.as_of_date,
@@ -805,6 +807,17 @@ def run(
             price_cache=price_cache,
             provider_symbol_overrides=provider_symbol_overrides,
             provider_symbol_links=provider_symbol_links,
+        )
+    terminal_active = sorted(
+        lifecycle_terminal_tickers
+        & (
+            set(positions.get("ticker", pd.Series(dtype=str)).map(normalize_ticker))
+            | set(target.get("ticker", pd.Series(dtype=str)).map(normalize_ticker))
+        )
+    )
+    if terminal_active:
+        raise ValueError(
+            "lifecycle_terminal_ticker_untradeable:" + ",".join(terminal_active)
         )
     target = canonicalize_target_execution_tickers(
         target,
