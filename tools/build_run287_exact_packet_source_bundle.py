@@ -50,6 +50,11 @@ def repo_path(value: str | Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+def valid_sha256(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
+
+
 def parse_input_records(values: Sequence[str]) -> dict[str, str]:
     records: dict[str, str] = {}
     for value in values:
@@ -186,6 +191,29 @@ def build_from_records(
             _, output = manifest_output(path, manifest, key)
             if output.get("hash_matches") is not True:
                 failures.append(f"manifest_output:{label}:{key}")
+        if label == "price_manifest":
+            lifecycle = manifest.get("security_lifecycle") or {}
+            lifecycle_source = (manifest.get("source_inputs") or {}).get(
+                "security_lifecycle_events"
+            ) or {}
+            source_hash = str(lifecycle.get("source_sha256") or "")
+            snapshot_hash = str(lifecycle.get("snapshot_hash") or "")
+            recorded_hash = str(lifecycle_source.get("sha256") or "")
+            if not valid_sha256(source_hash):
+                failures.append("price_manifest_lifecycle_source_hash")
+            if not valid_sha256(snapshot_hash):
+                failures.append("price_manifest_lifecycle_snapshot_hash")
+            if source_hash != recorded_hash:
+                failures.append("price_manifest_lifecycle_source_identity")
+            lifecycle_path_raw = str(lifecycle_source.get("path") or "")
+            if not lifecycle_path_raw:
+                failures.append("price_manifest_lifecycle_source_path")
+            else:
+                lifecycle_path = resolve_portable_path(lifecycle_path_raw, owner=path)
+                if not lifecycle_path.is_absolute():
+                    lifecycle_path = repo_path(lifecycle_path)
+                if not lifecycle_path.is_file() or fingerprint(lifecycle_path).get("sha256") != source_hash:
+                    failures.append("price_manifest_lifecycle_source_file")
 
     for label, expected_hash in fixed.items():
         if str(audits[label].get("sha256") or "").lower() != str(expected_hash).lower():

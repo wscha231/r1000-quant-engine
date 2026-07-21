@@ -157,12 +157,22 @@ def latest_price(
     ticker: str,
     as_of_date: pd.Timestamp,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
 ) -> tuple[pd.Timestamp | None, float | None]:
     logical = normalize_ticker(ticker)
     provider = (provider_symbol_overrides or {}).get(logical, logical)
-    px = load_price_series(price_cache, logical)
-    if px.empty and provider != logical:
-        px = load_price_series(price_cache, provider)
+    link = (provider_symbol_links or {}).get(logical)
+    use_successor = provider != logical
+    if link:
+        last_trade = pd.to_datetime(link.get("last_trading_date"), errors="coerce")
+        if pd.isna(last_trade):
+            return None, None
+        use_successor = pd.Timestamp(as_of_date).normalize() > pd.Timestamp(last_trade).normalize()
+    primary = provider if use_successor else logical
+    fallback = logical if use_successor else provider
+    px = load_price_series(price_cache, primary)
+    if px.empty and fallback != primary:
+        px = load_price_series(price_cache, fallback)
     if px.empty:
         return None, None
     actual, value = price_on_or_before(px, as_of_date, "close")
@@ -179,6 +189,7 @@ def infer_as_of_date(
     target: pd.DataFrame,
     price_cache: Path,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
 ) -> pd.Timestamp:
     if explicit_as_of_date:
         return pd.Timestamp(explicit_as_of_date).normalize()
@@ -191,12 +202,26 @@ def infer_as_of_date(
     latest_dates: list[pd.Timestamp] = []
     for ticker in sorted(t for t in tickers if t and t not in CASH_TICKERS):
         provider = (provider_symbol_overrides or {}).get(ticker, ticker)
-        px = load_price_series(price_cache, ticker)
-        if px.empty and provider != ticker:
-            px = load_price_series(price_cache, provider)
-        if px.empty:
+        candidates = [load_price_series(price_cache, ticker)]
+        if provider != ticker:
+            candidates.append(load_price_series(price_cache, provider))
+        dates = [
+            pd.Timestamp(frame.index.max()).normalize()
+            for frame in candidates
+            if not frame.empty
+        ]
+        if not dates:
             continue
-        latest_dates.append(pd.Timestamp(px.index.max()).normalize())
+        inferred = max(dates)
+        link = (provider_symbol_links or {}).get(ticker)
+        if link:
+            last_trade = pd.to_datetime(link.get("last_trading_date"), errors="coerce")
+            if pd.isna(last_trade):
+                continue
+            predecessor_dates = [date for date in dates if date <= pd.Timestamp(last_trade).normalize()]
+            successor_dates = [date for date in dates if date > pd.Timestamp(last_trade).normalize()]
+            inferred = max(successor_dates or predecessor_dates or dates)
+        latest_dates.append(inferred)
     if latest_dates:
         return max(latest_dates)
     return fallback
@@ -209,6 +234,7 @@ def current_account_view(
     price_cache: Path,
     as_of_date: pd.Timestamp,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
 ) -> tuple[pd.DataFrame, float, float]:
     rows: list[dict[str, Any]] = []
     cash = safe_float(account_state.get("cash_usd"), 0.0)
@@ -216,7 +242,11 @@ def current_account_view(
     for row in positions.itertuples(index=False):
         ticker = str(row.ticker)
         price_dt, price = latest_price(
-            price_cache, ticker, as_of_date, provider_symbol_overrides
+            price_cache,
+            ticker,
+            as_of_date,
+            provider_symbol_overrides,
+            provider_symbol_links,
         )
         if price is None:
             price = safe_float(getattr(row, "price", np.nan), safe_float(row.cost_basis, 0.0))
@@ -246,6 +276,7 @@ def add_zero_position_target_prices(
     price_cache: Path,
     as_of_date: pd.Timestamp,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
 ) -> pd.DataFrame:
     existing = set(current["ticker"].astype(str)) if not current.empty and "ticker" in current.columns else set()
     rows: list[dict[str, Any]] = []
@@ -253,7 +284,11 @@ def add_zero_position_target_prices(
         if ticker in existing or ticker in CASH_TICKERS:
             continue
         price_dt, price = latest_price(
-            price_cache, ticker, as_of_date, provider_symbol_overrides
+            price_cache,
+            ticker,
+            as_of_date,
+            provider_symbol_overrides,
+            provider_symbol_links,
         )
         if price is None or price <= 0:
             continue
@@ -561,7 +596,11 @@ def render_report(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
+def run(
+    args: argparse.Namespace,
+    *,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
+) -> dict[str, Any]:
     account_path = repo_path(args.account_state)
     target_path = repo_path(args.target)
     price_cache = repo_path(args.price_cache)
@@ -600,6 +639,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         target=target,
         price_cache=price_cache,
         provider_symbol_overrides=provider_symbol_overrides,
+        provider_symbol_links=provider_symbol_links,
     )
     if reserve_policy.tradeable:
         reserve_price_date, reserve_price = latest_price(
@@ -607,6 +647,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             reserve_policy.asset_ticker,
             as_of,
             provider_symbol_overrides,
+            provider_symbol_links,
         )
         if (
             reserve_price_date is None
@@ -633,6 +674,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         price_cache=price_cache,
         as_of_date=as_of,
         provider_symbol_overrides=provider_symbol_overrides,
+        provider_symbol_links=provider_symbol_links,
     )
     current = add_zero_position_target_prices(
         current=current,
@@ -640,6 +682,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         price_cache=price_cache,
         as_of_date=as_of,
         provider_symbol_overrides=provider_symbol_overrides,
+        provider_symbol_links=provider_symbol_links,
     )
     orders = build_orders(
         current=current,
@@ -726,6 +769,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "target": str(target_path),
         "price_cache": str(price_cache),
         "provider_symbol_overrides": dict(sorted(provider_symbol_overrides.items())),
+        "provider_symbol_links": {
+            key: dict(sorted(value.items()))
+            for key, value in sorted((provider_symbol_links or {}).items())
+        },
         "as_of_date": as_of.date().isoformat(),
         "equity_usd": float(equity),
         "cash_usd": float(cash),

@@ -427,12 +427,9 @@ def build(
     prior_stack = pd.read_csv(prior_stack_path, low_memory=False)
     prior_stack["ticker"] = prior_stack["ticker"].map(normalize_ticker)
     base_ticker_list = base["ticker"].tolist()
-    if (
-        len(base) != 989
-        or base["ticker"].duplicated().any()
-        or not all(base_ticker_list)
-    ):
-        raise ValueError("base_context_989_unique_ticker_contract_failed")
+    if base.empty or base["ticker"].duplicated().any() or not all(base_ticker_list):
+        raise ValueError("base_context_dynamic_unique_ticker_contract_failed")
+    pre_lifecycle_context_count = len(base_ticker_list)
     lifecycle_path = (
         repo_path(args.security_lifecycle_events)
         if str(args.security_lifecycle_events or "").strip()
@@ -456,6 +453,13 @@ def build(
     tickers = base["ticker"].tolist()
     if not tickers:
         raise ValueError("security_lifecycle_excluded_entire_context")
+    lifecycle_excluded_tickers = sorted(set(base_ticker_list) - set(tickers))
+    post_lifecycle_context_count = len(tickers)
+    if (
+        pre_lifecycle_context_count
+        != len(lifecycle_excluded_tickers) + post_lifecycle_context_count
+    ):
+        raise ValueError("security_lifecycle_dynamic_count_contract_failed")
     universe_tickers = {normalize_ticker(value) for value in universe["ticker"]}
     excluded = sorted((universe_tickers - set(tickers)) - {""})
 
@@ -706,10 +710,15 @@ def build(
         "provider_symbol_overrides": dict(PROVIDER_SYMBOL_OVERRIDES),
         "coverage": {
             "universe_count": len(universe),
-            "base_context_count": 989,
+            "base_context_count": pre_lifecycle_context_count,
+            "pre_lifecycle_context_count": pre_lifecycle_context_count,
+            "lifecycle_excluded_count": len(lifecycle_excluded_tickers),
+            "post_lifecycle_context_count": post_lifecycle_context_count,
             "current_context_count": len(context),
-            "security_lifecycle_terminal_exclusion_count": len(terminal_exclusions),
+            "security_lifecycle_terminal_event_count": len(terminal_exclusions),
+            "security_lifecycle_terminal_exclusion_count": len(lifecycle_excluded_tickers),
             "security_lifecycle_terminal_tickers": sorted(terminal_tickers),
+            "security_lifecycle_excluded_tickers": lifecycle_excluded_tickers,
             "exact_session_close_count": len(exact),
             "existing_source_cache_count": len(existing),
             "missing_source_cache_count": len(missing_source),

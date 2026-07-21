@@ -3166,3 +3166,34 @@ Expected contract:
   `docs/CODEX_RUN287_G0_H1_TRANSACTION_HARDENING_RESULT_20260721.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-07-21 - Issue #315 H2 security-lifecycle correctness
+
+- Unified the scorer, exact-packet evidence, paper ledger, and order preview on
+  one point-in-time lifecycle contract. Verified predecessor prices apply
+  through `last_trading_date`; successor prices apply only after that date.
+- Fixture-first tests reproduced four real defects: a pre-terminal eligible
+  fill was skipped, a ticker change marked `80` instead of successor `120`,
+  final-stock removal left `CASH=0.5`, and lifecycle-hash-free same-session
+  reuse was accepted.
+- Pending fills now resolve before terminal settlement, subject to the terminal
+  last-trade cutoff. Remaining ineligible orders are then cancelled by the
+  lifecycle action.
+- Terminal proceeds remain fail-closed. Non-USD proceeds now use the dedicated
+  status `BLOCKED_NON_USD_LIFECYCLE_PROCEEDS`; no unverified FX assumption is
+  made.
+- Removing the last eligible stock materializes explicit `CASH=1.0`.
+- Same-session reuse and exact source bundles require lifecycle source and
+  snapshot hashes; changed source bytes invalidate reuse.
+- Replaced the fixed 989-name assumption with the dynamic invariant
+  `pre_lifecycle = excluded + post_lifecycle`. Missing remains neutral and no
+  PIT-membership or survivorship-clean claim is added.
+- Focused H2 tests passed `47/47`, repository pytest passed `129/129`, and full
+  Tier-1 PR validation passed `191/191` in `692.56s`.
+- Official historical evidence remains Main `34.4032% / -25.3629%` and
+  Concentrated `49.0968% / -22.9560%`, through 2026-07-10. This is not a July
+  17/20 performance refresh.
+- Evidence:
+  `docs/CODEX_RUN287_H2_LIFECYCLE_CORRECTNESS_RESULT_20260721.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.

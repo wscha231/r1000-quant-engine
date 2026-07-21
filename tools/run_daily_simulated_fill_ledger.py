@@ -483,6 +483,18 @@ def materialize_lifecycle_adjusted_target(
             f"Reserve asset is terminal at decision time: {reserve_policy.asset_ticker}",
         )
     adjusted = filter_terminal_tickers(target, lifecycle)
+    non_cash = adjusted.loc[~adjusted["ticker"].isin({"CASH", "__CASH__"})]
+    if non_cash.empty:
+        cash_columns = list(adjusted.columns if not adjusted.empty else target.columns)
+        cash_row = {column: "" for column in cash_columns}
+        cash_row.update(
+            {
+                "ticker": "CASH",
+                "target_weight": 1.0,
+                "lifecycle_forced_all_cash": True,
+            }
+        )
+        adjusted = pd.DataFrame([cash_row])
     rows = adjusted.rename(columns={"target_weight": "weight"}).copy()
     rows.insert(0, "rebalance_date", as_of_date.date().isoformat())
     columns = ["rebalance_date", "ticker", "weight"]
@@ -709,13 +721,36 @@ def load_prices(
     price_cache: Path,
     tickers: set[str],
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, pd.DataFrame]:
     prices: dict[str, pd.DataFrame] = {}
     for ticker in sorted({clean_ticker(value) for value in tickers if clean_ticker(value)}):
-        frame = load_price_series(price_cache, ticker)
+        predecessor = load_price_series(price_cache, ticker)
         provider = (provider_symbol_overrides or {}).get(ticker, ticker)
-        if frame.empty and provider != ticker:
-            frame = load_price_series(price_cache, provider)
+        successor = load_price_series(price_cache, provider) if provider != ticker else pd.DataFrame()
+        link = (provider_symbol_links or {}).get(ticker)
+        if link and provider != ticker:
+            last_trade = pd.to_datetime(link.get("last_trading_date"), errors="coerce")
+            effective = pd.to_datetime(link.get("effective_date"), errors="coerce")
+            if pd.isna(last_trade) or pd.isna(effective):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_LIFECYCLE_EVIDENCE",
+                    f"invalid provider symbol cutover:{ticker}",
+                )
+            before = predecessor.loc[
+                pd.to_datetime(predecessor.index, errors="coerce").normalize()
+                <= pd.Timestamp(last_trade).normalize()
+            ].copy() if not predecessor.empty else predecessor
+            after = successor.loc[
+                pd.to_datetime(successor.index, errors="coerce").normalize()
+                >= pd.Timestamp(effective).normalize()
+            ].copy() if not successor.empty else successor
+            frame = pd.concat([before, after]).sort_index()
+            frame = frame.loc[~frame.index.duplicated(keep="last")]
+        else:
+            frame = predecessor
+            if frame.empty and provider != ticker:
+                frame = successor
         if not frame.empty:
             prices[ticker] = frame
     return prices
@@ -728,9 +763,15 @@ def require_exact_session_closes(
     as_of_date: pd.Timestamp,
     context: str,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
 ) -> None:
     required = {clean_ticker(value) for value in tickers if clean_ticker(value) not in {"", "CASH", "USD"}}
-    prices = load_prices(price_cache, required, provider_symbol_overrides)
+    prices = load_prices(
+        price_cache,
+        required,
+        provider_symbol_overrides,
+        provider_symbol_links,
+    )
     failures: list[str] = []
     for ticker in sorted(required):
         actual_date, price = price_on_or_before(prices.get(ticker, pd.DataFrame()), as_of_date, "close")
@@ -1000,6 +1041,8 @@ def resolve_pending_orders(
     cost_bps: float,
     max_fill_lag_days: int,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
+    terminal_fill_cutoffs: dict[str, pd.Timestamp] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
     sequence, previous_hash, resolved_client_ids = validate_event_chain(fills, rejections)
     fill_rows = fills.to_dict("records") if not fills.empty else []
@@ -1022,7 +1065,12 @@ def resolve_pending_orders(
     keep_pending: list[dict[str, Any]] = []
     stale_rejections: list[tuple[dict[str, Any], str]] = []
     tickers = {clean_ticker(value) for value in pending.get("ticker", pd.Series(dtype=str)).tolist()}
-    prices = load_prices(price_cache, tickers, provider_symbol_overrides)
+    prices = load_prices(
+        price_cache,
+        tickers,
+        provider_symbol_overrides,
+        provider_symbol_links,
+    )
 
     for index, row in enumerate(pending.to_dict("records")):
         client_id = str(row.get("client_order_id") or "")
@@ -1041,6 +1089,12 @@ def resolve_pending_orders(
         target_date = signal_date + pd.Timedelta(days=1)
         actual_date, fill_px = price_on_or_after(prices.get(ticker, pd.DataFrame()), target_date, "close")
         actual_date = pd.Timestamp(actual_date).normalize() if actual_date is not None else None
+        terminal_cutoff = (terminal_fill_cutoffs or {}).get(ticker)
+        if terminal_cutoff is not None and (
+            actual_date is None or actual_date > pd.Timestamp(terminal_cutoff).normalize()
+        ):
+            keep_pending.append(row)
+            continue
         lag_expired = as_of_date > target_date + pd.Timedelta(days=int(max_fill_lag_days))
         if actual_date is None or fill_px is None or actual_date > as_of_date:
             if lag_expired:
@@ -1212,11 +1266,15 @@ def mark_account(
     cost_bps: float,
     seed_path: Path,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
     reserve_policy: ReserveAssetPolicy,
     reserve_reconciliation: dict[str, Any],
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     prices = load_prices(
-        price_cache, set(state.shares), provider_symbol_overrides
+        price_cache,
+        set(state.shares),
+        provider_symbol_overrides,
+        provider_symbol_links,
     )
     equity, values = account_equity(state, prices, as_of_date)
     if equity <= 0 or state.cash < -1e-6:
@@ -1455,6 +1513,31 @@ def load_reusable_same_session_manifest(
             )
         return None
 
+    def valid_sha256(value: Any) -> bool:
+        text = str(value or "").strip().lower()
+        return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
+
+    if not valid_sha256(lifecycle.source_sha256):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_LIFECYCLE_EVIDENCE",
+            f"same-session reuse requires lifecycle source hash:{portfolio}",
+        )
+    if not valid_sha256(lifecycle.snapshot_hash):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_LIFECYCLE_EVIDENCE",
+            f"same-session reuse requires lifecycle snapshot hash:{portfolio}",
+        )
+    if not valid_sha256(manifest.get("security_lifecycle_source_sha256")):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_LIFECYCLE_EVIDENCE",
+            f"stored exact bundle lacks lifecycle source hash:{portfolio}",
+        )
+    if not valid_sha256(manifest.get("security_lifecycle_snapshot_hash")):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_LIFECYCLE_EVIDENCE",
+            f"stored exact bundle lacks lifecycle snapshot hash:{portfolio}",
+        )
+
     errors: list[str] = []
 
     def require(condition: bool, reason: str) -> None:
@@ -1607,6 +1690,7 @@ def build_order_preview(
     as_of_date: pd.Timestamp,
     cost_bps: float,
     provider_symbol_overrides: dict[str, str] | None = None,
+    provider_symbol_links: dict[str, dict[str, str]] | None = None,
     reserve_mode: str = DEFAULT_CURRENT_PAPER_MODE,
 ) -> dict[str, Any]:
     return run_order_preview(
@@ -1629,7 +1713,8 @@ def build_order_preview(
                 )
             ],
             reserve_mode=reserve_mode,
-        )
+        ),
+        provider_symbol_links=provider_symbol_links,
     )
 
 
@@ -1795,6 +1880,7 @@ def run_portfolio(
                 as_of_date=as_of_date,
                 cost_bps=cost_bps,
                 provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+                provider_symbol_links=lifecycle.provider_symbol_links,
                 reserve_mode=reserve_policy.mode,
             )
             if preview.get("status") != "completed":
@@ -1846,6 +1932,24 @@ def run_portfolio(
     fills = read_csv(portfolio_dir / "fills.csv")
     rejections = read_csv(portfolio_dir / "rejections.csv")
     meta = read_json(portfolio_dir / "state_meta.json")
+    terminal_fill_cutoffs = {
+        alias: pd.Timestamp(event["last_trading_date"]).normalize()
+        for alias, event in verified_settlement_by_ticker(lifecycle).items()
+    }
+    pending, fills, rejections, resolved = resolve_pending_orders(
+        portfolio=portfolio,
+        state=state,
+        pending=pending,
+        fills=fills,
+        rejections=rejections,
+        price_cache=price_cache,
+        as_of_date=as_of_date,
+        cost_bps=cost_bps,
+        max_fill_lag_days=max_fill_lag_days,
+        provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+        provider_symbol_links=lifecycle.provider_symbol_links,
+        terminal_fill_cutoffs=terminal_fill_cutoffs,
+    )
     pending, fills, rejections, lifecycle_actions = apply_lifecycle_actions(
         portfolio=portfolio,
         state=state,
@@ -1866,19 +1970,7 @@ def run_portfolio(
         as_of_date=as_of_date,
         context=f"{portfolio} held/target/pending",
         provider_symbol_overrides=lifecycle.provider_symbol_overrides,
-    )
-
-    pending, fills, rejections, resolved = resolve_pending_orders(
-        portfolio=portfolio,
-        state=state,
-        pending=pending,
-        fills=fills,
-        rejections=rejections,
-        price_cache=price_cache,
-        as_of_date=as_of_date,
-        cost_bps=cost_bps,
-        max_fill_lag_days=max_fill_lag_days,
-        provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+        provider_symbol_links=lifecycle.provider_symbol_links,
     )
     write_csv(portfolio_dir / "pending_orders.csv", pending, PENDING_COLUMNS)
     write_csv(portfolio_dir / "fills.csv", fills)
@@ -1895,6 +1987,7 @@ def run_portfolio(
         cost_bps=cost_bps,
         seed_path=bootstrap_path,
         provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+        provider_symbol_links=lifecycle.provider_symbol_links,
         reserve_policy=reserve_policy,
         reserve_reconciliation=reserve_reconciliation,
     )
@@ -1941,6 +2034,7 @@ def run_portfolio(
             as_of_date=as_of_date,
             cost_bps=cost_bps,
             provider_symbol_overrides=lifecycle.provider_symbol_overrides,
+            provider_symbol_links=lifecycle.provider_symbol_links,
             reserve_mode=reserve_policy.mode,
         )
         if preview.get("status") != "completed":

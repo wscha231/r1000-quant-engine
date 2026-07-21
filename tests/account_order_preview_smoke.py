@@ -12,7 +12,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_account_order_preview import normalize_target, run  # noqa: E402
+from tools.run_account_order_preview import latest_price, normalize_target, run  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -154,10 +154,43 @@ def test_order_preview_uses_explicit_cash_target_weight() -> None:
         assert abs(payload["target_stock_weight"] - 0.40) < 1e-9
 
 
+def test_lifecycle_price_switches_only_after_predecessor_last_trade() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        _write_px(cache, "OLD", [100.0, 101.0], start="2026-01-02")
+        _write_px(cache, "NEW", [120.0, 121.0], start="2026-01-05")
+        overrides = {"OLD": "NEW"}
+        links = {
+            "OLD": {
+                "last_trading_date": "2026-01-05",
+                "effective_date": "2026-01-06",
+            }
+        }
+        before_date, before_price = latest_price(
+            cache,
+            "OLD",
+            pd.Timestamp("2026-01-05"),
+            overrides,
+            links,
+        )
+        after_date, after_price = latest_price(
+            cache,
+            "OLD",
+            pd.Timestamp("2026-01-06"),
+            overrides,
+            links,
+        )
+        assert before_date == pd.Timestamp("2026-01-05")
+        assert before_price == 101.0
+        assert after_date == pd.Timestamp("2026-01-06")
+        assert after_price == 121.0
+
+
 def main() -> int:
     test_order_preview_builds_sell_first_orders()
     test_concentrated_target_normalization_does_not_force_n3()
     test_order_preview_uses_explicit_cash_target_weight()
+    test_lifecycle_price_switches_only_after_predecessor_last_trade()
     print("account_order_preview_smoke: PASS")
     return 0
 
