@@ -1,0 +1,47 @@
+{
+  "schema_version": "run287-review-complete-gate-contract-v2",
+  "protected_branch": "master",
+  "required_status_checks": [
+    "validate",
+    "portfolio_guard",
+    "review_complete"
+  ],
+  "strict_status_checks": true,
+  "accepted_reviewers": [
+    "chatgpt-codex-connector",
+    "chatgpt-codex-connector[bot]"
+  ],
+  "accepted_evidence": [
+    "ATTESTED_EXACT_HEAD_REVIEW",
+    "MAINTAINER_BOUND_CLEAN_REACTION"
+  ],
+  "exact_head_review_required_when_review_exists": true,
+  "trusted_head_observation_check": "review_head_observed",
+  "review_evidence_must_postdate_head_observation": true,
+  "maintainer_attestation_required": true,
+  "maintainer_attestation_permissions": [
+    "admin",
+    "maintain",
+    "write"
+  ],
+  "maintainer_attestation_exact_sha_required": true,
+  "clean_reaction_manual_refresh_command": "/review-complete <40-char-head-sha>",
+  "trusted_writable_triggers": [
+    "pull_request_target",
+    "issue_comment",
+    "workflow_dispatch"
+  ],
+  "pull_request_review_trigger_allowed": false,
+  "required_conversation_resolution": true,
+  "dismiss_stale_reviews": true,
+  "required_approving_review_count": 0,
+  "enforce_admins": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_linear_history": false,
+  "automatic_merge_allowed": false,
+  "admin_merge_bypass_allowed": false,
+  "fullrun_required": false,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false
+}
