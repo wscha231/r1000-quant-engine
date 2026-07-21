@@ -17,11 +17,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
+    materialize_lifecycle_adjusted_target,
     normalized_target,
     run,
     target_hash,
     validate_event_chain,
 )
+from tools.reserve_asset_policy import resolve_reserve_asset_policy  # noqa: E402
+from tools.security_lifecycle import empty_snapshot  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -388,6 +391,32 @@ def test_last_terminal_stock_materializes_explicit_all_cash_target() -> None:
             assert float(target.iloc[0]["weight"]) == 1.0
 
 
+def test_empty_source_target_never_synthesizes_all_cash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "empty_target.csv"
+        pd.DataFrame(columns=["rebalance_date", "ticker", "weight"]).to_csv(
+            source, index=False
+        )
+        try:
+            materialize_lifecycle_adjusted_target(
+                source_target_path=source,
+                output_path=root / "effective.csv",
+                portfolio="main",
+                as_of_date=pd.Timestamp("2026-01-06"),
+                lifecycle=empty_snapshot(
+                    session_date=pd.Timestamp("2026-01-06"),
+                    decision_time_utc=pd.Timestamp("2026-01-06T23:00:00Z"),
+                ),
+                reserve_policy=resolve_reserve_asset_policy(),
+                reserve_mode_explicit=False,
+            )
+        except Exception as exc:
+            assert getattr(exc, "status", "") == "BLOCKED_TARGET_EVIDENCE"
+        else:
+            raise AssertionError("empty target was converted to CASH=1.0")
+
+
 def test_same_session_reuse_without_lifecycle_source_hash_blocks() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -539,6 +568,7 @@ def main() -> int:
     test_delayed_catchup_fills_before_terminal_settlement()
     test_ticker_change_uses_successor_exact_close_after_last_trade()
     test_last_terminal_stock_materializes_explicit_all_cash_target()
+    test_empty_source_target_never_synthesizes_all_cash()
     test_same_session_reuse_without_lifecycle_source_hash_blocks()
     test_bootstrap_does_not_retrade_an_already_effective_target()
     test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_closed()

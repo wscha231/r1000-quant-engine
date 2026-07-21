@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -186,11 +187,31 @@ def test_lifecycle_price_switches_only_after_predecessor_last_trade() -> None:
         assert after_price == 121.0
 
 
+def test_lifecycle_price_does_not_cross_cutover_on_missing_successor() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        _write_px(cache, "OLD", [100.0, 101.0], start="2026-01-02")
+        with pytest.raises(ValueError, match="lifecycle_successor_price_missing"):
+            latest_price(
+                cache,
+                "OLD",
+                pd.Timestamp("2026-01-06"),
+                {"OLD": "NEW"},
+                {
+                    "OLD": {
+                        "last_trading_date": "2026-01-05",
+                        "effective_date": "2026-01-06",
+                    }
+                },
+            )
+
+
 def main() -> int:
     test_order_preview_builds_sell_first_orders()
     test_concentrated_target_normalization_does_not_force_n3()
     test_order_preview_uses_explicit_cash_target_weight()
     test_lifecycle_price_switches_only_after_predecessor_last_trade()
+    test_lifecycle_price_does_not_cross_cutover_on_missing_successor()
     print("account_order_preview_smoke: PASS")
     return 0
 

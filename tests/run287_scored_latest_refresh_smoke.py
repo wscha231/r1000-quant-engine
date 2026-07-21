@@ -75,6 +75,38 @@ class ScoredLatestRefreshSmoke(unittest.TestCase):
                 session_date=provider.index[-1] + pd.offsets.BDay(1),
             )
 
+    def test_lifecycle_cutover_preserves_predecessor_prefix(self) -> None:
+        source = prices("2022-01-03", 800)
+        last_trade = source.index[-2]
+        effective = source.index[-1]
+        provider = prices(str(source.index[-10].date()), 12)
+        provider.loc[provider.index < effective, "Close"] = 999.0
+        provider.loc[provider.index < effective, "Adj Close"] = 999.0
+        session = provider.index[-1]
+        merged, audit = merge_current_vintage(
+            source,
+            provider,
+            session_date=session,
+            provider_symbol_link={
+                "last_trading_date": last_trade.date().isoformat(),
+                "effective_date": effective.date().isoformat(),
+            },
+        )
+        self.assertEqual(float(merged.loc[last_trade, "Close"]), float(source.loc[last_trade, "Close"]))
+        self.assertEqual(float(merged.loc[effective, "Close"]), float(provider.loc[effective, "Close"]))
+        self.assertTrue(audit["lifecycle_cutover_applied"])
+
+    def test_scorer_requires_external_pre_lifecycle_count(self) -> None:
+        source = (ROOT / "tools" / "run_run287_scored_latest_refresh.py").read_text(
+            encoding="utf-8"
+        )
+        upstream = (ROOT / "tools" / "run_run287_exact_packet_upstream.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--expected-pre-lifecycle-context-count", source)
+        self.assertIn("--expected-pre-lifecycle-context-count", upstream)
+        self.assertIn("base_context_external_count_contract_failed", source)
+
     def test_provider_symbol_override_is_explicit(self) -> None:
         self.assertEqual(parse_provider_symbol_overrides(["OLD=NEW"]), {"OLD": "NEW"})
         with self.assertRaisesRegex(ValueError, "invalid provider symbol override"):

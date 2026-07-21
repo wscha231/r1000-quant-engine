@@ -358,6 +358,10 @@ def resolve_security_lifecycle(
                 "stable_event_id",
             ].tolist()
             raise SecurityLifecycleError("last_trade_after_effective_date:" + ",".join(bad))
+    proceeds_by_event = {
+        str(row.stable_event_id): float(row.verified_proceeds)
+        for row in relevant_terminals.itertuples(index=False)
+    }
 
     identity = relevant.loc[relevant["event_type"].isin(IDENTITY_EVENT_TYPES)].copy()
     overrides: dict[str, str] = {}
@@ -406,9 +410,7 @@ def resolve_security_lifecycle(
                 "aliases_normalized": row["aliases_normalized"],
                 "currency": row["currency"],
                 "verified_proceeds": (
-                    float(row["verified_proceeds"])
-                    if "verified_proceeds" in row and pd.notna(row["verified_proceeds"])
-                    else None
+                    proceeds_by_event.get(str(row["stable_event_id"]))
                 ),
                 "source_sha256": row["source_sha256"],
             }

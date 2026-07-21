@@ -471,6 +471,14 @@ def materialize_lifecycle_adjusted_target(
     """Write the effective target without silently reallocating terminal weight."""
 
     target = normalized_target(source_target_path, portfolio, as_of_date)
+    if target.empty:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_EVIDENCE",
+            f"empty normalized target allocation:{portfolio}",
+        )
+    source_non_cash = target.loc[
+        ~target["ticker"].isin({"CASH", "__CASH__"})
+    ].copy()
     if reserve_mode_explicit:
         target, _reserve_audit = apply_reserve_asset_to_targets(
             target,
@@ -484,7 +492,7 @@ def materialize_lifecycle_adjusted_target(
         )
     adjusted = filter_terminal_tickers(target, lifecycle)
     non_cash = adjusted.loc[~adjusted["ticker"].isin({"CASH", "__CASH__"})]
-    if non_cash.empty:
+    if not source_non_cash.empty and non_cash.empty:
         cash_columns = list(adjusted.columns if not adjusted.empty else target.columns)
         cash_row = {column: "" for column in cash_columns}
         cash_row.update(

@@ -169,10 +169,13 @@ def latest_price(
             return None, None
         use_successor = pd.Timestamp(as_of_date).normalize() > pd.Timestamp(last_trade).normalize()
     primary = provider if use_successor else logical
-    fallback = logical if use_successor else provider
+    fallback = primary if link else logical if use_successor else provider
     px = load_price_series(price_cache, primary)
     if px.empty and fallback != primary:
         px = load_price_series(price_cache, fallback)
+    if px.empty and link:
+        boundary = "successor" if use_successor else "predecessor"
+        raise ValueError(f"lifecycle_{boundary}_price_missing:{logical}:{primary}")
     if px.empty:
         return None, None
     actual, value = price_on_or_before(px, as_of_date, "close")

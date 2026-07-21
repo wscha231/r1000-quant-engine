@@ -498,6 +498,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "--decision-time-utc", decision_time.isoformat(),
             "--universe", str(paths["universe"]),
             "--base-selection-context", str(paths["base_selection_context"]),
+            "--expected-pre-lifecycle-context-count", str(expected_context),
             "--base-score-stack", str(paths["base_score_stack"]),
             "--price-cache", str(price_cache),
             "--model-root", str(model_root),

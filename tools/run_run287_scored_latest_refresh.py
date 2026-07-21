@@ -173,6 +173,7 @@ def merge_current_vintage(
     provider: pd.DataFrame,
     *,
     session_date: pd.Timestamp,
+    provider_symbol_link: Mapping[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Overlay current provider rows and adjust only the older source prefix."""
 
@@ -185,6 +186,38 @@ def merge_current_vintage(
         raise ValueError("provider_exact_session_close_missing")
 
     source_norm = normalize_price(source) if source is not None and not source.empty else pd.DataFrame()
+    if provider_symbol_link:
+        last_trade = pd.to_datetime(
+            provider_symbol_link.get("last_trading_date"), errors="coerce"
+        )
+        effective = pd.to_datetime(
+            provider_symbol_link.get("effective_date"), errors="coerce"
+        )
+        if pd.isna(last_trade) or pd.isna(effective) or last_trade >= effective:
+            raise ValueError("provider_symbol_link_cutover_invalid")
+        if source_norm.empty or pd.Timestamp(last_trade).normalize() not in source_norm.index:
+            raise ValueError("predecessor_last_trading_close_missing")
+        successor = provider_norm.loc[
+            provider_norm.index >= pd.Timestamp(effective).normalize()
+        ].copy()
+        if successor.empty or session_date not in successor.index:
+            raise ValueError("successor_exact_session_close_missing")
+        predecessor = source_norm.loc[
+            source_norm.index <= pd.Timestamp(last_trade).normalize()
+        ].copy()
+        merged = pd.concat([predecessor, successor], axis=0).sort_index()
+        merged = merged.loc[~merged.index.duplicated(keep="last")]
+        return merged, {
+            "source_present": True,
+            "source_latest_date": source_norm.index.max().date().isoformat(),
+            "provider_start_date": successor.index.min().date().isoformat(),
+            "provider_overlap_row_count": 0,
+            "prefix_adjustment_factor": 1.0,
+            "merged_row_count": len(merged),
+            "lifecycle_cutover_applied": True,
+            "predecessor_last_trading_date": pd.Timestamp(last_trade).date().isoformat(),
+            "successor_effective_date": pd.Timestamp(effective).date().isoformat(),
+        }
     if source_norm.empty:
         if len(provider_norm) < 756:
             raise ValueError(f"provider_history_under_756_sessions:{len(provider_norm)}")
@@ -430,6 +463,15 @@ def build(
     if base.empty or base["ticker"].duplicated().any() or not all(base_ticker_list):
         raise ValueError("base_context_dynamic_unique_ticker_contract_failed")
     pre_lifecycle_context_count = len(base_ticker_list)
+    expected_pre_lifecycle_context_count = int(args.expected_pre_lifecycle_context_count)
+    if (
+        expected_pre_lifecycle_context_count <= 0
+        or pre_lifecycle_context_count != expected_pre_lifecycle_context_count
+    ):
+        raise ValueError(
+            "base_context_external_count_contract_failed:"
+            f"{pre_lifecycle_context_count}!={expected_pre_lifecycle_context_count}"
+        )
     lifecycle_path = (
         repo_path(args.security_lifecycle_events)
         if str(args.security_lifecycle_events or "").strip()
@@ -552,7 +594,10 @@ def build(
         try:
             source = pd.read_parquet(source_path) if source_path.is_file() else pd.DataFrame()
             merged, audit = merge_current_vintage(
-                source, provider, session_date=session
+                source,
+                provider,
+                session_date=session,
+                provider_symbol_link=lifecycle.provider_symbol_links.get(ticker),
             )
             technical = compute_daily_tech_table(merged)
             technical.index = pd.to_datetime(technical.index).normalize()
@@ -711,6 +756,7 @@ def build(
         "coverage": {
             "universe_count": len(universe),
             "base_context_count": pre_lifecycle_context_count,
+            "expected_pre_lifecycle_context_count": expected_pre_lifecycle_context_count,
             "pre_lifecycle_context_count": pre_lifecycle_context_count,
             "lifecycle_excluded_count": len(lifecycle_excluded_tickers),
             "post_lifecycle_context_count": post_lifecycle_context_count,
@@ -759,6 +805,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decision-time-utc", required=True)
     parser.add_argument("--universe", required=True)
     parser.add_argument("--base-selection-context", required=True)
+    parser.add_argument("--expected-pre-lifecycle-context-count", type=int, required=True)
     parser.add_argument("--base-score-stack", required=True)
     parser.add_argument("--price-cache", required=True)
     parser.add_argument("--model-root", required=True)

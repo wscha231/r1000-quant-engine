@@ -31,7 +31,8 @@ predecessor/successor links.
   SHA-256 values. Exact-packet source-bundle creation also re-hashes the source
   file and rejects a missing, changed, or mismatched lifecycle identity.
 - The former fixed `989` selection-context assumption is removed. The scorer
-  and decision frame now enforce the dynamic invariant
+  requires the independent upstream plan's expected pre-lifecycle count, then
+  the scorer and decision frame enforce the dynamic invariant
   `pre_lifecycle = excluded + post_lifecycle` and require unique post-lifecycle
   tickers.
 - The shared component remains generic. No actual ticker-specific branch was
@@ -57,12 +58,18 @@ The completed fixture set now also proves:
 - changed lifecycle source bytes block exact-bundle creation;
 - no fixed `989` literal remains in the scored-latest or decision-frame
   lifecycle count contracts.
+- a lifecycle-linked scorer retains predecessor rows through the last trading
+  date and accepts successor rows only from the effective date;
+- an empty source target blocks rather than synthesizing `CASH=1.0`, and a
+  missing successor cache cannot fall back across the verified cutover;
+- verified terminal proceeds are included in the resolved snapshot hash.
 
 ## Regression evidence
 
-- Focused H2 suite: `47 passed`.
+- Focused H2 suite after review fixes: `52 passed`.
 - Repository pytest: `129 passed`.
-- Full Tier-1 PR validation: `191/191` passed in `692.56s`.
+- Full Tier-1 PR validation: initial `191/191` in `692.56s`; reviewed-head
+  revalidation `191/191` in `582.37s`.
 - Python compilation and `git diff --check`: PASS.
 
 The tests used temporary fixtures. No durable paper account, public operating

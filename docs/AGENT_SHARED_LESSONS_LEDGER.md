@@ -3186,10 +3186,16 @@ Expected contract:
 - Same-session reuse and exact source bundles require lifecycle source and
   snapshot hashes; changed source bytes invalidate reuse.
 - Replaced the fixed 989-name assumption with the dynamic invariant
-  `pre_lifecycle = excluded + post_lifecycle`. Missing remains neutral and no
+  `pre_lifecycle = excluded + post_lifecycle`, anchored to the independent
+  upstream plan's expected pre-lifecycle count. Missing remains neutral and no
   PIT-membership or survivorship-clean claim is added.
-- Focused H2 tests passed `47/47`, repository pytest passed `129/129`, and full
-  Tier-1 PR validation passed `191/191` in `692.56s`.
+- PR review found five valid gaps: scorer cutover was not wired, empty targets
+  could become `CASH=1.0`, preview could cross the cutover on fallback, the
+  dynamic count was not externally anchored, and proceeds were absent from the
+  snapshot hash. All five received regression fixtures and fail-closed fixes.
+- Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
+  Tier-1 validation passed `191/191` initially in `692.56s` and again on the
+  reviewed head in `582.37s`.
 - Official historical evidence remains Main `34.4032% / -25.3629%` and
   Concentrated `49.0968% / -22.9560%`, through 2026-07-10. This is not a July
   17/20 performance refresh.

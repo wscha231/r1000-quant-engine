@@ -230,6 +230,27 @@ def test_non_usd_terminal_proceeds_have_dedicated_block_status() -> None:
         raise AssertionError("non-USD lifecycle proceeds were accepted")
 
 
+def test_verified_terminal_proceeds_are_bound_into_snapshot_hash() -> None:
+    holder_a, snapshot_a = resolve(
+        [event(cash_consideration="25.50")],
+        session="2026-01-06",
+        decision="2026-01-06T23:00:00Z",
+        active={"ACQ"},
+    )
+    holder_b, snapshot_b = resolve(
+        [event(cash_consideration="26.00")],
+        session="2026-01-06",
+        decision="2026-01-06T23:00:00Z",
+        active={"ACQ"},
+    )
+    try:
+        assert snapshot_a.snapshot_hash != snapshot_b.snapshot_hash
+        assert snapshot_a.audit()["snapshot_hash"] == snapshot_a.snapshot_hash
+    finally:
+        holder_a.cleanup()
+        holder_b.cleanup()
+
+
 def test_identity_cutover_must_follow_last_predecessor_trade() -> None:
     rename = event(
         stable_security_id="SECURITY:REN",
@@ -288,6 +309,7 @@ if __name__ == "__main__":
     test_ticker_rename_and_predecessor_successor_are_linked_only_when_known()
     test_weak_evidence_malformed_identity_and_hash_fail_closed()
     test_non_usd_terminal_proceeds_have_dedicated_block_status()
+    test_verified_terminal_proceeds_are_bound_into_snapshot_hash()
     test_identity_cutover_must_follow_last_predecessor_trade()
     test_lifecycle_context_count_is_dynamic_not_magic_number()
     test_scorer_and_ledger_share_component_without_ticker_branches()
