@@ -35,6 +35,7 @@ from tools.reserve_asset_policy import (
     reserve_reason_reconciliation,
     resolve_reserve_asset_policy,
 )
+from tools.security_lifecycle import resolve_security_lifecycle
 
 
 DEFAULT_OUTPUT_DIR = "outputs/account_ledger_preview"
@@ -79,6 +80,54 @@ def parse_provider_symbol_overrides(values: list[str]) -> dict[str, str]:
         if prior != provider:
             raise ValueError(f"conflicting provider symbol override: {logical}")
     return overrides
+
+
+def lifecycle_execution_ticker(
+    ticker: Any,
+    *,
+    as_of_date: pd.Timestamp,
+    provider_symbol_links: dict[str, dict[str, str]] | None,
+) -> str:
+    logical = normalize_ticker(ticker)
+    link = (provider_symbol_links or {}).get(logical)
+    if not link:
+        return logical
+    effective = pd.to_datetime(link.get("effective_date"), errors="coerce")
+    successor = normalize_ticker(link.get("successor_ticker"))
+    if pd.isna(effective) or not successor:
+        raise ValueError(f"lifecycle_execution_symbol_invalid:{logical}")
+    return (
+        successor
+        if pd.Timestamp(as_of_date).normalize() >= pd.Timestamp(effective).normalize()
+        else logical
+    )
+
+
+def canonicalize_target_execution_tickers(
+    target: pd.DataFrame,
+    *,
+    as_of_date: pd.Timestamp,
+    provider_symbol_links: dict[str, dict[str, str]] | None,
+) -> pd.DataFrame:
+    if target.empty or not provider_symbol_links:
+        return target.copy()
+    out = target.copy()
+    out["logical_ticker"] = out["ticker"].map(normalize_ticker)
+    out["ticker"] = out["logical_ticker"].map(
+        lambda value: lifecycle_execution_ticker(
+            value,
+            as_of_date=as_of_date,
+            provider_symbol_links=provider_symbol_links,
+        )
+    )
+    collisions = out.loc[
+        out["ticker"].ne("CASH") & out["ticker"].duplicated(False), "ticker"
+    ].unique()
+    if len(collisions):
+        raise ValueError(
+            "lifecycle_execution_symbol_collision:" + ",".join(sorted(collisions))
+        )
+    return out
 
 
 def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str = "") -> pd.DataFrame:
@@ -198,6 +247,11 @@ def latest_price(
             raise ValueError(f"lifecycle_{side}_price_missing:{logical}:{primary}")
     actual, value = price_on_or_before(px, as_of_date, "close")
     if actual is None or value is None:
+        if link and use_successor:
+            raise ValueError(
+                f"lifecycle_successor_exact_close_missing:{logical}:{primary}:"
+                f"{pd.Timestamp(as_of_date).date().isoformat()}"
+            )
         return None, None
     actual_date = pd.Timestamp(actual).normalize()
     if link and use_successor and actual_date != pd.Timestamp(as_of_date).normalize():
@@ -268,6 +322,11 @@ def current_account_view(
     stock_value = 0.0
     for row in positions.itertuples(index=False):
         ticker = str(row.ticker)
+        execution_ticker = lifecycle_execution_ticker(
+            ticker,
+            as_of_date=as_of_date,
+            provider_symbol_links=provider_symbol_links,
+        )
         price_dt, price = latest_price(
             price_cache,
             ticker,
@@ -281,7 +340,8 @@ def current_account_view(
         stock_value += value
         rows.append(
             {
-                "ticker": ticker,
+                "ticker": execution_ticker,
+                "logical_ticker": ticker,
                 "shares": float(row.shares),
                 "price": float(price),
                 "price_date": price_dt.date().isoformat() if price_dt is not None else "",
@@ -292,6 +352,11 @@ def current_account_view(
     equity = cash + stock_value
     frame = pd.DataFrame(rows)
     if not frame.empty:
+        collisions = frame.loc[frame["ticker"].duplicated(False), "ticker"].unique()
+        if len(collisions):
+            raise ValueError(
+                "lifecycle_execution_symbol_collision:" + ",".join(sorted(collisions))
+            )
         frame["current_weight"] = frame["market_value_usd"] / max(equity, 1e-12)
     return frame, float(equity), float(cash)
 
@@ -642,7 +707,8 @@ def run(
         (output_dir / "preview_metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
     positions = load_positions(account)
-    target = normalize_target(read_csv(target_path), args.portfolio_kind, args.target_date)
+    raw_target = read_csv(target_path)
+    target = normalize_target(raw_target, args.portfolio_kind, args.target_date)
     reserve_mode = str(getattr(args, "reserve_mode", "") or DEFAULT_CURRENT_PAPER_MODE)
     reserve_policy = resolve_reserve_asset_policy(reserve_mode, context="current_paper")
     reserve_mode_explicit = bool(str(getattr(args, "reserve_mode", "") or "").strip())
@@ -652,21 +718,75 @@ def run(
             policy=reserve_policy,
             weight_col="target_weight",
         )
+    account_source_kind = "simulated_broker_replay" if "broker_replay" in str(account_path).replace("\\", "/") else "account_state_file"
+    target_source_kind = "unified_target" if "unified_target" in target_path.name else "sleeve_model_target"
+    lifecycle_value = str(getattr(args, "security_lifecycle_events", "") or "").strip()
+    if lifecycle_value and provider_symbol_links is None:
+        as_of_text = str(getattr(args, "as_of_date", "") or account.get("as_of_date") or "")
+        if not as_of_text:
+            raise ValueError(
+                "--as-of-date or account as_of_date is required with --security-lifecycle-events"
+            )
+        as_of = pd.Timestamp(as_of_text).normalize()
+        decision_raw = str(getattr(args, "decision_time_utc", "") or "").strip()
+        if not decision_raw and "selector_decision_time_utc" in raw_target.columns:
+            decision_source = raw_target.copy()
+            if "rebalance_date" in decision_source.columns:
+                dates = pd.to_datetime(
+                    decision_source["rebalance_date"], errors="coerce"
+                ).dt.normalize()
+                eligible = dates[dates <= as_of]
+                if not eligible.empty:
+                    decision_source = decision_source.loc[
+                        dates.eq(eligible.max())
+                    ].copy()
+            values = sorted(
+                {
+                    str(value).strip()
+                    for value in decision_source[
+                        "selector_decision_time_utc"
+                    ].dropna().tolist()
+                    if str(value).strip()
+                }
+            )
+            if len(values) == 1:
+                decision_raw = values[0]
+        decision_time = pd.to_datetime(decision_raw, errors="coerce", utc=True)
+        if pd.isna(decision_time):
+            raise ValueError(
+                "--decision-time-utc or one exact target selector_decision_time_utc is required with lifecycle evidence"
+            )
+        lifecycle = resolve_security_lifecycle(
+            repo_path(lifecycle_value),
+            session_date=as_of,
+            decision_time_utc=pd.Timestamp(decision_time),
+            active_tickers=set(positions.get("ticker", pd.Series(dtype=str)))
+            | set(target.get("ticker", pd.Series(dtype=str))),
+        )
+        for logical, successor in lifecycle.provider_symbol_overrides.items():
+            prior = provider_symbol_overrides.setdefault(logical, successor)
+            if prior != successor:
+                raise ValueError(f"conflicting lifecycle provider symbol:{logical}")
+        provider_symbol_links = lifecycle.provider_symbol_links
+    else:
+        as_of = infer_as_of_date(
+            explicit_as_of_date=args.as_of_date,
+            account_state=account,
+            positions=positions,
+            target=target,
+            price_cache=price_cache,
+            provider_symbol_overrides=provider_symbol_overrides,
+            provider_symbol_links=provider_symbol_links,
+        )
+    target = canonicalize_target_execution_tickers(
+        target,
+        as_of_date=as_of,
+        provider_symbol_links=provider_symbol_links,
+    )
     reserve_reconciliation = reserve_reason_reconciliation(
         target,
         policy=reserve_policy,
         weight_col="target_weight",
-    )
-    account_source_kind = "simulated_broker_replay" if "broker_replay" in str(account_path).replace("\\", "/") else "account_state_file"
-    target_source_kind = "unified_target" if "unified_target" in target_path.name else "sleeve_model_target"
-    as_of = infer_as_of_date(
-        explicit_as_of_date=args.as_of_date,
-        account_state=account,
-        positions=positions,
-        target=target,
-        price_cache=price_cache,
-        provider_symbol_overrides=provider_symbol_overrides,
-        provider_symbol_links=provider_symbol_links,
     )
     if reserve_policy.tradeable:
         reserve_price_date, reserve_price = latest_price(
@@ -870,6 +990,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-trade-usd", type=float, default=25.0)
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--provider-symbol-override", action="append", default=[])
+    parser.add_argument("--security-lifecycle-events", default="")
+    parser.add_argument("--decision-time-utc", default="")
     parser.add_argument(
         "--reserve-mode",
         choices=list(RESERVE_MODES),

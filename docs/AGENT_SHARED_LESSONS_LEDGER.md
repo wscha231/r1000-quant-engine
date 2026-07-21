@@ -3197,10 +3197,17 @@ Expected contract:
   stale successor cache could still return a prior successor quote. Successor
   rows are now filtered to the effective-date side of the boundary and the
   preview requires the exact requested successor session close.
+- Final exact-head review found four more valid integration gaps: future-only
+  successor caches could fall back to account basis, preview orders retained
+  the untradeable predecessor ticker, restored `data_static` lifecycle paths
+  were not portable, and standalone CLI preview calls did not load lifecycle
+  links. All four now fail closed or use the verified successor, with focused
+  regression fixtures and workflow invocation coverage.
 - Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
   Tier-1 validation passed `191/191` initially in `692.56s` and again on the
   reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`
-  in `499.92s`.
+  in `499.92s`, and final CLI/symbol/archive integration passed `191/191` in
+  `464.10s`.
 - Official historical evidence remains Main `34.4032% / -25.3629%` and
   Concentrated `49.0968% / -22.9560%`, through 2026-07-10. This is not a July
   17/20 performance refresh.

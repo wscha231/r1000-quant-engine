@@ -65,6 +65,14 @@ The completed fixture set now also proves:
 - a successor cache containing only pre-effective or pre-session rows is
   rejected; a lifecycle-linked preview requires the exact requested successor
   close after cutover;
+- a successor cache containing only future rows also fails closed instead of
+  falling back to account price or cost basis;
+- post-cutover preview positions and orders use the verified successor ticker,
+  while retaining the predecessor as `logical_ticker` for audit;
+- restored absolute lifecycle paths may be rebound only through the exact
+  repository-relative `data_static` tree and matching SHA-256;
+- standalone CLI preview invocations now load the canonical lifecycle file;
+  missing exact decision-time evidence blocks rather than bypassing lifecycle;
 - verified terminal proceeds are included in the resolved snapshot hash.
 
 ## Regression evidence
@@ -73,9 +81,12 @@ The completed fixture set now also proves:
 - Exact-successor regression plus the representative H2 pytest subset:
   `51 passed`; standalone account-preview smoke: PASS.
 - Repository pytest: `129 passed`.
+- Final-review follow-up: account preview PASS, source-bundle `4/4`, daily
+  ledger PASS, paper transaction PASS, and workflow artifact smoke PASS.
 - Full Tier-1 PR validation: initial `191/191` in `692.56s`; reviewed-head
   revalidation `191/191` in `582.37s`; exact-successor revalidation `191/191`
-  in `499.92s`.
+  in `499.92s`; final CLI/symbol/archive integration revalidation `191/191`
+  in `464.10s`.
 - Python compilation and `git diff --check`: PASS.
 
 The tests used temporary fixtures. No durable paper account, public operating

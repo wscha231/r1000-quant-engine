@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.run_account_order_preview import latest_price, normalize_target, run  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.security_lifecycle import REQUIRED_COLUMNS  # noqa: E402
 
 
 def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2026-01-02") -> None:
@@ -240,6 +241,159 @@ def test_lifecycle_price_rejects_stale_successor_after_cutover() -> None:
             )
 
 
+def test_lifecycle_price_rejects_future_only_successor_cache() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        _write_px(cache, "OLD", [100.0, 101.0], start="2026-01-02")
+        _write_px(cache, "NEW", [122.0], start="2026-01-07")
+        with pytest.raises(ValueError, match="lifecycle_successor_exact_close_missing"):
+            latest_price(
+                cache,
+                "OLD",
+                pd.Timestamp("2026-01-06"),
+                {"OLD": "NEW"},
+                {
+                    "OLD": {
+                        "last_trading_date": "2026-01-05",
+                        "effective_date": "2026-01-06",
+                    }
+                },
+            )
+
+
+def test_post_cutover_orders_use_successor_ticker() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        out = root / "preview"
+        cache.mkdir()
+        _write_px(cache, "OLD", [100.0, 101.0], start="2026-01-02")
+        _write_px(cache, "NEW", [120.0], start="2026-01-06")
+        account_path = root / "account.json"
+        account_path.write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-01-06",
+                    "cash_usd": 0.0,
+                    "positions": [
+                        {"ticker": "OLD", "shares": 10.0, "cost_basis": 90.0}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        target_path = root / "target.csv"
+        pd.DataFrame([{"ticker": "CASH", "weight": 1.0}]).to_csv(
+            target_path, index=False
+        )
+        args = Args()
+        args.account_state = str(account_path)
+        args.target = str(target_path)
+        args.price_cache = str(cache)
+        args.portfolio_kind = "main"
+        args.output_dir = str(out)
+        args.as_of_date = "2026-01-06"
+        args.target_date = ""
+        args.cost_bps = 25.0
+        args.limit_margin_pct = 0.25
+        args.min_trade_usd = 25.0
+        args.fractional_shares = False
+        args.provider_symbol_override = ["OLD=NEW"]
+        payload = run(
+            args,
+            provider_symbol_links={
+                "OLD": {
+                    "last_trading_date": "2026-01-05",
+                    "effective_date": "2026-01-06",
+                    "successor_ticker": "NEW",
+                }
+            },
+        )
+        assert payload["status"] == "completed"
+        orders = pd.read_csv(out / "orders_preview.csv")
+        assert set(orders["ticker"]) == {"NEW"}
+        positions = pd.read_csv(out / "positions_current.csv")
+        assert positions.loc[0, "ticker"] == "NEW"
+        assert positions.loc[0, "logical_ticker"] == "OLD"
+
+
+def test_cli_and_operational_invocations_require_lifecycle_evidence() -> None:
+    tool = (ROOT / "tools" / "run_account_order_preview.py").read_text(encoding="utf-8")
+    assert 'parser.add_argument("--security-lifecycle-events"' in tool
+    assert 'parser.add_argument("--decision-time-utc"' in tool
+    for path in (
+        ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_manual.yml",
+        ROOT / "tools" / "run_full_rebuild_sidecars.py",
+    ):
+        source = path.read_text(encoding="utf-8")
+        invocations = [
+            line
+            for line in source.splitlines()
+            if "python tools/run_account_order_preview.py" in line
+        ]
+        assert invocations
+        assert all("--security-lifecycle-events" in line for line in invocations)
+
+
+def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        out = root / "preview"
+        cache.mkdir()
+        _write_px(cache, "AAA", [100.0], start="2026-01-06")
+        account_path = root / "account.json"
+        account_path.write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-01-06",
+                    "cash_usd": 1000.0,
+                    "positions": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        target_path = root / "target.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "weight": 0.50,
+                    "selector_decision_time_utc": "2026-01-02T21:00:00Z",
+                },
+                {
+                    "rebalance_date": "2026-01-06",
+                    "ticker": "AAA",
+                    "weight": 0.50,
+                    "selector_decision_time_utc": "2026-01-06T21:00:00Z",
+                },
+            ]
+        ).to_csv(target_path, index=False)
+        lifecycle_path = root / "security_lifecycle_events.csv"
+        pd.DataFrame(columns=sorted(REQUIRED_COLUMNS)).to_csv(
+            lifecycle_path, index=False
+        )
+        args = Args()
+        args.account_state = str(account_path)
+        args.target = str(target_path)
+        args.price_cache = str(cache)
+        args.portfolio_kind = "main"
+        args.output_dir = str(out)
+        args.as_of_date = ""
+        args.target_date = ""
+        args.cost_bps = 25.0
+        args.limit_margin_pct = 0.25
+        args.min_trade_usd = 25.0
+        args.fractional_shares = False
+        args.provider_symbol_override = []
+        args.security_lifecycle_events = str(lifecycle_path)
+        args.decision_time_utc = ""
+        payload = run(args)
+        assert payload["status"] == "completed"
+        assert payload["as_of_date"] == "2026-01-06"
+
+
 def main() -> int:
     test_order_preview_builds_sell_first_orders()
     test_concentrated_target_normalization_does_not_force_n3()
@@ -247,6 +401,10 @@ def main() -> int:
     test_lifecycle_price_switches_only_after_predecessor_last_trade()
     test_lifecycle_price_does_not_cross_cutover_on_missing_successor()
     test_lifecycle_price_rejects_stale_successor_after_cutover()
+    test_lifecycle_price_rejects_future_only_successor_cache()
+    test_post_cutover_orders_use_successor_ticker()
+    test_cli_and_operational_invocations_require_lifecycle_evidence()
+    test_cli_lifecycle_uses_selected_target_decision_time()
     print("account_order_preview_smoke: PASS")
     return 0
 
