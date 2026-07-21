@@ -3142,6 +3142,9 @@ Expected contract:
   `MARK_ONLY -> SELECTED_TARGET -> MARK_ONLY`; missing or stale previews are
   rebuilt from the frozen account, and the final mark-only pass leaves durable
   ledger bytes unchanged.
+- A separate preview-only crash journal is recovered before staging the next
+  run. A synthetic interrupted publish restored the prior preview exactly and
+  removed both the uncommitted sentinel and recovery journal.
 - Main and Concentrated public operating targets publish atomically with ledger
   and preview state. Injected failure after the second published item rolls all
   four destinations back. `accepted_publication.json` binds the accepted files

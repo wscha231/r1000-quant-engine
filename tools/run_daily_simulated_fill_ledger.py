@@ -2161,7 +2161,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     state_root.parent.mkdir(parents=True, exist_ok=True)
     preview_root.parent.mkdir(parents=True, exist_ok=True)
     journal_path = state_root.parent / f".{state_root.name}.transaction.json"
+    preview_journal_path = preview_root.parent / f".{preview_root.name}.preview-transaction.json"
     recover_interrupted_publish(journal_path)
+    recover_interrupted_publish(preview_journal_path)
     prior_integrity = (
         verify_integrity_manifest(state_root, require=True)
         if (state_root / INTEGRITY_FILE).is_file()
@@ -2299,10 +2301,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             # remains byte-identical.  Missing review-only previews may be
             # reconstructed independently from the frozen account mark.
             if directory_hashes(stage_preview) != directory_hashes(preview_root):
-                preview_journal = preview_root.parent / f".{preview_root.name}.preview-transaction.json"
                 atomic_publish_bundle(
                     [(stage_preview, preview_root)],
-                    journal_path=preview_journal,
+                    journal_path=preview_journal_path,
                     failpoint=failpoint,
                 )
             return summary

@@ -297,6 +297,44 @@ def test_present_but_stale_preview_is_rebuilt_against_durable_account_and_target
         assert fixed["preview_mode"] == "EXECUTABLE_CANDIDATE"
 
 
+def test_interrupted_preview_only_publish_recovers_before_reuse() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        date = "2026-04-05"
+        prepare(root, [date])
+        run(ledger_args(root, date))
+        preview_root = root / "previews"
+        before = directory_hashes(preview_root)
+        backup = root / ".previews.recovery-crash-fixture"
+        preview_root.rename(backup)
+        preview_root.mkdir()
+        (preview_root / "crash_sentinel.txt").write_text("uncommitted", encoding="utf-8")
+        journal = root / ".previews.preview-transaction.json"
+        journal.write_text(
+            json.dumps(
+                {
+                    "schema_version": "run287-paper-directory-transaction-v1",
+                    "status": "PREPARED",
+                    "entries": [
+                        {
+                            "destination": str(preview_root.resolve()),
+                            "backup": str(backup.resolve()),
+                            "destination_existed": True,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        reused = run(ledger_args(root, date))
+        assert reused["result_status"] == "SAME_SESSION_REUSE"
+        assert directory_hashes(preview_root) == before
+        assert not journal.exists()
+        assert not backup.exists()
+        assert not (preview_root / "crash_sentinel.txt").exists()
+
+
 def test_operating_targets_publish_in_same_atomic_bundle() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -389,6 +427,7 @@ def main() -> int:
     test_duplicate_client_order_id_and_negative_cash_fail_closed()
     test_suppressed_preview_is_explicit_hash_bound_and_transition_safe()
     test_present_but_stale_preview_is_rebuilt_against_durable_account_and_target()
+    test_interrupted_preview_only_publish_recovers_before_reuse()
     test_operating_targets_publish_in_same_atomic_bundle()
     test_legacy_same_session_snapshot_is_semantically_attested_once()
     test_workflow_separates_failed_evidence_from_accepted_paper_state()
