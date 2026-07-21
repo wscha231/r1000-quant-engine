@@ -13,7 +13,12 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_account_order_preview import latest_price, normalize_target, run  # noqa: E402
+from tools.run_account_order_preview import (  # noqa: E402
+    latest_price,
+    normalize_target,
+    run,
+    select_target_snapshot,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 from tools.security_lifecycle import REQUIRED_COLUMNS  # noqa: E402
 
@@ -312,9 +317,55 @@ def test_post_cutover_orders_use_successor_ticker() -> None:
         assert payload["status"] == "completed"
         orders = pd.read_csv(out / "orders_preview.csv")
         assert set(orders["ticker"]) == {"NEW"}
+        assert set(orders["ledger_ticker"]) == {"OLD"}
         positions = pd.read_csv(out / "positions_current.csv")
         assert positions.loc[0, "ticker"] == "NEW"
         assert positions.loc[0, "logical_ticker"] == "OLD"
+
+
+def test_post_cutover_new_target_requires_successor_exact_close() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        out = root / "preview"
+        cache.mkdir()
+        _write_px(cache, "OLD", [100.0, 101.0], start="2026-01-02")
+        _write_px(cache, "NEW", [120.0], start="2026-01-05")
+        account_path = root / "account.json"
+        account_path.write_text(
+            json.dumps(
+                {"as_of_date": "2026-01-06", "cash_usd": 1000.0, "positions": []}
+            ),
+            encoding="utf-8",
+        )
+        target_path = root / "target.csv"
+        pd.DataFrame([{"ticker": "OLD", "weight": 0.5}]).to_csv(
+            target_path, index=False
+        )
+        args = Args()
+        args.account_state = str(account_path)
+        args.target = str(target_path)
+        args.price_cache = str(cache)
+        args.portfolio_kind = "main"
+        args.output_dir = str(out)
+        args.as_of_date = "2026-01-06"
+        args.target_date = ""
+        args.cost_bps = 25.0
+        args.limit_margin_pct = 0.25
+        args.min_trade_usd = 25.0
+        args.fractional_shares = False
+        args.provider_symbol_override = ["OLD=NEW"]
+        with pytest.raises(ValueError, match="lifecycle_successor_price_missing"):
+            run(
+                args,
+                provider_symbol_links={
+                    "OLD": {
+                        "last_trading_date": "2026-01-05",
+                        "effective_date": "2026-01-06",
+                        "successor_ticker": "NEW",
+                    }
+                },
+            )
 
 
 def test_cli_and_operational_invocations_require_lifecycle_evidence() -> None:
@@ -333,6 +384,8 @@ def test_cli_and_operational_invocations_require_lifecycle_evidence() -> None:
         ]
         assert invocations
         assert all("--security-lifecycle-events" in line for line in invocations)
+        assert all("--decision-time-utc" in line for line in invocations)
+        assert all("account_order_preview" not in line or "|| true" not in line for line in invocations)
 
 
 def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
@@ -392,6 +445,33 @@ def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
         payload = run(args)
         assert payload["status"] == "completed"
         assert payload["as_of_date"] == "2026-01-06"
+        assert payload["lifecycle_decision_time_utc"] == "2026-01-06T21:00:00+00:00"
+
+
+def test_target_date_uses_the_same_older_snapshot_decision_time() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2026-01-02",
+                "ticker": "AAA",
+                "weight": 0.50,
+                "selector_decision_time_utc": "2026-01-02T21:00:00Z",
+            },
+            {
+                "rebalance_date": "2026-01-06",
+                "ticker": "BBB",
+                "weight": 0.50,
+                "selector_decision_time_utc": "2026-01-06T21:00:00Z",
+            },
+        ]
+    )
+    selected = select_target_snapshot(
+        frame,
+        target_date="2026-01-02",
+        as_of_date=pd.Timestamp("2026-01-06"),
+    )
+    assert selected["ticker"].tolist() == ["AAA"]
+    assert selected["selector_decision_time_utc"].tolist() == ["2026-01-02T21:00:00Z"]
 
 
 def main() -> int:
@@ -403,8 +483,10 @@ def main() -> int:
     test_lifecycle_price_rejects_stale_successor_after_cutover()
     test_lifecycle_price_rejects_future_only_successor_cache()
     test_post_cutover_orders_use_successor_ticker()
+    test_post_cutover_new_target_requires_successor_exact_close()
     test_cli_and_operational_invocations_require_lifecycle_evidence()
     test_cli_lifecycle_uses_selected_target_decision_time()
+    test_target_date_uses_the_same_older_snapshot_decision_time()
     print("account_order_preview_smoke: PASS")
     return 0
 

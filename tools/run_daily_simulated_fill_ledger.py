@@ -78,6 +78,7 @@ PENDING_COLUMNS = [
     "portfolio_kind",
     "signal_date",
     "ticker",
+    "execution_ticker",
     "side",
     "quantity",
     "reference_price",
@@ -97,6 +98,7 @@ PENDING_COLUMNS = [
 ]
 PREVIEW_ORDER_COLUMNS = [
     "ticker",
+    "ledger_ticker",
     "side",
     "quantity",
     "reference_price",
@@ -1761,7 +1763,8 @@ def enqueue_preview_orders(
     for priority, row in enumerate(orders.to_dict("records"), start=1):
         status = str(row.get("status") or "")
         quantity = float(safe_float(row.get("quantity"), 0.0))
-        ticker = clean_ticker(row.get("ticker"))
+        execution_ticker = clean_ticker(row.get("ticker"))
+        ticker = clean_ticker(row.get("ledger_ticker")) or execution_ticker
         side = str(row.get("side") or "").upper()
         if status.startswith("blocked") or quantity <= 0 or not ticker or side not in {"BUY", "SELL"}:
             continue
@@ -1774,6 +1777,7 @@ def enqueue_preview_orders(
                 "portfolio_kind": portfolio,
                 "signal_date": as_of_date.date().isoformat(),
                 "ticker": ticker,
+                "execution_ticker": execution_ticker or ticker,
                 "side": side,
                 "quantity": quantity,
                 "reference_price": float(safe_float(row.get("reference_price"), 0.0)),

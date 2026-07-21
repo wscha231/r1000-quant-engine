@@ -3203,11 +3203,26 @@ Expected contract:
   were not portable, and standalone CLI preview calls did not load lifecycle
   links. All four now fail closed or use the verified successor, with focused
   regression fixtures and workflow invocation coverage.
+- A subsequent exact-head review found four further execution-boundary gaps:
+  successor-symbol sells could miss predecessor-keyed ledger positions,
+  legacy sidecar previews supplied lifecycle evidence without an exact
+  decision timestamp and hid failure behind `|| true`, `--target-date` could
+  use a later snapshot's decision timestamp, and a canonicalized successor
+  target could bypass exact-close enforcement. Preview orders now carry both
+  execution and ledger tickers, pending fills retain both identities, manual
+  workflows require an explicit UTC decision time and fail loud, snapshot
+  selection is shared, and target pricing follows the audited logical link.
 - Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
   Tier-1 validation passed `191/191` initially in `692.56s` and again on the
   reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`
   in `499.92s`, and final CLI/symbol/archive integration passed `191/191` in
   `464.10s`.
+- The four execution-boundary regression fixtures passed, repository pytest
+  remained `129/129`, and the first local Tier-1 rerun passed `190/191`; its
+  sole failure was the existing structural test counting the four fullrun
+  approval inputs after the new non-approval decision-time input was inserted
+  inside that block. Moving the input to the normal execution-input section
+  restored the structural suite to `129/129`; exact-head CI remains required.
 - Official historical evidence remains Main `34.4032% / -25.3629%` and
   Concentrated `49.0968% / -22.9560%`, through 2026-07-10. This is not a July
   17/20 performance refresh.

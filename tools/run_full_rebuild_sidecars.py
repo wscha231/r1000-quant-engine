@@ -22,6 +22,7 @@ PORTFOLIO_POLICY="${PORTFOLIO_POLICY:-alphaops_vnext_production}"
 APPROVED_TARGET_POLICY_PATH="${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
 UNIVERSE_MODE="${UNIVERSE_MODE:-global_alpha_universe}"
 BACKTEST_YEARS="${BACKTEST_YEARS:-}"
+DECISION_TIME_UTC="${DECISION_TIME_UTC:?decision_time_utc is required for lifecycle-aware order previews}"
 echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE} portfolio_policy=${PORTFOLIO_POLICY} universe_mode=${UNIVERSE_MODE} backtest_years=${BACKTEST_YEARS}"
 
 run_patch_manifest() {
@@ -352,8 +353,8 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
       echo "[lever-sweep][guard] WARN: R1000_LEVER_SWEEP=1 but outputs/lever_sweep/summary.json is missing — harness did not complete (OOM/timeout?)."
     fi
   fi
-  python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
-  python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
+  python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv --decision-time-utc "$DECISION_TIME_UTC" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log
+  python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv --decision-time-utc "$DECISION_TIME_UTC" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log
   python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true
   python tools/run_live_trading_risk_controls.py --latest-run outputs --price-cache cache_prices --output-dir outputs/live_trading_risk_controls --account-mode simulated 2>&1 | tee outputs/full_rebuild_logs/live_trading_risk_controls.log || true
   python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
@@ -559,8 +560,8 @@ python tools/run_broker_execution_policy_replay.py --target-book outputs/reports
 python tools/run_operating_event_backtest.py --latest-run outputs --output-dir outputs/operating_event_backtest 2>&1 | tee outputs/full_rebuild_logs/operating_event_backtest.log || true
 python tools/run_broker_gap_attribution.py --latest-run outputs --output-dir outputs/broker_gap_attribution 2>&1 | tee outputs/full_rebuild_logs/broker_gap_attribution.log || true
 python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
-python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
-python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
+python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv --decision-time-utc "$DECISION_TIME_UTC" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log
+python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv --decision-time-utc "$DECISION_TIME_UTC" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log
 python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true
 python tools/run_live_trading_risk_controls.py --latest-run outputs --price-cache cache_prices --output-dir outputs/live_trading_risk_controls --account-mode simulated 2>&1 | tee outputs/full_rebuild_logs/live_trading_risk_controls.log || true
 python tools/run_monster_lifecycle_replay.py --latest-run outputs --policy concentrated --output-dir outputs/monster_lifecycle_replay 2>&1 | tee outputs/full_rebuild_logs/monster_lifecycle_replay.log || true
@@ -652,6 +653,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--approved-target-policy-path", default=os.environ.get("APPROVED_TARGET_POLICY_PATH", "outputs/promotion_review/approved_target_policy.json"))
     parser.add_argument("--universe-mode", default=os.environ.get("UNIVERSE_MODE", "global_alpha_universe"))
     parser.add_argument("--backtest-years", default=os.environ.get("BACKTEST_YEARS", ""))
+    parser.add_argument("--decision-time-utc", required=True)
     return parser.parse_args()
 
 
@@ -665,6 +667,7 @@ def main() -> int:
     env["APPROVED_TARGET_POLICY_PATH"] = args.approved_target_policy_path
     env["UNIVERSE_MODE"] = args.universe_mode
     env["BACKTEST_YEARS"] = str(args.backtest_years or "")
+    env["DECISION_TIME_UTC"] = str(args.decision_time_utc)
     if os.name == "nt":
         print("run_full_rebuild_sidecars.py is intended for the GitHub Linux runner", file=sys.stderr)
         return 2

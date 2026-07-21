@@ -366,6 +366,61 @@ def test_ticker_change_uses_successor_exact_close_after_last_trade() -> None:
             assert float(positions.loc[positions["ticker"].eq("AAA"), "price"].iloc[0]) == 120.0
 
 
+def test_post_cutover_exit_executes_against_predecessor_ledger_position() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        dates = pd.to_datetime(["2026-01-02", "2026-01-05"])
+        pd.DataFrame(
+            {"Open": [100.0, 101.0], "Close": [100.0, 101.0], "Adj Close": [100.0, 101.0]},
+            index=dates,
+        ).to_parquet(cache / px_cache_name("OLD"))
+        successor_dates = pd.to_datetime(["2026-01-06", "2026-01-07"])
+        pd.DataFrame(
+            {"Open": [120.0, 121.0], "Close": [120.0, 121.0], "Adj Close": [120.0, 121.0]},
+            index=successor_dates,
+        ).to_parquet(cache / px_cache_name("NEW"))
+        lifecycle = root / "lifecycle.csv"
+        write_lifecycle(
+            lifecycle,
+            event_type="ticker_change",
+            ticker="OLD",
+            successor_ticker="NEW",
+        )
+        for portfolio in ("main", "concentrated"):
+            seed_path = root / "seed" / f"{portfolio}.json"
+            write_seed(seed_path, portfolio)
+            seed = json.loads(seed_path.read_text(encoding="utf-8"))
+            seed["as_of_date"] = "2026-01-05"
+            seed["positions"][0]["ticker"] = "OLD"
+            seed_path.write_text(json.dumps(seed), encoding="utf-8")
+            target_path = root / "targets" / f"{portfolio}.csv"
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [{"rebalance_date": "2026-01-06", "ticker": "CASH", "weight": 1.0}]
+            ).to_csv(target_path, index=False)
+
+        first = run(args_for(root, "2026-01-06", str(lifecycle)))
+        assert first["status"] == "completed"
+        for portfolio in ("main", "concentrated"):
+            pending = pd.read_csv(root / "paper" / portfolio / "pending_orders.csv")
+            assert pending["ticker"].tolist() == ["OLD"]
+            assert pending["execution_ticker"].tolist() == ["NEW"]
+
+        second = run(args_for(root, "2026-01-07", str(lifecycle)))
+        assert second["status"] == "completed"
+        for portfolio in ("main", "concentrated"):
+            account = json.loads(
+                (root / "paper" / portfolio / "account_state_latest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            assert not account["positions"]
+            fills = pd.read_csv(root / "paper" / portfolio / "fills.csv")
+            assert set(fills["ticker"]) == {"OLD"}
+
+
 def test_last_terminal_stock_materializes_explicit_all_cash_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -567,6 +622,7 @@ def main() -> int:
     test_verified_cash_merger_settles_without_future_close_and_cancels_pending()
     test_delayed_catchup_fills_before_terminal_settlement()
     test_ticker_change_uses_successor_exact_close_after_last_trade()
+    test_post_cutover_exit_executes_against_predecessor_ledger_position()
     test_last_terminal_stock_materializes_explicit_all_cash_target()
     test_empty_source_target_never_synthesizes_all_cash()
     test_same_session_reuse_without_lifecycle_source_hash_blocks()

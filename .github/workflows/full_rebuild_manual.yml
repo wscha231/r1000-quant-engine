@@ -41,6 +41,10 @@ on:
           - r1000+cycle
           - r1000+adr_phase14_off
         default: global_alpha_universe
+      decision_time_utc:
+        description: 'Exact selector decision timestamp in UTC for lifecycle PIT filtering'
+        type: string
+        required: true
       backtest_years:
         description: 'broker-ledger window years (7 = clean research/A-B baseline; 8/10 require PIT-clean universe label)'
         type: choice
@@ -681,7 +685,8 @@ jobs:
             --portfolio-policy "${PORTFOLIO_POLICY:-alphaops_vnext_production}" \
             --approved-target-policy-path "${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}" \
             --universe-mode "${UNIVERSE_MODE:-global_alpha_universe}" \
-            --backtest-years "${BACKTEST_YEARS:-}"
+            --backtest-years "${BACKTEST_YEARS:-}" \
+            --decision-time-utc "${DECISION_TIME_UTC}"
         env:
           SIDECAR_PROFILE: ${{ github.event.inputs.sidecar_profile || 'operating_minimal' }}
           ARTIFACT_PROFILE: ${{ github.event.inputs.artifact_profile || 'minimal' }}
@@ -690,6 +695,7 @@ jobs:
           APPROVED_TARGET_POLICY_PATH: ${{ github.event.inputs.approved_target_policy_path || 'outputs/promotion_review/approved_target_policy.json' }}
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
           BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
+          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
 
       - name: Verdict (post-sidecar Cell E equivalent)
         if: always()

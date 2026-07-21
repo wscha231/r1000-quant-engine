@@ -130,22 +130,37 @@ def canonicalize_target_execution_tickers(
     return out
 
 
+def select_target_snapshot(
+    frame: pd.DataFrame,
+    *,
+    target_date: str = "",
+    as_of_date: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Select one target snapshot without crossing the requested cutoff."""
+    if frame.empty or "rebalance_date" not in frame.columns:
+        return frame.copy()
+    out = frame.copy()
+    dates = pd.to_datetime(out["rebalance_date"], errors="coerce").dt.normalize()
+    cutoff = pd.NaT
+    if target_date:
+        cutoff = pd.Timestamp(target_date).normalize()
+    elif as_of_date is not None:
+        cutoff = pd.Timestamp(as_of_date).normalize()
+    if not pd.isna(cutoff):
+        eligible = dates[dates <= cutoff]
+        if eligible.empty:
+            return out.iloc[0:0].copy()
+        selected = eligible.max()
+        return out.loc[dates.eq(selected)].copy()
+    if dates.notna().any():
+        return out.loc[dates.eq(dates.max())].copy()
+    return out
+
+
 def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str = "") -> pd.DataFrame:
     if frame.empty or "ticker" not in frame.columns:
         return pd.DataFrame(columns=["ticker", "target_weight"])
-    d = frame.copy()
-    if "rebalance_date" in d.columns:
-        d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
-        if target_date:
-            dt = pd.Timestamp(target_date).normalize()
-            exact = d[d["rebalance_date"].eq(dt)].copy()
-            if not exact.empty:
-                d = exact
-            else:
-                prior = d[d["rebalance_date"].le(dt)].copy()
-                d = prior[prior["rebalance_date"].eq(prior["rebalance_date"].max())].copy() if not prior.empty else d
-        elif d["rebalance_date"].notna().any():
-            d = d[d["rebalance_date"].eq(d["rebalance_date"].max())].copy()
+    d = select_target_snapshot(frame, target_date=target_date)
     if portfolio_kind == "concentrated" and "target_stock_names" in d.columns:
         non_cash = d[~d["ticker"].astype(str).str.upper().eq("CASH")].copy()
         counts = non_cash["target_stock_names"].astype(str).str.strip()
@@ -372,12 +387,20 @@ def add_zero_position_target_prices(
 ) -> pd.DataFrame:
     existing = set(current["ticker"].astype(str)) if not current.empty and "ticker" in current.columns else set()
     rows: list[dict[str, Any]] = []
-    for ticker in target.get("ticker", pd.Series(dtype=object)).astype(str).str.upper().unique():
+    target_rows = target.copy()
+    if "logical_ticker" not in target_rows.columns:
+        target_rows["logical_ticker"] = target_rows.get(
+            "ticker", pd.Series(dtype=object)
+        )
+    target_rows = target_rows[["ticker", "logical_ticker"]].drop_duplicates()
+    for target_row in target_rows.itertuples(index=False):
+        ticker = normalize_ticker(target_row.ticker)
+        logical_ticker = normalize_ticker(target_row.logical_ticker) or ticker
         if ticker in existing or ticker in CASH_TICKERS:
             continue
         price_dt, price = latest_price(
             price_cache,
-            ticker,
+            logical_ticker,
             as_of_date,
             provider_symbol_overrides,
             provider_symbol_links,
@@ -387,6 +410,7 @@ def add_zero_position_target_prices(
         rows.append(
             {
                 "ticker": ticker,
+                "logical_ticker": logical_ticker,
                 "shares": 0.0,
                 "price": float(price),
                 "price_date": price_dt.date().isoformat() if price_dt is not None else "",
@@ -473,9 +497,15 @@ def build_orders(
         gross = desired_qty * price
         fee = gross * fee_rate
         limit_px = price * (1.0 + limit_margin_pct / 100.0) if side == "BUY" else price * (1.0 - limit_margin_pct / 100.0)
+        ledger_ticker = ticker
+        if cur is not None and current_shares > 1e-12:
+            ledger_ticker = normalize_ticker(
+                getattr(cur, "logical_ticker", "")
+            ) or ticker
         rows.append(
             {
                 "ticker": ticker,
+                "ledger_ticker": ledger_ticker,
                 "side": side,
                 "quantity": float(desired_qty),
                 "reference_price": float(price),
@@ -645,6 +675,7 @@ def attach_client_order_ids(orders: pd.DataFrame, *, portfolio_kind: str, as_of_
             "portfolio_kind": str(portfolio_kind),
             "as_of_date": as_of,
             "ticker": str(row.get("ticker", "")).upper().strip(),
+            "ledger_ticker": str(row.get("ledger_ticker", "")).upper().strip(),
             "side": str(row.get("side", "")).upper().strip(),
             "quantity": round(safe_float(row.get("quantity"), 0.0), 8),
             "limit_price": round(safe_float(row.get("limit_price"), 0.0), 6),
@@ -721,6 +752,7 @@ def run(
     account_source_kind = "simulated_broker_replay" if "broker_replay" in str(account_path).replace("\\", "/") else "account_state_file"
     target_source_kind = "unified_target" if "unified_target" in target_path.name else "sleeve_model_target"
     lifecycle_value = str(getattr(args, "security_lifecycle_events", "") or "").strip()
+    lifecycle_decision_time_utc = ""
     if lifecycle_value and provider_symbol_links is None:
         as_of_text = str(getattr(args, "as_of_date", "") or account.get("as_of_date") or "")
         if not as_of_text:
@@ -730,16 +762,11 @@ def run(
         as_of = pd.Timestamp(as_of_text).normalize()
         decision_raw = str(getattr(args, "decision_time_utc", "") or "").strip()
         if not decision_raw and "selector_decision_time_utc" in raw_target.columns:
-            decision_source = raw_target.copy()
-            if "rebalance_date" in decision_source.columns:
-                dates = pd.to_datetime(
-                    decision_source["rebalance_date"], errors="coerce"
-                ).dt.normalize()
-                eligible = dates[dates <= as_of]
-                if not eligible.empty:
-                    decision_source = decision_source.loc[
-                        dates.eq(eligible.max())
-                    ].copy()
+            decision_source = select_target_snapshot(
+                raw_target,
+                target_date=str(getattr(args, "target_date", "") or ""),
+                as_of_date=as_of,
+            )
             values = sorted(
                 {
                     str(value).strip()
@@ -756,6 +783,7 @@ def run(
             raise ValueError(
                 "--decision-time-utc or one exact target selector_decision_time_utc is required with lifecycle evidence"
             )
+        lifecycle_decision_time_utc = pd.Timestamp(decision_time).isoformat()
         lifecycle = resolve_security_lifecycle(
             repo_path(lifecycle_value),
             session_date=as_of,
@@ -920,6 +948,7 @@ def run(
             key: dict(sorted(value.items()))
             for key, value in sorted((provider_symbol_links or {}).items())
         },
+        "lifecycle_decision_time_utc": lifecycle_decision_time_utc,
         "as_of_date": as_of.date().isoformat(),
         "equity_usd": float(equity),
         "cash_usd": float(cash),

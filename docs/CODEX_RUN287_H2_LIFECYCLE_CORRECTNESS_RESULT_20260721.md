@@ -69,6 +69,15 @@ The completed fixture set now also proves:
   falling back to account price or cost basis;
 - post-cutover preview positions and orders use the verified successor ticker,
   while retaining the predecessor as `logical_ticker` for audit;
+- successor-symbol orders aimed at an existing predecessor holding retain a
+  separate `ledger_ticker`, so next-close settlement updates the position that
+  actually exists while preserving the real execution symbol;
+- zero-position successor targets are priced through their logical lifecycle
+  link and therefore cannot bypass the exact requested successor close;
+- `--target-date` and lifecycle decision-time lookup use the same selected
+  target snapshot, so an older replay cannot borrow a later decision timestamp;
+- legacy manual sidecar workflows require an explicit UTC decision time for
+  lifecycle-aware previews and no longer mask preview failure with `|| true`;
 - restored absolute lifecycle paths may be rebound only through the exact
   repository-relative `data_static` tree and matching SHA-256;
 - standalone CLI preview invocations now load the canonical lifecycle file;
@@ -88,6 +97,13 @@ The completed fixture set now also proves:
   in `499.92s`; final CLI/symbol/archive integration revalidation `191/191`
   in `464.10s`.
 - Python compilation and `git diff --check`: PASS.
+- Additional execution-boundary follow-up: account preview PASS, daily ledger
+  PASS (including predecessor-keyed exit settlement), workflow artifact PASS,
+  source bundle `4/4`, paper transaction PASS, repository pytest `129/129`.
+  The first Tier-1 rerun passed `190/191`; the sole structural failure was
+  corrected by keeping the new decision-time input outside the four-field
+  fullrun approval block, after which `tests/smoke_test.py` passed `129/129`.
+  Exact-head GitHub CI is still required before merge.
 
 The tests used temporary fixtures. No durable paper account, public operating
 target, downloaded artifact, Drive archive, or existing untracked output was
