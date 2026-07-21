@@ -16,6 +16,7 @@ from tools.run_run287_scored_latest_refresh import (
     drop_stale_prediction_columns,
     max_price_date_from_metadata,
     merge_current_vintage,
+    lifecycle_download_start,
     normalize_price,
     parse_provider_symbol_overrides,
 )
@@ -95,6 +96,30 @@ class ScoredLatestRefreshSmoke(unittest.TestCase):
         self.assertEqual(float(merged.loc[last_trade, "Close"]), float(source.loc[last_trade, "Close"]))
         self.assertEqual(float(merged.loc[effective, "Close"]), float(provider.loc[effective, "Close"]))
         self.assertTrue(audit["lifecycle_cutover_applied"])
+
+    def test_old_lifecycle_cutover_requires_continuous_successor_history(self) -> None:
+        source = prices("2022-01-03", 800)
+        last_trade = source.index[-2]
+        effective = source.index[-1]
+        provider = prices(str((effective + pd.Timedelta(days=30)).date()), 10)
+        with self.assertRaisesRegex(ValueError, "successor_history_gap_after_cutover"):
+            merge_current_vintage(
+                source,
+                provider,
+                session_date=provider.index[-1],
+                provider_symbol_link={
+                    "last_trading_date": last_trade.date().isoformat(),
+                    "effective_date": effective.date().isoformat(),
+                },
+            )
+        self.assertEqual(
+            lifecycle_download_start(
+                "2026-01-02",
+                ["OLD"],
+                {"OLD": {"effective_date": effective.date().isoformat()}},
+            ),
+            effective.date().isoformat(),
+        )
 
     def test_scorer_requires_external_pre_lifecycle_count(self) -> None:
         source = (ROOT / "tools" / "run_run287_scored_latest_refresh.py").read_text(

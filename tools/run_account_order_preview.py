@@ -762,13 +762,14 @@ def run(
             )
         as_of = pd.Timestamp(as_of_text).normalize()
         decision_raw = str(getattr(args, "decision_time_utc", "") or "").strip()
-        if not decision_raw and "selector_decision_time_utc" in raw_target.columns:
+        target_decision_values: list[str] = []
+        if "selector_decision_time_utc" in raw_target.columns:
             decision_source = select_target_snapshot(
                 raw_target,
                 target_date=str(getattr(args, "target_date", "") or ""),
                 as_of_date=as_of,
             )
-            values = sorted(
+            target_decision_values = sorted(
                 {
                     str(value).strip()
                     for value in decision_source[
@@ -777,8 +778,21 @@ def run(
                     if str(value).strip()
                 }
             )
-            if len(values) == 1:
-                decision_raw = values[0]
+        if len(target_decision_values) > 1:
+            raise ValueError("selected target has ambiguous selector_decision_time_utc")
+        if decision_raw and target_decision_values:
+            explicit_decision = pd.to_datetime(decision_raw, errors="coerce", utc=True)
+            target_decision = pd.to_datetime(
+                target_decision_values[0], errors="coerce", utc=True
+            )
+            if (
+                pd.isna(explicit_decision)
+                or pd.isna(target_decision)
+                or pd.Timestamp(explicit_decision) != pd.Timestamp(target_decision)
+            ):
+                raise ValueError("lifecycle_decision_time_mismatch_with_selected_target")
+        elif not decision_raw and target_decision_values:
+            decision_raw = target_decision_values[0]
         decision_time = pd.to_datetime(decision_raw, errors="coerce", utc=True)
         if pd.isna(decision_time):
             raise ValueError(

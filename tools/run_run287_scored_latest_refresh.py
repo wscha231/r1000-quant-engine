@@ -202,6 +202,8 @@ def merge_current_vintage(
         ].copy()
         if successor.empty or session_date not in successor.index:
             raise ValueError("successor_exact_session_close_missing")
+        if successor.index.min() > pd.Timestamp(effective).normalize() + pd.Timedelta(days=7):
+            raise ValueError("successor_history_gap_after_cutover")
         predecessor = source_norm.loc[
             source_norm.index <= pd.Timestamp(last_trade).normalize()
         ].copy()
@@ -265,6 +267,21 @@ def merge_current_vintage(
         "prefix_adjustment_dispersion": dispersion,
         "merged_row_count": len(merged),
     }
+
+
+def lifecycle_download_start(
+    overlap_start: str,
+    tickers: list[str],
+    provider_symbol_links: Mapping[str, Mapping[str, Any]],
+) -> str:
+    """Start linked-symbol downloads at the earliest verified cutover."""
+    starts = [pd.Timestamp(overlap_start).normalize()]
+    for ticker in tickers:
+        link = provider_symbol_links.get(ticker) or {}
+        effective = pd.to_datetime(link.get("effective_date"), errors="coerce")
+        if not pd.isna(effective):
+            starts.append(pd.Timestamp(effective).normalize())
+    return min(starts).date().isoformat()
 
 
 def run_download_batches(
@@ -522,15 +539,34 @@ def build(
     downloader = download_fn or download_yfinance
     provider_frames: dict[str, pd.DataFrame] = {}
     batch_audits: list[dict[str, Any]] = []
-    current_frames, audits = run_download_batches(
-        existing,
-        start_date=args.overlap_start,
-        end_date_exclusive=end_exclusive,
-        batch_size=args.batch_size,
-        download_fn=downloader,
-    )
-    provider_frames.update(current_frames)
-    batch_audits.extend(audits)
+    linked_existing = [
+        ticker for ticker in existing if ticker in lifecycle.provider_symbol_links
+    ]
+    regular_existing = [ticker for ticker in existing if ticker not in linked_existing]
+    if regular_existing:
+        current_frames, audits = run_download_batches(
+            regular_existing,
+            start_date=args.overlap_start,
+            end_date_exclusive=end_exclusive,
+            batch_size=args.batch_size,
+            download_fn=downloader,
+        )
+        provider_frames.update(current_frames)
+        batch_audits.extend(audits)
+    if linked_existing:
+        linked_frames, audits = run_download_batches(
+            linked_existing,
+            start_date=lifecycle_download_start(
+                args.overlap_start,
+                linked_existing,
+                lifecycle.provider_symbol_links,
+            ),
+            end_date_exclusive=end_exclusive,
+            batch_size=args.batch_size,
+            download_fn=downloader,
+        )
+        provider_frames.update(linked_frames)
+        batch_audits.extend(audits)
     if missing_source:
         history_frames, audits = run_download_batches(
             missing_source,

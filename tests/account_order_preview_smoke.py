@@ -405,8 +405,10 @@ def test_cli_and_operational_invocations_require_lifecycle_evidence() -> None:
         if "python tools/run_full_rebuild_sidecars.py" in line
     ]
     assert sidecar_invocations
-    assert all("--decision-time-utc" in line for line in sidecar_invocations)
     assert all("|| true" not in line for line in sidecar_invocations)
+    assert "SIDECAR_DECISION_ARGS" in quick_rescore
+    assert "--decision-time-utc" in quick_rescore
+    assert "predates lifecycle decision-time CLI" in quick_rescore
 
 
 def test_terminal_lifecycle_ticker_blocks_standalone_preview() -> None:
@@ -540,6 +542,9 @@ def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
         assert payload["status"] == "completed"
         assert payload["as_of_date"] == "2026-01-06"
         assert payload["lifecycle_decision_time_utc"] == "2026-01-06T21:00:00+00:00"
+        args.decision_time_utc = "2026-01-05T21:00:00Z"
+        with raises_value_error("lifecycle_decision_time_mismatch_with_selected_target"):
+            run(args)
 
 
 def test_target_date_uses_the_same_older_snapshot_decision_time() -> None:

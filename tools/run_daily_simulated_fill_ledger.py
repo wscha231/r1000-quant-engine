@@ -74,6 +74,7 @@ from tools.reserve_asset_policy import (  # noqa: E402
 PORTFOLIOS = ("main", "concentrated")
 GENESIS_HASH = "0" * 64
 EVENT_HASH_FIELDS = {"event_hash"}
+OPTIONAL_EVENT_FIELDS = {"execution_ticker"}
 PENDING_COLUMNS = [
     "portfolio_kind",
     "signal_date",
@@ -797,7 +798,18 @@ def require_exact_session_closes(
 
 
 def event_payload_for_hash(row: dict[str, Any]) -> dict[str, Any]:
-    return {str(key): value for key, value in row.items() if key not in EVENT_HASH_FIELDS}
+    payload: dict[str, Any] = {}
+    for key, value in row.items():
+        if key in EVENT_HASH_FIELDS:
+            continue
+        if key in OPTIONAL_EVENT_FIELDS and (
+            value is None
+            or (isinstance(value, float) and np.isnan(value))
+            or str(value).strip() == ""
+        ):
+            continue
+        payload[str(key)] = value
+    return payload
 
 
 def combined_events(fills: pd.DataFrame, rejections: pd.DataFrame) -> list[dict[str, Any]]:
@@ -995,6 +1007,7 @@ def apply_lifecycle_actions(
             "date": as_of_date.date().isoformat(),
             "signal_date": clean_date(row.get("signal_date")),
             "ticker": ticker,
+            "execution_ticker": clean_ticker(row.get("execution_ticker")) or ticker,
             "side": str(row.get("side") or "").upper(),
             "requested_quantity": safe_float(row.get("quantity"), 0.0),
             "target_weight": safe_float(row.get("target_weight"), 0.0),
@@ -1130,6 +1143,8 @@ def resolve_pending_orders(
             "date": as_of_date.date().isoformat(),
             "signal_date": signal,
             "ticker": clean_ticker(row.get("ticker")),
+            "execution_ticker": clean_ticker(row.get("execution_ticker"))
+            or clean_ticker(row.get("ticker")),
             "side": str(row.get("side") or "").upper(),
             "requested_quantity": safe_float(row.get("quantity"), 0.0),
             "target_weight": safe_float(row.get("target_weight"), 0.0),
@@ -1180,6 +1195,8 @@ def resolve_pending_orders(
                 "date": fill_date.date().isoformat(),
                 "signal_date": clean_date(row.get("signal_date")),
                 "ticker": clean_ticker(row.get("ticker")),
+                "execution_ticker": clean_ticker(row.get("execution_ticker"))
+                or clean_ticker(row.get("ticker")),
                 "side": str(row.get("side") or "").upper(),
                 "requested_quantity": requested,
                 "target_weight": safe_float(row.get("target_weight"), 0.0),
@@ -1216,6 +1233,8 @@ def resolve_pending_orders(
             "date": fill_date.date().isoformat(),
             "signal_date": clean_date(row.get("signal_date")),
             "ticker": clean_ticker(row.get("ticker")),
+            "execution_ticker": clean_ticker(row.get("execution_ticker"))
+            or clean_ticker(row.get("ticker")),
             "side": str(row.get("side") or "").upper(),
             "quantity": filled_quantity,
             "requested_quantity": requested,

@@ -419,6 +419,7 @@ def test_post_cutover_exit_executes_against_predecessor_ledger_position() -> Non
             assert not account["positions"]
             fills = pd.read_csv(root / "paper" / portfolio / "fills.csv")
             assert set(fills["ticker"]) == {"OLD"}
+            assert set(fills["execution_ticker"]) == {"NEW"}
 
 
 def test_last_terminal_stock_materializes_explicit_all_cash_target() -> None:

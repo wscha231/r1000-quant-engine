@@ -3219,6 +3219,14 @@ Expected contract:
   forwards UTC decision time without masking sidecar failure, standalone
   preview fails closed before emitting terminal-ticker orders, and the smoke
   uses a stdlib assertion context manager.
+- A further exact-head review found four PIT/audit gaps: arbitrary older refs
+  could reject the new quick-rescore CLI flag, explicit decision time could
+  disagree with target metadata, resolved events lost the broker execution
+  ticker, and old cutovers downloaded only a recent successor overlap. The
+  workflow now feature-detects the flag, explicit/embedded timestamps must
+  match, event rows durably retain both ledger and execution symbols with
+  legacy hash compatibility, and lifecycle-linked successor history starts at
+  the verified cutover and fails closed on a material post-cutover gap.
 - Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
   Tier-1 validation passed `191/191` initially in `692.56s` and again on the
   reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`

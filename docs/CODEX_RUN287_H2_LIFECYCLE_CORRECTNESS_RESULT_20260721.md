@@ -84,6 +84,16 @@ The completed fixture set now also proves:
   preventing a last stale predecessor close from becoming a ready order;
 - script-style Tier-1 smoke coverage remains dependency-minimal and does not
   assume `pytest` is installed by `requirements_github.txt`;
+- quick rescore feature-detects the decision-time CLI so arbitrary older refs
+  remain callable, while current refs still receive the exact timestamp;
+- an explicit lifecycle decision timestamp must equal the selected target's
+  embedded selector timestamp when present;
+- resolved fills/rejections retain `execution_ticker` alongside the stable
+  predecessor ledger key; legacy event hashes remain verifiable when the new
+  optional field is absent;
+- lifecycle-linked provider downloads begin at the earliest verified effective
+  date, and a material gap after cutover blocks the scorer rather than feeding
+  discontinuous technical history;
 - restored absolute lifecycle paths may be rebound only through the exact
   repository-relative `data_static` tree and matching SHA-256;
 - standalone CLI preview invocations now load the canonical lifecycle file;
