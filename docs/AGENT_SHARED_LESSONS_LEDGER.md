@@ -3227,6 +3227,11 @@ Expected contract:
   match, event rows durably retain both ledger and execution symbols with
   legacy hash compatibility, and lifecycle-linked successor history starts at
   the verified cutover and fails closed on a material post-cutover gap.
+- The final date-ordering review found that a stale restored account date could
+  be paired with the latest target before lifecycle resolution. Preview now
+  infers valuation as-of from explicit input or available holding/target
+  prices first, reselects the target at that cutoff, and only then resolves the
+  matching decision-time lifecycle snapshot.
 - Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
   Tier-1 validation passed `191/191` initially in `692.56s` and again on the
   reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`

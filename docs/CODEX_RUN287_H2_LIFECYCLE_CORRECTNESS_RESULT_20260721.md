@@ -94,6 +94,9 @@ The completed fixture set now also proves:
 - lifecycle-linked provider downloads begin at the earliest verified effective
   date, and a material gap after cutover blocks the scorer rather than feeding
   discontinuous technical history;
+- preview valuation as-of is inferred before final target selection, then the
+  target is reselected at that cutoff before lifecycle decision evidence is
+  resolved; a stale account snapshot cannot be combined with future weights;
 - restored absolute lifecycle paths may be rebound only through the exact
   repository-relative `data_static` tree and matching SHA-256;
 - standalone CLI preview invocations now load the canonical lifecycle file;

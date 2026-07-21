@@ -491,11 +491,12 @@ def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
         out = root / "preview"
         cache.mkdir()
         _write_px(cache, "AAA", [100.0], start="2026-01-06")
+        _write_px(cache, "BBB", [110.0], start="2026-01-06")
         account_path = root / "account.json"
         account_path.write_text(
             json.dumps(
                 {
-                    "as_of_date": "2026-01-06",
+                    "as_of_date": "2026-01-02",
                     "cash_usd": 1000.0,
                     "positions": [],
                 }
@@ -513,7 +514,7 @@ def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
                 },
                 {
                     "rebalance_date": "2026-01-06",
-                    "ticker": "AAA",
+                    "ticker": "BBB",
                     "weight": 0.50,
                     "selector_decision_time_utc": "2026-01-06T21:00:00Z",
                 },
@@ -542,6 +543,8 @@ def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
         assert payload["status"] == "completed"
         assert payload["as_of_date"] == "2026-01-06"
         assert payload["lifecycle_decision_time_utc"] == "2026-01-06T21:00:00+00:00"
+        selected_target = pd.read_csv(out / "target_weights.csv")
+        assert selected_target["ticker"].tolist() == ["BBB"]
         args.decision_time_utc = "2026-01-05T21:00:00Z"
         with raises_value_error("lifecycle_decision_time_mismatch_with_selected_target"):
             run(args)

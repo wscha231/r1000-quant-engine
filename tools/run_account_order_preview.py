@@ -739,7 +739,23 @@ def run(
         return payload
     positions = load_positions(account)
     raw_target = read_csv(target_path)
-    target = normalize_target(raw_target, args.portfolio_kind, args.target_date)
+    provisional_target = normalize_target(
+        raw_target, args.portfolio_kind, args.target_date
+    )
+    as_of = infer_as_of_date(
+        explicit_as_of_date=args.as_of_date,
+        account_state=account,
+        positions=positions,
+        target=provisional_target,
+        price_cache=price_cache,
+        provider_symbol_overrides=provider_symbol_overrides,
+        provider_symbol_links=provider_symbol_links,
+    )
+    target = normalize_target(
+        raw_target,
+        args.portfolio_kind,
+        str(getattr(args, "target_date", "") or as_of.date().isoformat()),
+    )
     reserve_mode = str(getattr(args, "reserve_mode", "") or DEFAULT_CURRENT_PAPER_MODE)
     reserve_policy = resolve_reserve_asset_policy(reserve_mode, context="current_paper")
     reserve_mode_explicit = bool(str(getattr(args, "reserve_mode", "") or "").strip())
@@ -755,12 +771,6 @@ def run(
     lifecycle_decision_time_utc = ""
     lifecycle_terminal_tickers: frozenset[str] = frozenset()
     if lifecycle_value and provider_symbol_links is None:
-        as_of_text = str(getattr(args, "as_of_date", "") or account.get("as_of_date") or "")
-        if not as_of_text:
-            raise ValueError(
-                "--as-of-date or account as_of_date is required with --security-lifecycle-events"
-            )
-        as_of = pd.Timestamp(as_of_text).normalize()
         decision_raw = str(getattr(args, "decision_time_utc", "") or "").strip()
         target_decision_values: list[str] = []
         if "selector_decision_time_utc" in raw_target.columns:
@@ -812,16 +822,6 @@ def run(
                 raise ValueError(f"conflicting lifecycle provider symbol:{logical}")
         provider_symbol_links = lifecycle.provider_symbol_links
         lifecycle_terminal_tickers = lifecycle.terminal_tickers
-    else:
-        as_of = infer_as_of_date(
-            explicit_as_of_date=args.as_of_date,
-            account_state=account,
-            positions=positions,
-            target=target,
-            price_cache=price_cache,
-            provider_symbol_overrides=provider_symbol_overrides,
-            provider_symbol_links=provider_symbol_links,
-        )
     terminal_active = sorted(
         lifecycle_terminal_tickers
         & (
