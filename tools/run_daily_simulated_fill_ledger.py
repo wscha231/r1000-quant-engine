@@ -22,8 +22,10 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import shutil
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -93,11 +95,44 @@ PENDING_COLUMNS = [
     "pending_status",
     "created_at_utc",
 ]
+PREVIEW_ORDER_COLUMNS = [
+    "ticker",
+    "side",
+    "quantity",
+    "reference_price",
+    "limit_price",
+    "gross_value_usd",
+    "estimated_fee_usd",
+    "cash_impact_usd",
+    "current_shares",
+    "current_weight",
+    "target_weight",
+    "target_value_usd",
+    "current_value_usd",
+    "trade_value_delta_usd",
+    "order_type",
+    "time_in_force",
+    "reason",
+    "sell_taxonomy",
+    "sell_taxonomy_reason",
+    "status",
+    "estimated_cash_after_usd",
+    "client_order_id",
+    "idempotency_key",
+]
 
 
 def repo_path(path_like: str | Path) -> Path:
     path = Path(path_like)
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def portable_path(path_like: str | Path) -> str:
+    path = repo_path(path_like).resolve()
+    try:
+        return path.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -205,6 +240,222 @@ def target_effective_date(target_path: Path, as_of_date: pd.Timestamp) -> pd.Tim
     dates = pd.to_datetime(raw["rebalance_date"], errors="coerce").dropna().dt.normalize()
     eligible = dates[dates <= as_of_date]
     return pd.Timestamp(eligible.max()).normalize() if not eligible.empty else None
+
+
+def target_contract_dates(target_path: Path, as_of_date: pd.Timestamp) -> tuple[str | None, str | None]:
+    raw = read_csv(target_path)
+    if raw.empty:
+        return None, None
+    selected = raw.copy()
+    if "rebalance_date" in selected.columns:
+        dates = pd.to_datetime(selected["rebalance_date"], errors="coerce").dt.normalize()
+        eligible = dates[dates <= as_of_date]
+        if not eligible.empty:
+            selected = selected.loc[dates.eq(eligible.max())].copy()
+
+    def unique_date(column: str) -> str | None:
+        if column not in selected.columns:
+            return None
+        values = sorted({clean_date(value) for value in selected[column].tolist()} - {""})
+        if len(values) > 1:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PREVIEW_PARITY",
+                f"conflicting {column} values in target source",
+            )
+        return values[0] if values else None
+
+    effective = unique_date("target_effective_date")
+    if effective is None:
+        fallback = target_effective_date(target_path, as_of_date)
+        effective = fallback.date().isoformat() if fallback is not None else None
+    return effective, unique_date("order_eligible_close_date")
+
+
+def preview_identity(
+    *,
+    preview_dir: Path,
+    account_path: Path,
+    effective_target_path: Path,
+    source_target_path: Path,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+    preview_mode: str,
+) -> dict[str, Any]:
+    effective_date, source_eligible_close = target_contract_dates(source_target_path, as_of_date)
+    order_eligible_close = source_eligible_close if preview_mode == "EXECUTABLE_CANDIDATE" else None
+    identity = {
+        "preview_identity_schema_version": "run287-paper-preview-identity-v1",
+        "portfolio_kind": portfolio,
+        "preview_mode": preview_mode,
+        "as_of_date": as_of_date.date().isoformat(),
+        "target_effective_date": effective_date,
+        "order_eligible_close_date": order_eligible_close,
+        "order_eligible_close_rule": (
+            "EXACT_DATE_FROM_TARGET" if order_eligible_close else
+            "NO_NEW_ORDER" if preview_mode == "NO_NEW_ORDER" else
+            "FIRST_EXACT_SESSION_CLOSE_AFTER_SIGNAL_DATE"
+        ),
+        "source_order_eligible_close_date": source_eligible_close,
+        "accepted_account_sha256": file_hash(account_path),
+        "effective_target_sha256": file_hash(effective_target_path),
+        "source_target_sha256": file_hash(source_target_path),
+        "normalized_target_hash": target_hash(
+            normalized_target(effective_target_path, portfolio, as_of_date)
+        ),
+        "orders_preview_sha256": file_hash(preview_dir / "orders_preview.csv"),
+        "target_weights_sha256": file_hash(preview_dir / "target_weights.csv"),
+    }
+    identity["preview_identity_hash"] = canonical_hash(identity)
+    return identity
+
+
+def attest_preview_identity(
+    *,
+    preview_dir: Path,
+    account_path: Path,
+    effective_target_path: Path,
+    source_target_path: Path,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+    preview_mode: str,
+) -> dict[str, Any]:
+    identity = preview_identity(
+        preview_dir=preview_dir,
+        account_path=account_path,
+        effective_target_path=effective_target_path,
+        source_target_path=source_target_path,
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        preview_mode=preview_mode,
+    )
+    orders = read_csv(preview_dir / "orders_preview.csv")
+    client_ids = sorted(
+        str(value)
+        for value in orders.get("client_order_id", pd.Series(dtype=str)).fillna("").tolist()
+        if str(value)
+    )
+    manifest_path = preview_dir / "order_batch_manifest.json"
+    manifest = read_json(manifest_path)
+    manifest.update(identity)
+    manifest.update(
+        {
+            "schema_version": "account-ledger-preview-order-batch-v2",
+            "portfolio_kind": portfolio,
+            "order_count": int(len(orders)),
+            "ready_order_count": int(
+                orders.get("status", pd.Series(dtype=str)).astype(str).eq("ready").sum()
+            ) if not orders.empty else 0,
+            "client_order_ids": client_ids,
+            "new_order_generation_suppressed": preview_mode == "NO_NEW_ORDER",
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+        }
+    )
+    if not manifest.get("order_batch_id"):
+        manifest["order_batch_id"] = canonical_hash(
+            {"preview_identity_hash": identity["preview_identity_hash"], "client_order_ids": client_ids}
+        )
+    write_json(manifest_path, manifest)
+
+    metrics_path = preview_dir / "preview_metrics.json"
+    metrics = read_json(metrics_path)
+    metrics.update(identity)
+    metrics.update(
+        {
+            "status": "completed",
+            "schema_version": "account-ledger-preview-v2",
+            "portfolio_kind": portfolio,
+            "order_batch_id": manifest["order_batch_id"],
+            "order_count": int(len(orders)),
+            "ready_order_count": int(manifest["ready_order_count"]),
+            "new_order_generation_suppressed": preview_mode == "NO_NEW_ORDER",
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+        }
+    )
+    write_json(metrics_path, metrics)
+    return identity
+
+
+def write_no_new_order_preview(
+    *,
+    preview_dir: Path,
+    account_path: Path,
+    effective_target_path: Path,
+    source_target_path: Path,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+) -> dict[str, Any]:
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    target = normalized_target(effective_target_path, portfolio, as_of_date)
+    write_csv(preview_dir / "target_weights.csv", target, ["ticker", "target_weight"])
+    write_csv(preview_dir / "orders_preview.csv", pd.DataFrame(), PREVIEW_ORDER_COLUMNS)
+    write_json(preview_dir / "order_batch_manifest.json", {})
+    write_json(
+        preview_dir / "preview_metrics.json",
+        {
+            "preview_semantics": "explicit_no_new_order",
+            "blocked_order_count": 0,
+            "buy_count": 0,
+            "sell_count": 0,
+        },
+    )
+    identity = attest_preview_identity(
+        preview_dir=preview_dir,
+        account_path=account_path,
+        effective_target_path=effective_target_path,
+        source_target_path=source_target_path,
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        preview_mode="NO_NEW_ORDER",
+    )
+    (preview_dir / "preview_report.md").write_text(
+        "# NO_NEW_ORDER preview\n\nNo executable order was generated for this suppressed mark-only pass.\n",
+        encoding="utf-8",
+    )
+    return identity
+
+
+def preview_parity_errors(
+    *,
+    preview_dir: Path,
+    account_path: Path,
+    effective_target_path: Path,
+    source_target_path: Path,
+    portfolio: str,
+    as_of_date: pd.Timestamp,
+    preview_mode: str,
+) -> list[str]:
+    required = (
+        "preview_metrics.json",
+        "order_batch_manifest.json",
+        "orders_preview.csv",
+        "target_weights.csv",
+    )
+    missing = [name for name in required if not (preview_dir / name).is_file()]
+    if missing:
+        return [f"missing:{name}" for name in missing]
+    expected = preview_identity(
+        preview_dir=preview_dir,
+        account_path=account_path,
+        effective_target_path=effective_target_path,
+        source_target_path=source_target_path,
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        preview_mode=preview_mode,
+    )
+    manifest = read_json(preview_dir / "order_batch_manifest.json")
+    metrics = read_json(preview_dir / "preview_metrics.json")
+    errors: list[str] = []
+    for key, value in expected.items():
+        if manifest.get(key) != value:
+            errors.append(f"manifest:{key}")
+        if metrics.get(key) != value:
+            errors.append(f"metrics:{key}")
+    orders = read_csv(preview_dir / "orders_preview.csv")
+    if preview_mode == "NO_NEW_ORDER" and not orders.empty:
+        errors.append("no_new_order_has_executable_rows")
+    return sorted(set(errors))
 
 
 def materialize_lifecycle_adjusted_target(
@@ -1232,11 +1483,15 @@ def load_reusable_same_session_manifest(
     allow_suppressed_to_target_transition = bool(
         target_changed and prior_suppressed and not suppress_new_orders
     )
+    allow_target_to_suppressed_reuse = bool(
+        not target_changed and not prior_suppressed and suppress_new_orders
+    )
     if not allow_suppressed_to_target_transition:
         require(not target_changed, "target_identity")
     require(str(manifest.get("seed_account_sha256") or "") == file_hash(bootstrap_path), "seed_account_sha256")
     if not allow_suppressed_to_target_transition:
         require(manifest.get("target_effective_date") == effective_text, "target_effective_date")
+    if not allow_suppressed_to_target_transition and not allow_target_to_suppressed_reuse:
         require(
             manifest.get("new_order_generation_suppressed") is suppress_new_orders,
             "new_order_generation_suppressed",
@@ -1336,6 +1591,7 @@ def load_reusable_same_session_manifest(
             "enqueued_this_run": 0,
             "same_session_reused": True,
             "same_session_reuse_reason": "verified_first_exact_mark_preserved",
+            "same_session_mark_only_reuse": allow_target_to_suppressed_reuse,
         }
     )
     return reused
@@ -1510,16 +1766,26 @@ def run_portfolio(
     )
     if reusable is not None:
         preview_dir = preview_root / portfolio
-        required_preview_files = (
-            "preview_metrics.json",
-            "order_batch_manifest.json",
-            "orders_preview.csv",
-            "target_weights.csv",
+        expected_mode = "NO_NEW_ORDER" if suppress_new_orders else "EXECUTABLE_CANDIDATE"
+        parity_errors = preview_parity_errors(
+            preview_dir=preview_dir,
+            account_path=portfolio_dir / "account_state_latest.json",
+            effective_target_path=target_path,
+            source_target_path=source_target_path,
+            portfolio=portfolio,
+            as_of_date=as_of_date,
+            preview_mode=expected_mode,
         )
-        missing_preview_files = [
-            name for name in required_preview_files if not (preview_dir / name).is_file()
-        ]
-        if missing_preview_files and not suppress_new_orders:
+        if suppress_new_orders:
+            write_no_new_order_preview(
+                preview_dir=preview_dir,
+                account_path=portfolio_dir / "account_state_latest.json",
+                effective_target_path=target_path,
+                source_target_path=source_target_path,
+                portfolio=portfolio,
+                as_of_date=as_of_date,
+            )
+        elif parity_errors:
             preview = build_order_preview(
                 account_path=portfolio_dir / "account_state_latest.json",
                 target_path=target_path,
@@ -1536,9 +1802,37 @@ def run_portfolio(
                     f"same-session paper account preview failed for {portfolio}: "
                     f"{preview.get('reason')}"
                 )
-        reusable["same_session_preview_rebuilt"] = bool(missing_preview_files)
-        reusable["same_session_preview_missing_before_rebuild"] = missing_preview_files
-        reusable["result_status"] = "PREVIEW_REBUILT" if missing_preview_files else "SAME_SESSION_REUSE"
+            attest_preview_identity(
+                preview_dir=preview_dir,
+                account_path=portfolio_dir / "account_state_latest.json",
+                effective_target_path=target_path,
+                source_target_path=source_target_path,
+                portfolio=portfolio,
+                as_of_date=as_of_date,
+                preview_mode="EXECUTABLE_CANDIDATE",
+            )
+        remaining_errors = preview_parity_errors(
+            preview_dir=preview_dir,
+            account_path=portfolio_dir / "account_state_latest.json",
+            effective_target_path=target_path,
+            source_target_path=source_target_path,
+            portfolio=portfolio,
+            as_of_date=as_of_date,
+            preview_mode=expected_mode,
+        )
+        if remaining_errors:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PREVIEW_PARITY",
+                f"{portfolio}:{','.join(remaining_errors)}",
+            )
+        preview_changed = bool(parity_errors) or suppress_new_orders
+        reusable["same_session_preview_rebuilt"] = preview_changed
+        reusable["same_session_preview_parity_errors_before_rebuild"] = parity_errors
+        reusable["result_status"] = (
+            "NO_NEW_ORDER_PREVIEW" if suppress_new_orders else
+            "PREVIEW_REBUILT" if preview_changed else
+            "SAME_SESSION_REUSE"
+        )
         return reusable
     account, state, seeded = load_or_seed_account(
         portfolio_dir=portfolio_dir,
@@ -1664,6 +1958,39 @@ def run_portfolio(
         )
     marked_account["pending_order_count"] = int(len(pending))
     write_json(account_path, marked_account)
+    if suppress_new_orders:
+        write_no_new_order_preview(
+            preview_dir=preview_dir,
+            account_path=account_path,
+            effective_target_path=target_path,
+            source_target_path=source_target_path,
+            portfolio=portfolio,
+            as_of_date=as_of_date,
+        )
+    else:
+        attest_preview_identity(
+            preview_dir=preview_dir,
+            account_path=account_path,
+            effective_target_path=target_path,
+            source_target_path=source_target_path,
+            portfolio=portfolio,
+            as_of_date=as_of_date,
+            preview_mode="EXECUTABLE_CANDIDATE",
+        )
+    parity_errors = preview_parity_errors(
+        preview_dir=preview_dir,
+        account_path=account_path,
+        effective_target_path=target_path,
+        source_target_path=source_target_path,
+        portfolio=portfolio,
+        as_of_date=as_of_date,
+        preview_mode="NO_NEW_ORDER" if suppress_new_orders else "EXECUTABLE_CANDIDATE",
+    )
+    if parity_errors:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_PREVIEW_PARITY",
+            f"{portfolio}:{','.join(parity_errors)}",
+        )
     curve = update_equity_curve(
         path=portfolio_dir / "equity_curve.csv",
         account=marked_account,
@@ -1732,6 +2059,91 @@ def run_portfolio(
     return manifest
 
 
+def stage_file_copy(source: Path, destination: Path) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    handle, name = tempfile.mkstemp(
+        prefix=f".{destination.name}.candidate-",
+        dir=destination.parent,
+    )
+    os.close(handle)
+    candidate = Path(name)
+    shutil.copy2(source, candidate)
+    return candidate
+
+
+def accepted_publication_payload(
+    *,
+    stage_state: Path,
+    stage_preview: Path,
+    target_paths: dict[str, Path],
+    publish_paths: dict[str, Path],
+    as_of_date: pd.Timestamp,
+    suppress_new_orders: bool,
+) -> dict[str, Any]:
+    portfolios: dict[str, Any] = {}
+    for portfolio in PORTFOLIOS:
+        source = target_paths[portfolio]
+        published = publish_paths.get(portfolio, source)
+        preview_manifest = read_json(stage_preview / portfolio / "order_batch_manifest.json")
+        portfolios[portfolio] = {
+            "source_target_path": portable_path(source),
+            "source_target_sha256": file_hash(source),
+            "published_target_path": portable_path(published),
+            "published_target_sha256": file_hash(source),
+            "account_state_sha256": file_hash(stage_state / portfolio / "account_state_latest.json"),
+            "ledger_manifest_sha256": file_hash(stage_state / portfolio / "manifest.json"),
+            "preview_identity_at_acceptance": preview_manifest.get("preview_identity_hash"),
+            "preview_mode_at_acceptance": preview_manifest.get("preview_mode"),
+        }
+    return {
+        "schema_version": "run287-paper-accepted-publication-v1",
+        "status": "ACCEPTED_ATOMIC_PUBLICATION",
+        "as_of_date": as_of_date.date().isoformat(),
+        "transaction_mode": "MARK_ONLY" if suppress_new_orders else "SELECTED_TARGET",
+        "portfolios": portfolios,
+        "review_only": True,
+        "live_trading_enabled": False,
+        "production_mutation_allowed": False,
+    }
+
+
+def verify_accepted_publication(
+    state_root: Path,
+    preview_root: Path,
+) -> dict[str, Any]:
+    payload = read_json(state_root / "accepted_publication.json")
+    if payload.get("status") != "ACCEPTED_ATOMIC_PUBLICATION":
+        raise PaperLedgerIntegrityError("BLOCKED_PUBLICATION_PARITY", "accepted publication manifest missing")
+    for portfolio in PORTFOLIOS:
+        row = (payload.get("portfolios") or {}).get(portfolio) or {}
+        published_path = Path(str(row.get("published_target_path") or ""))
+        if not published_path.is_absolute():
+            published_path = repo_path(published_path)
+        checks = {
+            "published_target_sha256": file_hash(published_path),
+            "account_state_sha256": file_hash(state_root / portfolio / "account_state_latest.json"),
+            "ledger_manifest_sha256": file_hash(state_root / portfolio / "manifest.json"),
+        }
+        for field, actual in checks.items():
+            if not actual or str(row.get(field) or "") != actual:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_PUBLICATION_PARITY",
+                    f"{portfolio}:{field}",
+                )
+        preview_manifest = read_json(preview_root / portfolio / "order_batch_manifest.json")
+        if str(preview_manifest.get("accepted_account_sha256") or "") != checks["account_state_sha256"]:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PREVIEW_PARITY",
+                f"{portfolio}:accepted_account_sha256",
+            )
+        if str(preview_manifest.get("source_target_sha256") or "") != str(row.get("source_target_sha256") or ""):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PREVIEW_PARITY",
+                f"{portfolio}:source_target_sha256",
+            )
+    return payload
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     state_root = repo_path(args.state_dir)
     price_cache = repo_path(args.price_cache)
@@ -1749,18 +2161,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     state_root.parent.mkdir(parents=True, exist_ok=True)
     preview_root.parent.mkdir(parents=True, exist_ok=True)
     journal_path = state_root.parent / f".{state_root.name}.transaction.json"
+    preview_journal_path = preview_root.parent / f".{preview_root.name}.preview-transaction.json"
+    recover_interrupted_publish(preview_journal_path)
     recover_interrupted_publish(journal_path)
     prior_integrity = (
         verify_integrity_manifest(state_root, require=True)
         if (state_root / INTEGRITY_FILE).is_file()
         else {"status": "LEGACY_UNATTESTED", "snapshot_hash": ""}
     )
-    stage_state = clone_directory(state_root, state_root.parent, f".{state_root.name}.candidate-")
-    stage_preview = clone_directory(preview_root, preview_root.parent, f".{preview_root.name}.candidate-")
     bootstrap_paths = {
         portfolio: repo_path(getattr(args, f"{portfolio}_bootstrap_account")) for portfolio in PORTFOLIOS
     }
     target_paths = {portfolio: repo_path(getattr(args, f"{portfolio}_target")) for portfolio in PORTFOLIOS}
+    publish_values = {
+        portfolio: str(getattr(args, f"{portfolio}_publish_target", "") or "").strip()
+        for portfolio in PORTFOLIOS
+    }
+    if any(publish_values.values()) and not all(publish_values.values()):
+        raise ValueError("both --main-publish-target and --concentrated-publish-target are required")
+    publish_paths = {
+        portfolio: repo_path(value) for portfolio, value in publish_values.items() if value
+    }
+    stage_state = clone_directory(state_root, state_root.parent, f".{state_root.name}.candidate-")
+    stage_preview = clone_directory(preview_root, preview_root.parent, f".{preview_root.name}.candidate-")
+    staged_publication_files: list[Path] = []
     failpoint = str(getattr(args, "transaction_failpoint", "") or "")
     try:
         active_tickers: set[str] = set()
@@ -1830,10 +2254,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         preview_rebuilt_count = sum(
             1 for payload in results.values() if payload.get("same_session_preview_rebuilt") is True
         )
+        no_new_order_count = sum(
+            1 for payload in results.values() if payload.get("result_status") == "NO_NEW_ORDER_PREVIEW"
+        )
         summary = {
             "schema_version": "daily-simulated-fill-ledger-summary-v1",
             "status": "completed",
             "result_status": (
+                "NO_NEW_ORDER_PREVIEW" if no_new_order_count == len(PORTFOLIOS) else
                 "PREVIEW_REBUILT" if preview_rebuilt_count else
                 "SAME_SESSION_REUSE" if same_session_count == len(PORTFOLIOS) else
                 "GENESIS" if all(payload.get("result_status") == "GENESIS" for payload in results.values()) else
@@ -1851,33 +2279,69 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "historical_cagr_mdd_replacement_allowed": False,
             "same_session_reused_portfolio_count": same_session_count,
             "same_session_preview_rebuilt_portfolio_count": preview_rebuilt_count,
+            "no_new_order_preview_portfolio_count": no_new_order_count,
             "new_order_generation_suppressed": suppress_new_orders,
             "generated_at_utc": utc_now(),
         }
-        if same_session_count == len(PORTFOLIOS):
+        legacy_attestation_required = bool(
+            same_session_count == len(PORTFOLIOS)
+            and prior_integrity.get("status") == "LEGACY_UNATTESTED"
+        )
+        if legacy_attestation_required:
+            summary["result_status"] = "LEGACY_ATTESTED"
+            summary["legacy_snapshot_semantically_validated"] = True
+        if same_session_count == len(PORTFOLIOS) and not legacy_attestation_required:
+            for portfolio, destination in publish_paths.items():
+                if file_hash(destination) != file_hash(target_paths[portfolio]):
+                    raise PaperLedgerIntegrityError(
+                        "BLOCKED_PUBLICATION_PARITY",
+                        f"same-session published target mismatch:{portfolio}",
+                    )
             # The committed ledger, including its root summary and checksum,
             # remains byte-identical.  Missing review-only previews may be
             # reconstructed independently from the frozen account mark.
             if directory_hashes(stage_preview) != directory_hashes(preview_root):
-                preview_journal = preview_root.parent / f".{preview_root.name}.preview-transaction.json"
                 atomic_publish_bundle(
                     [(stage_preview, preview_root)],
-                    journal_path=preview_journal,
+                    journal_path=preview_journal_path,
                     failpoint=failpoint,
                 )
             return summary
 
         write_json(stage_state / "summary.json", summary)
+        write_json(
+            stage_state / "accepted_publication.json",
+            accepted_publication_payload(
+                stage_state=stage_state,
+                stage_preview=stage_preview,
+                target_paths=target_paths,
+                publish_paths=publish_paths,
+                as_of_date=as_of_date,
+                suppress_new_orders=suppress_new_orders,
+            ),
+        )
         write_integrity_manifest(
             stage_state,
             as_of_date=as_of_date.date().isoformat(),
             previous_snapshot_hash=str(prior_integrity.get("snapshot_hash") or ""),
         )
         verify_integrity_manifest(stage_state, require=True)
+        publish_pairs: list[tuple[Path, Path]] = [
+            (stage_preview, preview_root),
+            (stage_state, state_root),
+        ]
+        for portfolio in PORTFOLIOS:
+            if portfolio in publish_paths:
+                candidate = stage_file_copy(target_paths[portfolio], publish_paths[portfolio])
+                staged_publication_files.append(candidate)
+                publish_pairs.append((candidate, publish_paths[portfolio]))
         atomic_publish_bundle(
-            [(stage_preview, preview_root), (stage_state, state_root)],
+            publish_pairs,
             journal_path=journal_path,
-            validators=[lambda: verify_integrity_manifest(state_root, require=True)],
+            validators=[
+                lambda: verify_integrity_manifest(state_root, require=True),
+                lambda: verify_accepted_publication(state_root, preview_root),
+            ],
             failpoint=failpoint,
         )
         return summary
@@ -1885,6 +2349,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for candidate in (stage_state, stage_preview):
             if candidate.is_dir():
                 shutil.rmtree(candidate)
+        for candidate in staged_publication_files:
+            if candidate.exists():
+                candidate.unlink()
 
 
 def parse_args() -> argparse.Namespace:
@@ -1896,6 +2363,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concentrated-bootstrap-account", default="outputs/broker_replay/concentrated/account_state_latest.json")
     parser.add_argument("--main-target", default="outputs/reports/operating_main_target_book.csv")
     parser.add_argument("--concentrated-target", default="outputs/reports/operating_concentrated_target_book.csv")
+    parser.add_argument("--main-publish-target", default="")
+    parser.add_argument("--concentrated-publish-target", default="")
     parser.add_argument("--as-of-date", required=True)
     parser.add_argument("--decision-time-utc", required=True)
     parser.add_argument(

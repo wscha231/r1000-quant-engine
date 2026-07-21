@@ -563,6 +563,7 @@ jobs:
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_promotion_gate.log
 
       - name: Build operating review outputs
+        id: operating_review
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
@@ -639,8 +640,6 @@ jobs:
             --output-dir "$SAME_CLOSE_DIR" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_same_close_target_books.log; then
             SAME_CLOSE_READY=yes
-            cp "$SAME_CLOSE_DIR/same_close_main_target_book.csv" outputs/reports/operating_main_target_book.csv
-            cp "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" outputs/reports/operating_concentrated_target_book.csv
             # A second same-session transaction is permitted only after the
             # suppressed mark and only when the target identity changed.  It
             # enqueues review-only orders eligible for the next NYSE close.
@@ -652,6 +651,8 @@ jobs:
               --concentrated-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
               --main-target "$SAME_CLOSE_DIR/same_close_main_target_book.csv" \
               --concentrated-target "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" \
+              --main-publish-target outputs/reports/operating_main_target_book.csv \
+              --concentrated-publish-target outputs/reports/operating_concentrated_target_book.csv \
               --as-of-date "$PAPER_AS_OF" \
               --decision-time-utc "$RISK_AVAILABLE_FROM" \
               --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv \
@@ -755,7 +756,7 @@ jobs:
             --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
             2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log || true
 
-      - name: Upload daily operating artifact
+      - name: Upload daily operating evidence artifact
         if: always() && steps.market.outputs.ready == 'yes'
         uses: actions/upload-artifact@v4
         with:
@@ -766,19 +767,13 @@ jobs:
             outputs/daily_market_session_gate/
             outputs/daily_operating_selection_refresh/
             outputs/data_readiness/
-            outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
-            outputs/operating_snapshot/
-            outputs/user_current/
-            outputs/user_portfolio_reports/
-            outputs/account_ledger_preview/
-            outputs/daily_simulated_fill_ledger/
             outputs/holding_risk_watch/
             outputs/run287_exact_packet_upstream/
             outputs/run287_exact_packet_input_sources/
             outputs/run287_exact_packet_input_registry/
             outputs/run287_exact_packet_producer/
-            outputs/run287_same_close_decision/
+            outputs/run287_same_close_decision/*/status.json
             outputs/run287_current_selector_no_write_exact_close_*/
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_decision_observation_archive/
@@ -817,6 +812,22 @@ jobs:
             --require-integrity \
             --output outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
 
+      - name: Upload accepted paper transaction artifact
+        if: success() && steps.market.outputs.ready == 'yes' && steps.operating_review.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: accepted-paper-transaction-${{ github.run_id }}
+          path: |
+            outputs/reports/operating_*_target_book.csv
+            outputs/operating_snapshot/
+            outputs/user_current/
+            outputs/user_portfolio_reports/
+            outputs/account_ledger_preview/
+            outputs/daily_simulated_fill_ledger/
+            outputs/run287_same_close_decision/
+            outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+          retention-days: 45
+
       - name: Save validated forward paper state cache
         if: success() && steps.market.outputs.ready == 'yes'
         uses: actions/cache/save@v4
@@ -850,7 +861,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -858,6 +869,33 @@ jobs:
           if [ -s cache_prices/replay_price_cache_manifest.json ]; then
             rclone copyto cache_prices/replay_price_cache_manifest.json "$DEST/cache_prices/replay_price_cache_manifest.json" || true
           fi
+
+      - name: Sync accepted paper transaction to Google Drive
+        if: success() && steps.market.outputs.ready == 'yes' && steps.operating_review.outcome == 'success'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
+            echo "[gdrive] not configured; accepted paper transaction remains in GitHub artifact/cache"
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
+          DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
+          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision; do
+            test -d "$d"
+            rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          done
+          for f in outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv; do
+            test -s "$f"
+            rclone copyto "$f" "$DEST/$f"
+          done
 
       - name: Persist validated forward paper ledger state
         if: success() && steps.market.outputs.ready == 'yes'
