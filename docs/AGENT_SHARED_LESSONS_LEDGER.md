@@ -3257,3 +3257,22 @@ Expected contract:
   `docs/CODEX_RUN287_H2_LIFECYCLE_CORRECTNESS_RESULT_20260721.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-07-22 - Issue #315 H3 risk and Reserve correctness
+
+- Legacy crisis aliases now terminate at explicit input adapters; downstream
+  consumers operate on canonical states only.
+- Missing and unknown crisis states are fail-closed `DEGRADED_DATA`, source
+  stale flags are parsed strictly, and re-entry cannot regress without a new
+  worsening risk state.
+- Residual cash is explicit, Reserve reasons carry a stable source hash through
+  target/preview/ledger/account, and conflicts fail closed.
+- Position metrics now split total, equity, and Reserve counts. Explicit
+  tradeable Reserve replays remain research-only and invalid for production.
+- Integrated broker replay is clamped to the stock evidence end date.
+- Focused H3 tests, repository pytest (`129/129`), and full Tier-1 validation
+  (`191/191`, `452.77s`) passed.
+- Evidence:
+  `docs/CODEX_RUN287_H3_RISK_RESERVE_CORRECTNESS_RESULT_20260722.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.

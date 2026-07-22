@@ -20,6 +20,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_account_order_preview import normalize_target, run as run_order_preview  # noqa: E402
+from tools.run287_crisis_policy import adapt_crisis_state  # noqa: E402
+from tools.reserve_asset_policy import RESERVE_REASONS  # noqa: E402
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -72,8 +74,12 @@ def action_plan(monitor: dict[str, Any]) -> dict[str, Any]:
         if a.get("action_type") == "trim_position" and str(a.get("ticker") or "").strip()
     }
     return {
-        "state": monitor.get("state"),
-        "raw_state": monitor.get("raw_state"),
+        "state": adapt_crisis_state(
+            monitor.get("state"), monitor.get("reentry_stage")
+        ),
+        "raw_state": adapt_crisis_state(
+            monitor.get("raw_state"), monitor.get("reentry_stage")
+        ),
         "auto_trade_allowed": bool(monitor.get("auto_trade_allowed")),
         "paper_actions_only": bool(monitor.get("paper_actions_only", True)),
         "actions": actions,
@@ -117,6 +123,20 @@ def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any
         out.loc[existing_cash, "target_weight"] = max(float(out.loc[existing_cash, "target_weight"].sum()), cash_weight)
     elif cash_weight > 0:
         out = pd.concat([out, pd.DataFrame([{"ticker": "CASH", "target_weight": cash_weight}])], ignore_index=True)
+    for reason in RESERVE_REASONS:
+        if reason not in out.columns:
+            out[reason] = 0.0
+        out[reason] = pd.to_numeric(out[reason], errors="coerce").fillna(0.0)
+    cash_rows = out.index[out["ticker"].eq("CASH")].tolist()
+    reserve_weight = float(out.loc[out["ticker"].eq("CASH"), "target_weight"].sum())
+    reason_weight = float(sum(out[reason].sum() for reason in RESERVE_REASONS))
+    unlabeled_reserve = reserve_weight - reason_weight
+    if unlabeled_reserve < -1e-10:
+        raise ValueError("paper crisis target Reserve reasons exceed Reserve weight")
+    if unlabeled_reserve > 1e-10:
+        if not cash_rows:
+            raise ValueError("paper crisis target has no explicit CASH row")
+        out.loc[cash_rows[0], "crisis_reserve"] += unlabeled_reserve
     out["bridge_reason"] = ",".join(plan.get("action_types") or [])
     return out.sort_values("target_weight", ascending=False).reset_index(drop=True)
 

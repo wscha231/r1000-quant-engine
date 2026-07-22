@@ -2,6 +2,7 @@
 """Smoke checks for the canonical ReserveAssetPolicy."""
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -19,10 +20,12 @@ from tools.reserve_asset_policy import (  # noqa: E402
     DEFAULT_HISTORICAL_MODE,
     DGS3MO_CARRY,
     RESERVE_REASONS,
+    RESERVE_REASON_SOURCE_HASH_FIELD,
     SGOV_TOTAL_RETURN,
     account_reserve_reason_reconciliation,
     apply_reserve_asset_to_targets,
     assert_no_double_count,
+    ensure_explicit_cash_row,
     reserve_history_status,
     reserve_reason_reconciliation,
     resolve_reserve_asset_policy,
@@ -77,11 +80,27 @@ def test_modes_and_reason_reconciliation() -> None:
     assert abs(account_audit["reason_weight_sum"] - 0.405) < 1e-12
     assert account_audit["reason_weights"]["crisis_reserve"] > 0
     assert account_audit["reason_weights"]["capacity_unallocated"] > 0
+    assert account_audit[RESERVE_REASON_SOURCE_HASH_FIELD] == audit[
+        RESERVE_REASON_SOURCE_HASH_FIELD
+    ]
+    target[RESERVE_REASON_SOURCE_HASH_FIELD] = audit[
+        RESERVE_REASON_SOURCE_HASH_FIELD
+    ]
+    assert reserve_reason_reconciliation(
+        target, policy=broker, weight_col="weight"
+    )[RESERVE_REASON_SOURCE_HASH_FIELD] == audit[RESERVE_REASON_SOURCE_HASH_FIELD]
+    implicit = ensure_explicit_cash_row(
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.60}]),
+        weight_col="weight",
+    )
+    assert set(implicit["ticker"]) == {"AAA", "CASH"}
+    assert abs(float(implicit["weight"].sum()) - 1.0) < 1e-12
     bil = resolve_reserve_asset_policy(BIL_TOTAL_RETURN)
     transformed, rows = apply_reserve_asset_to_targets(target, policy=bil, weight_col="weight")
     assert set(transformed["ticker"]) == {"AAA", "BIL"}
     assert float(transformed.loc[transformed["ticker"].eq("AAA"), "weight"].iloc[0]) == 0.60
     assert bool(rows["reconciled"].all())
+    assert transformed[RESERVE_REASON_SOURCE_HASH_FIELD].nunique() == 1
 
 
 def test_history_and_double_count_gate() -> None:
@@ -139,6 +158,21 @@ def test_bil_trades_like_a_security_and_sgov_blocks_short_history() -> None:
         assert bil["reserve_cash_interest_enabled"] is False
         assert bil["reserve_distribution_separately_credited"] is False
         assert bil["reserve_trade_count"] >= 1
+        assert bil["valid_for_production"] is False
+        assert bil["research_only"] is True
+        assert bil["production_activation_allowed"] is False
+        bil_account = json.loads(
+            (bil_out / "account_state_latest.json").read_text(encoding="utf-8")
+        )
+        assert bil_account["position_count_total"] == (
+            bil_account["equity_position_count"]
+            + bil_account["reserve_position_count"]
+        )
+        assert bil_account["position_count"] == bil_account["equity_position_count"]
+        assert bil_account["reserve_position_count"] == 1
+        assert bil_account[RESERVE_REASON_SOURCE_HASH_FIELD] == bil[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ]
         trades = pd.read_csv(bil_out / "trades.csv")
         assert "BIL" in set(trades["ticker"])
         curve = pd.read_csv(bil_out / "equity_curve.csv")

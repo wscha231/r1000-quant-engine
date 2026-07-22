@@ -46,6 +46,7 @@ from tools.concentrated_score_sizing_reweight import (  # noqa: E402
     reweight_concentrated_records,
 )
 from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS, replay as broker_replay  # noqa: E402
+from tools.run287_crisis_policy import adapt_crisis_state, canonical_state  # noqa: E402
 from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
     CRISIS_HYSTERESIS,
     CRISIS_SETTINGS,
@@ -180,7 +181,7 @@ CONCENTRATED_VARIANTS = (3, 5)
 DEFAULT_MAIN_TARGET_N = 15
 DEFAULT_CONCENTRATED_TARGET_N = 5
 CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP = 0.20
-CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE_REVIEW"}
+CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE"}
 CONCENTRATED_HOLD_DECAY_CAP = 0.04
 LEADERSHIP_PERSISTENCE_HOLD_MIN_PRIOR_WEIGHT = 0.02
 LEADERSHIP_PERSISTENCE_HOLD_MIN_GAP = 0.22
@@ -244,11 +245,11 @@ NEUTRAL_METALS_NEW_ENTRY_BLOCK_STYLE_REGIME = "quality_compounder"
 MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_LANE = "QUALITY_COMPOUNDER"
 MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_STYLE = "turnaround_accumulation"
 MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_REGIME = "neutral"
-MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_CRISIS = "DEFENSE_REVIEW"
+MAIN_DEFENSE_REVIEW_TURNAROUND_NEW_ENTRY_BLOCK_CRISIS = "DEFENSE"
 MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_LANE = "QUALITY_COMPOUNDER"
 MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_STYLE = "balanced"
 MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_REGIME = "neutral"
-MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_CRISIS = "DEFENSE_REVIEW"
+MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_CRISIS = "DEFENSE"
 MAIN_DEFENSE_REVIEW_BALANCED_NEW_ENTRY_BLOCK_BREAKOUT_THRESHOLD = 0.50
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_MIN_WEIGHT = 0.04
 CONCENTRATED_GREEN_BENCHMARK_RISK_CYCLICAL_NEW_ENTRY_BLOCK_BENCHMARK_RISK_THRESHOLD = 0.70
@@ -823,26 +824,31 @@ def replacement_gap_for_weakest(
 
 def crisis_state_for_date(crisis_states: pd.DataFrame, dt: pd.Timestamp) -> dict[str, Any]:
     if crisis_states.empty or "date" not in crisis_states.columns:
-        return {"crisis_state": "GREEN", "crisis_overlay_status": "missing"}
+        return {"crisis_state": "DEGRADED_DATA", "crisis_overlay_status": "missing"}
     d = crisis_states.copy()
     d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
     eligible = d[d["date"].le(dt.normalize())]
     if eligible.empty:
-        return {"crisis_state": "GREEN", "crisis_overlay_status": "before_first_state"}
+        return {"crisis_state": "DEGRADED_DATA", "crisis_overlay_status": "before_first_state"}
     row = eligible.sort_values("date").iloc[-1].to_dict()
+    row["crisis_state"] = adapt_crisis_state(
+        row.get("crisis_state"), row.get("reentry_stage")
+    )
     row["crisis_overlay_status"] = "applied"
     return row
 
 
 def crisis_cash_target(state: str, portfolio_kind: str) -> float:
-    base = float(CRISIS_SETTINGS.get(state, CRISIS_SETTINGS["GREEN"]).get("cash", 0.03))
-    if portfolio_kind == "concentrated" and state == "CRISIS_DEFENSE":
+    state = canonical_state(state)
+    base = float(CRISIS_SETTINGS[state].get("cash", 0.03))
+    if portfolio_kind == "concentrated" and state == "CRISIS":
         return max(base, 0.35)
     return min(max(base, 0.0), 0.50)
 
 
 def crisis_new_buy_allowed(rec: dict[str, Any], state: str) -> tuple[bool, str]:
-    setting = CRISIS_SETTINGS.get(state, CRISIS_SETTINGS["GREEN"])
+    state = canonical_state(state)
+    setting = CRISIS_SETTINGS[state]
     lane = str(rec.get("primary_lane") or "MARKET_LEADER")
     allowed_by_lane = setting.get("new_buy_allowed", {})
     allowed = bool(allowed_by_lane.get(lane, True))
@@ -854,7 +860,9 @@ def crisis_new_buy_allowed(rec: dict[str, Any], state: str) -> tuple[bool, str]:
 def apply_crisis_lane_policy(month: pd.DataFrame, crisis_row: dict[str, Any], portfolio_kind: str) -> pd.DataFrame:
     if month.empty:
         return month
-    state = str(crisis_row.get("crisis_state") or "GREEN")
+    state = adapt_crisis_state(
+        crisis_row.get("crisis_state"), crisis_row.get("reentry_stage")
+    )
     d = month.copy()
     multipliers: list[float] = []
     cut_scores: list[float] = []
@@ -1899,7 +1907,7 @@ def apply_concentrated_defense_neutral_quality_new_entry_cap(
             ticker not in CASH_TICKERS
             and lane == "QUALITY_COMPOUNDER"
             and is_new_entry
-            and crisis_state == "DEFENSE_REVIEW"
+            and crisis_state == "DEFENSE"
             and capacity_regime == "neutral"
             and weight > CONCENTRATED_DEFENSE_NEUTRAL_QUALITY_NEW_ENTRY_CAP
         ):
@@ -2070,7 +2078,7 @@ def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, v
         "decision_frequency": "monthly_replay_plus_crisis_hysteresis",
         "production_policy": "alphaops_vnext_production",
         "selection_reason": str(rec.get("selection_reason") or rec.get("primary_lane") or "alphaops_vnext_score"),
-        "crisis_state": str(crisis_row.get("crisis_state") or "GREEN"),
+        "crisis_state": canonical_state(crisis_row.get("crisis_state")),
         "crisis_overlay_status": str(crisis_row.get("crisis_overlay_status") or "applied"),
         "crisis_hysteresis_minimum_action_gap_days": CRISIS_HYSTERESIS["minimum_action_gap_days"],
         "current_holdings_source": "alphaops_vnext_policy_target_book",
@@ -2214,7 +2222,9 @@ def build_variant_book(
                     "hold_replace_required_gap_reason": gap_reason,
                     "leadership_persistence_hold_applied": bool(persistence_applied),
                 })
-        cash_target = crisis_cash_target(str(crisis_row.get("crisis_state") or "GREEN"), portfolio_kind)
+        cash_target = crisis_cash_target(
+            canonical_state(crisis_row.get("crisis_state")), portfolio_kind
+        )
         weighted = assign_weights(selected, portfolio_kind, cash_target)
         weighted = apply_vnext_benchmark_guard(
             weighted,
@@ -2271,7 +2281,7 @@ def build_variant_book(
                     "operating_target_source": "alphaops_vnext_policy_replay",
                     "production_policy": "alphaops_vnext_production",
                     "selection_reason": "cash_from_crisis_overlay_or_position_caps",
-                    "crisis_state": str(crisis_row.get("crisis_state") or "GREEN"),
+                    "crisis_state": canonical_state(crisis_row.get("crisis_state")),
                     "crisis_overlay_status": str(crisis_row.get("crisis_overlay_status") or "applied"),
                     "current_holdings_source": "alphaops_vnext_policy_target_book",
                 }

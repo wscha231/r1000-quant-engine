@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools import build_run287_same_close_target_books as gate  # noqa: E402
+from tools.reserve_asset_policy import RESERVE_REASON_SOURCE_HASH_FIELD  # noqa: E402
 
 
 DATE = "2026-07-16"
@@ -225,6 +226,9 @@ def test_ready_deterministic_risk_intersection_and_cost_contract() -> None:
         conc_path = Path(first["outputs"]["concentrated_target_book"]["path"])
         main = pd.read_csv(main_path)
         conc = pd.read_csv(conc_path)
+        assert main[RESERVE_REASON_SOURCE_HASH_FIELD].nunique() == 1
+        assert len(str(main[RESERVE_REASON_SOURCE_HASH_FIELD].iloc[0])) == 64
+        assert conc[RESERVE_REASON_SOURCE_HASH_FIELD].nunique() == 1
         assert abs(float(main.loc[main["ticker"].eq("OLD"), "weight"].iloc[0]) - 0.50) < 1e-12
         assert abs(float(main.loc[main["ticker"].eq("CASH"), "weight"].iloc[0]) - 0.20) < 1e-12
         assert "RISKY" not in set(conc["ticker"])

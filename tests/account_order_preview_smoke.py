@@ -626,7 +626,8 @@ def test_cli_lifecycle_uses_selected_target_decision_time() -> None:
         assert payload["as_of_date"] == "2026-01-06"
         assert payload["lifecycle_decision_time_utc"] == "2026-01-06T21:00:00+00:00"
         selected_target = pd.read_csv(out / "target_weights.csv")
-        assert selected_target["ticker"].tolist() == ["BBB"]
+        assert set(selected_target["ticker"]) == {"BBB", "CASH"}
+        assert abs(float(selected_target["target_weight"].sum()) - 1.0) < 1e-12
         args.decision_time_utc = "2026-01-05T21:00:00Z"
         with raises_value_error("lifecycle_decision_time_mismatch_with_selected_target"):
             run(args)

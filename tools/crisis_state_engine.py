@@ -18,8 +18,8 @@ from tools.run287_crisis_policy import (
     CANONICAL_STATES,
     FUTURE_LABEL_COLUMNS,
     STATE_RANK,
+    adapt_crisis_state,
     availability_records,
-    canonical_state,
     component_availability,
     strip_future_labels,
     stronger_state as canonical_stronger_state,
@@ -235,11 +235,11 @@ def apply_hysteresis(
     values: dict[str, Any] | pd.Series | None = None,
     availability: list[Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    prev = str(history.get("state") or "GREEN")
+    prev = adapt_crisis_state(history.get("state") or "GREEN")
     streak_state = str(history.get("raw_state") or "")
     streak = int(safe_float(history.get("raw_state_streak"), 0))
-    canonical_raw = canonical_state(raw_state)
-    canonical_streak_state = canonical_state(streak_state) if streak_state else ""
+    canonical_raw = adapt_crisis_state(raw_state)
+    canonical_streak_state = adapt_crisis_state(streak_state) if streak_state else ""
     streak = streak + 1 if canonical_raw == canonical_streak_state else 1
     observed = dict(values) if values is not None else {}
     component_rows = availability or component_availability(observed)

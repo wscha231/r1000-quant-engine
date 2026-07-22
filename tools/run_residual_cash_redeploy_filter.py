@@ -15,8 +15,8 @@ This filter recovers that drag WITHOUT touching crisis defense:
     each name's single-name / sub-industry / theme cap. Iterates until the
     residual is gone or no name has room. Rebuilds the CASH row.
 
-  * DEFENSE dates (crisis_state in {DEFENSE_REVIEW, CRISIS_DEFENSE, DEFENSE,
-    CRISIS}): LEFT UNTOUCHED. The crisis governor raised that cash on purpose;
+  * DEFENSE dates (crisis_state in {DEFENSE, CRISIS, DEGRADED_DATA}): LEFT
+    UNTOUCHED. The crisis governor raised that cash on purpose;
     redeploying it would defeat the preemptive MDD defense. This is the
     non-negotiable guard that keeps "minimal cash in normal times" from
     colliding with "raise cash before a crisis".
@@ -50,9 +50,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.run287_crisis_policy import adapt_crisis_state  # noqa: E402
+
 CASH_TICKERS = {"CASH", "__CASH__"}
 # Any of these (case-insensitive) marks a date whose cash must NOT be redeployed.
-DEFENSE_STATES = {"DEFENSE_REVIEW", "CRISIS_DEFENSE", "DEFENSE", "CRISIS", "PANIC", "FEAR"}
+DEFENSE_STATES = {"DEFENSE", "CRISIS", "DEGRADED_DATA"}
 
 SUB_KEYS = ("leader_subindustry", "subindustry", "sub_industry", "industry_group", "industry", "sector")
 THEME_KEYS = ("leader_broad_theme", "theme_phase_primary", "theme", "sector")
@@ -94,7 +96,7 @@ def _row_cap(row: pd.Series, col: str, default: float) -> float:
 
 
 def is_defense_date(crisis_state: Any) -> bool:
-    return str(crisis_state or "").strip().upper() in DEFENSE_STATES
+    return adapt_crisis_state(crisis_state) in DEFENSE_STATES
 
 
 def redeploy_date(

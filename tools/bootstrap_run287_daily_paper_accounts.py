@@ -35,6 +35,7 @@ from tools.run_broker_ledger_replay import CASH_TICKERS  # noqa: E402
 from tools.reserve_asset_policy import (  # noqa: E402
     DEFAULT_CURRENT_PAPER_MODE,
     RESERVE_REASONS,
+    RESERVE_REASON_SOURCE_HASH_FIELD,
     account_reserve_reason_reconciliation,
     reserve_reason_reconciliation,
     resolve_reserve_asset_policy,
@@ -267,6 +268,9 @@ def build_account(
         "cash_weight": cash / starting_capital,
         "stock_value_usd": stock_value,
         "position_count": len(positions),
+        "position_count_total": len(positions),
+        "equity_position_count": len(positions),
+        "reserve_position_count": 0,
         "fill_mode": "next_close",
         "cost_bps_per_side": float(cost_bps),
         "integer_shares": True,
@@ -277,6 +281,9 @@ def build_account(
         "reserve_weight": cash / starting_capital,
         "target_reserve_reason_reconciliation": target_reserve_reconciliation,
         "reserve_reason_reconciliation": reserve_reconciliation,
+        RESERVE_REASON_SOURCE_HASH_FIELD: reserve_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
         **{
             reason: float(reserve_reconciliation["reason_weights"][reason])
             for reason in RESERVE_REASONS
@@ -308,6 +315,12 @@ def build_account(
         "actual_stock_weight": stock_value / starting_capital,
         "actual_cash_weight": cash / starting_capital,
         "position_count": len(positions),
+        "position_count_total": len(positions),
+        "equity_position_count": len(positions),
+        "reserve_position_count": 0,
+        RESERVE_REASON_SOURCE_HASH_FIELD: reserve_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
         "price_file_sha256": price_hashes,
     }
     return account, evidence

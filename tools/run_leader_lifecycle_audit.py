@@ -319,7 +319,7 @@ def premature_sell_excess(trades: pd.DataFrame) -> dict[str, Any]:
 
 
 def reentry_capture(round_trips: pd.DataFrame, daily_crisis: pd.DataFrame) -> dict[str, Any]:
-    """Of names exited during a CRISIS_DEFENSE / DEFENSE_REVIEW window, what
+    """Of names exited during a canonical CRISIS / DEFENSE window, what
     fraction did we re-acquire within ~63 calendar days after crisis clears?
 
     Crisis clears = first row whose crisis_state goes back to GREEN/WATCH
@@ -334,8 +334,11 @@ def reentry_capture(round_trips: pd.DataFrame, daily_crisis: pd.DataFrame) -> di
     df = daily_crisis.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"]).sort_values("date")
-    DEFENSE = {"CRISIS_DEFENSE", "DEFENSE_REVIEW"}
-    df["is_defense"] = df["crisis_state"].astype(str).str.upper().isin(DEFENSE)
+    from tools.run287_crisis_policy import adapt_crisis_state
+
+    df["crisis_state"] = df["crisis_state"].map(adapt_crisis_state)
+    defense_states = {"CRISIS", "DEFENSE", "DEGRADED_DATA"}
+    df["is_defense"] = df["crisis_state"].isin(defense_states)
 
     # Find defense windows: contiguous True runs.
     windows: list[tuple[pd.Timestamp, pd.Timestamp]] = []

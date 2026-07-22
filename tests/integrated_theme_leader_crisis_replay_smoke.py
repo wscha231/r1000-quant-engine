@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.run_broker_ledger_replay import target_period_ends  # noqa: E402
 from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
     apply_crisis_overlay,
     build_multi_lane_book,
@@ -197,10 +198,44 @@ def test_lane_aware_defense_cuts_risk_lanes_and_reentry_limits_cash_trap() -> No
     assert weights["CYCL"] < weights["QUAL"]
     assert weights["DUAL"] >= weights["EMRG"]
     assert adjusted.loc[adjusted["ticker"].eq("CASH"), "weight"].iloc[0] <= 0.65
+    assert set(non_cash["crisis_state"]) == {"CRISIS"}
 
     reentry_states = pd.DataFrame([{"date": "2025-03-31", "crisis_state": "REENTRY_READY", "reentry_stage": "REENTRY_STAGE_1", "price_trigger": "risk_on"}])
     reentry_adjusted, _actions, _cash, _reentry = apply_crisis_overlay(target, pd.DataFrame(), reentry_states, "H", "concentrated")
     assert reentry_adjusted.loc[reentry_adjusted["ticker"].eq("CASH"), "weight"].iloc[0] <= 0.35
+    assert set(reentry_adjusted["crisis_state"]) == {"REENTRY_STAGE_1"}
+
+    unknown_states = pd.DataFrame(
+        [{"date": "2025-03-31", "crisis_state": "MYSTERY_STATE"}]
+    )
+    unknown_adjusted, _actions, _cash, _reentry = apply_crisis_overlay(
+        target, pd.DataFrame(), unknown_states, "H", "concentrated"
+    )
+    assert set(unknown_adjusted["crisis_state"]) == {"DEGRADED_DATA"}
+
+    missing_adjusted, _actions, _cash, _reentry = apply_crisis_overlay(
+        target, pd.DataFrame(), pd.DataFrame(), "H", "concentrated"
+    )
+    assert set(missing_adjusted["crisis_state"]) == {"DEGRADED_DATA"}
+
+
+def test_broker_replay_periods_clamp_to_stock_evidence_end() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        write_price(cache, "AAA", 100.0, 0.001)
+        targets = pd.DataFrame(
+            [
+                {"rebalance_date": pd.Timestamp("2025-03-31"), "ticker": "AAA"},
+                {"rebalance_date": pd.Timestamp("2025-06-30"), "ticker": "AAA"},
+            ]
+        )
+        periods = target_period_ends(
+            targets,
+            cache,
+            evidence_end_date="2025-06-30",
+        )
+        assert periods[pd.Timestamp("2025-06-30")] == pd.Timestamp("2025-06-30")
+        assert max(periods.values()) <= pd.Timestamp("2025-06-30")
 
 
 def test_integrated_replay_generates_default_8_case_contract() -> None:
@@ -342,6 +377,7 @@ def main() -> int:
     test_cash_trap_days_numeric_and_production_default_static_not_failure()
     test_all_green_missing_data_is_invalid_crisis_input()
     test_lane_aware_defense_cuts_risk_lanes_and_reentry_limits_cash_trap()
+    test_broker_replay_periods_clamp_to_stock_evidence_end()
     print("integrated_theme_leader_crisis_replay_smoke: PASS")
     return 0
 
