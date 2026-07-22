@@ -3166,3 +3166,94 @@ Expected contract:
   `docs/CODEX_RUN287_G0_H1_TRANSACTION_HARDENING_RESULT_20260721.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-07-21 - Issue #315 H2 security-lifecycle correctness
+
+- Unified the scorer, exact-packet evidence, paper ledger, and order preview on
+  one point-in-time lifecycle contract. Verified predecessor prices apply
+  through `last_trading_date`; successor prices apply only after that date.
+- Fixture-first tests reproduced four real defects: a pre-terminal eligible
+  fill was skipped, a ticker change marked `80` instead of successor `120`,
+  final-stock removal left `CASH=0.5`, and lifecycle-hash-free same-session
+  reuse was accepted.
+- Pending fills now resolve before terminal settlement, subject to the terminal
+  last-trade cutoff. Remaining ineligible orders are then cancelled by the
+  lifecycle action.
+- Terminal proceeds remain fail-closed. Non-USD proceeds now use the dedicated
+  status `BLOCKED_NON_USD_LIFECYCLE_PROCEEDS`; no unverified FX assumption is
+  made.
+- Removing the last eligible stock materializes explicit `CASH=1.0`.
+- Same-session reuse and exact source bundles require lifecycle source and
+  snapshot hashes; changed source bytes invalidate reuse.
+- Replaced the fixed 989-name assumption with the dynamic invariant
+  `pre_lifecycle = excluded + post_lifecycle`, anchored to the independent
+  upstream plan's expected pre-lifecycle count. Missing remains neutral and no
+  PIT-membership or survivorship-clean claim is added.
+- PR review found five valid gaps: scorer cutover was not wired, empty targets
+  could become `CASH=1.0`, preview could cross the cutover on fallback, the
+  dynamic count was not externally anchored, and proceeds were absent from the
+  snapshot hash. All five received regression fixtures and fail-closed fixes.
+- Exact-head re-review found one additional valid cutover gap: an existing but
+  stale successor cache could still return a prior successor quote. Successor
+  rows are now filtered to the effective-date side of the boundary and the
+  preview requires the exact requested successor session close.
+- Final exact-head review found four more valid integration gaps: future-only
+  successor caches could fall back to account basis, preview orders retained
+  the untradeable predecessor ticker, restored `data_static` lifecycle paths
+  were not portable, and standalone CLI preview calls did not load lifecycle
+  links. All four now fail closed or use the verified successor, with focused
+  regression fixtures and workflow invocation coverage.
+- A subsequent exact-head review found four further execution-boundary gaps:
+  successor-symbol sells could miss predecessor-keyed ledger positions,
+  legacy sidecar previews supplied lifecycle evidence without an exact
+  decision timestamp and hid failure behind `|| true`, `--target-date` could
+  use a later snapshot's decision timestamp, and a canonicalized successor
+  target could bypass exact-close enforcement. Preview orders now carry both
+  execution and ledger tickers, pending fills retain both identities, manual
+  workflows require an explicit UTC decision time and fail loud, snapshot
+  selection is shared, and target pricing follows the audited logical link.
+- The next exact-head review found three caller/safety gaps: Phase A/B quick
+  rescore did not pass the now-required decision timestamp, standalone preview
+  ignored verified terminal lifecycle tickers, and the script-style smoke had
+  gained a CI-unavailable `pytest` import. Quick rescore now requires and
+  forwards UTC decision time without masking sidecar failure, standalone
+  preview fails closed before emitting terminal-ticker orders, and the smoke
+  uses a stdlib assertion context manager.
+- A further exact-head review found four PIT/audit gaps: arbitrary older refs
+  could reject the new quick-rescore CLI flag, explicit decision time could
+  disagree with target metadata, resolved events lost the broker execution
+  ticker, and old cutovers downloaded only a recent successor overlap. The
+  workflow now feature-detects the flag, explicit/embedded timestamps must
+  match, event rows durably retain both ledger and execution symbols with
+  legacy hash compatibility, and lifecycle-linked successor history starts at
+  the verified cutover and fails closed on a material post-cutover gap.
+- The final date-ordering review found that a stale restored account date could
+  be paired with the latest target before lifecycle resolution. Preview now
+  infers valuation as-of from explicit input or available holding/target
+  prices first, reselects the target at that cutoff, and only then resolves the
+  matching decision-time lifecycle snapshot.
+- The next exact-head review exposed the remaining circular edge: resolving
+  lifecycle only after as-of inference meant a predecessor cache ending on the
+  last-trading date could hide an exact successor close and pull standalone
+  preview backward. Preview now derives a requested session floor solely from
+  account/selected-target/decision evidence, resolves verified lifecycle links
+  before price inference, and re-resolves at the final cutoff. The dedicated
+  regression and repository pytest passed (`129/129`).
+- Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
+  Tier-1 validation passed `191/191` initially in `692.56s` and again on the
+  reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`
+  in `499.92s`, and final CLI/symbol/archive integration passed `191/191` in
+  `464.10s`.
+- The four execution-boundary regression fixtures passed, repository pytest
+  remained `129/129`, and the first local Tier-1 rerun passed `190/191`; its
+  sole failure was the existing structural test counting the four fullrun
+  approval inputs after the new non-approval decision-time input was inserted
+  inside that block. Moving the input to the normal execution-input section
+  restored the structural suite to `129/129`; exact-head CI remains required.
+- Official historical evidence remains Main `34.4032% / -25.3629%` and
+  Concentrated `49.0968% / -22.9560%`, through 2026-07-10. This is not a July
+  17/20 performance refresh.
+- Evidence:
+  `docs/CODEX_RUN287_H2_LIFECYCLE_CORRECTNESS_RESULT_20260721.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.

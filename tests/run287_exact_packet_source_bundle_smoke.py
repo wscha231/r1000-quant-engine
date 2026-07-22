@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -63,17 +64,29 @@ def fixture(root: Path) -> tuple[Path, dict[str, Path]]:
                 "sha256": sha256_file(output),
             }
         manifest = directory / "manifest.json"
-        write_json(
-            manifest,
-            {
-                "status": status,
-                date_field: DATE,
-                "fullrun_executed": False,
-                "backtest_executed": False,
-                "target_books_mutated": False,
-                "outputs": outputs,
-            },
-        )
+        payload = {
+            "status": status,
+            date_field: DATE,
+            "fullrun_executed": False,
+            "backtest_executed": False,
+            "target_books_mutated": False,
+            "outputs": outputs,
+        }
+        if label == "price_manifest":
+            lifecycle = directory / "security_lifecycle_events.csv"
+            lifecycle.write_text("stable_event_id\n", encoding="utf-8")
+            lifecycle_hash = sha256_file(lifecycle)
+            payload["security_lifecycle"] = {
+                "source_sha256": lifecycle_hash,
+                "snapshot_hash": "a" * 64,
+            }
+            payload["source_inputs"] = {
+                "security_lifecycle_events": {
+                    "path": str(lifecycle),
+                    "sha256": lifecycle_hash,
+                }
+            }
+        write_json(manifest, payload)
         records[label] = manifest
     fixed_hashes = {}
     for label in FIXED:
@@ -99,6 +112,85 @@ def fixture(root: Path) -> tuple[Path, dict[str, Path]]:
 
 
 class SourceBundleSmoke(unittest.TestCase):
+    def test_restored_lifecycle_path_resolves_under_data_static(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            contract, records = fixture(root)
+            current_repo = root / "current_repo"
+            lifecycle = (
+                current_repo
+                / "data_static"
+                / "run287_exact_packet"
+                / "security_lifecycle_events.csv"
+            )
+            lifecycle.parent.mkdir(parents=True)
+            lifecycle.write_text("stable_event_id\n", encoding="utf-8")
+            lifecycle_hash = sha256_file(lifecycle)
+            price = json.loads(records["price_manifest"].read_text(encoding="utf-8"))
+            price["security_lifecycle"] = {
+                "source_sha256": lifecycle_hash,
+                "snapshot_hash": "a" * 64,
+            }
+            price["source_inputs"]["security_lifecycle_events"] = {
+                "path": str(
+                    root
+                    / "archived_checkout"
+                    / "data_static"
+                    / "run287_exact_packet"
+                    / "security_lifecycle_events.csv"
+                ),
+                "sha256": lifecycle_hash,
+            }
+            write_json(records["price_manifest"], price)
+            with patch(
+                "tools.run_run287_exact_packet_producer.REPO_ROOT", current_repo
+            ):
+                ready = build_from_records(
+                    valuation_date=DATE,
+                    input_records=records,
+                    producer_contract=contract,
+                    output_dir=root / "bundle",
+                )
+            self.assertEqual(ready["status"], READY_STATUS, ready)
+
+    def test_missing_lifecycle_identity_blocks_exact_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            contract, records = fixture(root)
+            price = json.loads(records["price_manifest"].read_text(encoding="utf-8"))
+            price["security_lifecycle"].pop("snapshot_hash")
+            write_json(records["price_manifest"], price)
+            blocked = build_from_records(
+                valuation_date=DATE,
+                input_records=records,
+                producer_contract=contract,
+                output_dir=root / "bundle",
+            )
+            self.assertEqual(blocked["status"], BLOCKED_STATUS)
+            self.assertIn(
+                "price_manifest_lifecycle_snapshot_hash",
+                blocked["contract_failures"],
+            )
+
+    def test_changed_lifecycle_source_blocks_exact_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            contract, records = fixture(root)
+            price = json.loads(records["price_manifest"].read_text(encoding="utf-8"))
+            lifecycle = Path(price["source_inputs"]["security_lifecycle_events"]["path"])
+            lifecycle.write_text("stable_event_id\nchanged\n", encoding="utf-8")
+            blocked = build_from_records(
+                valuation_date=DATE,
+                input_records=records,
+                producer_contract=contract,
+                output_dir=root / "bundle",
+            )
+            self.assertEqual(blocked["status"], BLOCKED_STATUS)
+            self.assertIn(
+                "price_manifest_lifecycle_source_file",
+                blocked["contract_failures"],
+            )
+
     def test_ready_exact_reuse_missing_and_changed_date_collision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -173,6 +173,7 @@ def merge_current_vintage(
     provider: pd.DataFrame,
     *,
     session_date: pd.Timestamp,
+    provider_symbol_link: Mapping[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Overlay current provider rows and adjust only the older source prefix."""
 
@@ -185,6 +186,40 @@ def merge_current_vintage(
         raise ValueError("provider_exact_session_close_missing")
 
     source_norm = normalize_price(source) if source is not None and not source.empty else pd.DataFrame()
+    if provider_symbol_link:
+        last_trade = pd.to_datetime(
+            provider_symbol_link.get("last_trading_date"), errors="coerce"
+        )
+        effective = pd.to_datetime(
+            provider_symbol_link.get("effective_date"), errors="coerce"
+        )
+        if pd.isna(last_trade) or pd.isna(effective) or last_trade >= effective:
+            raise ValueError("provider_symbol_link_cutover_invalid")
+        if source_norm.empty or pd.Timestamp(last_trade).normalize() not in source_norm.index:
+            raise ValueError("predecessor_last_trading_close_missing")
+        successor = provider_norm.loc[
+            provider_norm.index >= pd.Timestamp(effective).normalize()
+        ].copy()
+        if successor.empty or session_date not in successor.index:
+            raise ValueError("successor_exact_session_close_missing")
+        if successor.index.min() > pd.Timestamp(effective).normalize() + pd.Timedelta(days=7):
+            raise ValueError("successor_history_gap_after_cutover")
+        predecessor = source_norm.loc[
+            source_norm.index <= pd.Timestamp(last_trade).normalize()
+        ].copy()
+        merged = pd.concat([predecessor, successor], axis=0).sort_index()
+        merged = merged.loc[~merged.index.duplicated(keep="last")]
+        return merged, {
+            "source_present": True,
+            "source_latest_date": source_norm.index.max().date().isoformat(),
+            "provider_start_date": successor.index.min().date().isoformat(),
+            "provider_overlap_row_count": 0,
+            "prefix_adjustment_factor": 1.0,
+            "merged_row_count": len(merged),
+            "lifecycle_cutover_applied": True,
+            "predecessor_last_trading_date": pd.Timestamp(last_trade).date().isoformat(),
+            "successor_effective_date": pd.Timestamp(effective).date().isoformat(),
+        }
     if source_norm.empty:
         if len(provider_norm) < 756:
             raise ValueError(f"provider_history_under_756_sessions:{len(provider_norm)}")
@@ -232,6 +267,21 @@ def merge_current_vintage(
         "prefix_adjustment_dispersion": dispersion,
         "merged_row_count": len(merged),
     }
+
+
+def lifecycle_download_start(
+    overlap_start: str,
+    tickers: list[str],
+    provider_symbol_links: Mapping[str, Mapping[str, Any]],
+) -> str:
+    """Start linked-symbol downloads at the earliest verified cutover."""
+    starts = [pd.Timestamp(overlap_start).normalize()]
+    for ticker in tickers:
+        link = provider_symbol_links.get(ticker) or {}
+        effective = pd.to_datetime(link.get("effective_date"), errors="coerce")
+        if not pd.isna(effective):
+            starts.append(pd.Timestamp(effective).normalize())
+    return min(starts).date().isoformat()
 
 
 def run_download_batches(
@@ -427,12 +477,18 @@ def build(
     prior_stack = pd.read_csv(prior_stack_path, low_memory=False)
     prior_stack["ticker"] = prior_stack["ticker"].map(normalize_ticker)
     base_ticker_list = base["ticker"].tolist()
+    if base.empty or base["ticker"].duplicated().any() or not all(base_ticker_list):
+        raise ValueError("base_context_dynamic_unique_ticker_contract_failed")
+    pre_lifecycle_context_count = len(base_ticker_list)
+    expected_pre_lifecycle_context_count = int(args.expected_pre_lifecycle_context_count)
     if (
-        len(base) != 989
-        or base["ticker"].duplicated().any()
-        or not all(base_ticker_list)
+        expected_pre_lifecycle_context_count <= 0
+        or pre_lifecycle_context_count != expected_pre_lifecycle_context_count
     ):
-        raise ValueError("base_context_989_unique_ticker_contract_failed")
+        raise ValueError(
+            "base_context_external_count_contract_failed:"
+            f"{pre_lifecycle_context_count}!={expected_pre_lifecycle_context_count}"
+        )
     lifecycle_path = (
         repo_path(args.security_lifecycle_events)
         if str(args.security_lifecycle_events or "").strip()
@@ -456,6 +512,13 @@ def build(
     tickers = base["ticker"].tolist()
     if not tickers:
         raise ValueError("security_lifecycle_excluded_entire_context")
+    lifecycle_excluded_tickers = sorted(set(base_ticker_list) - set(tickers))
+    post_lifecycle_context_count = len(tickers)
+    if (
+        pre_lifecycle_context_count
+        != len(lifecycle_excluded_tickers) + post_lifecycle_context_count
+    ):
+        raise ValueError("security_lifecycle_dynamic_count_contract_failed")
     universe_tickers = {normalize_ticker(value) for value in universe["ticker"]}
     excluded = sorted((universe_tickers - set(tickers)) - {""})
 
@@ -476,15 +539,34 @@ def build(
     downloader = download_fn or download_yfinance
     provider_frames: dict[str, pd.DataFrame] = {}
     batch_audits: list[dict[str, Any]] = []
-    current_frames, audits = run_download_batches(
-        existing,
-        start_date=args.overlap_start,
-        end_date_exclusive=end_exclusive,
-        batch_size=args.batch_size,
-        download_fn=downloader,
-    )
-    provider_frames.update(current_frames)
-    batch_audits.extend(audits)
+    linked_existing = [
+        ticker for ticker in existing if ticker in lifecycle.provider_symbol_links
+    ]
+    regular_existing = [ticker for ticker in existing if ticker not in linked_existing]
+    if regular_existing:
+        current_frames, audits = run_download_batches(
+            regular_existing,
+            start_date=args.overlap_start,
+            end_date_exclusive=end_exclusive,
+            batch_size=args.batch_size,
+            download_fn=downloader,
+        )
+        provider_frames.update(current_frames)
+        batch_audits.extend(audits)
+    if linked_existing:
+        linked_frames, audits = run_download_batches(
+            linked_existing,
+            start_date=lifecycle_download_start(
+                args.overlap_start,
+                linked_existing,
+                lifecycle.provider_symbol_links,
+            ),
+            end_date_exclusive=end_exclusive,
+            batch_size=args.batch_size,
+            download_fn=downloader,
+        )
+        provider_frames.update(linked_frames)
+        batch_audits.extend(audits)
     if missing_source:
         history_frames, audits = run_download_batches(
             missing_source,
@@ -548,7 +630,10 @@ def build(
         try:
             source = pd.read_parquet(source_path) if source_path.is_file() else pd.DataFrame()
             merged, audit = merge_current_vintage(
-                source, provider, session_date=session
+                source,
+                provider,
+                session_date=session,
+                provider_symbol_link=lifecycle.provider_symbol_links.get(ticker),
             )
             technical = compute_daily_tech_table(merged)
             technical.index = pd.to_datetime(technical.index).normalize()
@@ -706,10 +791,16 @@ def build(
         "provider_symbol_overrides": dict(PROVIDER_SYMBOL_OVERRIDES),
         "coverage": {
             "universe_count": len(universe),
-            "base_context_count": 989,
+            "base_context_count": pre_lifecycle_context_count,
+            "expected_pre_lifecycle_context_count": expected_pre_lifecycle_context_count,
+            "pre_lifecycle_context_count": pre_lifecycle_context_count,
+            "lifecycle_excluded_count": len(lifecycle_excluded_tickers),
+            "post_lifecycle_context_count": post_lifecycle_context_count,
             "current_context_count": len(context),
-            "security_lifecycle_terminal_exclusion_count": len(terminal_exclusions),
+            "security_lifecycle_terminal_event_count": len(terminal_exclusions),
+            "security_lifecycle_terminal_exclusion_count": len(lifecycle_excluded_tickers),
             "security_lifecycle_terminal_tickers": sorted(terminal_tickers),
+            "security_lifecycle_excluded_tickers": lifecycle_excluded_tickers,
             "exact_session_close_count": len(exact),
             "existing_source_cache_count": len(existing),
             "missing_source_cache_count": len(missing_source),
@@ -750,6 +841,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decision-time-utc", required=True)
     parser.add_argument("--universe", required=True)
     parser.add_argument("--base-selection-context", required=True)
+    parser.add_argument("--expected-pre-lifecycle-context-count", type=int, required=True)
     parser.add_argument("--base-score-stack", required=True)
     parser.add_argument("--price-cache", required=True)
     parser.add_argument("--model-root", required=True)

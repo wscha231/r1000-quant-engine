@@ -92,7 +92,7 @@ def make_plan(root: Path) -> Path:
             "scored_latest_provider_batches": 1,
             "maximum_total_recorded_requests": 1,
         },
-        "runtime": {"price_batch_size": 40},
+        "runtime": {"price_batch_size": 40, "expected_context_count": 1},
         "safety": {
             "research_only": True,
             "backtest_allowed": False,

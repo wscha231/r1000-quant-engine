@@ -17,11 +17,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
+    materialize_lifecycle_adjusted_target,
     normalized_target,
     run,
     target_hash,
     validate_event_chain,
 )
+from tools.reserve_asset_policy import resolve_reserve_asset_policy  # noqa: E402
+from tools.security_lifecycle import empty_snapshot  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -80,9 +83,55 @@ def write_target(path: Path) -> None:
     ).to_csv(path, index=False)
 
 
+def write_lifecycle(
+    path: Path,
+    *,
+    event_type: str = "cash_merger",
+    ticker: str = "AAA",
+    successor_ticker: str = "",
+    cash_consideration: str = "110.00",
+) -> None:
+    identity = event_type in {"ticker_change", "security_successor"}
+    stable = f"SECURITY:{ticker}"
+    successor = f"SECURITY:{successor_ticker}" if successor_ticker else ""
+    pd.DataFrame(
+        [
+            {
+                "stable_security_id": stable,
+                "stable_issuer_id": f"ISSUER:{ticker}",
+                "ticker": ticker,
+                "aliases": "|".join(value for value in (ticker, successor_ticker) if value),
+                "event_type": event_type,
+                "available_from": "2026-01-06T13:00:00Z",
+                "effective_date": "2026-01-06",
+                "last_trading_date": "2026-01-05",
+                "predecessor_security_id": stable if identity else "",
+                "successor_security_id": (stable if event_type == "ticker_change" else successor) if identity else "",
+                "successor_ticker": successor_ticker,
+                "cash_consideration": cash_consideration if event_type == "cash_merger" else "",
+                "delisting_proceeds": "",
+                "currency": "USD",
+                "source_url": f"https://example.test/filing/{ticker.lower()}",
+                "accession_number": "0000000000-26-000001",
+                "stable_event_id": f"EVENT:{ticker}:20260106",
+                "source_sha256": "a" * 64,
+                "exact_available_from": "true",
+                "evidence_status": "verified",
+                "review_status": "approved",
+                "notes": "generic lifecycle fixture",
+            }
+        ]
+    ).to_csv(path, index=False)
+
+
 def args_for(
-    root: Path, as_of_date: str, lifecycle: str = "", suppress_new_orders: bool = False
+    root: Path, as_of_date: str, lifecycle: str | None = None, suppress_new_orders: bool = False
 ) -> SimpleNamespace:
+    lifecycle_path = (
+        str(ROOT / "data_static" / "run287_exact_packet" / "security_lifecycle_events.csv")
+        if lifecycle is None
+        else lifecycle
+    )
     return SimpleNamespace(
         state_dir=str(root / "paper"),
         price_cache=str(root / "cache_prices"),
@@ -93,7 +142,7 @@ def args_for(
         concentrated_target=str(root / "targets" / "concentrated.csv"),
         as_of_date=as_of_date,
         decision_time_utc=f"{as_of_date}T23:00:00Z",
-        security_lifecycle_events=lifecycle,
+        security_lifecycle_events=lifecycle_path,
         cost_bps=25.0,
         max_fill_lag_days=7,
         suppress_new_orders=suppress_new_orders,
@@ -245,6 +294,205 @@ def test_verified_cash_merger_settles_without_future_close_and_cancels_pending()
             validate_event_chain(fills, rejections)
 
 
+def test_delayed_catchup_fills_before_terminal_settlement() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+        write_prices(cache, "BBB", [50.0, 51.0, 52.0])
+        lifecycle = root / "security_lifecycle.csv"
+        write_lifecycle(lifecycle)
+        for portfolio in ("main", "concentrated"):
+            seed_path = root / "seed" / f"{portfolio}.json"
+            write_seed(seed_path, portfolio)
+            seed = json.loads(seed_path.read_text(encoding="utf-8"))
+            seed["as_of_date"] = "2026-01-01"
+            seed["positions"][0]["as_of_date"] = "2026-01-01"
+            seed_path.write_text(json.dumps(seed), encoding="utf-8")
+            target_path = root / "targets" / f"{portfolio}.csv"
+            write_target(target_path)
+            target = pd.read_csv(target_path)
+            target["rebalance_date"] = "2026-01-02"
+            target.to_csv(target_path, index=False)
+
+        first = run(args_for(root, "2026-01-02", str(lifecycle)))
+        assert first["status"] == "completed"
+        second = run(args_for(root, "2026-01-06", str(lifecycle)))
+        assert second["status"] == "completed"
+        for portfolio in ("main", "concentrated"):
+            fills = pd.read_csv(root / "paper" / portfolio / "fills.csv").sort_values("event_sequence")
+            aaa = fills[fills["ticker"].eq("AAA")]
+            assert aaa["event_type"].tolist() == ["FILL", "LIFECYCLE_SETTLEMENT"]
+            assert aaa["date"].tolist() == ["2026-01-05", "2026-01-06"]
+            rejections_path = root / "paper" / portfolio / "rejections.csv"
+            rejections = (
+                pd.read_csv(rejections_path)
+                if rejections_path.read_text(encoding="utf-8").strip()
+                else pd.DataFrame()
+            )
+            assert rejections.empty or "lifecycle_terminal_cancelled" not in set(rejections["event_reason"])
+
+
+def test_ticker_change_uses_successor_exact_close_after_last_trade() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 80.0])
+        write_prices(cache, "NEW", [100.0, 105.0, 120.0])
+        lifecycle = root / "security_lifecycle.csv"
+        write_lifecycle(
+            lifecycle,
+            event_type="ticker_change",
+            ticker="AAA",
+            successor_ticker="NEW",
+            cash_consideration="",
+        )
+        for portfolio in ("main", "concentrated"):
+            write_seed(root / "seed" / f"{portfolio}.json", portfolio)
+            (root / "targets").mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [
+                    {"rebalance_date": "2026-01-05", "ticker": "AAA", "weight": 0.50},
+                    {"rebalance_date": "2026-01-05", "ticker": "CASH", "weight": 0.50},
+                ]
+            ).to_csv(root / "targets" / f"{portfolio}.csv", index=False)
+
+        result = run(args_for(root, "2026-01-06", str(lifecycle)))
+        assert result["status"] == "completed"
+        for portfolio in ("main", "concentrated"):
+            positions = pd.read_csv(root / "paper" / portfolio / "positions_latest.csv")
+            assert float(positions.loc[positions["ticker"].eq("AAA"), "price"].iloc[0]) == 120.0
+
+
+def test_post_cutover_exit_executes_against_predecessor_ledger_position() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        dates = pd.to_datetime(["2026-01-02", "2026-01-05"])
+        pd.DataFrame(
+            {"Open": [100.0, 101.0], "Close": [100.0, 101.0], "Adj Close": [100.0, 101.0]},
+            index=dates,
+        ).to_parquet(cache / px_cache_name("OLD"))
+        successor_dates = pd.to_datetime(["2026-01-06", "2026-01-07"])
+        pd.DataFrame(
+            {"Open": [120.0, 121.0], "Close": [120.0, 121.0], "Adj Close": [120.0, 121.0]},
+            index=successor_dates,
+        ).to_parquet(cache / px_cache_name("NEW"))
+        lifecycle = root / "lifecycle.csv"
+        write_lifecycle(
+            lifecycle,
+            event_type="ticker_change",
+            ticker="OLD",
+            successor_ticker="NEW",
+        )
+        for portfolio in ("main", "concentrated"):
+            seed_path = root / "seed" / f"{portfolio}.json"
+            write_seed(seed_path, portfolio)
+            seed = json.loads(seed_path.read_text(encoding="utf-8"))
+            seed["as_of_date"] = "2026-01-05"
+            seed["positions"][0]["ticker"] = "OLD"
+            seed_path.write_text(json.dumps(seed), encoding="utf-8")
+            target_path = root / "targets" / f"{portfolio}.csv"
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [{"rebalance_date": "2026-01-06", "ticker": "CASH", "weight": 1.0}]
+            ).to_csv(target_path, index=False)
+
+        first = run(args_for(root, "2026-01-06", str(lifecycle)))
+        assert first["status"] == "completed"
+        for portfolio in ("main", "concentrated"):
+            pending = pd.read_csv(root / "paper" / portfolio / "pending_orders.csv")
+            assert pending["ticker"].tolist() == ["OLD"]
+            assert pending["execution_ticker"].tolist() == ["NEW"]
+
+        second = run(args_for(root, "2026-01-07", str(lifecycle)))
+        assert second["status"] == "completed"
+        for portfolio in ("main", "concentrated"):
+            account = json.loads(
+                (root / "paper" / portfolio / "account_state_latest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            assert not account["positions"]
+            fills = pd.read_csv(root / "paper" / portfolio / "fills.csv")
+            assert set(fills["ticker"]) == {"OLD"}
+            assert set(fills["execution_ticker"]) == {"NEW"}
+
+
+def test_last_terminal_stock_materializes_explicit_all_cash_target() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+        lifecycle = root / "security_lifecycle.csv"
+        write_lifecycle(lifecycle)
+        for portfolio in ("main", "concentrated"):
+            write_seed(root / "seed" / f"{portfolio}.json", portfolio)
+            (root / "targets").mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [
+                    {"rebalance_date": "2026-01-05", "ticker": "AAA", "weight": 0.50},
+                    {"rebalance_date": "2026-01-05", "ticker": "CASH", "weight": 0.50},
+                ]
+            ).to_csv(root / "targets" / f"{portfolio}.csv", index=False)
+        run(args_for(root, "2026-01-05", str(lifecycle)))
+        run(args_for(root, "2026-01-06", str(lifecycle)))
+        for portfolio in ("main", "concentrated"):
+            target = pd.read_csv(root / "paper" / portfolio / "effective_target_latest.csv")
+            assert target["ticker"].tolist() == ["CASH"]
+            assert float(target.iloc[0]["weight"]) == 1.0
+
+
+def test_empty_source_target_never_synthesizes_all_cash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "empty_target.csv"
+        pd.DataFrame(columns=["rebalance_date", "ticker", "weight"]).to_csv(
+            source, index=False
+        )
+        try:
+            materialize_lifecycle_adjusted_target(
+                source_target_path=source,
+                output_path=root / "effective.csv",
+                portfolio="main",
+                as_of_date=pd.Timestamp("2026-01-06"),
+                lifecycle=empty_snapshot(
+                    session_date=pd.Timestamp("2026-01-06"),
+                    decision_time_utc=pd.Timestamp("2026-01-06T23:00:00Z"),
+                ),
+                reserve_policy=resolve_reserve_asset_policy(),
+                reserve_mode_explicit=False,
+            )
+        except Exception as exc:
+            assert getattr(exc, "status", "") == "BLOCKED_TARGET_EVIDENCE"
+        else:
+            raise AssertionError("empty target was converted to CASH=1.0")
+
+
+def test_same_session_reuse_without_lifecycle_source_hash_blocks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+        write_prices(cache, "BBB", [50.0, 51.0, 52.0])
+        for portfolio in ("main", "concentrated"):
+            write_seed(root / "seed" / f"{portfolio}.json", portfolio)
+            write_target(root / "targets" / f"{portfolio}.csv")
+        run(args_for(root, "2026-01-05", ""))
+        try:
+            run(args_for(root, "2026-01-05", ""))
+        except Exception as exc:
+            assert getattr(exc, "status", "") == "BLOCKED_LIFECYCLE_EVIDENCE"
+            assert "source hash" in str(exc)
+        else:
+            raise AssertionError("exact bundle reuse without lifecycle source hash was accepted")
+
+
 def test_bootstrap_does_not_retrade_an_already_effective_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -373,6 +621,12 @@ def test_suppressed_mark_can_transition_once_to_fresh_same_close_target() -> Non
 def main() -> int:
     test_pending_resolves_once_at_next_close()
     test_verified_cash_merger_settles_without_future_close_and_cancels_pending()
+    test_delayed_catchup_fills_before_terminal_settlement()
+    test_ticker_change_uses_successor_exact_close_after_last_trade()
+    test_post_cutover_exit_executes_against_predecessor_ledger_position()
+    test_last_terminal_stock_materializes_explicit_all_cash_target()
+    test_empty_source_target_never_synthesizes_all_cash()
+    test_same_session_reuse_without_lifecycle_source_hash_blocks()
     test_bootstrap_does_not_retrade_an_already_effective_target()
     test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_closed()
     test_suppressed_mark_can_transition_once_to_fresh_same_close_target()

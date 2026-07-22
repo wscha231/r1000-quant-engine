@@ -122,7 +122,9 @@ def ledger_args(
         concentrated_target=str(root / "targets" / "concentrated.csv"),
         as_of_date=date,
         decision_time_utc=f"{date}T23:00:00Z",
-        security_lifecycle_events="",
+        security_lifecycle_events=str(
+            ROOT / "data_static" / "run287_exact_packet" / "security_lifecycle_events.csv"
+        ),
         cost_bps=25.0,
         max_fill_lag_days=7,
         transaction_failpoint=failpoint,

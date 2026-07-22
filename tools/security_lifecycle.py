@@ -21,6 +21,7 @@ import pandas as pd
 
 SCHEMA_VERSION = "run287-security-lifecycle-v1"
 BLOCKED_STATUS = "BLOCKED_LIFECYCLE_EVIDENCE"
+BLOCKED_NON_USD_LIFECYCLE_PROCEEDS = "BLOCKED_NON_USD_LIFECYCLE_PROCEEDS"
 TERMINAL_EVENT_TYPES = {"cash_merger", "liquidation", "bankruptcy", "delisting"}
 IDENTITY_EVENT_TYPES = {"ticker_change", "security_successor"}
 EVENT_TYPES = TERMINAL_EVENT_TYPES | IDENTITY_EVENT_TYPES
@@ -58,9 +59,9 @@ TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,14}$")
 class SecurityLifecycleError(ValueError):
     """Fail-closed lifecycle contract error with a machine-readable status."""
 
-    def __init__(self, reason: str) -> None:
-        super().__init__(f"{BLOCKED_STATUS}:{reason}")
-        self.status = BLOCKED_STATUS
+    def __init__(self, reason: str, *, status: str = BLOCKED_STATUS) -> None:
+        super().__init__(f"{status}:{reason}")
+        self.status = status
         self.reason = reason
 
 
@@ -127,6 +128,7 @@ class SecurityLifecycleSnapshot:
     identity_events: pd.DataFrame
     terminal_tickers: frozenset[str]
     provider_symbol_overrides: dict[str, str]
+    provider_symbol_links: dict[str, dict[str, str]]
     snapshot_hash: str
 
     def audit(self) -> dict[str, Any]:
@@ -141,6 +143,10 @@ class SecurityLifecycleSnapshot:
             "identity_event_count": int(len(self.identity_events)),
             "terminal_tickers": sorted(self.terminal_tickers),
             "provider_symbol_overrides": dict(sorted(self.provider_symbol_overrides.items())),
+            "provider_symbol_links": {
+                key: dict(sorted(value.items()))
+                for key, value in sorted(self.provider_symbol_links.items())
+            },
             "snapshot_hash": self.snapshot_hash,
             "pit_universe_label_clean": False,
             "survivorship_coverage_claimed": False,
@@ -169,6 +175,7 @@ def empty_snapshot(
         identity_events=empty.copy(),
         terminal_tickers=frozenset(),
         provider_symbol_overrides={},
+        provider_symbol_links={},
         snapshot_hash=canonical_hash(payload),
     )
 
@@ -197,6 +204,7 @@ def load_security_lifecycle(path: Path) -> pd.DataFrame:
     out["event_type"] = out["event_type"].astype(str).str.strip().str.lower()
     out["evidence_status"] = out["evidence_status"].astype(str).str.strip().str.lower()
     out["review_status"] = out["review_status"].astype(str).str.strip().str.lower()
+    out["currency"] = out["currency"].astype(str).str.strip().str.upper()
     out["exact_available_from"] = out["exact_available_from"].map(_bool)
     out["available_from"] = pd.to_datetime(out["available_from"], errors="coerce", utc=True)
     out["effective_date"] = pd.to_datetime(out["effective_date"], errors="coerce").dt.normalize()
@@ -235,6 +243,12 @@ def load_security_lifecycle(path: Path) -> pd.DataFrame:
         if row.event_type in TERMINAL_EVENT_TYPES and pd.isna(row.last_trading_date):
             raise SecurityLifecycleError(f"missing_last_trading_date:{row.stable_event_id}")
         if row.event_type in IDENTITY_EVENT_TYPES:
+            if pd.isna(row.last_trading_date):
+                raise SecurityLifecycleError(f"missing_last_trading_date:{row.stable_event_id}")
+            if pd.Timestamp(row.last_trading_date) >= pd.Timestamp(row.effective_date):
+                raise SecurityLifecycleError(
+                    f"identity_cutover_not_after_last_trade:{row.stable_event_id}"
+                )
             if not row.successor_ticker or not TICKER_RE.fullmatch(row.successor_ticker):
                 raise SecurityLifecycleError(f"missing_successor_ticker:{row.stable_event_id}")
             if not STABLE_ID_RE.fullmatch(row.predecessor_security_id or ""):
@@ -329,6 +343,14 @@ def resolve_security_lifecycle(
     if missing_proceeds:
         raise SecurityLifecycleError("missing_verified_proceeds:" + ",".join(missing_proceeds))
     if not relevant_terminals.empty:
+        non_usd = relevant_terminals.loc[
+            relevant_terminals["currency"].ne("USD"), "stable_event_id"
+        ].tolist()
+        if non_usd:
+            raise SecurityLifecycleError(
+                "non_usd_terminal_proceeds:" + ",".join(map(str, non_usd)),
+                status=BLOCKED_NON_USD_LIFECYCLE_PROCEEDS,
+            )
         relevant_terminals["verified_proceeds"] = proceeds
         if (relevant_terminals["last_trading_date"] > relevant_terminals["effective_date"]).any():
             bad = relevant_terminals.loc[
@@ -336,9 +358,14 @@ def resolve_security_lifecycle(
                 "stable_event_id",
             ].tolist()
             raise SecurityLifecycleError("last_trade_after_effective_date:" + ",".join(bad))
+    proceeds_by_event = {
+        str(row.stable_event_id): float(row.verified_proceeds)
+        for row in relevant_terminals.itertuples(index=False)
+    }
 
     identity = relevant.loc[relevant["event_type"].isin(IDENTITY_EVENT_TYPES)].copy()
     overrides: dict[str, str] = {}
+    links: dict[str, dict[str, str]] = {}
     for row in identity.itertuples(index=False):
         successor = _ticker(row.successor_ticker)
         for alias in str(row.aliases_normalized).split("|"):
@@ -347,6 +374,16 @@ def resolve_security_lifecycle(
                 prior = overrides.setdefault(alias, successor)
                 if prior != successor:
                     raise SecurityLifecycleError(f"conflicting_successor:{alias}")
+                link = {
+                    "stable_event_id": str(row.stable_event_id),
+                    "predecessor_ticker": alias,
+                    "successor_ticker": successor,
+                    "effective_date": pd.Timestamp(row.effective_date).date().isoformat(),
+                    "last_trading_date": pd.Timestamp(row.last_trading_date).date().isoformat(),
+                }
+                existing = links.setdefault(alias, link)
+                if existing != link:
+                    raise SecurityLifecycleError(f"conflicting_successor_link:{alias}")
 
     terminal_tickers: set[str] = set()
     for row in relevant_terminals.itertuples(index=False):
@@ -362,7 +399,19 @@ def resolve_security_lifecycle(
                 "event_type": row["event_type"],
                 "available_from": pd.Timestamp(row["available_from"]).isoformat(),
                 "effective_date": pd.Timestamp(row["effective_date"]).date().isoformat(),
+                "last_trading_date": (
+                    pd.Timestamp(row["last_trading_date"]).date().isoformat()
+                    if pd.notna(row["last_trading_date"])
+                    else None
+                ),
+                "predecessor_security_id": row["predecessor_security_id"],
+                "successor_security_id": row["successor_security_id"],
                 "successor_ticker": row["successor_ticker"],
+                "aliases_normalized": row["aliases_normalized"],
+                "currency": row["currency"],
+                "verified_proceeds": (
+                    proceeds_by_event.get(str(row["stable_event_id"]))
+                ),
                 "source_sha256": row["source_sha256"],
             }
         )
@@ -383,6 +432,7 @@ def resolve_security_lifecycle(
         identity_events=identity.reset_index(drop=True),
         terminal_tickers=frozenset(terminal_tickers),
         provider_symbol_overrides=overrides,
+        provider_symbol_links=links,
         snapshot_hash=snapshot_hash,
     )
 

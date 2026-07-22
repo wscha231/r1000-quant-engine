@@ -207,8 +207,30 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     model_meta_path = source_path(latest_path, latest_manifest, "model_meta")
     context = pd.read_parquet(context_path)
     context["ticker"] = context["ticker"].astype(str).str.upper().str.strip()
-    if len(context) != 989 or context["ticker"].duplicated().any():
-        blockers.append("selection_context_989_unique_contract")
+    lifecycle_coverage = latest_manifest.get("coverage") or {}
+    pre_lifecycle_count = int(
+        lifecycle_coverage.get("pre_lifecycle_context_count")
+        or lifecycle_coverage.get("base_context_count")
+        or 0
+    )
+    lifecycle_excluded_count = int(
+        lifecycle_coverage.get("lifecycle_excluded_count")
+        or lifecycle_coverage.get("security_lifecycle_terminal_exclusion_count")
+        or 0
+    )
+    post_lifecycle_count = int(
+        lifecycle_coverage.get("post_lifecycle_context_count")
+        or lifecycle_coverage.get("current_context_count")
+        or 0
+    )
+    if (
+        pre_lifecycle_count <= 0
+        or post_lifecycle_count <= 0
+        or pre_lifecycle_count != lifecycle_excluded_count + post_lifecycle_count
+    ):
+        blockers.append("upstream_lifecycle_dynamic_count_contract")
+    if len(context) != post_lifecycle_count or context["ticker"].duplicated().any():
+        blockers.append("selection_context_dynamic_unique_contract")
     model_meta = read_json(model_meta_path)
     model_features = [str(value) for value in model_meta.get("model_features") or []]
     if len(model_features) != 238 or set(model_features) != set(model_meta.get("scaler") or {}):
@@ -378,7 +400,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     context = context.sort_values("ticker").reset_index(drop=True)
     raw_model = context.reindex(columns=model_features).apply(pd.to_numeric, errors="coerce")
     scaled_matrix = apply_scaler(context, model_meta.get("scaler") or {}, model_features)
-    if scaled_matrix.shape != (989, 238) or not np.isfinite(scaled_matrix).all():
+    if scaled_matrix.shape != (len(context), len(model_features)) or not np.isfinite(scaled_matrix).all():
         blockers.append("scaled_model_matrix_contract")
     scaled = pd.DataFrame(scaled_matrix, columns=model_features)
     scaled.insert(0, "ticker", context["ticker"])
@@ -474,6 +496,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "research_only": True,
         "coverage": {
             "decision_ticker_count": int(len(context)),
+            "pre_lifecycle_context_count": pre_lifecycle_count,
+            "lifecycle_excluded_count": lifecycle_excluded_count,
+            "post_lifecycle_context_count": post_lifecycle_count,
             "model_feature_count": len(model_features),
             "selection_context_column_count": int(len(context.columns)),
             "raw_model_feature_finite_ratio": float(raw_model.notna().to_numpy().mean()),

@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.security_lifecycle import (
+    BLOCKED_NON_USD_LIFECYCLE_PROCEEDS,
     BLOCKED_STATUS,
     SecurityLifecycleError,
     filter_terminal_tickers,
@@ -182,6 +183,13 @@ def test_ticker_rename_and_predecessor_successor_are_linked_only_when_known() ->
     )
     try:
         assert snapshot.provider_symbol_overrides == {"OLD": "NEW", "PRE": "POST"}
+        assert snapshot.provider_symbol_links["OLD"] == {
+            "stable_event_id": "EVENT:REN:20260106",
+            "predecessor_ticker": "OLD",
+            "successor_ticker": "NEW",
+            "effective_date": "2026-01-06",
+            "last_trading_date": "2026-01-05",
+        }
         assert not snapshot.terminal_tickers
     finally:
         holder.cleanup()
@@ -207,6 +215,77 @@ def test_weak_evidence_malformed_identity_and_hash_fail_closed() -> None:
             raise AssertionError("weak or malformed lifecycle evidence was accepted")
 
 
+def test_non_usd_terminal_proceeds_have_dedicated_block_status() -> None:
+    try:
+        resolve(
+            [event(currency="CAD")],
+            session="2026-01-06",
+            decision="2026-01-06T23:00:00Z",
+            active={"ACQ"},
+        )
+    except SecurityLifecycleError as exc:
+        assert exc.status == BLOCKED_NON_USD_LIFECYCLE_PROCEEDS
+        assert "EVENT:ACQ:20260106" in str(exc)
+    else:
+        raise AssertionError("non-USD lifecycle proceeds were accepted")
+
+
+def test_verified_terminal_proceeds_are_bound_into_snapshot_hash() -> None:
+    holder_a, snapshot_a = resolve(
+        [event(cash_consideration="25.50")],
+        session="2026-01-06",
+        decision="2026-01-06T23:00:00Z",
+        active={"ACQ"},
+    )
+    holder_b, snapshot_b = resolve(
+        [event(cash_consideration="26.00")],
+        session="2026-01-06",
+        decision="2026-01-06T23:00:00Z",
+        active={"ACQ"},
+    )
+    try:
+        assert snapshot_a.snapshot_hash != snapshot_b.snapshot_hash
+        assert snapshot_a.audit()["snapshot_hash"] == snapshot_a.snapshot_hash
+    finally:
+        holder_a.cleanup()
+        holder_b.cleanup()
+
+
+def test_identity_cutover_must_follow_last_predecessor_trade() -> None:
+    rename = event(
+        stable_security_id="SECURITY:REN",
+        stable_issuer_id="ISSUER:REN",
+        ticker="OLD",
+        aliases="OLD|NEW",
+        event_type="ticker_change",
+        predecessor_security_id="SECURITY:REN",
+        successor_security_id="SECURITY:REN",
+        successor_ticker="NEW",
+        cash_consideration="",
+        last_trading_date="2026-01-06",
+        stable_event_id="EVENT:REN:20260106",
+    )
+    try:
+        resolve(
+            [rename],
+            session="2026-01-06",
+            decision="2026-01-06T23:00:00Z",
+            active={"OLD"},
+        )
+    except SecurityLifecycleError as exc:
+        assert "identity_cutover_not_after_last_trade" in str(exc)
+    else:
+        raise AssertionError("overlapping predecessor/successor cutover was accepted")
+
+
+def test_lifecycle_context_count_is_dynamic_not_magic_number() -> None:
+    for path in (
+        ROOT / "tools" / "run_run287_scored_latest_refresh.py",
+        ROOT / "tools" / "build_run287_current_decision_frame.py",
+    ):
+        assert not re.search(r"\b989\b", path.read_text(encoding="utf-8"))
+
+
 def test_scorer_and_ledger_share_component_without_ticker_branches() -> None:
     consumers = (
         ROOT / "tools" / "run_run287_scored_latest_refresh.py",
@@ -229,5 +308,9 @@ if __name__ == "__main__":
     test_bankruptcy_and_cash_merger_without_verified_proceeds_fail_closed()
     test_ticker_rename_and_predecessor_successor_are_linked_only_when_known()
     test_weak_evidence_malformed_identity_and_hash_fail_closed()
+    test_non_usd_terminal_proceeds_have_dedicated_block_status()
+    test_verified_terminal_proceeds_are_bound_into_snapshot_hash()
+    test_identity_cutover_must_follow_last_predecessor_trade()
+    test_lifecycle_context_count_is_dynamic_not_magic_number()
     test_scorer_and_ledger_share_component_without_ticker_branches()
     print("security lifecycle smoke: PASS")

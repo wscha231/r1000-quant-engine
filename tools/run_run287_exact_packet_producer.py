@@ -117,7 +117,15 @@ def resolve_portable_path(raw: str, *, owner: Path | None = None) -> Path:
         if relative.exists():
             return relative.resolve()
     parts = normalized_parts(raw)
-    anchors = ("outputs", "cache_prices", "data_pit", "data_raw", "models", "feature_store")
+    anchors = (
+        "outputs",
+        "cache_prices",
+        "data_pit",
+        "data_raw",
+        "data_static",
+        "models",
+        "feature_store",
+    )
     # A verified archive may preserve the repository-relative tree beneath a
     # dedicated restore root (for example ``run287_research_static/outputs``).
     # Prefer that owner's same-anchor tree before the live repository tree;
