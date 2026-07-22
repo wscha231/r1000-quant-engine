@@ -410,7 +410,11 @@ def write_no_new_order_preview(
 ) -> dict[str, Any]:
     preview_dir.mkdir(parents=True, exist_ok=True)
     target = normalized_target(effective_target_path, portfolio, as_of_date)
-    write_csv(preview_dir / "target_weights.csv", target, ["ticker", "target_weight"])
+    write_csv(
+        preview_dir / "target_weights.csv",
+        target,
+        ["ticker", "target_weight", RESERVE_REASON_SOURCE_HASH_FIELD],
+    )
     write_csv(preview_dir / "orders_preview.csv", pd.DataFrame(), PREVIEW_ORDER_COLUMNS)
     write_json(preview_dir / "order_batch_manifest.json", {})
     write_json(

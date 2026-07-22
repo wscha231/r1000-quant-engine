@@ -641,6 +641,18 @@ def test_suppressed_mark_can_transition_once_to_fresh_same_close_target() -> Non
             )
             assert manifest["new_order_generation_suppressed"] is True
             assert manifest["enqueued_this_run"] == 0
+            preview_manifest = json.loads(
+                (root / "previews" / portfolio / "order_batch_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            preview_target = pd.read_csv(
+                root / "previews" / portfolio / "target_weights.csv"
+            )
+            assert RESERVE_REASON_SOURCE_HASH_FIELD in preview_target.columns
+            assert set(preview_target[RESERVE_REASON_SOURCE_HASH_FIELD]) == {
+                preview_manifest[RESERVE_REASON_SOURCE_HASH_FIELD]
+            }
 
         for portfolio in ("main", "concentrated"):
             path = root / "targets" / f"{portfolio}.csv"

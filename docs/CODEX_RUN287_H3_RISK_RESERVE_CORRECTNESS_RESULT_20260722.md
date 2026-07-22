@@ -136,3 +136,13 @@ consumers. They are corrected with focused regressions:
 Final validation passed: focused affected suites, repository pytest `129/129`,
 full Tier-1 `191/191` in `446.39s`, Python compilation, and
 `git diff --check`. Fullrun remained unexecuted.
+
+## Fourth exact-head review follow-up
+
+The fourth Codex exact-head review identified the suppressed mark-only preview
+as the last provenance presentation gap. Its `target_weights.csv` contract now
+explicitly requires `reserve_reason_source_hash`, and a regression checks that
+the CSV value equals the attested `NO_NEW_ORDER` manifest value. Final
+validation passed: focused ledger smoke, repository pytest `129/129`, full
+Tier-1 `191/191` in `412.57s`, Python compilation, and `git diff --check`.
+Fullrun remained unexecuted.
