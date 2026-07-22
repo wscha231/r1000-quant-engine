@@ -91,3 +91,12 @@ names; and removes twelve old names. Its explicit reserve is 28.26%.
 
 The generated review artifact is
 `outputs/run287_current_portfolio_proposals_20260723_close_20260721/summary.json`.
+
+## H3 integration validation
+
+The final H3 risk/Reserve branch was merged into this proposal branch, and the
+ranking plus all three proposal variants were regenerated from the same
+verified 2026-07-21 close. Validation passed: focused current-portfolio,
+Reserve, preview, and fullrun-guard smoke suites; repository pytest `129/129`;
+and full Tier-1 `192/192` in `424.04s`. Python compilation and
+`git diff --check` passed. No fullrun or live/production mutation was executed.
