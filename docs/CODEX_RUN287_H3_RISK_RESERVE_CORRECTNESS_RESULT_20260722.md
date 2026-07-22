@@ -77,3 +77,23 @@ Official historical evidence remains unchanged:
 These are not refreshed 2026-07-17 or 2026-07-20 figures. H3 requires a clean
 current-head review, merge, and exact-merge smoke before H4. Durable catch-up
 and any new CAGR/MDD challenger remain blocked.
+
+## Exact-head review follow-up
+
+The Codex exact-head review found five additional boundary defects. All five
+were corrected before merge:
+
+- next-close fills after `stock_evidence_end_date` are excluded, so the final
+  signal cannot create a post-evidence trade or equity mark;
+- implicit cash is assigned to one Reserve reason only;
+- pre-existing cash and newly materialized residual cash reconcile to the full
+  explicit Reserve weight;
+- an embedded `reserve_reason_source_hash` must match the hash recomputed from
+  the current Reserve weight and reason allocation;
+- the research-only residual-cash filter retains its documented unannotated
+  historical-book boundary, while non-blank unknown crisis states still fail
+  closed as `DEGRADED_DATA`.
+
+Post-fix validation passed: focused affected suites, repository pytest
+(`129/129`), full Tier-1 validation (`191/191`, `454.55s`), Python compilation,
+and `git diff --check`. Fullrun remained unexecuted.

@@ -1177,14 +1177,23 @@ def replay(
             if ticker in CASH_TICKERS:
                 continue
             actual_dt, px = fill_price(prices, ticker, signal_dt, fill_mode, max_fill_lag_days)
-            if actual_dt is not None and px is not None:
-                fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
+            normalized_fill = (
+                pd.Timestamp(actual_dt).normalize() if actual_dt is not None else None
+            )
+            if (
+                normalized_fill is not None
+                and px is not None
+                and (evidence_end is None or normalized_fill <= evidence_end)
+            ):
+                fill_dt_by_ticker[ticker] = normalized_fill
                 fill_px_by_ticker[ticker] = float(px)
         if not fill_dt_by_ticker:
             if not carry_enabled:
                 continue
             fill_dt = calendar_fill_date(calendar_prices, signal_dt, fill_mode, max_fill_lag_days)
-            if fill_dt is None:
+            if fill_dt is None or (
+                evidence_end is not None and pd.Timestamp(fill_dt).normalize() > evidence_end
+            ):
                 continue
         else:
             fill_dt = min(fill_dt_by_ticker.values())

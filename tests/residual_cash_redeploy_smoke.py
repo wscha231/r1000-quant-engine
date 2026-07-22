@@ -136,6 +136,41 @@ def test_min_cash_floor_respected() -> None:
     print(f"PASS test_min_cash_floor_respected  cash={cash:.4f}")
 
 
+def test_unannotated_historical_book_uses_documented_normal_boundary() -> None:
+    book = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2024-09-30",
+                "ticker": "AAA",
+                "weight": 0.30,
+                "industry_group": "semis",
+                "effective_single_weight_cap": 0.50,
+                "subindustry_cap": 0.90,
+                "theme_cap": 1.0,
+            },
+            {
+                "rebalance_date": "2024-09-30",
+                "ticker": "BBB",
+                "weight": 0.30,
+                "industry_group": "software",
+                "effective_single_weight_cap": 0.50,
+                "subindustry_cap": 0.90,
+                "theme_cap": 1.0,
+            },
+            {"rebalance_date": "2024-09-30", "ticker": "CASH", "weight": 0.40},
+        ]
+    )
+    out, diag = rcr.apply_redeploy(
+        book,
+        portfolio_kind="concentrated",
+        min_cash_floor=0.0,
+    )
+    assert diag["normal_dates_redeployed"] == 1
+    assert diag["defense_dates_preserved"] == 0
+    assert float(out.loc[out["ticker"].eq("CASH"), "weight"].iloc[0]) < 0.40
+    assert rcr.is_defense_date("MYSTERY_STATE") is True
+
+
 def main() -> int:
     tests = [
         test_normal_date_redeploys_idle_cash_across_subindustries,
@@ -143,6 +178,7 @@ def main() -> int:
         test_defense_date_cash_preserved,
         test_mixed_dates_only_normal_redeployed,
         test_min_cash_floor_respected,
+        test_unannotated_historical_book_uses_documented_normal_boundary,
     ]
     failed = 0
     for t in tests:

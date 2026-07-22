@@ -103,6 +103,101 @@ def test_modes_and_reason_reconciliation() -> None:
     assert transformed[RESERVE_REASON_SOURCE_HASH_FIELD].nunique() == 1
 
 
+def test_explicit_cash_materialization_labels_reserve_exactly_once() -> None:
+    broker = resolve_reserve_asset_policy(BROKER_CASH_OR_MMF)
+    implicit_with_reason_schema = pd.DataFrame(
+        [{"ticker": "AAA", "weight": 0.60, "crisis_reserve": 0.0}]
+    )
+    materialized = ensure_explicit_cash_row(
+        implicit_with_reason_schema,
+        weight_col="weight",
+    )
+    cash = materialized.loc[materialized["ticker"].eq("CASH")].iloc[0]
+    assert abs(float(cash["capacity_unallocated"]) - 0.40) < 1e-12
+    assert pd.isna(cash.get("residual_cash")) or abs(float(cash.get("residual_cash"))) < 1e-12
+    audit = reserve_reason_reconciliation(
+        materialized,
+        policy=broker,
+        weight_col="weight",
+    )
+    assert abs(audit["reason_weight_sum"] - audit["reserve_weight"]) < 1e-12
+
+    existing_cash = pd.DataFrame(
+        [
+            {"ticker": "AAA", "weight": 0.50},
+            {"ticker": "CASH", "weight": 0.40},
+        ]
+    )
+    completed = ensure_explicit_cash_row(existing_cash, weight_col="weight")
+    cash = completed.loc[completed["ticker"].eq("CASH")].iloc[0]
+    assert abs(float(cash["weight"]) - 0.50) < 1e-12
+    assert abs(float(cash["capacity_unallocated"]) - 0.50) < 1e-12
+    audit = reserve_reason_reconciliation(
+        completed,
+        policy=broker,
+        weight_col="weight",
+    )
+    assert abs(audit["reason_weight_sum"] - 0.50) < 1e-12
+
+
+def test_stale_reserve_reason_hash_is_rejected() -> None:
+    broker = resolve_reserve_asset_policy(BROKER_CASH_OR_MMF)
+    target = pd.DataFrame(
+        [
+            {"ticker": "AAA", "weight": 0.60},
+            {
+                "ticker": "CASH",
+                "weight": 0.40,
+                "crisis_reserve": 0.10,
+                "capacity_unallocated": 0.30,
+            },
+        ]
+    )
+    audit = reserve_reason_reconciliation(target, policy=broker, weight_col="weight")
+    target[RESERVE_REASON_SOURCE_HASH_FIELD] = audit[RESERVE_REASON_SOURCE_HASH_FIELD]
+    target.loc[target["ticker"].eq("CASH"), "crisis_reserve"] = 0.20
+    target.loc[target["ticker"].eq("CASH"), "capacity_unallocated"] = 0.20
+    try:
+        reserve_reason_reconciliation(target, policy=broker, weight_col="weight")
+    except ValueError as exc:
+        assert "stale Reserve reason source hash" in str(exc)
+    else:
+        raise AssertionError("stale Reserve reason source hash was accepted")
+
+
+def test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        cache.mkdir()
+        write_prices(cache, "AAA", [100.0] * 8, "2026-01-02")
+        write_prices(cache, "BBB", [50.0] * 8, "2026-01-02")
+        target = root / "target.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 1.0},
+                {"rebalance_date": "2026-01-05", "ticker": "BBB", "weight": 1.0},
+            ]
+        ).to_csv(target, index=False)
+        output = root / "broker"
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            evidence_end_date="2026-01-05",
+        )
+        assert metrics["status"] == "completed", metrics
+        trades = pd.read_csv(output / "trades.csv")
+        curve = pd.read_csv(output / "equity_curve.csv")
+        assert set(trades["ticker"]) == {"AAA"}
+        assert pd.to_datetime(trades["date"]).max() <= pd.Timestamp("2026-01-05")
+        assert pd.to_datetime(curve["date"]).max() <= pd.Timestamp("2026-01-05")
+
+
 def test_history_and_double_count_gate() -> None:
     bil = resolve_reserve_asset_policy(BIL_TOTAL_RETURN)
     prices = pd.DataFrame({"close": [100.0, 101.0]}, index=pd.to_datetime(["2020-01-02", "2020-01-03"]))
@@ -190,6 +285,9 @@ def test_bil_trades_like_a_security_and_sgov_blocks_short_history() -> None:
 
 def main() -> int:
     test_modes_and_reason_reconciliation()
+    test_explicit_cash_materialization_labels_reserve_exactly_once()
+    test_stale_reserve_reason_hash_is_rejected()
+    test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark()
     test_history_and_double_count_gate()
     test_bil_trades_like_a_security_and_sgov_blocks_short_history()
     print("reserve_asset_policy_smoke: PASS")

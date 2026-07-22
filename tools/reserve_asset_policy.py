@@ -147,6 +147,7 @@ def ensure_explicit_cash_row(
     residual = max(0.0, 1.0 - total)
     if residual <= tolerance:
         return out
+    explicit_reasons = any(reason in out.columns for reason in RESERVE_REASONS)
     cash_rows = out.index[out["ticker"].isin({"CASH", "__CASH__"})].tolist()
     if cash_rows:
         index = cash_rows[0]
@@ -156,21 +157,18 @@ def ensure_explicit_cash_row(
         out["capacity_unallocated"] = pd.to_numeric(
             out["capacity_unallocated"], errors="coerce"
         ).fillna(0.0)
-        out.loc[index, "capacity_unallocated"] += residual
-        if any(reason in out.columns for reason in RESERVE_REASONS):
-            if "residual_cash" not in out.columns:
-                out["residual_cash"] = 0.0
-            out["residual_cash"] = pd.to_numeric(
-                out["residual_cash"], errors="coerce"
-            ).fillna(0.0)
-            out.loc[index, "residual_cash"] += residual
+        if explicit_reasons:
+            out.loc[index, "capacity_unallocated"] += residual
+        else:
+            final_cash_weight = float(
+                out.loc[out["ticker"].isin({"CASH", "__CASH__"}), weight_col].sum()
+            )
+            out.loc[index, "capacity_unallocated"] = final_cash_weight
         return out
     row = {column: np.nan for column in out.columns}
     row["ticker"] = "CASH"
     row[weight_col] = residual
     row["capacity_unallocated"] = residual
-    if any(reason in out.columns for reason in RESERVE_REASONS):
-        row["residual_cash"] = residual
     return pd.concat([out, pd.DataFrame([row])], ignore_index=True)
 
 
@@ -238,8 +236,11 @@ def reserve_reason_reconciliation(
                 "conflicting Reserve reason source hashes: "
                 f"{sorted(embedded)}"
             )
-        if embedded:
-            source_hash = next(iter(embedded))
+        if embedded and next(iter(embedded)) != source_hash:
+            raise ValueError(
+                "stale Reserve reason source hash: "
+                f"embedded={next(iter(embedded))} computed={source_hash}"
+            )
     return {
         "schema_version": SCHEMA_VERSION,
         "mode": policy.mode,
