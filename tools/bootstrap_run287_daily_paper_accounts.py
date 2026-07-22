@@ -124,19 +124,37 @@ def target_for_date(target_path: Path, portfolio: str, as_of_date: pd.Timestamp)
     target = normalize_target(raw, portfolio, as_of_date.date().isoformat())
     if target.empty:
         raise ValueError(f"empty target allocation for {portfolio}")
-    target = target[
-        ["ticker", "target_weight"]
-        + [reason for reason in RESERVE_REASONS if reason in target.columns]
-    ].copy()
+    keep_columns = ["ticker", "target_weight"] + [
+        reason for reason in RESERVE_REASONS if reason in target.columns
+    ]
+    if RESERVE_REASON_SOURCE_HASH_FIELD in target.columns:
+        keep_columns.append(RESERVE_REASON_SOURCE_HASH_FIELD)
+    target = target[keep_columns].copy()
     target["ticker"] = target["ticker"].map(clean_ticker)
     target["target_weight"] = pd.to_numeric(target["target_weight"], errors="coerce")
     target = target[(target["ticker"] != "") & target["target_weight"].notna()].copy()
     if target.empty or (target["target_weight"] < -1e-12).any():
         raise ValueError(f"invalid target allocation for {portfolio}")
+    if RESERVE_REASON_SOURCE_HASH_FIELD in target.columns:
+        embedded_hashes = {
+            str(value).strip().lower()
+            for value in target[RESERVE_REASON_SOURCE_HASH_FIELD].tolist()
+            if str(value).strip().lower() not in {"", "nan", "none"}
+        }
+        if len(embedded_hashes) > 1:
+            raise ValueError(
+                "conflicting Reserve reason source hashes: "
+                f"{sorted(embedded_hashes)}"
+            )
     target = target.groupby("ticker", as_index=False).agg(
         {
             "target_weight": "sum",
             **{reason: "sum" for reason in RESERVE_REASONS if reason in target.columns},
+            **(
+                {RESERVE_REASON_SOURCE_HASH_FIELD: "last"}
+                if RESERVE_REASON_SOURCE_HASH_FIELD in target.columns
+                else {}
+            ),
         }
     ).sort_values("ticker").reset_index(drop=True)
     total = float(target["target_weight"].sum())

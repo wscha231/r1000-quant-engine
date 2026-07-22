@@ -77,3 +77,72 @@ Official historical evidence remains unchanged:
 These are not refreshed 2026-07-17 or 2026-07-20 figures. H3 requires a clean
 current-head review, merge, and exact-merge smoke before H4. Durable catch-up
 and any new CAGR/MDD challenger remain blocked.
+
+## Exact-head review follow-up
+
+The Codex exact-head review found five additional boundary defects. All five
+were corrected before merge:
+
+- next-close fills after `stock_evidence_end_date` are excluded, so the final
+  signal cannot create a post-evidence trade or equity mark;
+- implicit cash is assigned to one Reserve reason only;
+- pre-existing cash and newly materialized residual cash reconcile to the full
+  explicit Reserve weight;
+- an embedded `reserve_reason_source_hash` must match the hash recomputed from
+  the current Reserve weight and reason allocation;
+- the research-only residual-cash filter retains its documented unannotated
+  historical-book boundary, while non-blank unknown crisis states still fail
+  closed as `DEGRADED_DATA`.
+
+Post-fix validation passed: focused affected suites, repository pytest
+(`129/129`), full Tier-1 validation (`191/191`, `454.55s`), Python compilation,
+and `git diff --check`. Fullrun remained unexecuted.
+
+## Second exact-head review follow-up
+
+The second Codex exact-head review found four remaining fail-closed gaps. They
+were corrected together with targeted regression fixtures:
+
+- daily paper bootstrap preserves the embedded Reserve reason source hash so a
+  stale or conflicting provenance value cannot be silently recomputed;
+- `DEGRADED_DATA` blocks the production shakeout guard instead of suppressing a
+  required trim during a crisis-data outage;
+- all known alternative lanes, and any unrecognized lane, are blocked from new
+  buys while crisis data is degraded;
+- tradeable Reserve history coverage is checked only through the explicit
+  stock evidence cutoff rather than through later cached stock observations.
+
+The four targeted smoke suites passed. Repository pytest passed `129/129`, and
+full Tier-1 validation passed `191/191` in `454.51s`. Python compilation and
+`git diff --check` also passed on the final exact head. Fullrun remained
+unexecuted.
+
+## Third exact-head review follow-up
+
+The third Codex exact-head review found four remaining provenance/audit
+consumers. They are corrected with focused regressions:
+
+- broker target normalization preserves and validates embedded Reserve source
+  hashes rather than replacing stale input provenance;
+- direct account-order preview writes the reconciled source hash into
+  `target_weights.csv` as well as its manifest and metrics;
+- a lifecycle-mutated effective target intentionally discards the pre-mutation
+  source hash, then writes the newly reconciled hash;
+- the cash/re-entry quality audit maps degraded, blank, unknown, and explicitly
+  missing crisis states to its existing `MISSING` bucket, which triggers
+  `REVIEW_REQUIRED_MISSING_CRISIS_STATE` and excludes the rows from green-regime
+  cash and rebound statistics.
+
+Final validation passed: focused affected suites, repository pytest `129/129`,
+full Tier-1 `191/191` in `446.39s`, Python compilation, and
+`git diff --check`. Fullrun remained unexecuted.
+
+## Fourth exact-head review follow-up
+
+The fourth Codex exact-head review identified the suppressed mark-only preview
+as the last provenance presentation gap. Its `target_weights.csv` contract now
+explicitly requires `reserve_reason_source_hash`, and a regression checks that
+the CSV value equals the attested `NO_NEW_ORDER` manifest value. Final
+validation passed: focused ledger smoke, repository pytest `129/129`, full
+Tier-1 `191/191` in `412.57s`, Python compilation, and `git diff --check`.
+Fullrun remained unexecuted.

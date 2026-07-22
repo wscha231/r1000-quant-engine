@@ -339,6 +339,10 @@ def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
     ok, reason = crisis_new_buy_allowed(cyc.to_dict(), "CRISIS")
     assert ok is False
     assert reason.startswith("crisis_new_buy_blocked_for_lane")
+    for lane in ("TOP7_MANAGER_DISCOVERY", "CRISIS_BENEFICIARY", "UNRECOGNIZED_LANE"):
+        ok, reason = crisis_new_buy_allowed({"primary_lane": lane}, "DEGRADED_DATA")
+        assert ok is False
+        assert reason == f"crisis_new_buy_blocked_for_lane:DEGRADED_DATA:{lane}"
 
 
 def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
@@ -674,6 +678,19 @@ def test_shakeout_guard_prod_env_suppresses_transient_trim_only() -> None:
         )
         assert defense_trim == "TRIM"
         assert defense_reason == "score_below_monthly_peer_band"
+
+        degraded_trim, degraded_reason = holding_state(
+            _shakeout_guard_row(crisis_state="DEGRADED_DATA"),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert degraded_trim == "TRIM"
+        assert degraded_reason == "score_below_monthly_peer_band"
+        degraded_decision = shakeout_guard_prod_decision(
+            _shakeout_guard_row(crisis_state="DEGRADED_DATA")
+        )
+        assert degraded_decision.protected is False
+        assert degraded_decision.block_reason == "crisis_state_blocked:DEGRADED_DATA"
 
         native = shakeout_guard_prod_decision(
             _shakeout_guard_row(rs_qqq_1m=-0.01, rs_qqq_3m=0.05, rs_qqq_6m=0.16)

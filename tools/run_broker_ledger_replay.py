@@ -368,10 +368,24 @@ def normalize_targets(
             "concentrated_selection_source",
             "portfolio_defensive_rotation_action",
             *RESERVE_REASONS,
+            RESERVE_REASON_SOURCE_HASH_FIELD,
         ]
         if c in d.columns
     ]
     d = d[keep].copy()
+    if RESERVE_REASON_SOURCE_HASH_FIELD in d.columns:
+        for rebalance_date, part in d.groupby("rebalance_date", dropna=False):
+            embedded_hashes = {
+                str(value).strip().lower()
+                for value in part[RESERVE_REASON_SOURCE_HASH_FIELD].tolist()
+                if str(value).strip().lower() not in {"", "nan", "none"}
+            }
+            if len(embedded_hashes) > 1:
+                raise ValueError(
+                    "conflicting Reserve reason source hashes for "
+                    f"{pd.Timestamp(rebalance_date).date().isoformat()}: "
+                    f"{sorted(embedded_hashes)}"
+                )
     d = d.groupby(["rebalance_date", "ticker"], as_index=False).agg(
         {
             "weight": "sum",
@@ -382,6 +396,11 @@ def normalize_targets(
             **({"concentrated_selection_source": "last"} if "concentrated_selection_source" in d.columns else {}),
             **({"portfolio_defensive_rotation_action": "last"} if "portfolio_defensive_rotation_action" in d.columns else {}),
             **{reason: "sum" for reason in RESERVE_REASONS if reason in d.columns},
+            **(
+                {RESERVE_REASON_SOURCE_HASH_FIELD: "last"}
+                if RESERVE_REASON_SOURCE_HASH_FIELD in d.columns
+                else {}
+            ),
         }
     )
     return d.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
@@ -1091,6 +1110,8 @@ def replay(
             (pd.Timestamp(px.index.max()).normalize() for px in stock_prices),
             default=pd.Timestamp(targets["rebalance_date"].max()).normalize(),
         )
+        if evidence_end is not None:
+            required_end = min(required_end, evidence_end)
         history = reserve_history_status(
             prices.get(reserve_asset_policy.asset_ticker, pd.DataFrame()),
             policy=reserve_asset_policy,
@@ -1177,14 +1198,23 @@ def replay(
             if ticker in CASH_TICKERS:
                 continue
             actual_dt, px = fill_price(prices, ticker, signal_dt, fill_mode, max_fill_lag_days)
-            if actual_dt is not None and px is not None:
-                fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
+            normalized_fill = (
+                pd.Timestamp(actual_dt).normalize() if actual_dt is not None else None
+            )
+            if (
+                normalized_fill is not None
+                and px is not None
+                and (evidence_end is None or normalized_fill <= evidence_end)
+            ):
+                fill_dt_by_ticker[ticker] = normalized_fill
                 fill_px_by_ticker[ticker] = float(px)
         if not fill_dt_by_ticker:
             if not carry_enabled:
                 continue
             fill_dt = calendar_fill_date(calendar_prices, signal_dt, fill_mode, max_fill_lag_days)
-            if fill_dt is None:
+            if fill_dt is None or (
+                evidence_end is not None and pd.Timestamp(fill_dt).normalize() > evidence_end
+            ):
                 continue
         else:
             fill_dt = min(fill_dt_by_ticker.values())

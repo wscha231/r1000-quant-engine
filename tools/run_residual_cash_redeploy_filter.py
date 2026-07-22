@@ -96,6 +96,12 @@ def _row_cap(row: pd.Series, col: str, default: float) -> float:
 
 
 def is_defense_date(crisis_state: Any) -> bool:
+    # This research-only filter is also an input adapter for historical books
+    # that predate crisis annotations. Its documented blank/NaN boundary is a
+    # normal-date redeploy; non-blank unknown values still fail closed through
+    # the canonical adapter as DEGRADED_DATA.
+    if pd.isna(crisis_state) or not str(crisis_state).strip():
+        return False
     return adapt_crisis_state(crisis_state) in DEFENSE_STATES
 
 

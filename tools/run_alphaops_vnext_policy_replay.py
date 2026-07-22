@@ -678,7 +678,11 @@ def crisis_state_blocks_shakeout_guard(row: dict[str, Any]) -> tuple[bool, str]:
     crisis_state = str(row.get("crisis_state") or "").strip().upper()
     if not crisis_state:
         return False, ""
-    if crisis_state == "WATCH" or "CRISIS" in crisis_state or "DEFENSE" in crisis_state:
+    if (
+        crisis_state in {"WATCH", "DEGRADED_DATA"}
+        or "CRISIS" in crisis_state
+        or "DEFENSE" in crisis_state
+    ):
         return True, crisis_state
     return False, ""
 
@@ -851,7 +855,7 @@ def crisis_new_buy_allowed(rec: dict[str, Any], state: str) -> tuple[bool, str]:
     setting = CRISIS_SETTINGS[state]
     lane = str(rec.get("primary_lane") or "MARKET_LEADER")
     allowed_by_lane = setting.get("new_buy_allowed", {})
-    allowed = bool(allowed_by_lane.get(lane, True))
+    allowed = bool(allowed_by_lane.get(lane, state != "DEGRADED_DATA"))
     if allowed:
         return True, ""
     return False, f"crisis_new_buy_blocked_for_lane:{state}:{lane}"
