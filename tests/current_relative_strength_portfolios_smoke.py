@@ -23,6 +23,11 @@ from tools.build_current_relative_strength_portfolios import (  # noqa: E402
     validate_source_freshness,
 )
 from tools.build_current_relative_strength_ranking import build_ranking  # noqa: E402
+from tools.reserve_asset_policy import (  # noqa: E402
+    BROKER_CASH_OR_MMF,
+    reserve_reason_reconciliation,
+    resolve_reserve_asset_policy,
+)
 
 
 def file_hash(path: Path) -> str:
@@ -159,6 +164,12 @@ def test_constrained_selection_and_explicit_reserve_contract() -> None:
     assert float(target.loc[target["ticker"].ne("CASH"), "target_weight"].max()) <= 0.30
     hashes = target["reserve_reason_source_hash"].dropna().unique()
     assert len(hashes) == 1 and len(str(hashes[0])) == 64
+    reconciliation = reserve_reason_reconciliation(
+        target,
+        policy=resolve_reserve_asset_policy(BROKER_CASH_OR_MMF),
+        weight_col="target_weight",
+    )
+    assert reconciliation["reserve_reason_source_hash"] == str(hashes[0])
 
 
 def test_build_writes_review_only_targets_and_integer_transition_previews() -> None:

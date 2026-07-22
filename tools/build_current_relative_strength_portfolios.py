@@ -28,6 +28,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.reserve_asset_policy import (  # noqa: E402
+    BROKER_CASH_OR_MMF,
+    reserve_reason_source_hash,
+    resolve_reserve_asset_policy,
+)
+
 SCHEMA_VERSION = "run287-current-relative-strength-portfolios-v1"
 CASH_TICKER = "CASH"
 DATA_BLOCK_RESERVE = 0.08
@@ -90,11 +96,6 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def policy_hash(payload: dict[str, Any]) -> str:
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -263,15 +264,19 @@ def build_target(
     rows["capacity_unallocated"] = 0.0
     rows["crisis_reserve"] = 0.0
     rows["residual_cash"] = 0.0
-    reason_payload = {
+    reason_weights = {
+        "crisis_reserve": 0.0,
         "data_block_reserve": round(data_reserve, 12),
         "transaction_buffer": round(transaction_buffer, 12),
         "reentry_pending": round(reentry_pending, 12),
-        "portfolio_kind": portfolio_kind,
-        "proposal": proposal,
-        "valuation_date": valuation_date,
+        "capacity_unallocated": 0.0,
+        "residual_cash": 0.0,
     }
-    reason_hash = policy_hash(reason_payload)
+    reason_hash = reserve_reason_source_hash(
+        policy=resolve_reserve_asset_policy(BROKER_CASH_OR_MMF),
+        reserve_weight=cash_weight,
+        reasons=reason_weights,
+    )
     rows["reserve_reason_source_hash"] = reason_hash
     rows["review_only"] = True
     rows["production_activation_allowed"] = False
