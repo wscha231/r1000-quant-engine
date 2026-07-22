@@ -3232,6 +3232,13 @@ Expected contract:
   infers valuation as-of from explicit input or available holding/target
   prices first, reselects the target at that cutoff, and only then resolves the
   matching decision-time lifecycle snapshot.
+- The next exact-head review exposed the remaining circular edge: resolving
+  lifecycle only after as-of inference meant a predecessor cache ending on the
+  last-trading date could hide an exact successor close and pull standalone
+  preview backward. Preview now derives a requested session floor solely from
+  account/selected-target/decision evidence, resolves verified lifecycle links
+  before price inference, and re-resolves at the final cutoff. The dedicated
+  regression and repository pytest passed (`129/129`).
 - Focused H2 tests passed `52/52`, repository pytest passed `129/129`, and full
   Tier-1 validation passed `191/191` initially in `692.56s` and again on the
   reviewed head in `582.37s`; the exact-successor follow-up passed `191/191`

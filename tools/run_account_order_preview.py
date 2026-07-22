@@ -286,6 +286,7 @@ def infer_as_of_date(
     price_cache: Path,
     provider_symbol_overrides: dict[str, str] | None = None,
     provider_symbol_links: dict[str, dict[str, str]] | None = None,
+    minimum_as_of_date: pd.Timestamp | None = None,
 ) -> pd.Timestamp:
     if explicit_as_of_date:
         return pd.Timestamp(explicit_as_of_date).normalize()
@@ -318,9 +319,45 @@ def infer_as_of_date(
             successor_dates = [date for date in dates if date > pd.Timestamp(last_trade).normalize()]
             inferred = max(successor_dates or predecessor_dates or dates)
         latest_dates.append(inferred)
-    if latest_dates:
-        return max(latest_dates)
-    return fallback
+    inferred = max(latest_dates) if latest_dates else fallback
+    if minimum_as_of_date is not None:
+        inferred = max(inferred, pd.Timestamp(minimum_as_of_date).normalize())
+    return inferred
+
+
+def requested_preview_session_floor(
+    *,
+    explicit_as_of_date: str,
+    target_date: str,
+    account_state: dict[str, Any],
+    selected_target: pd.DataFrame,
+    decision_time_utc: pd.Timestamp | None,
+) -> pd.Timestamp:
+    """Return the earliest session a standalone preview is allowed to infer.
+
+    Lifecycle resolution needs a session before successor symbol caches can be
+    considered.  Use only dates already requested by the account/target
+    contract (plus its exact decision timestamp), never a provider price, so a
+    predecessor cache ending at the cutover cannot pull the preview backward.
+    """
+    if explicit_as_of_date:
+        return pd.Timestamp(explicit_as_of_date).normalize()
+    candidates: list[pd.Timestamp] = []
+    for value in (target_date, account_state.get("as_of_date")):
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.notna(parsed):
+            candidates.append(pd.Timestamp(parsed).normalize())
+    for column in ("valuation_close_date", "target_effective_date", "rebalance_date"):
+        if column not in selected_target.columns:
+            continue
+        parsed = pd.to_datetime(selected_target[column], errors="coerce").dropna()
+        if not parsed.empty:
+            candidates.append(pd.Timestamp(parsed.max()).normalize())
+    if decision_time_utc is not None and pd.notna(decision_time_utc):
+        candidates.append(pd.Timestamp(decision_time_utc).tz_convert(None).normalize())
+    if candidates:
+        return max(candidates)
+    return pd.Timestamp.utcnow().normalize().tz_localize(None)
 
 
 def current_account_view(
@@ -739,9 +776,77 @@ def run(
         return payload
     positions = load_positions(account)
     raw_target = read_csv(target_path)
+    lifecycle_value = str(getattr(args, "security_lifecycle_events", "") or "").strip()
+    resolve_lifecycle_from_file = bool(lifecycle_value and provider_symbol_links is None)
+    lifecycle_decision_time_utc = ""
+    lifecycle_terminal_tickers: frozenset[str] = frozenset()
+    decision_time: pd.Timestamp | None = None
+    decision_source = select_target_snapshot(
+        raw_target,
+        target_date=str(getattr(args, "target_date", "") or ""),
+        as_of_date=(
+            pd.Timestamp(args.as_of_date).normalize()
+            if str(getattr(args, "as_of_date", "") or "").strip()
+            else None
+        ),
+    )
+    target_decision_values: list[str] = []
+    if "selector_decision_time_utc" in decision_source.columns:
+        target_decision_values = sorted(
+            {
+                str(value).strip()
+                for value in decision_source["selector_decision_time_utc"].dropna().tolist()
+                if str(value).strip()
+            }
+        )
+    if resolve_lifecycle_from_file:
+        if len(target_decision_values) > 1:
+            raise ValueError("selected target has ambiguous selector_decision_time_utc")
+        decision_raw = str(getattr(args, "decision_time_utc", "") or "").strip()
+        if decision_raw and target_decision_values:
+            explicit_decision = pd.to_datetime(decision_raw, errors="coerce", utc=True)
+            target_decision = pd.to_datetime(
+                target_decision_values[0], errors="coerce", utc=True
+            )
+            if (
+                pd.isna(explicit_decision)
+                or pd.isna(target_decision)
+                or pd.Timestamp(explicit_decision) != pd.Timestamp(target_decision)
+            ):
+                raise ValueError("lifecycle_decision_time_mismatch_with_selected_target")
+        elif not decision_raw and target_decision_values:
+            decision_raw = target_decision_values[0]
+        parsed_decision = pd.to_datetime(decision_raw, errors="coerce", utc=True)
+        if pd.isna(parsed_decision):
+            raise ValueError(
+                "--decision-time-utc or one exact target selector_decision_time_utc is required with lifecycle evidence"
+            )
+        decision_time = pd.Timestamp(parsed_decision)
+        lifecycle_decision_time_utc = decision_time.isoformat()
     provisional_target = normalize_target(
         raw_target, args.portfolio_kind, args.target_date
     )
+    requested_floor = requested_preview_session_floor(
+        explicit_as_of_date=str(getattr(args, "as_of_date", "") or ""),
+        target_date=str(getattr(args, "target_date", "") or ""),
+        account_state=account,
+        selected_target=decision_source,
+        decision_time_utc=decision_time,
+    )
+    if resolve_lifecycle_from_file:
+        lifecycle = resolve_security_lifecycle(
+            repo_path(lifecycle_value),
+            session_date=requested_floor,
+            decision_time_utc=decision_time,
+            active_tickers=set(positions.get("ticker", pd.Series(dtype=str)))
+            | set(provisional_target.get("ticker", pd.Series(dtype=str))),
+        )
+        for logical, successor in lifecycle.provider_symbol_overrides.items():
+            prior = provider_symbol_overrides.setdefault(logical, successor)
+            if prior != successor:
+                raise ValueError(f"conflicting lifecycle provider symbol:{logical}")
+        provider_symbol_links = lifecycle.provider_symbol_links
+        lifecycle_terminal_tickers = lifecycle.terminal_tickers
     as_of = infer_as_of_date(
         explicit_as_of_date=args.as_of_date,
         account_state=account,
@@ -750,6 +855,7 @@ def run(
         price_cache=price_cache,
         provider_symbol_overrides=provider_symbol_overrides,
         provider_symbol_links=provider_symbol_links,
+        minimum_as_of_date=requested_floor,
     )
     target = normalize_target(
         raw_target,
@@ -767,52 +873,13 @@ def run(
         )
     account_source_kind = "simulated_broker_replay" if "broker_replay" in str(account_path).replace("\\", "/") else "account_state_file"
     target_source_kind = "unified_target" if "unified_target" in target_path.name else "sleeve_model_target"
-    lifecycle_value = str(getattr(args, "security_lifecycle_events", "") or "").strip()
-    lifecycle_decision_time_utc = ""
-    lifecycle_terminal_tickers: frozenset[str] = frozenset()
-    if lifecycle_value and provider_symbol_links is None:
-        decision_raw = str(getattr(args, "decision_time_utc", "") or "").strip()
-        target_decision_values: list[str] = []
-        if "selector_decision_time_utc" in raw_target.columns:
-            decision_source = select_target_snapshot(
-                raw_target,
-                target_date=str(getattr(args, "target_date", "") or ""),
-                as_of_date=as_of,
-            )
-            target_decision_values = sorted(
-                {
-                    str(value).strip()
-                    for value in decision_source[
-                        "selector_decision_time_utc"
-                    ].dropna().tolist()
-                    if str(value).strip()
-                }
-            )
-        if len(target_decision_values) > 1:
-            raise ValueError("selected target has ambiguous selector_decision_time_utc")
-        if decision_raw and target_decision_values:
-            explicit_decision = pd.to_datetime(decision_raw, errors="coerce", utc=True)
-            target_decision = pd.to_datetime(
-                target_decision_values[0], errors="coerce", utc=True
-            )
-            if (
-                pd.isna(explicit_decision)
-                or pd.isna(target_decision)
-                or pd.Timestamp(explicit_decision) != pd.Timestamp(target_decision)
-            ):
-                raise ValueError("lifecycle_decision_time_mismatch_with_selected_target")
-        elif not decision_raw and target_decision_values:
-            decision_raw = target_decision_values[0]
-        decision_time = pd.to_datetime(decision_raw, errors="coerce", utc=True)
-        if pd.isna(decision_time):
-            raise ValueError(
-                "--decision-time-utc or one exact target selector_decision_time_utc is required with lifecycle evidence"
-            )
-        lifecycle_decision_time_utc = pd.Timestamp(decision_time).isoformat()
+    if resolve_lifecycle_from_file:
+        if decision_time is None:
+            raise ValueError("lifecycle decision time was not resolved")
         lifecycle = resolve_security_lifecycle(
             repo_path(lifecycle_value),
             session_date=as_of,
-            decision_time_utc=pd.Timestamp(decision_time),
+            decision_time_utc=decision_time,
             active_tickers=set(positions.get("ticker", pd.Series(dtype=str)))
             | set(target.get("ticker", pd.Series(dtype=str))),
         )

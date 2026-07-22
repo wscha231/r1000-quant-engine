@@ -333,6 +333,88 @@ def test_post_cutover_orders_use_successor_ticker() -> None:
         assert positions.loc[0, "logical_ticker"] == "OLD"
 
 
+def test_standalone_lifecycle_resolves_successor_before_as_of_inference() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        out = root / "preview"
+        cache.mkdir()
+        _write_px(cache, "OLD", [101.0], start="2026-01-05")
+        _write_px(cache, "NEW", [120.0], start="2026-01-06")
+        account_path = root / "account.json"
+        account_path.write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-01-05",
+                    "cash_usd": 0.0,
+                    "positions": [
+                        {"ticker": "OLD", "shares": 10.0, "cost_basis": 90.0}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        target_path = root / "target.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-06",
+                    "valuation_close_date": "2026-01-06",
+                    "ticker": "OLD",
+                    "weight": 1.0,
+                    "selector_decision_time_utc": "2026-01-06T21:00:00Z",
+                }
+            ]
+        ).to_csv(target_path, index=False)
+        lifecycle_path = root / "security_lifecycle_events.csv"
+        event = {column: "" for column in REQUIRED_COLUMNS}
+        event.update(
+            {
+                "stable_security_id": "SEC_OLD",
+                "stable_issuer_id": "ISSUER_OLD",
+                "ticker": "OLD",
+                "aliases": "OLD",
+                "event_type": "ticker_change",
+                "available_from": "2026-01-06T20:30:00Z",
+                "effective_date": "2026-01-06",
+                "last_trading_date": "2026-01-05",
+                "predecessor_security_id": "SEC_OLD",
+                "successor_security_id": "SEC_OLD",
+                "successor_ticker": "NEW",
+                "currency": "USD",
+                "source_url": "https://example.test/lifecycle",
+                "stable_event_id": "EVENT_OLD_NEW",
+                "source_sha256": "a" * 64,
+                "exact_available_from": "true",
+                "evidence_status": "verified",
+                "review_status": "approved",
+            }
+        )
+        pd.DataFrame([event]).to_csv(lifecycle_path, index=False)
+        args = Args()
+        args.account_state = str(account_path)
+        args.target = str(target_path)
+        args.price_cache = str(cache)
+        args.portfolio_kind = "main"
+        args.output_dir = str(out)
+        args.as_of_date = ""
+        args.target_date = ""
+        args.cost_bps = 25.0
+        args.limit_margin_pct = 0.25
+        args.min_trade_usd = 25.0
+        args.fractional_shares = False
+        args.provider_symbol_override = []
+        args.security_lifecycle_events = str(lifecycle_path)
+        args.decision_time_utc = "2026-01-06T21:00:00Z"
+        payload = run(args)
+        assert payload["status"] == "completed"
+        assert payload["as_of_date"] == "2026-01-06"
+        positions = pd.read_csv(out / "positions_current.csv")
+        assert positions.loc[0, "ticker"] == "NEW"
+        assert positions.loc[0, "logical_ticker"] == "OLD"
+        assert positions.loc[0, "price"] == 120.0
+
+
 def test_post_cutover_new_target_requires_successor_exact_close() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -585,6 +667,7 @@ def main() -> int:
     test_lifecycle_price_rejects_stale_successor_after_cutover()
     test_lifecycle_price_rejects_future_only_successor_cache()
     test_post_cutover_orders_use_successor_ticker()
+    test_standalone_lifecycle_resolves_successor_before_as_of_inference()
     test_post_cutover_new_target_requires_successor_exact_close()
     test_cli_and_operational_invocations_require_lifecycle_evidence()
     test_terminal_lifecycle_ticker_blocks_standalone_preview()

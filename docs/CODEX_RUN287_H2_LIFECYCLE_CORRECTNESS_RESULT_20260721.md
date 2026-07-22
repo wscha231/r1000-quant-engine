@@ -94,9 +94,11 @@ The completed fixture set now also proves:
 - lifecycle-linked provider downloads begin at the earliest verified effective
   date, and a material gap after cutover blocks the scorer rather than feeding
   discontinuous technical history;
-- preview valuation as-of is inferred before final target selection, then the
-  target is reselected at that cutoff before lifecycle decision evidence is
-  resolved; a stale account snapshot cannot be combined with future weights;
+- preview valuation as-of uses the selected account/target/decision contract
+  as a floor; lifecycle successor links are resolved at that requested session
+  before provider-price inference, then resolved again at the final cutoff. A
+  predecessor cache ending at cutover therefore cannot pull the preview back
+  to a stale symbol/session, while final target selection remains cutoff-safe;
 - restored absolute lifecycle paths may be rebound only through the exact
   repository-relative `data_static` tree and matching SHA-256;
 - standalone CLI preview invocations now load the canonical lifecycle file;
@@ -123,6 +125,9 @@ The completed fixture set now also proves:
   corrected by keeping the new decision-time input outside the four-field
   fullrun approval block, after which `tests/smoke_test.py` passed `129/129`.
   Exact-head GitHub CI is still required before merge.
+- Final as-of ordering follow-up: standalone lifecycle regression PASS and
+  repository pytest `129/129`; the requested target session now remains the
+  valuation floor while successor caches participate in inference.
 
 The tests used temporary fixtures. No durable paper account, public operating
 target, downloaded artifact, Drive archive, or existing untracked output was
