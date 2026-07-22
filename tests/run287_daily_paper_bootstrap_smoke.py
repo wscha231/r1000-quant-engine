@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.bootstrap_run287_daily_paper_accounts import run as run_bootstrap  # noqa: E402
+from tools.reserve_asset_policy import RESERVE_REASON_SOURCE_HASH_FIELD  # noqa: E402
 from tools.run_daily_simulated_fill_ledger import run as run_ledger  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
@@ -184,10 +185,30 @@ def test_bootstrap_refuses_late_reseed_and_wrong_restored_seed() -> None:
             raise AssertionError("bootstrap accepted a restored account with the wrong seed date")
 
 
+def test_bootstrap_rejects_stale_reserve_reason_source_hash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        write_prices(root / "prices", "AAA", ["2026-07-14"], [101.0])
+        for portfolio in ("main", "concentrated"):
+            path = root / "targets" / f"{portfolio}.csv"
+            write_target(path, "2026-07-14")
+            target = pd.read_csv(path)
+            target[RESERVE_REASON_SOURCE_HASH_FIELD] = "stale-source-hash"
+            target.to_csv(path, index=False)
+        try:
+            run_bootstrap(bootstrap_args(root, "2026-07-14"))
+        except ValueError as exc:
+            assert "stale Reserve reason source hash" in str(exc)
+        else:
+            raise AssertionError("bootstrap silently blessed a stale Reserve reason source hash")
+        assert not (root / "paper" / "bootstrap" / "main_account.json").exists()
+
+
 def main() -> int:
     test_bootstrap_is_exact_close_idempotent_and_ledger_compatible()
     test_bootstrap_rejects_non_exact_close_and_incomplete_state()
     test_bootstrap_refuses_late_reseed_and_wrong_restored_seed()
+    test_bootstrap_rejects_stale_reserve_reason_source_hash()
     print("run287_daily_paper_bootstrap_smoke: PASS")
     return 0
 

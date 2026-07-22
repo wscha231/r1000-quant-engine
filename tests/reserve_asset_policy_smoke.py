@@ -198,6 +198,38 @@ def test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark() -> None:
         assert pd.to_datetime(curve["date"]).max() <= pd.Timestamp("2026-01-05")
 
 
+def test_tradeable_reserve_history_is_clamped_to_evidence_cutoff() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        cache.mkdir()
+        write_prices(cache, "AAA", [100.0] * 8, "2026-01-02")
+        write_prices(cache, "BIL", [100.0, 100.1], "2026-01-02")
+        target = root / "target.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50},
+                {"rebalance_date": "2026-01-02", "ticker": "CASH", "weight": 0.50},
+            ]
+        ).to_csv(target, index=False)
+        output = root / "bil_cutoff"
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            reserve_mode=BIL_TOTAL_RETURN,
+            evidence_end_date="2026-01-05",
+        )
+        assert metrics["status"] == "completed", metrics
+        assert metrics["stock_evidence_end_date"] == "2026-01-05"
+        curve = pd.read_csv(output / "equity_curve.csv")
+        assert pd.to_datetime(curve["date"]).max() <= pd.Timestamp("2026-01-05")
+
+
 def test_history_and_double_count_gate() -> None:
     bil = resolve_reserve_asset_policy(BIL_TOTAL_RETURN)
     prices = pd.DataFrame({"close": [100.0, 101.0]}, index=pd.to_datetime(["2020-01-02", "2020-01-03"]))
@@ -288,6 +320,7 @@ def main() -> int:
     test_explicit_cash_materialization_labels_reserve_exactly_once()
     test_stale_reserve_reason_hash_is_rejected()
     test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark()
+    test_tradeable_reserve_history_is_clamped_to_evidence_cutoff()
     test_history_and_double_count_gate()
     test_bil_trades_like_a_security_and_sgov_blocks_short_history()
     print("reserve_asset_policy_smoke: PASS")

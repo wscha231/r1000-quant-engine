@@ -129,7 +129,14 @@ CRISIS_SETTINGS = {
     "DEGRADED_DATA": {
         "cash": 0.20,
         "lane_multiplier": {"EMERGING_TENBAGGER": 0.35, "CYCLICAL_RECOVERY": 0.60, "MARKET_LEADER": 0.80, "QUALITY_COMPOUNDER": 0.95},
-        "new_buy_allowed": {"EMERGING_TENBAGGER": False, "MARKET_LEADER": False, "QUALITY_COMPOUNDER": False, "CYCLICAL_RECOVERY": False},
+        "new_buy_allowed": {
+            "EMERGING_TENBAGGER": False,
+            "TOP7_MANAGER_DISCOVERY": False,
+            "MARKET_LEADER": False,
+            "QUALITY_COMPOUNDER": False,
+            "CYCLICAL_RECOVERY": False,
+            "CRISIS_BENEFICIARY": False,
+        },
     },
 }
 

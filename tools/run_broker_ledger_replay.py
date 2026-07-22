@@ -1091,6 +1091,8 @@ def replay(
             (pd.Timestamp(px.index.max()).normalize() for px in stock_prices),
             default=pd.Timestamp(targets["rebalance_date"].max()).normalize(),
         )
+        if evidence_end is not None:
+            required_end = min(required_end, evidence_end)
         history = reserve_history_status(
             prices.get(reserve_asset_policy.asset_ticker, pd.DataFrame()),
             policy=reserve_asset_policy,

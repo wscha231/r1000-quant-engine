@@ -97,3 +97,22 @@ were corrected before merge:
 Post-fix validation passed: focused affected suites, repository pytest
 (`129/129`), full Tier-1 validation (`191/191`, `454.55s`), Python compilation,
 and `git diff --check`. Fullrun remained unexecuted.
+
+## Second exact-head review follow-up
+
+The second Codex exact-head review found four remaining fail-closed gaps. They
+were corrected together with targeted regression fixtures:
+
+- daily paper bootstrap preserves the embedded Reserve reason source hash so a
+  stale or conflicting provenance value cannot be silently recomputed;
+- `DEGRADED_DATA` blocks the production shakeout guard instead of suppressing a
+  required trim during a crisis-data outage;
+- all known alternative lanes, and any unrecognized lane, are blocked from new
+  buys while crisis data is degraded;
+- tradeable Reserve history coverage is checked only through the explicit
+  stock evidence cutoff rather than through later cached stock observations.
+
+The four targeted smoke suites passed. Repository pytest passed `129/129`, and
+full Tier-1 validation passed `191/191` in `454.51s`. Python compilation and
+`git diff --check` also passed on the final exact head. Fullrun remained
+unexecuted.
