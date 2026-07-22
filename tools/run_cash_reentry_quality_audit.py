@@ -109,14 +109,16 @@ def _normalize_date(frame: pd.DataFrame, col: str = "date") -> pd.DataFrame:
 
 
 def _crisis_bucket(value: Any) -> str:
-    text = str(value or "").upper()
+    text = "" if value is None or pd.isna(value) else str(value).strip().upper()
     if "CRISIS" in text:
         return "CRISIS"
     if "DEFENSE" in text:
         return "DEFENSE"
     if "WATCH" in text:
         return "WATCH"
-    return "GREEN"
+    if text == "GREEN" or "REENTRY" in text:
+        return "GREEN"
+    return "MISSING"
 
 
 def _read_crisis_state(latest_run: Path) -> pd.DataFrame:

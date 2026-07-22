@@ -512,6 +512,9 @@ def materialize_lifecycle_adjusted_target(
             "BLOCKED_RESERVE_LIFECYCLE",
             f"Reserve asset is terminal at decision time: {reserve_policy.asset_ticker}",
         )
+    terminal_target_tickers = set(target["ticker"].astype(str).str.upper()) & set(
+        lifecycle.terminal_tickers
+    )
     adjusted = filter_terminal_tickers(target, lifecycle)
     non_cash = adjusted.loc[~adjusted["ticker"].isin({"CASH", "__CASH__"})]
     if not source_non_cash.empty and non_cash.empty:
@@ -532,6 +535,7 @@ def materialize_lifecycle_adjusted_target(
     adjusted["reserve_asset_ticker"] = reserve_policy.asset_ticker
     adjusted["reserve_asset_tradeable"] = reserve_policy.tradeable
     adjusted["reserve_reason_reconciled"] = True
+    explicit_reason_fields = any(reason in adjusted.columns for reason in RESERVE_REASONS)
     for reason in RESERVE_REASONS:
         if reason not in adjusted.columns:
             adjusted[reason] = 0.0
@@ -552,7 +556,14 @@ def materialize_lifecycle_adjusted_target(
                 "BLOCKED_RESERVE_PROVENANCE",
                 "reserve weight has no materialized Reserve row",
             )
-        adjusted.loc[reserve_rows[0], "residual_cash"] += unlabeled_reserve
+        unlabeled_reason = (
+            "residual_cash" if explicit_reason_fields else "capacity_unallocated"
+        )
+        adjusted.loc[reserve_rows[0], unlabeled_reason] += unlabeled_reserve
+    if terminal_target_tickers:
+        adjusted = adjusted.drop(
+            columns=[RESERVE_REASON_SOURCE_HASH_FIELD], errors="ignore"
+        )
     reconciliation = reserve_reason_reconciliation(
         adjusted,
         policy=reserve_policy,

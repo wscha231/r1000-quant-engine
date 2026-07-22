@@ -20,6 +20,7 @@ from tools.run_account_order_preview import (  # noqa: E402
     select_target_snapshot,
 )
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.reserve_asset_policy import RESERVE_REASON_SOURCE_HASH_FIELD  # noqa: E402
 from tools.security_lifecycle import REQUIRED_COLUMNS  # noqa: E402
 
 
@@ -113,6 +114,11 @@ def test_order_preview_builds_sell_first_orders() -> None:
         manifest = json.loads((out / "order_batch_manifest.json").read_text(encoding="utf-8"))
         assert manifest["order_count"] == len(orders)
         assert manifest["order_batch_id"] == payload["order_batch_id"]
+        target_weights = pd.read_csv(out / "target_weights.csv")
+        assert RESERVE_REASON_SOURCE_HASH_FIELD in target_weights.columns
+        assert set(target_weights[RESERVE_REASON_SOURCE_HASH_FIELD]) == {
+            manifest[RESERVE_REASON_SOURCE_HASH_FIELD]
+        }
 
 
 def test_concentrated_target_normalization_does_not_force_n3() -> None:

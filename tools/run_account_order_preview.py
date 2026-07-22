@@ -928,6 +928,9 @@ def run(
         policy=reserve_policy,
         weight_col="target_weight",
     )
+    target[RESERVE_REASON_SOURCE_HASH_FIELD] = reserve_reconciliation[
+        RESERVE_REASON_SOURCE_HASH_FIELD
+    ]
     if reserve_policy.tradeable:
         reserve_price_date, reserve_price = latest_price(
             price_cache,

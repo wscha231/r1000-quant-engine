@@ -165,6 +165,45 @@ def test_stale_reserve_reason_hash_is_rejected() -> None:
         raise AssertionError("stale Reserve reason source hash was accepted")
 
 
+def test_broker_replay_preserves_and_rejects_stale_target_hash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        cache.mkdir()
+        write_prices(cache, "AAA", [100.0, 101.0], "2026-01-02")
+        target = root / "target.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "weight": 0.60,
+                    RESERVE_REASON_SOURCE_HASH_FIELD: "stale-source-hash",
+                },
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "CASH",
+                    "weight": 0.40,
+                    "capacity_unallocated": 0.40,
+                    RESERVE_REASON_SOURCE_HASH_FIELD: "stale-source-hash",
+                },
+            ]
+        ).to_csv(target, index=False)
+        try:
+            replay(
+                target_book=target,
+                price_cache=cache,
+                output_dir=root / "broker",
+                portfolio_kind="main",
+                starting_capital=10_000.0,
+                reserve_mode=BROKER_CASH_OR_MMF,
+            )
+        except ValueError as exc:
+            assert "stale Reserve reason source hash" in str(exc)
+        else:
+            raise AssertionError("broker replay silently replaced a stale target hash")
+
+
 def test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -319,6 +358,7 @@ def main() -> int:
     test_modes_and_reason_reconciliation()
     test_explicit_cash_materialization_labels_reserve_exactly_once()
     test_stale_reserve_reason_hash_is_rejected()
+    test_broker_replay_preserves_and_rejects_stale_target_hash()
     test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark()
     test_tradeable_reserve_history_is_clamped_to_evidence_cutoff()
     test_history_and_double_count_gate()

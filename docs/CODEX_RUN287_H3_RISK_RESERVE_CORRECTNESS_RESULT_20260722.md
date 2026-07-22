@@ -116,3 +116,23 @@ The four targeted smoke suites passed. Repository pytest passed `129/129`, and
 full Tier-1 validation passed `191/191` in `454.51s`. Python compilation and
 `git diff --check` also passed on the final exact head. Fullrun remained
 unexecuted.
+
+## Third exact-head review follow-up
+
+The third Codex exact-head review found four remaining provenance/audit
+consumers. They are corrected with focused regressions:
+
+- broker target normalization preserves and validates embedded Reserve source
+  hashes rather than replacing stale input provenance;
+- direct account-order preview writes the reconciled source hash into
+  `target_weights.csv` as well as its manifest and metrics;
+- a lifecycle-mutated effective target intentionally discards the pre-mutation
+  source hash, then writes the newly reconciled hash;
+- the cash/re-entry quality audit maps degraded, blank, unknown, and explicitly
+  missing crisis states to its existing `MISSING` bucket, which triggers
+  `REVIEW_REQUIRED_MISSING_CRISIS_STATE` and excludes the rows from green-regime
+  cash and rebound statistics.
+
+Final validation passed: focused affected suites, repository pytest `129/129`,
+full Tier-1 `191/191` in `446.39s`, Python compilation, and
+`git diff --check`. Fullrun remained unexecuted.
