@@ -257,6 +257,13 @@ def test_bundle_verifier_hashes_source_file_bytes() -> None:
         verified, errors = verify_canonical_source_bundle(registry)
         assert errors == []
         assert verified["verified_source_count"] == 1
+        unpinned = copy.deepcopy(registry)
+        unpinned["canonical_source_bundle_manifest"]["expected_sha256"] = ""
+        blocked, errors = verify_canonical_source_bundle(unpinned)
+        assert blocked["status"] == "UNVERIFIED"
+        assert errors == [
+            "canonical_source_bundle_manifest_expected_sha256_missing"
+        ]
         write_json(source, {"value": 2})
         blocked, errors = verify_canonical_source_bundle(registry)
         assert blocked["status"] == "INTEGRITY_ERROR"

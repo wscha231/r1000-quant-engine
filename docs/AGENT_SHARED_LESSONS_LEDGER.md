@@ -3305,11 +3305,15 @@ Expected contract:
   source id and turn a lane-local true-forward defect into a false historical
   integrity failure. Preserve global fail-closed behavior for parse or
   structural faults.
+- The bundle manifest hash is a required root of trust, not an optional
+  optimization. Even perfectly matching member declarations and file hashes
+  cannot produce `VERIFIED` when the registry's expected manifest SHA-256 is
+  absent.
 - Missing model heads are an expected fail-closed operating condition, not an
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.
 - Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and full
-  Tier-1 validation (`191/191`, `597.30s` on the final local follow-up head)
+  Tier-1 validation (`191/191`, `624.10s` on the final local follow-up head)
   passed.
 - Evidence:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.

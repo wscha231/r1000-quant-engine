@@ -135,6 +135,10 @@ def verify_canonical_source_bundle(
             "expected_sha256": str(spec.get("expected_sha256") or "").lower(),
         }
     )
+    if not record["expected_sha256"]:
+        return record, [
+            "canonical_source_bundle_manifest_expected_sha256_missing"
+        ]
     if not path.is_file():
         return record, ["canonical_source_bundle_manifest_unavailable"]
     actual_hash = sha256_file(path)

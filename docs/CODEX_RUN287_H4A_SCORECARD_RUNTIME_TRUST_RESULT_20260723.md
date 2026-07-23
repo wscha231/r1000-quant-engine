@@ -50,7 +50,7 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `597.30s` on the final local
+- Full PR validation: `191/191` PASS in `624.10s` on the final local
   follow-up head.
 - Python compilation and `git diff --check`: PASS.
 
@@ -73,6 +73,9 @@ The first exact-head Codex review identified two valid provenance gaps.
   parsed delta is source-scoped and no global structural fault exists, the
   manifest mismatch retains those source ids; parse/global faults still block
   every managed lane.
+- A missing or blank registry pin for the bundle manifest is a global trust
+  failure; member declarations and file hashes cannot substitute for the
+  immutable manifest SHA-256.
 - New regressions mutate source bytes behind unchanged declarations and inject
   true-forward-only bundle path and source-set mismatches. All fail closed in
   the intended lane.
