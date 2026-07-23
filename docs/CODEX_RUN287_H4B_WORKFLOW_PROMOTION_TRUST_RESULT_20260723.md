@@ -47,16 +47,16 @@ The focused fixtures prove:
 - Paper-ledger transaction smoke: PASS.
 - Promotion gate smoke: `11/11` PASS.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `389.94s` after merging the final H4a
-  trust-boundary head into the local H4b branch.
+- Full PR validation: `191/191` PASS in `438.16s` after merging the H4a merge
+  commit from the current `master` into H4b.
 - YAML parse and `git diff --check`: PASS.
 
 ## Safety and next gate
 
-H4b is locally integrated and validated against the final H4a branch head, but
-it remains unpublished until H4a's independent exact-head review, merge, and
-exact-merge validation pass. Durable session catch-up remains the next separate
-P0 operation after H4b merge.
+H4a passed independent exact-head review, merged as PR #321, and passed
+exact-merge validation on `master`. H4b is integrated against that merged
+`master`, validated, and ready for independent PR review. Durable session
+catch-up remains the next separate P0 operation after H4b merge.
 
 - Fullrun executed: false.
 - Durable catch-up executed: false.
