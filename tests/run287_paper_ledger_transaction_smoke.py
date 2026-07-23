@@ -16,9 +16,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.run287_paper_ledger_integrity import (  # noqa: E402
+    PaperLedgerIntegrityError,
     directory_hashes,
     install_verified_snapshot,
+    require_state_descends_from,
     verify_integrity_manifest,
+    write_integrity_manifest,
 )
 from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
     GENESIS_HASH,
@@ -154,8 +157,11 @@ def test_twenty_sessions_remain_continuous_and_same_session_is_byte_identical() 
         prepare(root, dates)
         statuses: list[str] = []
         for index, date in enumerate(dates):
-            statuses.append(str(run(ledger_args(root, date))["result_status"]))
+            result = run(ledger_args(root, date))
+            statuses.append(str(result["result_status"]))
             if index == 0:
+                assert "legacy_snapshot_semantically_validated" not in result
+                assert "legacy_snapshot_semantic_attestation_mode" not in result
                 shutil.copytree(root / "paper", root / "first_snapshot")
         assert statuses[0] == "GENESIS"
         assert statuses[1:] == ["RESTORED_CONTINUATION"] * 19
@@ -452,16 +458,327 @@ def test_legacy_same_session_snapshot_is_semantically_attested_once() -> None:
         run(ledger_args(root, date))
         (root / "paper" / "snapshot_integrity.json").unlink()
         (root / "paper" / "accepted_publication.json").unlink()
+        provenance_path = root / "legacy_migration_provenance.json"
+        provenance_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "run287-legacy-drive-paper-migration-v1",
+                    "status": "PENDING_SEMANTIC_ATTESTATION",
+                    "source": "GDRIVE_LEGACY_UNATTESTED",
+                    "legacy_as_of_date": date,
+                    "requested_as_of_date": date,
+                    "remote_snapshot_integrity_present": False,
+                    "verified_cross_source_anchor_present": False,
+                    "legacy_semantic_attestation_required": True,
+                    "accepted_for_use": False,
+                    "review_only": True,
+                    "live_trading_enabled": False,
+                    "production_mutation_allowed": False,
+                    "remote_tree_sha256": canonical_hash(
+                        directory_hashes(root / "paper")
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        args = ledger_args(root, date, suppress_new_orders=True)
+        args.legacy_migration_provenance = str(provenance_path)
 
-        attested = run(ledger_args(root, date))
+        attested = run(args)
         assert attested["result_status"] == "LEGACY_ATTESTED"
+        assert attested["new_order_generation_suppressed"] is True
+        assert all(
+            row["enqueued_this_run"] == 0
+            and row["resolved_fills_this_run"] == 0
+            and row["resolved_rejections_this_run"] == 0
+            and row["new_order_generation_suppressed"] is True
+            for row in attested["portfolios"].values()
+        )
         verified = verify_integrity_manifest(root / "paper", require=True)
         assert verified["status"] == "VERIFIED"
+        attestation = json.loads(
+            (
+                root / "paper" / "legacy_migration_attestation.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert attestation["status"] == "SEMANTIC_ATTESTATION_VERIFIED"
+        assert attestation["source"] == "GDRIVE_LEGACY_UNATTESTED"
+        assert attestation["accepted_for_use"] is True
+        assert (
+            verified["files"]["legacy_migration_attestation.json"]
+            == directory_hashes(root / "paper")[
+                "legacy_migration_attestation.json"
+            ]
+        )
         after = directory_hashes(root / "paper")
 
-        reused = run(ledger_args(root, date))
-        assert reused["result_status"] == "SAME_SESSION_REUSE"
+        reused = run(ledger_args(root, date, suppress_new_orders=True))
+        assert reused["result_status"] == "NO_NEW_ORDER_PREVIEW"
         assert directory_hashes(root / "paper") == after
+        migration_anchor = root / "migration_anchor"
+        shutil.copytree(root / "paper", migration_anchor)
+        anchor_manifest = verify_integrity_manifest(
+            migration_anchor, require=True
+        )
+
+        selected = run(ledger_args(root, date))
+        final_attestation_sha = directory_hashes(root / "paper")[
+            "legacy_migration_attestation.json"
+        ]
+        assert (
+            selected["legacy_migration_attestation_sha256"]
+            == final_attestation_sha
+        )
+        assert (
+            verify_integrity_manifest(root / "paper", require=True)["files"][
+                "legacy_migration_attestation.json"
+            ]
+            == final_attestation_sha
+        )
+        assert require_state_descends_from(
+            root / "paper", migration_anchor
+        )["continuity_status"] == "CANDIDATE_DESCENDS_FROM_ANCHOR"
+        forged = root / "forged_migration_descendant"
+        shutil.copytree(root / "paper", forged)
+        forged_attestation_path = (
+            forged / "legacy_migration_attestation.json"
+        )
+        forged_attestation = json.loads(
+            forged_attestation_path.read_text(encoding="utf-8")
+        )
+        forged_attestation["semantic_attestation_result"] = "FORGED"
+        forged_attestation_path.write_text(
+            json.dumps(forged_attestation, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (forged / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            forged,
+            as_of_date=date,
+            previous_snapshot_hash=anchor_manifest["snapshot_hash"],
+        )
+        try:
+            require_state_descends_from(forged, migration_anchor)
+        except PaperLedgerIntegrityError as exc:
+            assert "durable legacy migration attestation" in str(exc)
+        else:
+            raise AssertionError("migration attestation mutation was accepted")
+
+
+def test_legacy_prior_session_snapshot_is_semantically_attested_by_forward_replay() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        dates = ["2026-04-08", "2026-04-09", "2026-04-10"]
+        prepare(root, dates)
+        run(ledger_args(root, dates[0]))
+        write_target(
+            root / "targets" / "main.csv",
+            "main",
+            "AAA",
+            dates[1],
+            stock_weight=0.75,
+        )
+        write_target(
+            root / "targets" / "concentrated.csv",
+            "concentrated",
+            "BBB",
+            dates[1],
+            stock_weight=0.75,
+        )
+        seeded = run(ledger_args(root, dates[1]))
+        assert sum(
+            row["enqueued_this_run"]
+            for row in seeded["portfolios"].values()
+        ) > 0
+        (root / "paper" / "snapshot_integrity.json").unlink()
+        (root / "paper" / "accepted_publication.json").unlink()
+
+        attested = run(
+            ledger_args(root, dates[2], suppress_new_orders=True)
+        )
+        assert attested["result_status"] == "RESTORED_CONTINUATION"
+        assert attested["legacy_snapshot_semantically_validated"] is True
+        assert attested["legacy_snapshot_semantic_attestation_mode"] == "FORWARD_REPLAY"
+        assert attested["new_order_generation_suppressed"] is True
+        assert sum(
+            row["resolved_fills_this_run"]
+            for row in attested["portfolios"].values()
+        ) > 0
+        assert (
+            root / "paper" / "legacy_migration_attestation.json"
+        ).is_file()
+        assert verify_integrity_manifest(root / "paper", require=True)["status"] == "VERIFIED"
+
+
+def test_legacy_migration_blocks_orders_partial_state_and_unsafe_metadata() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        dates = ["2026-04-08", "2026-04-09"]
+        prepare(root, dates)
+        run(ledger_args(root, dates[0]))
+        (root / "paper" / "snapshot_integrity.json").unlink()
+        (root / "paper" / "accepted_publication.json").unlink()
+        before = directory_hashes(root / "paper")
+
+        try:
+            run(ledger_args(root, dates[1]))
+        except PaperLedgerIntegrityError as exc:
+            assert "requires a mark-only transaction" in str(exc)
+        else:
+            raise AssertionError("legacy migration generated orders")
+        assert directory_hashes(root / "paper") == before
+
+        shutil.rmtree(root / "paper" / "concentrated")
+        partial = directory_hashes(root / "paper")
+        try:
+            run(ledger_args(root, dates[1], suppress_new_orders=True))
+        except PaperLedgerIntegrityError as exc:
+            assert "partial paper ledger account state" in str(exc)
+        else:
+            raise AssertionError("partial legacy ledger was reseeded")
+        assert directory_hashes(root / "paper") == partial
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        dates = ["2026-04-08", "2026-04-09"]
+        prepare(root, dates)
+        run(ledger_args(root, dates[0]))
+        (root / "paper" / "snapshot_integrity.json").unlink()
+        (root / "paper" / "accepted_publication.json").unlink()
+        summary_path = root / "paper" / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        for portfolio in ("main", "concentrated"):
+            manifest_path = root / "paper" / portfolio / "manifest.json"
+            meta_path = root / "paper" / portfolio / "state_meta.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            manifest["production_mutation_allowed"] = True
+            meta["production_mutation_allowed"] = True
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            meta_path.write_text(
+                json.dumps(meta, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            summary["portfolios"][portfolio] = manifest
+        summary_path.write_text(
+            json.dumps(summary, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        unsafe = directory_hashes(root / "paper")
+        try:
+            run(ledger_args(root, dates[1], suppress_new_orders=True))
+        except PaperLedgerIntegrityError as exc:
+            assert "production_mutation" in str(exc)
+        else:
+            raise AssertionError("unsafe legacy metadata was rewritten as safe")
+        assert directory_hashes(root / "paper") == unsafe
+
+    for unsafe_field in (
+        "manifest_historical_replacement",
+        "account_human_approval",
+        "accepted_publication_without_integrity",
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dates = ["2026-04-08", "2026-04-09"]
+            prepare(root, dates)
+            run(ledger_args(root, dates[0]))
+            (root / "paper" / "snapshot_integrity.json").unlink()
+            if unsafe_field != "accepted_publication_without_integrity":
+                (
+                    root / "paper" / "accepted_publication.json"
+                ).unlink()
+            summary_path = root / "paper" / "summary.json"
+            summary = json.loads(
+                summary_path.read_text(encoding="utf-8")
+            )
+            if unsafe_field == "manifest_historical_replacement":
+                for portfolio in ("main", "concentrated"):
+                    manifest_path = (
+                        root / "paper" / portfolio / "manifest.json"
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    manifest[
+                        "historical_cagr_mdd_replacement_allowed"
+                    ] = True
+                    manifest_path.write_text(
+                        json.dumps(
+                            manifest, indent=2, sort_keys=True
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    summary["portfolios"][portfolio] = manifest
+                summary_path.write_text(
+                    json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            elif unsafe_field == "account_human_approval":
+                for portfolio in ("main", "concentrated"):
+                    account_path = (
+                        root
+                        / "paper"
+                        / portfolio
+                        / "account_state_latest.json"
+                    )
+                    account = json.loads(
+                        account_path.read_text(encoding="utf-8")
+                    )
+                    account[
+                        "human_approval_required_for_live_orders"
+                    ] = False
+                    account_path.write_text(
+                        json.dumps(
+                            account, indent=2, sort_keys=True
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+            before_unsafe = directory_hashes(root / "paper")
+            try:
+                run(
+                    ledger_args(
+                        root,
+                        dates[1],
+                        suppress_new_orders=True,
+                    )
+                )
+            except PaperLedgerIntegrityError:
+                pass
+            else:
+                raise AssertionError(
+                    f"unsafe legacy field was rewritten:{unsafe_field}"
+                )
+            assert directory_hashes(root / "paper") == before_unsafe
+
+
+def test_verified_matching_immutable_head_recovers_after_cache_loss() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        date = "2026-04-08"
+        prepare(root, [date])
+        run(ledger_args(root, date))
+        canonical = root / "canonical"
+        immutable_head = root / "immutable_head"
+        recovered = root / "recovered"
+        shutil.copytree(root / "paper", canonical)
+        shutil.copytree(root / "paper", immutable_head)
+        canonical_manifest = verify_integrity_manifest(canonical, require=True)
+        head_manifest = verify_integrity_manifest(immutable_head, require=True)
+        assert head_manifest["snapshot_hash"] == canonical_manifest["snapshot_hash"]
+
+        installed = install_verified_snapshot(immutable_head, recovered)
+        assert installed["install_status"] == "INSTALLED_VERIFIED_SNAPSHOT"
+        continuity = require_state_descends_from(recovered, canonical)
+        assert continuity["continuity_status"] == "SAME_SNAPSHOT"
 
 
 def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
@@ -490,12 +807,90 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
     accepted = by_name["Upload accepted paper transaction artifact"]
     assert "steps.paper_transaction.outcome == 'success'" in str(accepted["if"])
     assert "steps.operating_review.outcome == 'success'" in str(accepted["if"])
+    assert "steps.paper_persist.outcome == 'success'" in str(accepted["if"])
     accepted_paths = accepted["with"]["path"]
     assert "outputs/account_ledger_preview/" in accepted_paths
     assert "outputs/daily_simulated_fill_ledger/" in accepted_paths
     assert "outputs/reports/operating_*_target_book.csv" in accepted_paths
     assert "outputs/run287_decision_observation_archive/" in accepted_paths
     assert "outputs/run287_risk_outcome_price_cache/" in accepted_paths
+    assert "daily_paper_legacy_drive_migration.json" in accepted_paths
+    step_names = [str(step.get("name")) for step in steps]
+    persist_index = step_names.index(
+        "Persist validated forward paper ledger state"
+    )
+    assert persist_index < step_names.index(
+        "Upload accepted paper transaction artifact"
+    )
+    assert persist_index < step_names.index(
+        "Save validated forward paper state cache"
+    )
+    assert persist_index < step_names.index(
+        "Sync accepted paper transaction to Google Drive"
+    )
+
+
+def test_workflow_legacy_drive_migration_is_one_time_and_quarantined() -> None:
+    import yaml
+
+    workflow_path = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["refresh"]["steps"]
+    by_name = {str(step.get("name")): step for step in steps}
+    restore = by_name["Restore persistent data and operating outputs"]["run"]
+    transaction = by_name["Run transactional paper ledger and same-close selector"]["run"]
+    persist = by_name["Persist validated forward paper ledger state"]["run"]
+
+    # Only a manifest-absent, structurally complete completed-NYSE-session
+    # source with no cache/local or immutable-head anchor can migrate.
+    assert 'PAPER_HAS_IMMUTABLE_HEAD=no' in restore
+    assert '[ "$PAPER_HAS_IMMUTABLE_HEAD" = "no" ]' in restore
+    assert '[ ! -e "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" ]' in restore
+    assert '[ ! -d "$PAPER_CACHE_ANCHOR" ]' in restore
+    assert '"status": "PENDING_SEMANTIC_ATTESTATION"' in restore
+    assert '"accepted_for_use": False' in restore
+    assert '"legacy_semantic_attestation_required": True' in restore
+    assert '"production_mutation_allowed": False' in restore
+    assert 'summary.get("simulated") is not True' in restore
+    assert 'manifest.get("production_mutation_allowed") is not False' in restore
+    assert 'meta.get("production_mutation_allowed") is not False' in restore
+    assert 'account.get("human_approval_required_for_live_orders")' in restore
+    assert 'manifest.get("historical_cagr_mdd_replacement_allowed")' in restore
+    assert "accepted publication exists without snapshot integrity" in restore
+    assert '"positions_latest.csv"' in restore
+    assert 'summary.get("portfolios", {}).get(portfolio) != manifest' in restore
+    assert 'PAPER_LEGACY_MIGRATION_PENDING=yes' in restore
+    assert "immutable Drive head exists; legacy manifest-free candidate cannot replace" in restore
+    assert "completed NYSE session at or before the requested session" in restore
+    assert "pandas_market_calendars as mcal" in restore
+    assert "legacy_snapshot_semantic_attestation_mode" in transaction
+    assert '"FORWARD_REPLAY"' in transaction
+    assert "matching immutable Drive head after cache loss" in restore
+    assert "verified cache/local or immutable-head cross-source continuity anchor" in restore
+    assert '--install-source "$PAPER_REMOTE_CANDIDATE"' in restore
+    assert '--require-install-continuity' in restore
+
+    # Quarantine is not acceptance: same-session reuse and forward replay are
+    # the only explicit legacy-attestation outcomes.
+    assert '("LEGACY_ATTESTED", "SAME_SESSION_REUSE")' in transaction
+    assert '("RESTORED_CONTINUATION", "FORWARD_REPLAY")' in transaction
+    assert 'summary.get("legacy_snapshot_semantically_validated") is not True' in transaction
+    assert "--legacy-migration-provenance" in transaction
+    assert "legacy_migration_attestation.json" in transaction
+    assert '"INCLUDED_IN_PAPER_SNAPSHOT_INTEGRITY"' in transaction
+    assert 'verified_snapshot_integrity_sha256' in transaction
+    assert 'summary.get("new_order_generation_suppressed") is not True' in transaction
+    assert 'row.get("enqueued_this_run") != 0' in transaction
+    assert 'not isinstance(row.get("resolved_fills_this_run"), int)' in transaction
+
+    # Subsequent/verified state retains the normal source comparison.  The
+    # one-time route compares the remote tree before replacing it and never
+    # supplies a manifest-free source as a continuity anchor.
+    assert 'assert_legacy_drive_source_matches "$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"' in persist
+    assert 'assert_legacy_drive_source_matches "$PAPER_REMOTE_CAS_CHECK"' in persist
+    assert '--require-state-descends-from "$PAPER_REMOTE_PERSIST_ANCHOR"' in persist
+    assert 'if [ -n "$ANCHOR_SNAPSHOT_HASH" ]' in persist
+    assert "BLOCKED: no checksum-verified cross-source continuity anchor" in restore
 
 
 def main() -> int:
@@ -508,7 +903,11 @@ def main() -> int:
     test_overlapping_recovery_prefers_newer_state_bundle()
     test_operating_targets_publish_in_same_atomic_bundle()
     test_legacy_same_session_snapshot_is_semantically_attested_once()
+    test_legacy_prior_session_snapshot_is_semantically_attested_by_forward_replay()
+    test_legacy_migration_blocks_orders_partial_state_and_unsafe_metadata()
+    test_verified_matching_immutable_head_recovers_after_cache_loss()
     test_workflow_separates_failed_evidence_from_accepted_paper_state()
+    test_workflow_legacy_drive_migration_is_one_time_and_quarantined()
     print("run287_paper_ledger_transaction_smoke: PASS")
     return 0
 

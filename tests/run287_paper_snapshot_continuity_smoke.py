@@ -23,6 +23,12 @@ from tools.run287_paper_ledger_integrity import (  # noqa: E402
     verify_integrity_manifest,
     write_integrity_manifest,
 )
+from tools.run_daily_simulated_fill_ledger import run as run_paper_ledger  # noqa: E402
+from tests.run287_paper_ledger_transaction_smoke import (  # noqa: E402
+    ledger_args,
+    prepare,
+    write_target,
+)
 
 
 def _new_snapshot(root: Path, as_of_date: str, value: str) -> dict:
@@ -179,6 +185,105 @@ def test_restore_blocks_same_date_resealed_descendant() -> None:
         assert directory_hashes(destination) == before
 
 
+def test_restore_accepts_same_session_mark_only_to_selected_target() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        as_of_date = "2026-04-01"
+        anchor = root / "anchor"
+        destination = root / "destination"
+        prepare(root, [as_of_date])
+
+        mark_only = run_paper_ledger(
+            ledger_args(root, as_of_date, suppress_new_orders=True)
+        )
+        assert mark_only["new_order_generation_suppressed"] is True
+        shutil.copytree(root / "paper", anchor)
+        shutil.copytree(anchor, destination)
+        anchor_integrity = verify_integrity_manifest(anchor, require=True)
+
+        write_target(
+            root / "targets" / "main.csv",
+            "main",
+            "AAA",
+            as_of_date,
+            stock_weight=0.60,
+        )
+        write_target(
+            root / "targets" / "concentrated.csv",
+            "concentrated",
+            "BBB",
+            as_of_date,
+            stock_weight=0.60,
+        )
+        selected = run_paper_ledger(ledger_args(root, as_of_date))
+        assert selected["new_order_generation_suppressed"] is False
+        candidate_integrity = verify_integrity_manifest(
+            root / "paper", require=True
+        )
+        assert candidate_integrity["as_of_date"] == anchor_integrity["as_of_date"]
+        assert (
+            candidate_integrity["previous_snapshot_hash"]
+            == anchor_integrity["snapshot_hash"]
+        )
+        assert (
+            candidate_integrity["snapshot_hash"]
+            != anchor_integrity["snapshot_hash"]
+        )
+
+        checked = require_state_descends_from(root / "paper", anchor)
+        assert checked["continuity_status"] == "CANDIDATE_DESCENDS_FROM_ANCHOR"
+        installed = install_verified_snapshot(
+            root / "paper",
+            destination,
+            require_continuity=True,
+        )
+        assert installed["install_status"] == "INSTALLED_VERIFIED_DESCENDANT"
+        assert (
+            verify_integrity_manifest(destination, require=True)["snapshot_hash"]
+            == candidate_integrity["snapshot_hash"]
+        )
+
+        forged = root / "forged"
+        forged_destination = root / "forged-destination"
+        shutil.copytree(root / "paper", forged)
+        shutil.copytree(anchor, forged_destination)
+        publication_path = forged / "accepted_publication.json"
+        publication = json.loads(publication_path.read_text(encoding="utf-8"))
+        publication["portfolios"]["main"][
+            "preview_mode_at_acceptance"
+        ] = "NO_NEW_ORDER"
+        publication_path.write_text(
+            json.dumps(publication, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (forged / INTEGRITY_FILE).unlink()
+        write_integrity_manifest(
+            forged,
+            as_of_date=as_of_date,
+            previous_snapshot_hash=anchor_integrity["snapshot_hash"],
+        )
+        before = directory_hashes(forged_destination)
+        _expect_continuity_block(
+            lambda: install_verified_snapshot(
+                forged,
+                forged_destination,
+                require_continuity=True,
+            )
+        )
+        assert directory_hashes(forged_destination) == before
+
+        retained = install_verified_snapshot(
+            anchor,
+            destination,
+            require_continuity=True,
+        )
+        assert retained["install_status"] == "RETAINED_NEWER_VERIFIED_DESTINATION"
+        assert (
+            verify_integrity_manifest(destination, require=True)["snapshot_hash"]
+            == candidate_integrity["snapshot_hash"]
+        )
+
+
 def test_persist_preflight_requires_local_state_to_descend_from_remote() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -262,7 +367,7 @@ def test_self_asserted_ancestry_cannot_replace_unrelated_state() -> None:
         anchor_manifest = _new_snapshot(
             anchor, "2026-07-20", "accepted-anchor"
         )
-        _new_snapshot(unrelated, "2026-07-21", "unrelated-history")
+        _new_snapshot(unrelated, "2026-07-20", "unrelated-history")
         manifest_path = unrelated / INTEGRITY_FILE
         forged = json.loads(manifest_path.read_text(encoding="utf-8"))
         forged["previous_snapshot_hash"] = anchor_manifest["snapshot_hash"]
@@ -345,6 +450,7 @@ def main() -> int:
     test_restore_accepts_multi_session_descendant_via_cumulative_lineage()
     test_restore_blocks_alternate_chain_and_missing_anchor_without_mutation()
     test_restore_blocks_same_date_resealed_descendant()
+    test_restore_accepts_same_session_mark_only_to_selected_target()
     test_persist_preflight_requires_local_state_to_descend_from_remote()
     test_v1_anchor_migrates_to_v2_lineage_without_losing_continuity()
     test_manifest_ancestry_tamper_and_noncanonical_date_fail_closed()

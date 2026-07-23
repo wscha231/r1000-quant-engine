@@ -257,6 +257,23 @@ jobs:
             if [ -d outputs/daily_simulated_fill_ledger ]; then
               cp -a outputs/daily_simulated_fill_ledger "$PAPER_LOCAL_RECOVERY"
             fi
+            # A manifest-addressed immutable head always outranks the legacy
+            # adoption exception.  The exception is for the first deployment
+            # only, before any verified cache/local/head anchor exists.
+            PAPER_REMOTE_HEADS="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
+            PAPER_HEAD_LIST="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads.txt"
+            PAPER_ARCHIVE_DIRS="$RUNNER_TEMP/run287_paper_archive_dirs.txt"
+            rclone lsf "${BASE}paper_archive/" --dirs-only > "$PAPER_ARCHIVE_DIRS"
+            PAPER_HAS_IMMUTABLE_HEAD=no
+            if grep -Fx "run287_daily_simulated_fill_ledger_heads/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+              rclone lsf "$PAPER_REMOTE_HEADS/" --dirs-only | \
+                sed 's#/$##' | sort -u > "$PAPER_HEAD_LIST"
+              if [ -s "$PAPER_HEAD_LIST" ]; then
+                PAPER_HAS_IMMUTABLE_HEAD=yes
+              fi
+            else
+              : > "$PAPER_HEAD_LIST"
+            fi
             if [ -s "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" ] && \
                python tools/run287_paper_ledger_integrity.py \
                  --state-dir "$PAPER_REMOTE_CANDIDATE" \
@@ -270,9 +287,29 @@ jobs:
                   --install-source "$PAPER_REMOTE_CANDIDATE" \
                   --require-install-continuity
               else
-                python tools/run287_paper_ledger_integrity.py \
-                  --state-dir outputs/daily_simulated_fill_ledger \
-                  --install-source "$PAPER_REMOTE_CANDIDATE"
+                PAPER_REMOTE_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json")"
+                if [[ "$PAPER_REMOTE_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]] && \
+                   grep -Fx "$PAPER_REMOTE_SNAPSHOT_HASH" "$PAPER_HEAD_LIST" >/dev/null; then
+                  PAPER_HEAD_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_${PAPER_REMOTE_SNAPSHOT_HASH}"
+                  rm -rf "$PAPER_HEAD_CANDIDATE"
+                  mkdir -p "$PAPER_HEAD_CANDIDATE"
+                  rclone copy "$PAPER_REMOTE_HEADS/$PAPER_REMOTE_SNAPSHOT_HASH/" "$PAPER_HEAD_CANDIDATE/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+                  python tools/run287_paper_ledger_integrity.py \
+                    --state-dir "$PAPER_HEAD_CANDIDATE" \
+                    --require-integrity
+                  PAPER_HEAD_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_HEAD_CANDIDATE/snapshot_integrity.json")"
+                  if [ "$PAPER_HEAD_SNAPSHOT_HASH" != "$PAPER_REMOTE_SNAPSHOT_HASH" ]; then
+                    echo "[paper-ledger] BLOCKED: immutable Drive head/hash mismatch during cache-loss recovery"
+                    exit 2
+                  fi
+                  python tools/run287_paper_ledger_integrity.py \
+                    --state-dir outputs/daily_simulated_fill_ledger \
+                    --install-source "$PAPER_HEAD_CANDIDATE"
+                  echo "[paper-ledger] restored verified Drive snapshot from matching immutable Drive head after cache loss"
+                else
+                  echo "[paper-ledger] BLOCKED: verified Drive snapshot lacks a verified cache/local or immutable-head cross-source continuity anchor"
+                  exit 2
+                fi
               fi
               echo "[paper-ledger] reconciled Drive snapshot against immutable-cache continuity anchor; pre-install recovery=$PAPER_LOCAL_RECOVERY"
             elif [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
@@ -280,38 +317,176 @@ jobs:
                    --state-dir outputs/daily_simulated_fill_ledger \
                    --require-integrity; then
               echo "[paper-ledger] Drive snapshot was unverified; retained verified cache/local snapshot"
+            elif [ ! -e "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" ] && \
+                 [ ! -d "$PAPER_CACHE_ANCHOR" ] && \
+                 [ "$PAPER_HAS_IMMUTABLE_HEAD" = "no" ]; then
+              # The sole migration exception is a durable Drive ledger from a
+              # completed NYSE session at or before this run that predates
+              # snapshot manifests.  It is quarantined locally and is not an
+              # acceptance/continuity anchor: the first mark-only transaction
+              # must semantically attest it and write a new manifest first.
+              python - "$PAPER_REMOTE_CANDIDATE" "$LAST_NYSE_SESSION_DATE" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          import pandas as pd
+          import pandas_market_calendars as mcal
+
+          root = Path(sys.argv[1])
+          requested_as_of_date = sys.argv[2]
+          required = [
+              "genesis_identity.json",
+              "bootstrap/main_account.json",
+              "bootstrap/concentrated_account.json",
+              "summary.json",
+              *[
+                  f"{portfolio}/{name}"
+                  for portfolio in ("main", "concentrated")
+                  for name in (
+                      "account_state_latest.json",
+                      "manifest.json",
+                      "state_meta.json",
+                      "fills.csv",
+                      "rejections.csv",
+                      "equity_curve.csv",
+                      "positions_latest.csv",
+                      "pending_orders.csv",
+                  )
+              ],
+          ]
+          missing = [name for name in required if not (root / name).is_file()]
+          if missing:
+              raise SystemExit(f"legacy Drive migration blocked: incomplete legacy ledger {missing}")
+          if (root / "snapshot_integrity.json").exists():
+              raise SystemExit("legacy Drive migration blocked: manifest-bearing candidate is unverified")
+          if (root / "accepted_publication.json").exists():
+              raise SystemExit("legacy Drive migration blocked: accepted publication exists without snapshot integrity")
+          if (root / "legacy_migration_attestation.json").exists():
+              raise SystemExit("legacy Drive migration blocked: prior attestation exists without snapshot integrity")
+          summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+          legacy_as_of_date = str(summary.get("as_of_date") or "")
+          try:
+              legacy_session = pd.Timestamp(legacy_as_of_date).normalize()
+              requested_session = pd.Timestamp(requested_as_of_date).normalize()
+          except Exception as exc:
+              raise SystemExit("legacy Drive migration blocked: invalid legacy session date") from exc
+          nyse = mcal.get_calendar("NYSE")
+          if (
+              summary.get("status") != "completed"
+              or summary.get("schema_version")
+              != "daily-simulated-fill-ledger-summary-v1"
+              or summary.get("review_only") is not True
+              or summary.get("simulated") is not True
+              or summary.get("live_trading_enabled") is not False
+              or summary.get("production_mutation_allowed") is not False
+              or summary.get("historical_cagr_mdd_replacement_allowed") is not False
+              or not isinstance(summary.get("portfolios"), dict)
+              or pd.isna(legacy_session)
+              or pd.isna(requested_session)
+              or legacy_session > requested_session
+              or nyse.schedule(
+                  start_date=legacy_session.date(), end_date=legacy_session.date()
+              ).empty
+          ):
+              raise SystemExit("legacy Drive migration blocked: candidate is not a completed NYSE session at or before the requested session")
+          for portfolio in ("main", "concentrated"):
+              account = json.loads((root / portfolio / "account_state_latest.json").read_text(encoding="utf-8"))
+              manifest = json.loads((root / portfolio / "manifest.json").read_text(encoding="utf-8"))
+              meta = json.loads((root / portfolio / "state_meta.json").read_text(encoding="utf-8"))
+              if (
+                  str(account.get("as_of_date") or "") != legacy_as_of_date
+                  or account.get("schema_version")
+                  != "daily-simulated-account-v1"
+                  or account.get("review_only") is not True
+                  or account.get("simulated_broker_ledger") is not True
+                  or account.get("live_trading_enabled") is not False
+                  or account.get("production_mutation_allowed") is not False
+                  or account.get("human_approval_required_for_live_orders")
+                  is not True
+                  or str(manifest.get("as_of_date") or "") != legacy_as_of_date
+                  or manifest.get("schema_version")
+                  != "daily-simulated-fill-ledger-manifest-v2"
+                  or manifest.get("review_only") is not True
+                  or manifest.get("simulated") is not True
+                  or manifest.get("live_trading_enabled") is not False
+                  or manifest.get("production_mutation_allowed") is not False
+                  or manifest.get("historical_cagr_mdd_replacement_allowed")
+                  is not False
+                  or str(meta.get("as_of_date") or "") != legacy_as_of_date
+                  or meta.get("schema_version")
+                  != "daily-simulated-fill-ledger-state-v2"
+                  or meta.get("review_only") is not True
+                  or meta.get("live_trading_enabled") is not False
+                  or meta.get("production_mutation_allowed") is not False
+                  or summary.get("portfolios", {}).get(portfolio) != manifest
+              ):
+                  raise SystemExit(f"legacy Drive migration blocked: unsafe or inconsistent {portfolio} state")
+          files = {
+              path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in sorted(root.rglob("*")) if path.is_file()
+          }
+          provenance = {
+              "schema_version": "run287-legacy-drive-paper-migration-v1",
+              "status": "PENDING_SEMANTIC_ATTESTATION",
+              "source": "GDRIVE_LEGACY_UNATTESTED",
+              "legacy_as_of_date": legacy_as_of_date,
+              "requested_as_of_date": requested_as_of_date,
+              "remote_snapshot_integrity_present": False,
+              "verified_cross_source_anchor_present": False,
+              "legacy_semantic_attestation_required": True,
+              "accepted_for_use": False,
+              "review_only": True,
+              "live_trading_enabled": False,
+              "production_mutation_allowed": False,
+              "remote_tree_sha256": hashlib.sha256(
+                  json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+              ).hexdigest(),
+          }
+          Path("outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json").write_text(
+              json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+              cp -a "$PAPER_REMOTE_CANDIDATE" outputs/daily_simulated_fill_ledger
+              PAPER_LEGACY_MIGRATION_PENDING=yes
+              echo "PAPER_LEGACY_MIGRATION_PENDING=yes" >> "$GITHUB_ENV"
+              echo "[paper-ledger] quarantined legacy Drive ledger; semantic attestation is required before acceptance"
+            elif [ "$PAPER_HAS_IMMUTABLE_HEAD" = "yes" ]; then
+              echo "[paper-ledger] BLOCKED: immutable Drive head exists; legacy manifest-free candidate cannot replace its continuity anchor"
+              exit 2
             else
               echo "[paper-ledger] BLOCKED: no checksum-verified cross-source continuity anchor"
               exit 2
             fi
-            PAPER_REMOTE_HEADS="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
-            PAPER_HEAD_LIST="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads.txt"
-            rclone lsf "$PAPER_REMOTE_HEADS/" --dirs-only 2>/dev/null | \
-              sed 's#/$##' | sort -u > "$PAPER_HEAD_LIST" || true
-            while IFS= read -r PAPER_HEAD_HASH; do
-              [ -n "$PAPER_HEAD_HASH" ] || continue
-              if ! [[ "$PAPER_HEAD_HASH" =~ ^[0-9a-f]{64}$ ]]; then
-                echo "[paper-ledger] BLOCKED: invalid immutable head name=$PAPER_HEAD_HASH"
-                exit 2
-              fi
-              PAPER_HEAD_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_${PAPER_HEAD_HASH}"
-              rm -rf "$PAPER_HEAD_CANDIDATE"
-              mkdir -p "$PAPER_HEAD_CANDIDATE"
-              rclone copy "$PAPER_REMOTE_HEADS/$PAPER_HEAD_HASH/" "$PAPER_HEAD_CANDIDATE/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
-              python tools/run287_paper_ledger_integrity.py \
-                --state-dir "$PAPER_HEAD_CANDIDATE" \
-                --require-integrity
-              VERIFIED_HEAD_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_HEAD_CANDIDATE/snapshot_integrity.json")"
-              if [ "$VERIFIED_HEAD_HASH" != "$PAPER_HEAD_HASH" ]; then
-                echo "[paper-ledger] BLOCKED: immutable head folder/hash mismatch folder=$PAPER_HEAD_HASH manifest=$VERIFIED_HEAD_HASH"
-                exit 2
-              fi
-              python tools/run287_paper_ledger_integrity.py \
-                --state-dir outputs/daily_simulated_fill_ledger \
-                --install-source "$PAPER_HEAD_CANDIDATE" \
-                --require-install-continuity
-            done < "$PAPER_HEAD_LIST"
-            echo "[paper-ledger] reconciled all immutable Drive heads; divergent heads fail closed"
+            if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+              echo "[paper-ledger] immutable Drive heads deferred until legacy semantic attestation completes"
+            else
+              while IFS= read -r PAPER_HEAD_HASH; do
+                [ -n "$PAPER_HEAD_HASH" ] || continue
+                if ! [[ "$PAPER_HEAD_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+                  echo "[paper-ledger] BLOCKED: invalid immutable head name=$PAPER_HEAD_HASH"
+                  exit 2
+                fi
+                PAPER_HEAD_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_${PAPER_HEAD_HASH}"
+                rm -rf "$PAPER_HEAD_CANDIDATE"
+                mkdir -p "$PAPER_HEAD_CANDIDATE"
+                rclone copy "$PAPER_REMOTE_HEADS/$PAPER_HEAD_HASH/" "$PAPER_HEAD_CANDIDATE/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+                python tools/run287_paper_ledger_integrity.py \
+                  --state-dir "$PAPER_HEAD_CANDIDATE" \
+                  --require-integrity
+                VERIFIED_HEAD_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_HEAD_CANDIDATE/snapshot_integrity.json")"
+                if [ "$VERIFIED_HEAD_HASH" != "$PAPER_HEAD_HASH" ]; then
+                  echo "[paper-ledger] BLOCKED: immutable head folder/hash mismatch folder=$PAPER_HEAD_HASH manifest=$VERIFIED_HEAD_HASH"
+                  exit 2
+                fi
+                python tools/run287_paper_ledger_integrity.py \
+                  --state-dir outputs/daily_simulated_fill_ledger \
+                  --install-source "$PAPER_HEAD_CANDIDATE" \
+                  --require-install-continuity
+              done < "$PAPER_HEAD_LIST"
+              echo "[paper-ledger] reconciled all immutable Drive heads; divergent heads fail closed"
+            fi
             restore_dir paper_archive/run287_holding_risk_watch outputs/holding_risk_watch
             restore_dir paper_archive/run287_decision_observation_archive outputs/run287_decision_observation_archive
             restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
@@ -629,6 +804,13 @@ jobs:
           RISK_AVAILABLE_FROM="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           DATE_TOKEN="${PAPER_AS_OF//-/}"
           SAME_CLOSE_DIR="outputs/run287_same_close_decision/${DATE_TOKEN}"
+          LEGACY_MIGRATION_ARGS=()
+          if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+            LEGACY_MIGRATION_ARGS=(
+              --legacy-migration-provenance
+              outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+            )
+          fi
           # First settle prior next-close orders and freeze the exact-close
           # account mark.  This pass is transaction-safe but may not create a
           # new preview or order from a restored target.
@@ -646,7 +828,86 @@ jobs:
             --cost-bps 25 \
             --max-fill-lag-days 7 \
             --suppress-new-orders \
+            "${LEGACY_MIGRATION_ARGS[@]}" \
             2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
+          if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+            # The ledger itself validates the remote-tree provenance and writes
+            # the final attestation inside the same atomic, integrity-bound
+            # paper snapshot.
+            python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          state = Path("outputs/daily_simulated_fill_ledger")
+          summary = json.loads((state / "summary.json").read_text(encoding="utf-8"))
+          result_mode = (
+              summary.get("result_status"),
+              summary.get("legacy_snapshot_semantic_attestation_mode"),
+          )
+          if (
+              result_mode
+              not in {
+                  ("LEGACY_ATTESTED", "SAME_SESSION_REUSE"),
+                  ("RESTORED_CONTINUATION", "FORWARD_REPLAY"),
+              }
+              or summary.get("legacy_snapshot_semantically_validated") is not True
+              or summary.get("new_order_generation_suppressed") is not True
+              or any(
+                  row.get("new_order_generation_suppressed") is not True
+                  or row.get("enqueued_this_run") != 0
+                  or not isinstance(row.get("resolved_fills_this_run"), int)
+                  or row.get("resolved_fills_this_run") < 0
+                  or not isinstance(
+                      row.get("resolved_rejections_this_run"), int
+                  )
+                  or row.get("resolved_rejections_this_run") < 0
+                  for row in (summary.get("portfolios") or {}).values()
+              )
+          ):
+              raise SystemExit("legacy Drive migration blocked: semantic attestation did not complete")
+          manifest = state / "snapshot_integrity.json"
+          if not manifest.is_file():
+              raise SystemExit("legacy Drive migration blocked: semantic attestation wrote no integrity manifest")
+          attestation_path = state / "legacy_migration_attestation.json"
+          attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+          attestation_sha256 = hashlib.sha256(attestation_path.read_bytes()).hexdigest()
+          integrity = json.loads(manifest.read_text(encoding="utf-8"))
+          if (
+              attestation.get("status") != "SEMANTIC_ATTESTATION_VERIFIED"
+              or attestation.get("accepted_for_use") is not True
+              or attestation.get("semantic_attestation_result")
+              != summary.get("result_status")
+              or attestation.get("legacy_snapshot_semantic_attestation_mode")
+              != summary.get("legacy_snapshot_semantic_attestation_mode")
+              or attestation.get("legacy_snapshot_semantically_validated") is not True
+              or attestation.get("integrity_binding")
+              != "INCLUDED_IN_PAPER_SNAPSHOT_INTEGRITY"
+              or summary.get("legacy_migration_attestation_sha256")
+              != attestation_sha256
+              or (integrity.get("files") or {}).get(
+                  "legacy_migration_attestation.json"
+              )
+              != attestation_sha256
+          ):
+              raise SystemExit("legacy Drive migration blocked: durable attestation binding failed")
+          provenance_path = Path("outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json")
+          provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+          if provenance.get("status") != "PENDING_SEMANTIC_ATTESTATION":
+              raise SystemExit("legacy Drive migration blocked: provenance state mismatch")
+          if provenance.get("remote_tree_sha256") != attestation.get("remote_tree_sha256"):
+              raise SystemExit("legacy Drive migration blocked: source-tree provenance mismatch")
+          provenance = {
+              **attestation,
+              "verified_snapshot_integrity_sha256": hashlib.sha256(
+                  manifest.read_bytes()
+              ).hexdigest(),
+          }
+          provenance_path.write_text(
+              json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+          fi
           python tools/build_run287_holding_risk_watch.py \
             --main-account outputs/daily_simulated_fill_ledger/main/account_state_latest.json \
             --concentrated-account outputs/daily_simulated_fill_ledger/concentrated/account_state_latest.json \
@@ -943,6 +1204,7 @@ jobs:
             data_pit/macro/latest.json
             data_raw/free/macro/daily_snapshot/latest.json
             outputs/full_rebuild_logs/daily_*.log
+            outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
             data_pit/free/market_snapshot/
             data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log
@@ -972,54 +1234,6 @@ jobs:
             --verify-manifest outputs/run287_accepted_publication/manifest.json \
             --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
 
-      - name: Upload accepted paper transaction artifact
-        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.risk_outcomes.outcome == 'success' && steps.operating_scorecard.outcome == 'success' && steps.promotion_gate.outcome == 'success' && steps.operating_review.outcome == 'success' && steps.accepted_publication.outcome == 'success' && steps.accepted_publication_preflight.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: accepted-paper-transaction-${{ github.run_id }}
-          path: |
-            outputs/reports/operating_*_target_book.csv
-            outputs/operating_snapshot/
-            outputs/user_current/
-            outputs/user_portfolio_reports/
-            outputs/account_ledger_preview/
-            outputs/daily_simulated_fill_ledger/
-            outputs/run287_same_close_decision/
-            outputs/run287_decision_observation_archive/
-            outputs/run287_risk_outcome_archive/
-            outputs/run287_risk_outcome_price_cache/
-            outputs/run287_operating_scorecard/
-            outputs/run287_promotion_gate/
-            outputs/run287_accepted_publication/
-            outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
-          if-no-files-found: error
-          retention-days: 45
-
-      - name: Reverify accepted publication before state cache
-        id: accepted_state_preflight
-        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success'
-        run: |
-          set -euo pipefail
-          python tools/build_run287_accepted_publication_manifest.py \
-            --latest-run outputs \
-            --verify-manifest outputs/run287_accepted_publication/manifest.json \
-            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
-
-      - name: Save validated forward paper state cache
-        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success' && steps.accepted_state_preflight.outcome == 'success'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            outputs/daily_simulated_fill_ledger
-            outputs/holding_risk_watch
-            outputs/run287_exact_packet_upstream
-            outputs/run287_exact_packet_input_sources
-            outputs/run287_exact_packet_input_registry
-            outputs/run287_decision_observation_archive
-            outputs/run287_risk_outcome_archive
-            outputs/run287_risk_outcome_price_cache
-          key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
-
       - name: Sync daily operating artifact to Google Drive
         if: always()
         env:
@@ -1047,41 +1261,8 @@ jobs:
             rclone copyto cache_prices/replay_price_cache_manifest.json "$DEST/cache_prices/replay_price_cache_manifest.json" || true
           fi
 
-      - name: Sync accepted paper transaction to Google Drive
-        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.risk_outcomes.outcome == 'success' && steps.operating_scorecard.outcome == 'success' && steps.promotion_gate.outcome == 'success' && steps.operating_review.outcome == 'success' && steps.accepted_publication.outcome == 'success'
-        env:
-          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
-          GDRIVE_FOLDER_NAME: r1000_top30_institutional
-        run: |
-          set -euo pipefail
-          python tools/build_run287_accepted_publication_manifest.py \
-            --latest-run outputs \
-            --verify-manifest outputs/run287_accepted_publication/manifest.json \
-            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
-          if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
-            echo "[gdrive] not configured; accepted paper transaction remains in GitHub artifact/cache"
-            exit 0
-          fi
-          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
-            BASE="gdrive:"
-          else
-            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
-          fi
-          SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
-          DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"
-          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
-            test -d "$d"
-            rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
-          done
-          for f in outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv; do
-            test -s "$f"
-            rclone copyto "$f" "$DEST/$f"
-          done
-          # Publish the verified manifest last as the remote acceptance marker.
-          test -s outputs/run287_accepted_publication/manifest.json
-          rclone copy outputs/run287_accepted_publication "$DEST/outputs/run287_accepted_publication/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
-
       - name: Persist validated forward paper ledger state
+        id: paper_persist
         if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
@@ -1116,34 +1297,73 @@ jobs:
           rm -rf "$PAPER_REMOTE_PERSIST_ANCHOR"
           mkdir -p "$PAPER_REMOTE_PERSIST_ANCHOR"
           rclone copy "$CANONICAL/" "$PAPER_REMOTE_PERSIST_ANCHOR/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
-          test -s "$PAPER_REMOTE_PERSIST_ANCHOR/snapshot_integrity.json"
-          python tools/run287_paper_ledger_integrity.py \
-            --state-dir "$PAPER_REMOTE_PERSIST_ANCHOR" \
-            --require-integrity
-          python tools/run287_paper_ledger_integrity.py \
-            --state-dir outputs/daily_simulated_fill_ledger \
-            --require-integrity \
-            --require-state-descends-from "$PAPER_REMOTE_PERSIST_ANCHOR"
           LOCAL_SNAPSHOT_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json", encoding="utf-8"))["snapshot_hash"])')"
-          ANCHOR_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_PERSIST_ANCHOR/snapshot_integrity.json")"
-          if ! [[ "$LOCAL_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]] || ! [[ "$ANCHOR_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "[paper-ledger] BLOCKED: invalid local or remote continuity hash"
+          if ! [[ "$LOCAL_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "[paper-ledger] BLOCKED: invalid local continuity hash"
             exit 2
           fi
-          rclone copy outputs/daily_simulated_fill_ledger "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
-          rclone check outputs/daily_simulated_fill_ledger "$RECOVERY/" --checksum --one-way
+          ANCHOR_SNAPSHOT_HASH=""
+          assert_legacy_drive_source_matches() {
+            local observed="$1"
+            python - "$PAPER_REMOTE_PERSIST_ANCHOR" "$observed" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          def tree(root: Path) -> dict[str, str]:
+              if (root / "snapshot_integrity.json").exists():
+                  raise SystemExit("legacy Drive migration blocked: remote gained an unverified manifest")
+              return {
+                  path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in sorted(root.rglob("*")) if path.is_file()
+              }
+
+          anchor, observed = (Path(value) for value in sys.argv[1:])
+          if tree(anchor) != tree(observed):
+              raise SystemExit("legacy Drive migration blocked: Drive source changed during semantic attestation")
+          PY
+          }
+          if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+            # A manifest-free source is not a continuity anchor.  It may be
+            # replaced only after the in-job semantic attestation above and a
+            # byte-for-byte compare against the original quarantined copy.
+            assert_legacy_drive_source_matches "$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"
+            rclone copy "$PAPER_REMOTE_PERSIST_ANCHOR/" "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            rclone check "$PAPER_REMOTE_PERSIST_ANCHOR/" "$RECOVERY/" --checksum --one-way
+          else
+            test -s "$PAPER_REMOTE_PERSIST_ANCHOR/snapshot_integrity.json"
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir "$PAPER_REMOTE_PERSIST_ANCHOR" \
+              --require-integrity
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir outputs/daily_simulated_fill_ledger \
+              --require-integrity \
+              --require-state-descends-from "$PAPER_REMOTE_PERSIST_ANCHOR"
+            ANCHOR_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_PERSIST_ANCHOR/snapshot_integrity.json")"
+            if ! [[ "$ANCHOR_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "[paper-ledger] BLOCKED: invalid remote continuity hash"
+              exit 2
+            fi
+            rclone copy outputs/daily_simulated_fill_ledger "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            rclone check outputs/daily_simulated_fill_ledger "$RECOVERY/" --checksum --one-way
+          fi
           rclone copy outputs/daily_simulated_fill_ledger "$HEADS/$LOCAL_SNAPSHOT_HASH/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           rclone check outputs/daily_simulated_fill_ledger "$HEADS/$LOCAL_SNAPSHOT_HASH/" --checksum
           rm -rf "$PAPER_REMOTE_CAS_CHECK"
           mkdir -p "$PAPER_REMOTE_CAS_CHECK"
           rclone copy "$CANONICAL/" "$PAPER_REMOTE_CAS_CHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
-          python tools/run287_paper_ledger_integrity.py \
-            --state-dir "$PAPER_REMOTE_CAS_CHECK" \
-            --require-integrity
-          CAS_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_CAS_CHECK/snapshot_integrity.json")"
-          if [ "$CAS_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]; then
-            echo "[paper-ledger] BLOCKED_CONTINUITY: canonical Drive head changed after preflight; immutable local head retained"
-            exit 2
+          if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+            assert_legacy_drive_source_matches "$PAPER_REMOTE_CAS_CHECK"
+          else
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir "$PAPER_REMOTE_CAS_CHECK" \
+              --require-integrity
+            CAS_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_CAS_CHECK/snapshot_integrity.json")"
+            if [ "$CAS_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]; then
+              echo "[paper-ledger] BLOCKED_CONTINUITY: canonical Drive head changed after preflight; immutable local head retained"
+              exit 2
+            fi
           fi
           rclone sync outputs/daily_simulated_fill_ledger "$CANONICAL/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           rclone check outputs/daily_simulated_fill_ledger "$CANONICAL/" --checksum
@@ -1158,7 +1378,7 @@ jobs:
             echo "[paper-ledger] BLOCKED_CONTINUITY: canonical Drive postcheck differs; immutable heads preserve both accepted states"
             exit 2
           fi
-          if [ "$LOCAL_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ] && \
+          if [ -n "$ANCHOR_SNAPSHOT_HASH" ] && [ "$LOCAL_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ] && \
              rclone lsf "$HEADS/$ANCHOR_SNAPSHOT_HASH/" >/dev/null 2>&1; then
             rclone purge "$HEADS/$ANCHOR_SNAPSHOT_HASH"
           fi
@@ -1182,6 +1402,79 @@ jobs:
             --latest-run outputs \
             --verify-manifest outputs/run287_accepted_publication/manifest.json \
             --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+
+      - name: Upload accepted paper transaction artifact
+        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.risk_outcomes.outcome == 'success' && steps.operating_scorecard.outcome == 'success' && steps.promotion_gate.outcome == 'success' && steps.operating_review.outcome == 'success' && steps.accepted_publication.outcome == 'success' && steps.paper_persist.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: accepted-paper-transaction-${{ github.run_id }}
+          path: |
+            outputs/reports/operating_*_target_book.csv
+            outputs/operating_snapshot/
+            outputs/user_current/
+            outputs/user_portfolio_reports/
+            outputs/account_ledger_preview/
+            outputs/daily_simulated_fill_ledger/
+            outputs/run287_same_close_decision/
+            outputs/run287_decision_observation_archive/
+            outputs/run287_risk_outcome_archive/
+            outputs/run287_risk_outcome_price_cache/
+            outputs/run287_operating_scorecard/
+            outputs/run287_promotion_gate/
+            outputs/run287_accepted_publication/
+            outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+            outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+          if-no-files-found: error
+          retention-days: 45
+
+      - name: Save validated forward paper state cache
+        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success' && steps.paper_persist.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            outputs/daily_simulated_fill_ledger
+            outputs/holding_risk_watch
+            outputs/run287_exact_packet_upstream
+            outputs/run287_exact_packet_input_sources
+            outputs/run287_exact_packet_input_registry
+            outputs/run287_decision_observation_archive
+            outputs/run287_risk_outcome_archive
+            outputs/run287_risk_outcome_price_cache
+          key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Sync accepted paper transaction to Google Drive
+        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.risk_outcomes.outcome == 'success' && steps.operating_scorecard.outcome == 'success' && steps.promotion_gate.outcome == 'success' && steps.operating_review.outcome == 'success' && steps.accepted_publication.outcome == 'success' && steps.paper_persist.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run outputs \
+            --verify-manifest outputs/run287_accepted_publication/manifest.json \
+            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+          if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
+            echo "[gdrive] not configured; accepted paper transaction remains in GitHub artifact/cache"
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
+          DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"
+          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
+            test -d "$d"
+            rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          done
+          for f in outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv; do
+            test -s "$f"
+            rclone copyto "$f" "$DEST/$f"
+          done
+          # Publish the verified manifest last as the remote acceptance marker.
+          test -s outputs/run287_accepted_publication/manifest.json
+          rclone copy outputs/run287_accepted_publication "$DEST/outputs/run287_accepted_publication/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
 
       - name: Save refreshed GitHub cache
         if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success'

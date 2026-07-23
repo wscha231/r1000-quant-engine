@@ -1025,8 +1025,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--expected-manifest-sha256",
         "--verify-manifest",
         "Reverify accepted publication before GitHub publication",
-        "Reverify accepted publication before state cache",
         "Reverify accepted publication before refreshed cache",
+        "id: paper_persist",
         "steps.accepted_publication.outcome == 'success'",
         "if-no-files-found: error",
         "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction",
@@ -1124,8 +1124,26 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         assert path in accepted_upload, path
     accepted_drive = text[
         text.index("- name: Sync accepted paper transaction to Google Drive"):
-        text.index("- name: Persist validated forward paper ledger state")
+        text.index("- name: Save refreshed GitHub cache")
     ]
+    persist_step_idx = text.index(
+        "- name: Persist validated forward paper ledger state"
+    )
+    accepted_upload_idx = text.index(
+        "- name: Upload accepted paper transaction artifact"
+    )
+    accepted_cache_idx = text.index(
+        "- name: Save validated forward paper state cache"
+    )
+    accepted_drive_idx = text.index(
+        "- name: Sync accepted paper transaction to Google Drive"
+    )
+    assert (
+        persist_step_idx
+        < accepted_upload_idx
+        < accepted_cache_idx
+        < accepted_drive_idx
+    ), "canonical paper persistence must precede every accepted publication/cache"
     assert (
         'DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"'
         in accepted_drive
@@ -1142,13 +1160,13 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ), "the accepted manifest must be the final remote acceptance marker"
     diagnostic_drive = text[
         text.index("- name: Sync daily operating artifact to Google Drive"):
-        text.index("- name: Sync accepted paper transaction to Google Drive")
+        text.index("- name: Persist validated forward paper ledger state")
     ]
     assert "--verify-manifest" not in diagnostic_drive, (
         "always-on diagnostic publication must not require an accepted manifest"
     )
-    assert text.count("--verify-manifest") >= 5
-    assert text.count("--expected-manifest-sha256") >= 5
+    assert text.count("--verify-manifest") >= 4
+    assert text.count("--expected-manifest-sha256") >= 4
 
 
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:

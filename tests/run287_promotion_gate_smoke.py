@@ -1094,7 +1094,38 @@ def test_weekend_equity_row_cannot_count_as_a_market_session() -> None:
         assert overlaid["rollback"]["integrity_error"] is True
         assert any(
             "runtime_paper_missing_or_extra_nyse_session" in value
+            or "runtime_paper_non_nyse_equity_date" in value
             or "not a valid NYSE session" in value
+            for value in overlaid["runtime_limitations"]
+        )
+
+
+def test_missed_daily_mark_does_not_invalidate_later_paper_snapshot() -> None:
+    _, _, evidence = _inputs()
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        paper = root / "daily_simulated_fill_ledger"
+        schedule = [
+            stamp.date().isoformat()
+            for stamp in mcal.get_calendar("NYSE").schedule(
+                start_date="2027-06-28", end_date="2027-06-30"
+            ).index
+        ]
+        assert len(schedule) == 3
+        persisted_marks = [(schedule[0], 100.0), (schedule[-1], 100.0)]
+        for portfolio in ("main", "concentrated"):
+            _write_valid_paper_portfolio(
+                paper,
+                portfolio,
+                dates_and_cash=persisted_marks,
+            )
+        _finalize_valid_paper(paper)
+
+        overlaid = overlay_latest_run_evidence(evidence, root)
+        assert overlaid["forward_paper"]["completed_market_sessions"] == 2
+        assert overlaid["rollback"]["integrity_error"] is False
+        assert not any(
+            "runtime_paper_missing_or_extra_nyse_session" in value
             for value in overlaid["runtime_limitations"]
         )
 

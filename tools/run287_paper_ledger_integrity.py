@@ -431,10 +431,10 @@ def compare_snapshot_continuity(
                 "BLOCKED_CONTINUITY",
                 "candidate ancestry does not preserve the anchor chain",
             )
-        if candidate_date <= anchor_date:
+        if candidate_date < anchor_date:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_CONTINUITY",
-                "candidate descendant does not advance its continuity anchor date",
+                "candidate descendant predates its continuity anchor",
             )
         return "CANDIDATE_DESCENDS_FROM_ANCHOR"
     if anchor_descends:
@@ -444,10 +444,10 @@ def compare_snapshot_continuity(
                 "BLOCKED_CONTINUITY",
                 "anchor ancestry does not preserve the candidate chain",
             )
-        if anchor_date <= candidate_date:
+        if anchor_date < candidate_date:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_CONTINUITY",
-                "continuity anchor descendant does not advance its candidate date",
+                "continuity anchor descendant predates its candidate",
             )
         return "CANDIDATE_IS_ANCESTOR_OF_ANCHOR"
     raise PaperLedgerIntegrityError(
@@ -511,10 +511,259 @@ def _validate_paper_semantics(root: Path) -> None:
         ) from exc
 
 
+def _continuity_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_CONTINUITY",
+            f"same-session continuity input is unreadable: {path}: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_CONTINUITY",
+            f"same-session continuity input is not an object: {path}",
+        )
+    return payload
+
+
+def _continuity_nonnegative_int(value: Any, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_CONTINUITY",
+            f"same-session continuity count is invalid: {field}",
+        )
+    return value
+
+
+def _verify_same_session_extension(
+    candidate_root: Path,
+    anchor_root: Path,
+    *,
+    as_of_date: str,
+) -> None:
+    """Permit only the explicit MARK_ONLY -> SELECTED_TARGET paper transition."""
+
+    def require(condition: bool, reason: str) -> None:
+        if not condition:
+            raise PaperLedgerIntegrityError("BLOCKED_CONTINUITY", reason)
+
+    roots = {
+        "anchor": (anchor_root, "MARK_ONLY", True, "NO_NEW_ORDER"),
+        "candidate": (
+            candidate_root,
+            "SELECTED_TARGET",
+            False,
+            "EXECUTABLE_CANDIDATE",
+        ),
+    }
+    publications: dict[str, dict[str, Any]] = {}
+    summaries: dict[str, dict[str, Any]] = {}
+    for label, (root, mode, suppressed, _preview_mode) in roots.items():
+        require(
+            all(
+                (root / portfolio / "account_state_latest.json").is_file()
+                for portfolio in PORTFOLIOS
+            ),
+            f"same-session {label} is not a complete real paper snapshot",
+        )
+        publication = _continuity_json(root / "accepted_publication.json")
+        summary = _continuity_json(root / "summary.json")
+        require(
+            publication.get("schema_version")
+            == "run287-paper-accepted-publication-v1"
+            and publication.get("status") == "ACCEPTED_ATOMIC_PUBLICATION"
+            and publication.get("as_of_date") == as_of_date
+            and publication.get("transaction_mode") == mode
+            and publication.get("review_only") is True
+            and publication.get("live_trading_enabled") is False
+            and publication.get("production_mutation_allowed") is False
+            and isinstance(publication.get("portfolios"), dict),
+            f"same-session {label} accepted publication contract is invalid",
+        )
+        require(
+            summary.get("schema_version")
+            == "daily-simulated-fill-ledger-summary-v1"
+            and summary.get("status") == "completed"
+            and summary.get("as_of_date") == as_of_date
+            and summary.get("new_order_generation_suppressed") is suppressed
+            and summary.get("review_only") is True
+            and summary.get("simulated") is True
+            and summary.get("live_trading_enabled") is False
+            and summary.get("production_mutation_allowed") is False
+            and isinstance(summary.get("portfolios"), dict),
+            f"same-session {label} summary contract is invalid",
+        )
+        publications[label] = publication
+        summaries[label] = summary
+
+    unchanged_files = (
+        "fills.csv",
+        "rejections.csv",
+        "equity_curve.csv",
+        "positions_latest.csv",
+    )
+    account_transition_fields = {
+        "pending_order_count",
+        "reserve_reason_reconciliation",
+        "reserve_reason_source_hash",
+        "target_reserve_reason_reconciliation",
+    }
+    for portfolio in PORTFOLIOS:
+        manifests: dict[str, dict[str, Any]] = {}
+        accounts: dict[str, dict[str, Any]] = {}
+        for label, (root, _mode, suppressed, preview_mode) in roots.items():
+            portfolio_root = root / portfolio
+            manifest_path = portfolio_root / "manifest.json"
+            account_path = portfolio_root / "account_state_latest.json"
+            target_path = portfolio_root / "effective_target_latest.csv"
+            manifest = _continuity_json(manifest_path)
+            account = _continuity_json(account_path)
+            publication_row = (
+                publications[label].get("portfolios", {}).get(portfolio)
+            )
+            require(
+                isinstance(publication_row, dict),
+                f"same-session {label} publication lacks {portfolio}",
+            )
+            require(
+                manifest.get("schema_version")
+                == "daily-simulated-fill-ledger-manifest-v2"
+                and manifest.get("portfolio_kind") == portfolio
+                and manifest.get("as_of_date") == as_of_date
+                and manifest.get("new_order_generation_suppressed")
+                is suppressed
+                and manifest.get("review_only") is True
+                and manifest.get("simulated") is True
+                and manifest.get("live_trading_enabled") is False
+                and manifest.get("production_mutation_allowed") is False,
+                f"same-session {label} {portfolio} manifest contract is invalid",
+            )
+            require(
+                summaries[label].get("portfolios", {}).get(portfolio)
+                == manifest,
+                f"same-session {label} {portfolio} summary/manifest parity failed",
+            )
+            target_identity = tuple(
+                str(manifest.get(field) or "")
+                for field in ("target_hash", "target_sha256", "source_target_sha256")
+            )
+            require(
+                all(valid_sha256(value) for value in target_identity)
+                and target_path.is_file()
+                and target_identity[1] == file_hash(target_path),
+                f"same-session {label} {portfolio} target identity is invalid",
+            )
+            require(
+                publication_row.get("source_target_sha256")
+                == target_identity[2]
+                and publication_row.get("published_target_sha256")
+                == target_identity[2]
+                and publication_row.get("account_state_sha256")
+                == file_hash(account_path)
+                and publication_row.get("ledger_manifest_sha256")
+                == file_hash(manifest_path)
+                and publication_row.get("preview_mode_at_acceptance")
+                == preview_mode
+                and valid_sha256(
+                    publication_row.get("preview_identity_at_acceptance")
+                ),
+                f"same-session {label} {portfolio} publication parity failed",
+            )
+            manifests[label] = manifest
+            accounts[label] = account
+
+        require(
+            manifests["candidate"].get("seeded_this_run") is False
+            and _continuity_nonnegative_int(
+                manifests["candidate"].get("resolved_fills_this_run"),
+                field=f"{portfolio}.resolved_fills_this_run",
+            )
+            == 0
+            and _continuity_nonnegative_int(
+                manifests["candidate"].get("resolved_rejections_this_run"),
+                field=f"{portfolio}.resolved_rejections_this_run",
+            )
+            == 0,
+            f"same-session {portfolio} candidate re-executed accepted state",
+        )
+
+        for filename in unchanged_files:
+            anchor_path = anchor_root / portfolio / filename
+            candidate_path = candidate_root / portfolio / filename
+            require(
+                anchor_path.is_file()
+                and candidate_path.is_file()
+                and file_hash(anchor_path) == file_hash(candidate_path),
+                f"same-session {portfolio} changed accepted {filename}",
+            )
+
+        anchor_pending = anchor_root / portfolio / "pending_orders.csv"
+        candidate_pending = candidate_root / portfolio / "pending_orders.csv"
+        anchor_fields, anchor_rows = _csv_contract(anchor_pending)
+        candidate_fields, candidate_rows = _csv_contract(candidate_pending)
+        require(
+            candidate_fields == anchor_fields
+            and len(candidate_rows) >= len(anchor_rows)
+            and candidate_rows[: len(anchor_rows)] == anchor_rows,
+            f"same-session {portfolio} pending orders are not an exact extension",
+        )
+        added_orders = len(candidate_rows) - len(anchor_rows)
+        enqueued = _continuity_nonnegative_int(
+            manifests["candidate"].get("enqueued_this_run"),
+            field=f"{portfolio}.enqueued_this_run",
+        )
+        require(
+            added_orders == enqueued,
+            f"same-session {portfolio} pending/enqueued count mismatch",
+        )
+
+        anchor_economic_account = {
+            key: value
+            for key, value in accounts["anchor"].items()
+            if key not in account_transition_fields
+        }
+        candidate_economic_account = {
+            key: value
+            for key, value in accounts["candidate"].items()
+            if key not in account_transition_fields
+        }
+        require(
+            candidate_economic_account == anchor_economic_account,
+            f"same-session {portfolio} changed accepted economic account state",
+        )
+        for field in (
+            "event_sequence",
+            "event_chain_hash",
+            "fill_count",
+            "rejection_count",
+        ):
+            require(
+                manifests["candidate"].get(field)
+                == manifests["anchor"].get(field),
+                f"same-session {portfolio} changed accepted {field}",
+            )
+
+
 def _verify_snapshot_extension(candidate_root: Path, anchor_root: Path) -> None:
     """Prove state evolution with content, not self-asserted ancestry metadata."""
     candidate_root = candidate_root.resolve()
     anchor_root = anchor_root.resolve()
+    candidate_integrity = _read_manifest_envelope(
+        candidate_root / INTEGRITY_FILE
+    )
+    anchor_integrity = _read_manifest_envelope(anchor_root / INTEGRITY_FILE)
+    same_session = (
+        candidate_integrity["as_of_date"] == anchor_integrity["as_of_date"]
+    )
+    if same_session and (
+        candidate_integrity["previous_snapshot_hash"]
+        != anchor_integrity["snapshot_hash"]
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_CONTINUITY",
+            "same-session extension is not the anchor's direct descendant",
+        )
     real_paper_anchor = any(
         (anchor_root / portfolio / "account_state_latest.json").is_file()
         for portfolio in PORTFOLIOS
@@ -535,6 +784,19 @@ def _verify_snapshot_extension(candidate_root: Path, anchor_root: Path) -> None:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_CONTINUITY",
                 f"immutable continuity input changed or disappeared: {relative}",
+            )
+    legacy_attestation = "legacy_migration_attestation.json"
+    candidate_attestation = candidate_root / legacy_attestation
+    anchor_attestation = anchor_root / legacy_attestation
+    if candidate_attestation.is_file() or anchor_attestation.is_file():
+        if (
+            not candidate_attestation.is_file()
+            or not anchor_attestation.is_file()
+            or file_hash(candidate_attestation) != file_hash(anchor_attestation)
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_CONTINUITY",
+                "durable legacy migration attestation changed or disappeared",
             )
 
     history_files = (
@@ -575,13 +837,19 @@ def _verify_snapshot_extension(candidate_root: Path, anchor_root: Path) -> None:
                 f"append-only history is not an exact prefix: {relative}",
             )
         advanced = advanced or len(candidate_rows) > len(anchor_rows)
-    if not advanced:
+    _validate_paper_semantics(anchor_root)
+    _validate_paper_semantics(candidate_root)
+    if same_session:
+        _verify_same_session_extension(
+            candidate_root,
+            anchor_root,
+            as_of_date=candidate_integrity["as_of_date"],
+        )
+    elif not advanced:
         raise PaperLedgerIntegrityError(
             "BLOCKED_CONTINUITY",
             "descendant date advanced without an append-only history row",
         )
-    _validate_paper_semantics(anchor_root)
-    _validate_paper_semantics(candidate_root)
 
 
 def require_state_descends_from(

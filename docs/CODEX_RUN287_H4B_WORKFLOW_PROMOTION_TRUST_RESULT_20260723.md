@@ -37,8 +37,32 @@ evaluation, and artifact publication.
 - Snapshot continuity requires the same genesis, immutable bootstrap files,
   exact append-only fill/rejection/equity prefixes, and semantic replay.
   Self-asserted ancestry metadata alone cannot replace accepted state.
+- Same-session continuity is permitted only for a direct, replay-clean
+  `MARK_ONLY` -> `SELECTED_TARGET` descendant whose economic account state and
+  historical ledgers are unchanged and whose only ledger extension is the
+  exactly reconciled pending-order enqueue. Same-date reseals and divergent
+  descendants remain blocked.
 - Advancing a restored ledger preserves its existing fill-CSV header order, so
   a schema-equivalent descendant cannot be rejected as a false prefix rewrite.
+- A pre-manifest legacy Drive snapshot can enter a one-time quarantine only
+  when no verified cache or immutable head exists. It must pass structural and
+  schema/safety checks for both portfolios, contain no stale acceptance
+  metadata, receive semantic attestation during a mark-only replay, and be
+  replaced through compare-and-swap by a newly verified immutable head.
+  Partial account state, unsafe historical-replacement or live-approval flags,
+  and non-mark-only migration attempts fail without mutating the ledger.
+- Legacy mark-only replay may resolve already-pending or lifecycle events but
+  may enqueue no new order. Same-session legacy state is normalized to an
+  integrity-bound mark-only parent before the selected-target child; an
+  unchanged selected target is valid and produces no unnecessary order.
+- Legacy source-tree provenance becomes an immutable file inside the paper
+  snapshot, remains bound through the selected-target pass, and is included in
+  accepted artifacts, caches, and Drive state. Matching immutable heads remain
+  recoverable after local-cache loss.
+- Equity curves may omit prior daily marks without invalidating a later
+  accepted snapshot. Persisted rows must still be unique, ordered NYSE
+  sessions ending at the accepted as-of date; omitted sessions reduce the
+  completed-session count instead of creating false promotion evidence.
 - A newly observed outcome ticker with no restored price-cache file now emits
   the explicit review-only bootstrap state and complete price universe before
   the bounded cache builder reruns the resolver.
@@ -46,6 +70,10 @@ evaluation, and artifact publication.
   publication, rechecks the canonical anchor before and after sync, validates
   head-folder/hash identity, and blocks divergent heads instead of overwriting
   them.
+- Accepted GitHub artifacts, state caches, and accepted Drive packages publish
+  only after canonical paper persistence/CAS succeeds (or its explicit
+  no-Drive no-op succeeds), preventing a failed candidate cache from becoming
+  the next continuity anchor.
 - The accepted-publication manifest binds the gate step hash, every gate-read
   file, target/account/preview identities, scorecard, outcomes, and the complete
   paper snapshot. Reverification recursively checks every snapshot file.
@@ -56,7 +84,7 @@ evaluation, and artifact publication.
 
 ## Validation
 
-- Promotion gate adversarial smoke: `31/31` PASS.
+- Promotion gate adversarial smoke: `32/32` PASS.
 - Accepted-publication manifest smoke: `10/10` PASS.
 - Daily simulated fill ledger: PASS.
 - Paper-ledger transaction and real descendant installation: PASS.
@@ -65,8 +93,8 @@ evaluation, and artifact publication.
 - Runtime operating scorecard: PASS.
 - Workflow artifact/order contract: PASS.
 - Python compile and `git diff --check`: PASS.
-- Full Tier-1 PR validation after exact-head review fixes: `193/193` PASS in
-  `361.71s`.
+- Full Tier-1 PR validation after the final exact-head review fixes: `193/193`
+  PASS in `374.97s`.
 
 ## Safety and next gate
 

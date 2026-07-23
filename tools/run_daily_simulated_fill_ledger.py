@@ -82,6 +82,7 @@ from tools.reserve_asset_policy import (  # noqa: E402
 PORTFOLIOS = ("main", "concentrated")
 NYSE_CALENDAR = mcal.get_calendar("NYSE")
 GENESIS_HASH = "0" * 64
+LEGACY_MIGRATION_ATTESTATION_FILE = "legacy_migration_attestation.json"
 EVENT_HASH_FIELDS = {"event_hash"}
 PRICE_SOURCE_FIELDS = {
     "execution_price_source_path",
@@ -1771,6 +1772,22 @@ def validate_restored_snapshot(
             errors.append(f"{label}_portfolio")
         if payload.get("review_only") is not True or payload.get("live_trading_enabled") is not False:
             errors.append(f"{label}_safety")
+        if payload.get("production_mutation_allowed") is not False:
+            errors.append(f"{label}_production_mutation")
+    if account.get("simulated_broker_ledger") is not True:
+        errors.append("account_simulated_broker_ledger")
+    if account.get("human_approval_required_for_live_orders") is not True:
+        errors.append("account_human_approval")
+    if manifest.get("simulated") is not True:
+        errors.append("manifest_simulated")
+    if manifest.get("historical_cagr_mdd_replacement_allowed") is not False:
+        errors.append("manifest_historical_replacement")
+    if account.get("schema_version") != "daily-simulated-account-v1":
+        errors.append("account_schema")
+    if manifest.get("schema_version") != "daily-simulated-fill-ledger-manifest-v2":
+        errors.append("manifest_schema")
+    if meta.get("schema_version") != "daily-simulated-fill-ledger-state-v2":
+        errors.append("meta_schema")
     try:
         sequence, chain_hash, client_ids = validate_event_chain(fills, rejections)
     except ValueError as exc:
@@ -1862,6 +1879,153 @@ def validate_restored_snapshot(
         raise PaperLedgerIntegrityError(
             "BLOCKED_INTEGRITY", f"restored {portfolio} snapshot validation failed: {','.join(errors)}"
         )
+
+
+def classify_paper_state(root: Path) -> tuple[str, int]:
+    """Distinguish a pristine bootstrap from a complete two-account ledger."""
+
+    account_count = sum(
+        (root / portfolio / "account_state_latest.json").is_file()
+        for portfolio in PORTFOLIOS
+    )
+    if account_count == len(PORTFOLIOS):
+        return "RESTORED_LEDGER", account_count
+    if account_count:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            f"partial paper ledger account state:{account_count}/{len(PORTFOLIOS)}",
+        )
+
+    durable_root_markers = (
+        "summary.json",
+        "accepted_publication.json",
+        "genesis_identity.json",
+        LEGACY_MIGRATION_ATTESTATION_FILE,
+    )
+    has_root_state = any((root / name).exists() for name in durable_root_markers)
+    has_portfolio_state = any(
+        path.is_file()
+        for portfolio in PORTFOLIOS
+        for path in (root / portfolio).rglob("*")
+    )
+    if has_root_state or has_portfolio_state:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "paper ledger has durable state without both portfolio accounts",
+        )
+    return "PRISTINE_BOOTSTRAP", 0
+
+
+def validate_legacy_root_snapshot(root: Path) -> dict[str, Any]:
+    """Reject unsafe or internally inconsistent metadata before migration."""
+
+    if (root / "accepted_publication.json").exists():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "legacy paper snapshot unexpectedly contains accepted publication metadata",
+        )
+    if (root / LEGACY_MIGRATION_ATTESTATION_FILE).exists():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "legacy migration attestation exists without snapshot integrity",
+        )
+    summary = read_json(root / "summary.json")
+    if (
+        summary.get("schema_version")
+        != "daily-simulated-fill-ledger-summary-v1"
+        or summary.get("status") != "completed"
+        or not clean_date(summary.get("as_of_date"))
+        or summary.get("review_only") is not True
+        or summary.get("simulated") is not True
+        or summary.get("live_trading_enabled") is not False
+        or summary.get("production_mutation_allowed") is not False
+        or summary.get("historical_cagr_mdd_replacement_allowed") is not False
+        or not isinstance(summary.get("portfolios"), dict)
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "legacy paper root summary safety contract is invalid",
+        )
+    summary_date = clean_date(summary.get("as_of_date"))
+    for portfolio in PORTFOLIOS:
+        account = read_json(root / portfolio / "account_state_latest.json")
+        manifest = read_json(root / portfolio / "manifest.json")
+        meta = read_json(root / portfolio / "state_meta.json")
+        if (
+            summary.get("portfolios", {}).get(portfolio) != manifest
+            or clean_date(account.get("as_of_date")) != summary_date
+            or clean_date(manifest.get("as_of_date")) != summary_date
+            or clean_date(meta.get("as_of_date")) != summary_date
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"legacy paper root/portfolio parity failed:{portfolio}",
+            )
+    return summary
+
+
+def legacy_migration_attestation(
+    *,
+    state_root: Path,
+    provenance_path: Path | None,
+    legacy_summary: dict[str, Any],
+    requested_as_of_date: str,
+    semantic_mode: str,
+    semantic_result: str,
+) -> dict[str, Any]:
+    """Build a durable attestation that is hashed into the migrated snapshot."""
+
+    source_tree_sha256 = canonical_hash(directory_hashes(state_root))
+    if provenance_path is not None:
+        provenance = read_json(provenance_path)
+        remote_hash = str(provenance.get("remote_tree_sha256") or "")
+        if (
+            provenance.get("schema_version")
+            != "run287-legacy-drive-paper-migration-v1"
+            or provenance.get("status") != "PENDING_SEMANTIC_ATTESTATION"
+            or provenance.get("source") != "GDRIVE_LEGACY_UNATTESTED"
+            or clean_date(provenance.get("legacy_as_of_date"))
+            != clean_date(legacy_summary.get("as_of_date"))
+            or clean_date(provenance.get("requested_as_of_date"))
+            != requested_as_of_date
+            or len(remote_hash) != 64
+            or any(character not in "0123456789abcdef" for character in remote_hash)
+            or remote_hash != source_tree_sha256
+            or provenance.get("legacy_semantic_attestation_required") is not True
+            or provenance.get("accepted_for_use") is not False
+            or provenance.get("review_only") is not True
+            or provenance.get("live_trading_enabled") is not False
+            or provenance.get("production_mutation_allowed") is not False
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                "legacy migration provenance is missing, unsafe, or does not bind the restored tree",
+            )
+        attestation = dict(provenance)
+    else:
+        attestation = {
+            "schema_version": "run287-legacy-drive-paper-migration-v1",
+            "source": "LOCAL_LEGACY_UNATTESTED",
+            "legacy_as_of_date": clean_date(legacy_summary.get("as_of_date")),
+            "requested_as_of_date": requested_as_of_date,
+            "remote_snapshot_integrity_present": False,
+            "verified_cross_source_anchor_present": False,
+            "legacy_semantic_attestation_required": True,
+            "remote_tree_sha256": source_tree_sha256,
+            "review_only": True,
+            "live_trading_enabled": False,
+            "production_mutation_allowed": False,
+        }
+    attestation.update(
+        status="SEMANTIC_ATTESTATION_VERIFIED",
+        accepted_for_use=True,
+        semantic_attestation_result=semantic_result,
+        legacy_snapshot_semantically_validated=True,
+        legacy_snapshot_semantic_attestation_mode=semantic_mode,
+        source_tree_sha256=source_tree_sha256,
+        integrity_binding="INCLUDED_IN_PAPER_SNAPSHOT_INTEGRITY",
+    )
+    return attestation
 
 
 def ensure_genesis_identity(
@@ -3059,7 +3223,7 @@ def load_reusable_same_session_manifest(
     )
     prior_suppressed = manifest.get("new_order_generation_suppressed") is True
     allow_suppressed_to_target_transition = bool(
-        target_changed and prior_suppressed and not suppress_new_orders
+        prior_suppressed and not suppress_new_orders
     )
     allow_target_to_suppressed_reuse = bool(
         not target_changed and not prior_suppressed and suppress_new_orders
@@ -3863,6 +4027,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if (state_root / INTEGRITY_FILE).is_file()
         else {"status": "LEGACY_UNATTESTED", "snapshot_hash": ""}
     )
+    state_class, _account_state_count = classify_paper_state(state_root)
+    legacy_state_present = state_class == "RESTORED_LEDGER"
+    provenance_value = str(
+        getattr(args, "legacy_migration_provenance", "") or ""
+    ).strip()
+    provenance_path = repo_path(provenance_value) if provenance_value else None
+    legacy_summary: dict[str, Any] = {}
+    if (
+        prior_integrity.get("status") == "LEGACY_UNATTESTED"
+        and legacy_state_present
+    ):
+        if not suppress_new_orders:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                "legacy paper migration requires a mark-only transaction",
+            )
+        legacy_summary = validate_legacy_root_snapshot(state_root)
+    elif provenance_path is not None:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "legacy migration provenance supplied without a complete legacy ledger",
+        )
     bootstrap_paths = {
         portfolio: repo_path(getattr(args, f"{portfolio}_bootstrap_account")) for portfolio in PORTFOLIOS
     }
@@ -3977,13 +4163,105 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "new_order_generation_suppressed": suppress_new_orders,
             "generated_at_utc": utc_now(),
         }
+        durable_attestation_path = (
+            stage_state / LEGACY_MIGRATION_ATTESTATION_FILE
+        )
+        if durable_attestation_path.is_file():
+            durable_attestation = read_json(durable_attestation_path)
+            source_tree_hash = str(
+                durable_attestation.get("source_tree_sha256") or ""
+            )
+            if (
+                durable_attestation.get("schema_version")
+                != "run287-legacy-drive-paper-migration-v1"
+                or durable_attestation.get("status")
+                != "SEMANTIC_ATTESTATION_VERIFIED"
+                or durable_attestation.get("accepted_for_use") is not True
+                or durable_attestation.get(
+                    "legacy_snapshot_semantically_validated"
+                )
+                is not True
+                or durable_attestation.get(
+                    "legacy_snapshot_semantic_attestation_mode"
+                )
+                not in {"SAME_SESSION_REUSE", "FORWARD_REPLAY"}
+                or durable_attestation.get("review_only") is not True
+                or durable_attestation.get("live_trading_enabled") is not False
+                or durable_attestation.get("production_mutation_allowed")
+                is not False
+                or durable_attestation.get("integrity_binding")
+                != "INCLUDED_IN_PAPER_SNAPSHOT_INTEGRITY"
+                or len(source_tree_hash) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in source_tree_hash
+                )
+            ):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "durable legacy migration attestation is invalid",
+                )
+            summary["legacy_migration_attestation_sha256"] = file_hash(
+                durable_attestation_path
+            )
         legacy_attestation_required = bool(
-            same_session_count == len(PORTFOLIOS)
-            and prior_integrity.get("status") == "LEGACY_UNATTESTED"
+            prior_integrity.get("status") == "LEGACY_UNATTESTED"
+            and legacy_state_present
         )
         if legacy_attestation_required:
-            summary["result_status"] = "LEGACY_ATTESTED"
+            if same_session_count == len(PORTFOLIOS):
+                summary["result_status"] = "LEGACY_ATTESTED"
+                summary["legacy_snapshot_semantic_attestation_mode"] = "SAME_SESSION_REUSE"
+                for portfolio in PORTFOLIOS:
+                    results[portfolio][
+                        "new_order_generation_suppressed"
+                    ] = True
+                    write_json(
+                        stage_state / portfolio / "manifest.json",
+                        results[portfolio],
+                    )
+            else:
+                # A durable legacy ledger from an earlier completed session is
+                # attested by the normal transaction replay before its first
+                # integrity manifest is written.  The resulting continuation
+                # remains explicitly distinguishable from same-session reuse.
+                summary["legacy_snapshot_semantic_attestation_mode"] = "FORWARD_REPLAY"
             summary["legacy_snapshot_semantically_validated"] = True
+            if (
+                summary.get("new_order_generation_suppressed") is not True
+                or any(
+                    result.get("new_order_generation_suppressed") is not True
+                    or int(result.get("enqueued_this_run", -1)) != 0
+                    or int(result.get("resolved_fills_this_run", -1)) < 0
+                    or int(result.get("resolved_rejections_this_run", -1)) < 0
+                    for result in results.values()
+                )
+            ):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "legacy mark-only attestation generated orders or reported invalid event counts",
+                )
+            attestation_path = (
+                stage_state / LEGACY_MIGRATION_ATTESTATION_FILE
+            )
+            write_json(
+                attestation_path,
+                legacy_migration_attestation(
+                    state_root=state_root,
+                    provenance_path=provenance_path,
+                    legacy_summary=legacy_summary,
+                    requested_as_of_date=as_of_date.date().isoformat(),
+                    semantic_mode=str(
+                        summary[
+                            "legacy_snapshot_semantic_attestation_mode"
+                        ]
+                    ),
+                    semantic_result=str(summary["result_status"]),
+                ),
+            )
+            summary["legacy_migration_attestation_sha256"] = file_hash(
+                attestation_path
+            )
         if same_session_count == len(PORTFOLIOS) and not legacy_attestation_required:
             for portfolio, destination in publish_paths.items():
                 if file_hash(destination) != file_hash(target_paths[portfolio]):
@@ -4077,6 +4355,14 @@ def parse_args() -> argparse.Namespace:
         "--suppress-new-orders",
         action="store_true",
         help="Resolve prior pending orders and mark accounts, but create no new preview/order.",
+    )
+    parser.add_argument(
+        "--legacy-migration-provenance",
+        default="",
+        help=(
+            "Optional pending provenance JSON for a one-time manifest-free "
+            "legacy migration; accepted only by a complete mark-only replay."
+        ),
     )
     return parser.parse_args()
 

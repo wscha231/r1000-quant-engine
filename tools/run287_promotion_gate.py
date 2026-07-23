@@ -1672,8 +1672,11 @@ def _validate_verified_paper_snapshot(
         )
         nyse_ordered = [stamp.date() for stamp in schedule.index]
         nyse_dates = set(nyse_ordered)
-        if equity_dates != nyse_ordered:
-            raise ValueError(f"runtime_paper_missing_or_extra_nyse_session:{portfolio}")
+        # The ledger records completed paper marks, not an inferred synthetic
+        # mark for every exchange session.  A failed/skipped daily workflow may
+        # therefore leave legitimate gaps; each persisted row must still be a
+        # unique ordered NYSE session and the final row must be the accepted
+        # paper as-of date.
         for row, row_date in zip(equity_rows, equity_dates):
             if row_date > paper_as_of:
                 raise ValueError(f"runtime_paper_future_equity_date:{portfolio}")
