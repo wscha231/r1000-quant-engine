@@ -302,9 +302,6 @@ def test_true_forward_bundle_error_does_not_poison_historical_lane() -> None:
             if row["id"] != "true_forward_summary"
         ]
         write_json(manifest, missing_source_manifest)
-        registry["canonical_source_bundle_manifest"]["expected_sha256"] = digest(
-            manifest
-        )
         missing_scorecard = build_scorecard(
             registry, source_registry_path=registry_path
         )
@@ -318,6 +315,16 @@ def test_true_forward_bundle_error_does_not_poison_historical_lane() -> None:
         assert missing_error not in missing_scorecard["integrity_errors_by_lane"][
             "historical"
         ]
+        scoped_manifest_error = (
+            "canonical_source_bundle_manifest_hash_mismatch:"
+            "true_forward_summary"
+        )
+        assert scoped_manifest_error in missing_scorecard[
+            "integrity_errors_by_lane"
+        ]["true_forward"]
+        assert scoped_manifest_error not in missing_scorecard[
+            "integrity_errors_by_lane"
+        ]["historical"]
         assert missing_scorecard["headline_performance_trust"] == "TRUSTED"
 
 

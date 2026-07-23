@@ -139,12 +139,19 @@ def verify_canonical_source_bundle(
         return record, ["canonical_source_bundle_manifest_unavailable"]
     actual_hash = sha256_file(path)
     record["sha256"] = actual_hash
-    if record["expected_sha256"] and actual_hash != record["expected_sha256"]:
-        return record, ["canonical_source_bundle_manifest_hash_mismatch"]
+    manifest_hash_mismatch = bool(
+        record["expected_sha256"]
+        and actual_hash != record["expected_sha256"]
+    )
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
-        return record, [f"canonical_source_bundle_manifest_parse_error:{type(exc).__name__}"]
+        parse_errors = [
+            f"canonical_source_bundle_manifest_parse_error:{type(exc).__name__}"
+        ]
+        if manifest_hash_mismatch:
+            parse_errors.append("canonical_source_bundle_manifest_hash_mismatch")
+        return record, sorted(parse_errors)
     if payload.get("schema_version") != "run287-operating-scorecard-source-bundle-v1":
         errors.append("canonical_source_bundle_manifest_schema_mismatch")
     if payload.get("immutable") is not True:
@@ -197,6 +204,24 @@ def verify_canonical_source_bundle(
             )
         else:
             record["verified_source_count"] += 1
+    if manifest_hash_mismatch:
+        scoped_source_ids = sorted({
+            token
+            for value in errors
+            for token in value.split(":")[1:]
+            if token in managed
+        })
+        global_errors = [
+            value for value in errors
+            if not any(token in managed for token in value.split(":")[1:])
+        ]
+        if scoped_source_ids and not global_errors:
+            errors.extend(
+                f"canonical_source_bundle_manifest_hash_mismatch:{source_id}"
+                for source_id in scoped_source_ids
+            )
+        else:
+            errors.append("canonical_source_bundle_manifest_hash_mismatch")
     record["status"] = "VERIFIED" if not errors else "INTEGRITY_ERROR"
     return record, sorted(set(errors))
 
