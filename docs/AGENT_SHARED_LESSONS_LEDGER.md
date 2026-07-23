@@ -3289,6 +3289,9 @@ Expected contract:
   Small immutable evidence should be committed with a source-id/path/hash
   bundle manifest; larger restored evidence must use the equivalent checksum
   restore contract.
+- A fixed absorbed forward summary is also an immutable input: leaving it under
+  ignored `outputs/` breaks clean-checkout scorecard reproduction even when all
+  historical fixtures are committed.
 - Missing model heads are an expected fail-closed operating condition, not an
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.

@@ -5,7 +5,7 @@
   "scorecard_as_of_date": "2026-07-20",
   "canonical_source_bundle_manifest": {
     "path": "data_static/run287_operating_scorecard_sources_v1/manifest.json",
-    "expected_sha256": "c85c58cc4ae75c5ce4441e237499d73fd49103358acadb747ab71e2cce8856ae"
+    "expected_sha256": "03048fd2899aef2af772e972fc4c6326654d77c724cb9fc2d8eec7971adbeae8"
   },
   "public_deployment_allowed": false,
   "production_activation_allowed": false,
@@ -149,7 +149,7 @@
       "id": "true_forward_summary",
       "evidence_class": "true_forward",
       "section": "forward_evidence",
-      "path": "outputs/free_data_forward_paper_ledger/summary.json",
+      "path": "data_static/run287_operating_scorecard_sources_v1/forward/summary.json",
       "format": "json",
       "expected_sha256": "aad6d73619ea254833b978356e828562ab1785b786620c991bca56d5545852ed",
       "as_of_date": "2026-07-10",

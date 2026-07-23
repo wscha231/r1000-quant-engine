@@ -11,7 +11,7 @@ actual paper-ledger directory manifest. A tracked boolean is not accepted as
 runtime evidence.
 
 - The nine historical P3-P6 sources previously referenced from ignored
-  `_tmp_tests` paths are committed under
+  `_tmp_tests` paths and the fixed 2026-07-10 forward summary are committed under
   `data_static/run287_operating_scorecard_sources_v1`.
 - `manifest.json` binds every canonical source id, path, and SHA-256. The
   registry also pins the manifest SHA-256.
@@ -40,7 +40,7 @@ The focused fixtures prove:
 3. a forged `verified=true` document is rejected;
 4. current-paper errors do not poison the historical headline lane;
 5. the committed source registry contains no `_tmp_tests` path and its bundle
-   manifest verifies all nine canonical sources;
+   manifest verifies all ten canonical sources;
 6. a missing prediction head writes a blocked summary without running any
    downstream outcome evaluation.
 

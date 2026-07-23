@@ -216,7 +216,7 @@ def test_committed_source_registry_uses_verified_canonical_bundle() -> None:
     bundle, errors = verify_canonical_source_bundle(registry)
     assert errors == []
     assert bundle["status"] == "VERIFIED"
-    assert bundle["source_count"] == 9
+    assert bundle["source_count"] == 10
 
 
 def test_metric_definition_change_requires_migration_note() -> None:

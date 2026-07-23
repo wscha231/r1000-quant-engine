@@ -48,6 +48,11 @@
       "id": "p3_concentrated_crisis",
       "path": "data_static/run287_operating_scorecard_sources_v1/p3/concentrated_evaluation.json",
       "sha256": "20751ef0885af98b1ff9d0ecba991ad9b272a9e103051eb46d90517507f5728d"
+    },
+    {
+      "id": "true_forward_summary",
+      "path": "data_static/run287_operating_scorecard_sources_v1/forward/summary.json",
+      "sha256": "aad6d73619ea254833b978356e828562ab1785b786620c991bca56d5545852ed"
     }
   ]
 }
