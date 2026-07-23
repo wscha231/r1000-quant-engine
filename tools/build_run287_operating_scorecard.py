@@ -121,6 +121,7 @@ def verify_canonical_source_bundle(
         "sha256": None,
         "expected_sha256": None,
         "source_count": 0,
+        "verified_source_count": 0,
     }
     errors: list[str] = []
     if not managed:
@@ -172,6 +173,15 @@ def verify_canonical_source_bundle(
         registry_hash = str(source.get("expected_sha256") or "").lower()
         if not manifest_hash or manifest_hash != registry_hash:
             errors.append(f"canonical_source_bundle_hash_mismatch:{source_id}")
+        source_path = repo_path(str(source.get("path") or ""))
+        if not source_path.is_file():
+            errors.append(f"canonical_source_bundle_source_missing:{source_id}")
+        elif not manifest_hash or sha256_file(source_path) != manifest_hash:
+            errors.append(
+                f"canonical_source_bundle_source_hash_mismatch:{source_id}"
+            )
+        else:
+            record["verified_source_count"] += 1
     record["status"] = "VERIFIED" if not errors else "INTEGRITY_ERROR"
     return record, sorted(set(errors))
 
@@ -258,7 +268,27 @@ def build_scorecard(
         record_integrity_error(lane, value)
     source_bundle, source_bundle_errors = verify_canonical_source_bundle(registry)
     for value in source_bundle_errors:
-        record_integrity_error("historical", value)
+        affected_source_ids = [
+            token for token in value.split(":")[1:]
+            if token in source_specs_by_id
+        ]
+        if affected_source_ids:
+            for source_id in affected_source_ids:
+                lane = str(
+                    source_specs_by_id[source_id].get("evidence_class")
+                    or "historical"
+                )
+                record_integrity_error(lane, value)
+        else:
+            managed_lanes = {
+                str(row.get("evidence_class") or "historical")
+                for row in source_specs_by_id.values()
+                if str(row.get("path") or "").replace("\\", "/").startswith(
+                    CANONICAL_SOURCE_PREFIX
+                )
+            }
+            for lane in managed_lanes or {"historical"}:
+                record_integrity_error(lane, value)
     metrics: list[dict[str, Any]] = []
 
     def add(

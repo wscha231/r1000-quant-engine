@@ -3292,11 +3292,19 @@ Expected contract:
 - A fixed absorbed forward summary is also an immutable input: leaving it under
   ignored `outputs/` breaks clean-checkout scorecard reproduction even when all
   historical fixtures are committed.
+- A bundle is not verified by agreement between two declarations. Hash every
+  referenced source file's committed bytes, and pin hashes after line-ending
+  normalization; otherwise manifest and registry can agree on the same stale
+  CRLF digest while the LF blob differs.
+- Bundle integrity errors must retain the affected source id and evidence lane.
+  A true-forward-only provenance fault must block true-forward/global trust
+  without poisoning independently verified historical headline evidence.
 - Missing model heads are an expected fail-closed operating condition, not an
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.
-- Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and the
-  full `191`-test PR validation path passed.
+- Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and full
+  Tier-1 validation (`191/191`, `583.33s` on the reviewed follow-up head)
+  passed.
 - Evidence:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production

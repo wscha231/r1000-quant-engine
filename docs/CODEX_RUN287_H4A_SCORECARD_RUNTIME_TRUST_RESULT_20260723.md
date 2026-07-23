@@ -50,10 +50,26 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation runner reached and completed its final tests (`191/191`);
-  the final top-manager and N-PORT fixtures were explicitly rerun and passed
-  after the supervising shell timeout.
+- Full PR validation: `191/191` PASS in `583.33s` on the exact reviewed
+  follow-up head.
 - Python compilation and `git diff --check`: PASS.
+
+## Exact-head review follow-up
+
+The first exact-head Codex review identified two valid provenance gaps.
+
+- The bundle verifier compared manifest and registry declarations without
+  hashing each referenced source file. It now requires every source file to
+  exist and match the manifest SHA-256 before reporting `VERIFIED`.
+- Six JSON declarations were based on their former CRLF bytes even though the
+  committed canonical blobs are LF-normalized. The bundle manifest and source
+  registry now pin the actual LF blob hashes, and the manifest hash is updated.
+- Source-specific bundle errors are attributed to the registry source's
+  evidence lane. A true-forward-only path or hash error no longer relabels the
+  historical headline as untrusted.
+- New regressions mutate source bytes behind unchanged declarations and inject
+  a true-forward-only bundle path mismatch. Both fail closed in the intended
+  lane.
 
 ## Safety and next gate
 

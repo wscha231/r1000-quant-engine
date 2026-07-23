@@ -2,6 +2,7 @@
 """Smoke checks for the canonical private Run287 operating scorecard."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import sys
@@ -217,6 +218,81 @@ def test_committed_source_registry_uses_verified_canonical_bundle() -> None:
     assert errors == []
     assert bundle["status"] == "VERIFIED"
     assert bundle["source_count"] == 10
+    assert bundle["verified_source_count"] == 10
+
+
+def test_bundle_verifier_hashes_source_file_bytes() -> None:
+    bundle_root = ROOT / "data_static" / "run287_operating_scorecard_sources_v1"
+    with tempfile.TemporaryDirectory(dir=bundle_root) as td:
+        root = Path(td)
+        source = root / "source.json"
+        write_json(source, {"value": 1})
+        source_id = "fixture_historical"
+        source_rel = source.relative_to(ROOT).as_posix()
+        manifest = root / "manifest.json"
+        write_json(
+            manifest,
+            {
+                "schema_version": "run287-operating-scorecard-source-bundle-v1",
+                "immutable": True,
+                "sources": [
+                    {"id": source_id, "path": source_rel, "sha256": digest(source)}
+                ],
+            },
+        )
+        registry = {
+            "canonical_source_bundle_manifest": {
+                "path": manifest.relative_to(ROOT).as_posix(),
+                "expected_sha256": digest(manifest),
+            },
+            "sources": [
+                {
+                    "id": source_id,
+                    "path": source_rel,
+                    "expected_sha256": digest(source),
+                    "evidence_class": "historical",
+                }
+            ],
+        }
+        verified, errors = verify_canonical_source_bundle(registry)
+        assert errors == []
+        assert verified["verified_source_count"] == 1
+        write_json(source, {"value": 2})
+        blocked, errors = verify_canonical_source_bundle(registry)
+        assert blocked["status"] == "INTEGRITY_ERROR"
+        assert errors == [
+            "canonical_source_bundle_source_hash_mismatch:fixture_historical"
+        ]
+
+
+def test_true_forward_bundle_error_does_not_poison_historical_lane() -> None:
+    registry_path = ROOT / "docs" / "run287_operating_scorecard_sources.json"
+    registry = copy.deepcopy(load_registry(registry_path))
+    source_manifest_path = ROOT / registry["canonical_source_bundle_manifest"]["path"]
+    source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    forward_item = next(
+        row for row in source_manifest["sources"]
+        if row["id"] == "true_forward_summary"
+    )
+    forward_item["path"] = (
+        "data_static/run287_operating_scorecard_sources_v1/forward/wrong.json"
+    )
+    bundle_root = ROOT / "data_static" / "run287_operating_scorecard_sources_v1"
+    with tempfile.TemporaryDirectory(dir=bundle_root) as td:
+        manifest = Path(td) / "manifest.json"
+        write_json(manifest, source_manifest)
+        registry["canonical_source_bundle_manifest"] = {
+            "path": manifest.relative_to(ROOT).as_posix(),
+            "expected_sha256": digest(manifest),
+        }
+        scorecard = build_scorecard(
+            registry, source_registry_path=registry_path
+        )
+    expected = "canonical_source_bundle_path_mismatch:true_forward_summary"
+    assert expected in scorecard["integrity_errors_by_lane"]["true_forward"]
+    assert expected not in scorecard["integrity_errors_by_lane"]["historical"]
+    assert scorecard["headline_performance_trust"] == "TRUSTED"
+    assert scorecard["evidence_status"]["true_forward"] == "NOT_TRUSTED"
 
 
 def test_metric_definition_change_requires_migration_note() -> None:
@@ -236,6 +312,8 @@ def main() -> int:
     test_current_paper_error_does_not_poison_historical_headline()
     test_runtime_manifest_ignores_forged_verified_boolean()
     test_committed_source_registry_uses_verified_canonical_bundle()
+    test_bundle_verifier_hashes_source_file_bytes()
+    test_true_forward_bundle_error_does_not_poison_historical_lane()
     test_metric_definition_change_requires_migration_note()
     print("run287_operating_scorecard_smoke: PASS")
     return 0
