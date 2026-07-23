@@ -549,21 +549,8 @@ jobs:
           # paper order or set same_close_selector_recomputed=true.
           PY
 
-      - name: Evaluate single promotion and rollback gate
-        if: steps.market.outputs.ready == 'yes'
-        run: |
-          set -euo pipefail
-          mkdir -p outputs/full_rebuild_logs
-          python tools/run_run287_promotion_gate.py \
-            --contract data_static/run287_promotion_gate_contract.json \
-            --state data_static/run287_promotion_state.json \
-            --evidence data_static/run287_promotion_evidence_current.json \
-            --latest-run outputs \
-            --output-dir outputs/run287_promotion_gate \
-            2>&1 | tee outputs/full_rebuild_logs/daily_run287_promotion_gate.log
-
-      - name: Build operating review outputs
-        id: operating_review
+      - name: Run transactional paper ledger and same-close selector
+        id: paper_transaction
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
@@ -687,6 +674,22 @@ jobs:
           )
           summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PY
+
+      - name: Verify transactional forward paper snapshot
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --require-integrity \
+            --output outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+
+      - name: Resolve append-only forward outcomes
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          PAPER_AS_OF="$LAST_NYSE_SESSION_DATE"
+          DATE_TOKEN="${PAPER_AS_OF//-/}"
           ARCHIVE_ARGS=(
             --discover-root outputs/run287_exact_packet_discovery_disabled
             --allow-missing
@@ -723,6 +726,45 @@ jobs:
             python tools/resolve_run287_risk_outcomes.py "${RISK_OUTCOME_ARGS[@]}" \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
           fi
+
+      - name: Build runtime operating scorecard
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/build_run287_operating_scorecard.py \
+            --source-registry docs/run287_operating_scorecard_sources.json \
+            --output-dir outputs/run287_operating_scorecard \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_operating_scorecard.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("outputs/run287_operating_scorecard/operating_scorecard.json")
+          scorecard = json.loads(path.read_text(encoding="utf-8"))
+          if scorecard.get("scorecard_trusted") is not True:
+              raise SystemExit(
+                  "runtime operating scorecard is not trusted: "
+                  + ",".join(scorecard.get("scorecard_trust_blockers") or [])
+              )
+          PY
+
+      - name: Evaluate single promotion and rollback gate
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/run_run287_promotion_gate.py \
+            --contract data_static/run287_promotion_gate_contract.json \
+            --state data_static/run287_promotion_state.json \
+            --evidence data_static/run287_promotion_evidence_current.json \
+            --latest-run outputs \
+            --output-dir outputs/run287_promotion_gate \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_promotion_gate.log
+
+      - name: Build post-gate operating reports
+        id: operating_review
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/daily_operating_snapshot.log || true
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/daily_user_portfolio_reports.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log || true
@@ -778,6 +820,7 @@ jobs:
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_decision_observation_archive/
             outputs/run287_risk_outcome_archive/
+            outputs/run287_operating_scorecard/
             outputs/run287_promotion_gate/
             outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
             outputs/sec_enriched_candidate_replay/
@@ -798,22 +841,14 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
+            outputs/full_rebuild_logs/daily_run287_operating_scorecard.log
             outputs/full_rebuild_logs/daily_run287_promotion_gate.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
 
-      - name: Verify transactional forward paper snapshot
-        if: success() && steps.market.outputs.ready == 'yes'
-        run: |
-          set -euo pipefail
-          python tools/run287_paper_ledger_integrity.py \
-            --state-dir outputs/daily_simulated_fill_ledger \
-            --require-integrity \
-            --output outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
-
       - name: Upload accepted paper transaction artifact
-        if: success() && steps.market.outputs.ready == 'yes' && steps.operating_review.outcome == 'success'
+        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.operating_review.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: accepted-paper-transaction-${{ github.run_id }}
@@ -861,7 +896,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -871,7 +906,7 @@ jobs:
           fi
 
       - name: Sync accepted paper transaction to Google Drive
-        if: success() && steps.market.outputs.ready == 'yes' && steps.operating_review.outcome == 'success'
+        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.operating_review.outcome == 'success'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional

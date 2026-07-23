@@ -21,7 +21,9 @@ from run287_promotion_gate import (  # noqa: E402
     gate_for_consumer,
     overlay_latest_run_evidence,
     read_json,
+    sha256_file,
 )
+from run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
 
 
 def _inputs() -> tuple[dict, dict, dict]:
@@ -222,10 +224,93 @@ def test_runtime_overlay_counts_sessions_and_negative_cash_fails_closed() -> Non
         assert overlaid["forward_paper"]["negative_cash_count"] == 2
         assert overlaid["forward_paper"]["duplicate_client_order_id_count"] == 2
         assert overlaid["forward_paper"]["duplicate_fill_count"] == 0
-        assert overlaid["historical"] == evidence["historical"]
+        assert overlaid["historical"]["scorecard_trusted"] is False
+        for field, value in evidence["historical"].items():
+            if field != "scorecard_trusted":
+                assert overlaid["historical"][field] == value
         gate = evaluate_gate(contract, state, overlaid)
         assert gate["effective_promotion_state"] == "BLOCKED_OR_ROLLED_BACK"
         assert "forward_integrity:negative_cash_count" in gate["rollback"]["triggers"]
+
+
+def test_runtime_overlay_binds_scorecard_and_all_forward_horizons() -> None:
+    _, _, evidence = _inputs()
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        paper = root / "daily_simulated_fill_ledger"
+        for portfolio in ("main", "concentrated"):
+            directory = paper / portfolio
+            directory.mkdir(parents=True)
+            directory.joinpath("equity_curve.csv").write_text(
+                "date,cash_usd\n2026-07-13,100\n2026-07-14,100\n",
+                encoding="utf-8",
+            )
+            directory.joinpath("fills.csv").write_text(
+                "date,signal_date,client_order_id\n", encoding="utf-8"
+            )
+            directory.joinpath("manifest.json").write_text(
+                json.dumps({"result_status": "RESTORED_CONTINUATION"}),
+                encoding="utf-8",
+            )
+        paper.joinpath("summary.json").write_text(
+            json.dumps({"integrity": {"negative_cash_count": 0}}), encoding="utf-8"
+        )
+        paper_manifest = write_integrity_manifest(paper, as_of_date="2026-07-14")
+
+        scorecard_dir = root / "run287_operating_scorecard"
+        scorecard_dir.mkdir()
+        scorecard_path = scorecard_dir / "operating_scorecard.json"
+        scorecard_path.write_text(
+            json.dumps(
+                {
+                    "scorecard_trusted": True,
+                    "integrity_errors": [],
+                    "runtime_trust_manifest": {
+                        "paper_snapshot": {
+                            "status": "VERIFIED",
+                            "manifest_sha256": sha256_file(
+                                paper / "snapshot_integrity.json"
+                            ),
+                            "snapshot_hash": paper_manifest["snapshot_hash"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        outcome_dir = root / "run287_risk_outcome_archive"
+        outcome_dir.mkdir()
+        outcome_dir.joinpath("summary.json").write_text(
+            json.dumps(
+                {
+                    "status": "READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY",
+                    "distinct_decision_week_count": 13,
+                    "horizon_status_counts": {
+                        "21d": {"completed": 201, "pending": 1},
+                        "63d": {"completed": 101},
+                        "126d": {"completed": 51},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        overlaid = overlay_latest_run_evidence(evidence, root)
+        assert overlaid["historical"]["scorecard_trusted"] is True
+        assert overlaid["forward_paper"]["resolved_21d_outcomes"] == 201
+        assert overlaid["forward_paper"]["resolved_63d_outcomes"] == 101
+        assert overlaid["forward_paper"]["resolved_126d_outcomes"] == 51
+        assert overlaid["forward_paper"]["distinct_decision_weeks"] == 13
+
+        forged = json.loads(scorecard_path.read_text(encoding="utf-8"))
+        forged["runtime_trust_manifest"]["paper_snapshot"]["snapshot_hash"] = "wrong"
+        scorecard_path.write_text(json.dumps(forged), encoding="utf-8")
+        blocked = overlay_latest_run_evidence(evidence, root)
+        assert blocked["historical"]["scorecard_trusted"] is False
+        assert "runtime_scorecard_does_not_match_verified_paper_snapshot" in blocked[
+            "runtime_limitations"
+        ]
 
 
 if __name__ == "__main__":

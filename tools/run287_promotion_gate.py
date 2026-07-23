@@ -158,13 +158,15 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
     """Overlay only directly verifiable forward observations from a restored run.
 
     Missing runtime fields never manufacture a pass.  The tracked preregistered
-    packet supplies fixed thresholds and unresolved defaults; this overlay can
-    add observations or trigger rollback, but cannot modify historical gates.
+    packet supplies fixed thresholds and unresolved defaults.  Runtime evidence
+    may replace only the explicitly runtime-owned ``scorecard_trusted`` check
+    and forward counts; every other historical gate remains preregistered.
     """
     evidence = copy.deepcopy(base)
     paper_root = latest_run / "daily_simulated_fill_ledger"
     if not paper_root.is_dir():
         return evidence
+    evidence.setdefault("historical", {})["scorecard_trusted"] = False
     forward = evidence.setdefault("forward_paper", {})
     observed_files: dict[str, str] = {}
     session_sets: list[set[str]] = []
@@ -248,6 +250,7 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
     forward.update(observed_counts)
 
     integrity_path = paper_root / "snapshot_integrity.json"
+    verified_paper_manifest: dict[str, Any] | None = None
     if integrity_path.is_file():
         observed_files[integrity_path.relative_to(latest_run).as_posix()] = sha256_file(integrity_path)
         try:
@@ -255,7 +258,7 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
                 from tools.run287_paper_ledger_integrity import verify_integrity_manifest
             except ModuleNotFoundError:
                 from run287_paper_ledger_integrity import verify_integrity_manifest
-            verify_integrity_manifest(paper_root, require=True)
+            verified_paper_manifest = verify_integrity_manifest(paper_root, require=True)
             forward["hash_chain_break_count"] = 0
         except Exception as exc:
             evidence.setdefault("rollback", {})["integrity_error"] = True
@@ -264,22 +267,66 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
         evidence.setdefault("rollback", {})["integrity_error"] = True
         evidence.setdefault("runtime_limitations", []).append("paper_snapshot_integrity_missing_for_challenger")
 
+    scorecard_path = latest_run / "run287_operating_scorecard" / "operating_scorecard.json"
+    if scorecard_path.is_file():
+        observed_files[scorecard_path.relative_to(latest_run).as_posix()] = sha256_file(
+            scorecard_path
+        )
+        scorecard = read_json(scorecard_path)
+        paper_trust = (scorecard.get("runtime_trust_manifest") or {}).get(
+            "paper_snapshot"
+        ) or {}
+        scorecard_matches_paper = bool(
+            verified_paper_manifest
+            and scorecard.get("scorecard_trusted") is True
+            and not scorecard.get("integrity_errors")
+            and paper_trust.get("status") == "VERIFIED"
+            and paper_trust.get("manifest_sha256") == sha256_file(integrity_path)
+            and paper_trust.get("snapshot_hash")
+            == verified_paper_manifest.get("snapshot_hash")
+        )
+        evidence["historical"]["scorecard_trusted"] = scorecard_matches_paper
+        if not scorecard_matches_paper:
+            evidence.setdefault("runtime_limitations", []).append(
+                "runtime_scorecard_does_not_match_verified_paper_snapshot"
+            )
+    else:
+        evidence.setdefault("runtime_limitations", []).append(
+            "runtime_scorecard_missing"
+        )
+
     outcome_path = latest_run / "run287_risk_outcome_archive" / "summary.json"
+    for field in (
+        "resolved_21d_outcomes",
+        "resolved_63d_outcomes",
+        "resolved_126d_outcomes",
+    ):
+        forward[field] = 0
     if outcome_path.is_file():
         observed_files[outcome_path.relative_to(latest_run).as_posix()] = sha256_file(outcome_path)
         outcome = read_json(outcome_path)
-        forward["distinct_decision_weeks"] = max(
-            _integer(forward.get("distinct_decision_weeks", 0), "distinct_decision_weeks"),
-            _integer(outcome.get("distinct_decision_week_count", 0), "distinct_decision_week_count"),
-        )
-        mechanism = outcome.get("mechanism_review_gate") or {}
-        resolved_63d = sum(
-            _integer(mechanism.get(field, 0), field)
-            for field in ("normal_63d_count", "warning_63d_count")
-        )
-        forward["resolved_63d_outcomes"] = max(
-            _integer(forward.get("resolved_63d_outcomes", 0), "resolved_63d_outcomes"),
-            resolved_63d,
+        if outcome.get("status") == "READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY":
+            forward["distinct_decision_weeks"] = max(
+                len(weeks),
+                _integer(
+                    outcome.get("distinct_decision_week_count", 0),
+                    "distinct_decision_week_count",
+                ),
+            )
+            horizon_counts = outcome.get("horizon_status_counts") or {}
+            for horizon in (21, 63, 126):
+                field = f"resolved_{horizon}d_outcomes"
+                counts = horizon_counts.get(f"{horizon}d") or {}
+                forward[field] = _integer(
+                    counts.get("completed", 0), f"{horizon}d.completed"
+                )
+        else:
+            evidence.setdefault("runtime_limitations", []).append(
+                "runtime_risk_outcome_summary_not_ready"
+            )
+    else:
+        evidence.setdefault("runtime_limitations", []).append(
+            "runtime_risk_outcome_summary_missing"
         )
     evidence["latest_run_observation"] = {
         "latest_run": str(latest_run),

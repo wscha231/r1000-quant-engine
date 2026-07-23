@@ -1003,6 +1003,14 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/archive_run287_decision_observation.py",
         "outputs/run287_decision_observation_archive/",
         "daily_run287_decision_observation_archive.log",
+        "Resolve append-only forward outcomes",
+        "tools/resolve_run287_risk_outcomes.py",
+        "Build runtime operating scorecard",
+        "tools/build_run287_operating_scorecard.py",
+        "outputs/run287_operating_scorecard/",
+        "daily_run287_operating_scorecard.log",
+        "Evaluate single promotion and rollback gate",
+        "Build post-gate operating reports",
         "paper_archive/run287_decision_observation_archive",
         "--allow-missing",
         "--require-exact-close",
@@ -1046,11 +1054,17 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     exact_packet_idx = text.index("python tools/run_run287_exact_packet_producer.py")
     same_close_idx = text.index("python tools/build_run287_same_close_target_books.py")
     selected_paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py", paper_idx + 1)
+    integrity_idx = text.index(
+        "python tools/run287_paper_ledger_integrity.py", selected_paper_idx
+    )
     decision_archive_idx = text.index("python tools/archive_run287_decision_observation.py")
+    outcome_idx = text.index("python tools/resolve_run287_risk_outcomes.py", decision_archive_idx)
+    scorecard_idx = text.index("python tools/build_run287_operating_scorecard.py")
+    promotion_idx = text.index("python tools/run_run287_promotion_gate.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
     assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
-    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < decision_archive_idx < snapshot_idx, "bounded upstream, exact input registration, packet production, same-close target gating, selected paper order generation, and archive ingestion must run after the exact-close risk watch and before reports"
+    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx, "paper ledger must verify integrity before outcomes; scorecard and promotion must consume that same runtime state before reports"
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
 

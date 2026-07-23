@@ -452,12 +452,14 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
     steps = workflow["jobs"]["refresh"]["steps"]
     by_name = {str(step.get("name")): step for step in steps}
-    operating = by_name["Build operating review outputs"]
-    assert operating["id"] == "operating_review"
-    script = operating["run"]
+    transaction = by_name["Run transactional paper ledger and same-close selector"]
+    assert transaction["id"] == "paper_transaction"
+    script = transaction["run"]
     assert 'cp "$SAME_CLOSE_DIR/same_close_main_target_book.csv"' not in script
     assert "--main-publish-target outputs/reports/operating_main_target_book.csv" in script
     assert "--concentrated-publish-target outputs/reports/operating_concentrated_target_book.csv" in script
+    reports = by_name["Build post-gate operating reports"]
+    assert reports["id"] == "operating_review"
 
     evidence_paths = by_name["Upload daily operating evidence artifact"]["with"]["path"]
     for forbidden in (
@@ -467,6 +469,7 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
     ):
         assert forbidden not in evidence_paths
     accepted = by_name["Upload accepted paper transaction artifact"]
+    assert "steps.paper_transaction.outcome == 'success'" in str(accepted["if"])
     assert "steps.operating_review.outcome == 'success'" in str(accepted["if"])
     accepted_paths = accepted["with"]["path"]
     assert "outputs/account_ledger_preview/" in accepted_paths
