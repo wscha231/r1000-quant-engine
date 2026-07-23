@@ -3,6 +3,7 @@
 Date: 2026-07-23
 
 Scope: Issue #315 H4b only
+Pull request: #322
 
 ## Result
 
