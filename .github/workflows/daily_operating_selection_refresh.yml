@@ -15,6 +15,18 @@ on:
         description: 'Fail when data freshness contract blocks operating selection'
         type: boolean
         default: true
+      allow_risk_outcome_genesis_bootstrap:
+        description: 'One-time bootstrap only: allow a new outcome genesis after authoritative Drive absence is confirmed'
+        type: boolean
+        default: false
+      allow_quarantined_legacy_outcome_parent:
+        description: 'One-time migration only: quarantine an existing legacy outcome prefix after authoritative Drive absence is confirmed'
+        type: boolean
+        default: false
+      allow_verified_paper_canonical_head_bootstrap:
+        description: 'One-time migration only: attest an integrity-valid pre-head paper canonical as the first immutable paper head'
+        type: boolean
+        default: false
   schedule:
     # 10:15 KST Tue-Sat, after crisis, Form4, free-data, and readiness windows.
     - cron: '15 1 * * 2-6'
@@ -109,6 +121,9 @@ jobs:
             outputs/run287_exact_packet_input_sources
             outputs/run287_exact_packet_input_registry
             outputs/run287_decision_observation_archive
+            outputs/run287_accepted_publication
+            outputs/run287_risk_outcome_accepted_head_bundles
+            outputs/run287_risk_outcome_accepted_head_manifests
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -155,6 +170,7 @@ jobs:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
           LATEST_RUN_INPUT: ${{ github.event.inputs.latest_run || 'outputs' }}
+          ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_verified_paper_canonical_head_bootstrap || 'false' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
@@ -166,6 +182,76 @@ jobs:
                --require-integrity; then
             cp -a outputs/daily_simulated_fill_ledger "$PAPER_CACHE_ANCHOR"
             echo "[paper-ledger] preserved checksum-verified GitHub cache continuity anchor"
+          fi
+          OUTCOME_CACHE_HEADS="$RUNNER_TEMP/run287_risk_outcome_cache_heads"
+          OUTCOME_CACHE_HEAD_MANIFESTS="$RUNNER_TEMP/run287_risk_outcome_cache_head_manifests"
+          OUTCOME_CACHE_ACCEPTANCE_MARKERS="$RUNNER_TEMP/run287_risk_outcome_cache_acceptance_markers"
+          rm -rf \
+            "$OUTCOME_CACHE_HEADS" \
+            "$OUTCOME_CACHE_HEAD_MANIFESTS" \
+            "$OUTCOME_CACHE_ACCEPTANCE_MARKERS"
+          mkdir -p \
+            "$OUTCOME_CACHE_HEADS" \
+            "$OUTCOME_CACHE_HEAD_MANIFESTS" \
+            "$OUTCOME_CACHE_ACCEPTANCE_MARKERS"
+          if [ -d outputs/run287_risk_outcome_accepted_head_manifests ]; then
+            cp -a outputs/run287_risk_outcome_accepted_head_manifests/. "$OUTCOME_CACHE_HEAD_MANIFESTS/"
+          fi
+          if [ -d outputs/run287_risk_outcome_accepted_head_bundles ]; then
+            while IFS= read -r -d '' cached_bundle_manifest; do
+              CACHED_BUNDLE_DIR="$(dirname "$cached_bundle_manifest")"
+              CACHED_BUNDLE_SHA="$(basename "$CACHED_BUNDLE_DIR")"
+              if [[ "$CACHED_BUNDLE_SHA" =~ ^[0-9a-f]{64}$ ]] && \
+                 python tools/manage_run287_risk_outcome_accepted_heads.py verify \
+                   --head-dir "$CACHED_BUNDLE_DIR" \
+                   --expected-manifest-sha256 "$CACHED_BUNDLE_SHA"; then
+                cp -a "$CACHED_BUNDLE_DIR" "$OUTCOME_CACHE_HEADS/$CACHED_BUNDLE_SHA"
+                echo "[risk-outcome] preserved verified cached accepted-head bundle=$CACHED_BUNDLE_SHA"
+              else
+                echo "[risk-outcome] ignored corrupt cached accepted-head bundle=$CACHED_BUNDLE_SHA"
+                rm -rf "$CACHED_BUNDLE_DIR"
+              fi
+            done < <(find outputs/run287_risk_outcome_accepted_head_bundles -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+          fi
+          OUTCOME_CACHE_SHA=""
+          if [ -s outputs/run287_accepted_publication/manifest.json ]; then
+            OUTCOME_CACHE_SHA="$(sha256sum outputs/run287_accepted_publication/manifest.json | cut -d' ' -f1)"
+            mkdir -p "$OUTCOME_CACHE_ACCEPTANCE_MARKERS/$OUTCOME_CACHE_SHA"
+            cp \
+              outputs/run287_accepted_publication/manifest.json \
+              "$OUTCOME_CACHE_ACCEPTANCE_MARKERS/$OUTCOME_CACHE_SHA/manifest.json"
+          fi
+          if [ -n "$OUTCOME_CACHE_SHA" ] && \
+             [ -s outputs/run287_risk_outcome_archive/summary.json ]; then
+            OUTCOME_CACHE_HEAD="$OUTCOME_CACHE_HEADS/$OUTCOME_CACHE_SHA"
+            OUTCOME_CURRENT_CACHE_CANDIDATE="$RUNNER_TEMP/run287_risk_outcome_current_cache_candidate"
+            rm -rf "$OUTCOME_CURRENT_CACHE_CANDIDATE"
+            mkdir -p "$OUTCOME_CURRENT_CACHE_CANDIDATE/run287_risk_outcome_archive"
+            cp outputs/run287_accepted_publication/manifest.json "$OUTCOME_CURRENT_CACHE_CANDIDATE/manifest.json"
+            cp outputs/run287_risk_outcome_archive/summary.json "$OUTCOME_CURRENT_CACHE_CANDIDATE/run287_risk_outcome_archive/summary.json"
+            if [ -f outputs/run287_risk_outcome_archive/risk_outcome_events.jsonl ]; then
+              cp outputs/run287_risk_outcome_archive/risk_outcome_events.jsonl "$OUTCOME_CURRENT_CACHE_CANDIDATE/run287_risk_outcome_archive/risk_outcome_events.jsonl"
+            fi
+            if python tools/manage_run287_risk_outcome_accepted_heads.py verify \
+              --head-dir "$OUTCOME_CURRENT_CACHE_CANDIDATE" \
+              --expected-manifest-sha256 "$OUTCOME_CACHE_SHA" \
+              --output outputs/full_rebuild_logs/daily_run287_cached_outcome_head_verification.json; then
+              if [ -d "$OUTCOME_CACHE_HEAD" ]; then
+                if ! diff -qr "$OUTCOME_CURRENT_CACHE_CANDIDATE" "$OUTCOME_CACHE_HEAD" >/dev/null; then
+                  echo "[risk-outcome] BLOCKED: same accepted manifest hash has divergent cached bundles"
+                  exit 2
+                fi
+              else
+                cp -a "$OUTCOME_CURRENT_CACHE_CANDIDATE" "$OUTCOME_CACHE_HEAD"
+              fi
+              echo "[risk-outcome] preserved immutable GitHub-cache accepted head=$OUTCOME_CACHE_SHA"
+            else
+              echo "[risk-outcome] quarantined invalid GitHub-cache accepted head; authoritative Drive chain will be checked independently"
+              rm -rf \
+                "$OUTCOME_CURRENT_CACHE_CANDIDATE" \
+                outputs/run287_accepted_publication \
+                outputs/run287_risk_outcome_archive
+            fi
           fi
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
             if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
@@ -263,11 +349,78 @@ jobs:
             PAPER_REMOTE_HEADS="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
             PAPER_HEAD_LIST="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads.txt"
             PAPER_ARCHIVE_DIRS="$RUNNER_TEMP/run287_paper_archive_dirs.txt"
-            rclone lsf "${BASE}paper_archive/" --dirs-only > "$PAPER_ARCHIVE_DIRS"
+            BASE_ROOT_DIRS="$RUNNER_TEMP/run287_drive_root_dirs.txt"
+            if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+              if ! rclone lsf "$BASE" --dirs-only > "$BASE_ROOT_DIRS"; then
+                echo "[gdrive] transient paper-archive discovery failure; retain verified cache/local state for this run"
+                echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                exit 0
+              fi
+            else
+              DRIVE_TOP_LEVEL_DIRS="$RUNNER_TEMP/run287_drive_top_level_dirs.txt"
+              if ! rclone lsf "gdrive:" --dirs-only > "$DRIVE_TOP_LEVEL_DIRS"; then
+                echo "[gdrive] transient Drive-root discovery failure; retain verified cache/local state for this run"
+                echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                exit 0
+              fi
+              if grep -Fx "${GDRIVE_FOLDER_NAME}/" "$DRIVE_TOP_LEVEL_DIRS" >/dev/null; then
+                if ! rclone lsf "$BASE" --dirs-only > "$BASE_ROOT_DIRS"; then
+                  echo "[gdrive] transient configured-base discovery failure; retain verified cache/local state for this run"
+                  echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                  exit 0
+                fi
+              else
+                : > "$BASE_ROOT_DIRS"
+                echo "[gdrive] authoritative configured-base absence confirmed; first bootstrap may create it"
+              fi
+            fi
+            if grep -Fx "paper_archive/" "$BASE_ROOT_DIRS" >/dev/null; then
+              if ! rclone lsf "${BASE}paper_archive/" --dirs-only > "$PAPER_ARCHIVE_DIRS"; then
+                echo "[gdrive] transient paper-archive discovery failure; retain verified cache/local state for this run"
+                echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                exit 0
+              fi
+            else
+              : > "$PAPER_ARCHIVE_DIRS"
+            fi
+            PAPER_CANONICAL_REMOTE_PRESENT=no
+            if grep -Fx "run287_daily_simulated_fill_ledger/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+              PAPER_CANONICAL_REMOTE_PRESENT=yes
+            fi
+            if [ "$PAPER_CANONICAL_REMOTE_PRESENT" = "yes" ]; then
+              echo "PAPER_CANONICAL_REMOTE_STATE=PROVEN_PRESENT" >> "$GITHUB_ENV"
+            else
+              echo "PAPER_CANONICAL_REMOTE_STATE=PROVEN_ABSENT" >> "$GITHUB_ENV"
+            fi
             PAPER_HAS_IMMUTABLE_HEAD=no
             if grep -Fx "run287_daily_simulated_fill_ledger_heads/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
-              rclone lsf "$PAPER_REMOTE_HEADS/" --dirs-only | \
-                sed 's#/$##' | sort -u > "$PAPER_HEAD_LIST"
+              PAPER_HEAD_DIR_LIST="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_dirs.txt"
+              PAPER_HEAD_LIST_RAW="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_raw.txt"
+              if ! rclone lsf "$PAPER_REMOTE_HEADS/" --dirs-only > "$PAPER_HEAD_LIST_RAW"; then
+                echo "[gdrive] transient paper-head listing failure; retain verified cache/local state for this run"
+                echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                exit 0
+              fi
+              sed 's#/$##' "$PAPER_HEAD_LIST_RAW" | sort -u > "$PAPER_HEAD_DIR_LIST"
+              : > "$PAPER_HEAD_LIST"
+              while IFS= read -r PAPER_HEAD_HASH; do
+                [ -n "$PAPER_HEAD_HASH" ] || continue
+                if ! [[ "$PAPER_HEAD_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+                  echo "[paper-ledger] BLOCKED: invalid immutable head name=$PAPER_HEAD_HASH"
+                  exit 2
+                fi
+                PAPER_HEAD_FILES="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_${PAPER_HEAD_HASH}_files.txt"
+                if ! rclone lsf "$PAPER_REMOTE_HEADS/$PAPER_HEAD_HASH/" --files-only > "$PAPER_HEAD_FILES"; then
+                  echo "[gdrive] transient paper-head enumeration failure; retain verified cache/local state for this run"
+                  echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                  exit 0
+                fi
+                if grep -Fx "snapshot_integrity.json" "$PAPER_HEAD_FILES" >/dev/null; then
+                  printf '%s\n' "$PAPER_HEAD_HASH" >> "$PAPER_HEAD_LIST"
+                else
+                  echo "[paper-ledger] ignore incomplete uncommitted immutable head=$PAPER_HEAD_HASH"
+                fi
+              done < "$PAPER_HEAD_DIR_LIST"
               if [ -s "$PAPER_HEAD_LIST" ]; then
                 PAPER_HAS_IMMUTABLE_HEAD=yes
               fi
@@ -306,6 +459,109 @@ jobs:
                     --state-dir outputs/daily_simulated_fill_ledger \
                     --install-source "$PAPER_HEAD_CANDIDATE"
                   echo "[paper-ledger] restored verified Drive snapshot from matching immutable Drive head after cache loss"
+                elif [ "${ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP:-false}" = "true" ] && \
+                     [ "$PAPER_HAS_IMMUTABLE_HEAD" = "no" ] && \
+                     [ ! -d "$PAPER_CACHE_ANCHOR" ]; then
+                  # Explicit one-time H4b migration for a pre-head canonical
+                  # that already carries a valid recursive integrity manifest.
+                  # It is never enabled on scheduled runs and is rechecked
+                  # against the remote canonical again before persistence.
+                  python - \
+                    "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" \
+                    "$PAPER_REMOTE_CANDIDATE/summary.json" \
+                    "$LAST_NYSE_SESSION_DATE" \
+                    outputs/full_rebuild_logs/daily_paper_verified_canonical_bootstrap.json <<'PY'
+          import json
+          import sys
+          from datetime import date
+          from pathlib import Path
+
+          from tools.run_daily_simulated_fill_ledger import (
+              validate_restored_snapshot,
+          )
+
+          integrity_path = Path(sys.argv[1])
+          summary_path = Path(sys.argv[2])
+          state_root = integrity_path.parent
+          requested_session = date.fromisoformat(sys.argv[3])
+          output_path = Path(sys.argv[4])
+          integrity = json.loads(integrity_path.read_text(encoding="utf-8"))
+          summary = json.loads(summary_path.read_text(encoding="utf-8"))
+          snapshot_date = date.fromisoformat(str(integrity.get("as_of_date") or ""))
+          if (
+              integrity.get("schema_version")
+              != "run287-paper-ledger-snapshot-integrity-v2"
+              or not isinstance(integrity.get("snapshot_hash"), str)
+              or len(integrity["snapshot_hash"]) != 64
+              or snapshot_date > requested_session
+              or summary.get("schema_version")
+              != "daily-simulated-fill-ledger-summary-v1"
+              or summary.get("status") != "completed"
+              or summary.get("as_of_date") != snapshot_date.isoformat()
+              or not isinstance(summary.get("portfolios"), dict)
+              or summary.get("review_only") is not True
+              or summary.get("simulated") is not True
+              or summary.get("live_trading_enabled") is not False
+              or summary.get("production_mutation_allowed") is not False
+              or summary.get("historical_cagr_mdd_replacement_allowed")
+              is not False
+          ):
+              raise SystemExit(
+                  "verified canonical bootstrap blocked: unsafe or future paper state"
+              )
+          for portfolio in ("main", "concentrated"):
+              if not (
+                  state_root / portfolio / "account_state_latest.json"
+              ).is_file():
+                  raise SystemExit(
+                      "verified canonical bootstrap blocked: portfolio account missing"
+                  )
+              validate_restored_snapshot(
+                  state_root / portfolio,
+                  portfolio,
+                  bootstrap_path=(
+                      state_root
+                      / "bootstrap"
+                      / f"{portfolio}_account.json"
+                  ),
+              )
+              portfolio_manifest = json.loads(
+                  (
+                      state_root / portfolio / "manifest.json"
+                  ).read_text(encoding="utf-8")
+              )
+              if summary["portfolios"].get(portfolio) != portfolio_manifest:
+                  raise SystemExit(
+                      "verified canonical bootstrap blocked: summary/portfolio mismatch"
+                  )
+          output_path.parent.mkdir(parents=True, exist_ok=True)
+          output_path.write_text(
+              json.dumps(
+                  {
+                      "schema_version":
+                          "run287-verified-paper-canonical-bootstrap-v1",
+                      "status": "EXPLICIT_ONE_TIME_MIGRATION_AUTHORIZED",
+                      "snapshot_hash": integrity["snapshot_hash"],
+                      "snapshot_as_of_date": snapshot_date.isoformat(),
+                      "requested_session": requested_session.isoformat(),
+                      "remote_immutable_head_count": 0,
+                      "verified_cache_anchor_present": False,
+                      "review_only": True,
+                      "production_activation_allowed": False,
+                      "live_trading_enabled": False,
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+                  python tools/run287_paper_ledger_integrity.py \
+                    --state-dir outputs/daily_simulated_fill_ledger \
+                    --install-source "$PAPER_REMOTE_CANDIDATE"
+                  echo "PAPER_VERIFIED_CANONICAL_BOOTSTRAP_PENDING=yes" >> "$GITHUB_ENV"
+                  echo "[paper-ledger] explicitly adopted integrity-valid pre-head Drive canonical; persistence must create its first immutable head"
                 else
                   echo "[paper-ledger] BLOCKED: verified Drive snapshot lacks a verified cache/local or immutable-head cross-source continuity anchor"
                   exit 2
@@ -317,7 +573,8 @@ jobs:
                    --state-dir outputs/daily_simulated_fill_ledger \
                    --require-integrity; then
               echo "[paper-ledger] Drive snapshot was unverified; retained verified cache/local snapshot"
-            elif [ ! -e "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" ] && \
+            elif [ "$PAPER_CANONICAL_REMOTE_PRESENT" = "yes" ] && \
+                 [ ! -e "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" ] && \
                  [ ! -d "$PAPER_CACHE_ANCHOR" ] && \
                  [ "$PAPER_HAS_IMMUTABLE_HEAD" = "no" ]; then
               # The sole migration exception is a durable Drive ledger from a
@@ -452,6 +709,11 @@ jobs:
               PAPER_LEGACY_MIGRATION_PENDING=yes
               echo "PAPER_LEGACY_MIGRATION_PENDING=yes" >> "$GITHUB_ENV"
               echo "[paper-ledger] quarantined legacy Drive ledger; semantic attestation is required before acceptance"
+            elif [ "$PAPER_CANONICAL_REMOTE_PRESENT" = "no" ] && \
+                 [ ! -d "$PAPER_CACHE_ANCHOR" ] && \
+                 [ "$PAPER_HAS_IMMUTABLE_HEAD" = "no" ]; then
+              rm -rf "$PAPER_REMOTE_CANDIDATE"
+              echo "[paper-ledger] authoritative Drive absence confirmed; later review-only bootstrap may create the first paper genesis"
             elif [ "$PAPER_HAS_IMMUTABLE_HEAD" = "yes" ]; then
               echo "[paper-ledger] BLOCKED: immutable Drive head exists; legacy manifest-free candidate cannot replace its continuity anchor"
               exit 2
@@ -492,6 +754,396 @@ jobs:
             restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
             restore_dir paper_archive/run287_risk_outcome_price_cache outputs/run287_risk_outcome_price_cache
           fi
+
+      - name: Restore verified risk-outcome accepted head
+        id: risk_outcome_accepted_parent
+        if: steps.market.outputs.ready == 'yes'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_risk_outcome_genesis_bootstrap || 'false' }}
+          ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_quarantined_legacy_outcome_parent || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" = "true" ] && \
+             [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" = "true" ]; then
+            echo "[risk-outcome] BLOCKED: genesis and legacy-quarantine bootstrap authorizations are mutually exclusive"
+            exit 2
+          fi
+          CACHE_HEADS="$RUNNER_TEMP/run287_risk_outcome_cache_heads"
+          CACHE_MANIFESTS="$RUNNER_TEMP/run287_risk_outcome_cache_head_manifests"
+          CACHE_ACCEPTANCE_MARKERS="$RUNNER_TEMP/run287_risk_outcome_cache_acceptance_markers"
+          COMBINED_MANIFESTS="$RUNNER_TEMP/run287_risk_outcome_combined_head_manifests"
+          REMOTE_MANIFESTS="$RUNNER_TEMP/run287_risk_outcome_remote_head_manifests"
+          SELECTED_HEAD_ROOT="$RUNNER_TEMP/run287_risk_outcome_selected_heads"
+          rm -rf "$COMBINED_MANIFESTS" "$REMOTE_MANIFESTS" "$SELECTED_HEAD_ROOT"
+          mkdir -p "$COMBINED_MANIFESTS" "$REMOTE_MANIFESTS"
+          install_manifest_candidate() {
+            local source="$1"
+            local expected="$2"
+            local source_kind="${3:-authoritative}"
+            local actual
+            if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+              if [ "$source_kind" = "cache" ]; then
+                echo "[risk-outcome] ignore invalid cached accepted-head directory=$expected"
+                return 0
+              fi
+              echo "[risk-outcome] BLOCKED: invalid accepted-head directory=$expected"
+              exit 2
+            fi
+            actual="$(sha256sum "$source" | cut -d' ' -f1)"
+            if [ "$actual" != "$expected" ]; then
+              if [ "$source_kind" = "cache" ]; then
+                echo "[risk-outcome] ignore corrupt cached accepted-head manifest=$expected actual=$actual"
+                return 0
+              fi
+              echo "[risk-outcome] BLOCKED: accepted-head directory/manifest mismatch directory=$expected manifest=$actual"
+              exit 2
+            fi
+            mkdir -p "$COMBINED_MANIFESTS/$expected"
+            if [ -f "$COMBINED_MANIFESTS/$expected/manifest.json" ] && \
+               ! cmp -s "$source" "$COMBINED_MANIFESTS/$expected/manifest.json"; then
+              echo "[risk-outcome] BLOCKED: divergent immutable manifest=$expected"
+              exit 2
+            fi
+            cp "$source" "$COMBINED_MANIFESTS/$expected/manifest.json"
+          }
+          if [ -d "$CACHE_HEADS" ]; then
+            while IFS= read -r -d '' manifest; do
+              install_manifest_candidate "$manifest" "$(basename "$(dirname "$manifest")")"
+            done < <(find "$CACHE_HEADS" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+          fi
+          REMOTE_HEADS_AVAILABLE=no
+          REMOTE_HEAD_DISCOVERY_CONFIRMED=no
+          REMOTE_COMMITTED_HEAD_COUNT=0
+          if [ "${GDRIVE_READY:-no}" = "yes" ]; then
+            if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+              BASE="gdrive:"
+            else
+              BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+            fi
+            REMOTE_HEADS="${BASE}paper_archive/run287_risk_outcome_accepted_heads"
+            PAPER_ARCHIVE_DIRS="$RUNNER_TEMP/run287_risk_outcome_paper_archive_dirs.txt"
+            OUTCOME_BASE_ROOT_DIRS="$RUNNER_TEMP/run287_risk_outcome_drive_root_dirs.txt"
+            if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+              if ! rclone lsf "$BASE" --dirs-only > "$OUTCOME_BASE_ROOT_DIRS"; then
+                echo "[gdrive] transient outcome configured-root listing failure; use only verified cache state for this run"
+                GDRIVE_READY=no
+                echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                : > "$OUTCOME_BASE_ROOT_DIRS"
+              fi
+            else
+              OUTCOME_DRIVE_TOP_LEVEL_DIRS="$RUNNER_TEMP/run287_risk_outcome_drive_top_level_dirs.txt"
+              if ! rclone lsf "gdrive:" --dirs-only > "$OUTCOME_DRIVE_TOP_LEVEL_DIRS"; then
+                echo "[gdrive] transient outcome Drive-root listing failure; use only verified cache state for this run"
+                GDRIVE_READY=no
+                echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                : > "$OUTCOME_BASE_ROOT_DIRS"
+              elif grep -Fx "${GDRIVE_FOLDER_NAME}/" "$OUTCOME_DRIVE_TOP_LEVEL_DIRS" >/dev/null; then
+                if ! rclone lsf "$BASE" --dirs-only > "$OUTCOME_BASE_ROOT_DIRS"; then
+                  echo "[gdrive] transient outcome configured-base listing failure; use only verified cache state for this run"
+                  GDRIVE_READY=no
+                  echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                  : > "$OUTCOME_BASE_ROOT_DIRS"
+                fi
+              else
+                : > "$OUTCOME_BASE_ROOT_DIRS"
+                echo "[gdrive] authoritative outcome configured-base absence confirmed; first bootstrap may create it"
+              fi
+            fi
+            if [ "${GDRIVE_READY:-no}" = "yes" ]; then
+              if grep -Fx "paper_archive/" "$OUTCOME_BASE_ROOT_DIRS" >/dev/null; then
+                if ! rclone lsf "${BASE}paper_archive/" --dirs-only > "$PAPER_ARCHIVE_DIRS"; then
+                  echo "[gdrive] transient outcome paper-archive listing failure; use only verified cache state for this run"
+                  GDRIVE_READY=no
+                  echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                  : > "$PAPER_ARCHIVE_DIRS"
+                fi
+              else
+                : > "$PAPER_ARCHIVE_DIRS"
+              fi
+            fi
+            if [ "${GDRIVE_READY:-no}" = "yes" ] && \
+               [ -f "$PAPER_ARCHIVE_DIRS" ]; then
+              REMOTE_HEAD_DISCOVERY_CONFIRMED=yes
+              if grep -Fx "run287_risk_outcome_accepted_heads/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+                REMOTE_HEADS_AVAILABLE=yes
+                REMOTE_HEAD_LIST="$RUNNER_TEMP/run287_risk_outcome_remote_heads.txt"
+                REMOTE_HEAD_LIST_RAW="$RUNNER_TEMP/run287_risk_outcome_remote_heads_raw.txt"
+                if rclone lsf "$REMOTE_HEADS/" --dirs-only > "$REMOTE_HEAD_LIST_RAW"; then
+                  sed 's#/$##' "$REMOTE_HEAD_LIST_RAW" | sort -u > "$REMOTE_HEAD_LIST"
+                  REMOTE_ENUMERATION_FAILED=no
+                  while IFS= read -r head_sha; do
+                    [ -n "$head_sha" ] || continue
+                    if ! [[ "$head_sha" =~ ^[0-9a-f]{64}$ ]]; then
+                      echo "[risk-outcome] BLOCKED: invalid remote accepted-head name=$head_sha"
+                      exit 2
+                    fi
+                    REMOTE_HEAD_FILES="$RUNNER_TEMP/run287_risk_outcome_remote_head_${head_sha}_files.txt"
+                    if ! rclone lsf "$REMOTE_HEADS/$head_sha/" --files-only > "$REMOTE_HEAD_FILES"; then
+                      REMOTE_ENUMERATION_FAILED=yes
+                      break
+                    fi
+                    if ! grep -Fx "manifest.json" "$REMOTE_HEAD_FILES" >/dev/null; then
+                      echo "[risk-outcome] ignore incomplete uncommitted head=$head_sha"
+                      continue
+                    fi
+                    mkdir -p "$REMOTE_MANIFESTS/$head_sha"
+                    if ! rclone copyto \
+                      "$REMOTE_HEADS/$head_sha/manifest.json" \
+                      "$REMOTE_MANIFESTS/$head_sha/manifest.json" \
+                      --stats 30s --stats-one-line; then
+                      REMOTE_ENUMERATION_FAILED=yes
+                      break
+                    fi
+                  done < "$REMOTE_HEAD_LIST"
+                  if [ "$REMOTE_ENUMERATION_FAILED" = "yes" ]; then
+                    echo "[gdrive] transient outcome-head enumeration failure; discard partial remote view and use only verified cache state"
+                    rm -rf "$REMOTE_MANIFESTS"
+                    mkdir -p "$REMOTE_MANIFESTS"
+                    GDRIVE_READY=no
+                    REMOTE_HEADS_AVAILABLE=no
+                    REMOTE_HEAD_DISCOVERY_CONFIRMED=no
+                    echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                  else
+                    while IFS= read -r -d '' remote_manifest; do
+                      REMOTE_MANIFEST_SHA="$(basename "$(dirname "$remote_manifest")")"
+                      install_manifest_candidate \
+                        "$remote_manifest" \
+                        "$REMOTE_MANIFEST_SHA"
+                      REMOTE_COMMITTED_HEAD_COUNT=$((REMOTE_COMMITTED_HEAD_COUNT + 1))
+                    done < <(find "$REMOTE_MANIFESTS" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+                  fi
+                else
+                  echo "[gdrive] transient outcome-head listing failure; use only verified cache state for this run"
+                  GDRIVE_READY=no
+                  REMOTE_HEADS_AVAILABLE=no
+                  REMOTE_HEAD_DISCOVERY_CONFIRMED=no
+                  echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+                fi
+              fi
+            else
+              echo "[gdrive] transient outcome-head discovery failure; use only verified cache state for this run"
+              GDRIVE_READY=no
+              echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            fi
+          fi
+          # When Drive discovery succeeded, its complete immutable graph plus
+          # the separately bundle-verified cache terminal is authoritative.
+          # Arbitrary cached graph entries are used only during a Drive
+          # outage, so one corrupt cache manifest cannot poison Drive recovery.
+          if [ "$REMOTE_HEAD_DISCOVERY_CONFIRMED" != "yes" ] && \
+             [ -d "$CACHE_MANIFESTS" ]; then
+            while IFS= read -r -d '' manifest; do
+              install_manifest_candidate \
+                "$manifest" \
+                "$(basename "$(dirname "$manifest")")" \
+                cache
+            done < <(find "$CACHE_MANIFESTS" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+          fi
+          if [ -d "$CACHE_MANIFESTS" ]; then
+            while IFS= read -r -d '' cached_graph_manifest; do
+              CACHED_GRAPH_SHA="$(basename "$(dirname "$cached_graph_manifest")")"
+              if ! [[ "$CACHED_GRAPH_SHA" =~ ^[0-9a-f]{64}$ ]] || \
+                 [ "$(sha256sum "$cached_graph_manifest" | cut -d' ' -f1)" != "$CACHED_GRAPH_SHA" ]; then
+                echo "[risk-outcome] BLOCKED: cached accepted-state manifest evidence is corrupt=$CACHED_GRAPH_SHA"
+                exit 2
+              fi
+              CACHED_GRAPH_ORIGIN=""
+              if [ -f "$CACHE_HEADS/$CACHED_GRAPH_SHA/manifest.json" ]; then
+                CACHED_GRAPH_ORIGIN="$CACHE_HEADS/$CACHED_GRAPH_SHA/manifest.json"
+              elif [ -f "$REMOTE_MANIFESTS/$CACHED_GRAPH_SHA/manifest.json" ]; then
+                CACHED_GRAPH_ORIGIN="$REMOTE_MANIFESTS/$CACHED_GRAPH_SHA/manifest.json"
+              fi
+              if [ -z "$CACHED_GRAPH_ORIGIN" ] || \
+                 ! cmp -s "$cached_graph_manifest" "$CACHED_GRAPH_ORIGIN"; then
+                echo "[risk-outcome] BLOCKED: cached accepted-state manifest has no complete verified bundle or authoritative remote commit=$CACHED_GRAPH_SHA"
+                exit 2
+              fi
+            done < <(find "$CACHE_MANIFESTS" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+          fi
+          if [ -d "$CACHE_ACCEPTANCE_MARKERS" ]; then
+            while IFS= read -r -d '' cached_acceptance_marker; do
+              CACHED_ACCEPTANCE_SHA="$(basename "$(dirname "$cached_acceptance_marker")")"
+              if ! [[ "$CACHED_ACCEPTANCE_SHA" =~ ^[0-9a-f]{64}$ ]] || \
+                 [ "$(sha256sum "$cached_acceptance_marker" | cut -d' ' -f1)" != "$CACHED_ACCEPTANCE_SHA" ] || \
+                 [ ! -f "$COMBINED_MANIFESTS/$CACHED_ACCEPTANCE_SHA/manifest.json" ] || \
+                 ! cmp -s \
+                   "$cached_acceptance_marker" \
+                   "$COMBINED_MANIFESTS/$CACHED_ACCEPTANCE_SHA/manifest.json"; then
+                echo "[risk-outcome] BLOCKED: cached accepted-publication marker is absent from the complete verified cache/remote union=$CACHED_ACCEPTANCE_SHA"
+                exit 2
+              fi
+            done < <(find "$CACHE_ACCEPTANCE_MARKERS" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+          fi
+          if ! find "$COMBINED_MANIFESTS" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print -quit | grep -q .; then
+            rm -rf \
+              outputs/run287_risk_outcome_parent_accepted \
+              outputs/run287_risk_outcome_accepted_head_manifests
+            if [ "${GDRIVE_READY:-no}" != "yes" ] || \
+               [ "$REMOTE_HEAD_DISCOVERY_CONFIRMED" != "yes" ]; then
+              echo "[risk-outcome] BLOCKED: no accepted head is cached and authoritative Drive head discovery is unavailable"
+              exit 2
+            fi
+            REMOTE_LEGACY_OUTCOME_STATE=PROVEN_ABSENT
+            if grep -Fx "run287_risk_outcome_archive/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+              REMOTE_LEGACY_FILES="$RUNNER_TEMP/run287_remote_legacy_outcome_files.txt"
+              if ! rclone lsf "${BASE}paper_archive/run287_risk_outcome_archive/" --recursive --files-only > "$REMOTE_LEGACY_FILES"; then
+                echo "[risk-outcome] BLOCKED: authoritative legacy outcome archive could not be enumerated"
+                exit 2
+              fi
+              if grep -Fx "summary.json" "$REMOTE_LEGACY_FILES" >/dev/null; then
+                REMOTE_LEGACY_OUTCOME_STAGE="$RUNNER_TEMP/run287_remote_legacy_outcome_archive"
+                rm -rf "$REMOTE_LEGACY_OUTCOME_STAGE"
+                mkdir -p "$REMOTE_LEGACY_OUTCOME_STAGE"
+                if ! rclone copy \
+                  "${BASE}paper_archive/run287_risk_outcome_archive/" \
+                  "$REMOTE_LEGACY_OUTCOME_STAGE/" \
+                  --transfers 2 --checkers 4 --stats 30s --stats-one-line || \
+                   ! rclone check \
+                  "${BASE}paper_archive/run287_risk_outcome_archive/" \
+                  "$REMOTE_LEGACY_OUTCOME_STAGE/" \
+                  --checksum --one-way; then
+                  echo "[risk-outcome] BLOCKED: authoritative legacy outcome archive could not be fetched exactly"
+                  exit 2
+                fi
+                if [ ! -s "$REMOTE_LEGACY_OUTCOME_STAGE/summary.json" ]; then
+                  echo "[risk-outcome] BLOCKED: authoritative legacy outcome summary is empty after exact fetch"
+                  exit 2
+                fi
+                rm -rf outputs/run287_risk_outcome_archive
+                cp -a "$REMOTE_LEGACY_OUTCOME_STAGE" outputs/run287_risk_outcome_archive
+                REMOTE_LEGACY_OUTCOME_STATE=PRESENT_FETCHED
+              elif [ -s "$REMOTE_LEGACY_FILES" ]; then
+                echo "[risk-outcome] BLOCKED: authoritative legacy outcome archive is partial and has no summary commit marker"
+                exit 2
+              fi
+            fi
+            if [ -s outputs/run287_risk_outcome_archive/summary.json ]; then
+              if [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" != "true" ]; then
+                echo "[risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization"
+                exit 2
+              fi
+              echo "parent_mode=legacy_quarantine" >> "$GITHUB_OUTPUT"
+              echo "[risk-outcome] authoritative absence confirmed; existing legacy prefix will be quarantined once"
+            else
+              if [ "$REMOTE_LEGACY_OUTCOME_STATE" != "PROVEN_ABSENT" ]; then
+                echo "[risk-outcome] BLOCKED: outcome genesis requires proven absence of authoritative legacy state"
+                exit 2
+              fi
+              if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" != "true" ]; then
+                echo "[risk-outcome] BLOCKED: outcome genesis requires explicit one-time workflow_dispatch authorization"
+                exit 2
+              fi
+              echo "parent_mode=genesis" >> "$GITHUB_OUTPUT"
+              echo "[risk-outcome] authoritative absence confirmed; use explicitly authorized true genesis"
+            fi
+            echo "accepted_manifest_sha256=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python tools/manage_run287_risk_outcome_accepted_heads.py select \
+            --heads-root "$COMBINED_MANIFESTS" \
+            --output outputs/full_rebuild_logs/daily_run287_outcome_head_selection.json
+          SELECTED_SHA="$(python -c 'import json; print(json.load(open("outputs/full_rebuild_logs/daily_run287_outcome_head_selection.json", encoding="utf-8"))["selected_accepted_manifest_sha256"])')"
+          SELECTED_HEAD="$SELECTED_HEAD_ROOT/$SELECTED_SHA"
+          mkdir -p "$SELECTED_HEAD_ROOT"
+          if [ -d "$CACHE_HEADS/$SELECTED_SHA" ]; then
+            cp -a "$CACHE_HEADS/$SELECTED_SHA" "$SELECTED_HEAD"
+          elif [ "$REMOTE_HEADS_AVAILABLE" = "yes" ]; then
+            mkdir -p "$SELECTED_HEAD"
+            rclone copy \
+              "$REMOTE_HEADS/$SELECTED_SHA/" \
+              "$SELECTED_HEAD/" \
+              --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          else
+            echo "[risk-outcome] BLOCKED: selected accepted head bundle unavailable=$SELECTED_SHA"
+            exit 2
+          fi
+          python tools/manage_run287_risk_outcome_accepted_heads.py verify \
+            --head-dir "$SELECTED_HEAD" \
+            --expected-manifest-sha256 "$SELECTED_SHA" \
+            --output outputs/full_rebuild_logs/daily_run287_outcome_head_verification.json
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --require-integrity \
+            --output "$RUNNER_TEMP/run287_current_paper_integrity.json"
+          python - \
+            "$SELECTED_HEAD/manifest.json" \
+            "$RUNNER_TEMP/run287_current_paper_integrity.json" \
+            outputs/full_rebuild_logs/daily_run287_outcome_parent_paper_continuity.json <<'PY'
+          import json
+          import sys
+
+          accepted = json.load(open(sys.argv[1], encoding="utf-8"))
+          paper = json.load(open(sys.argv[2], encoding="utf-8"))
+          accepted_paper = accepted["paper_snapshot"]
+          accepted_hash = accepted_paper["snapshot_hash"]
+          current_hash = paper["snapshot_hash"]
+          current_ancestors = paper["ancestor_snapshot_hashes"]
+          if (
+              accepted_paper["genesis_identity_sha256"]
+              != paper["genesis_identity_sha256"]
+          ):
+              raise SystemExit(
+                  "accepted outcome head and current paper ledger have different genesis identities"
+              )
+          if accepted_hash == current_hash:
+              relation = "SAME_SNAPSHOT"
+              if (
+                  accepted_paper["previous_snapshot_hash"]
+                  != paper["previous_snapshot_hash"]
+                  or accepted_paper["ancestor_snapshot_hashes"]
+                  != current_ancestors
+              ):
+                  raise SystemExit(
+                      "accepted outcome paper snapshot metadata differs from current paper snapshot"
+                  )
+          elif accepted_hash in current_ancestors:
+              relation = "ACCEPTED_OUTCOME_PAPER_IS_ANCESTOR"
+              index = current_ancestors.index(accepted_hash)
+              if (
+                  current_ancestors[index + 1 :]
+                  != accepted_paper["ancestor_snapshot_hashes"]
+              ):
+                  raise SystemExit(
+                      "accepted outcome paper ancestry does not preserve the current paper chain"
+                  )
+          else:
+              raise SystemExit(
+                  "accepted outcome head belongs to an unproven or divergent paper chain"
+              )
+          if accepted["as_of_date"] > paper["as_of_date"]:
+              raise SystemExit(
+                  "accepted outcome head is ahead of the current paper state"
+              )
+          result = {
+              "schema_version": "run287-outcome-paper-continuity-v1",
+              "status": "VERIFIED",
+              "relation": relation,
+              "accepted_manifest_sha256": sys.argv[1].split("/")[-2],
+              "accepted_paper_snapshot_hash": accepted_hash,
+              "current_paper_snapshot_hash": current_hash,
+              "paper_genesis_identity_sha256":
+                  paper["genesis_identity_sha256"],
+              "review_only": True,
+              "production_activation_allowed": False,
+              "live_trading_enabled": False,
+          }
+          with open(sys.argv[3], "w", encoding="utf-8") as handle:
+              json.dump(result, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+          rm -rf \
+            outputs/run287_risk_outcome_archive \
+            outputs/run287_risk_outcome_parent_accepted \
+            outputs/run287_risk_outcome_accepted_head_manifests
+          cp -a "$SELECTED_HEAD/run287_risk_outcome_archive" outputs/run287_risk_outcome_archive
+          mkdir -p outputs/run287_risk_outcome_parent_accepted
+          cp "$SELECTED_HEAD/manifest.json" outputs/run287_risk_outcome_parent_accepted/manifest.json
+          cp -a "$COMBINED_MANIFESTS" outputs/run287_risk_outcome_accepted_head_manifests
+          echo "parent_mode=verified_accepted_head" >> "$GITHUB_OUTPUT"
+          echo "accepted_manifest_sha256=$SELECTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "[risk-outcome] restored verified immutable accepted head=$SELECTED_SHA"
 
       - name: Restore verified Run287 research-static archive
         if: steps.market.outputs.ready == 'yes'
@@ -1017,6 +1669,39 @@ jobs:
             --output outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
           echo "integrity_sha256=$(sha256sum outputs/daily_simulated_fill_ledger/snapshot_integrity.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
+      - name: Freeze accepted risk-outcome parent
+        id: risk_outcome_parent
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          rm -rf outputs/run287_risk_outcome_parent_anchor
+          PARENT_ACCEPTANCE_ARGS=()
+          case "${{ steps.risk_outcome_accepted_parent.outputs.parent_mode }}" in
+            verified_accepted_head)
+              PARENT_ACCEPTANCE_ARGS+=(
+                --parent-accepted-manifest outputs/run287_risk_outcome_parent_accepted/manifest.json
+                --expected-parent-accepted-manifest-sha256 "${{ steps.risk_outcome_accepted_parent.outputs.accepted_manifest_sha256 }}"
+              )
+              ;;
+            legacy_quarantine)
+              PARENT_ACCEPTANCE_ARGS+=(--allow-quarantined-legacy-parent)
+              ;;
+            genesis)
+              ;;
+            *)
+              echo "[risk-outcome] BLOCKED: unknown parent acceptance mode"
+              exit 2
+              ;;
+          esac
+          python tools/build_run287_risk_outcome_parent_anchor.py \
+            --summary outputs/run287_risk_outcome_archive/summary.json \
+            --event-log outputs/run287_risk_outcome_archive/risk_outcome_events.jsonl \
+            --output outputs/run287_risk_outcome_parent_anchor/anchor.json \
+            "${PARENT_ACCEPTANCE_ARGS[@]}" \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_anchor.log
+          test -s outputs/run287_risk_outcome_parent_anchor/anchor.json
+          echo "anchor_sha256=$(sha256sum outputs/run287_risk_outcome_parent_anchor/anchor.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Resolve append-only forward outcomes
         id: risk_outcomes
         if: steps.market.outputs.ready == 'yes'
@@ -1044,9 +1729,11 @@ jobs:
             --price-cache outputs/run287_risk_outcome_price_cache
             --output-dir outputs/run287_risk_outcome_archive
             --as-of-date "$PAPER_AS_OF"
+            --parent-anchor outputs/run287_risk_outcome_parent_anchor/anchor.json
           )
           python tools/resolve_run287_risk_outcomes.py "${RISK_OUTCOME_ARGS[@]}" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
+          FIRST_RISK_SUMMARY_SHA="$(sha256sum outputs/run287_risk_outcome_archive/summary.json | cut -d' ' -f1)"
           if [ -s outputs/run287_risk_outcome_archive/price_universe.csv ]; then
             timeout 8m python tools/build_replay_price_cache.py \
               --books outputs/run287_risk_outcome_archive/price_universe.csv \
@@ -1057,7 +1744,9 @@ jobs:
               --max-scored 0 \
               --max-tickers 150 \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
-            python tools/resolve_run287_risk_outcomes.py "${RISK_OUTCOME_ARGS[@]}" \
+            python tools/resolve_run287_risk_outcomes.py \
+              "${RISK_OUTCOME_ARGS[@]}" \
+              --expected-prior-invocation-summary-sha256 "$FIRST_RISK_SUMMARY_SHA" \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
           fi
           test -s outputs/run287_risk_outcome_archive/summary.json
@@ -1098,6 +1787,7 @@ jobs:
           rm -rf outputs/run287_promotion_gate
           PROMOTION_ANCHORS=(
             --expected-paper-integrity-sha256 "${{ steps.paper_integrity.outputs.integrity_sha256 }}"
+            --expected-risk-outcome-parent-anchor-sha256 "${{ steps.risk_outcome_parent.outputs.anchor_sha256 }}"
             --expected-risk-outcome-summary-sha256 "${{ steps.risk_outcomes.outputs.summary_sha256 }}"
             --expected-scorecard-sha256 "${{ steps.operating_scorecard.outputs.scorecard_sha256 }}"
           )
@@ -1193,6 +1883,10 @@ jobs:
             outputs/run287_current_selector_no_write_exact_close_*/
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_decision_observation_archive/
+            outputs/run287_risk_outcome_parent_accepted/
+            outputs/run287_risk_outcome_parent_anchor/
+            outputs/run287_risk_outcome_accepted_head_bundles/
+            outputs/run287_risk_outcome_accepted_head_manifests/
             outputs/run287_risk_outcome_archive/
             outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
             outputs/run287_operating_scorecard/
@@ -1216,7 +1910,10 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
             outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
+            outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_anchor.log
             outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
+            outputs/full_rebuild_logs/daily_run287_*outcome_head*.json
+            outputs/full_rebuild_logs/daily_run287_outcome_parent_paper_continuity.json
             outputs/full_rebuild_logs/daily_run287_operating_scorecard.log
             outputs/full_rebuild_logs/daily_run287_promotion_gate.log
             outputs/full_rebuild_logs/daily_accepted_publication_manifest.log
@@ -1252,7 +1949,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_accepted outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
@@ -1273,6 +1970,31 @@ jobs:
             --latest-run outputs \
             --verify-manifest outputs/run287_accepted_publication/manifest.json \
             --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+          ACCEPTED_OUTCOME_HEAD_SHA="${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+          OUTCOME_HEAD_STAGING_ROOT="outputs/run287_risk_outcome_accepted_head_staging"
+          OUTCOME_HEAD_STAGING="$OUTCOME_HEAD_STAGING_ROOT/$ACCEPTED_OUTCOME_HEAD_SHA"
+          rm -rf "$OUTCOME_HEAD_STAGING_ROOT"
+          python tools/manage_run287_risk_outcome_accepted_heads.py stage \
+            --latest-run outputs \
+            --expected-manifest-sha256 "$ACCEPTED_OUTCOME_HEAD_SHA" \
+            --output-dir "$OUTCOME_HEAD_STAGING" \
+            --output outputs/full_rebuild_logs/daily_run287_outcome_head_stage.json
+          mkdir -p outputs/run287_risk_outcome_accepted_head_bundles
+          python tools/manage_run287_risk_outcome_accepted_heads.py stage \
+            --latest-run outputs \
+            --expected-manifest-sha256 "$ACCEPTED_OUTCOME_HEAD_SHA" \
+            --output-dir "outputs/run287_risk_outcome_accepted_head_bundles/$ACCEPTED_OUTCOME_HEAD_SHA"
+          mkdir -p "outputs/run287_risk_outcome_accepted_head_manifests/$ACCEPTED_OUTCOME_HEAD_SHA"
+          if [ -f "outputs/run287_risk_outcome_accepted_head_manifests/$ACCEPTED_OUTCOME_HEAD_SHA/manifest.json" ] && \
+             ! cmp -s \
+               "$OUTCOME_HEAD_STAGING/manifest.json" \
+               "outputs/run287_risk_outcome_accepted_head_manifests/$ACCEPTED_OUTCOME_HEAD_SHA/manifest.json"; then
+            echo "[risk-outcome] BLOCKED: staged accepted manifest conflicts with immutable local head"
+            exit 2
+          fi
+          cp \
+            "$OUTCOME_HEAD_STAGING/manifest.json" \
+            "outputs/run287_risk_outcome_accepted_head_manifests/$ACCEPTED_OUTCOME_HEAD_SHA/manifest.json"
           if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
             echo "[gdrive] not configured; validated paper state remains in the GitHub cache/artifact"
             exit 0
@@ -1296,7 +2018,13 @@ jobs:
           PAPER_REMOTE_POSTCHECK="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_postcheck"
           rm -rf "$PAPER_REMOTE_PERSIST_ANCHOR"
           mkdir -p "$PAPER_REMOTE_PERSIST_ANCHOR"
-          rclone copy "$CANONICAL/" "$PAPER_REMOTE_PERSIST_ANCHOR/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          PAPER_CANONICAL_EXPECTED_STATE="${PAPER_CANONICAL_REMOTE_STATE:-UNKNOWN}"
+          if [ "$PAPER_CANONICAL_EXPECTED_STATE" = "PROVEN_PRESENT" ]; then
+            rclone copy "$CANONICAL/" "$PAPER_REMOTE_PERSIST_ANCHOR/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          elif [ "$PAPER_CANONICAL_EXPECTED_STATE" != "PROVEN_ABSENT" ]; then
+            echo "[paper-ledger] BLOCKED: remote canonical state was not authoritatively classified during restore"
+            exit 2
+          fi
           LOCAL_SNAPSHOT_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json", encoding="utf-8"))["snapshot_hash"])')"
           if ! [[ "$LOCAL_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]]; then
             echo "[paper-ledger] BLOCKED: invalid local continuity hash"
@@ -1324,13 +2052,97 @@ jobs:
               raise SystemExit("legacy Drive migration blocked: Drive source changed during semantic attestation")
           PY
           }
+          assert_remote_canonical_absent() {
+            local base_dirs="$RUNNER_TEMP/run287_paper_persist_base_dirs.txt"
+            local archive_dirs="$RUNNER_TEMP/run287_paper_persist_archive_dirs.txt"
+            if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+              if ! rclone lsf "$BASE" --dirs-only > "$base_dirs"; then
+                echo "[paper-ledger] BLOCKED: Drive root unavailable during first-canonical CAS"
+                exit 2
+              fi
+            else
+              local top_dirs="$RUNNER_TEMP/run287_paper_persist_top_dirs.txt"
+              if ! rclone lsf "gdrive:" --dirs-only > "$top_dirs"; then
+                echo "[paper-ledger] BLOCKED: Drive top level unavailable during first-canonical CAS"
+                exit 2
+              fi
+              if ! grep -Fx "${GDRIVE_FOLDER_NAME}/" "$top_dirs" >/dev/null; then
+                return 0
+              fi
+              if ! rclone lsf "$BASE" --dirs-only > "$base_dirs"; then
+                echo "[paper-ledger] BLOCKED: configured Drive base unavailable during first-canonical CAS"
+                exit 2
+              fi
+            fi
+            if ! grep -Fx "paper_archive/" "$base_dirs" >/dev/null; then
+              return 0
+            fi
+            if ! rclone lsf "${BASE}paper_archive/" --dirs-only > "$archive_dirs"; then
+              echo "[paper-ledger] BLOCKED: paper archive unavailable during first-canonical CAS"
+              exit 2
+            fi
+            if grep -Fx "run287_daily_simulated_fill_ledger/" "$archive_dirs" >/dev/null; then
+              echo "[paper-ledger] BLOCKED_CONTINUITY: canonical Drive state appeared after authoritative absence preflight"
+              exit 2
+            fi
+          }
+          persist_immutable_paper_head() {
+            local source="$1"
+            local expected_hash="$2"
+            local remote_head="$HEADS/$expected_hash"
+            if ! [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "[paper-ledger] BLOCKED: invalid immutable paper head hash=$expected_hash"
+              exit 2
+            fi
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir "$source" \
+              --require-integrity
+            local observed_hash
+            observed_hash="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$source/snapshot_integrity.json")"
+            if [ "$observed_hash" != "$expected_hash" ]; then
+              echo "[paper-ledger] BLOCKED: immutable paper head source/hash mismatch"
+              exit 2
+            fi
+            if rclone lsf "$remote_head/snapshot_integrity.json" >/dev/null 2>&1; then
+              rclone check "$source/" "$remote_head/" --checksum
+              return 0
+            fi
+            # An address without its recursive integrity manifest is
+            # uncommitted and may be resumed. Publish the manifest last.
+            rclone sync \
+              "$source/" \
+              "$remote_head/" \
+              --exclude snapshot_integrity.json \
+              --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            rclone check \
+              "$source/" \
+              "$remote_head/" \
+              --exclude snapshot_integrity.json \
+              --checksum
+            rclone copyto \
+              "$source/snapshot_integrity.json" \
+              "$remote_head/snapshot_integrity.json" \
+              --stats 30s --stats-one-line
+            rclone check "$source/" "$remote_head/" --checksum
+          }
           if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+            if [ "$PAPER_CANONICAL_EXPECTED_STATE" != "PROVEN_PRESENT" ]; then
+              echo "[paper-ledger] BLOCKED: legacy migration requires the classified remote canonical source"
+              exit 2
+            fi
             # A manifest-free source is not a continuity anchor.  It may be
             # replaced only after the in-job semantic attestation above and a
             # byte-for-byte compare against the original quarantined copy.
             assert_legacy_drive_source_matches "$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"
             rclone copy "$PAPER_REMOTE_PERSIST_ANCHOR/" "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
             rclone check "$PAPER_REMOTE_PERSIST_ANCHOR/" "$RECOVERY/" --checksum --one-way
+          elif [ "$PAPER_CANONICAL_EXPECTED_STATE" = "PROVEN_ABSENT" ]; then
+            # This is either a true first bootstrap or recovery from a verified
+            # cache/immutable head after canonical loss.  Re-prove absence
+            # before publishing any mutable canonical state.
+            assert_remote_canonical_absent
+            rclone copy outputs/daily_simulated_fill_ledger "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            rclone check outputs/daily_simulated_fill_ledger "$RECOVERY/" --checksum --one-way
           else
             test -s "$PAPER_REMOTE_PERSIST_ANCHOR/snapshot_integrity.json"
             python tools/run287_paper_ledger_integrity.py \
@@ -1348,14 +2160,63 @@ jobs:
             rclone copy outputs/daily_simulated_fill_ledger "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
             rclone check outputs/daily_simulated_fill_ledger "$RECOVERY/" --checksum --one-way
           fi
-          rclone copy outputs/daily_simulated_fill_ledger "$HEADS/$LOCAL_SNAPSHOT_HASH/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
-          rclone check outputs/daily_simulated_fill_ledger "$HEADS/$LOCAL_SNAPSHOT_HASH/" --checksum
+          if [ "${PAPER_VERIFIED_CANONICAL_BOOTSTRAP_PENDING:-no}" = "yes" ]; then
+            PAPER_BOOTSTRAP_EVIDENCE="outputs/full_rebuild_logs/daily_paper_verified_canonical_bootstrap.json"
+            python - \
+              "$PAPER_BOOTSTRAP_EVIDENCE" \
+              "$ANCHOR_SNAPSHOT_HASH" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          evidence = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if (
+              evidence.get("schema_version")
+              != "run287-verified-paper-canonical-bootstrap-v1"
+              or evidence.get("status")
+              != "EXPLICIT_ONE_TIME_MIGRATION_AUTHORIZED"
+              or evidence.get("snapshot_hash") != sys.argv[2]
+              or evidence.get("remote_immutable_head_count") != 0
+              or evidence.get("verified_cache_anchor_present") is not False
+              or evidence.get("review_only") is not True
+              or evidence.get("production_activation_allowed") is not False
+              or evidence.get("live_trading_enabled") is not False
+          ):
+              raise SystemExit(
+                  "verified canonical bootstrap blocked: migration evidence mismatch"
+              )
+          PY
+            # Re-read the source immediately before committing the migration
+            # anchor. If it changed since restore, do not create either head.
+            rm -rf "$PAPER_REMOTE_CAS_CHECK"
+            mkdir -p "$PAPER_REMOTE_CAS_CHECK"
+            rclone copy "$CANONICAL/" "$PAPER_REMOTE_CAS_CHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir "$PAPER_REMOTE_CAS_CHECK" \
+              --require-integrity
+            PAPER_BOOTSTRAP_CAS_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_CAS_CHECK/snapshot_integrity.json")"
+            if [ "$PAPER_BOOTSTRAP_CAS_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]; then
+              echo "[paper-ledger] BLOCKED_CONTINUITY: pre-head canonical changed before first immutable-head commit"
+              exit 2
+            fi
+            persist_immutable_paper_head \
+              "$PAPER_REMOTE_PERSIST_ANCHOR" \
+              "$ANCHOR_SNAPSHOT_HASH"
+            echo "[paper-ledger] committed explicitly attested pre-head canonical as first immutable paper head=$ANCHOR_SNAPSHOT_HASH"
+          fi
+          persist_immutable_paper_head \
+            outputs/daily_simulated_fill_ledger \
+            "$LOCAL_SNAPSHOT_HASH"
           rm -rf "$PAPER_REMOTE_CAS_CHECK"
           mkdir -p "$PAPER_REMOTE_CAS_CHECK"
-          rclone copy "$CANONICAL/" "$PAPER_REMOTE_CAS_CHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          if [ "$PAPER_CANONICAL_EXPECTED_STATE" = "PROVEN_ABSENT" ]; then
+            assert_remote_canonical_absent
+          else
+            rclone copy "$CANONICAL/" "$PAPER_REMOTE_CAS_CHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          fi
           if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
             assert_legacy_drive_source_matches "$PAPER_REMOTE_CAS_CHECK"
-          else
+          elif [ "$PAPER_CANONICAL_EXPECTED_STATE" = "PROVEN_PRESENT" ]; then
             python tools/run287_paper_ledger_integrity.py \
               --state-dir "$PAPER_REMOTE_CAS_CHECK" \
               --require-integrity
@@ -1378,6 +2239,53 @@ jobs:
             echo "[paper-ledger] BLOCKED_CONTINUITY: canonical Drive postcheck differs; immutable heads preserve both accepted states"
             exit 2
           fi
+          OUTCOME_REMOTE_HEADS="${BASE}paper_archive/run287_risk_outcome_accepted_heads"
+          persist_immutable_outcome_head() {
+            local local_head="$1"
+            local head_sha="$2"
+            local remote_head="$OUTCOME_REMOTE_HEADS/$head_sha"
+            python tools/manage_run287_risk_outcome_accepted_heads.py verify \
+              --head-dir "$local_head" \
+              --expected-manifest-sha256 "$head_sha"
+            if rclone lsf "$remote_head/manifest.json" >/dev/null 2>&1; then
+              rclone check \
+                "$local_head/" \
+                "$remote_head/" \
+                --checksum
+              return 0
+            fi
+            rclone copy \
+              "$local_head/" \
+              "$remote_head/" \
+              --exclude manifest.json \
+              --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            rclone check \
+              "$local_head/" \
+              "$remote_head/" \
+              --exclude manifest.json \
+              --checksum
+            rclone copyto \
+              "$local_head/manifest.json" \
+              "$remote_head/manifest.json" \
+              --stats 30s --stats-one-line
+            rclone check \
+              "$local_head/" \
+              "$remote_head/" \
+              --checksum
+          }
+          OUTCOME_CACHE_HEADS="$RUNNER_TEMP/run287_risk_outcome_cache_heads"
+          if [ -d "$OUTCOME_CACHE_HEADS" ]; then
+            while IFS= read -r -d '' cached_manifest; do
+              CACHED_HEAD_SHA="$(basename "$(dirname "$cached_manifest")")"
+              persist_immutable_outcome_head \
+                "$(dirname "$cached_manifest")" \
+                "$CACHED_HEAD_SHA"
+            done < <(find "$OUTCOME_CACHE_HEADS" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+          fi
+          persist_immutable_outcome_head \
+            "$OUTCOME_HEAD_STAGING" \
+            "$ACCEPTED_OUTCOME_HEAD_SHA"
+          echo "[risk-outcome] persisted immutable accepted head=$ACCEPTED_OUTCOME_HEAD_SHA"
           if [ -n "$ANCHOR_SNAPSHOT_HASH" ] && [ "$LOCAL_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ] && \
              rclone lsf "$HEADS/$ANCHOR_SNAPSHOT_HASH/" >/dev/null 2>&1; then
             rclone purge "$HEADS/$ANCHOR_SNAPSHOT_HASH"
@@ -1417,6 +2325,10 @@ jobs:
             outputs/daily_simulated_fill_ledger/
             outputs/run287_same_close_decision/
             outputs/run287_decision_observation_archive/
+            outputs/run287_risk_outcome_parent_accepted/
+            outputs/run287_risk_outcome_parent_anchor/
+            outputs/run287_risk_outcome_accepted_head_bundles/
+            outputs/run287_risk_outcome_accepted_head_manifests/
             outputs/run287_risk_outcome_archive/
             outputs/run287_risk_outcome_price_cache/
             outputs/run287_operating_scorecard/
@@ -1424,6 +2336,7 @@ jobs:
             outputs/run287_accepted_publication/
             outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+            outputs/full_rebuild_logs/daily_run287_outcome_parent_paper_continuity.json
           if-no-files-found: error
           retention-days: 45
 
@@ -1438,6 +2351,9 @@ jobs:
             outputs/run287_exact_packet_input_sources
             outputs/run287_exact_packet_input_registry
             outputs/run287_decision_observation_archive
+            outputs/run287_accepted_publication
+            outputs/run287_risk_outcome_accepted_head_bundles
+            outputs/run287_risk_outcome_accepted_head_manifests
             outputs/run287_risk_outcome_archive
             outputs/run287_risk_outcome_price_cache
           key: daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -1464,10 +2380,16 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"
-          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
+          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
             test -d "$d"
             rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           done
+          if [ -d outputs/run287_risk_outcome_parent_accepted ]; then
+            rclone copy \
+              outputs/run287_risk_outcome_parent_accepted \
+              "$DEST/outputs/run287_risk_outcome_parent_accepted/" \
+              --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          fi
           for f in outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv; do
             test -s "$f"
             rclone copyto "$f" "$DEST/$f"

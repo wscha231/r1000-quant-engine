@@ -25,8 +25,16 @@ from tools.resolve_run287_risk_outcomes import (  # noqa: E402
     EVENT_LOG_NAME,
     group_metrics,
     load_nyse_sessions,
+    read_jsonl,
     run,
     sha256_file,
+)
+from tools.build_run287_risk_outcome_parent_anchor import (  # noqa: E402
+    ANCHOR_SCHEMA_VERSION,
+    EMPTY_SHA256,
+    OUTCOME_CHAIN_SCHEMA_VERSION,
+    build_anchor,
+    write_anchor,
 )
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
@@ -115,12 +123,125 @@ def write_archive(path: Path, *, candidate_state: str = "WATCH", unsafe: bool = 
     write_jsonl(path / "position_history.jsonl", rows)
 
 
-def args(archive: Path, cache: Path, output: Path, as_of: str) -> argparse.Namespace:
+def make_parent_anchor(
+    output: Path,
+    *,
+    anchor_path: Path | None = None,
+    now_utc: str = "2026-01-05T23:59:00Z",
+    allow_quarantined_legacy_parent: bool = False,
+) -> Path:
+    path = anchor_path or output.parent / f"{output.name}_parent_anchor" / "anchor.json"
+    accepted_manifest_path: Path | None = None
+    expected_accepted_manifest_sha256 = ""
+    if (output / "summary.json").is_file() and not allow_quarantined_legacy_parent:
+        summary = json.loads(
+            (output / "summary.json").read_text(encoding="utf-8")
+        )
+        accepted_manifest_path = (
+            path.parent / "parent_accepted_manifest.json"
+        )
+        accepted_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        files = {
+            "promotion_gate": {
+                "path": "run287_promotion_gate/promotion_gate.json",
+                "sha256": "b" * 64,
+            },
+            "risk_outcome_summary": {
+                "path": "run287_risk_outcome_archive/summary.json",
+                "sha256": sha256_file(output / "summary.json"),
+                "bytes": (output / "summary.json").stat().st_size,
+            }
+        }
+        event_log = output / EVENT_LOG_NAME
+        if event_log.is_file():
+            files["risk_outcome_event_log"] = {
+                "path": (
+                    "run287_risk_outcome_archive/"
+                    "risk_outcome_events.jsonl"
+                ),
+                "sha256": sha256_file(event_log),
+            }
+        accepted_manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": (
+                        "run287-accepted-publication-manifest-v1"
+                    ),
+                    "status": (
+                        "READY_ACCEPTED_PUBLICATION_REVIEW_ONLY"
+                    ),
+                    "as_of_date": summary["as_of_date"],
+                    "source_identity": {
+                        "commit_sha": "a" * 40,
+                        "workflow": "smoke/daily.yml@refs/heads/main",
+                        "run_id": "287",
+                        "run_attempt": "1",
+                        "promotion_gate_sha256": "b" * 64,
+                    },
+                    "paper_snapshot": {
+                        "snapshot_hash": "c" * 64,
+                        "genesis_identity_sha256": "d" * 64,
+                        "previous_snapshot_hash": "",
+                        "ancestor_snapshot_hashes": [],
+                        "file_count": 1,
+                        "transaction_mode": "MARK_ONLY",
+                    },
+                    "outcome_status": summary["status"],
+                    "outcome_chain": summary["outcome_chain"],
+                    "files": files,
+                    "review_only": True,
+                    "automatic_champion_replacement_allowed": False,
+                    "production_activation_allowed": False,
+                    "live_trading_enabled": False,
+                    "fullrun_executed": False,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        expected_accepted_manifest_sha256 = sha256_file(
+            accepted_manifest_path
+        )
+    payload = build_anchor(
+        output / "summary.json",
+        output / EVENT_LOG_NAME,
+        parent_accepted_manifest_path=accepted_manifest_path,
+        expected_parent_accepted_manifest_sha256=(
+            expected_accepted_manifest_sha256
+        ),
+        allow_quarantined_legacy_parent=(
+            allow_quarantined_legacy_parent
+        ),
+        now_utc=now_utc,
+    )
+    write_anchor(path, payload)
+    return path
+
+
+def args(
+    archive: Path,
+    cache: Path,
+    output: Path,
+    as_of: str,
+    *,
+    parent_anchor: Path | None = None,
+    auto_anchor: bool = True,
+    expected_prior_invocation_summary_sha256: str = "",
+) -> argparse.Namespace:
+    anchor = (
+        make_parent_anchor(output)
+        if parent_anchor is None and auto_anchor
+        else parent_anchor
+    )
     return argparse.Namespace(
         decision_archive=str(archive),
         price_cache=str(cache),
         output_dir=str(output),
         contract=str(ROOT / "docs" / "run287_risk_outcome_archive_contract.json"),
+        parent_anchor=str(anchor) if anchor is not None else "",
+        expected_prior_invocation_summary_sha256=(
+            expected_prior_invocation_summary_sha256
+        ),
         as_of_date=as_of,
     )
 
@@ -245,7 +366,21 @@ def test_restored_signals_continue_resolving_when_daily_source_skips() -> None:
         root = Path(td)
         archive, cache, output = root / "archive", root / "cache", root / "out"
         write_archive(archive)
-        assert run(args(archive, cache, output, DECISION))["signal_observation_count"] == 2
+        parent_anchor = make_parent_anchor(
+            output,
+            anchor_path=root / "genesis-parent" / "anchor.json",
+        )
+        first = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=parent_anchor,
+            )
+        )
+        assert first["signal_observation_count"] == 2
+        first_summary_sha256 = sha256_file(output / "summary.json")
         sessions = sessions_through_126()
         short = sessions[:6]
         write_price(cache, "AAA", short, np.linspace(100, 95, len(short)))
@@ -253,7 +388,16 @@ def test_restored_signals_continue_resolving_when_daily_source_skips() -> None:
         write_price(cache, "SPY", short, np.linspace(100, 101, len(short)))
         missing_archive = root / "daily-source-skipped"
         result = run(
-            args(missing_archive, cache, output, pd.Timestamp(short[-1]).date().isoformat()),
+            args(
+                missing_archive,
+                cache,
+                output,
+                pd.Timestamp(short[-1]).date().isoformat(),
+                parent_anchor=parent_anchor,
+                expected_prior_invocation_summary_sha256=(
+                    first_summary_sha256
+                ),
+            ),
             now_utc="2026-01-13T01:00:00Z",
         )
         assert result["status"] == READY_STATUS
@@ -327,13 +471,35 @@ def test_changed_or_unsafe_source_fails_closed() -> None:
         root = Path(td)
         archive, cache, output = root / "archive", root / "cache", root / "out"
         write_archive(archive)
-        assert (
-            run(args(archive, cache, output, DECISION))["status"]
-            == NEEDS_PRICE_CACHE_STATUS
+        parent_anchor = make_parent_anchor(
+            output,
+            anchor_path=root / "genesis-parent" / "anchor.json",
         )
+        first = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=parent_anchor,
+            )
+        )
+        assert first["status"] == NEEDS_PRICE_CACHE_STATUS
+        first_summary_sha256 = sha256_file(output / "summary.json")
         before = (output / EVENT_LOG_NAME).read_bytes()
         write_archive(archive, candidate_state="ALERT")
-        conflict = run(args(archive, cache, output, DECISION))
+        conflict = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=parent_anchor,
+                expected_prior_invocation_summary_sha256=(
+                    first_summary_sha256
+                ),
+            )
+        )
         assert conflict["status"] == BLOCKED_STATUS
         assert any("immutable_signal_conflict" in value for value in conflict["blockers"])
         assert (output / EVENT_LOG_NAME).read_bytes() == before
@@ -345,6 +511,446 @@ def test_changed_or_unsafe_source_fails_closed() -> None:
         assert unsafe["status"] == BLOCKED_STATUS
         assert any("orders_generated_true" in value for value in unsafe["blockers"])
         assert not (output / EVENT_LOG_NAME).exists()
+
+
+def test_parent_anchor_genesis_empty_parent_and_partial_fail_closed() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        output = root / "out"
+        genesis = build_anchor(
+            output / "summary.json",
+            output / EVENT_LOG_NAME,
+            now_utc="2026-01-05T23:59:00Z",
+        )
+        assert genesis["schema_version"] == ANCHOR_SCHEMA_VERSION
+        assert genesis["status"] == "GENESIS_EMPTY"
+        assert genesis["parent_summary_sha256"] == ""
+        assert genesis["parent_event_log_sha256"] == EMPTY_SHA256
+        assert genesis["parent_event_log_bytes"] == 0
+        assert genesis["parent_event_count"] == 0
+        assert genesis["carried_quarantined_prefix_event_count"] == 0
+        assert genesis["parent_acceptance_status"] == "NO_PRIOR_STATE"
+        assert genesis["parent_accepted_manifest_sha256"] == ""
+
+        skipped = run(
+            args(
+                root / "missing",
+                root / "cache",
+                output,
+                DECISION,
+                parent_anchor=make_parent_anchor(output),
+            )
+        )
+        assert skipped["status"] == SKIPPED_STATUS
+        assert skipped["outcome_chain"]["status"] == "VERIFIED_APPEND_ONLY"
+        empty_anchor_path = make_parent_anchor(
+            output,
+            anchor_path=root / "empty-parent" / "anchor.json",
+            now_utc="2026-01-06T23:59:00Z",
+        )
+        empty_parent = json.loads(
+            empty_anchor_path.read_text(encoding="utf-8")
+        )
+        assert empty_parent["status"] == "VERIFIED_EMPTY_PARENT"
+        assert empty_parent["parent_event_count"] == 0
+        assert (
+            empty_parent["parent_acceptance_status"]
+            == "VERIFIED_ACCEPTED_HEAD"
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        orphan = root / EVENT_LOG_NAME
+        write_jsonl(orphan, [{"event_id": "orphan"}])
+        try:
+            build_anchor(root / "missing-summary.json", orphan)
+        except ValueError as exc:
+            assert "partial_event_log_without_summary" in str(exc)
+        else:
+            raise AssertionError("partial risk outcome parent was accepted")
+
+
+def test_verified_parent_anchor_and_missing_anchor_are_fail_closed() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        sessions = sessions_through_126()[:1]
+        write_price(cache, "AAA", sessions, np.array([100.0]))
+        write_price(cache, "BBB", sessions, np.array([80.0]))
+        write_price(cache, "SPY", sessions, np.array([100.0]))
+        genesis_path = make_parent_anchor(output)
+        first = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=genesis_path,
+            ),
+            now_utc="2026-01-06T01:00:00Z",
+        )
+        assert first["outcome_chain"]["status"] == "VERIFIED_APPEND_ONLY"
+        assert first["outcome_chain"]["trusted_event_count"] == 2
+
+        verified_path = make_parent_anchor(
+            output,
+            anchor_path=root / "verified-parent" / "anchor.json",
+            now_utc="2026-01-06T23:59:00Z",
+        )
+        verified = json.loads(verified_path.read_text(encoding="utf-8"))
+        assert verified["status"] == "VERIFIED_PARENT"
+        assert (
+            verified["parent_acceptance_status"]
+            == "VERIFIED_ACCEPTED_HEAD"
+        )
+        assert verified["parent_summary_sha256"] == sha256_file(
+            output / "summary.json"
+        )
+        assert verified["parent_event_log_sha256"] == sha256_file(
+            output / EVENT_LOG_NAME
+        )
+        assert verified["parent_event_count"] == 2
+        assert verified["carried_quarantined_prefix_event_count"] == 0
+        mismatched_summary = json.loads(
+            (output / "summary.json").read_text(encoding="utf-8")
+        )
+        mismatched_summary["outputs"]["event_log_sha256"] = "0" * 64
+        (output / "summary.json").write_text(
+            json.dumps(mismatched_summary),
+            encoding="utf-8",
+        )
+        try:
+            accepted_manifest = (
+                verified_path.parent / "parent_accepted_manifest.json"
+            )
+            build_anchor(
+                output / "summary.json",
+                output / EVENT_LOG_NAME,
+                parent_accepted_manifest_path=accepted_manifest,
+                expected_parent_accepted_manifest_sha256=(
+                    sha256_file(accepted_manifest)
+                ),
+            )
+        except ValueError as exc:
+            assert "event_log_sha256_mismatch" in str(exc)
+        else:
+            raise AssertionError("mismatched risk outcome parent was accepted")
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        result = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                auto_anchor=False,
+            )
+        )
+        assert result["status"] == BLOCKED_STATUS
+        assert "risk_outcome_parent_anchor_missing" in result["blockers"]
+        assert result["outcome_chain"]["schema_version"] == OUTCOME_CHAIN_SCHEMA_VERSION
+        assert result["outcome_chain"]["status"] == "UNANCHORED"
+        assert result["outcome_chain"]["append_only_verified"] is False
+        assert not (output / EVENT_LOG_NAME).exists()
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        seeded = run(args(archive, cache, output, DECISION))
+        assert seeded["signal_observation_count"] == 2
+        unanchored = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                auto_anchor=False,
+            )
+        )
+        assert unanchored["status"] == BLOCKED_STATUS
+        assert unanchored["outcome_chain"]["status"] == "UNANCHORED"
+        quarantined = build_anchor(
+            output / "summary.json",
+            output / EVENT_LOG_NAME,
+            allow_quarantined_legacy_parent=True,
+        )
+        assert quarantined["status"] == "VERIFIED_PARENT"
+        assert quarantined["parent_event_count"] == 2
+        assert quarantined["carried_quarantined_prefix_event_count"] == 2
+        assert (
+            quarantined["parent_acceptance_status"]
+            == "QUARANTINED_LEGACY"
+        )
+
+
+def test_parent_prefix_rewrite_is_rejected_without_event_append() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        sessions = sessions_through_126()[:1]
+        write_price(cache, "AAA", sessions, np.array([100.0]))
+        write_price(cache, "BBB", sessions, np.array([80.0]))
+        write_price(cache, "SPY", sessions, np.array([100.0]))
+        first = run(
+            args(archive, cache, output, DECISION),
+            now_utc="2026-01-06T01:00:00Z",
+        )
+        assert first["signal_observation_count"] == 2
+        parent_anchor = make_parent_anchor(
+            output,
+            anchor_path=root / "verified-parent" / "anchor.json",
+            now_utc="2026-01-06T23:59:00Z",
+        )
+        original = (output / EVENT_LOG_NAME).read_bytes()
+        rewritten = original.replace(b'"ticker":"AAA"', b'"ticker":"ZZZ"', 1)
+        assert rewritten != original and len(rewritten) == len(original)
+        (output / EVENT_LOG_NAME).write_bytes(rewritten)
+
+        result = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=parent_anchor,
+            ),
+            now_utc="2026-01-07T01:00:00Z",
+        )
+        assert result["status"] == BLOCKED_STATUS
+        assert any(
+            "parent_event_log_prefix_sha256_mismatch" in blocker
+            for blocker in result["blockers"]
+        )
+        assert result["outcome_chain"]["status"] == "BLOCKED_PARENT_ANCHOR"
+        assert result["outcome_chain"]["append_only_verified"] is False
+        assert (output / EVENT_LOG_NAME).read_bytes() == rewritten
+
+
+def test_accepted_head_binding_rejects_coordinated_reseal() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        sessions = sessions_through_126()[:1]
+        write_price(cache, "AAA", sessions, np.array([100.0]))
+        write_price(cache, "BBB", sessions, np.array([80.0]))
+        write_price(cache, "SPY", sessions, np.array([100.0]))
+        seeded = run(
+            args(archive, cache, output, DECISION),
+            now_utc="2026-01-06T01:00:00Z",
+        )
+        assert seeded["signal_observation_count"] == 2
+        accepted_anchor_path = make_parent_anchor(
+            output,
+            anchor_path=root / "accepted-parent" / "anchor.json",
+        )
+        accepted_manifest = (
+            accepted_anchor_path.parent / "parent_accepted_manifest.json"
+        )
+        accepted_manifest_sha256 = sha256_file(accepted_manifest)
+
+        event_log = output / EVENT_LOG_NAME
+        original = event_log.read_bytes()
+        rewritten = original.replace(b'"ticker":"AAA"', b'"ticker":"ZZZ"', 1)
+        assert rewritten != original and len(rewritten) == len(original)
+        event_log.write_bytes(rewritten)
+        summary_path = output / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        resealed_sha256 = sha256_file(event_log)
+        summary["outputs"]["event_log_sha256"] = resealed_sha256
+        summary["outcome_chain"]["current_event_log_sha256"] = (
+            resealed_sha256
+        )
+        summary_path.write_text(
+            json.dumps(summary, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        try:
+            build_anchor(
+                summary_path,
+                event_log,
+                parent_accepted_manifest_path=accepted_manifest,
+                expected_parent_accepted_manifest_sha256=(
+                    accepted_manifest_sha256
+                ),
+            )
+        except ValueError as exc:
+            assert (
+                "parent_accepted_manifest" in str(exc)
+                and "mismatch" in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "coordinated outcome reseal replaced an accepted head"
+            )
+        try:
+            build_anchor(summary_path, event_log)
+        except ValueError as exc:
+            assert "accepted_manifest_required" in str(exc)
+        else:
+            raise AssertionError(
+                "existing outcome state was trusted without an accepted head"
+            )
+        legacy = build_anchor(
+            summary_path,
+            event_log,
+            allow_quarantined_legacy_parent=True,
+        )
+        assert legacy["parent_acceptance_status"] == "QUARANTINED_LEGACY"
+        assert legacy["carried_quarantined_prefix_event_count"] == 2
+
+
+def test_same_parent_anchor_allows_two_legitimate_resolver_appends() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        parent_anchor = make_parent_anchor(
+            output,
+            anchor_path=root / "genesis-parent" / "anchor.json",
+        )
+        first = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=parent_anchor,
+            ),
+            now_utc="2026-01-06T01:00:00Z",
+        )
+        assert first["outcome_chain"]["current_event_count"] == 2
+        first_summary_sha = sha256_file(output / "summary.json")
+
+        sessions = sessions_through_126()[:6]
+        write_price(cache, "AAA", sessions, np.linspace(100, 95, len(sessions)))
+        write_price(cache, "BBB", sessions, np.linspace(80, 85, len(sessions)))
+        write_price(cache, "SPY", sessions, np.linspace(100, 101, len(sessions)))
+        second = run(
+            args(
+                archive,
+                cache,
+                output,
+                pd.Timestamp(sessions[-1]).date().isoformat(),
+                parent_anchor=parent_anchor,
+                expected_prior_invocation_summary_sha256=(
+                    first_summary_sha
+                ),
+            ),
+            now_utc="2026-01-13T01:00:00Z",
+        )
+        assert second["status"] == READY_STATUS
+        assert second["appended_event_counts"] == {
+            "forward_outcome_observed": 4
+        }
+        chain = second["outcome_chain"]
+        assert chain["status"] == "VERIFIED_APPEND_ONLY"
+        assert chain["parent_anchor_status"] == "GENESIS_EMPTY"
+        assert chain["current_event_count"] == 6
+        assert chain["carried_quarantined_prefix_event_count"] == 0
+        assert chain["trusted_event_count"] == 6
+        assert chain["exact_parent_prefix_verified"] is True
+        assert chain["append_only_verified"] is True
+        assert sha256_file(output / "summary.json") != first_summary_sha
+
+
+def test_same_anchor_second_call_rejects_resealed_first_suffix() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        parent_anchor = make_parent_anchor(
+            output,
+            anchor_path=root / "genesis-parent" / "anchor.json",
+        )
+        first = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=parent_anchor,
+            ),
+            now_utc="2026-01-06T01:00:00Z",
+        )
+        assert first["outcome_chain"]["current_event_count"] == 2
+        accepted_first_summary_sha256 = sha256_file(
+            output / "summary.json"
+        )
+
+        event_log = output / EVENT_LOG_NAME
+        original = event_log.read_bytes()
+        rewritten = original.replace(
+            b"2026-01-06T01:00:00Z",
+            b"2026-01-06T02:00:00Z",
+            1,
+        )
+        assert rewritten != original and len(rewritten) == len(original)
+        event_log.write_bytes(rewritten)
+        resealed_event_sha256 = sha256_file(event_log)
+        summary_path = output / "summary.json"
+        resealed_summary = json.loads(
+            summary_path.read_text(encoding="utf-8")
+        )
+        resealed_summary["outputs"]["event_log_sha256"] = (
+            resealed_event_sha256
+        )
+        resealed_summary["outcome_chain"][
+            "current_event_log_sha256"
+        ] = resealed_event_sha256
+        summary_path.write_text(
+            json.dumps(resealed_summary, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        blocked = run(
+            args(
+                archive,
+                cache,
+                output,
+                DECISION,
+                parent_anchor=parent_anchor,
+                expected_prior_invocation_summary_sha256=(
+                    accepted_first_summary_sha256
+                ),
+            ),
+            now_utc="2026-01-06T03:00:00Z",
+        )
+        assert blocked["status"] == BLOCKED_STATUS
+        assert any(
+            "expected_prior_invocation_summary_sha256_mismatch"
+            in blocker
+            for blocker in blocked["blockers"]
+        )
+        assert blocked["outcome_chain"]["status"] == (
+            "BLOCKED_PARENT_ANCHOR"
+        )
+        assert event_log.read_bytes() == rewritten
+
+
+def test_event_jsonl_duplicate_keys_fail_closed() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / EVENT_LOG_NAME
+        path.write_text(
+            (
+                '{"event_id":"first","event_id":"second",'
+                '"event_type":"risk_signal_observed"}\n'
+            ),
+            encoding="utf-8",
+        )
+        try:
+            read_jsonl(path)
+        except ValueError as exc:
+            assert "duplicate_json_key:event_id" in str(exc), str(exc)
+        else:
+            raise AssertionError("duplicate JSON event key was accepted")
 
 
 def test_daily_workflow_wires_bounded_resolution_and_persistence() -> None:
@@ -381,6 +987,13 @@ def main() -> int:
     test_elapsed_outcomes_and_idempotence()
     test_missing_path_stays_pending_and_never_zero_filled()
     test_changed_or_unsafe_source_fails_closed()
+    test_parent_anchor_genesis_empty_parent_and_partial_fail_closed()
+    test_verified_parent_anchor_and_missing_anchor_are_fail_closed()
+    test_parent_prefix_rewrite_is_rejected_without_event_append()
+    test_accepted_head_binding_rejects_coordinated_reseal()
+    test_same_parent_anchor_allows_two_legitimate_resolver_appends()
+    test_same_anchor_second_call_rejects_resealed_first_suffix()
+    test_event_jsonl_duplicate_keys_fail_closed()
     test_daily_workflow_wires_bounded_resolution_and_persistence()
     test_data_insufficient_is_not_a_normal_control()
     print("run287_risk_outcome_archive_smoke: PASS")

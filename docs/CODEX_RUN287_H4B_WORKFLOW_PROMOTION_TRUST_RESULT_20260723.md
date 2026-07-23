@@ -27,6 +27,43 @@ evaluation, and artifact publication.
 - Initial outcome-cache absence returns an explicit review-only bootstrap state;
   a second resolver pass is required before READY. SKIPPED output uses the same
   complete false safety envelope as READY.
+- A single frozen outcome-parent anchor now binds the prior summary, exact
+  event-log byte prefix, accepted-manifest identity, and any quarantined legacy
+  prefix. The second resolver invocation must also present the exact first-pass
+  summary hash, so a same-run suffix cannot be rewritten and resealed.
+- Every accepted outcome state is stored under its accepted-publication
+  manifest SHA. The manifest graph permits one root and one linear terminal,
+  rejects forks, orphans, cycles, multiple roots, and parent-state reseals, and
+  checks each child against the actual parent summary/event identity.
+- Accepted outcome heads also bind the paper snapshot hash, complete ancestor
+  chain, and genesis identity. A head can be installed only when its paper
+  snapshot is the current verified ledger or a proven ancestor on the same
+  genesis; a different paper fork cannot be grafted by matching only a date.
+- Genesis and legacy-outcome migration are separate, mutually exclusive,
+  one-time workflow-dispatch authorizations. Both require successful
+  authoritative Drive discovery with no committed outcome head. Genesis also
+  requires independently proven absence of the mutable legacy summary; a
+  present legacy archive is fetched and checksum-compared before its entire
+  prefix is quarantined.
+- Full hash-addressed accepted-head bundles accumulate in the validated cache.
+  This preserves every intermediate head across multiple Drive-offline runs;
+  after recovery, the complete linear chain is reverified and each missing
+  bundle is uploaded with its manifest last. Corrupt cache bundles are removed,
+  while transient Drive discovery failures retain verified cache/local state
+  without creating a new root.
+- Paper heads now use the same commit-marker rule: payload files are synced and
+  checksum-verified first, then `snapshot_integrity.json` is published last.
+  Restore ignores marker-free partial directories, so an interrupted first
+  bootstrap can resume instead of becoming a permanent false head.
+- A pre-H4b integrity-bearing Drive canonical can become the first paper head
+  only through an explicit one-time workflow-dispatch input. The migration
+  performs full paper semantic replay, rechecks the remote source, commits the
+  old canonical head before its local descendant, and preserves a durable
+  migration evidence record.
+- Accepted event JSON rejects duplicate object keys, missing or duplicate event
+  IDs, unknown event types, summary/log count disagreement, unexpected bundle
+  files, and symlinks. Accepted-head selection is iterative and has a regression
+  chain beyond 1,200 daily heads.
 - Paper fills, rejections, pending orders, accounts, positions, fees, realized
   P&L, reserve arithmetic, and equity curves are replayed from immutable
   bootstrap accounts instead of trusting stored totals.
@@ -81,11 +118,20 @@ evaluation, and artifact publication.
   risk price cache, so the downloaded package can be independently reverified.
 - Automatic champion replacement, state advancement, production activation,
   and live trading remain disabled.
+- Trust boundary: this workflow is the repository-wide single writer for the
+  mutable Drive canonical, enforced by its static GitHub concurrency group.
+  Immutable paper/outcome heads are the accepted state; the canonical is only a
+  recoverable mirror. Google Drive `rclone` updates are not an atomic CAS against
+  an independent external storage writer. Conditional remote pointers,
+  signatures, and external checkpoints remain U6 work and H4b does not claim
+  storage-writer tamper resistance.
 
 ## Validation
 
-- Promotion gate adversarial smoke: `32/32` PASS.
-- Accepted-publication manifest smoke: `10/10` PASS.
+- Promotion gate adversarial smoke: `35/35` PASS.
+- Accepted-publication manifest smoke: `13/13` PASS.
+- Immutable accepted-outcome head smoke: `21/21` PASS, including a
+  three-generation offline/recovery chain and a 1,305-head longevity case.
 - Daily simulated fill ledger: PASS.
 - Paper-ledger transaction and real descendant installation: PASS.
 - Paper snapshot continuity: PASS.
@@ -93,8 +139,7 @@ evaluation, and artifact publication.
 - Runtime operating scorecard: PASS.
 - Workflow artifact/order contract: PASS.
 - Python compile and `git diff --check`: PASS.
-- Full Tier-1 PR validation after the final exact-head review fixes: `193/193`
-  PASS in `374.97s`.
+- Full Tier-1 PR validation: `194/194` PASS in `372.36s`.
 
 ## Safety and next gate
 

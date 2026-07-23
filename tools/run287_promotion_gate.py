@@ -29,6 +29,20 @@ ACCOUNT_CONTRACT_FIELDS = (
 PORTFOLIOS = ("main", "concentrated")
 RISK_OUTCOME_SCHEMA = "run287-risk-outcome-archive-v1"
 RISK_OUTCOME_READY_STATUS = "READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY"
+RISK_OUTCOME_PARENT_ANCHOR_SCHEMA = "run287-risk-outcome-parent-anchor-v1"
+RISK_OUTCOME_CHAIN_SCHEMA = "run287-risk-outcome-chain-v1"
+RISK_OUTCOME_PARENT_STATUSES = frozenset(
+    {"GENESIS_EMPTY", "VERIFIED_EMPTY_PARENT", "VERIFIED_PARENT"}
+)
+RISK_OUTCOME_PARENT_ACCEPTANCE_STATUSES = frozenset(
+    {"NO_PRIOR_STATE", "VERIFIED_ACCEPTED_HEAD", "QUARANTINED_LEGACY"}
+)
+RISK_OUTCOME_ACCEPTED_MANIFEST_SCHEMA = (
+    "run287-accepted-publication-manifest-v1"
+)
+RISK_OUTCOME_ACCEPTED_MANIFEST_READY_STATUS = (
+    "READY_ACCEPTED_PUBLICATION_REVIEW_ONLY"
+)
 RISK_OUTCOME_CONTRACT = ROOT / "docs" / "run287_risk_outcome_archive_contract.json"
 DECISION_ARCHIVE_CONTRACT = (
     ROOT / "docs" / "run287_decision_observation_archive_contract.json"
@@ -147,11 +161,33 @@ def canonical_sha256(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def strict_json_object(
+    payload: str | bytes,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{label}:duplicate_json_key:{key}")
+            result[key] = value
+        return result
+
+    try:
+        decoded = json.loads(payload, object_pairs_hook=object_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label}:invalid_json") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError(f"JSON object required: {label}")
+    return decoded
+
+
 def read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"JSON object required: {path}")
-    return payload
+    return strict_json_object(
+        path.read_text(encoding="utf-8"),
+        label=str(path),
+    )
 
 
 def _integer(value: Any, field: str) -> int:
@@ -279,9 +315,10 @@ def _jsonl_rows(path: Path) -> list[dict[str, Any]]:
     ):
         if not raw.strip():
             continue
-        payload = json.loads(raw)
-        if not isinstance(payload, dict):
-            raise ValueError(f"JSONL object required:{path}:{line_number}")
+        payload = strict_json_object(
+            raw,
+            label=f"{path}:{line_number}",
+        )
         rows.append(payload)
     return rows
 
@@ -719,6 +756,315 @@ def _require_event_matches(
             raise ValueError(f"{label}_field_mismatch:{field}")
 
 
+def _validated_risk_outcome_parent_prefix(
+    *,
+    outcome: dict[str, Any],
+    event_log_path: Path,
+    anchor_path: Path,
+    expected_anchor_sha256: str,
+    latest_run: Path,
+    observed_files: dict[str, str],
+) -> dict[str, int | str]:
+    if not anchor_path.is_file():
+        raise ValueError("runtime_risk_outcome_parent_anchor_missing")
+    anchor_sha256 = sha256_file(anchor_path)
+    if (
+        not _valid_sha256(expected_anchor_sha256)
+        or anchor_sha256 != expected_anchor_sha256
+    ):
+        raise ValueError("runtime_risk_outcome_parent_anchor_hash_mismatch")
+    observed_files[
+        anchor_path.relative_to(latest_run).as_posix()
+    ] = anchor_sha256
+    anchor = read_json(anchor_path)
+    status = str(anchor.get("status") or "")
+    if (
+        anchor.get("schema_version") != RISK_OUTCOME_PARENT_ANCHOR_SCHEMA
+        or status not in RISK_OUTCOME_PARENT_STATUSES
+        or anchor.get("review_only") is not True
+    ):
+        raise ValueError("runtime_risk_outcome_parent_anchor_contract_invalid")
+    _require_false_flags(
+        anchor,
+        (
+            "mechanism_promotion_allowed",
+            "threshold_tuning_allowed",
+            "stop_or_exit_rule_created",
+            "selector_weights_changed",
+            "cash_policy_changed",
+            "portfolio_transition_allowed",
+            "orders_generated",
+            "target_books_mutated",
+            "historical_cagr_mdd_evidence_changed",
+            "backtest_executed",
+            "fullrun_executed",
+            "production_activation_allowed",
+            "live_trading_enabled",
+        ),
+        "runtime_risk_outcome_parent_anchor",
+    )
+    parent_summary_sha256 = str(
+        anchor.get("parent_summary_sha256") or ""
+    )
+    parent_summary_bytes = _integer(
+        anchor.get("parent_summary_bytes", 0),
+        "risk_outcome.parent_anchor.parent_summary_bytes",
+    )
+    parent_event_sha256 = str(
+        anchor.get("parent_event_log_sha256") or ""
+    )
+    parent_event_bytes = _integer(
+        anchor.get("parent_event_log_bytes", 0),
+        "risk_outcome.parent_anchor.parent_event_log_bytes",
+    )
+    parent_event_count = _integer(
+        anchor.get("parent_event_count", 0),
+        "risk_outcome.parent_anchor.parent_event_count",
+    )
+    quarantined_count = _integer(
+        anchor.get("carried_quarantined_prefix_event_count", 0),
+        "risk_outcome.parent_anchor.carried_quarantined_prefix_event_count",
+    )
+    parent_as_of_date = str(anchor.get("parent_as_of_date") or "")
+    parent_acceptance_status = str(
+        anchor.get("parent_acceptance_status") or ""
+    )
+    parent_accepted_manifest_sha256 = str(
+        anchor.get("parent_accepted_manifest_sha256") or ""
+    )
+    parent_accepted_manifest_bytes = _integer(
+        anchor.get("parent_accepted_manifest_bytes", 0),
+        "risk_outcome.parent_anchor.parent_accepted_manifest_bytes",
+    )
+    parent_accepted_manifest_as_of_date = str(
+        anchor.get("parent_accepted_manifest_as_of_date") or ""
+    )
+    if (
+        parent_summary_bytes < 0
+        or parent_event_bytes < 0
+        or parent_event_count < 0
+        or quarantined_count < 0
+        or parent_accepted_manifest_bytes < 0
+        or quarantined_count > parent_event_count
+        or not _valid_sha256(parent_event_sha256)
+        or (
+            parent_acceptance_status
+            not in RISK_OUTCOME_PARENT_ACCEPTANCE_STATUSES
+        )
+        or (
+            status == "VERIFIED_PARENT"
+            and (
+                not _valid_sha256(parent_summary_sha256)
+                or parent_summary_bytes <= 0
+                or parent_event_bytes <= 0
+                or parent_event_count <= 0
+                or not parent_as_of_date
+            )
+        )
+        or (
+            status == "VERIFIED_EMPTY_PARENT"
+            and (
+                not _valid_sha256(parent_summary_sha256)
+                or parent_summary_bytes <= 0
+                or parent_event_bytes != 0
+                or parent_event_count != 0
+                or parent_event_sha256 != hashlib.sha256(b"").hexdigest()
+                or not parent_as_of_date
+            )
+        )
+    ):
+        raise ValueError("runtime_risk_outcome_parent_anchor_fields_invalid")
+    accepted_manifest_empty = (
+        not parent_accepted_manifest_sha256
+        and parent_accepted_manifest_bytes == 0
+        and not parent_accepted_manifest_as_of_date
+    )
+    if status == "GENESIS_EMPTY":
+        if (
+            parent_summary_sha256
+            or parent_summary_bytes
+            or parent_event_bytes
+            or parent_event_count
+            or parent_as_of_date
+            or parent_event_sha256 != hashlib.sha256(b"").hexdigest()
+            or quarantined_count
+            or parent_acceptance_status != "NO_PRIOR_STATE"
+            or not accepted_manifest_empty
+        ):
+            raise ValueError(
+                "runtime_risk_outcome_parent_anchor_genesis_invalid"
+            )
+    elif parent_acceptance_status == "QUARANTINED_LEGACY":
+        if (
+            not accepted_manifest_empty
+            or quarantined_count != parent_event_count
+        ):
+            raise ValueError(
+                "runtime_risk_outcome_parent_legacy_quarantine_invalid"
+            )
+    elif parent_acceptance_status == "VERIFIED_ACCEPTED_HEAD":
+        if (
+            not _valid_sha256(parent_accepted_manifest_sha256)
+            or parent_accepted_manifest_bytes <= 0
+            or parent_accepted_manifest_as_of_date != parent_as_of_date
+        ):
+            raise ValueError(
+                "runtime_risk_outcome_parent_accepted_head_invalid"
+            )
+        parent_manifest_path = (
+            latest_run
+            / "run287_risk_outcome_parent_accepted"
+            / "manifest.json"
+        )
+        if (
+            not parent_manifest_path.is_file()
+            or parent_manifest_path.stat().st_size
+            != parent_accepted_manifest_bytes
+            or sha256_file(parent_manifest_path)
+            != parent_accepted_manifest_sha256
+        ):
+            raise ValueError(
+                "runtime_risk_outcome_parent_accepted_manifest_mismatch"
+            )
+        parent_manifest = read_json(parent_manifest_path)
+        parent_manifest_chain = parent_manifest.get("outcome_chain")
+        parent_manifest_files = parent_manifest.get("files")
+        parent_summary_record = (
+            parent_manifest_files.get("risk_outcome_summary")
+            if isinstance(parent_manifest_files, dict)
+            else None
+        )
+        parent_event_record = (
+            parent_manifest_files.get("risk_outcome_event_log")
+            if isinstance(parent_manifest_files, dict)
+            else None
+        )
+        if (
+            parent_manifest.get("schema_version")
+            != RISK_OUTCOME_ACCEPTED_MANIFEST_SCHEMA
+            or parent_manifest.get("status")
+            != RISK_OUTCOME_ACCEPTED_MANIFEST_READY_STATUS
+            or parent_manifest.get("review_only") is not True
+            or str(parent_manifest.get("as_of_date") or "")
+            != parent_as_of_date
+            or not isinstance(parent_manifest_chain, dict)
+            or parent_manifest_chain.get("current_event_log_sha256")
+            != parent_event_sha256
+            or parent_manifest_chain.get("current_event_log_bytes")
+            != parent_event_bytes
+            or parent_manifest_chain.get("current_event_count")
+            != parent_event_count
+            or not isinstance(parent_summary_record, dict)
+            or parent_summary_record.get("path")
+            != "run287_risk_outcome_archive/summary.json"
+            or parent_summary_record.get("sha256")
+            != parent_summary_sha256
+            or (
+                parent_event_count > 0
+                and (
+                    not isinstance(parent_event_record, dict)
+                    or parent_event_record.get("path")
+                    != (
+                        "run287_risk_outcome_archive/"
+                        "risk_outcome_events.jsonl"
+                    )
+                    or parent_event_record.get("sha256")
+                    != parent_event_sha256
+                )
+            )
+        ):
+            raise ValueError(
+                "runtime_risk_outcome_parent_accepted_manifest_invalid"
+            )
+        observed_files[
+            parent_manifest_path.relative_to(latest_run).as_posix()
+        ] = parent_accepted_manifest_sha256
+    else:
+        raise ValueError(
+            "runtime_risk_outcome_parent_acceptance_status_invalid"
+        )
+
+    chain = outcome.get("outcome_chain")
+    if (
+        not isinstance(chain, dict)
+        or chain.get("schema_version") != RISK_OUTCOME_CHAIN_SCHEMA
+        or chain.get("status") != "VERIFIED_APPEND_ONLY"
+        or chain.get("parent_anchor_sha256") != anchor_sha256
+        or chain.get("parent_anchor_status") != status
+        or chain.get("exact_parent_prefix_verified") is not True
+        or chain.get("append_only_verified") is not True
+    ):
+        raise ValueError("runtime_risk_outcome_chain_contract_invalid")
+    comparable_parent_fields = (
+        "parent_summary_sha256",
+        "parent_summary_bytes",
+        "parent_event_log_sha256",
+        "parent_event_log_bytes",
+        "parent_event_count",
+        "parent_as_of_date",
+        "carried_quarantined_prefix_event_count",
+        "parent_acceptance_status",
+        "parent_accepted_manifest_sha256",
+        "parent_accepted_manifest_bytes",
+        "parent_accepted_manifest_as_of_date",
+    )
+    if any(
+        chain.get(field) != anchor.get(field)
+        for field in comparable_parent_fields
+    ):
+        raise ValueError("runtime_risk_outcome_chain_parent_mismatch")
+
+    raw = event_log_path.read_bytes()
+    current_count = len(_jsonl_rows(event_log_path))
+    current_sha256 = hashlib.sha256(raw).hexdigest()
+    if (
+        chain.get("current_event_log_sha256") != current_sha256
+        or _integer(
+            chain.get("current_event_log_bytes"),
+            "risk_outcome.chain.current_event_log_bytes",
+        )
+        != len(raw)
+        or _integer(
+            chain.get("current_event_count"),
+            "risk_outcome.chain.current_event_count",
+        )
+        != current_count
+        or str(chain.get("current_as_of_date") or "")
+        != str(outcome.get("as_of_date") or "")
+        or parent_event_bytes > len(raw)
+        or parent_event_count > current_count
+    ):
+        raise ValueError("runtime_risk_outcome_chain_current_mismatch")
+    prefix = raw[:parent_event_bytes]
+    if (
+        hashlib.sha256(prefix).hexdigest() != parent_event_sha256
+        or (parent_event_bytes > 0 and not prefix.endswith(b"\n"))
+        or prefix.count(b"\n") != parent_event_count
+    ):
+        raise ValueError("runtime_risk_outcome_event_prefix_rewrite")
+    trusted_event_count = current_count - quarantined_count
+    if (
+        trusted_event_count < 0
+        or _integer(
+            chain.get("trusted_event_count"),
+            "risk_outcome.chain.trusted_event_count",
+        )
+        != trusted_event_count
+    ):
+        raise ValueError("runtime_risk_outcome_chain_trusted_count_mismatch")
+    if sha256_file(anchor_path) != anchor_sha256:
+        raise ValueError(
+            "runtime_risk_outcome_parent_anchor_changed_during_validation"
+        )
+    return {
+        "parent_anchor_status": status,
+        "parent_event_count": parent_event_count,
+        "quarantined_prefix_event_count": quarantined_count,
+        "trusted_event_count": trusted_event_count,
+        "parent_acceptance_status": parent_acceptance_status,
+    }
+
+
 def _validated_risk_outcome_counts(
     *,
     outcome: dict[str, Any],
@@ -726,7 +1072,8 @@ def _validated_risk_outcome_counts(
     paper_as_of_date: str,
     observed_files: dict[str, str],
     expected_summary_sha256: str,
-) -> dict[str, int]:
+    expected_parent_anchor_sha256: str,
+) -> dict[str, Any]:
     if outcome.get("schema_version") != RISK_OUTCOME_SCHEMA:
         raise ValueError("runtime_risk_outcome_schema_invalid")
     if outcome.get("status") != RISK_OUTCOME_READY_STATUS:
@@ -895,6 +1242,9 @@ def _validated_risk_outcome_counts(
     event_ids = [str(event.get("event_id") or "") for event in events]
     if any(not value for value in event_ids) or len(event_ids) != len(set(event_ids)):
         raise ValueError("runtime_risk_outcome_event_ids_invalid")
+    event_positions = {
+        event_id: index for index, event_id in enumerate(event_ids)
+    }
     for event in events:
         if event.get("event_type") not in {
             "risk_signal_observed",
@@ -1245,6 +1595,32 @@ def _validated_risk_outcome_counts(
             f"runtime_risk_outcome_completed_event:{horizon}d",
         )
 
+    parent_prefix = _validated_risk_outcome_parent_prefix(
+        outcome=outcome,
+        event_log_path=outcome_root / "risk_outcome_events.jsonl",
+        anchor_path=(
+            latest_run
+            / "run287_risk_outcome_parent_anchor"
+            / "anchor.json"
+        ),
+        expected_anchor_sha256=expected_parent_anchor_sha256,
+        latest_run=latest_run,
+        observed_files=observed_files,
+    )
+    quarantine_count = int(
+        parent_prefix["quarantined_prefix_event_count"]
+    )
+    trusted_signal_ids = {
+        observation_id
+        for observation_id, signal in signals.items()
+        if event_positions[str(signal["event_id"])] >= quarantine_count
+    }
+    promotion_eligible_signal_ids.intersection_update(trusted_signal_ids)
+    promotion_eligible_weeks = {
+        str(signals[observation_id].get("iso_decision_week") or "")
+        for observation_id in promotion_eligible_signal_ids
+    }
+
     for horizon in RISK_OUTCOME_HORIZONS:
         field = f"outcome_{horizon}d_status"
         if field not in status_rows[0]:
@@ -1304,12 +1680,17 @@ def _validated_risk_outcome_counts(
                     raise ValueError(
                         f"runtime_risk_outcome_pending_status_mismatch:{horizon}d"
                     )
-        completed[horizon] = sum(
-            str(row.get(field) or "") == "completed"
-            and str(row.get("observation_id") or "")
-            in promotion_eligible_signal_ids
-            for row in status_rows
-        )
+        completed[horizon] = 0
+        for row in status_rows:
+            observation_id = str(row.get("observation_id") or "")
+            key = (observation_id, horizon)
+            if (
+                str(row.get(field) or "") == "completed"
+                and observation_id in promotion_eligible_signal_ids
+                and event_positions[str(outcomes[key]["event_id"])]
+                >= quarantine_count
+            ):
+                completed[horizon] += 1
     if _integer(
         outcome.get("distinct_decision_week_count", 0),
         "distinct_decision_week_count",
@@ -1386,8 +1767,12 @@ def _validated_risk_outcome_counts(
         "distinct_decision_weeks": len(promotion_eligible_weeks),
         "promotion_eligible_signal_count":
             len(promotion_eligible_signal_ids),
+        "quarantined_signal_observation_count":
+            len(signals) - len(trusted_signal_ids),
         "promotion_ineligible_late_signal_count":
-            len(signals) - len(promotion_eligible_signal_ids),
+            len(trusted_signal_ids) - len(promotion_eligible_signal_ids),
+        "parent_acceptance_status":
+            parent_prefix["parent_acceptance_status"],
         **{
             f"resolved_{horizon}d_outcomes": completed[horizon]
             for horizon in PROMOTION_OUTCOME_HORIZONS
@@ -2075,7 +2460,12 @@ def _validate_runtime_scorecard(
         raise ValueError("runtime_scorecard_changed_during_validation")
 
 
-def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[str, Any]:
+def overlay_latest_run_evidence(
+    base: dict[str, Any],
+    latest_run: Path,
+    *,
+    expected_risk_outcome_parent_anchor_sha256: str = "",
+) -> dict[str, Any]:
     """Overlay only directly verifiable forward observations from a restored run.
 
     Missing runtime fields never manufacture a pass.  The tracked preregistered
@@ -2300,14 +2690,44 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
         try:
             if not verified_paper_manifest:
                 raise ValueError("runtime_risk_outcome_paper_snapshot_unverified")
+            parent_anchor_path = (
+                latest_run
+                / "run287_risk_outcome_parent_anchor"
+                / "anchor.json"
+            )
             outcome_counts = _validated_risk_outcome_counts(
                 outcome=outcome,
                 latest_run=latest_run,
                 paper_as_of_date=str(verified_paper_manifest.get("as_of_date") or ""),
                 observed_files=observed_files,
                 expected_summary_sha256=outcome_summary_sha256,
+                expected_parent_anchor_sha256=(
+                    expected_risk_outcome_parent_anchor_sha256
+                    or (
+                        sha256_file(parent_anchor_path)
+                        if parent_anchor_path.is_file()
+                        else ""
+                    )
+                ),
             )
             forward.update(outcome_counts)
+            quarantined_signal_count = int(
+                outcome_counts.get(
+                    "quarantined_signal_observation_count", 0
+                )
+            )
+            if quarantined_signal_count:
+                evidence.setdefault("runtime_limitations", []).append(
+                    "runtime_risk_outcome_quarantined_signal_observations:"
+                    f"{quarantined_signal_count}"
+                )
+            if (
+                outcome_counts.get("parent_acceptance_status")
+                == "QUARANTINED_LEGACY"
+            ):
+                evidence.setdefault("runtime_limitations", []).append(
+                    "runtime_risk_outcome_parent_legacy_quarantined"
+                )
             late_signal_count = int(
                 outcome_counts.get(
                     "promotion_ineligible_late_signal_count", 0
@@ -2319,6 +2739,16 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
                     f"{late_signal_count}"
                 )
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            if any(
+                token in str(exc)
+                for token in (
+                    "runtime_risk_outcome_parent_anchor",
+                    "runtime_risk_outcome_parent_",
+                    "runtime_risk_outcome_chain_",
+                    "runtime_risk_outcome_event_prefix_rewrite",
+                )
+            ):
+                evidence.setdefault("rollback", {})["integrity_error"] = True
             evidence.setdefault("runtime_limitations", []).append(
                 f"runtime_risk_outcome_validation_failed:{exc}"
             )

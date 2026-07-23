@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -29,6 +30,7 @@ from run287_promotion_gate import (  # noqa: E402
     overlay_latest_run_evidence,
     read_json,
     sha256_file,
+    _jsonl_rows,
 )
 from run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
 from run_daily_simulated_fill_ledger import (  # noqa: E402
@@ -387,6 +389,7 @@ def _write_valid_outcome_fixture(
     *,
     as_of_date: str,
     decision_week_count: int = 13,
+    late_signal_backfill: bool = False,
 ) -> Path:
     archive = root / "run287_decision_observation_archive"
     archive.mkdir()
@@ -583,8 +586,13 @@ def _write_valid_outcome_fixture(
         )
         assert not signal_schedule.empty
         signal_recorded_at = (
-            signal_schedule.iloc[0]["market_close"] + pd.Timedelta(hours=1)
-        ).isoformat()
+            f"{as_of_date}T23:00:00Z"
+            if late_signal_backfill
+            else (
+                signal_schedule.iloc[0]["market_close"]
+                + pd.Timedelta(hours=1)
+            ).isoformat()
+        )
         new_signals, signal_failures = capture_signal_events(
             [observation], signals, signal_recorded_at
         )
@@ -711,7 +719,137 @@ def _write_valid_outcome_fixture(
         "production_activation_allowed": False,
         "live_trading_enabled": False,
     }
+    empty_sha256 = hashlib.sha256(b"").hexdigest()
+    summary["outcome_chain"] = {
+        "schema_version": "run287-risk-outcome-chain-v1",
+        "status": "VERIFIED_APPEND_ONLY",
+        "parent_anchor_sha256": "1" * 64,
+        "parent_anchor_status": "GENESIS_EMPTY",
+        "parent_summary_sha256": "",
+        "parent_summary_bytes": 0,
+        "parent_event_log_sha256": empty_sha256,
+        "parent_event_log_bytes": 0,
+        "parent_event_count": 0,
+        "parent_as_of_date": "",
+        "carried_quarantined_prefix_event_count": 0,
+        "parent_acceptance_status": "NO_PRIOR_STATE",
+        "parent_accepted_manifest_sha256": "",
+        "parent_accepted_manifest_bytes": 0,
+        "parent_accepted_manifest_as_of_date": "",
+        "current_event_log_sha256": sha256_file(event_log),
+        "current_event_log_bytes": event_log.stat().st_size,
+        "current_event_count": len(all_events),
+        "current_as_of_date": as_of_date,
+        "exact_parent_prefix_verified": True,
+        "append_only_verified": True,
+        "trusted_event_count": len(all_events),
+    }
     outcome_dir.joinpath("summary.json").write_text(
+        json.dumps(summary), encoding="utf-8"
+    )
+    parent_summary_path = outcome_dir / "summary.json"
+    parent_manifest = {
+        "schema_version": "run287-accepted-publication-manifest-v1",
+        "status": "READY_ACCEPTED_PUBLICATION_REVIEW_ONLY",
+        "as_of_date": as_of_date,
+        "outcome_status": summary["status"],
+        "outcome_chain": copy.deepcopy(summary["outcome_chain"]),
+        "files": {
+            "risk_outcome_summary": {
+                "path": "run287_risk_outcome_archive/summary.json",
+                "sha256": sha256_file(parent_summary_path),
+                "bytes": parent_summary_path.stat().st_size,
+            },
+            "risk_outcome_event_log": {
+                "path": (
+                    "run287_risk_outcome_archive/"
+                    "risk_outcome_events.jsonl"
+                ),
+                "sha256": sha256_file(event_log),
+            },
+        },
+        "review_only": True,
+        "automatic_champion_replacement_allowed": False,
+        "production_activation_allowed": False,
+        "live_trading_enabled": False,
+        "fullrun_executed": False,
+    }
+    parent_manifest_path = (
+        root
+        / "run287_risk_outcome_parent_accepted"
+        / "manifest.json"
+    )
+    parent_manifest_path.parent.mkdir()
+    parent_manifest_path.write_text(
+        json.dumps(parent_manifest), encoding="utf-8"
+    )
+    parent_anchor = {
+        "schema_version": "run287-risk-outcome-parent-anchor-v1",
+        "status": "VERIFIED_PARENT",
+        "generated_at_utc": "2027-06-30T23:30:00Z",
+        "parent_summary_sha256": sha256_file(parent_summary_path),
+        "parent_summary_bytes": parent_summary_path.stat().st_size,
+        "parent_event_log_sha256": sha256_file(event_log),
+        "parent_event_log_bytes": event_log.stat().st_size,
+        "parent_event_count": len(all_events),
+        "parent_as_of_date": as_of_date,
+        "carried_quarantined_prefix_event_count": 0,
+        "parent_acceptance_status": "VERIFIED_ACCEPTED_HEAD",
+        "parent_accepted_manifest_sha256": sha256_file(
+            parent_manifest_path
+        ),
+        "parent_accepted_manifest_bytes": parent_manifest_path.stat().st_size,
+        "parent_accepted_manifest_as_of_date": as_of_date,
+        "review_only": True,
+        "mechanism_promotion_allowed": False,
+        "threshold_tuning_allowed": False,
+        "stop_or_exit_rule_created": False,
+        "selector_weights_changed": False,
+        "cash_policy_changed": False,
+        "portfolio_transition_allowed": False,
+        "orders_generated": False,
+        "target_books_mutated": False,
+        "historical_cagr_mdd_evidence_changed": False,
+        "backtest_executed": False,
+        "fullrun_executed": False,
+        "production_activation_allowed": False,
+        "live_trading_enabled": False,
+    }
+    anchor_path = (
+        root / "run287_risk_outcome_parent_anchor" / "anchor.json"
+    )
+    anchor_path.parent.mkdir()
+    anchor_path.write_text(json.dumps(parent_anchor), encoding="utf-8")
+    summary["outcome_chain"] = {
+        "schema_version": "run287-risk-outcome-chain-v1",
+        "status": "VERIFIED_APPEND_ONLY",
+        "parent_anchor_sha256": sha256_file(anchor_path),
+        "parent_anchor_status": parent_anchor["status"],
+        **{
+            field: parent_anchor[field]
+            for field in (
+                "parent_summary_sha256",
+                "parent_summary_bytes",
+                "parent_event_log_sha256",
+                "parent_event_log_bytes",
+                "parent_event_count",
+                "parent_as_of_date",
+                "carried_quarantined_prefix_event_count",
+                "parent_acceptance_status",
+                "parent_accepted_manifest_sha256",
+                "parent_accepted_manifest_bytes",
+                "parent_accepted_manifest_as_of_date",
+            )
+        },
+        "current_event_log_sha256": sha256_file(event_log),
+        "current_event_log_bytes": event_log.stat().st_size,
+        "current_event_count": len(all_events),
+        "current_as_of_date": as_of_date,
+        "exact_parent_prefix_verified": True,
+        "append_only_verified": True,
+        "trusted_event_count": len(all_events),
+    }
+    parent_summary_path.write_text(
         json.dumps(summary), encoding="utf-8"
     )
     return outcome_dir
@@ -1362,28 +1500,8 @@ def test_late_backfilled_risk_signals_do_not_count_for_promotion() -> None:
         outcome_dir = _write_valid_outcome_fixture(
             root,
             as_of_date="2027-06-30",
+            late_signal_backfill=True,
         )
-        event_log = outcome_dir / "risk_outcome_events.jsonl"
-        events = [
-            json.loads(line)
-            for line in event_log.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        for event in events:
-            if event.get("event_type") == "risk_signal_observed":
-                event["recorded_at_utc"] = "2027-06-30T23:00:00Z"
-        event_log.write_text(
-            "\n".join(
-                json.dumps(event, sort_keys=True, separators=(",", ":"))
-                for event in events
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        summary_path = outcome_dir / "summary.json"
-        summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        summary["outputs"]["event_log_sha256"] = sha256_file(event_log)
-        summary_path.write_text(json.dumps(summary), encoding="utf-8")
 
         overlaid = overlay_latest_run_evidence(evidence, root)
         assert overlaid["forward_paper"]["distinct_decision_weeks"] == 0
@@ -1794,6 +1912,131 @@ def test_completed_outcomes_survive_append_only_cache_growth_but_not_revision() 
         )
 
 
+def test_coordinated_outcome_reseal_cannot_rewrite_accepted_event_prefix() -> None:
+    _, _, evidence = _inputs()
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        paper = root / "daily_simulated_fill_ledger"
+        for portfolio in ("main", "concentrated"):
+            _write_valid_paper_portfolio(
+                paper,
+                portfolio,
+                dates_and_cash=[("2027-06-30", 100.0)],
+            )
+        _finalize_valid_paper(paper)
+        outcome_dir = _write_valid_outcome_fixture(
+            root,
+            as_of_date="2027-06-30",
+        )
+        cache_root = root / "run287_risk_outcome_price_cache"
+        event_path = outcome_dir / "risk_outcome_events.jsonl"
+        manifest_path = cache_root / "replay_price_cache_manifest.json"
+        summary_path = outcome_dir / "summary.json"
+
+        revised_path = cache_root / px_cache_name("AAA")
+        revised = pd.read_parquet(revised_path)
+        revised.iloc[0, revised.columns.get_loc("Adj Close")] += 1.0
+        revised.to_parquet(revised_path)
+
+        original_events = [
+            json.loads(line)
+            for line in event_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        signals = {
+            str(event["observation_id"]): event
+            for event in original_events
+            if event.get("event_type") == "risk_signal_observed"
+        }
+        ticker_frame, _ = load_cached_prices(cache_root, "AAA")
+        benchmark_frame, _ = load_cached_prices(cache_root, "SPY")
+        sessions = load_nyse_sessions(
+            pd.Timestamp(
+                min(str(signal["decision_date"]) for signal in signals.values())
+            ),
+            pd.Timestamp("2027-06-30"),
+        )
+        assert sessions is not None
+        ticker_hash = sha256_file(revised_path)
+        benchmark_hash = sha256_file(cache_root / px_cache_name("SPY"))
+        regenerated: list[dict] = []
+        evaluations: dict[str, dict[int, str]] = {
+            observation_id: {} for observation_id in signals
+        }
+        for event in original_events:
+            if event.get("event_type") != "forward_outcome_observed":
+                regenerated.append(event)
+                continue
+            observation_id = str(event["observation_id"])
+            horizon = int(event["horizon_trading_days"])
+            replacement, status = outcome_event(
+                signals[observation_id],
+                horizon,
+                ticker_frame,
+                benchmark_frame,
+                sessions,
+                as_of_date=pd.Timestamp(event["evaluated_as_of_date"]),
+                recorded_at=str(event["recorded_at_utc"]),
+                ticker_hash=ticker_hash,
+                benchmark_hash=benchmark_hash,
+            )
+            assert replacement is not None and status == "completed"
+            regenerated.append(replacement)
+            evaluations[observation_id][horizon] = status
+        event_path.write_text(
+            "\n".join(
+                json.dumps(event, sort_keys=True, separators=(",", ":"))
+                for event in regenerated
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        build_current_status(
+            regenerated,
+            evaluations,
+            (1, 5, 21, 63, 126),
+        ).to_csv(outcome_dir / "current_status.csv", index=False)
+
+        cache_manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        )
+        for ticker in ("AAA", "SPY"):
+            path = cache_root / px_cache_name(ticker)
+            cache_manifest["cache_files"][ticker].update(
+                {"sha256": sha256_file(path), "bytes": path.stat().st_size}
+            )
+        manifest_path.write_text(
+            json.dumps(cache_manifest), encoding="utf-8"
+        )
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["source_inputs"]["price_cache_manifest_sha256"] = (
+            sha256_file(manifest_path)
+        )
+        summary["outputs"]["event_log_sha256"] = sha256_file(event_path)
+        summary["outputs"]["current_status_sha256"] = sha256_file(
+            outcome_dir / "current_status.csv"
+        )
+        summary["outcome_chain"].update(
+            {
+                "current_event_log_sha256": sha256_file(event_path),
+                "current_event_log_bytes": event_path.stat().st_size,
+                "current_event_count": len(regenerated),
+                "trusted_event_count": len(regenerated),
+            }
+        )
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+        overlaid = overlay_latest_run_evidence(evidence, root)
+        assert overlaid["forward_paper"]["resolved_21d_outcomes"] == 0
+        assert overlaid["forward_paper"]["resolved_63d_outcomes"] == 0
+        assert overlaid["forward_paper"]["resolved_126d_outcomes"] == 0
+        assert overlaid["rollback"]["integrity_error"] is True
+        assert any(
+            "runtime_risk_outcome_event_prefix_rewrite" in value
+            for value in overlaid["runtime_limitations"]
+        )
+
+
 def test_runtime_overlay_binds_scorecard_and_all_forward_horizons() -> None:
     _, _, evidence = _inputs()
     with TemporaryDirectory() as tmp:
@@ -1910,6 +2153,81 @@ def test_runtime_overlay_binds_scorecard_and_all_forward_horizons() -> None:
         assert any(
             value.startswith("runtime_scorecard_validation_failed:")
             for value in blocked["runtime_limitations"]
+        )
+
+
+def test_runtime_jsonl_duplicate_keys_fail_closed() -> None:
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "events.jsonl"
+        path.write_text(
+            (
+                '{"event_id":"first","event_id":"second",'
+                '"event_type":"risk_signal_observed"}\n'
+            ),
+            encoding="utf-8",
+        )
+        try:
+            _jsonl_rows(path)
+        except ValueError as exc:
+            assert "duplicate_json_key:event_id" in str(exc), str(exc)
+        else:
+            raise AssertionError("promotion parser accepted duplicate JSON key")
+
+
+def test_legacy_parent_quarantine_is_exposed_to_consumers() -> None:
+    _, _, evidence = _inputs()
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        paper = root / "daily_simulated_fill_ledger"
+        for portfolio in ("main", "concentrated"):
+            _write_valid_paper_portfolio(
+                paper,
+                portfolio,
+                dates_and_cash=[
+                    ("2027-06-29", 100.0),
+                    ("2027-06-30", 100.0),
+                ],
+            )
+        _finalize_valid_paper(paper)
+        outcome_dir = _write_valid_outcome_fixture(
+            root,
+            as_of_date="2027-06-30",
+        )
+        event_path = outcome_dir / "risk_outcome_events.jsonl"
+        event_count = len(event_path.read_text(encoding="utf-8").splitlines())
+        anchor_path = (
+            root / "run287_risk_outcome_parent_anchor" / "anchor.json"
+        )
+        anchor = json.loads(anchor_path.read_text(encoding="utf-8"))
+        anchor.update(
+            {
+                "parent_acceptance_status": "QUARANTINED_LEGACY",
+                "parent_accepted_manifest_sha256": "",
+                "parent_accepted_manifest_bytes": 0,
+                "parent_accepted_manifest_as_of_date": "",
+                "carried_quarantined_prefix_event_count": event_count,
+            }
+        )
+        anchor_path.write_text(json.dumps(anchor), encoding="utf-8")
+        summary_path = outcome_dir / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["outcome_chain"].update(
+            {
+                "parent_anchor_sha256": sha256_file(anchor_path),
+                "parent_acceptance_status": "QUARANTINED_LEGACY",
+                "parent_accepted_manifest_sha256": "",
+                "parent_accepted_manifest_bytes": 0,
+                "parent_accepted_manifest_as_of_date": "",
+                "carried_quarantined_prefix_event_count": event_count,
+                "trusted_event_count": 0,
+            }
+        )
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+        overlaid = overlay_latest_run_evidence(evidence, root)
+        assert (
+            "runtime_risk_outcome_parent_legacy_quarantined"
+            in overlaid["runtime_limitations"]
         )
 
 

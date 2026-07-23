@@ -15,12 +15,25 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_VERSION = "run287-accepted-publication-manifest-v1"
 READY_STATUS = "READY_ACCEPTED_PUBLICATION_REVIEW_ONLY"
+OUTCOME_PARENT_ANCHOR_SCHEMA = "run287-risk-outcome-parent-anchor-v1"
+OUTCOME_CHAIN_SCHEMA = "run287-risk-outcome-chain-v1"
+OUTCOME_PARENT_STATUSES = {
+    "GENESIS_EMPTY",
+    "VERIFIED_EMPTY_PARENT",
+    "VERIFIED_PARENT",
+}
+OUTCOME_PARENT_ACCEPTANCE_STATUSES = {
+    "NO_PRIOR_STATE",
+    "VERIFIED_ACCEPTED_HEAD",
+    "QUARANTINED_LEGACY",
+}
 PORTFOLIOS = ("main", "concentrated")
 REQUIRED_FILES = {
     "main_target": "reports/operating_main_target_book.csv",
     "concentrated_target": "reports/operating_concentrated_target_book.csv",
     "paper_accepted_publication": "daily_simulated_fill_ledger/accepted_publication.json",
     "paper_snapshot_integrity": "daily_simulated_fill_ledger/snapshot_integrity.json",
+    "risk_outcome_parent_anchor": "run287_risk_outcome_parent_anchor/anchor.json",
     "risk_outcome_summary": "run287_risk_outcome_archive/summary.json",
     "operating_scorecard": "run287_operating_scorecard/operating_scorecard.json",
     "promotion_gate": "run287_promotion_gate/promotion_gate.json",
@@ -68,6 +81,8 @@ PROMOTION_SOURCE_FILES = {
 REQUIRED_GATE_OBSERVED_FILES = {
     "daily_simulated_fill_ledger/snapshot_integrity.json":
         "paper_snapshot_integrity",
+    "run287_risk_outcome_parent_anchor/anchor.json":
+        "risk_outcome_parent_anchor",
     "run287_operating_scorecard/operating_scorecard.json":
         "operating_scorecard",
     "run287_risk_outcome_archive/summary.json": "risk_outcome_summary",
@@ -82,11 +97,33 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def strict_json_object(
+    payload: str | bytes,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{label}:duplicate_json_key:{key}")
+            result[key] = value
+        return result
+
+    try:
+        decoded = json.loads(payload, object_pairs_hook=object_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label}:invalid_json") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError(f"JSON object required: {label}")
+    return decoded
+
+
 def read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"JSON object required: {path}")
-    return payload
+    return strict_json_object(
+        path.read_text(encoding="utf-8"),
+        label=str(path),
+    )
 
 
 def require_file(path: Path, label: str) -> str:
@@ -102,6 +139,310 @@ def valid_commit_sha(value: str) -> bool:
 def valid_sha256(value: Any) -> bool:
     text = str(value or "")
     return len(text) == 64 and all(char in "0123456789abcdef" for char in text.lower())
+
+
+def strict_nonnegative_integer(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label}_invalid")
+    return value
+
+
+def strict_iso_date(value: Any, label: str) -> str:
+    text = str(value or "")
+    try:
+        parsed = datetime.strptime(text, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(f"{label}_invalid") from exc
+    if parsed.strftime("%Y-%m-%d") != text:
+        raise ValueError(f"{label}_invalid")
+    return text
+
+
+def verify_outcome_chain(
+    *,
+    latest_run: Path,
+    outcome: dict[str, Any],
+) -> dict[str, Any]:
+    anchor_path = (
+        latest_run / REQUIRED_FILES["risk_outcome_parent_anchor"]
+    )
+    anchor = read_json(anchor_path)
+    anchor_status = str(anchor.get("status") or "")
+    if (
+        anchor.get("schema_version") != OUTCOME_PARENT_ANCHOR_SCHEMA
+        or anchor_status not in OUTCOME_PARENT_STATUSES
+        or anchor.get("review_only") is not True
+    ):
+        raise ValueError("risk_outcome_parent_anchor_contract_invalid")
+    for field in (
+        "mechanism_promotion_allowed",
+        "threshold_tuning_allowed",
+        "stop_or_exit_rule_created",
+        "selector_weights_changed",
+        "cash_policy_changed",
+        "portfolio_transition_allowed",
+        "orders_generated",
+        "target_books_mutated",
+        "historical_cagr_mdd_evidence_changed",
+        "backtest_executed",
+        "fullrun_executed",
+        "production_activation_allowed",
+        "live_trading_enabled",
+    ):
+        if anchor.get(field) is not False:
+            raise ValueError(
+                f"risk_outcome_parent_anchor_unsafe_flag:{field}"
+            )
+    chain = outcome.get("outcome_chain")
+    if (
+        not isinstance(chain, dict)
+        or chain.get("schema_version") != OUTCOME_CHAIN_SCHEMA
+        or chain.get("status") != "VERIFIED_APPEND_ONLY"
+        or chain.get("parent_anchor_sha256") != sha256_file(anchor_path)
+        or chain.get("parent_anchor_status") != anchor_status
+        or chain.get("exact_parent_prefix_verified") is not True
+        or chain.get("append_only_verified") is not True
+        or str(chain.get("current_as_of_date") or "")
+        != str(outcome.get("as_of_date") or "")
+    ):
+        raise ValueError("risk_outcome_chain_contract_invalid")
+    parent_fields = (
+        "parent_summary_sha256",
+        "parent_summary_bytes",
+        "parent_event_log_sha256",
+        "parent_event_log_bytes",
+        "parent_event_count",
+        "parent_as_of_date",
+        "carried_quarantined_prefix_event_count",
+        "parent_acceptance_status",
+        "parent_accepted_manifest_sha256",
+        "parent_accepted_manifest_bytes",
+        "parent_accepted_manifest_as_of_date",
+    )
+    if any(chain.get(field) != anchor.get(field) for field in parent_fields):
+        raise ValueError("risk_outcome_chain_parent_mismatch")
+    try:
+        parent_summary_bytes = strict_nonnegative_integer(
+            anchor["parent_summary_bytes"],
+            "risk_outcome_parent_summary_bytes",
+        )
+        parent_bytes = strict_nonnegative_integer(
+            anchor["parent_event_log_bytes"],
+            "risk_outcome_parent_event_log_bytes",
+        )
+        parent_count = strict_nonnegative_integer(
+            anchor["parent_event_count"],
+            "risk_outcome_parent_event_count",
+        )
+        quarantined = strict_nonnegative_integer(
+            anchor["carried_quarantined_prefix_event_count"],
+            "risk_outcome_quarantined_prefix_event_count",
+        )
+        parent_accepted_bytes = strict_nonnegative_integer(
+            anchor["parent_accepted_manifest_bytes"],
+            "risk_outcome_parent_accepted_manifest_bytes",
+        )
+        current_bytes = strict_nonnegative_integer(
+            chain["current_event_log_bytes"],
+            "risk_outcome_current_event_log_bytes",
+        )
+        current_count = strict_nonnegative_integer(
+            chain["current_event_count"],
+            "risk_outcome_current_event_count",
+        )
+        trusted_count = strict_nonnegative_integer(
+            chain["trusted_event_count"],
+            "risk_outcome_trusted_event_count",
+        )
+    except KeyError as exc:
+        raise ValueError("risk_outcome_chain_count_invalid") from exc
+    parent_summary_sha256 = str(
+        anchor.get("parent_summary_sha256") or ""
+    )
+    parent_as_of_date = str(anchor.get("parent_as_of_date") or "")
+    acceptance_status = str(
+        anchor.get("parent_acceptance_status") or ""
+    )
+    parent_accepted_sha256 = str(
+        anchor.get("parent_accepted_manifest_sha256") or ""
+    )
+    parent_accepted_as_of_date = str(
+        anchor.get("parent_accepted_manifest_as_of_date") or ""
+    )
+    if acceptance_status not in OUTCOME_PARENT_ACCEPTANCE_STATUSES:
+        raise ValueError("risk_outcome_parent_acceptance_status_invalid")
+    accepted_manifest_empty = (
+        not parent_accepted_sha256
+        and parent_accepted_bytes == 0
+        and not parent_accepted_as_of_date
+    )
+    if anchor_status == "GENESIS_EMPTY":
+        if (
+            parent_summary_sha256
+            or parent_summary_bytes
+            or parent_bytes
+            or parent_count
+            or parent_as_of_date
+            or anchor.get("parent_event_log_sha256")
+            != hashlib.sha256(b"").hexdigest()
+            or quarantined
+            or acceptance_status != "NO_PRIOR_STATE"
+            or not accepted_manifest_empty
+        ):
+            raise ValueError("risk_outcome_parent_genesis_invalid")
+    else:
+        if (
+            not valid_sha256(parent_summary_sha256)
+            or parent_summary_bytes <= 0
+            or not parent_as_of_date
+        ):
+            raise ValueError("risk_outcome_parent_summary_anchor_invalid")
+        parent_as_of_date = strict_iso_date(
+            parent_as_of_date,
+            "risk_outcome_parent_as_of_date",
+        )
+        current_as_of_date = strict_iso_date(
+            outcome.get("as_of_date"),
+            "risk_outcome_current_as_of_date",
+        )
+        if current_as_of_date < parent_as_of_date:
+            raise ValueError("risk_outcome_current_precedes_parent")
+        if anchor_status == "VERIFIED_EMPTY_PARENT":
+            if (
+                parent_bytes != 0
+                or parent_count != 0
+                or anchor.get("parent_event_log_sha256")
+                != hashlib.sha256(b"").hexdigest()
+            ):
+                raise ValueError(
+                    "risk_outcome_parent_empty_event_anchor_invalid"
+                )
+        elif (
+            anchor_status != "VERIFIED_PARENT"
+            or parent_bytes <= 0
+            or parent_count <= 0
+        ):
+            raise ValueError("risk_outcome_parent_event_anchor_invalid")
+        if acceptance_status == "QUARANTINED_LEGACY":
+            if (
+                not accepted_manifest_empty
+                or quarantined != parent_count
+            ):
+                raise ValueError(
+                    "risk_outcome_parent_legacy_quarantine_invalid"
+                )
+        elif acceptance_status == "VERIFIED_ACCEPTED_HEAD":
+            if (
+                not valid_sha256(parent_accepted_sha256)
+                or parent_accepted_bytes <= 0
+                or parent_accepted_as_of_date != parent_as_of_date
+            ):
+                raise ValueError(
+                    "risk_outcome_parent_accepted_head_invalid"
+                )
+            parent_manifest_path = (
+                latest_run
+                / "run287_risk_outcome_parent_accepted"
+                / "manifest.json"
+            )
+            if (
+                not parent_manifest_path.is_file()
+                or parent_manifest_path.stat().st_size
+                != parent_accepted_bytes
+                or sha256_file(parent_manifest_path)
+                != parent_accepted_sha256
+            ):
+                raise ValueError(
+                    "risk_outcome_parent_accepted_manifest_mismatch"
+                )
+            parent_manifest = read_json(parent_manifest_path)
+            parent_manifest_files = parent_manifest.get("files")
+            parent_summary_record = (
+                parent_manifest_files.get("risk_outcome_summary")
+                if isinstance(parent_manifest_files, dict)
+                else None
+            )
+            parent_event_record = (
+                parent_manifest_files.get("risk_outcome_event_log")
+                if isinstance(parent_manifest_files, dict)
+                else None
+            )
+            parent_manifest_chain = parent_manifest.get("outcome_chain")
+            if (
+                parent_manifest.get("schema_version") != SCHEMA_VERSION
+                or parent_manifest.get("status") != READY_STATUS
+                or parent_manifest.get("review_only") is not True
+                or str(parent_manifest.get("as_of_date") or "")
+                != parent_as_of_date
+                or not isinstance(parent_manifest_chain, dict)
+                or parent_manifest_chain.get(
+                    "current_event_log_sha256"
+                )
+                != anchor.get("parent_event_log_sha256")
+                or parent_manifest_chain.get("current_event_log_bytes")
+                != parent_bytes
+                or parent_manifest_chain.get("current_event_count")
+                != parent_count
+                or not isinstance(parent_summary_record, dict)
+                or parent_summary_record.get("path")
+                != "run287_risk_outcome_archive/summary.json"
+                or parent_summary_record.get("sha256")
+                != parent_summary_sha256
+                or parent_summary_record.get("bytes")
+                != parent_summary_bytes
+                or (
+                    parent_count > 0
+                    and (
+                        not isinstance(parent_event_record, dict)
+                        or parent_event_record.get("path")
+                        != (
+                            "run287_risk_outcome_archive/"
+                            "risk_outcome_events.jsonl"
+                        )
+                        or parent_event_record.get("sha256")
+                        != anchor.get("parent_event_log_sha256")
+                    )
+                )
+            ):
+                raise ValueError(
+                    "risk_outcome_parent_accepted_manifest_invalid"
+                )
+        else:
+            raise ValueError(
+                "risk_outcome_parent_existing_state_not_accepted"
+            )
+    event_path = (
+        latest_run
+        / "run287_risk_outcome_archive"
+        / "risk_outcome_events.jsonl"
+    )
+    raw = event_path.read_bytes() if event_path.is_file() else b""
+    if (
+        parent_bytes < 0
+        or parent_count < 0
+        or quarantined < 0
+        or quarantined > parent_count
+        or parent_bytes > len(raw)
+        or current_bytes != len(raw)
+        or current_count != len(raw.splitlines())
+        or trusted_count != current_count - quarantined
+        or chain.get("current_event_log_sha256")
+        != hashlib.sha256(raw).hexdigest()
+        or not valid_sha256(anchor.get("parent_event_log_sha256"))
+    ):
+        raise ValueError("risk_outcome_chain_current_mismatch")
+    prefix = raw[:parent_bytes]
+    if (
+        hashlib.sha256(prefix).hexdigest()
+        != anchor.get("parent_event_log_sha256")
+        or (parent_bytes and not prefix.endswith(b"\n"))
+        or prefix.count(b"\n") != parent_count
+    ):
+        raise ValueError("risk_outcome_event_prefix_rewrite")
+    return {
+        key: value
+        for key, value in chain.items()
+    }
 
 
 def accepted_path(
@@ -125,7 +466,7 @@ def accepted_path(
 def bind_attested_file(
     *,
     latest_run: Path,
-    file_hashes: dict[str, dict[str, str]],
+    file_hashes: dict[str, dict[str, Any]],
     label: str,
     path: Path,
     expected_sha256: Any,
@@ -202,12 +543,13 @@ def build_manifest(
     if not valid_sha256(expected_promotion_gate_sha256):
         raise ValueError("expected_promotion_gate_sha256_invalid")
 
-    file_hashes: dict[str, dict[str, str]] = {}
+    file_hashes: dict[str, dict[str, Any]] = {}
     for label, relative in REQUIRED_FILES.items():
         path = latest_run / relative
         file_hashes[label] = {
             "path": relative,
             "sha256": require_file(path, label),
+            "bytes": path.stat().st_size,
         }
     if (
         file_hashes["promotion_gate"]["sha256"]
@@ -398,6 +740,10 @@ def build_manifest(
     for field in common_false_fields:
         if outcome.get(field) is not False:
             raise ValueError(f"risk_outcome_unsafe_flag:{field}")
+    outcome_chain = verify_outcome_chain(
+        latest_run=latest_run,
+        outcome=outcome,
+    )
     if outcome_status == "READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY":
         outcome_outputs = outcome.get("outputs")
         if not isinstance(outcome_outputs, dict):
@@ -477,6 +823,8 @@ def build_manifest(
         raise ValueError("promotion_gate_runtime_evidence_hash_invalid")
     required_runtime_anchors = {
         "runtime_paper_integrity_sha256": "paper_snapshot_integrity",
+        "runtime_risk_outcome_parent_anchor_sha256":
+            "risk_outcome_parent_anchor",
         "runtime_risk_outcome_summary_sha256": "risk_outcome_summary",
         "runtime_scorecard_sha256": "operating_scorecard",
     }
@@ -577,11 +925,19 @@ def build_manifest(
         },
         "paper_snapshot": {
             "snapshot_hash": paper_manifest.get("snapshot_hash"),
+            "genesis_identity_sha256": paper_manifest.get(
+                "genesis_identity_sha256"
+            ),
             "previous_snapshot_hash": paper_manifest.get("previous_snapshot_hash"),
+            "ancestor_snapshot_hashes": paper_manifest.get(
+                "ancestor_snapshot_hashes",
+                [],
+            ),
             "file_count": paper_manifest.get("file_count"),
             "transaction_mode": accepted.get("transaction_mode"),
         },
         "outcome_status": outcome_status,
+        "outcome_chain": outcome_chain,
         "promotion_state": gate.get("effective_promotion_state"),
         "promotion_gate_runtime_observed_file_count": len(observed_hashes),
         "files": file_hashes,
@@ -650,6 +1006,23 @@ def verify_manifest(
             ) from exc
         if not path.is_file() or sha256_file(path) != expected:
             raise ValueError(f"accepted_publication_file_reverify_failed:{label}")
+        declared_bytes = record.get("bytes")
+        if declared_bytes is not None:
+            if (
+                strict_nonnegative_integer(
+                    declared_bytes,
+                    f"accepted_publication_file_bytes:{label}",
+                )
+                != path.stat().st_size
+            ):
+                raise ValueError(
+                    f"accepted_publication_file_bytes_mismatch:{label}"
+                )
+        elif label == "risk_outcome_summary":
+            raise ValueError(
+                "accepted_publication_file_bytes_missing:"
+                "risk_outcome_summary"
+            )
 
     try:
         try:
@@ -672,11 +1045,25 @@ def verify_manifest(
         not isinstance(paper_snapshot, dict)
         or paper_snapshot.get("snapshot_hash")
         != paper_manifest.get("snapshot_hash")
+        or paper_snapshot.get("genesis_identity_sha256")
+        != paper_manifest.get("genesis_identity_sha256")
         or paper_snapshot.get("previous_snapshot_hash")
         != paper_manifest.get("previous_snapshot_hash")
+        or paper_snapshot.get("ancestor_snapshot_hashes")
+        != paper_manifest.get("ancestor_snapshot_hashes")
         or paper_snapshot.get("file_count") != paper_manifest.get("file_count")
     ):
         raise ValueError("accepted_publication_paper_snapshot_binding_invalid")
+    outcome = read_json(
+        latest_run / REQUIRED_FILES["risk_outcome_summary"]
+    )
+    if (
+        not isinstance(manifest.get("outcome_chain"), dict)
+        or manifest.get("outcome_chain") != outcome.get("outcome_chain")
+        or manifest.get("outcome_chain")
+        != verify_outcome_chain(latest_run=latest_run, outcome=outcome)
+    ):
+        raise ValueError("accepted_publication_outcome_chain_binding_invalid")
 
     gate_sha256 = str(source_identity["promotion_gate_sha256"])
     promotion_record = files.get("promotion_gate")

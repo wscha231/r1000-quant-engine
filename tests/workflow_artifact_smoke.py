@@ -891,6 +891,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "15 1 * * 2-6",
         "force_run",
         "strict_selection",
+        "allow_risk_outcome_genesis_bootstrap",
+        "allow_quarantined_legacy_outcome_parent",
         "LATEST_RUN_INPUT",
         "hydrate outputs/ from requested latest_run",
         "cache_prices",
@@ -1003,6 +1005,56 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/archive_run287_decision_observation.py",
         "outputs/run287_decision_observation_archive/",
         "daily_run287_decision_observation_archive.log",
+        "Restore verified risk-outcome accepted head",
+        "tools/manage_run287_risk_outcome_accepted_heads.py",
+        "paper_archive/run287_risk_outcome_accepted_heads",
+        "outputs/run287_risk_outcome_parent_accepted/manifest.json",
+        "outputs/run287_risk_outcome_accepted_head_bundles",
+        "outputs/run287_risk_outcome_accepted_head_manifests",
+        "quarantined invalid GitHub-cache accepted head",
+        "transient paper-archive discovery failure",
+        "authoritative configured-base absence confirmed; first bootstrap may create it",
+        "authoritative outcome configured-base absence confirmed; first bootstrap may create it",
+        'rclone lsf "gdrive:" --dirs-only',
+        "PAPER_CANONICAL_REMOTE_STATE=PROVEN_PRESENT",
+        "PAPER_CANONICAL_REMOTE_STATE=PROVEN_ABSENT",
+        "assert_remote_canonical_absent",
+        "canonical Drive state appeared after authoritative absence preflight",
+        "transient paper-head listing failure",
+        "discard partial remote view and use only verified cache state",
+        "authoritative Drive head discovery is unavailable",
+        "cached accepted-state manifest has no complete verified bundle or authoritative remote commit",
+        "cached accepted-publication marker is absent from the complete verified cache/remote union",
+        "authoritative legacy outcome archive could not be fetched exactly",
+        "outcome genesis requires proven absence of authoritative legacy state",
+        "legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+        "outcome genesis requires explicit one-time workflow_dispatch authorization",
+        "genesis and legacy-quarantine bootstrap authorizations are mutually exclusive",
+        "allow_verified_paper_canonical_head_bootstrap",
+        "ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP",
+        "run287-verified-paper-canonical-bootstrap-v1",
+        "EXPLICIT_ONE_TIME_MIGRATION_AUTHORIZED",
+        "explicitly adopted integrity-valid pre-head Drive canonical",
+        "PAPER_VERIFIED_CANONICAL_BOOTSTRAP_PENDING",
+        "migration evidence mismatch",
+        "committed explicitly attested pre-head canonical as first immutable paper head",
+        "persist_immutable_paper_head",
+        "ignore incomplete uncommitted immutable head",
+        "--exclude snapshot_integrity.json",
+        '"$remote_head/snapshot_integrity.json"',
+        "daily_run287_outcome_parent_paper_continuity.json",
+        "ACCEPTED_OUTCOME_PAPER_IS_ANCESTOR",
+        "ancestor_snapshot_hashes",
+        "persist_immutable_outcome_head",
+        "Freeze accepted risk-outcome parent",
+        "tools/build_run287_risk_outcome_parent_anchor.py",
+        "outputs/run287_risk_outcome_parent_anchor/anchor.json",
+        "daily_run287_risk_outcome_parent_anchor.log",
+        "--parent-accepted-manifest",
+        "--expected-parent-accepted-manifest-sha256",
+        "--allow-quarantined-legacy-parent",
+        "--parent-anchor outputs/run287_risk_outcome_parent_anchor/anchor.json",
+        "--expected-prior-invocation-summary-sha256",
         "Resolve append-only forward outcomes",
         "tools/resolve_run287_risk_outcomes.py",
         "Build runtime operating scorecard",
@@ -1015,11 +1067,14 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/build_run287_accepted_publication_manifest.py",
         "outputs/run287_accepted_publication/manifest.json",
         "id: paper_integrity",
+        "id: risk_outcome_accepted_parent",
+        "id: risk_outcome_parent",
         "id: risk_outcomes",
         "id: operating_scorecard",
         "id: promotion_gate",
         "id: accepted_publication",
         "promotion_gate_sha256=",
+        "--expected-risk-outcome-parent-anchor-sha256",
         "--expected-promotion-gate-sha256",
         "manifest_sha256=",
         "--expected-manifest-sha256",
@@ -1067,6 +1122,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]:
         assert forbidden not in text, forbidden
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
+    accepted_parent_restore_idx = text.index(
+        "- name: Restore verified risk-outcome accepted head"
+    )
     holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
     exact_upstream_idx = text.index("python tools/run_run287_exact_packet_upstream.py")
     input_registry_idx = text.index("python tools/build_run287_exact_packet_input_registry.py")
@@ -1075,6 +1133,12 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     selected_paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py", paper_idx + 1)
     integrity_idx = text.index(
         "python tools/run287_paper_ledger_integrity.py", selected_paper_idx
+    )
+    parent_clear_idx = text.index(
+        "rm -rf outputs/run287_risk_outcome_parent_anchor"
+    )
+    parent_idx = text.index(
+        "python tools/build_run287_risk_outcome_parent_anchor.py"
     )
     decision_archive_idx = text.index("python tools/archive_run287_decision_observation.py")
     outcome_idx = text.index("python tools/resolve_run287_risk_outcomes.py", decision_archive_idx)
@@ -1091,9 +1155,34 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     accepted_idx = text.index(
         "python tools/build_run287_accepted_publication_manifest.py"
     )
-    assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
+    assert accepted_parent_restore_idx < paper_idx < snapshot_idx, "the immutable prior outcome head must be restored before the paper account is advanced"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
-    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
+    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < parent_clear_idx < parent_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity and freeze the restored outcome parent before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
+    assert text.count(
+        "--parent-anchor outputs/run287_risk_outcome_parent_anchor/anchor.json"
+    ) == 1, "both resolver invocations must reuse the single frozen parent through RISK_OUTCOME_ARGS"
+    assert text.count("--expected-prior-invocation-summary-sha256") == 1
+    assert text.index(
+        "python tools/manage_run287_risk_outcome_accepted_heads.py select"
+    ) < parent_idx
+    accepted_head_verify_idx = text.index(
+        "python tools/manage_run287_risk_outcome_accepted_heads.py verify",
+        accepted_parent_restore_idx,
+    )
+    accepted_paper_continuity_idx = text.index(
+        "daily_run287_outcome_parent_paper_continuity.json"
+    )
+    accepted_head_install_idx = text.index(
+        'cp -a "$SELECTED_HEAD/run287_risk_outcome_archive"'
+    )
+    assert (
+        accepted_head_verify_idx
+        < accepted_paper_continuity_idx
+        < accepted_head_install_idx
+    ), "an accepted outcome head must prove paper ancestry before installation"
+    assert text.index(
+        "python tools/manage_run287_risk_outcome_accepted_heads.py stage"
+    ) > accepted_idx
     assert outcome_idx < scorecard_clear_idx < scorecard_idx
     assert scorecard_idx < promotion_clear_idx < promotion_idx
     assert snapshot_idx < accepted_clear_idx < accepted_idx
@@ -1115,6 +1204,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]
     for path in (
         "outputs/run287_decision_observation_archive/",
+        "outputs/run287_risk_outcome_parent_accepted/",
+        "outputs/run287_risk_outcome_parent_anchor/",
+        "outputs/run287_risk_outcome_accepted_head_bundles/",
+        "outputs/run287_risk_outcome_accepted_head_manifests/",
         "outputs/run287_risk_outcome_archive/",
         "outputs/run287_risk_outcome_price_cache/",
         "outputs/run287_operating_scorecard/",
@@ -1152,6 +1245,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         '${GITHUB_RUN_ID}/daily_operating_selection_refresh' not in accepted_drive
     ), "accepted Drive publication must not share the always-on diagnostic namespace"
     assert "outputs/run287_decision_observation_archive" in accepted_drive
+    assert "outputs/run287_risk_outcome_parent_accepted" in accepted_drive
+    assert "outputs/run287_risk_outcome_parent_anchor" in accepted_drive
+    assert "outputs/run287_risk_outcome_accepted_head_manifests" in accepted_drive
     assert "outputs/run287_risk_outcome_price_cache" in accepted_drive
     assert accepted_drive.index(
         'rclone copyto "$f" "$DEST/$f"'
@@ -1165,6 +1261,16 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert "--verify-manifest" not in diagnostic_drive, (
         "always-on diagnostic publication must not require an accepted manifest"
     )
+    assert "outputs/run287_risk_outcome_parent_anchor" in diagnostic_drive
+    assert "outputs/run287_risk_outcome_parent_accepted" in diagnostic_drive
+    assert "outputs/run287_risk_outcome_accepted_head_manifests" in diagnostic_drive
+    cache_save = text[
+        text.index("- name: Save validated forward paper state cache"):
+        text.index("- name: Sync accepted paper transaction to Google Drive")
+    ]
+    assert "outputs/run287_accepted_publication" in cache_save
+    assert "outputs/run287_risk_outcome_accepted_head_bundles" in cache_save
+    assert "outputs/run287_risk_outcome_accepted_head_manifests" in cache_save
     assert text.count("--verify-manifest") >= 4
     assert text.count("--expected-manifest-sha256") >= 4
 

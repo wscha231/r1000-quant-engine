@@ -100,6 +100,10 @@ def main() -> int:
     parser.add_argument("--output-dir", default="outputs/run287_promotion_gate")
     parser.add_argument("--latest-run", default="")
     parser.add_argument("--expected-paper-integrity-sha256", default="")
+    parser.add_argument(
+        "--expected-risk-outcome-parent-anchor-sha256",
+        default="",
+    )
     parser.add_argument("--expected-risk-outcome-summary-sha256", default="")
     parser.add_argument("--expected-risk-price-cache-manifest-sha256", default="")
     parser.add_argument("--expected-scorecard-sha256", default="")
@@ -117,6 +121,10 @@ def main() -> int:
         "paper_integrity": (
             "daily_simulated_fill_ledger/snapshot_integrity.json",
             args.expected_paper_integrity_sha256,
+        ),
+        "risk_outcome_parent_anchor": (
+            "run287_risk_outcome_parent_anchor/anchor.json",
+            args.expected_risk_outcome_parent_anchor_sha256,
         ),
         "risk_outcome_summary": (
             "run287_risk_outcome_archive/summary.json",
@@ -143,7 +151,13 @@ def main() -> int:
                     expected,
                     label,
                 )
-        evidence = overlay_latest_run_evidence(evidence, latest_run)
+        evidence = overlay_latest_run_evidence(
+            evidence,
+            latest_run,
+            expected_risk_outcome_parent_anchor_sha256=(
+                args.expected_risk_outcome_parent_anchor_sha256
+            ),
+        )
         for label, (relative, expected) in runtime_anchor_specs.items():
             if expected:
                 verify_runtime_anchor(latest_run / relative, expected, label)

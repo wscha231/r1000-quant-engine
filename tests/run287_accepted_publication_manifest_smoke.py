@@ -2,6 +2,7 @@
 """Fail-closed accepted-publication manifest regression tests."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -19,6 +20,7 @@ from tools.build_run287_accepted_publication_manifest import (  # noqa: E402
     SKIPPED_OUTCOME_FALSE_FIELDS,
     build_manifest,
     sha256_file,
+    verify_outcome_chain,
     verify_manifest,
 )
 from tools.run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
@@ -49,6 +51,47 @@ def assert_manifest_blocked(latest: Path, expected: str) -> None:
         assert expected in str(exc), str(exc)
     else:
         raise AssertionError(f"accepted publication was not blocked: {expected}")
+
+
+def test_parent_anchor_status_cannot_be_resealed_around_empty_events() -> None:
+    with TemporaryDirectory() as raw:
+        latest = build_fixture(Path(raw))
+        anchor_path = (
+            latest / "run287_risk_outcome_parent_anchor" / "anchor.json"
+        )
+        outcome_path = (
+            latest / "run287_risk_outcome_archive" / "summary.json"
+        )
+        anchor = json.loads(anchor_path.read_text(encoding="utf-8"))
+        anchor.update(
+            {
+                "status": "VERIFIED_PARENT",
+                "parent_summary_sha256": "b" * 64,
+                "parent_summary_bytes": 1,
+                "parent_as_of_date": "2026-07-21",
+                "parent_acceptance_status": "QUARANTINED_LEGACY",
+            }
+        )
+        write_json(anchor_path, anchor)
+        outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
+        outcome["outcome_chain"].update(
+            {
+                "parent_anchor_sha256": sha256_file(anchor_path),
+                "parent_anchor_status": "VERIFIED_PARENT",
+                "parent_summary_sha256": "b" * 64,
+                "parent_summary_bytes": 1,
+                "parent_as_of_date": "2026-07-21",
+                "parent_acceptance_status": "QUARANTINED_LEGACY",
+            }
+        )
+        try:
+            verify_outcome_chain(latest_run=latest, outcome=outcome)
+        except ValueError as exc:
+            assert "risk_outcome_parent_event_anchor_invalid" in str(exc)
+        else:
+            raise AssertionError(
+                "VERIFIED_PARENT accepted an empty parent event prefix"
+            )
 
 
 def build_fixture(root: Path) -> Path:
@@ -184,6 +227,44 @@ def build_fixture(root: Path) -> Path:
     )
     paper_manifest = write_integrity_manifest(paper, as_of_date="2026-07-22")
 
+    empty_sha256 = hashlib.sha256(b"").hexdigest()
+    parent_anchor_path = (
+        latest / "run287_risk_outcome_parent_anchor" / "anchor.json"
+    )
+    write_json(
+        parent_anchor_path,
+        {
+            "schema_version": "run287-risk-outcome-parent-anchor-v1",
+            "status": "GENESIS_EMPTY",
+            "generated_at_utc": "2026-07-22T22:00:00Z",
+            "parent_summary_sha256": "",
+            "parent_summary_bytes": 0,
+            "parent_event_log_sha256": empty_sha256,
+            "parent_event_log_bytes": 0,
+            "parent_event_count": 0,
+            "parent_as_of_date": "",
+            "carried_quarantined_prefix_event_count": 0,
+            "parent_acceptance_status": "NO_PRIOR_STATE",
+            "parent_accepted_manifest_sha256": "",
+            "parent_accepted_manifest_bytes": 0,
+            "parent_accepted_manifest_as_of_date": "",
+            "review_only": True,
+            "mechanism_promotion_allowed": False,
+            "threshold_tuning_allowed": False,
+            "stop_or_exit_rule_created": False,
+            "selector_weights_changed": False,
+            "cash_policy_changed": False,
+            "portfolio_transition_allowed": False,
+            "orders_generated": False,
+            "target_books_mutated": False,
+            "historical_cagr_mdd_evidence_changed": False,
+            "backtest_executed": False,
+            "fullrun_executed": False,
+            "production_activation_allowed": False,
+            "live_trading_enabled": False,
+        },
+    )
+    parent_anchor_sha256 = sha256_file(parent_anchor_path)
     write_json(
         latest / "run287_risk_outcome_archive" / "summary.json",
         {
@@ -192,6 +273,30 @@ def build_fixture(root: Path) -> Path:
             "as_of_date": "2026-07-22",
             "blockers": [],
             "review_only": True,
+            "outcome_chain": {
+                "schema_version": "run287-risk-outcome-chain-v1",
+                "status": "VERIFIED_APPEND_ONLY",
+                "parent_anchor_sha256": parent_anchor_sha256,
+                "parent_anchor_status": "GENESIS_EMPTY",
+                "parent_summary_sha256": "",
+                "parent_summary_bytes": 0,
+                "parent_event_log_sha256": empty_sha256,
+                "parent_event_log_bytes": 0,
+                "parent_event_count": 0,
+                "parent_as_of_date": "",
+                "carried_quarantined_prefix_event_count": 0,
+                "parent_acceptance_status": "NO_PRIOR_STATE",
+                "parent_accepted_manifest_sha256": "",
+                "parent_accepted_manifest_bytes": 0,
+                "parent_accepted_manifest_as_of_date": "",
+                "current_event_log_sha256": empty_sha256,
+                "current_event_log_bytes": 0,
+                "current_event_count": 0,
+                "current_as_of_date": "2026-07-22",
+                "exact_parent_prefix_verified": True,
+                "append_only_verified": True,
+                "trusted_event_count": 0,
+            },
             **{field: False for field in SKIPPED_OUTCOME_FALSE_FIELDS},
         },
     )
@@ -232,6 +337,8 @@ def build_fixture(root: Path) -> Path:
                 "runtime_paper_integrity_sha256": sha256_file(
                     paper / "snapshot_integrity.json"
                 ),
+                "runtime_risk_outcome_parent_anchor_sha256":
+                    parent_anchor_sha256,
                 "runtime_risk_outcome_summary_sha256": sha256_file(
                     latest / "run287_risk_outcome_archive" / "summary.json"
                 ),
@@ -245,6 +352,8 @@ def build_fixture(root: Path) -> Path:
             "runtime_observed_file_hashes": {
                 "daily_simulated_fill_ledger/snapshot_integrity.json":
                     sha256_file(paper / "snapshot_integrity.json"),
+                "run287_risk_outcome_parent_anchor/anchor.json":
+                    parent_anchor_sha256,
                 "run287_operating_scorecard/operating_scorecard.json":
                     sha256_file(
                         latest
@@ -309,6 +418,12 @@ def write_ready_outcome(latest: Path) -> dict:
         encoding="utf-8",
     )
     price_universe.write_text("ticker\nSPY\n", encoding="utf-8")
+    parent_anchor_path = (
+        latest / "run287_risk_outcome_parent_anchor" / "anchor.json"
+    )
+    parent_anchor = json.loads(
+        parent_anchor_path.read_text(encoding="utf-8")
+    )
     summary = {
         "schema_version": "run287-risk-outcome-archive-v1",
         "status": "READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY",
@@ -321,6 +436,35 @@ def write_ready_outcome(latest: Path) -> dict:
         },
         "source_inputs": {
             "price_cache_manifest_sha256": sha256_file(cache_manifest)
+        },
+        "outcome_chain": {
+            "schema_version": "run287-risk-outcome-chain-v1",
+            "status": "VERIFIED_APPEND_ONLY",
+            "parent_anchor_sha256": sha256_file(parent_anchor_path),
+            "parent_anchor_status": parent_anchor["status"],
+            **{
+                field: parent_anchor[field]
+                for field in (
+                    "parent_summary_sha256",
+                    "parent_summary_bytes",
+                    "parent_event_log_sha256",
+                    "parent_event_log_bytes",
+                    "parent_event_count",
+                    "parent_as_of_date",
+                    "carried_quarantined_prefix_event_count",
+                    "parent_acceptance_status",
+                    "parent_accepted_manifest_sha256",
+                    "parent_accepted_manifest_bytes",
+                    "parent_accepted_manifest_as_of_date",
+                )
+            },
+            "current_event_log_sha256": sha256_file(event_log),
+            "current_event_log_bytes": event_log.stat().st_size,
+            "current_event_count": 1,
+            "current_as_of_date": "2026-07-22",
+            "exact_parent_prefix_verified": True,
+            "append_only_verified": True,
+            "trusted_event_count": 1,
         },
         "review_only": True,
         **{field: False for field in READY_OUTCOME_FALSE_FIELDS},
@@ -360,6 +504,7 @@ def test_manifest_binds_all_accepted_files_and_identity() -> None:
             "main_target",
             "concentrated_target",
             "paper_snapshot_integrity",
+            "risk_outcome_parent_anchor",
             "risk_outcome_summary",
             "operating_scorecard",
             "promotion_gate",
@@ -531,6 +676,21 @@ def test_gate_observed_hash_must_bind_the_exact_runtime_scorecard() -> None:
             "runtime_scorecard_sha256",
         )
 
+    with TemporaryDirectory() as tmp:
+        latest = build_fixture(Path(tmp))
+        anchor_path = (
+            latest
+            / "run287_risk_outcome_parent_anchor"
+            / "anchor.json"
+        )
+        anchor = json.loads(anchor_path.read_text(encoding="utf-8"))
+        anchor["forged_after_gate"] = True
+        write_json(anchor_path, anchor)
+        assert_manifest_blocked(
+            latest,
+            "risk_outcome_chain_contract_invalid",
+        )
+
 
 def test_gate_observed_nonpublication_file_is_reverified_before_publish() -> None:
     with TemporaryDirectory() as tmp:
@@ -564,6 +724,116 @@ def test_gate_observed_nonpublication_file_is_reverified_before_publish() -> Non
             assert "gate_observed_reverify_failed" in str(exc)
         else:
             raise AssertionError("gate-observed TOCTOU mutation was accepted")
+
+
+def test_verified_parent_accepted_head_is_bound_and_reverified() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = build_fixture(Path(tmp))
+        parent_manifest_payload = accepted_manifest(latest)
+        parent_manifest_path = (
+            latest
+            / "run287_risk_outcome_parent_accepted"
+            / "manifest.json"
+        )
+        write_json(parent_manifest_path, parent_manifest_payload)
+        parent_manifest_sha256 = sha256_file(parent_manifest_path)
+
+        summary_path = latest / "run287_risk_outcome_archive/summary.json"
+        parent_summary_bytes = summary_path.read_bytes()
+        anchor_path = (
+            latest / "run287_risk_outcome_parent_anchor/anchor.json"
+        )
+        anchor = json.loads(anchor_path.read_text(encoding="utf-8"))
+        anchor.update(
+            {
+                "status": "VERIFIED_EMPTY_PARENT",
+                "parent_summary_sha256": hashlib.sha256(
+                    parent_summary_bytes
+                ).hexdigest(),
+                "parent_summary_bytes": len(parent_summary_bytes),
+                "parent_as_of_date": "2026-07-22",
+                "parent_acceptance_status": "VERIFIED_ACCEPTED_HEAD",
+                "parent_accepted_manifest_sha256":
+                    parent_manifest_sha256,
+                "parent_accepted_manifest_bytes":
+                    parent_manifest_path.stat().st_size,
+                "parent_accepted_manifest_as_of_date": "2026-07-22",
+            }
+        )
+        write_json(anchor_path, anchor)
+
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["outcome_chain"] = {
+            "schema_version": "run287-risk-outcome-chain-v1",
+            "status": "VERIFIED_APPEND_ONLY",
+            "parent_anchor_sha256": sha256_file(anchor_path),
+            "parent_anchor_status": anchor["status"],
+            **{
+                field: anchor[field]
+                for field in (
+                    "parent_summary_sha256",
+                    "parent_summary_bytes",
+                    "parent_event_log_sha256",
+                    "parent_event_log_bytes",
+                    "parent_event_count",
+                    "parent_as_of_date",
+                    "carried_quarantined_prefix_event_count",
+                    "parent_acceptance_status",
+                    "parent_accepted_manifest_sha256",
+                    "parent_accepted_manifest_bytes",
+                    "parent_accepted_manifest_as_of_date",
+                )
+            },
+            "current_event_log_sha256": hashlib.sha256(b"").hexdigest(),
+            "current_event_log_bytes": 0,
+            "current_event_count": 0,
+            "current_as_of_date": "2026-07-22",
+            "exact_parent_prefix_verified": True,
+            "append_only_verified": True,
+            "trusted_event_count": 0,
+        }
+        write_json(summary_path, summary)
+
+        gate_path = latest / "run287_promotion_gate/promotion_gate.json"
+        gate = json.loads(gate_path.read_text(encoding="utf-8"))
+        gate["source_hashes"][
+            "runtime_risk_outcome_parent_anchor_sha256"
+        ] = sha256_file(anchor_path)
+        gate["source_hashes"][
+            "runtime_risk_outcome_summary_sha256"
+        ] = sha256_file(summary_path)
+        gate["runtime_observed_file_hashes"][
+            "run287_risk_outcome_parent_anchor/anchor.json"
+        ] = sha256_file(anchor_path)
+        gate["runtime_observed_file_hashes"][
+            "run287_risk_outcome_archive/summary.json"
+        ] = sha256_file(summary_path)
+        gate["runtime_observed_file_hashes"][
+            "run287_risk_outcome_parent_accepted/manifest.json"
+        ] = parent_manifest_sha256
+        write_json(gate_path, gate)
+
+        manifest = accepted_manifest(latest)
+        assert (
+            manifest["outcome_chain"]["parent_accepted_manifest_sha256"]
+            == parent_manifest_sha256
+        )
+        assert (
+            manifest["gate_observed_files"][
+                "run287_risk_outcome_parent_accepted/manifest.json"
+            ]["sha256"]
+            == parent_manifest_sha256
+        )
+
+        parent_payload = json.loads(
+            parent_manifest_path.read_text(encoding="utf-8")
+        )
+        parent_payload["forged_after_acceptance"] = True
+        write_json(parent_manifest_path, parent_payload)
+        assert_manifest_blocked(
+            latest,
+            "risk_outcome_parent_accepted_manifest_mismatch",
+        )
 
 
 def test_missing_accepted_source_target_blocks_manifest() -> None:
@@ -634,7 +904,7 @@ def test_ready_outcome_requires_all_safety_and_output_hashes() -> None:
             "run287_risk_outcome_archive/risk_outcome_events.jsonl"
         ).write_text('{"event_id":"tampered"}\n', encoding="utf-8")
         assert_manifest_blocked(
-            latest, "accepted_publication_sha256_mismatch:risk_outcome_event_log"
+            latest, "risk_outcome_chain_current_mismatch"
         )
 
     with TemporaryDirectory() as tmp:
@@ -658,6 +928,19 @@ def test_ready_outcome_requires_all_safety_and_output_hashes() -> None:
             latest,
             "accepted_publication_sha256_mismatch:risk_outcome_price_universe",
         )
+
+
+def test_duplicate_json_keys_in_bound_input_fail_closed() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = build_fixture(Path(tmp))
+        anchor_path = (
+            latest / "run287_risk_outcome_parent_anchor" / "anchor.json"
+        )
+        anchor_path.write_text(
+            '{"schema_version":"first","schema_version":"second"}',
+            encoding="utf-8",
+        )
+        assert_manifest_blocked(latest, "duplicate_json_key:schema_version")
 
 
 if __name__ == "__main__":

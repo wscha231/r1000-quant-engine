@@ -415,6 +415,10 @@ def test_workflow_preserves_cache_anchor_and_checks_restore_and_persist_chains()
         "adopted checksum-verified explicit latest_run ledger as continuity anchor",
         "--require-state-descends-from \"$PAPER_REMOTE_PERSIST_ANCHOR\"",
         "run287_daily_simulated_fill_ledger_heads",
+        "persist_immutable_paper_head",
+        "--exclude snapshot_integrity.json",
+        '"$remote_head/snapshot_integrity.json"',
+        "ignore incomplete uncommitted immutable head",
         'if [ "$VERIFIED_HEAD_HASH" != "$PAPER_HEAD_HASH" ]',
         "reconciled all immutable Drive heads; divergent heads fail closed",
         'if [ "$CAS_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]',
@@ -433,7 +437,8 @@ def test_workflow_preserves_cache_anchor_and_checks_restore_and_persist_chains()
         "rclone sync outputs/daily_simulated_fill_ledger \"$CANONICAL/\""
     )
     immutable_head_index = text.index(
-        'rclone copy outputs/daily_simulated_fill_ledger "$HEADS/$LOCAL_SNAPSHOT_HASH/"'
+        "persist_immutable_paper_head \\\n"
+        "            outputs/daily_simulated_fill_ledger"
     )
     cas_index = text.index(
         'if [ "$CAS_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]'
