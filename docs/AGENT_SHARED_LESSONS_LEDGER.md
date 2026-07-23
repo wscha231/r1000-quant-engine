@@ -3332,6 +3332,12 @@ Expected contract:
 - Rebind the manifest bytes too. If a concurrent publish is supported, leaving
   a pre-verification manifest SHA beside a post-verification snapshot hash and
   summary SHA creates an internally inconsistent trust record.
+- Availability and trust blockers must use the rebound payload as well. It is
+  inconsistent to emit verified metrics from a post-verification snapshot but
+  retain `UNAVAILABLE` or a blocker from a transient pre-verification read.
+- Immutable evidence must not embed private machine paths. Rebind committed
+  companions to repo-relative paths and explicitly label uncommitted historical
+  companions as external with null paths while retaining their hashes.
 - Bundle source scoping applies only to members governed by the bundle. If an
   unregistered member id collides with a non-managed registry source, it is
   still a global bundle fault and must not be routed to that source's lane.
@@ -3339,7 +3345,7 @@ Expected contract:
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.
 - Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and full
-  Tier-1 validation (`191/191`, `535.51s` on the final local follow-up head)
+  Tier-1 validation (`191/191`, `646.89s` on the final local follow-up head)
   passed.
 - Evidence:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.

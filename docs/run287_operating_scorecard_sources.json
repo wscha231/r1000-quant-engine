@@ -5,7 +5,7 @@
   "scorecard_as_of_date": "2026-07-20",
   "canonical_source_bundle_manifest": {
     "path": "data_static/run287_operating_scorecard_sources_v1/manifest.json",
-    "expected_sha256": "f8d791f0db4406985167e9f82d2ec7e54dd4300165f72a9f7687e1b6b447a904"
+    "expected_sha256": "d5a8ba5f594f4d63eeb7d21cf63b4e7e1f1407c799fcf3be5e02f6908f1ab692"
   },
   "public_deployment_allowed": false,
   "production_activation_allowed": false,
@@ -17,7 +17,7 @@
       "section": "selection_quality",
       "path": "data_static/run287_operating_scorecard_sources_v1/p6/summary.json",
       "format": "json",
-      "expected_sha256": "a6a2574c4854645790c52be0beac268573e4e9ab7686b4260d9d1dd4f5860525",
+      "expected_sha256": "424caa5c2367d74c380dc7ec3a861da61487bcf0bd30d2943c1b7ca057a73698",
       "as_of_date": "2026-07-10",
       "metric_mode": "post-decision-outcome-audit",
       "required": true,
@@ -53,7 +53,7 @@
       "section": "reserve",
       "path": "data_static/run287_operating_scorecard_sources_v1/p4/summary.json",
       "format": "json",
-      "expected_sha256": "55e82e56d2d5b86333a958e34e55f6cf6e941ade9c77c69dd2da3c5391309716",
+      "expected_sha256": "1f22cc01a337422322051617a4b7ab44dab5322d3bcc81cd0a22821b640f0dd2",
       "as_of_date": "2026-07-10",
       "metric_mode": "reserve-asset-policy-comparison",
       "required": true,
@@ -151,7 +151,7 @@
       "section": "forward_evidence",
       "path": "data_static/run287_operating_scorecard_sources_v1/forward/summary.json",
       "format": "json",
-      "expected_sha256": "bdbee4229ef8ca31349ceed6606d697742608cde3e9e36fb1e1c13c6510815a6",
+      "expected_sha256": "6f378e85876dabecc23c10937532c25687e5c06c65aa29428917ec71fa325a5e",
       "as_of_date": "2026-07-10",
       "metric_mode": "append-only-true-forward-paper-outcomes",
       "required": true,

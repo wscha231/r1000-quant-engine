@@ -661,9 +661,11 @@ def build_scorecard(
             records_by_id["current_paper_summary"]["sha256"] = (
                 bound_summary_sha256
             )
+            records_by_id["current_paper_summary"]["status"] = "VERIFIED"
             records_by_id["current_paper_integrity"]["sha256"] = (
                 bound_manifest_sha256
             )
+            records_by_id["current_paper_integrity"]["status"] = "VERIFIED"
             paper_runtime_manifest.update(
                 {
                     "status": "VERIFIED",
@@ -784,7 +786,7 @@ def build_scorecard(
         "historical": "NOT_TRUSTED" if historical_integrity_errors else "AVAILABLE_PARTIAL",
         "current_paper_execution": (
             "NOT_TRUSTED" if lane_integrity_errors["current_paper_execution"] else
-            "AVAILABLE" if isinstance(paper, dict) and paper_runtime_manifest["status"] == "VERIFIED"
+            "AVAILABLE" if isinstance(verified_paper, dict) and paper_runtime_manifest["status"] == "VERIFIED"
             else "UNAVAILABLE"
         ),
         "true_forward": (
@@ -806,7 +808,7 @@ def build_scorecard(
         for lane in EVIDENCE_LANES
     }
     scorecard_trust_blockers = list(integrity_errors)
-    if not isinstance(paper, dict):
+    if not isinstance(verified_paper, dict):
         scorecard_trust_blockers.append("current_paper_summary_unavailable")
     if paper_runtime_manifest["status"] != "VERIFIED":
         scorecard_trust_blockers.append("current_paper_runtime_manifest_unverified")
