@@ -288,11 +288,37 @@ def test_true_forward_bundle_error_does_not_poison_historical_lane() -> None:
         scorecard = build_scorecard(
             registry, source_registry_path=registry_path
         )
-    expected = "canonical_source_bundle_path_mismatch:true_forward_summary"
-    assert expected in scorecard["integrity_errors_by_lane"]["true_forward"]
-    assert expected not in scorecard["integrity_errors_by_lane"]["historical"]
-    assert scorecard["headline_performance_trust"] == "TRUSTED"
-    assert scorecard["evidence_status"]["true_forward"] == "NOT_TRUSTED"
+        expected = "canonical_source_bundle_path_mismatch:true_forward_summary"
+        assert expected in scorecard["integrity_errors_by_lane"]["true_forward"]
+        assert expected not in scorecard["integrity_errors_by_lane"]["historical"]
+        assert scorecard["headline_performance_trust"] == "TRUSTED"
+        assert scorecard["evidence_status"]["true_forward"] == "NOT_TRUSTED"
+
+        missing_source_manifest = json.loads(
+            source_manifest_path.read_text(encoding="utf-8")
+        )
+        missing_source_manifest["sources"] = [
+            row for row in missing_source_manifest["sources"]
+            if row["id"] != "true_forward_summary"
+        ]
+        write_json(manifest, missing_source_manifest)
+        registry["canonical_source_bundle_manifest"]["expected_sha256"] = digest(
+            manifest
+        )
+        missing_scorecard = build_scorecard(
+            registry, source_registry_path=registry_path
+        )
+        missing_error = (
+            "canonical_source_bundle_manifest_source_missing:"
+            "true_forward_summary"
+        )
+        assert missing_error in missing_scorecard["integrity_errors_by_lane"][
+            "true_forward"
+        ]
+        assert missing_error not in missing_scorecard["integrity_errors_by_lane"][
+            "historical"
+        ]
+        assert missing_scorecard["headline_performance_trust"] == "TRUSTED"
 
 
 def test_metric_definition_change_requires_migration_note() -> None:

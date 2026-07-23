@@ -153,14 +153,29 @@ def verify_canonical_source_bundle(
     if not isinstance(items, list):
         items = []
         errors.append("canonical_source_bundle_sources_invalid")
+    item_ids = [
+        str(item.get("id") or "")
+        for item in items
+        if isinstance(item, dict) and str(item.get("id") or "")
+    ]
+    if len(item_ids) != len(items):
+        errors.append("canonical_source_bundle_source_entry_invalid")
     by_id = {
         str(item.get("id") or ""): item
         for item in items
         if isinstance(item, dict) and str(item.get("id") or "")
     }
     record["source_count"] = len(by_id)
-    if set(by_id) != set(managed):
-        errors.append("canonical_source_bundle_source_set_mismatch")
+    for source_id in sorted({value for value in item_ids if item_ids.count(value) > 1}):
+        errors.append(f"canonical_source_bundle_source_id_duplicate:{source_id}")
+    for source_id in sorted(set(managed) - set(by_id)):
+        errors.append(
+            f"canonical_source_bundle_manifest_source_missing:{source_id}"
+        )
+    for source_id in sorted(set(by_id) - set(managed)):
+        errors.append(
+            f"canonical_source_bundle_manifest_source_unregistered:{source_id}"
+        )
     for source_id, source in managed.items():
         item = by_id.get(source_id)
         if not isinstance(item, dict):
