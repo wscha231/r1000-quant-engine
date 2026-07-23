@@ -810,6 +810,7 @@ jobs:
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
+          rm -rf outputs/run287_operating_scorecard
           python tools/build_run287_operating_scorecard.py \
             --source-registry docs/run287_operating_scorecard_sources.json \
             --output-dir outputs/run287_operating_scorecard \
@@ -833,6 +834,7 @@ jobs:
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
+          rm -rf outputs/run287_promotion_gate
           PROMOTION_ANCHORS=(
             --expected-paper-integrity-sha256 "${{ steps.paper_integrity.outputs.integrity_sha256 }}"
             --expected-risk-outcome-summary-sha256 "${{ steps.risk_outcomes.outputs.summary_sha256 }}"
@@ -897,6 +899,7 @@ jobs:
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
+          rm -rf outputs/run287_accepted_publication
           python tools/build_run287_accepted_publication_manifest.py \
             --latest-run outputs \
             --output outputs/run287_accepted_publication/manifest.json \

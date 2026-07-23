@@ -1078,15 +1078,25 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     )
     decision_archive_idx = text.index("python tools/archive_run287_decision_observation.py")
     outcome_idx = text.index("python tools/resolve_run287_risk_outcomes.py", decision_archive_idx)
+    scorecard_clear_idx = text.index(
+        "rm -rf outputs/run287_operating_scorecard"
+    )
     scorecard_idx = text.index("python tools/build_run287_operating_scorecard.py")
+    promotion_clear_idx = text.index("rm -rf outputs/run287_promotion_gate")
     promotion_idx = text.index("python tools/run_run287_promotion_gate.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
+    accepted_clear_idx = text.index(
+        "rm -rf outputs/run287_accepted_publication"
+    )
     accepted_idx = text.index(
         "python tools/build_run287_accepted_publication_manifest.py"
     )
     assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
     assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
+    assert outcome_idx < scorecard_clear_idx < scorecard_idx
+    assert scorecard_idx < promotion_clear_idx < promotion_idx
+    assert snapshot_idx < accepted_clear_idx < accepted_idx
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
     for log_name in (
