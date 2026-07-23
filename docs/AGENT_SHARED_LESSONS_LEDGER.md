@@ -3309,7 +3309,8 @@ Expected contract:
   scorecard steps in the same workflow is insufficient.
 - Runtime overlays must clear tracked trust and outcome counts first. Otherwise
   a missing runtime artifact can inherit stale positive evidence from source
-  control.
+  control. The reset must precede even the missing-paper early return and must
+  include session and decision-week counts.
 - Horizon outcome counts must be mapped independently from the ready runtime
   archive. Reusing a single historical count for 21D, 63D, and 126D can make an
   immature challenger appear promotion-ready.
@@ -3318,7 +3319,7 @@ Expected contract:
 - Automatic promotion remains prohibited. A complete evidence packet is a
   review input, not authorization to replace the champion.
 - Focused H4b tests, repository pytest (`129/129`), and full Tier-1 validation
-  (`191/191`, `621.36s`) passed.
+  (`191/191`, `694.76s` on the final local head) passed.
 - Evidence:
   `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production

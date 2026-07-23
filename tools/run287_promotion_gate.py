@@ -163,11 +163,22 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
     and forward counts; every other historical gate remains preregistered.
     """
     evidence = copy.deepcopy(base)
-    paper_root = latest_run / "daily_simulated_fill_ledger"
-    if not paper_root.is_dir():
-        return evidence
     evidence.setdefault("historical", {})["scorecard_trusted"] = False
     forward = evidence.setdefault("forward_paper", {})
+    for field in (
+        "completed_market_sessions",
+        "distinct_decision_weeks",
+        "resolved_21d_outcomes",
+        "resolved_63d_outcomes",
+        "resolved_126d_outcomes",
+    ):
+        forward[field] = 0
+    paper_root = latest_run / "daily_simulated_fill_ledger"
+    if not paper_root.is_dir():
+        evidence.setdefault("runtime_limitations", []).append(
+            "runtime_paper_snapshot_missing"
+        )
+        return evidence
     observed_files: dict[str, str] = {}
     session_sets: list[set[str]] = []
     negative_cash = 0
@@ -296,12 +307,6 @@ def overlay_latest_run_evidence(base: dict[str, Any], latest_run: Path) -> dict[
         )
 
     outcome_path = latest_run / "run287_risk_outcome_archive" / "summary.json"
-    for field in (
-        "resolved_21d_outcomes",
-        "resolved_63d_outcomes",
-        "resolved_126d_outcomes",
-    ):
-        forward[field] = 0
     if outcome_path.is_file():
         observed_files[outcome_path.relative_to(latest_run).as_posix()] = sha256_file(outcome_path)
         outcome = read_json(outcome_path)

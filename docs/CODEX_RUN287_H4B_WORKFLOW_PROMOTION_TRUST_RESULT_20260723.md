@@ -17,6 +17,8 @@ the runtime scorecard has been rebuilt from that exact paper snapshot.
   step and the post-gate operating review to succeed.
 - The promotion gate resets tracked scorecard trust and resolved outcome counts
   before applying runtime evidence.
+- A missing paper snapshot also clears tracked session, decision-week, and all
+  horizon counts before returning a blocked runtime result.
 - Runtime scorecard trust is accepted only when its integrity-manifest SHA and
   paper-snapshot hash bind to the exact verified paper directory being gated.
 - Completed 21D, 63D, and 126D counts and distinct decision weeks are overlaid
@@ -43,9 +45,9 @@ The focused fixtures prove:
 
 - Workflow artifact smoke: PASS.
 - Paper-ledger transaction smoke: PASS.
-- Promotion gate smoke: `10/10` PASS.
+- Promotion gate smoke: `11/11` PASS.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `621.36s`.
+- Full PR validation: `191/191` PASS in `694.76s` on the final local head.
 - YAML parse and `git diff --check`: PASS.
 
 ## Safety and next gate

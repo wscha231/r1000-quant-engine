@@ -233,6 +233,23 @@ def test_runtime_overlay_counts_sessions_and_negative_cash_fails_closed() -> Non
         assert "forward_integrity:negative_cash_count" in gate["rollback"]["triggers"]
 
 
+def test_runtime_overlay_missing_paper_clears_tracked_runtime_evidence() -> None:
+    contract, _, evidence = _inputs()
+    stale = _passing_evidence(contract, evidence)
+    with TemporaryDirectory() as tmp:
+        overlaid = overlay_latest_run_evidence(stale, Path(tmp))
+    assert overlaid["historical"]["scorecard_trusted"] is False
+    for field in (
+        "completed_market_sessions",
+        "distinct_decision_weeks",
+        "resolved_21d_outcomes",
+        "resolved_63d_outcomes",
+        "resolved_126d_outcomes",
+    ):
+        assert overlaid["forward_paper"][field] == 0
+    assert "runtime_paper_snapshot_missing" in overlaid["runtime_limitations"]
+
+
 def test_runtime_overlay_binds_scorecard_and_all_forward_horizons() -> None:
     _, _, evidence = _inputs()
     with TemporaryDirectory() as tmp:
