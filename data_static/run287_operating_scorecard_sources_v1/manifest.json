@@ -1,0 +1,53 @@
+{
+  "schema_version": "run287-operating-scorecard-source-bundle-v1",
+  "bundle_id": "run287-historical-scorecard-evidence-20260720",
+  "immutable": true,
+  "source_as_of_date": "2026-07-10",
+  "sources": [
+    {
+      "id": "p6_selection_summary",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p6/summary.json",
+      "sha256": "11204cb39472fda867022ee02f9ff0f7995346ccab40cfcd5522f27c1cdc8565"
+    },
+    {
+      "id": "p6_selection_metrics",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p6/selected_vs_rank_matched_metrics.csv",
+      "sha256": "60d1cf95553fbe58ffa0bd0717a7176f35e35a091485cbd401cbc25ae5ac921b"
+    },
+    {
+      "id": "p5_hold_exit",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p5/summary.json",
+      "sha256": "60d075f6502533e9ab0df50be8a067e695872ac9978b436ab50c4724dae8fa23"
+    },
+    {
+      "id": "p4_reserve_summary",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p4/summary.json",
+      "sha256": "a0f74bb0b4d9918b70553bbd49be1a45c2c02aa016848d82753b6a51df408560"
+    },
+    {
+      "id": "p4_reserve_metrics",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p4/reserve_mode_metrics.csv",
+      "sha256": "f2ccf5d6c28b6b75956dd895a107723de18c956d893a908b7331e2dba067bfcc"
+    },
+    {
+      "id": "p4_main_reserve_reasons",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p4/main/reserve_reason_audit.json",
+      "sha256": "751a5a88beb16484c9d5d8369ccfc238f60306ce8fe03dece2c5fb406d76338a"
+    },
+    {
+      "id": "p4_concentrated_reserve_reasons",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p4/concentrated/reserve_reason_audit.json",
+      "sha256": "62155452df301d3931fbf51d12e5de6d18203adde09b68b3ee628daa7a53a6c3"
+    },
+    {
+      "id": "p3_main_crisis",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p3/main_evaluation.json",
+      "sha256": "7cbc12ac088a7326e861fbecfeef7b679dd25bec51a36cc2efaa4cb1c2faf359"
+    },
+    {
+      "id": "p3_concentrated_crisis",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p3/concentrated_evaluation.json",
+      "sha256": "20751ef0885af98b1ff9d0ecba991ad9b272a9e103051eb46d90517507f5728d"
+    }
+  ]
+}

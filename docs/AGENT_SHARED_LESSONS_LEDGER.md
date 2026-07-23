@@ -3276,3 +3276,25 @@ Expected contract:
   `docs/CODEX_RUN287_H3_RISK_RESERVE_CORRECTNESS_RESULT_20260722.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-07-23 - Issue #315 H4a scorecard/runtime trust
+
+- A tracked `verified` or `scorecard_trusted` boolean is not trust evidence.
+  Runtime trust must recompute file hashes from the directory-level integrity
+  manifest that contains the claimed paper summary.
+- Evidence-lane failures must remain local: a current-paper checksum failure
+  blocks current-paper and global operating trust but must not rewrite a
+  separately verified historical headline as untrusted.
+- Required scorecard inputs must not depend on ignored `_tmp_tests` paths.
+  Small immutable evidence should be committed with a source-id/path/hash
+  bundle manifest; larger restored evidence must use the equivalent checksum
+  restore contract.
+- Missing model heads are an expected fail-closed operating condition, not an
+  unstructured crash. Emit a blocked report with input hashes and suppress all
+  downstream outcome evaluation.
+- Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and the
+  full `191`-test PR validation path passed.
+- Evidence:
+  `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.

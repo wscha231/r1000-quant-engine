@@ -20,7 +20,9 @@ from tools.build_run287_operating_scorecard import (  # noqa: E402
     load_registry,
     render_report,
     validate_metric_migration,
+    verify_canonical_source_bundle,
 )
+from tools.run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -31,7 +33,13 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def make_fixture(root: Path, *, paper: bool = True, reset_count: int = 0) -> Path:
+def make_fixture(
+    root: Path,
+    *,
+    paper: bool = True,
+    reset_count: int = 0,
+    forged_verified_boolean: bool = False,
+) -> Path:
     p6 = root / "p6.json"
     write_json(p6, {
         "rank_stability": {"mean_score_spearman": 0.6, "mean_top_10_overlap": 0.3, "mean_top_30_overlap": 0.4},
@@ -99,11 +107,16 @@ def make_fixture(root: Path, *, paper: bool = True, reset_count: int = 0) -> Pat
             }},
         },
     })
-    paper_path = root / "paper.json"
-    integrity_path = root / "integrity.json"
+    paper_root = root / "paper"
+    paper_path = paper_root / "summary.json"
+    integrity_path = paper_root / "snapshot_integrity.json"
     if paper:
+        paper_root.mkdir()
         write_json(paper_path, {"integrity": {"account_reset_count": reset_count}, "fill_count": 2})
-        write_json(integrity_path, {"verified": True})
+        if forged_verified_boolean:
+            write_json(integrity_path, {"verified": True})
+        else:
+            write_integrity_manifest(paper_root, as_of_date="2026-07-20")
 
     files = {
         "p6_selection_summary": (p6, "json", True, "historical", "selection_quality"),
@@ -143,6 +156,8 @@ def test_scorecard_keeps_evidence_lanes_and_provenance_separate() -> None:
         registry_path = make_fixture(Path(td))
         scorecard = build_scorecard(load_registry(registry_path), source_registry_path=registry_path)
         assert scorecard["headline_performance_trust"] == "TRUSTED"
+        assert scorecard["scorecard_trusted"] is True
+        assert scorecard["runtime_trust_manifest"]["paper_snapshot"]["status"] == "VERIFIED"
         assert scorecard["evidence_status"] == {
             "historical": "AVAILABLE_PARTIAL",
             "current_paper_execution": "AVAILABLE",
@@ -159,18 +174,49 @@ def test_missing_optional_paper_is_unavailable_not_zero() -> None:
     with tempfile.TemporaryDirectory() as td:
         registry_path = make_fixture(Path(td), paper=False)
         scorecard = build_scorecard(load_registry(registry_path), source_registry_path=registry_path)
+        assert scorecard["scorecard_trusted"] is False
+        assert "current_paper_runtime_manifest_unverified" in scorecard[
+            "scorecard_trust_blockers"
+        ]
         assert scorecard["evidence_status"]["current_paper_execution"] == "UNAVAILABLE"
         rows = [row for row in scorecard["metrics"] if row["evidence_class"] == "current_paper_execution"]
         assert rows and all(row["value"] is None for row in rows)
 
 
-def test_integrity_error_marks_headline_not_trusted() -> None:
+def test_current_paper_error_does_not_poison_historical_headline() -> None:
     with tempfile.TemporaryDirectory() as td:
         registry_path = make_fixture(Path(td), reset_count=1)
         scorecard = build_scorecard(load_registry(registry_path), source_registry_path=registry_path)
-        assert scorecard["headline_performance_trust"] == "NOT_TRUSTED"
+        assert scorecard["headline_performance_trust"] == "TRUSTED"
+        assert scorecard["scorecard_trusted"] is False
+        assert scorecard["evidence_status"]["historical"] == "AVAILABLE_PARTIAL"
+        assert scorecard["evidence_status"]["current_paper_execution"] == "NOT_TRUSTED"
         assert any("account_reset_count" in value for value in scorecard["integrity_errors"])
-        assert all(row["trust"] == "NOT_TRUSTED" for row in scorecard["headline_performance"].values())
+        assert all(row["trust"] == "TRUSTED" for row in scorecard["headline_performance"].values())
+
+
+def test_runtime_manifest_ignores_forged_verified_boolean() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        registry_path = make_fixture(Path(td), forged_verified_boolean=True)
+        scorecard = build_scorecard(
+            load_registry(registry_path), source_registry_path=registry_path
+        )
+        assert scorecard["runtime_trust_manifest"]["trusted_boolean_fields_ignored"] is True
+        assert scorecard["runtime_trust_manifest"]["paper_snapshot"]["status"] == "INTEGRITY_ERROR"
+        assert scorecard["evidence_status"]["current_paper_execution"] == "NOT_TRUSTED"
+        assert "paper_snapshot_hash_chain_unverified" in scorecard[
+            "integrity_errors_by_lane"
+        ]["current_paper_execution"]
+
+
+def test_committed_source_registry_uses_verified_canonical_bundle() -> None:
+    registry_path = ROOT / "docs" / "run287_operating_scorecard_sources.json"
+    registry = load_registry(registry_path)
+    assert all("_tmp_tests" not in str(row.get("path")) for row in registry["sources"])
+    bundle, errors = verify_canonical_source_bundle(registry)
+    assert errors == []
+    assert bundle["status"] == "VERIFIED"
+    assert bundle["source_count"] == 9
 
 
 def test_metric_definition_change_requires_migration_note() -> None:
@@ -187,7 +233,9 @@ def test_metric_definition_change_requires_migration_note() -> None:
 def main() -> int:
     test_scorecard_keeps_evidence_lanes_and_provenance_separate()
     test_missing_optional_paper_is_unavailable_not_zero()
-    test_integrity_error_marks_headline_not_trusted()
+    test_current_paper_error_does_not_poison_historical_headline()
+    test_runtime_manifest_ignores_forged_verified_boolean()
+    test_committed_source_registry_uses_verified_canonical_bundle()
     test_metric_definition_change_requires_migration_note()
     print("run287_operating_scorecard_smoke: PASS")
     return 0

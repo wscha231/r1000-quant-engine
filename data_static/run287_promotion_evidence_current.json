@@ -14,7 +14,7 @@
     "cost_100bps_pass": false,
     "stress_episodes_pass": false,
     "ticker_sector_era_concentration_pass": false,
-    "scorecard_trusted": true,
+    "scorecard_trusted": false,
     "lifecycle_delisted_handling_pass": false,
     "do_not_repeat_conflict_absent": true,
     "metrics": {
@@ -23,7 +23,8 @@
     },
     "limitations": [
       "No accepted challenger exists.",
-      "PIT universe membership and delisted coverage remain incomplete."
+      "PIT universe membership and delisted coverage remain incomplete.",
+      "scorecard_trusted is fail-closed in tracked evidence and may only be overlaid from a runtime-verified operating scorecard manifest."
     ]
   },
   "forward_paper": {

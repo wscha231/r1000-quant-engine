@@ -1,0 +1,330 @@
+{
+  "candidate_contract": {
+    "deduplicated_rows": 47435,
+    "duplicate_conflict_columns": [],
+    "duplicate_rows": 237175,
+    "input_rows": 237175
+  },
+  "fullrun_executed": false,
+  "future_return_columns_physically_excluded_from_decision_decomposition": true,
+  "gate_relaxation_count": 0,
+  "input_hashes": {
+    "candidate_artifact": "7ffa0b27382d303008ffca55878b259ccf7f11beaee28be6f1e4653c30e97989",
+    "concentrated_target_book": "848c1bac00985ab0b132794ee3e1c2942c1561d2f728b0a89778bd6c4e63660e",
+    "current_score_stack": "5e199c4a26e343222fcdc55eb2c332b4aee89b6dfd33344f8c1d99f10f08cf58",
+    "main_target_book": "356bac22ec55090b2d2da882c7505b1460973227639a5d0b7a4c59c25c0ccff9",
+    "reference_score_stack": "14815aeead18897b104cdece20cc11ca4033f62af91fa9b6dc48087325acad21",
+    "rejections": "5813ee7f325af9ad9692bfd5c287e2ca8ac3c3726504763a5beff4ba662e1ecb",
+    "scored_candidate_cache": "3112bed1e7fdf90934043971f6e4ed322a594fe5d992d1621703c3ea9ef3ed96"
+  },
+  "live_trading_enabled": false,
+  "outputs": {
+    "candidate_selection_decomposition": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\candidate_selection_decomposition.csv",
+      "row_count": 47435,
+      "sha256": "1b793debcf7dd24ffda2c2707072fe4e68f6ee5e490e36ba111e65125e0a9c87"
+    },
+    "data_completeness_outcomes": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\data_completeness_outcomes.csv",
+      "row_count": 12,
+      "sha256": "236179dbfcbe27eb975744bfb3939babd2010398e9c2055fa107c653d902b979"
+    },
+    "forward_outcomes_measurement_only": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\forward_outcomes_measurement_only.csv",
+      "row_count": 47435,
+      "sha256": "b5e502f3422d2f592a5b4af5b5a640672cce1d32c9459aa9467031b94ded37ac"
+    },
+    "oos_ic_hit_rate": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\oos_ic_hit_rate.csv",
+      "row_count": 12,
+      "sha256": "5e0dc8ae943d3d3d92fb2f95649ce559b8e580f3e70ca4cc9d28fdd095d0dd13"
+    },
+    "prediction_head_activity_and_drift": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\prediction_head_activity_and_drift.csv",
+      "row_count": 6,
+      "sha256": "b2e944c571e4ac6b41c802c6a86272ac9897383a6e64c5d8dcfdfec9549c39e0"
+    },
+    "rank_stability": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\rank_stability.csv",
+      "row_count": 84,
+      "sha256": "723ea4b6f6b2cf9a40649dbda4a596c90795d94503437cf3c5d539806fba235c"
+    },
+    "rejection_reason_outcomes": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\rejection_reason_outcomes.csv",
+      "row_count": 28,
+      "sha256": "84674fa4d60dc976900aae7592c1eaa2150b7133c1bbfd7466c0f55e8b90af5a"
+    },
+    "rejection_reason_rows": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\rejection_reason_rows.csv",
+      "row_count": 93981,
+      "sha256": "ef1428032026fd616ca9a4a7a202ca46db90a1e63751e46896f69ba19fe220b8"
+    },
+    "selected_vs_rank_matched_metrics": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\selected_vs_rank_matched_metrics.csv",
+      "row_count": 48,
+      "sha256": "60d1cf95553fbe58ffa0bd0717a7176f35e35a091485cbd401cbc25ae5ac921b"
+    },
+    "selected_vs_rank_matched_rows": {
+      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\selected_vs_rank_matched_rows.csv",
+      "row_count": 3130,
+      "sha256": "40ec7e89b6f309fea55abc3dbe8d5ca1c55a52b53a1284854195a67c764545dc"
+    }
+  },
+  "pit_universe_label_clean": false,
+  "prediction_heads": {
+    "active_head_count": 6,
+    "active_reference_head_count": 0,
+    "all_heads_pass": true,
+    "distribution_drift_status": "UNDERPOWERED_NO_PRIOR_ACTIVE_SIX_HEAD_SNAPSHOT",
+    "required_head_count": 6,
+    "silent_zero_fallback_detected": false,
+    "stale_suffix_collision_columns": [],
+    "stale_suffix_collision_count": 0
+  },
+  "production_activation_allowed": false,
+  "rank_stability": {
+    "mean_score_spearman": 0.6357671337559901,
+    "mean_top_10_overlap": 0.3357142857142857,
+    "mean_top_30_overlap": 0.42619047619047623,
+    "pair_count": 84
+  },
+  "rejection_taxonomy": [
+    "SELECTED",
+    "CANDIDATE_GATE",
+    "DATA_INCOMPLETENESS",
+    "RISK_STATE_OR_CASH",
+    "NAME_OR_SECTOR_CAPACITY",
+    "TREND_OR_RS_FAILURE",
+    "VALUATION_OR_THESIS_FAILURE"
+  ],
+  "repaired_candidate_artifact": {
+    "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\candidate_artifact_sector_rs_repaired.csv",
+    "row_count": 47435,
+    "sha256": "c325dd3845711643a82736e35ccdfb8e6727102a91b7e4c1e7913c79fda522b9"
+  },
+  "schema_version": "run287-candidate-gate-stability-audit-v1",
+  "sector_etf_excess_status": "BLOCKED_MISSING_PINNED_SECTOR_ETF_CACHE",
+  "sector_neutral_excess_computed": true,
+  "sector_rs_repair": {
+    "artifact": {
+      "coverage_after": 1.0,
+      "coverage_before": 0.0,
+      "coverage_increase_pp": 100.0,
+      "definition": "mom_3m_minus_same_rebalance_date_sector_mean",
+      "existing_finite_cell_count": 0,
+      "existing_finite_max_absolute_error": 0.0,
+      "existing_finite_preserved": true,
+      "filled_cell_count": 47435,
+      "used_forward_return": false
+    },
+    "scored_cache": {
+      "coverage_after": 1.0,
+      "coverage_before": 0.0,
+      "coverage_increase_pp": 100.0,
+      "definition": "mom_3m_minus_same_rebalance_date_sector_mean",
+      "existing_finite_cell_count": 0,
+      "existing_finite_max_absolute_error": 0.0,
+      "existing_finite_preserved": true,
+      "filled_cell_count": 47435,
+      "used_forward_return": false
+    }
+  },
+  "selection_quality_delta": [
+    {
+      "horizon_sessions": 21,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.023322003904054672,
+      "selected": 0.04344942666305408,
+      "selected_minus_control": 0.02012742275899941,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 63,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.06476277126948417,
+      "selected": 0.11016102788464521,
+      "selected_minus_control": 0.045398256615161045,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 126,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.11787760491285774,
+      "selected": 0.23871161956926895,
+      "selected_minus_control": 0.1208340146564112,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 252,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.19849102356140813,
+      "selected": 0.36073121097654104,
+      "selected_minus_control": 0.1622401874151329,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 21,
+      "portfolio": "main",
+      "rank_matched_control": 0.01919452037335998,
+      "selected": 0.03129652608961764,
+      "selected_minus_control": 0.012102005716257656,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 63,
+      "portfolio": "main",
+      "rank_matched_control": 0.045375537715529934,
+      "selected": 0.08825942255949348,
+      "selected_minus_control": 0.04288388484396355,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 126,
+      "portfolio": "main",
+      "rank_matched_control": 0.11036401323782555,
+      "selected": 0.1725976453219728,
+      "selected_minus_control": 0.062233632084147256,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 252,
+      "portfolio": "main",
+      "rank_matched_control": 0.22919926719485367,
+      "selected": 0.31269818456904946,
+      "selected_minus_control": 0.08349891737419579,
+      "window": "full"
+    },
+    {
+      "horizon_sessions": 21,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.05094898777118577,
+      "selected": 0.08365121422105389,
+      "selected_minus_control": 0.032702226449868116,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 63,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.13809489550660586,
+      "selected": 0.23871119920846143,
+      "selected_minus_control": 0.10061630370185556,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 126,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.2165034434534582,
+      "selected": 0.5594907579995411,
+      "selected_minus_control": 0.3429873145460829,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 252,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.22056193810467237,
+      "selected": 0.3782303003144085,
+      "selected_minus_control": 0.15766836220973615,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 21,
+      "portfolio": "main",
+      "rank_matched_control": 0.017993976225752807,
+      "selected": 0.06693769140740129,
+      "selected_minus_control": 0.04894371518164848,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 63,
+      "portfolio": "main",
+      "rank_matched_control": 0.05719371129045107,
+      "selected": 0.17607176542559252,
+      "selected_minus_control": 0.11887805413514146,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 126,
+      "portfolio": "main",
+      "rank_matched_control": 0.1563495512646389,
+      "selected": 0.35172193732833046,
+      "selected_minus_control": 0.19537238606369156,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 252,
+      "portfolio": "main",
+      "rank_matched_control": 0.26077611202020246,
+      "selected": 0.38914103484383156,
+      "selected_minus_control": 0.1283649228236291,
+      "window": "oos"
+    },
+    {
+      "horizon_sessions": 21,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.03181544961309474,
+      "selected": 0.06203680861323937,
+      "selected_minus_control": 0.03022135900014463,
+      "window": "oos2"
+    },
+    {
+      "horizon_sessions": 63,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.10480843327705759,
+      "selected": 0.16302003634743206,
+      "selected_minus_control": 0.05821160307037447,
+      "window": "oos2"
+    },
+    {
+      "horizon_sessions": 126,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.17878331295730335,
+      "selected": 0.35570496577232696,
+      "selected_minus_control": 0.17692165281502362,
+      "window": "oos2"
+    },
+    {
+      "horizon_sessions": 252,
+      "portfolio": "concentrated",
+      "rank_matched_control": 0.24685368195437682,
+      "selected": 0.2936586514918645,
+      "selected_minus_control": 0.04680496953748767,
+      "window": "oos2"
+    },
+    {
+      "horizon_sessions": 21,
+      "portfolio": "main",
+      "rank_matched_control": 0.013706052235815122,
+      "selected": 0.044596599686058745,
+      "selected_minus_control": 0.030890547450243624,
+      "window": "oos2"
+    },
+    {
+      "horizon_sessions": 63,
+      "portfolio": "main",
+      "rank_matched_control": 0.04590661121754681,
+      "selected": 0.12518473195088298,
+      "selected_minus_control": 0.07927812073333618,
+      "window": "oos2"
+    },
+    {
+      "horizon_sessions": 126,
+      "portfolio": "main",
+      "rank_matched_control": 0.1303255527596101,
+      "selected": 0.24513529045678825,
+      "selected_minus_control": 0.11480973769717814,
+      "window": "oos2"
+    },
+    {
+      "horizon_sessions": 252,
+      "portfolio": "main",
+      "rank_matched_control": 0.25044938206469586,
+      "selected": 0.31235488782763476,
+      "selected_minus_control": 0.061905505762938906,
+      "window": "oos2"
+    }
+  ],
+  "single_remediation": "canonical_rs_sector_3m_materialization",
+  "status": "READY_P6_DIAGNOSTIC",
+  "threshold_grid_executed": false,
+  "used_forward_return_for_selection": false
+}

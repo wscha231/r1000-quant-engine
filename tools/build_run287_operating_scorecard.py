@@ -57,6 +57,8 @@ PAPER_INTEGRITY_FIELDS = (
     "lifecycle_unresolved_count",
     "degraded_data_day_count",
 )
+EVIDENCE_LANES = ("historical", "current_paper_execution", "true_forward")
+CANONICAL_SOURCE_PREFIX = "data_static/run287_operating_scorecard_sources_v1/"
 
 
 def repo_path(value: str | Path) -> Path:
@@ -99,6 +101,79 @@ def load_registry(path: Path) -> dict[str, Any]:
     if not ids or len(ids) != len(set(ids)) or any(not value for value in ids):
         raise ValueError("source ids must be present and unique")
     return payload
+
+
+def verify_canonical_source_bundle(
+    registry: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Verify the committed immutable source bundle against the source registry."""
+    managed = {
+        str(row["id"]): row
+        for row in registry.get("sources", [])
+        if str(row.get("path") or "").replace("\\", "/").startswith(
+            CANONICAL_SOURCE_PREFIX
+        )
+    }
+    spec = registry.get("canonical_source_bundle_manifest")
+    record: dict[str, Any] = {
+        "status": "NOT_REQUIRED" if not managed else "UNVERIFIED",
+        "path": None,
+        "sha256": None,
+        "expected_sha256": None,
+        "source_count": 0,
+    }
+    errors: list[str] = []
+    if not managed:
+        return record, errors
+    if not isinstance(spec, dict) or not str(spec.get("path") or "").strip():
+        return record, ["canonical_source_bundle_manifest_missing"]
+    path = repo_path(str(spec["path"]))
+    record.update(
+        {
+            "path": str(path),
+            "expected_sha256": str(spec.get("expected_sha256") or "").lower(),
+        }
+    )
+    if not path.is_file():
+        return record, ["canonical_source_bundle_manifest_unavailable"]
+    actual_hash = sha256_file(path)
+    record["sha256"] = actual_hash
+    if record["expected_sha256"] and actual_hash != record["expected_sha256"]:
+        return record, ["canonical_source_bundle_manifest_hash_mismatch"]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return record, [f"canonical_source_bundle_manifest_parse_error:{type(exc).__name__}"]
+    if payload.get("schema_version") != "run287-operating-scorecard-source-bundle-v1":
+        errors.append("canonical_source_bundle_manifest_schema_mismatch")
+    if payload.get("immutable") is not True:
+        errors.append("canonical_source_bundle_not_immutable")
+    items = payload.get("sources")
+    if not isinstance(items, list):
+        items = []
+        errors.append("canonical_source_bundle_sources_invalid")
+    by_id = {
+        str(item.get("id") or ""): item
+        for item in items
+        if isinstance(item, dict) and str(item.get("id") or "")
+    }
+    record["source_count"] = len(by_id)
+    if set(by_id) != set(managed):
+        errors.append("canonical_source_bundle_source_set_mismatch")
+    for source_id, source in managed.items():
+        item = by_id.get(source_id)
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("path") or "").replace("\\", "/") != str(
+            source.get("path") or ""
+        ).replace("\\", "/"):
+            errors.append(f"canonical_source_bundle_path_mismatch:{source_id}")
+        manifest_hash = str(item.get("sha256") or "").lower()
+        registry_hash = str(source.get("expected_sha256") or "").lower()
+        if not manifest_hash or manifest_hash != registry_hash:
+            errors.append(f"canonical_source_bundle_hash_mismatch:{source_id}")
+    record["status"] = "VERIFIED" if not errors else "INTEGRITY_ERROR"
+    return record, sorted(set(errors))
 
 
 def validate_metric_migration(previous: dict[str, Any], registry: dict[str, Any]) -> None:
@@ -161,8 +236,29 @@ def build_scorecard(
     registry: dict[str, Any], *, source_registry_path: Path,
     promotion_state_path: Path | None = None,
 ) -> dict[str, Any]:
-    loaded, source_records, integrity_errors = load_sources(registry)
+    loaded, source_records, source_integrity_errors = load_sources(registry)
     records_by_id = {row["source_id"]: row for row in source_records}
+    source_specs_by_id = {
+        str(row["id"]): row for row in registry.get("sources", [])
+    }
+    lane_integrity_errors: dict[str, list[str]] = {
+        lane: [] for lane in EVIDENCE_LANES
+    }
+
+    def record_integrity_error(lane: str, value: str) -> None:
+        resolved_lane = lane if lane in lane_integrity_errors else "historical"
+        lane_integrity_errors[resolved_lane].append(value)
+
+    for value in source_integrity_errors:
+        parts = value.split(":")
+        source_id = parts[1] if len(parts) > 1 else ""
+        lane = str(
+            source_specs_by_id.get(source_id, {}).get("evidence_class") or "historical"
+        )
+        record_integrity_error(lane, value)
+    source_bundle, source_bundle_errors = verify_canonical_source_bundle(registry)
+    for value in source_bundle_errors:
+        record_integrity_error("historical", value)
     metrics: list[dict[str, Any]] = []
 
     def add(
@@ -235,7 +331,7 @@ def build_scorecard(
     headlines: dict[str, Any] = {}
     if isinstance(p5, dict):
         if not bool(p5.get("control_parity_passed")):
-            integrity_errors.append("p5_control_parity_failed")
+            record_integrity_error("historical", "p5_control_parity_failed")
         for portfolio in ("main", "concentrated"):
             pdata = p5.get("portfolios", {}).get(portfolio, {})
             expected = pdata.get("control_parity", {}).get("expected", {})
@@ -327,9 +423,9 @@ def build_scorecard(
     p4 = loaded.get("p4_reserve_summary")
     if isinstance(p4, dict):
         if not bool(p4.get("double_count_check_passed")):
-            integrity_errors.append("reserve_double_count_check_failed")
+            record_integrity_error("historical", "reserve_double_count_check_failed")
         if not bool(p4.get("reason_reconciliation_passed")):
-            integrity_errors.append("reserve_reason_reconciliation_failed")
+            record_integrity_error("historical", "reserve_reason_reconciliation_failed")
     reserve_metrics = loaded.get("p4_reserve_metrics")
     if isinstance(reserve_metrics, pd.DataFrame):
         rows = reserve_metrics[reserve_metrics["mode"].astype(str).eq("DGS3MO_CARRY")]
@@ -364,7 +460,10 @@ def build_scorecard(
             add("integrity", field, value, "current_paper_summary",
                 evidence_class="current_paper_execution", status=status, unit="count")
             if finite(value) and float(value) > 0 and field != "degraded_data_day_count":
-                integrity_errors.append(f"current_paper_integrity:{field}:{int(float(value))}")
+                record_integrity_error(
+                    "current_paper_execution",
+                    f"current_paper_integrity:{field}:{int(float(value))}",
+                )
         for metric_id, key, unit in (
             ("turnover", "turnover", "weight"), ("fill_count", "fill_count", "count"),
             ("fees_usd", "fees_usd", "usd"), ("slippage", "slippage", "return"),
@@ -381,22 +480,39 @@ def build_scorecard(
                 evidence_class="current_paper_execution", status="UNAVAILABLE", unit="count")
         add("execution", "current_paper_execution", None, "current_paper_summary",
             evidence_class="current_paper_execution", status="UNAVAILABLE")
+    paper_runtime_manifest: dict[str, Any] = {
+        "status": "UNAVAILABLE",
+        "manifest_path": records_by_id.get("current_paper_integrity", {}).get("path"),
+        "manifest_sha256": records_by_id.get("current_paper_integrity", {}).get("sha256"),
+        "snapshot_hash": None,
+        "file_count": 0,
+        "trusted_boolean_fields_ignored": True,
+    }
     if isinstance(paper_integrity, dict):
-        verified = paper_integrity.get("verified")
-        if verified is None and paper_integrity.get("status") is not None:
-            verified = paper_integrity.get("status") in {"PASS", "VERIFIED"}
-        if verified is None:
+        try:
             try:
                 from tools.run287_paper_ledger_integrity import verify_integrity_manifest
-                manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
-                verify_integrity_manifest(manifest_path.parent, require=True)
-                verified = True
-            except Exception:
-                verified = False
-        if verified is False:
-            integrity_errors.append("paper_snapshot_hash_chain_unverified")
+            except ModuleNotFoundError:
+                from run287_paper_ledger_integrity import verify_integrity_manifest
+            manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
+            verified_manifest = verify_integrity_manifest(manifest_path.parent, require=True)
+            paper_runtime_manifest.update(
+                {
+                    "status": "VERIFIED",
+                    "snapshot_hash": verified_manifest.get("snapshot_hash"),
+                    "file_count": int(verified_manifest.get("file_count") or 0),
+                }
+            )
+        except Exception as exc:
+            paper_runtime_manifest["status"] = "INTEGRITY_ERROR"
+            paper_runtime_manifest["error"] = f"{type(exc).__name__}:{exc}"
+            record_integrity_error(
+                "current_paper_execution", "paper_snapshot_hash_chain_unverified"
+            )
     elif isinstance(paper, dict):
-        integrity_errors.append("paper_snapshot_integrity_missing")
+        record_integrity_error(
+            "current_paper_execution", "paper_snapshot_integrity_missing"
+        )
 
     forward = loaded.get("true_forward_summary")
     if isinstance(forward, dict):
@@ -435,8 +551,14 @@ def build_scorecard(
             0 if bool(p4.get("reason_reconciliation_passed")) else 1,
             "p4_reserve_summary", evidence_class="historical", unit="count")
 
-    integrity_errors = sorted(set(integrity_errors))
-    headline_trust = "NOT_TRUSTED" if integrity_errors else "TRUSTED"
+    lane_integrity_errors = {
+        lane: sorted(set(values)) for lane, values in lane_integrity_errors.items()
+    }
+    integrity_errors = sorted(
+        {value for values in lane_integrity_errors.values() for value in values}
+    )
+    historical_integrity_errors = lane_integrity_errors["historical"]
+    headline_trust = "NOT_TRUSTED" if historical_integrity_errors else "TRUSTED"
     for payload in headlines.values():
         payload["trust"] = headline_trust
         source = records_by_id.get(str(payload.get("source_id")), {})
@@ -445,19 +567,38 @@ def build_scorecard(
             "as_of_date": source.get("as_of_date"), "metric_mode": source.get("metric_mode"),
         }
 
-    paper_integrity_error = any(
-        value.startswith(("current_paper_integrity:", "paper_snapshot_"))
-        for value in integrity_errors
-    )
     evidence_status = {
-        "historical": "NOT_TRUSTED" if integrity_errors else "AVAILABLE_PARTIAL",
+        "historical": "NOT_TRUSTED" if historical_integrity_errors else "AVAILABLE_PARTIAL",
         "current_paper_execution": (
-            "NOT_TRUSTED" if paper_integrity_error else
-            "AVAILABLE" if isinstance(paper, dict) else "UNAVAILABLE"
+            "NOT_TRUSTED" if lane_integrity_errors["current_paper_execution"] else
+            "AVAILABLE" if isinstance(paper, dict) and paper_runtime_manifest["status"] == "VERIFIED"
+            else "UNAVAILABLE"
         ),
-        "true_forward": str(forward.get("review_readiness", {}).get("status") or "UNDERPOWERED")
-        if isinstance(forward, dict) else "UNAVAILABLE",
+        "true_forward": (
+            "NOT_TRUSTED" if lane_integrity_errors["true_forward"] else
+            str(forward.get("review_readiness", {}).get("status") or "UNDERPOWERED")
+            if isinstance(forward, dict) else "UNAVAILABLE"
+        ),
     }
+    trust_lanes = {
+        lane: {
+            "status": evidence_status[lane],
+            "trusted": (
+                False if lane_integrity_errors[lane]
+                else None if evidence_status[lane] == "UNAVAILABLE"
+                else True
+            ),
+            "integrity_errors": lane_integrity_errors[lane],
+        }
+        for lane in EVIDENCE_LANES
+    }
+    scorecard_trust_blockers = list(integrity_errors)
+    if not isinstance(paper, dict):
+        scorecard_trust_blockers.append("current_paper_summary_unavailable")
+    if paper_runtime_manifest["status"] != "VERIFIED":
+        scorecard_trust_blockers.append("current_paper_runtime_manifest_unverified")
+    scorecard_trust_blockers = sorted(set(scorecard_trust_blockers))
+    scorecard_trusted = not scorecard_trust_blockers
     section_status: dict[str, str] = {}
     for section in SECTIONS:
         section_rows = [row for row in metrics if row["section"] == section]
@@ -517,9 +658,19 @@ def build_scorecard(
         "live_trading_enabled": False,
         "promotion_governance": promotion,
         "historical_acceptance_overwritten_by_forward": False,
+        "scorecard_trusted": scorecard_trusted,
+        "scorecard_trust_basis": "runtime-source-sha256-and-paper-directory-manifest-v1",
+        "scorecard_trust_blockers": scorecard_trust_blockers,
+        "runtime_trust_manifest": {
+            "source_bundle": source_bundle,
+            "paper_snapshot": paper_runtime_manifest,
+            "trusted_boolean_fields_ignored": True,
+        },
         "headline_performance_trust": headline_trust,
         "headline_performance": headlines,
         "integrity_errors": integrity_errors,
+        "integrity_errors_by_lane": lane_integrity_errors,
+        "trust_lanes": trust_lanes,
         "evidence_status": evidence_status,
         "section_status": section_status,
         "performance_attribution": attribution,
@@ -537,6 +688,7 @@ def render_report(scorecard: dict[str, Any]) -> str:
         "",
         f"As of: {scorecard.get('scorecard_as_of_date')}",
         f"Headline trust: **{scorecard['headline_performance_trust']}**",
+        f"Runtime scorecard trusted: **{str(scorecard['scorecard_trusted']).lower()}**",
         "",
         "Historical, current-paper, and true-forward evidence are deliberately separate. "
         "Forward evidence never changes the historical acceptance label.",

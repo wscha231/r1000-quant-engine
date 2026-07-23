@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -20,6 +22,7 @@ from tools.run287_candidate_gate_stability_audit import (  # noqa: E402
     prediction_head_audit,
     rank_stability,
     repair_sector_rs,
+    run,
 )
 
 
@@ -92,6 +95,59 @@ def main() -> int:
     current["pred_lin_ret_x"] = current["pred_lin_ret"]
     _, collision = prediction_head_audit(current, reference)
     assert collision["stale_suffix_collision_count"] == 1
+
+    missing = current.drop(columns=["pred_lin_ret", "pred_lin_ret_x"])
+    missing_rows, missing_summary = prediction_head_audit(missing, reference)
+    assert missing_summary["all_heads_pass"] is False
+    assert missing_summary["missing_current_heads"] == ["pred_lin_ret"]
+    assert missing_rows.loc[
+        missing_rows["prediction_head"].eq("pred_lin_ret"), "current_status"
+    ].item() == "MISSING_HEAD_IN_CURRENT"
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        candidate_path = root / "candidate.csv"
+        scored_path = root / "scored.csv"
+        main_path = root / "main.csv"
+        concentrated_path = root / "concentrated.csv"
+        rejections_path = root / "rejections.csv"
+        current_path = root / "current.csv"
+        reference_path = root / "reference.csv"
+        output_dir = root / "blocked"
+        price_cache = root / "prices"
+        price_cache.mkdir()
+        candidates.to_csv(candidate_path, index=False)
+        candidates.to_csv(scored_path, index=False)
+        pd.DataFrame(
+            [{"rebalance_date": "2024-01-31", "ticker": "AAA", "weight": 1.0}]
+        ).to_csv(main_path, index=False)
+        pd.DataFrame(
+            [{"rebalance_date": "2024-01-31", "ticker": "AAA", "weight": 1.0}]
+        ).to_csv(concentrated_path, index=False)
+        pd.DataFrame([{"ticker": "ZZZ", "reason": "candidate_gate"}]).to_csv(
+            rejections_path, index=False
+        )
+        missing.to_csv(current_path, index=False)
+        reference.to_csv(reference_path, index=False)
+        payload = run(
+            SimpleNamespace(
+                candidate_artifact=str(candidate_path),
+                scored_candidate_cache=str(scored_path),
+                main_target_book=str(main_path),
+                concentrated_target_book=str(concentrated_path),
+                rejections=str(rejections_path),
+                current_score_stack=str(current_path),
+                reference_score_stack=str(reference_path),
+                price_cache=str(price_cache),
+                output_dir=str(output_dir),
+            )
+        )
+        assert payload["status"] == "BLOCKED_PREDICTION_HEAD_INTEGRITY"
+        assert payload["downstream_outcome_evaluation_executed"] is False
+        assert "missing_current_prediction_head:pred_lin_ret" in payload["blockers"]
+        assert (output_dir / "summary.json").is_file()
+        assert (output_dir / "prediction_head_activity_and_drift.csv").is_file()
+        assert not (output_dir / "selected_vs_rank_matched_metrics.csv").exists()
     assert map_rejection_reason("price_trend_not_alive") == "TREND_OR_RS_FAILURE"
     assert map_rejection_reason("concentrated_emerging_or_top7_seat_cap") == "NAME_OR_SECTOR_CAPACITY"
     print("run287_candidate_gate_stability_smoke: PASS")

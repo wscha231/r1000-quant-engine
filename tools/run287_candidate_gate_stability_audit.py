@@ -248,10 +248,17 @@ def prediction_head_audit(current: pd.DataFrame, reference: pd.DataFrame) -> tup
     )
     rows: list[dict[str, Any]] = []
     for head in ACTIVE_HEADS:
-        values = pd.to_numeric(current.get(head), errors="coerce")
+        present = head in current.columns
+        values = (
+            pd.to_numeric(current[head], errors="coerce")
+            if present
+            else pd.Series(np.nan, index=current.index, dtype=float)
+        )
         finite_values = values[np.isfinite(values)]
         row: dict[str, Any] = {
             "prediction_head": head,
+            "present_in_current": present,
+            "current_status": "PRESENT" if present else "MISSING_HEAD_IN_CURRENT",
             "row_count": int(len(current)),
             "finite_count": int(len(finite_values)),
             "coverage": float(len(finite_values) / len(current)) if len(current) else 0.0,
@@ -266,7 +273,7 @@ def prediction_head_audit(current: pd.DataFrame, reference: pd.DataFrame) -> tup
             and row["unique_count"] > 1
             and finite(row["standard_deviation"], 0.0) > 1e-12
         )
-        if head in reference.columns:
+        if present and head in reference.columns:
             lhs = current[["ticker", head]].copy()
             rhs = reference[["ticker", head]].copy()
             lhs["ticker"] = lhs["ticker"].map(clean_ticker)
@@ -283,9 +290,14 @@ def prediction_head_audit(current: pd.DataFrame, reference: pd.DataFrame) -> tup
             row["reference_status"] = "ACTIVE" if reference_active else "INACTIVE_CONSTANT_REFERENCE"
             row["reference_spearman"] = float(a.rank().corr(b.rank())) if reference_active else None
             row["standardized_mean_drift"] = float(abs(a.mean() - b.mean()) / ref_std) if reference_active else None
-        else:
+        elif head not in reference.columns:
             row["reference_common_ticker_count"] = 0
             row["reference_status"] = "MISSING_HEAD_IN_REFERENCE"
+            row["reference_spearman"] = None
+            row["standardized_mean_drift"] = None
+        else:
+            row["reference_common_ticker_count"] = 0
+            row["reference_status"] = "NOT_EVALUATED_CURRENT_HEAD_MISSING"
             row["reference_spearman"] = None
             row["standardized_mean_drift"] = None
         rows.append(row)
@@ -302,6 +314,12 @@ def prediction_head_audit(current: pd.DataFrame, reference: pd.DataFrame) -> tup
             else "UNDERPOWERED_NO_PRIOR_ACTIVE_SIX_HEAD_SNAPSHOT"
         ),
         "active_reference_head_count": int(audit["reference_status"].eq("ACTIVE").sum()),
+        "missing_current_heads": audit.loc[
+            ~audit["present_in_current"], "prediction_head"
+        ].astype(str).tolist(),
+        "missing_reference_heads": audit.loc[
+            audit["reference_status"].eq("MISSING_HEAD_IN_REFERENCE"), "prediction_head"
+        ].astype(str).tolist(),
     }
     return audit, summary
 
@@ -614,7 +632,55 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     reference = pd.read_csv(inputs["reference_score_stack"], low_memory=False)
     head_rows, head_summary = prediction_head_audit(current, reference)
     if not head_summary["all_heads_pass"] or head_summary["stale_suffix_collision_count"]:
-        raise ValueError("prediction head integrity failed")
+        head_path = output_dir / "prediction_head_activity_and_drift.csv"
+        write_csv(head_path, head_rows)
+        blockers: list[str] = []
+        blockers.extend(
+            f"missing_current_prediction_head:{head}"
+            for head in head_summary["missing_current_heads"]
+        )
+        blockers.extend(
+            f"inactive_prediction_head:{row.prediction_head}"
+            for row in head_rows.loc[
+                ~head_rows["finite_nonzero_nonconstant_pass"]
+                & head_rows["present_in_current"]
+            ].itertuples(index=False)
+        )
+        blockers.extend(
+            f"stale_prediction_head_suffix_collision:{column}"
+            for column in head_summary["stale_suffix_collision_columns"]
+        )
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "status": "BLOCKED_PREDICTION_HEAD_INTEGRITY",
+            "blockers": sorted(set(blockers)),
+            "input_hashes": {name: file_sha256(path) for name, path in inputs.items()},
+            "candidate_contract": candidate_contract,
+            "sector_rs_repair": {
+                "artifact": artifact_repair,
+                "scored_cache": scored_repair,
+            },
+            "prediction_heads": head_summary,
+            "outputs": {
+                "prediction_head_activity_and_drift": {
+                    "path": str(head_path),
+                    "sha256": file_sha256(head_path),
+                    "row_count": int(len(head_rows)),
+                },
+                "repaired_candidate_artifact": {
+                    "path": str(repaired_artifact_path),
+                    "sha256": file_sha256(repaired_artifact_path),
+                    "row_count": int(len(repaired_artifact)),
+                },
+            },
+            "downstream_outcome_evaluation_executed": False,
+            "valid_for_scorecard_absorption": False,
+            "fullrun_executed": False,
+            "production_activation_allowed": False,
+            "live_trading_enabled": False,
+        }
+        write_json(output_dir / "summary.json", payload)
+        return payload
 
     stability = rank_stability(scored)
     labels = forward_return_table(scored, price_cache)
