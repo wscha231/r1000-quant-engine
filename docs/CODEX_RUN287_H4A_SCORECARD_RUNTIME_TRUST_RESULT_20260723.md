@@ -50,7 +50,7 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `715.88s` on the final local
+- Full PR validation: `191/191` PASS in `526.96s` on the final local
   follow-up head.
 - Python compilation and `git diff --check`: PASS.
 
@@ -94,6 +94,13 @@ The first exact-head Codex review identified two valid provenance gaps.
 - Current-paper values are emitted only after the exact summary path and hash
   are bound by the successfully verified ledger manifest. A failed binding
   leaves every paper metric explicitly `UNAVAILABLE`.
+- The builder re-reads and parses the exact paper summary bytes after manifest
+  verification, then records that same SHA-256 as metric provenance. A
+  concurrent ledger republish cannot mix a pre-verification object with a
+  post-verification manifest.
+- Only managed absorbed source ids can make a bundle error source-scoped. An
+  unregistered manifest member remains a global bundle fault even when its id
+  happens to match a non-managed registry source.
 - New regressions mutate source bytes behind unchanged declarations and inject
   true-forward-only bundle path and source-set mismatches. All fail closed in
   the intended lane.
@@ -101,7 +108,9 @@ The first exact-head Codex review identified two valid provenance gaps.
   a paper summary outside the verified ledger directory, and a blocked P6
   summary paired with stale metrics. Final follow-up regressions also prove
   that bundle-rejected sources, unattested paper values, and P6 metrics whose
-  required summary failed verification cannot leak into the scorecard.
+  required summary failed verification cannot leak into the scorecard. The
+  final exact-head regressions republish the paper summary during verification
+  and inject a non-managed registry id into the canonical bundle.
 
 ## Safety and next gate
 

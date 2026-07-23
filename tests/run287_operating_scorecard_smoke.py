@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -24,6 +25,7 @@ from tools.build_run287_operating_scorecard import (  # noqa: E402
     verify_canonical_source_bundle,
 )
 from tools.run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
+import tools.run287_paper_ledger_integrity as paper_integrity_module  # noqa: E402
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -389,6 +391,49 @@ def test_unverified_p6_summary_suppresses_companion_metrics() -> None:
         assert all(row["value"] is None for row in selection_rows)
 
 
+def test_paper_metrics_use_the_manifest_bound_summary_bytes() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        registry_path = make_fixture(root)
+        registry = load_registry(registry_path)
+        paper_root = root / "paper"
+        summary_path = paper_root / "summary.json"
+        original_verify = paper_integrity_module.verify_integrity_manifest
+        republished = False
+
+        def republish_then_verify(
+            ledger_root: Path, *, require: bool = False
+        ) -> dict[str, object]:
+            nonlocal republished
+            if not republished:
+                republished = True
+                write_json(
+                    summary_path,
+                    {"integrity": {"account_reset_count": 0}, "fill_count": 999},
+                )
+                write_integrity_manifest(paper_root, as_of_date="2026-07-21")
+            return original_verify(ledger_root, require=require)
+
+        with patch.object(
+            paper_integrity_module,
+            "verify_integrity_manifest",
+            side_effect=republish_then_verify,
+        ):
+            scorecard = build_scorecard(
+                registry, source_registry_path=registry_path
+            )
+
+        fill_count = next(
+            row for row in scorecard["metrics"]
+            if row["metric_id"] == "fill_count"
+        )
+        assert fill_count["status"] == "AVAILABLE"
+        assert fill_count["value"] == 999
+        assert fill_count["provenance"]["source_sha256"] == scorecard[
+            "runtime_trust_manifest"
+        ]["paper_snapshot"]["summary_sha256"]
+
+
 def test_blocked_p6_summary_cannot_absorb_stale_metrics() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -498,6 +543,43 @@ def test_true_forward_bundle_error_does_not_poison_historical_lane() -> None:
         assert missing_scorecard["headline_performance_trust"] == "TRUSTED"
 
 
+def test_nonmanaged_bundle_member_is_a_global_integrity_failure() -> None:
+    registry_path = ROOT / "docs" / "run287_operating_scorecard_sources.json"
+    registry = copy.deepcopy(load_registry(registry_path))
+    source_manifest_path = ROOT / registry["canonical_source_bundle_manifest"]["path"]
+    source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    current_paper = next(
+        row for row in registry["sources"]
+        if row["id"] == "current_paper_summary"
+    )
+    source_manifest["sources"].append({
+        "id": "current_paper_summary",
+        "path": current_paper["path"],
+        "sha256": "0" * 64,
+    })
+    bundle_root = ROOT / "data_static" / "run287_operating_scorecard_sources_v1"
+    with tempfile.TemporaryDirectory(dir=bundle_root) as td:
+        manifest = Path(td) / "manifest.json"
+        write_json(manifest, source_manifest)
+        registry["canonical_source_bundle_manifest"] = {
+            "path": manifest.relative_to(ROOT).as_posix(),
+            "expected_sha256": digest(manifest),
+        }
+        scorecard = build_scorecard(
+            registry, source_registry_path=registry_path
+        )
+        error = (
+            "canonical_source_bundle_manifest_source_unregistered:"
+            "current_paper_summary"
+        )
+        assert error in scorecard["integrity_errors_by_lane"]["historical"]
+        assert error in scorecard["integrity_errors_by_lane"]["true_forward"]
+        assert error not in scorecard["integrity_errors_by_lane"][
+            "current_paper_execution"
+        ]
+        assert scorecard["headline_performance_trust"] == "NOT_TRUSTED"
+
+
 def test_metric_definition_change_requires_migration_note() -> None:
     previous = {"metric_definition_version": "v1"}
     try:
@@ -519,8 +601,10 @@ def main() -> int:
     test_required_absorbed_source_cannot_escape_canonical_bundle()
     test_paper_summary_must_share_verified_manifest_directory()
     test_unverified_p6_summary_suppresses_companion_metrics()
+    test_paper_metrics_use_the_manifest_bound_summary_bytes()
     test_blocked_p6_summary_cannot_absorb_stale_metrics()
     test_true_forward_bundle_error_does_not_poison_historical_lane()
+    test_nonmanaged_bundle_member_is_a_global_integrity_failure()
     test_metric_definition_change_requires_migration_note()
     print("run287_operating_scorecard_smoke: PASS")
     return 0

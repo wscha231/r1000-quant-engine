@@ -323,6 +323,12 @@ def build_scorecard(
     lane_integrity_errors: dict[str, list[str]] = {
         lane: [] for lane in EVIDENCE_LANES
     }
+    managed_source_ids = {
+        source_id
+        for source_id, spec in source_specs_by_id.items()
+        if spec.get("required") is True
+        and str(spec.get("disposition") or "") == "ABSORBED_SOURCE"
+    }
 
     def record_integrity_error(lane: str, value: str) -> None:
         resolved_lane = lane if lane in lane_integrity_errors else "historical"
@@ -339,7 +345,7 @@ def build_scorecard(
     for value in source_bundle_errors:
         affected_source_ids = [
             token for token in value.split(":")[1:]
-            if token in source_specs_by_id
+            if token in managed_source_ids
         ]
         if affected_source_ids:
             for source_id in affected_source_ids:
@@ -357,12 +363,6 @@ def build_scorecard(
             }
             for lane in managed_lanes or {"historical"}:
                 record_integrity_error(lane, value)
-    managed_source_ids = {
-        source_id
-        for source_id, spec in source_specs_by_id.items()
-        if spec.get("required") is True
-        and str(spec.get("disposition") or "") == "ABSORBED_SOURCE"
-    }
     if source_bundle.get("status") not in {"VERIFIED", "NOT_REQUIRED"}:
         scoped_failed_source_ids = {
             token
@@ -602,6 +602,7 @@ def build_scorecard(
         "file_count": 0,
         "trusted_boolean_fields_ignored": True,
     }
+    verified_paper_payload: dict[str, Any] | None = None
     if isinstance(paper_integrity, dict):
         paper_summary_binding_error = ""
         try:
@@ -629,14 +630,24 @@ def build_scorecard(
                 ledger_root
             ).as_posix()
             verified_files = verified_manifest.get("files") or {}
+            summary_bytes = summary_path.read_bytes()
+            bound_summary_sha256 = hashlib.sha256(summary_bytes).hexdigest()
             if (
                 summary_relative not in verified_files
-                or verified_files.get(summary_relative) != sha256_file(summary_path)
+                or verified_files.get(summary_relative) != bound_summary_sha256
             ):
                 paper_summary_binding_error = (
                     "paper summary is not hash-bound by the verified snapshot manifest"
                 )
                 raise ValueError(paper_summary_binding_error)
+            rebound_paper = json.loads(summary_bytes)
+            if not isinstance(rebound_paper, dict):
+                paper_summary_binding_error = "paper summary is not a JSON object"
+                raise ValueError(paper_summary_binding_error)
+            verified_paper_payload = rebound_paper
+            records_by_id["current_paper_summary"]["sha256"] = (
+                bound_summary_sha256
+            )
             paper_runtime_manifest.update(
                 {
                     "status": "VERIFIED",
@@ -644,7 +655,7 @@ def build_scorecard(
                     "file_count": int(verified_manifest.get("file_count") or 0),
                     "summary_path": str(summary_path),
                     "summary_relative_path": summary_relative,
-                    "summary_sha256": sha256_file(summary_path),
+                    "summary_sha256": bound_summary_sha256,
                 }
             )
         except Exception as exc:
@@ -664,8 +675,8 @@ def build_scorecard(
         )
 
     verified_paper = (
-        paper
-        if isinstance(paper, dict)
+        verified_paper_payload
+        if isinstance(verified_paper_payload, dict)
         and paper_runtime_manifest.get("status") == "VERIFIED"
         else None
     )
