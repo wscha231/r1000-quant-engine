@@ -3335,6 +3335,9 @@ Expected contract:
 - Availability and trust blockers must use the rebound payload as well. It is
   inconsistent to emit verified metrics from a post-verification snapshot but
   retain `UNAVAILABLE` or a blocker from a transient pre-verification read.
+- Rebound verification must start from the registry path, not from whether the
+  initial source loader happened to parse the manifest. Atomic directory swaps
+  can make an optional file briefly absent and then restore a complete snapshot.
 - Immutable evidence must not embed private machine paths. Rebind committed
   companions to repo-relative paths and explicitly label uncommitted historical
   companions as external with null paths while retaining their hashes.
@@ -3345,7 +3348,7 @@ Expected contract:
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.
 - Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and full
-  Tier-1 validation (`191/191`, `646.89s` on the final local follow-up head)
+  Tier-1 validation (`191/191`, `532.21s` on the final local follow-up head)
   passed.
 - Evidence:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.

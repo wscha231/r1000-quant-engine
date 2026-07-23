@@ -50,7 +50,7 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `646.89s` on the final local
+- Full PR validation: `191/191` PASS in `532.21s` on the final local
   follow-up head.
 - Python compilation and `git diff --check`: PASS.
 
@@ -105,6 +105,10 @@ The first exact-head Codex review identified two valid provenance gaps.
   from the rebound, manifest-verified payload. A directory swap that made the
   initial source read temporarily unavailable cannot leave a stale blocker
   after a later exact snapshot verification succeeds.
+- Rebound verification opens the registry manifest path whenever it exists; it
+  does not require the initial `load_sources()` read to have observed a parsed
+  manifest. A transient directory-swap miss can therefore recover to the exact
+  verified snapshot instead of remaining falsely unavailable.
 - Canonical bundle JSON contains no private `_tmp_tests` or `H:\\codex` paths.
   Embedded provenance that is present in the bundle is rebound to a stable
   repo-relative path; hash-only historical artifacts that were not committed
@@ -124,7 +128,9 @@ The first exact-head Codex review identified two valid provenance gaps.
   and inject a non-managed registry id into the canonical bundle. The republish
   regression also proves the manifest SHA is rebound to the same new snapshot,
   and a transiently missing initial paper read cannot poison verified runtime
-  trust. Canonical-provenance checks reject private local paths.
+  trust. The regression now drops both the initial summary and manifest reads
+  before proving path-based rebound recovery. Canonical-provenance checks reject
+  private local paths.
 
 ## Safety and next gate
 
