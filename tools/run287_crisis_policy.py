@@ -58,6 +58,8 @@ REENTRY_GROSS_MULTIPLIERS = {
     "REENTRY_STAGE_2": 0.60,
     "REENTRY_STAGE_3": 1.00,
 }
+TRUE_BOOLEAN_VALUES = {"1", "true", "yes", "y"}
+FALSE_BOOLEAN_VALUES = {"0", "false", "no", "n", "", "none", "nan"}
 
 
 @dataclass(frozen=True)
@@ -119,12 +121,41 @@ def safe_float(value: Any, default: float | None = None) -> float | None:
 
 
 def canonical_state(value: Any, reentry_stage: Any = "") -> str:
-    state = str(value or "GREEN").upper().strip()
-    stage = str(reentry_stage or "").upper().strip()
+    state = "" if value is None or pd.isna(value) else str(value).upper().strip()
+    if state in {"", "NONE", "NAN", "NULL"}:
+        return "DEGRADED_DATA"
+    return state if state in CANONICAL_STATES else "DEGRADED_DATA"
+
+
+def adapt_crisis_state(value: Any, reentry_stage: Any = "") -> str:
+    """Convert legacy names only while ingesting an external state record."""
+    state = "" if value is None or pd.isna(value) else str(value).upper().strip()
+    stage = (
+        ""
+        if reentry_stage is None or pd.isna(reentry_stage)
+        else str(reentry_stage).upper().strip()
+    )
     if state == "REENTRY_READY" and stage in REENTRY_GROSS_MULTIPLIERS:
         return stage
-    state = LEGACY_STATE_ALIASES.get(state, state)
-    return state if state in CANONICAL_STATES else "DEGRADED_DATA"
+    return canonical_state(LEGACY_STATE_ALIASES.get(state, state))
+
+
+def strict_boolean(value: Any, *, field: str) -> bool:
+    """Parse source booleans without Python's truthy-string coercion."""
+    if value is None or pd.isna(value):
+        return False
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        parsed = safe_float(value)
+        if parsed in {0.0, 1.0}:
+            return bool(parsed)
+    text = str(value).strip().lower()
+    if text in TRUE_BOOLEAN_VALUES:
+        return True
+    if text in FALSE_BOOLEAN_VALUES:
+        return False
+    raise ValueError(f"invalid_boolean:{field}:{value}")
 
 
 def strip_future_labels(frame: pd.DataFrame) -> pd.DataFrame:
@@ -165,7 +196,8 @@ def component_availability(
             and not pd.isna(component_available_from)
             and component_available_from > decision
         )
-        explicitly_stale = bool(values.get(f"{component}_stale", False))
+        stale_field = f"{component}_stale"
+        explicitly_stale = strict_boolean(values.get(stale_field, False), field=stale_field)
         available = value is not None and not future
         fresh = available and not explicitly_stale
         caveat = ""
@@ -291,6 +323,9 @@ def transition_state(
         else:
             state = "WATCH" if raw_state_streak >= 2 or prior != "GREEN" else "GREEN"
             reason = "confirmed_watch" if state == "WATCH" else "watch_confirmation_pending"
+    elif raw == "DEGRADED_DATA":
+        state = "DEGRADED_DATA"
+        reason = "unknown_or_degraded_raw_state"
     elif prior in {"CRISIS", "DEFENSE", "DEGRADED_DATA"}:
         if score < REENTRY_THRESHOLDS[0]:
             state = "DEFENSE" if prior != "DEGRADED_DATA" else "DEGRADED_DATA"
@@ -299,8 +334,17 @@ def transition_state(
             state = _reentry_stage(score)
             reason = "reentry_score_threshold"
     elif prior.startswith("REENTRY_STAGE_"):
-        state = _reentry_stage(score) if score >= REENTRY_THRESHOLDS[0] else "DEFENSE"
-        reason = "reentry_progress" if state.startswith("REENTRY") else "reentry_failed"
+        if score < REENTRY_THRESHOLDS[0]:
+            state = prior
+            reason = "reentry_stage_held_without_new_risk_event"
+        else:
+            proposed = _reentry_stage(score)
+            if REENTRY_GROSS_MULTIPLIERS[proposed] < REENTRY_GROSS_MULTIPLIERS[prior]:
+                state = prior
+                reason = "reentry_stage_held_without_new_risk_event"
+            else:
+                state = proposed
+                reason = "reentry_progress"
     else:
         state = "GREEN"
         reason = "risk_on"

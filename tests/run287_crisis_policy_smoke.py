@@ -13,7 +13,9 @@ if str(ROOT) not in sys.path:
 
 from tools.run287_crisis_policy import (  # noqa: E402
     RESERVE_REASONS,
+    adapt_crisis_state,
     apply_selective_defense,
+    canonical_state,
     component_availability,
     strip_future_labels,
     transition_state,
@@ -52,6 +54,53 @@ def test_future_columns_removed_and_degraded_is_explicit() -> None:
     )
     assert decision.state == "DEGRADED_DATA"
     assert "vix" in decision.missing_critical_components
+    assert canonical_state(None) == "DEGRADED_DATA"
+    assert canonical_state(pd.NA) == "DEGRADED_DATA"
+    assert canonical_state("CRISIS_DEFENSE") == "DEGRADED_DATA"
+    assert adapt_crisis_state("CRISIS_DEFENSE") == "CRISIS"
+    assert adapt_crisis_state("REENTRY_READY", "REENTRY_STAGE_2") == "REENTRY_STAGE_2"
+    unknown = transition_state(
+        raw_state="MYSTERY_STATE",
+        prior_state="GREEN",
+        raw_state_streak=1,
+        values=complete_values(),
+        availability=component_availability(complete_values()),
+    )
+    assert unknown.state == "DEGRADED_DATA"
+
+
+def test_boolean_sources_are_strict_and_reentry_does_not_regress_silently() -> None:
+    values = complete_values()
+    values["vix_stale"] = "false"
+    availability = component_availability(values)
+    assert next(row for row in availability if row.component == "vix").fresh is True
+    values["vix_stale"] = "ambiguous"
+    try:
+        component_availability(values)
+    except ValueError as exc:
+        assert "invalid_boolean:vix_stale:ambiguous" in str(exc)
+    else:
+        raise AssertionError("ambiguous source boolean was accepted")
+
+    weak_recovery = complete_values()
+    weak_recovery.update(
+        {
+            "qqq_below_ma200": 1.0,
+            "market_breadth_above_ma200": 0.0,
+            "hy_oas_zscore_252d": 2.0,
+            "vix_zscore_252d": 2.0,
+            "market_leadership_narrowing": 1.0,
+        }
+    )
+    held = transition_state(
+        raw_state="GREEN",
+        prior_state="REENTRY_STAGE_2",
+        raw_state_streak=3,
+        values=weak_recovery,
+        availability=component_availability(weak_recovery),
+    )
+    assert held.state == "REENTRY_STAGE_2"
+    assert held.transition_reason == "reentry_stage_held_without_new_risk_event"
 
 
 def test_selective_sell_priority_and_reserve_reconcile() -> None:
@@ -110,6 +159,7 @@ def test_watch_preserves_winner_and_reentry_changes_actual_gross() -> None:
 
 if __name__ == "__main__":
     test_future_columns_removed_and_degraded_is_explicit()
+    test_boolean_sources_are_strict_and_reentry_does_not_regress_silently()
     test_selective_sell_priority_and_reserve_reconcile()
     test_watch_preserves_winner_and_reentry_changes_actual_gross()
     print("run287_crisis_policy_smoke: PASS")

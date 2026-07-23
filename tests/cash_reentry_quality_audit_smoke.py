@@ -159,6 +159,25 @@ def main() -> int:
         assert abs(float(payload["by_portfolio"]["main"]["cash_drag_vs_baseline"]) - 0.03) < 1e-9, payload
         assert "green_idle_cash" in payload["cash_attribution_categories"], payload
 
+        crisis_path = latest / "alphaops_vnext" / "daily_crisis_state.csv"
+        crisis_rows = pd.read_csv(crisis_path)
+        crisis_rows.loc[
+            crisis_rows["date"].eq("2026-04-01"), "crisis_state"
+        ] = "DEGRADED_DATA"
+        crisis_rows.to_csv(crisis_path, index=False)
+        degraded_out = root / "degraded_crisis_out"
+        degraded_summary = run(latest, degraded_out)
+        degraded_cash = pd.read_csv(degraded_out / "cash_drag_report.csv")
+        degraded_latest = degraded_cash[
+            degraded_cash["rebalance_date"].eq("2026-04-30")
+        ]
+        assert len(degraded_latest) == 2, degraded_latest
+        assert set(degraded_latest["crisis_bucket"]) == {"MISSING"}, degraded_latest
+        assert set(degraded_latest["cash_audit_status"]) == {
+            "REVIEW_REQUIRED_MISSING_CRISIS_STATE"
+        }, degraded_latest
+        assert degraded_summary["missing_crisis_state_rows"] >= 2, degraded_summary
+
         missing_latest = root / "missing_crisis_latest"
         _build_inputs(missing_latest, include_crisis=False)
         missing_out = root / "missing_crisis_out"

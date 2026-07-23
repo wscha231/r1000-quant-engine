@@ -23,7 +23,11 @@ from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
     target_hash,
     validate_event_chain,
 )
-from tools.reserve_asset_policy import resolve_reserve_asset_policy  # noqa: E402
+from tools.reserve_asset_policy import (  # noqa: E402
+    RESERVE_REASON_SOURCE_HASH_FIELD,
+    reserve_reason_reconciliation,
+    resolve_reserve_asset_policy,
+)
 from tools.security_lifecycle import empty_snapshot  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
@@ -176,9 +180,29 @@ def test_pending_resolves_once_at_next_close() -> None:
             assert set(pending["pending_status"]) == {"PENDING_NEXT_CLOSE"}
             assert not (directory / "fills.csv").read_text(encoding="utf-8").strip()
             account = json.loads((directory / "account_state_latest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+            preview_metrics = json.loads(
+                (root / "previews" / portfolio / "preview_metrics.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            preview_manifest = json.loads(
+                (root / "previews" / portfolio / "order_batch_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
             assert account["review_only"] is True
             assert account["live_trading_enabled"] is False
             assert account["production_mutation_allowed"] is False
+            reserve_source_hash = account[RESERVE_REASON_SOURCE_HASH_FIELD]
+            assert len(reserve_source_hash) == 64
+            assert manifest[RESERVE_REASON_SOURCE_HASH_FIELD] == reserve_source_hash
+            assert preview_metrics[RESERVE_REASON_SOURCE_HASH_FIELD] == reserve_source_hash
+            assert preview_manifest[RESERVE_REASON_SOURCE_HASH_FIELD] == reserve_source_hash
+            assert account["position_count_total"] == (
+                account["equity_position_count"] + account["reserve_position_count"]
+            )
+            assert account["position_count"] == account["equity_position_count"]
 
         second = run(args_for(root, "2026-01-06"))
         assert second["status"] == "completed"
@@ -433,18 +457,31 @@ def test_last_terminal_stock_materializes_explicit_all_cash_target() -> None:
         for portfolio in ("main", "concentrated"):
             write_seed(root / "seed" / f"{portfolio}.json", portfolio)
             (root / "targets").mkdir(parents=True, exist_ok=True)
-            pd.DataFrame(
+            target = pd.DataFrame(
                 [
                     {"rebalance_date": "2026-01-05", "ticker": "AAA", "weight": 0.50},
                     {"rebalance_date": "2026-01-05", "ticker": "CASH", "weight": 0.50},
                 ]
-            ).to_csv(root / "targets" / f"{portfolio}.csv", index=False)
+            )
+            source_reconciliation = reserve_reason_reconciliation(
+                target,
+                policy=resolve_reserve_asset_policy(context="current_paper"),
+                weight_col="weight",
+            )
+            target[RESERVE_REASON_SOURCE_HASH_FIELD] = source_reconciliation[
+                RESERVE_REASON_SOURCE_HASH_FIELD
+            ]
+            target.to_csv(root / "targets" / f"{portfolio}.csv", index=False)
         run(args_for(root, "2026-01-05", str(lifecycle)))
         run(args_for(root, "2026-01-06", str(lifecycle)))
         for portfolio in ("main", "concentrated"):
             target = pd.read_csv(root / "paper" / portfolio / "effective_target_latest.csv")
             assert target["ticker"].tolist() == ["CASH"]
             assert float(target.iloc[0]["weight"]) == 1.0
+            assert target[RESERVE_REASON_SOURCE_HASH_FIELD].nunique() == 1
+            assert target.iloc[0][RESERVE_REASON_SOURCE_HASH_FIELD] != source_reconciliation[
+                RESERVE_REASON_SOURCE_HASH_FIELD
+            ]
 
 
 def test_empty_source_target_never_synthesizes_all_cash() -> None:
@@ -567,7 +604,11 @@ def test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_
         try:
             run(args_for(root, "2026-01-05"))
         except ValueError as exc:
-            assert "genesis identity changed" in str(exc) or "target_hash" in str(exc)
+            assert (
+                "genesis identity changed" in str(exc)
+                or "target_hash" in str(exc)
+                or "target weight exceeds one" in str(exc)
+            )
         else:
             raise AssertionError("same-session target mutation was silently accepted")
         for portfolio in ("main", "concentrated"):
@@ -600,6 +641,18 @@ def test_suppressed_mark_can_transition_once_to_fresh_same_close_target() -> Non
             )
             assert manifest["new_order_generation_suppressed"] is True
             assert manifest["enqueued_this_run"] == 0
+            preview_manifest = json.loads(
+                (root / "previews" / portfolio / "order_batch_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            preview_target = pd.read_csv(
+                root / "previews" / portfolio / "target_weights.csv"
+            )
+            assert RESERVE_REASON_SOURCE_HASH_FIELD in preview_target.columns
+            assert set(preview_target[RESERVE_REASON_SOURCE_HASH_FIELD]) == {
+                preview_manifest[RESERVE_REASON_SOURCE_HASH_FIELD]
+            }
 
         for portfolio in ("main", "concentrated"):
             path = root / "targets" / f"{portfolio}.csv"

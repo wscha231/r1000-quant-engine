@@ -35,6 +35,7 @@ from tools.run_broker_ledger_replay import (  # noqa: E402
     safe_float,
 )
 from tools.run_position_risk_weekly_validation import simulate_position  # noqa: E402
+from tools.run287_crisis_policy import adapt_crisis_state, canonical_state  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
@@ -44,16 +45,22 @@ CASH_FLOORS_BY_STATE: dict[str, dict[str, float]] = {
     "main": {
         "GREEN": 0.03,
         "WATCH": 0.08,
-        "DEFENSE_REVIEW": 0.25,
-        "CRISIS_DEFENSE": 0.45,
-        "REENTRY_READY": 0.20,
+        "DEFENSE": 0.25,
+        "CRISIS": 0.45,
+        "REENTRY_STAGE_1": 0.20,
+        "REENTRY_STAGE_2": 0.20,
+        "REENTRY_STAGE_3": 0.20,
+        "DEGRADED_DATA": 0.25,
     },
     "concentrated": {
         "GREEN": 0.05,
         "WATCH": 0.12,
-        "DEFENSE_REVIEW": 0.35,
-        "CRISIS_DEFENSE": 0.60,
-        "REENTRY_READY": 0.25,
+        "DEFENSE": 0.35,
+        "CRISIS": 0.60,
+        "REENTRY_STAGE_1": 0.25,
+        "REENTRY_STAGE_2": 0.25,
+        "REENTRY_STAGE_3": 0.25,
+        "DEGRADED_DATA": 0.35,
     },
 }
 DEFAULT_CLUSTER_CAPS: dict[str, dict[str, float]] = {
@@ -66,7 +73,7 @@ DEFAULT_TRAILING_ACTIVATION = 0.25
 DEFAULT_RELATIVE_TRIM_THRESHOLD = -0.10
 DEFAULT_RELATIVE_EXIT_THRESHOLD = -0.20
 DEFAULT_TRIM_WEIGHT = 0.35
-DEFENSE_STATES = {"DEFENSE_REVIEW", "CRISIS_DEFENSE"}
+DEFENSE_STATES = {"DEFENSE", "CRISIS", "DEGRADED_DATA"}
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -96,7 +103,11 @@ def load_daily_crisis_states(path: Path) -> pd.DataFrame:
     if not date_col or "crisis_state" not in d.columns:
         return pd.DataFrame(columns=["date", "crisis_state"])
     d["date"] = pd.to_datetime(d[date_col], errors="coerce").dt.normalize()
-    d["crisis_state"] = d["crisis_state"].astype(str).str.upper().str.strip().replace({"": "GREEN"})
+    stages = d.get("reentry_stage", pd.Series("", index=d.index))
+    d["crisis_state"] = [
+        adapt_crisis_state(state, stage)
+        for state, stage in zip(d["crisis_state"], stages)
+    ]
     keep = [c for c in ["date", "crisis_state", "raw_state", "crisis_score", "reentry_stage", "state_source"] if c in d.columns]
     return d.dropna(subset=["date"])[keep].sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
 
@@ -295,8 +306,8 @@ def period_base_weights(period: pd.DataFrame) -> dict[str, float]:
 
 def cash_floor_for_state(portfolio_kind: str, state: Any) -> float:
     floors = CASH_FLOORS_BY_STATE.get(portfolio_kind, CASH_FLOORS_BY_STATE["main"])
-    key = str(state or "GREEN").upper().strip()
-    return float(floors.get(key, floors["GREEN"]))
+    key = canonical_state(state)
+    return float(floors[key])
 
 
 def risk_cash_update(
@@ -309,7 +320,7 @@ def risk_cash_update(
     reentry_delay_days: int,
     release_step: float,
 ) -> tuple[float, pd.Timestamp | None, str]:
-    state_key = str(state or "GREEN").upper().strip()
+    state_key = canonical_state(state)
     floor = cash_floor_for_state(portfolio_kind, state_key)
     current = float(np.clip(current_risk_cash, 0.0, 0.98))
     if state_key in DEFENSE_STATES:
@@ -404,7 +415,9 @@ def build_event_book(
         if enable_daily_crisis_cash_overlay and not crisis.empty:
             crisis_to_dt = crisis[crisis["date"].le(dt)]
             if not crisis_to_dt.empty:
-                state_at_dt = str(crisis_to_dt.iloc[-1].get("crisis_state") or "GREEN")
+                state_at_dt = canonical_state(
+                    crisis_to_dt.iloc[-1].get("crisis_state")
+                )
                 risk_cash_target, last_defense_date, _risk_reason = risk_cash_update(
                     portfolio_kind=portfolio_kind,
                     state=state_at_dt,
@@ -437,8 +450,10 @@ def build_event_book(
                         "ticker": "CASH",
                         "action_type": "daily_crisis_cash",
                         "action": "daily_crisis_cash_review",
-                        "reason": str(crisis_row.get("crisis_state") or "GREEN"),
-                        "crisis_state": str(crisis_row.get("crisis_state") or "GREEN"),
+                        "reason": canonical_state(crisis_row.get("crisis_state")),
+                        "crisis_state": canonical_state(
+                            crisis_row.get("crisis_state")
+                        ),
                         "crisis_score": crisis_row.get("crisis_score", ""),
                     }
                 )

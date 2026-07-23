@@ -78,6 +78,9 @@ def test_default_off_preserves_metric_mode_and_schema() -> None:
             "cash_weight",
             "stock_value_usd",
             "position_count",
+            "position_count_total",
+            "equity_position_count",
+            "reserve_position_count",
             "fill_mode",
         ]
 

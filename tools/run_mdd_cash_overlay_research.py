@@ -29,6 +29,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
+from tools.run287_crisis_policy import adapt_crisis_state, canonical_state  # noqa: E402
 
 
 SCHEMA_VERSION = "mdd-cash-overlay-research-v1"
@@ -36,17 +37,23 @@ PORTFOLIOS = ("main", "concentrated")
 CASH_FLOORS = {
     "main": {
         "GREEN": 0.03,
-        "REENTRY_READY": 0.20,
+        "REENTRY_STAGE_1": 0.20,
+        "REENTRY_STAGE_2": 0.20,
+        "REENTRY_STAGE_3": 0.20,
         "WATCH": 0.15,
-        "DEFENSE_REVIEW": 0.35,
-        "CRISIS_DEFENSE": 0.55,
+        "DEFENSE": 0.35,
+        "CRISIS": 0.55,
+        "DEGRADED_DATA": 0.35,
     },
     "concentrated": {
         "GREEN": 0.03,
-        "REENTRY_READY": 0.30,
+        "REENTRY_STAGE_1": 0.30,
+        "REENTRY_STAGE_2": 0.30,
+        "REENTRY_STAGE_3": 0.30,
         "WATCH": 0.25,
-        "DEFENSE_REVIEW": 0.45,
-        "CRISIS_DEFENSE": 0.70,
+        "DEFENSE": 0.45,
+        "CRISIS": 0.70,
+        "DEGRADED_DATA": 0.45,
     },
 }
 EQUITY_DD_BREAKERS = {
@@ -82,8 +89,8 @@ SWEEP_VARIANTS = [
         "release_step": 0.20,
         "change_band": 0.03,
         "cash_floors": {
-            "main": {"GREEN": 0.03, "REENTRY_READY": 0.10, "WATCH": 0.08, "DEFENSE_REVIEW": 0.25, "CRISIS_DEFENSE": 0.45},
-            "concentrated": {"GREEN": 0.03, "REENTRY_READY": 0.12, "WATCH": 0.10, "DEFENSE_REVIEW": 0.30, "CRISIS_DEFENSE": 0.55},
+            "main": {"GREEN": 0.03, "REENTRY_STAGE_1": 0.10, "REENTRY_STAGE_2": 0.10, "REENTRY_STAGE_3": 0.10, "WATCH": 0.08, "DEFENSE": 0.25, "CRISIS": 0.45, "DEGRADED_DATA": 0.25},
+            "concentrated": {"GREEN": 0.03, "REENTRY_STAGE_1": 0.12, "REENTRY_STAGE_2": 0.12, "REENTRY_STAGE_3": 0.12, "WATCH": 0.10, "DEFENSE": 0.30, "CRISIS": 0.55, "DEGRADED_DATA": 0.30},
         },
         "equity_breakers": {
             "main": [(-0.15, 0.25), (-0.25, 0.45), (-0.35, 0.60)],
@@ -98,8 +105,8 @@ SWEEP_VARIANTS = [
         "release_step": 0.30,
         "change_band": 0.04,
         "cash_floors": {
-            "main": {"GREEN": 0.03, "REENTRY_READY": 0.08, "WATCH": 0.05, "DEFENSE_REVIEW": 0.20, "CRISIS_DEFENSE": 0.35},
-            "concentrated": {"GREEN": 0.03, "REENTRY_READY": 0.10, "WATCH": 0.08, "DEFENSE_REVIEW": 0.25, "CRISIS_DEFENSE": 0.45},
+            "main": {"GREEN": 0.03, "REENTRY_STAGE_1": 0.08, "REENTRY_STAGE_2": 0.08, "REENTRY_STAGE_3": 0.08, "WATCH": 0.05, "DEFENSE": 0.20, "CRISIS": 0.35, "DEGRADED_DATA": 0.20},
+            "concentrated": {"GREEN": 0.03, "REENTRY_STAGE_1": 0.10, "REENTRY_STAGE_2": 0.10, "REENTRY_STAGE_3": 0.10, "WATCH": 0.08, "DEFENSE": 0.25, "CRISIS": 0.45, "DEGRADED_DATA": 0.25},
         },
         "equity_breakers": {
             "main": [(-0.20, 0.30), (-0.30, 0.50), (-0.40, 0.65)],
@@ -218,8 +225,12 @@ def prepare_crisis(frame: pd.DataFrame) -> pd.DataFrame:
         if "state" in out.columns:
             out["crisis_state"] = out["state"]
         else:
-            out["crisis_state"] = "GREEN"
-    out["crisis_state"] = out["crisis_state"].astype(str).str.upper().str.strip().replace({"": "GREEN"})
+            out["crisis_state"] = "DEGRADED_DATA"
+    stages = out.get("reentry_stage", pd.Series("", index=out.index))
+    out["crisis_state"] = [
+        adapt_crisis_state(state, stage)
+        for state, stage in zip(out["crisis_state"], stages)
+    ]
     return out.dropna(subset=["date"]).sort_values("date").drop_duplicates("date", keep="last")[["date", "crisis_state"]]
 
 
@@ -279,7 +290,7 @@ def calc_metrics(curve: pd.DataFrame, value_col: str, cash_col: str) -> dict[str
 def floor_for_state(portfolio: str, state: str, cash_floors: dict[str, dict[str, float]] | None = None) -> float:
     floors = cash_floors or CASH_FLOORS
     portfolio_floors = floors.get(portfolio, floors.get("main", CASH_FLOORS["main"]))
-    return float(portfolio_floors.get(str(state).upper(), portfolio_floors.get("GREEN", 0.03)))
+    return float(portfolio_floors[canonical_state(state)])
 
 
 def equity_breaker_floor(
@@ -346,7 +357,9 @@ def simulate_overlay(
     equity_breakers: dict[str, list[tuple[float, float]]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     merged = equity.merge(crisis, on="date", how="left")
-    merged["crisis_state"] = merged["crisis_state"].fillna("GREEN").astype(str).str.upper()
+    merged["crisis_state"] = merged["crisis_state"].fillna("DEGRADED_DATA").map(
+        canonical_state
+    )
     rows: list[dict[str, Any]] = []
     actions: list[dict[str, Any]] = []
     states_seen: list[str] = []
@@ -379,7 +392,7 @@ def simulate_overlay(
         overlay_peak = max(overlay_peak, overlay_equity)
         overlay_drawdown_now = overlay_equity / max(overlay_peak, 1e-12) - 1.0
 
-        state = str(cur.get("crisis_state") or "GREEN").upper()
+        state = canonical_state(cur.get("crisis_state"))
         states_seen.append(state)
         policy_floor = confirmed_policy_floor(
             portfolio=portfolio,

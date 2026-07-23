@@ -693,7 +693,7 @@ def analyze_portfolio(
                         ),
                         "candidate_fix": (
                             "Add drawdown-aware single-name and industry caps to the event target book, "
-                            "and require staged re-entry after DEFENSE_REVIEW/CRISIS_DEFENSE before the name "
+                            "and require staged re-entry after DEFENSE/CRISIS before the name "
                             "can be restored to full target weight."
                         ),
                     }

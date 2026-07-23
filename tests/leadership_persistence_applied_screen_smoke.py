@@ -118,11 +118,15 @@ def test_screen_counts_applied_replacement_tests() -> None:
         ]
     )
     target_book["rebalance_date"] = pd.to_datetime(target_book["rebalance_date"]).dt.normalize()
+    known_green = pd.DataFrame(
+        [{"date": "2021-06-30", "crisis_state": "GREEN"}]
+    )
+    known_green["date"] = pd.to_datetime(known_green["date"]).dt.normalize()
 
     rows, summary = screen_portfolio(
         candidates,
         target_book,
-        pd.DataFrame(),
+        known_green,
         portfolio="concentrated",
         target_n=1,
     )

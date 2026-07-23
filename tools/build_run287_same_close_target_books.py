@@ -27,14 +27,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run287_crisis_policy import (  # noqa: E402
     SCHEMA_VERSION as CRISIS_POLICY_SCHEMA_VERSION,
+    adapt_crisis_state,
     apply_selective_defense,
     availability_records,
-    canonical_state,
     component_availability,
 )
 from tools.reserve_asset_policy import (  # noqa: E402
     DEFAULT_CURRENT_PAPER_MODE,
     RESERVE_REASONS,
+    RESERVE_REASON_SOURCE_HASH_FIELD,
     reserve_reason_reconciliation,
     resolve_reserve_asset_policy,
 )
@@ -302,7 +303,7 @@ def canonical_crisis_context(
         for row in availability
         if row.critical and (not row.available or not row.fresh)
     ]
-    source_state = canonical_state(
+    source_state = adapt_crisis_state(
         values.get("crisis_state"), values.get("reentry_stage")
     )
     state = "DEGRADED_DATA" if missing_critical else source_state
@@ -656,6 +657,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             policy=reserve_policy,
             weight_col="weight",
         )
+        target[RESERVE_REASON_SOURCE_HASH_FIELD] = target_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ]
+        crisis_shadow[RESERVE_REASON_SOURCE_HASH_FIELD] = shadow_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ]
         target["reserve_asset_policy_schema"] = target_reconciliation["schema_version"]
         target["reserve_asset_mode"] = reserve_policy.mode
         target["reserve_reason_reconciled"] = True

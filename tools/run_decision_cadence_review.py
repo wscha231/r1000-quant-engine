@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
+from tools.run287_crisis_policy import adapt_crisis_state, canonical_state  # noqa: E402
 
 
 CASH_TICKERS = {"CASH", "__CASH__"}
@@ -297,25 +298,35 @@ def crisis_context(latest_run: Path) -> dict[str, Any]:
             if col in integrated_states.columns:
                 reentry_trigger = str(integrated_states[col].iloc[-1])
                 break
+    state = adapt_crisis_state(state, reentry_stage)
+    raw_state = adapt_crisis_state(daily.get("raw_state"), reentry_stage)
+    latest_integrated_state = (
+        adapt_crisis_state(
+            integrated_states["crisis_state"].iloc[-1], reentry_stage
+        )
+        if not integrated_states.empty and "crisis_state" in integrated_states.columns
+        else ""
+    )
     return {
-        "daily_monitor_state": state or "missing",
-        "daily_monitor_raw_state": daily.get("raw_state", ""),
+        "daily_monitor_state": state,
+        "daily_monitor_raw_state": raw_state,
         "integrated_daily_state_available": bool(not integrated_states.empty),
-        "daily_crisis_state_latest": str(integrated_states["crisis_state"].iloc[-1]) if not integrated_states.empty and "crisis_state" in integrated_states.columns else "",
+        "daily_crisis_state_latest": latest_integrated_state,
         "reentry_stage": reentry_stage,
         "reentry_trigger": reentry_trigger,
     }
 
 
 def classify_daily(row: dict[str, Any], crisis_state: str) -> tuple[str, str, bool]:
+    crisis_state = canonical_state(crisis_state)
     leader_state = str(row.get("leader_state") or row.get("daily_review_action") or "").upper()
     ret_1m = safe_float(row.get("ret_1m"), math.nan)
     spy_excess_3m = safe_float(row.get("spy_excess_3m"), math.nan)
     ma50 = safe_float(row.get("price_to_ma50"), math.nan)
     ma200 = safe_float(row.get("price_to_ma200"), math.nan)
     chase = safe_float(row.get("leader_chase_risk_score"), 0.0)
-    if crisis_state in {"DEFENSE_REVIEW", "CRISIS_DEFENSE"}:
-        return "DEFENSE_REVIEW", f"crisis_state={crisis_state}", False
+    if crisis_state in {"DEFENSE", "CRISIS", "DEGRADED_DATA"}:
+        return "DEFENSE_NO_ADD", f"crisis_state={crisis_state}", False
     if "EXIT" in leader_state or (math.isfinite(ma200) and ma200 < 0.98 and math.isfinite(spy_excess_3m) and spy_excess_3m < -0.05):
         return "EXIT_REVIEW", "leader/technical breakdown", False
     if "WARNING" in leader_state:
@@ -331,7 +342,10 @@ def classify_daily(row: dict[str, Any], crisis_state: str) -> tuple[str, str, bo
 
 def build_daily_review(current: pd.DataFrame, values: pd.DataFrame, prices: pd.DataFrame, crisis: dict[str, Any]) -> pd.DataFrame:
     d = current.merge(values, on="ticker", how="left").merge(prices, on="ticker", how="left")
-    state = str(crisis.get("daily_monitor_state") or crisis.get("daily_crisis_state_latest") or "missing")
+    state = canonical_state(
+        crisis.get("daily_monitor_state")
+        or crisis.get("daily_crisis_state_latest")
+    )
     rows: list[dict[str, Any]] = []
     for rec in d.to_dict("records"):
         action, reason, new_buy_allowed = classify_daily(rec, state)
@@ -372,7 +386,7 @@ def build_weekly_watchlist(current: pd.DataFrame, targets: pd.DataFrame, candida
     base["ticker"] = base["ticker"].map(clean_ticker)
     base = base.drop_duplicates(["ticker", "watchlist_source"], keep="last")
     d = base.merge(values, on="ticker", how="left").merge(prices, on="ticker", how="left")
-    state = str(crisis.get("daily_monitor_state") or "missing")
+    state = canonical_state(crisis.get("daily_monitor_state"))
     actions: list[str] = []
     reasons: list[str] = []
     for rec in d.to_dict("records"):
@@ -380,7 +394,7 @@ def build_weekly_watchlist(current: pd.DataFrame, targets: pd.DataFrame, candida
         ma50 = safe_float(rec.get("price_to_ma50"), math.nan)
         excess = safe_float(rec.get("spy_excess_3m"), math.nan)
         is_current = ticker in current_tickers
-        if state in {"DEFENSE_REVIEW", "CRISIS_DEFENSE"}:
+        if state in {"DEFENSE", "CRISIS", "DEGRADED_DATA"}:
             actions.append("WATCH_ONLY")
             reasons.append(f"crisis_state={state}; no new weekly add")
         elif is_current and math.isfinite(ma50) and ma50 < 0.99 and math.isfinite(excess) and excess < -0.05:
@@ -403,18 +417,18 @@ def build_weekly_watchlist(current: pd.DataFrame, targets: pd.DataFrame, candida
 
 
 def monthly_event_plan(daily: pd.DataFrame, weekly: pd.DataFrame, crisis: dict[str, Any], latest_run: Path) -> dict[str, Any]:
-    crisis_state = str(crisis.get("daily_monitor_state") or "missing")
+    crisis_state = canonical_state(crisis.get("daily_monitor_state"))
     exit_count = int(daily["daily_review_action"].astype(str).str.contains("EXIT").sum()) if not daily.empty else 0
     warning_count = int(daily["daily_review_action"].astype(str).str.contains("WARNING|NO_ADD", regex=True).sum()) if not daily.empty else 0
     add_candidates = int(weekly["weekly_review_action"].astype(str).eq("ADD_CANDIDATE_REVIEW").sum()) if not weekly.empty else 0
     event_triggers = []
-    if crisis_state in {"DEFENSE_REVIEW", "CRISIS_DEFENSE", "REENTRY_READY"}:
+    if crisis_state in {"DEFENSE", "CRISIS", "DEGRADED_DATA"} or crisis_state.startswith("REENTRY_STAGE_"):
         event_triggers.append("crisis_or_reentry_state")
     if exit_count >= 2:
         event_triggers.append("multiple_current_holdings_exit_review")
     if add_candidates >= 3:
         event_triggers.append("weekly_watchlist_has_multiple_add_candidates")
-    if crisis_state == "REENTRY_READY":
+    if crisis_state.startswith("REENTRY_STAGE_"):
         event_triggers.append("mid_month_reentry_ready")
     return {
         "schema_version": "alphaops-decision-cadence-plan-v1",
@@ -444,7 +458,7 @@ def monthly_event_plan(daily: pd.DataFrame, weekly: pd.DataFrame, crisis: dict[s
         "target_mutation_policy": "monthly base book plus crisis/reentry/event-triggered mutation dates",
         "reentry_execution_policy": {
             "fill_semantics": "broker-ledger next_close after target mutation",
-            "stage_1": "deploy 25% cash to DUAL_LEADER only after REENTRY_READY confirmation",
+            "stage_1": "deploy 25% cash to DUAL_LEADER only after REENTRY_STAGE_1 confirmation",
             "stage_2": "deploy additional 25-35% cash to DUAL_LEADER and SECTOR_LEADER",
             "stage_3": "return to normal lane allocation and allow Emerging again",
             "confirmation_days": "2-3 trading days unless shock/reentry rule explicitly bypasses",
@@ -486,7 +500,7 @@ def render_report(summary: dict[str, Any]) -> str:
         "## Re-entry",
         "",
         "- If crisis defense triggers early in the month, re-entry does not wait for month-end.",
-        "- `REENTRY_READY` plus confirmation can mutate the target book mid-month.",
+        "- `REENTRY_STAGE_1` plus confirmation can mutate the target book mid-month.",
         "- Redeploy is staged: DUAL_LEADER first, then sector leaders, then normal lane allocation.",
         "",
         "This report is operator-review only and does not place trades.",

@@ -6,6 +6,8 @@ forward paper ledger use the same mode names and reason reconciliation.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -35,6 +37,7 @@ RESERVE_REASONS = (
     "transaction_buffer",
     "residual_cash",
 )
+RESERVE_REASON_SOURCE_HASH_FIELD = "reserve_reason_source_hash"
 DEFAULT_HISTORICAL_MODE = DGS3MO_CARRY
 DEFAULT_CURRENT_PAPER_MODE = BROKER_CASH_OR_MMF
 
@@ -122,6 +125,71 @@ def _reserve_mask(frame: pd.DataFrame, policy: ReserveAssetPolicy) -> pd.Series:
     return ticker.isin(names)
 
 
+def ensure_explicit_cash_row(
+    frame: pd.DataFrame,
+    *,
+    weight_col: str,
+    tolerance: float = 1e-8,
+) -> pd.DataFrame:
+    """Materialize implicit cash without changing any non-cash allocation."""
+    if frame.empty:
+        return frame.copy()
+    if "ticker" not in frame.columns or weight_col not in frame.columns:
+        raise ValueError("explicit cash normalization requires ticker and weight")
+    out = frame.copy()
+    out["ticker"] = out["ticker"].astype(str).str.upper().str.strip()
+    out[weight_col] = pd.to_numeric(out[weight_col], errors="coerce")
+    if out[weight_col].isna().any() or (out[weight_col] < -tolerance).any():
+        raise ValueError("invalid target weight during explicit cash normalization")
+    total = float(out[weight_col].sum())
+    if total > 1.0 + tolerance:
+        raise ValueError(f"target weight exceeds one: {total:.12f}")
+    residual = max(0.0, 1.0 - total)
+    if residual <= tolerance:
+        return out
+    explicit_reasons = any(reason in out.columns for reason in RESERVE_REASONS)
+    cash_rows = out.index[out["ticker"].isin({"CASH", "__CASH__"})].tolist()
+    if cash_rows:
+        index = cash_rows[0]
+        out.loc[index, weight_col] = float(out.loc[index, weight_col]) + residual
+        if "capacity_unallocated" not in out.columns:
+            out["capacity_unallocated"] = 0.0
+        out["capacity_unallocated"] = pd.to_numeric(
+            out["capacity_unallocated"], errors="coerce"
+        ).fillna(0.0)
+        if explicit_reasons:
+            out.loc[index, "capacity_unallocated"] += residual
+        else:
+            final_cash_weight = float(
+                out.loc[out["ticker"].isin({"CASH", "__CASH__"}), weight_col].sum()
+            )
+            out.loc[index, "capacity_unallocated"] = final_cash_weight
+        return out
+    row = {column: np.nan for column in out.columns}
+    row["ticker"] = "CASH"
+    row[weight_col] = residual
+    row["capacity_unallocated"] = residual
+    return pd.concat([out, pd.DataFrame([row])], ignore_index=True)
+
+
+def reserve_reason_source_hash(
+    *,
+    policy: ReserveAssetPolicy,
+    reserve_weight: float,
+    reasons: dict[str, float],
+) -> str:
+    payload = {
+        "schema_version": "run287-reserve-reason-source-v1",
+        "reserve_weight": round(float(reserve_weight), 12),
+        "reason_weights": {
+            reason: round(float(reasons.get(reason, 0.0)), 12)
+            for reason in RESERVE_REASONS
+        },
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def reserve_reason_reconciliation(
     frame: pd.DataFrame,
     *,
@@ -152,6 +220,27 @@ def reserve_reason_reconciliation(
             "Reserve reason reconciliation failure: "
             f"reasons={reason_sum:.12f} reserve={reserve_weight:.12f}"
         )
+    source_hash = reserve_reason_source_hash(
+        policy=policy,
+        reserve_weight=reserve_weight,
+        reasons=reasons,
+    )
+    if RESERVE_REASON_SOURCE_HASH_FIELD in frame.columns:
+        embedded = {
+            str(value).strip().lower()
+            for value in frame[RESERVE_REASON_SOURCE_HASH_FIELD].tolist()
+            if str(value).strip().lower() not in {"", "nan", "none"}
+        }
+        if len(embedded) > 1:
+            raise ValueError(
+                "conflicting Reserve reason source hashes: "
+                f"{sorted(embedded)}"
+            )
+        if embedded and next(iter(embedded)) != source_hash:
+            raise ValueError(
+                "stale Reserve reason source hash: "
+                f"embedded={next(iter(embedded))} computed={source_hash}"
+            )
     return {
         "schema_version": SCHEMA_VERSION,
         "mode": policy.mode,
@@ -161,6 +250,7 @@ def reserve_reason_reconciliation(
         "reason_weight_sum": reason_sum,
         "reconciled": True,
         "explicit_reason_fields": explicit,
+        RESERVE_REASON_SOURCE_HASH_FIELD: source_hash,
     }
 
 
@@ -196,6 +286,9 @@ def account_reserve_reason_reconciliation(
         "reason_weight_sum": reason_sum,
         "reconciled": True,
         "method": "target_reason_proportions_scaled_to_actual_mark",
+        RESERVE_REASON_SOURCE_HASH_FIELD: str(
+            target_reconciliation.get(RESERVE_REASON_SOURCE_HASH_FIELD) or ""
+        ),
     }
 
 
@@ -223,18 +316,13 @@ def apply_reserve_asset_to_targets(
             normalized = pd.Timestamp(raw_date).normalize()
             dates = pd.to_datetime(frame[date_col], errors="coerce").dt.normalize()
             part = frame.loc[dates.eq(normalized)].copy()
-        part["ticker"] = part["ticker"].astype(str).str.upper().str.strip()
-        part[weight_col] = pd.to_numeric(part[weight_col], errors="coerce").fillna(0.0)
-        total = float(part[weight_col].sum())
-        if total < 1.0 - 1e-8 and not part["ticker"].isin({"CASH", "__CASH__"}).any():
-            row = {column: np.nan for column in part.columns}
-            row["ticker"] = "CASH"
-            row[weight_col] = 1.0 - total
-            if date_col and date_col in part.columns:
-                row[date_col] = pd.Timestamp(raw_date).normalize()
-            row["capacity_unallocated"] = 1.0 - total
-            part = pd.concat([part, pd.DataFrame([row])], ignore_index=True)
+        part = ensure_explicit_cash_row(part, weight_col=weight_col)
+        if date_col and date_col in part.columns and raw_date is not None:
+            part[date_col] = part[date_col].fillna(pd.Timestamp(raw_date).normalize())
         before = reserve_reason_reconciliation(part, policy=policy, weight_col=weight_col)
+        part[RESERVE_REASON_SOURCE_HASH_FIELD] = before[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ]
         before_stock = float(part.loc[~_reserve_mask(part, policy), weight_col].sum())
         if policy.tradeable:
             part.loc[part["ticker"].isin({"CASH", "__CASH__"}), "ticker"] = policy.asset_ticker

@@ -20,6 +20,17 @@
     "transaction_buffer",
     "residual_cash"
   ],
+  "target_contract": {
+    "implicit_cash_allowed": false,
+    "cash_ticker": "CASH",
+    "reason_source_hash_field": "reserve_reason_source_hash",
+    "reason_source_hash_preserved_target_to_preview_to_ledger_to_account": true
+  },
+  "position_count_contract": {
+    "total": "position_count_total",
+    "equity": "equity_position_count",
+    "reserve": "reserve_position_count"
+  },
   "dgs3mo_contract": {
     "day_count": "ACT/365",
     "rate_units": "percent",
@@ -48,6 +59,9 @@
   "promotion": {
     "automatic_mode_change_allowed": false,
     "tradeable_reserve_rejected_if_mdd_worsens": true,
+    "explicit_tradeable_reserve_replay_is_research_only": true,
+    "explicit_tradeable_reserve_valid_for_production": false,
+    "replay_must_not_extend_past_stock_evidence_end": true,
     "production_enabled": false,
     "live_trading_enabled": false
   }

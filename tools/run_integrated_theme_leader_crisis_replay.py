@@ -27,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_candidate_lanes import lane_feature_mapping_payload, score_candidate_lanes  # noqa: E402
 from tools.crisis_state_engine import build_historical_daily_crisis_state  # noqa: E402
+from tools.run287_crisis_policy import adapt_crisis_state  # noqa: E402
 from r1000_market_leader_engine import (  # noqa: E402
     BENCHMARKS,
     MarketLeaderVariant,
@@ -100,20 +101,42 @@ CRISIS_SETTINGS = {
         "lane_multiplier": {"EMERGING_TENBAGGER": 0.70, "CYCLICAL_RECOVERY": 0.85, "MARKET_LEADER": 0.95, "QUALITY_COMPOUNDER": 1.0},
         "new_buy_allowed": {"EMERGING_TENBAGGER": False, "MARKET_LEADER": True, "QUALITY_COMPOUNDER": True, "CYCLICAL_RECOVERY": False},
     },
-    "DEFENSE_REVIEW": {
+    "DEFENSE": {
         "cash": 0.20,
         "lane_multiplier": {"EMERGING_TENBAGGER": 0.35, "CYCLICAL_RECOVERY": 0.60, "MARKET_LEADER": 0.80, "QUALITY_COMPOUNDER": 0.95},
         "new_buy_allowed": {"EMERGING_TENBAGGER": False, "MARKET_LEADER": False, "QUALITY_COMPOUNDER": True, "CYCLICAL_RECOVERY": False},
     },
-    "CRISIS_DEFENSE": {
+    "CRISIS": {
         "cash": 0.40,
         "lane_multiplier": {"EMERGING_TENBAGGER": 0.10, "CYCLICAL_RECOVERY": 0.35, "MARKET_LEADER": 0.55, "QUALITY_COMPOUNDER": 0.85},
         "new_buy_allowed": {"EMERGING_TENBAGGER": False, "MARKET_LEADER": False, "QUALITY_COMPOUNDER": True, "CYCLICAL_RECOVERY": False},
     },
-    "REENTRY_READY": {
+    "REENTRY_STAGE_1": {
         "cash": 0.18,
         "lane_multiplier": {"EMERGING_TENBAGGER": 0.45, "CYCLICAL_RECOVERY": 0.85, "MARKET_LEADER": 1.05, "QUALITY_COMPOUNDER": 1.0},
         "new_buy_allowed": {"EMERGING_TENBAGGER": False, "MARKET_LEADER": True, "QUALITY_COMPOUNDER": True, "CYCLICAL_RECOVERY": True},
+    },
+    "REENTRY_STAGE_2": {
+        "cash": 0.10,
+        "lane_multiplier": {"EMERGING_TENBAGGER": 0.70, "CYCLICAL_RECOVERY": 0.95, "MARKET_LEADER": 1.0, "QUALITY_COMPOUNDER": 1.0},
+        "new_buy_allowed": {"EMERGING_TENBAGGER": False, "MARKET_LEADER": True, "QUALITY_COMPOUNDER": True, "CYCLICAL_RECOVERY": True},
+    },
+    "REENTRY_STAGE_3": {
+        "cash": 0.03,
+        "lane_multiplier": {"EMERGING_TENBAGGER": 1.0, "CYCLICAL_RECOVERY": 1.0, "MARKET_LEADER": 1.0, "QUALITY_COMPOUNDER": 1.0},
+        "new_buy_allowed": {"EMERGING_TENBAGGER": True, "MARKET_LEADER": True, "QUALITY_COMPOUNDER": True, "CYCLICAL_RECOVERY": True},
+    },
+    "DEGRADED_DATA": {
+        "cash": 0.20,
+        "lane_multiplier": {"EMERGING_TENBAGGER": 0.35, "CYCLICAL_RECOVERY": 0.60, "MARKET_LEADER": 0.80, "QUALITY_COMPOUNDER": 0.95},
+        "new_buy_allowed": {
+            "EMERGING_TENBAGGER": False,
+            "TOP7_MANAGER_DISCOVERY": False,
+            "MARKET_LEADER": False,
+            "QUALITY_COMPOUNDER": False,
+            "CYCLICAL_RECOVERY": False,
+            "CRISIS_BENEFICIARY": False,
+        },
     },
 }
 
@@ -352,11 +375,29 @@ def build_daily_crisis_state(
     )
 
 
+def canonical_crisis_state_frame(states: pd.DataFrame) -> pd.DataFrame:
+    """Input adapter for legacy replay artifacts; consumers see canonical states."""
+    out = states.copy()
+    if "date" not in out.columns:
+        out["date"] = pd.Series(dtype="datetime64[ns]")
+    if "crisis_state" not in out.columns:
+        out["crisis_state"] = "DEGRADED_DATA"
+    stages = out.get("reentry_stage", pd.Series("", index=out.index))
+    out["crisis_state"] = [
+        adapt_crisis_state(state, stage)
+        for state, stage in zip(out["crisis_state"], stages)
+    ]
+    out["reentry_stage"] = out["crisis_state"].where(
+        out["crisis_state"].astype(str).str.startswith("REENTRY_STAGE_"), ""
+    )
+    return out
+
+
 def mutation_dates(states: pd.DataFrame, target_dates: list[pd.Timestamp]) -> set[pd.Timestamp]:
     out = {pd.Timestamp(x).normalize() for x in target_dates}
     if states.empty:
         return out
-    d = states.copy()
+    d = canonical_crisis_state_frame(states)
     d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
     d = d.dropna(subset=["date"]).sort_values("date")
     last_emitted_state = ""
@@ -368,7 +409,7 @@ def mutation_dates(states: pd.DataFrame, target_dates: list[pd.Timestamp]) -> se
         month_key = dt.strftime("%Y-%m")
         gap_ok = last_action is None or (dt - last_action).days >= int(CRISIS_HYSTERESIS["minimum_action_gap_days"])
         count_ok = monthly_counts.get(month_key, 0) < int(CRISIS_HYSTERESIS["max_crisis_actions_per_month"])
-        shock_bypass = state == "CRISIS_DEFENSE" and bool(CRISIS_HYSTERESIS["shock_crash_immediate_bypass"])
+        shock_bypass = state == "CRISIS" and bool(CRISIS_HYSTERESIS["shock_crash_immediate_bypass"])
         if state != last_emitted_state and count_ok and (gap_ok or shock_bypass):
             out.add(dt)
             last_action = dt
@@ -424,9 +465,9 @@ def concentrated_min_equity(state: str, state_row: dict[str, Any]) -> float:
         return 0.80
     if stage == "REENTRY_STAGE_3":
         return 0.90
-    if state == "CRISIS_DEFENSE":
+    if state == "CRISIS":
         return 0.35 if crisis_type_from_state_row(state_row) == "shock_crash" else 0.50
-    if state == "DEFENSE_REVIEW":
+    if state in {"DEFENSE", "DEGRADED_DATA"}:
         return 0.75
     if state == "WATCH":
         return 0.85
@@ -434,8 +475,12 @@ def concentrated_min_equity(state: str, state_row: dict[str, Any]) -> float:
 
 
 def defense_multiplier(rec: dict[str, Any], lane: str, state: str, portfolio_kind: str) -> tuple[float, float, str]:
-    base = float(CRISIS_SETTINGS.get(state, CRISIS_SETTINGS["GREEN"])["lane_multiplier"].get(lane, 0.80 if state != "GREEN" else 1.0))
-    if state in {"GREEN", "REENTRY_READY"}:
+    base = float(
+        CRISIS_SETTINGS[state]["lane_multiplier"].get(
+            lane, 0.80 if state != "GREEN" else 1.0
+        )
+    )
+    if state == "GREEN" or state.startswith("REENTRY_STAGE_"):
         return base, 0.0, "risk_on_or_reentry"
     leader_state = str(rec.get("leader_state") or rec.get("winner_state") or "").upper()
     leader_tier = str(rec.get("leader_tier") or "").upper()
@@ -450,7 +495,7 @@ def defense_multiplier(rec: dict[str, Any], lane: str, state: str, portfolio_kin
     risk += 0.10 if volatility >= 0.08 else 0.0
     risk += 0.20 if leader_state in {"WARNING_2", "EXIT_REPLACE", "EXIT_REVIEW"} else 0.0
     intact_dual = leader_tier == "DUAL_LEADER" and leader_state in {"", "HOLD", "SHAKEOUT_GUARD"}
-    if state == "CRISIS_DEFENSE":
+    if state == "CRISIS":
         if lane == "EMERGING_TENBAGGER":
             base = min(base, 0.20)
         elif lane == "TOP7_MANAGER_DISCOVERY":
@@ -463,7 +508,7 @@ def defense_multiplier(rec: dict[str, Any], lane: str, state: str, portfolio_kin
             base = max(base, 0.75)
         if intact_dual:
             base = max(base, 0.75 if portfolio_kind == "concentrated" else 0.70)
-    elif state == "DEFENSE_REVIEW":
+    elif state in {"DEFENSE", "DEGRADED_DATA"}:
         if lane in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"}:
             base = min(base, 0.45)
         if lane == "CYCLICAL_RECOVERY":
@@ -471,7 +516,7 @@ def defense_multiplier(rec: dict[str, Any], lane: str, state: str, portfolio_kin
         if chase >= 1.25 and lane == "MARKET_LEADER":
             base = min(base, 0.65)
     multiplier = max(0.05, base * max(0.35, 1.0 - min(risk, 0.65)))
-    if intact_dual and state == "CRISIS_DEFENSE":
+    if intact_dual and state == "CRISIS":
         multiplier = max(multiplier, 0.65)
     return multiplier, min(risk, 1.0), "lane_aware_defense_cut"
 
@@ -481,7 +526,7 @@ def apply_crisis_overlay(target: pd.DataFrame, lane_history: pd.DataFrame, state
     if target.empty:
         return target, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     target_dates = sorted(pd.to_datetime(target["rebalance_date"], errors="coerce").dropna().unique())
-    states = states.copy()
+    states = canonical_crisis_state_frame(states)
     states["date"] = pd.to_datetime(states["date"], errors="coerce").dt.normalize()
     states = states.dropna(subset=["date"]).sort_values("date")
     state_by_date = states.set_index("date").to_dict("index")
@@ -498,9 +543,9 @@ def apply_crisis_overlay(target: pd.DataFrame, lane_history: pd.DataFrame, state
         state_row = state_by_date.get(dt)
         if state_row is None:
             prior = states[states["date"] <= dt]
-            state_row = prior.iloc[-1].to_dict() if not prior.empty else {"crisis_state": "GREEN", "crisis_score": 0.0}
-        state = str(state_row.get("crisis_state") or "GREEN")
-        setting = CRISIS_SETTINGS.get(state, CRISIS_SETTINGS["GREEN"])
+            state_row = prior.iloc[-1].to_dict() if not prior.empty else {"crisis_state": "DEGRADED_DATA", "crisis_score": 0.0}
+        state = str(state_row.get("crisis_state") or "DEGRADED_DATA")
+        setting = CRISIS_SETTINGS[state]
         cash_target = float(setting["cash"])
         lane_snap = latest_lane_snapshot(lane_history, dt)
         lane_map = {
@@ -583,13 +628,13 @@ def apply_crisis_overlay(target: pd.DataFrame, lane_history: pd.DataFrame, state
             }
         )
         cash_rows.append({"case_id": case_id, "portfolio_kind": portfolio_kind, "date": dt.date().isoformat(), "crisis_state": state, "cash_weight": cash_weight})
-        if state == "REENTRY_READY":
+        if state.startswith("REENTRY_STAGE_"):
             reentry_rows.append(
                 {
                     "case_id": case_id,
                     "portfolio_kind": portfolio_kind,
                     "date": dt.date().isoformat(),
-                    "reentry_stage": state_row.get("reentry_stage") or "REENTRY_STAGE_1",
+                    "reentry_stage": state,
                     "reentry_trigger": state_row.get("reentry_trigger") or "",
                     "reentry_deployed_cash": max(0.0, original_stock - invested),
                     "reentry_target_themes": "",
@@ -741,7 +786,7 @@ def stress_metrics(equity: pd.DataFrame, case_id: str, portfolio_kind: str) -> l
 def crisis_state_audit(states: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     if states.empty:
         payload = {
-            "daily_crisis_state_all_green": True,
+            "daily_crisis_state_all_green": False,
             "missing_data_only_trigger": True,
             "state_counts": {},
             "first_watch_date": "",
@@ -756,10 +801,10 @@ def crisis_state_audit(states: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             "reentry_without_defense_count": 0,
         }
         return pd.DataFrame([payload]), pd.DataFrame(), payload
-    d = states.copy()
+    d = canonical_crisis_state_frame(states)
     d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
     d = d.dropna(subset=["date"]).sort_values("date")
-    state = d.get("crisis_state", pd.Series("GREEN", index=d.index)).astype(str)
+    state = d.get("crisis_state", pd.Series("DEGRADED_DATA", index=d.index)).astype(str)
     counts = state.value_counts(dropna=False).to_dict()
     trigger_text = (
         d.get("price_trigger", pd.Series("", index=d.index)).astype(str)
@@ -778,9 +823,9 @@ def crisis_state_audit(states: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         part = d[mask]
         return pd.Timestamp(part["date"].iloc[0]).date().isoformat() if not part.empty else ""
 
-    defense_mask = state.isin(["DEFENSE_REVIEW", "CRISIS_DEFENSE"])
-    crisis_mask = state.eq("CRISIS_DEFENSE")
-    reentry_mask = state.eq("REENTRY_READY")
+    defense_mask = state.isin(["DEFENSE", "CRISIS", "DEGRADED_DATA"])
+    crisis_mask = state.eq("CRISIS")
+    reentry_mask = state.str.startswith("REENTRY_STAGE_")
     payload = {
         "daily_crisis_state_all_green": all_green,
         "missing_data_only_trigger": missing_data_only,
@@ -792,8 +837,8 @@ def crisis_state_audit(states: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         "state_transition_count": max(int(len(transitions) - 1), 0),
         "avg_state_duration_days": float(duration_days.mean()) if not duration_days.empty else "",
         "whipsaw_state_count": int(sum(1 for a, b in transition_pairs if a and b and a != b)),
-        "green_to_crisis_direct_count": int(sum(1 for a, b in transition_pairs if a == "GREEN" and b == "CRISIS_DEFENSE")),
-        "crisis_to_green_direct_count": int(sum(1 for a, b in transition_pairs if a == "CRISIS_DEFENSE" and b == "GREEN")),
+        "green_to_crisis_direct_count": int(sum(1 for a, b in transition_pairs if a == "GREEN" and b == "CRISIS")),
+        "crisis_to_green_direct_count": int(sum(1 for a, b in transition_pairs if a == "CRISIS" and b == "GREEN")),
         "reentry_without_defense_count": int(1 if reentry_mask.any() and not defense_mask.loc[: reentry_mask.idxmax()].any() else 0) if reentry_mask.any() else 0,
     }
     windows = [
@@ -804,8 +849,8 @@ def crisis_state_audit(states: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     for name, start, end in windows:
         part = d[(d["date"] >= start) & (d["date"] <= end)].copy()
         part_state = part.get("crisis_state", pd.Series(dtype=str)).astype(str)
-        first_defense = part[part_state.isin(["DEFENSE_REVIEW", "CRISIS_DEFENSE"])] if not part.empty else pd.DataFrame()
-        first_reentry = part[part_state.eq("REENTRY_READY")] if not part.empty else pd.DataFrame()
+        first_defense = part[part_state.isin(["DEFENSE", "CRISIS", "DEGRADED_DATA"])] if not part.empty else pd.DataFrame()
+        first_reentry = part[part_state.str.startswith("REENTRY_STAGE_")] if not part.empty else pd.DataFrame()
         lag = ""
         if not first_defense.empty:
             lag = int((pd.Timestamp(first_defense["date"].iloc[0]) - start).days)
@@ -817,7 +862,7 @@ def crisis_state_audit(states: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
                 "row_count": int(len(part)),
                 "state_counts": json.dumps(part_state.value_counts(dropna=False).to_dict(), sort_keys=True),
                 "first_defense_date": pd.Timestamp(first_defense["date"].iloc[0]).date().isoformat() if not first_defense.empty else "",
-                "first_crisis_defense_date": first_date(d["date"].between(start, end) & state.eq("CRISIS_DEFENSE")),
+                "first_crisis_defense_date": first_date(d["date"].between(start, end) & state.eq("CRISIS")),
                 "first_reentry_ready_date": pd.Timestamp(first_reentry["date"].iloc[0]).date().isoformat() if not first_reentry.empty else "",
                 "detection_lag_days": lag,
                 "defense_detected": bool(not first_defense.empty),
@@ -1328,6 +1373,14 @@ def run_case(
 ) -> tuple[dict[str, Any], pd.DataFrame, dict[str, pd.DataFrame]]:
     case_dir = out_dir / "cases" / case.case_id / portfolio_kind
     case_dir.mkdir(parents=True, exist_ok=True)
+    stock_evidence_dates = pd.to_datetime(
+        candidate.get("rebalance_date", pd.Series(dtype=str)), errors="coerce"
+    ).dropna()
+    stock_evidence_end = (
+        pd.Timestamp(stock_evidence_dates.max()).normalize()
+        if not stock_evidence_dates.empty
+        else None
+    )
     diagnostics: dict[str, pd.DataFrame] = {}
     if case.selection_layer == "production":
         source_path = default_operating_book(latest_run, portfolio_kind)
@@ -1391,6 +1444,7 @@ def run_case(
                 cost_bps=cost_bps,
                 integer_shares=True,
                 concentrated_champion_filters=DISABLE_CONCENTRATED_CHAMPION_FILTERS.copy() if case.selection_layer != "production" else None,
+                evidence_end_date=stock_evidence_end,
             )
         except Exception as exc:
             (case_dir / "broker_replay").mkdir(parents=True, exist_ok=True)
@@ -1449,6 +1503,9 @@ def run_case(
     metrics["actual_median_position_count"] = preflight.get("actual_median_position_count", "")
     metrics["actual_latest_position_count"] = preflight.get("actual_latest_position_count", "")
     metrics["price_cache_coverage"] = preflight.get("price_cache_coverage", metrics.get("price_cache_coverage", ""))
+    metrics["stock_evidence_end_date"] = (
+        stock_evidence_end.date().isoformat() if stock_evidence_end is not None else ""
+    )
     write_json(case_dir / "case_summary.json", {"case": case.__dict__, "metrics": metrics, "preflight": preflight})
     return metrics, target, diagnostics
 

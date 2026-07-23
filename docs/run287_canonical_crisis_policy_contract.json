@@ -36,10 +36,19 @@
     "fixed_weights_are_never_renormalized_when_missing": true,
     "future_columns_are_physically_removed": true,
     "critical_missing_state": "DEGRADED_DATA",
+    "unknown_or_missing_state": "DEGRADED_DATA",
+    "source_booleans_are_strict": true,
+    "ambiguous_source_booleans_are_rejected": true,
     "spy_drawdown_may_not_substitute_for_universe_breadth_or_leadership": true
+  },
+  "state_boundary": {
+    "legacy_aliases_are_accepted_only_by_input_adapters": true,
+    "downstream_state_names_are_canonical_only": true,
+    "reentry_stage_regression_requires_a_new_worsening_risk_state": true
   },
   "integration": {
     "state_machine": "tools/run287_crisis_policy.py",
+    "legacy_input_adapter": "tools.run287_crisis_policy.adapt_crisis_state",
     "historical_state_adapter": "tools/crisis_state_engine.py",
     "current_monitor": "tools/run_daily_crisis_monitor.py",
     "current_exact_sidecar": "tools/build_run287_current_crisis_state_sidecar.py",

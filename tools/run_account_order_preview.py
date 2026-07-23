@@ -30,8 +30,10 @@ from tools.reserve_asset_policy import (
     DEFAULT_CURRENT_PAPER_MODE,
     RESERVE_MODES,
     RESERVE_REASONS,
+    RESERVE_REASON_SOURCE_HASH_FIELD,
     account_reserve_reason_reconciliation,
     apply_reserve_asset_to_targets,
+    ensure_explicit_cash_row,
     reserve_reason_reconciliation,
     resolve_reserve_asset_policy,
 )
@@ -185,6 +187,7 @@ def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str 
             "portfolio_selection_path",
             "raw_score",
             *RESERVE_REASONS,
+            RESERVE_REASON_SOURCE_HASH_FIELD,
         ]
         if col in d.columns
     ]
@@ -198,8 +201,14 @@ def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str 
             **({"portfolio_selection_path": "last"} if "portfolio_selection_path" in out.columns else {}),
             **({"raw_score": "last"} if "raw_score" in out.columns else {}),
             **{reason: "sum" for reason in RESERVE_REASONS if reason in out.columns},
+            **(
+                {RESERVE_REASON_SOURCE_HASH_FIELD: "last"}
+                if RESERVE_REASON_SOURCE_HASH_FIELD in out.columns
+                else {}
+            ),
         }
     )
+    out = ensure_explicit_cash_row(out, weight_col="target_weight")
     return out.sort_values("target_weight", ascending=False).reset_index(drop=True)
 
 
@@ -694,6 +703,15 @@ def build_projected_positions_after_orders(
         "projected_reserve_value_usd": float(projected_reserve),
         "projected_reserve_weight": float(projected_reserve / projected_equity) if projected_equity > 0 else np.nan,
         "projected_position_count": int(sum(1 for row in rows if row.get("row_type") == "equity")),
+        "projected_position_count_total": int(
+            sum(1 for row in rows if row.get("row_type") in {"equity", "reserve"})
+        ),
+        "projected_equity_position_count": int(
+            sum(1 for row in rows if row.get("row_type") == "equity")
+        ),
+        "projected_reserve_position_count": int(
+            sum(1 for row in rows if row.get("row_type") == "reserve")
+        ),
     }
     return frame, metrics
 
@@ -910,6 +928,9 @@ def run(
         policy=reserve_policy,
         weight_col="target_weight",
     )
+    target[RESERVE_REASON_SOURCE_HASH_FIELD] = reserve_reconciliation[
+        RESERVE_REASON_SOURCE_HASH_FIELD
+    ]
     if reserve_policy.tradeable:
         reserve_price_date, reserve_price = latest_price(
             price_cache,
@@ -988,6 +1009,9 @@ def run(
         "order_count": int(len(orders)),
         "ready_order_count": int((orders.get("status", pd.Series(dtype=str)) == "ready").sum()) if not orders.empty else 0,
         "client_order_ids": orders.get("client_order_id", pd.Series(dtype=str)).astype(str).tolist() if not orders.empty else [],
+        RESERVE_REASON_SOURCE_HASH_FIELD: reserve_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
     }
     manifest_payload["order_batch_id"] = hashlib.sha256(
         json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -1026,6 +1050,27 @@ def run(
         else 0.0
     )
     current_reserve_value = float(cash + current_reserve_asset_value)
+    held_mask = (
+        pd.to_numeric(current.get("shares", pd.Series(dtype=float)), errors="coerce")
+        .fillna(0.0)
+        .abs()
+        .gt(1e-12)
+    )
+    current_reserve_position_count = int(
+        reserve_policy.tradeable
+        and not current.empty
+        and (
+            current.get("ticker", pd.Series(dtype=str))
+        .astype(str)
+        .str.upper()
+        .eq(reserve_policy.asset_ticker)
+            & held_mask
+        ).any()
+    )
+    current_position_count_total = int(held_mask.sum())
+    current_equity_position_count = (
+        current_position_count_total - current_reserve_position_count
+    )
     payload = {
         "status": "completed",
         "schema_version": "account-ledger-preview-v1",
@@ -1058,9 +1103,15 @@ def run(
         "reserve_reason_reconciliation": reserve_reconciliation,
         "projected_reserve_reason_reconciliation": projected_reserve_reconciliation,
         "reserve_reason_reconciled": True,
+        RESERVE_REASON_SOURCE_HASH_FIELD: reserve_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
         "reserve_mode_explicit": reserve_mode_explicit,
         **projected_metrics,
-        "position_count": int(len(current)),
+        "position_count": current_equity_position_count,
+        "position_count_total": current_position_count_total,
+        "equity_position_count": current_equity_position_count,
+        "reserve_position_count": current_reserve_position_count,
         "target_count": int(
             len(
                 target[

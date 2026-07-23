@@ -35,6 +35,7 @@ from tools.run_broker_ledger_replay import CASH_TICKERS  # noqa: E402
 from tools.reserve_asset_policy import (  # noqa: E402
     DEFAULT_CURRENT_PAPER_MODE,
     RESERVE_REASONS,
+    RESERVE_REASON_SOURCE_HASH_FIELD,
     account_reserve_reason_reconciliation,
     reserve_reason_reconciliation,
     resolve_reserve_asset_policy,
@@ -123,19 +124,37 @@ def target_for_date(target_path: Path, portfolio: str, as_of_date: pd.Timestamp)
     target = normalize_target(raw, portfolio, as_of_date.date().isoformat())
     if target.empty:
         raise ValueError(f"empty target allocation for {portfolio}")
-    target = target[
-        ["ticker", "target_weight"]
-        + [reason for reason in RESERVE_REASONS if reason in target.columns]
-    ].copy()
+    keep_columns = ["ticker", "target_weight"] + [
+        reason for reason in RESERVE_REASONS if reason in target.columns
+    ]
+    if RESERVE_REASON_SOURCE_HASH_FIELD in target.columns:
+        keep_columns.append(RESERVE_REASON_SOURCE_HASH_FIELD)
+    target = target[keep_columns].copy()
     target["ticker"] = target["ticker"].map(clean_ticker)
     target["target_weight"] = pd.to_numeric(target["target_weight"], errors="coerce")
     target = target[(target["ticker"] != "") & target["target_weight"].notna()].copy()
     if target.empty or (target["target_weight"] < -1e-12).any():
         raise ValueError(f"invalid target allocation for {portfolio}")
+    if RESERVE_REASON_SOURCE_HASH_FIELD in target.columns:
+        embedded_hashes = {
+            str(value).strip().lower()
+            for value in target[RESERVE_REASON_SOURCE_HASH_FIELD].tolist()
+            if str(value).strip().lower() not in {"", "nan", "none"}
+        }
+        if len(embedded_hashes) > 1:
+            raise ValueError(
+                "conflicting Reserve reason source hashes: "
+                f"{sorted(embedded_hashes)}"
+            )
     target = target.groupby("ticker", as_index=False).agg(
         {
             "target_weight": "sum",
             **{reason: "sum" for reason in RESERVE_REASONS if reason in target.columns},
+            **(
+                {RESERVE_REASON_SOURCE_HASH_FIELD: "last"}
+                if RESERVE_REASON_SOURCE_HASH_FIELD in target.columns
+                else {}
+            ),
         }
     ).sort_values("ticker").reset_index(drop=True)
     total = float(target["target_weight"].sum())
@@ -267,6 +286,9 @@ def build_account(
         "cash_weight": cash / starting_capital,
         "stock_value_usd": stock_value,
         "position_count": len(positions),
+        "position_count_total": len(positions),
+        "equity_position_count": len(positions),
+        "reserve_position_count": 0,
         "fill_mode": "next_close",
         "cost_bps_per_side": float(cost_bps),
         "integer_shares": True,
@@ -277,6 +299,9 @@ def build_account(
         "reserve_weight": cash / starting_capital,
         "target_reserve_reason_reconciliation": target_reserve_reconciliation,
         "reserve_reason_reconciliation": reserve_reconciliation,
+        RESERVE_REASON_SOURCE_HASH_FIELD: reserve_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
         **{
             reason: float(reserve_reconciliation["reason_weights"][reason])
             for reason in RESERVE_REASONS
@@ -308,6 +333,12 @@ def build_account(
         "actual_stock_weight": stock_value / starting_capital,
         "actual_cash_weight": cash / starting_capital,
         "position_count": len(positions),
+        "position_count_total": len(positions),
+        "equity_position_count": len(positions),
+        "reserve_position_count": 0,
+        RESERVE_REASON_SOURCE_HASH_FIELD: reserve_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
         "price_file_sha256": price_hashes,
     }
     return account, evidence

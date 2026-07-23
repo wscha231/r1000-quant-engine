@@ -7,6 +7,7 @@ import tempfile
 from argparse import Namespace
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -186,24 +187,34 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
             index=False,
         )
 
-        payload = build(
-            Namespace(
-                latest_run=str(latest),
-                candidate_book=None,
-                price_cache=str(root / "cache_prices"),
-                output_dir=str(latest / "alphaops_vnext"),
-                portfolio_kind="both",
-                main_target_n=15,
-                concentrated_target_n=5,
-                production_output_mode="replace_operating",
-                skip_broker_replay=True,
-                run_current_report=False,
-                cost_bps=25.0,
-                max_fill_lag_days=7,
-                long_crisis_features=str(root / "missing_long_crisis.parquet"),
-                long_crisis_thresholds=str(root / "missing_thresholds.json"),
-            )
+        known_green_states = pd.DataFrame(
+            [
+                {"date": date, "crisis_state": "GREEN", "price_trigger": "fixture_known_green"}
+                for date in ("2026-01-31", "2026-02-28", "2026-03-05")
+            ]
         )
+        with patch(
+            "tools.run_alphaops_vnext_policy_replay.build_daily_crisis_state",
+            return_value=known_green_states,
+        ):
+            payload = build(
+                Namespace(
+                    latest_run=str(latest),
+                    candidate_book=None,
+                    price_cache=str(root / "cache_prices"),
+                    output_dir=str(latest / "alphaops_vnext"),
+                    portfolio_kind="both",
+                    main_target_n=15,
+                    concentrated_target_n=5,
+                    production_output_mode="replace_operating",
+                    skip_broker_replay=True,
+                    run_current_report=False,
+                    cost_bps=25.0,
+                    max_fill_lag_days=7,
+                    long_crisis_features=str(root / "missing_long_crisis.parquet"),
+                    long_crisis_thresholds=str(root / "missing_thresholds.json"),
+                )
+            )
         assert payload["status"] == "completed"
         assert payload["production_applied"] is True
         assert payload["candidate_source_mode"] == "sec_enriched_candidate_book"
@@ -321,13 +332,17 @@ def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
     cyc = out[out["ticker"].eq("CYC")].iloc[0]
     qlt = out[out["ticker"].eq("QLT")].iloc[0]
     assert bool(cyc["crisis_new_buy_allowed"]) is False
-    assert "CRISIS_DEFENSE:CYCLICAL_RECOVERY" in str(cyc["crisis_new_buy_block_reason"])
+    assert "CRISIS:CYCLICAL_RECOVERY" in str(cyc["crisis_new_buy_block_reason"])
     assert bool(qlt["crisis_new_buy_allowed"]) is True
     assert float(cyc["alphaops_vnext_weight_score"]) < float(cyc["alphaops_vnext_score"])
     assert float(qlt["alphaops_vnext_weight_score"]) > float(cyc["alphaops_vnext_weight_score"])
-    ok, reason = crisis_new_buy_allowed(cyc.to_dict(), "CRISIS_DEFENSE")
+    ok, reason = crisis_new_buy_allowed(cyc.to_dict(), "CRISIS")
     assert ok is False
     assert reason.startswith("crisis_new_buy_blocked_for_lane")
+    for lane in ("TOP7_MANAGER_DISCOVERY", "CRISIS_BENEFICIARY", "UNRECOGNIZED_LANE"):
+        ok, reason = crisis_new_buy_allowed({"primary_lane": lane}, "DEGRADED_DATA")
+        assert ok is False
+        assert reason == f"crisis_new_buy_blocked_for_lane:DEGRADED_DATA:{lane}"
 
 
 def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
@@ -657,12 +672,25 @@ def test_shakeout_guard_prod_env_suppresses_transient_trim_only() -> None:
         assert crisis_reason == "score_below_monthly_peer_band"
 
         defense_trim, defense_reason = holding_state(
-            _shakeout_guard_row(crisis_state="DEFENSE_REVIEW"),
+            _shakeout_guard_row(crisis_state="DEFENSE"),
             score_median=1.0,
             score_sigma=0.30,
         )
         assert defense_trim == "TRIM"
         assert defense_reason == "score_below_monthly_peer_band"
+
+        degraded_trim, degraded_reason = holding_state(
+            _shakeout_guard_row(crisis_state="DEGRADED_DATA"),
+            score_median=1.0,
+            score_sigma=0.30,
+        )
+        assert degraded_trim == "TRIM"
+        assert degraded_reason == "score_below_monthly_peer_band"
+        degraded_decision = shakeout_guard_prod_decision(
+            _shakeout_guard_row(crisis_state="DEGRADED_DATA")
+        )
+        assert degraded_decision.protected is False
+        assert degraded_decision.block_reason == "crisis_state_blocked:DEGRADED_DATA"
 
         native = shakeout_guard_prod_decision(
             _shakeout_guard_row(rs_qqq_1m=-0.01, rs_qqq_3m=0.05, rs_qqq_6m=0.16)
@@ -1026,7 +1054,7 @@ def test_main_defense_review_turnaround_new_entry_block_preserves_holds() -> Non
                 "primary_lane": "QUALITY_COMPOUNDER",
                 "market_style_regime_label": "turnaround_accumulation",
                 "regime_state": "neutral",
-                "crisis_state": "DEFENSE_REVIEW",
+                "crisis_state": "DEFENSE",
                 "holding_state": "NEW",
                 "hold_replace_decision": "new_entry",
                 "prior_weight": 0.0,
@@ -1042,7 +1070,7 @@ def test_main_defense_review_turnaround_new_entry_block_preserves_holds() -> Non
                 "primary_lane": "QUALITY_COMPOUNDER",
                 "market_style_regime_label": "turnaround_accumulation",
                 "regime_state": "neutral",
-                "crisis_state": "DEFENSE_REVIEW",
+                "crisis_state": "DEFENSE",
                 "holding_state": "HOLD",
                 "hold_replace_decision": "keep_prior_holding",
                 "prior_weight": 0.03,
@@ -1074,7 +1102,7 @@ def test_main_defense_review_turnaround_new_entry_block_preserves_holds() -> Non
                 "primary_lane": "CASH",
                 "market_style_regime_label": "turnaround_accumulation",
                 "regime_state": "neutral",
-                "crisis_state": "DEFENSE_REVIEW",
+                "crisis_state": "DEFENSE",
                 "holding_state": "CASH",
                 "hold_replace_decision": "",
                 "prior_weight": 0.80,
@@ -1111,7 +1139,7 @@ def test_main_defense_review_balanced_new_entry_block_preserves_existing_positio
                 "primary_lane": "QUALITY_COMPOUNDER",
                 "market_style_regime_label": "balanced",
                 "regime_state": "neutral",
-                "crisis_state": "DEFENSE_REVIEW",
+                "crisis_state": "DEFENSE",
                 "breakout_setup_quality_score": 0.20,
                 "holding_state": "NEW",
                 "hold_replace_decision": "new_entry",
@@ -1128,7 +1156,7 @@ def test_main_defense_review_balanced_new_entry_block_preserves_existing_positio
                 "primary_lane": "QUALITY_COMPOUNDER",
                 "market_style_regime_label": "balanced",
                 "regime_state": "neutral",
-                "crisis_state": "DEFENSE_REVIEW",
+                "crisis_state": "DEFENSE",
                 "breakout_setup_quality_score": 0.20,
                 "holding_state": "WARNING",
                 "hold_replace_decision": "keep_prior_holding",
@@ -1145,7 +1173,7 @@ def test_main_defense_review_balanced_new_entry_block_preserves_existing_positio
                 "primary_lane": "QUALITY_COMPOUNDER",
                 "market_style_regime_label": "balanced",
                 "regime_state": "neutral",
-                "crisis_state": "DEFENSE_REVIEW",
+                "crisis_state": "DEFENSE",
                 "breakout_setup_quality_score": 0.70,
                 "holding_state": "NEW",
                 "hold_replace_decision": "new_entry",
@@ -1179,7 +1207,7 @@ def test_main_defense_review_balanced_new_entry_block_preserves_existing_positio
                 "primary_lane": "CASH",
                 "market_style_regime_label": "balanced",
                 "regime_state": "neutral",
-                "crisis_state": "DEFENSE_REVIEW",
+                "crisis_state": "DEFENSE",
                 "breakout_setup_quality_score": 1.0,
                 "holding_state": "CASH",
                 "hold_replace_decision": "",
@@ -2714,7 +2742,7 @@ def test_concentrated_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_
             "target_weight": 0.20,
             "holding_state": "NEW",
             "hold_replace_decision": "new_entry",
-            "crisis_state": "DEFENSE_REVIEW",
+            "crisis_state": "DEFENSE",
             "regime_state": "neutral",
             "sector": "Materials",
             "atr14_pct": 0.14,
@@ -2748,7 +2776,7 @@ def test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries
             "target_weight": 0.20,
             "holding_state": "NEW",
             "hold_replace_decision": "new_entry",
-            "crisis_state": "DEFENSE_REVIEW",
+            "crisis_state": "DEFENSE",
             "regime_state": "neutral",
             "primary_lane": "QUALITY_COMPOUNDER",
             "selection_reason": "QUALITY_COMPOUNDER",
@@ -2770,7 +2798,7 @@ def test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries
             "target_weight": 0.20,
             "holding_state": "NEW",
             "hold_replace_decision": "new_entry",
-            "crisis_state": "DEFENSE_REVIEW",
+            "crisis_state": "DEFENSE",
             "regime_state": "bull",
             "primary_lane": "QUALITY_COMPOUNDER",
             "selection_reason": "QUALITY_COMPOUNDER",
@@ -2781,7 +2809,7 @@ def test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries
             "target_weight": 0.20,
             "holding_state": "NEW",
             "hold_replace_decision": "new_entry",
-            "crisis_state": "DEFENSE_REVIEW",
+            "crisis_state": "DEFENSE",
             "regime_state": "neutral",
             "primary_lane": "MARKET_LEADER",
             "selection_reason": "MARKET_LEADER",
@@ -2792,7 +2820,7 @@ def test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries
             "target_weight": 0.20,
             "holding_state": "HOLD",
             "hold_replace_decision": "keep_prior_holding",
-            "crisis_state": "DEFENSE_REVIEW",
+            "crisis_state": "DEFENSE",
             "regime_state": "neutral",
             "primary_lane": "QUALITY_COMPOUNDER",
             "selection_reason": "QUALITY_COMPOUNDER",
@@ -2909,7 +2937,7 @@ def test_concentrated_watch_damaged_weak_market_leader_cap_applies_to_new_and_ho
             "weight": 0.16,
             "target_weight": 0.16,
             "primary_lane": "MARKET_LEADER",
-            "crisis_state": "DEFENSE_REVIEW",
+            "crisis_state": "DEFENSE",
             "holding_state": "HOLD",
             "hold_replace_decision": "keep_prior_holding",
             "selection_confirmation_score": 1.0,

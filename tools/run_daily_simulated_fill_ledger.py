@@ -63,9 +63,11 @@ from tools.reserve_asset_policy import (  # noqa: E402
     DEFAULT_CURRENT_PAPER_MODE,
     RESERVE_MODES,
     RESERVE_REASONS,
+    RESERVE_REASON_SOURCE_HASH_FIELD,
     ReserveAssetPolicy,
     account_reserve_reason_reconciliation,
     apply_reserve_asset_to_targets,
+    ensure_explicit_cash_row,
     reserve_reason_reconciliation,
     resolve_reserve_asset_policy,
 )
@@ -220,11 +222,10 @@ def normalized_target(target_path: Path, portfolio: str, as_of_date: pd.Timestam
     target = normalize_target(read_csv(target_path), portfolio, as_of_date.date().isoformat())
     if target.empty:
         return pd.DataFrame(columns=["ticker", "target_weight"])
-    target = target[["ticker", "target_weight"]].copy()
+    target = target.copy()
     target["ticker"] = target["ticker"].map(clean_ticker)
     target["target_weight"] = pd.to_numeric(target["target_weight"], errors="coerce").fillna(0.0)
     target = target[(target["ticker"] != "") & (target["target_weight"] > 1e-12)].copy()
-    target = target.groupby("ticker", as_index=False)["target_weight"].sum()
     return target.sort_values("ticker").reset_index(drop=True)
 
 
@@ -234,6 +235,22 @@ def target_hash(target: pd.DataFrame) -> str:
         for row in target.itertuples(index=False)
     ]
     return canonical_hash({"schema": "run287-forward-target-v1", "rows": rows})
+
+
+def target_reserve_reason_source_hash(target: pd.DataFrame) -> str:
+    if RESERVE_REASON_SOURCE_HASH_FIELD not in target.columns:
+        return ""
+    values = {
+        str(value).strip().lower()
+        for value in target[RESERVE_REASON_SOURCE_HASH_FIELD].tolist()
+        if str(value).strip().lower() not in {"", "nan", "none"}
+    }
+    if len(values) > 1:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_RESERVE_PROVENANCE",
+            f"conflicting {RESERVE_REASON_SOURCE_HASH_FIELD} values",
+        )
+    return next(iter(values), "")
 
 
 def target_effective_date(target_path: Path, as_of_date: pd.Timestamp) -> pd.Timestamp | None:
@@ -286,6 +303,7 @@ def preview_identity(
 ) -> dict[str, Any]:
     effective_date, source_eligible_close = target_contract_dates(source_target_path, as_of_date)
     order_eligible_close = source_eligible_close if preview_mode == "EXECUTABLE_CANDIDATE" else None
+    effective_target = normalized_target(effective_target_path, portfolio, as_of_date)
     identity = {
         "preview_identity_schema_version": "run287-paper-preview-identity-v1",
         "portfolio_kind": portfolio,
@@ -302,8 +320,9 @@ def preview_identity(
         "accepted_account_sha256": file_hash(account_path),
         "effective_target_sha256": file_hash(effective_target_path),
         "source_target_sha256": file_hash(source_target_path),
-        "normalized_target_hash": target_hash(
-            normalized_target(effective_target_path, portfolio, as_of_date)
+        "normalized_target_hash": target_hash(effective_target),
+        RESERVE_REASON_SOURCE_HASH_FIELD: target_reserve_reason_source_hash(
+            effective_target
         ),
         "orders_preview_sha256": file_hash(preview_dir / "orders_preview.csv"),
         "target_weights_sha256": file_hash(preview_dir / "target_weights.csv"),
@@ -391,7 +410,11 @@ def write_no_new_order_preview(
 ) -> dict[str, Any]:
     preview_dir.mkdir(parents=True, exist_ok=True)
     target = normalized_target(effective_target_path, portfolio, as_of_date)
-    write_csv(preview_dir / "target_weights.csv", target, ["ticker", "target_weight"])
+    write_csv(
+        preview_dir / "target_weights.csv",
+        target,
+        ["ticker", "target_weight", RESERVE_REASON_SOURCE_HASH_FIELD],
+    )
     write_csv(preview_dir / "orders_preview.csv", pd.DataFrame(), PREVIEW_ORDER_COLUMNS)
     write_json(preview_dir / "order_batch_manifest.json", {})
     write_json(
@@ -493,6 +516,9 @@ def materialize_lifecycle_adjusted_target(
             "BLOCKED_RESERVE_LIFECYCLE",
             f"Reserve asset is terminal at decision time: {reserve_policy.asset_ticker}",
         )
+    terminal_target_tickers = set(target["ticker"].astype(str).str.upper()) & set(
+        lifecycle.terminal_tickers
+    )
     adjusted = filter_terminal_tickers(target, lifecycle)
     non_cash = adjusted.loc[~adjusted["ticker"].isin({"CASH", "__CASH__"})]
     if not source_non_cash.empty and non_cash.empty:
@@ -503,18 +529,69 @@ def materialize_lifecycle_adjusted_target(
                 "ticker": "CASH",
                 "target_weight": 1.0,
                 "lifecycle_forced_all_cash": True,
+                "capacity_unallocated": 1.0,
             }
         )
         adjusted = pd.DataFrame([cash_row])
+    adjusted = ensure_explicit_cash_row(adjusted, weight_col="target_weight")
+    adjusted["reserve_asset_policy_schema"] = reserve_policy.audit()["schema_version"]
+    adjusted["reserve_asset_mode"] = reserve_policy.mode
+    adjusted["reserve_asset_ticker"] = reserve_policy.asset_ticker
+    adjusted["reserve_asset_tradeable"] = reserve_policy.tradeable
+    adjusted["reserve_reason_reconciled"] = True
+    explicit_reason_fields = any(reason in adjusted.columns for reason in RESERVE_REASONS)
+    for reason in RESERVE_REASONS:
+        if reason not in adjusted.columns:
+            adjusted[reason] = 0.0
+        adjusted[reason] = pd.to_numeric(adjusted[reason], errors="coerce").fillna(0.0)
+    reserve_names = {"CASH", "__CASH__"}
+    if reserve_policy.tradeable:
+        reserve_names.add(reserve_policy.asset_ticker)
+    reserve_mask = adjusted["ticker"].astype(str).str.upper().isin(reserve_names)
+    reserve_weight = float(adjusted.loc[reserve_mask, "target_weight"].sum())
+    labeled_weight = float(
+        sum(adjusted.loc[reserve_mask, reason].sum() for reason in RESERVE_REASONS)
+    )
+    unlabeled_reserve = reserve_weight - labeled_weight
+    if unlabeled_reserve > 1e-10:
+        reserve_rows = adjusted.index[reserve_mask].tolist()
+        if not reserve_rows:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_RESERVE_PROVENANCE",
+                "reserve weight has no materialized Reserve row",
+            )
+        unlabeled_reason = (
+            "residual_cash" if explicit_reason_fields else "capacity_unallocated"
+        )
+        adjusted.loc[reserve_rows[0], unlabeled_reason] += unlabeled_reserve
+    if terminal_target_tickers:
+        adjusted = adjusted.drop(
+            columns=[RESERVE_REASON_SOURCE_HASH_FIELD], errors="ignore"
+        )
+    reconciliation = reserve_reason_reconciliation(
+        adjusted,
+        policy=reserve_policy,
+        weight_col="target_weight",
+    )
+    adjusted[RESERVE_REASON_SOURCE_HASH_FIELD] = reconciliation[
+        RESERVE_REASON_SOURCE_HASH_FIELD
+    ]
     rows = adjusted.rename(columns={"target_weight": "weight"}).copy()
     rows.insert(0, "rebalance_date", as_of_date.date().isoformat())
     columns = ["rebalance_date", "ticker", "weight"]
-    if reserve_mode_explicit:
-        columns.extend(
-            column
-            for column in [*RESERVE_REASONS, "reserve_asset_policy_schema", "reserve_asset_mode", "reserve_asset_ticker", "reserve_asset_tradeable", "reserve_reason_reconciled"]
-            if column in rows.columns
-        )
+    columns.extend(
+        column
+        for column in [
+            *RESERVE_REASONS,
+            RESERVE_REASON_SOURCE_HASH_FIELD,
+            "reserve_asset_policy_schema",
+            "reserve_asset_mode",
+            "reserve_asset_ticker",
+            "reserve_asset_tradeable",
+            "reserve_reason_reconciled",
+        ]
+        if column in rows.columns
+    )
     write_csv(output_path, rows, columns)
     return output_path, adjusted
 
@@ -1382,6 +1459,13 @@ def mark_account(
         "reserve_asset_value_usd": reserve_asset_value,
         "reserve_value_usd": reserve_value,
         "position_count": sum(1 for row in position_rows if not row["reserve_asset"]),
+        "position_count_total": len(position_rows),
+        "equity_position_count": sum(
+            1 for row in position_rows if not row["reserve_asset"]
+        ),
+        "reserve_position_count": sum(
+            1 for row in position_rows if row["reserve_asset"]
+        ),
         "fill_mode": "next_close",
         "cost_bps_per_side": float(cost_bps),
         "integer_shares": True,
@@ -1393,6 +1477,9 @@ def mark_account(
         "reserve_weight": float(actual_reconciliation["actual_reserve_weight"]),
         "target_reserve_reason_reconciliation": reserve_reconciliation,
         "reserve_reason_reconciliation": actual_reconciliation,
+        RESERVE_REASON_SOURCE_HASH_FIELD: actual_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
         **{
             reason: float(actual_reconciliation["reason_weights"][reason])
             for reason in RESERVE_REASONS
@@ -1434,6 +1521,21 @@ def update_equity_curve(
                     "cash_weight": seed_cash / seed_equity,
                     "stock_value_usd": seed_equity - seed_cash,
                     "position_count": int(safe_float(seed_account.get("position_count"), len(seed_account.get("positions") or []))),
+                    "position_count_total": int(
+                        safe_float(
+                            seed_account.get("position_count_total"),
+                            len(seed_account.get("positions") or []),
+                        )
+                    ),
+                    "equity_position_count": int(
+                        safe_float(
+                            seed_account.get("equity_position_count"),
+                            seed_account.get("position_count"),
+                        )
+                    ),
+                    "reserve_position_count": int(
+                        safe_float(seed_account.get("reserve_position_count"), 0)
+                    ),
                     "record_type": "SEED_ACCOUNT",
                 }
             )
@@ -1444,6 +1546,9 @@ def update_equity_curve(
         "cash_weight": float(account["cash_weight"]),
         "stock_value_usd": float(account["stock_value_usd"]),
         "position_count": int(account["position_count"]),
+        "position_count_total": int(account["position_count_total"]),
+        "equity_position_count": int(account["equity_position_count"]),
+        "reserve_position_count": int(account["reserve_position_count"]),
         "record_type": "FORWARD_MARK",
     }
     existing = next((row for row in rows if clean_date(row.get("date")) == current["date"]), None)
@@ -1617,6 +1722,24 @@ def load_reusable_same_session_manifest(
     require(account.get("review_only") is True, "account_review_only")
     require(account.get("live_trading_enabled") is False, "account_live_trading")
     require(account.get("production_mutation_allowed") is False, "account_production_mutation")
+    current_reserve_source_hash = target_reserve_reason_source_hash(
+        normalized_target(target_path, portfolio, as_of_date)
+    )
+    require(bool(current_reserve_source_hash), "reserve_reason_source_hash_missing")
+    stored_reserve_source_hash = str(
+        manifest.get(RESERVE_REASON_SOURCE_HASH_FIELD) or ""
+    )
+    require(bool(stored_reserve_source_hash), "stored_reserve_reason_source_hash_missing")
+    require(
+        str(account.get(RESERVE_REASON_SOURCE_HASH_FIELD) or "")
+        == stored_reserve_source_hash,
+        "account_manifest_reserve_reason_source_hash",
+    )
+    if not allow_suppressed_to_target_transition:
+        require(
+            stored_reserve_source_hash == current_reserve_source_hash,
+            "manifest_reserve_reason_source_hash",
+        )
 
     matching_curve = curve.loc[curve_dates == requested_date].copy() if not curve.empty else pd.DataFrame()
     require(len(matching_curve) == 1, "equity_curve_same_date_count")
@@ -1633,16 +1756,50 @@ def load_reusable_same_session_manifest(
                 ),
                 f"equity_curve_{field}",
             )
-        require(
-            int(safe_float(curve_row.get("position_count"), -1))
-            == int(safe_float(account.get("position_count"), -2)),
-            "equity_curve_position_count",
-        )
+        for count_field in (
+            "position_count",
+            "position_count_total",
+            "equity_position_count",
+            "reserve_position_count",
+        ):
+            if count_field in account:
+                require(
+                    int(safe_float(curve_row.get(count_field), -1))
+                    == int(safe_float(account.get(count_field), -2)),
+                    f"equity_curve_{count_field}",
+                )
 
     positions = read_csv(portfolio_dir / "positions_latest.csv")
     account_positions = account.get("positions") if isinstance(account.get("positions"), list) else []
     require(len(positions) == len(account_positions), "positions_row_count")
-    require(len(account_positions) == int(safe_float(account.get("position_count"), -1)), "account_position_count")
+    require(
+        len(account_positions)
+        == int(
+            safe_float(
+                account.get("position_count_total"),
+                account.get("position_count"),
+            )
+        ),
+        "account_position_count_total",
+    )
+    reserve_positions = sum(
+        1 for row in account_positions if isinstance(row, dict) and row.get("reserve_asset") is True
+    )
+    require(
+        len(account_positions) - reserve_positions
+        == int(
+            safe_float(
+                account.get("equity_position_count"),
+                account.get("position_count"),
+            )
+        ),
+        "account_equity_position_count",
+    )
+    require(
+        reserve_positions
+        == int(safe_float(account.get("reserve_position_count"), reserve_positions)),
+        "account_reserve_position_count",
+    )
     if account_positions:
         account_position_map = {
             clean_ticker(row.get("ticker")): float(safe_float(row.get("shares"), np.nan))
@@ -2163,6 +2320,9 @@ def run_portfolio(
         "security_lifecycle_actions": lifecycle_actions,
         "reserve_asset_policy": reserve_policy.audit(),
         "reserve_reason_reconciliation": reserve_reconciliation,
+        RESERVE_REASON_SOURCE_HASH_FIELD: reserve_reconciliation[
+            RESERVE_REASON_SOURCE_HASH_FIELD
+        ],
         "event_sequence": sequence,
         "event_chain_hash": chain_hash,
         "resolved_fills_this_run": resolved["resolved_fills"],

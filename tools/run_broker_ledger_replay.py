@@ -37,6 +37,7 @@ from tools.reserve_asset_policy import (
     DGS3MO_CARRY,
     RESERVE_MODES,
     RESERVE_REASONS,
+    RESERVE_REASON_SOURCE_HASH_FIELD,
     ReserveAssetPolicy,
     account_reserve_reason_reconciliation,
     apply_reserve_asset_to_targets,
@@ -367,10 +368,24 @@ def normalize_targets(
             "concentrated_selection_source",
             "portfolio_defensive_rotation_action",
             *RESERVE_REASONS,
+            RESERVE_REASON_SOURCE_HASH_FIELD,
         ]
         if c in d.columns
     ]
     d = d[keep].copy()
+    if RESERVE_REASON_SOURCE_HASH_FIELD in d.columns:
+        for rebalance_date, part in d.groupby("rebalance_date", dropna=False):
+            embedded_hashes = {
+                str(value).strip().lower()
+                for value in part[RESERVE_REASON_SOURCE_HASH_FIELD].tolist()
+                if str(value).strip().lower() not in {"", "nan", "none"}
+            }
+            if len(embedded_hashes) > 1:
+                raise ValueError(
+                    "conflicting Reserve reason source hashes for "
+                    f"{pd.Timestamp(rebalance_date).date().isoformat()}: "
+                    f"{sorted(embedded_hashes)}"
+                )
     d = d.groupby(["rebalance_date", "ticker"], as_index=False).agg(
         {
             "weight": "sum",
@@ -381,6 +396,11 @@ def normalize_targets(
             **({"concentrated_selection_source": "last"} if "concentrated_selection_source" in d.columns else {}),
             **({"portfolio_defensive_rotation_action": "last"} if "portfolio_defensive_rotation_action" in d.columns else {}),
             **{reason: "sum" for reason in RESERVE_REASONS if reason in d.columns},
+            **(
+                {RESERVE_REASON_SOURCE_HASH_FIELD: "last"}
+                if RESERVE_REASON_SOURCE_HASH_FIELD in d.columns
+                else {}
+            ),
         }
     )
     return d.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
@@ -414,13 +434,19 @@ def target_period_ends(
     targets: pd.DataFrame,
     price_cache: Path,
     calendar_prices: dict[str, pd.DataFrame] | None = None,
+    evidence_end_date: Any = None,
 ) -> dict[pd.Timestamp, pd.Timestamp]:
     dates = sorted(pd.to_datetime(targets["rebalance_date"], errors="coerce").dropna().unique())
+    clamp = pd.to_datetime(evidence_end_date, errors="coerce")
+    clamp = pd.Timestamp(clamp).normalize() if not pd.isna(clamp) else None
     out: dict[pd.Timestamp, pd.Timestamp] = {}
     for i, raw_dt in enumerate(dates):
         dt = pd.Timestamp(raw_dt).normalize()
+        if clamp is not None and dt > clamp:
+            continue
         if i + 1 < len(dates):
-            out[dt] = pd.Timestamp(dates[i + 1]).normalize()
+            period_end = pd.Timestamp(dates[i + 1]).normalize()
+            out[dt] = min(period_end, clamp) if clamp is not None else period_end
             continue
         latest: list[pd.Timestamp] = []
         for ticker in targets.loc[targets["rebalance_date"].eq(dt), "ticker"].astype(str).str.upper().unique():
@@ -434,7 +460,8 @@ def target_period_ends(
                 if not px.empty:
                     latest.append(pd.Timestamp(px.index.max()).normalize())
         if latest:
-            out[dt] = max(latest)
+            period_end = max(latest)
+            out[dt] = min(period_end, clamp) if clamp is not None else period_end
     return out
 
 
@@ -865,6 +892,13 @@ def latest_account_state(
         "cash_weight": float(state.cash / equity) if equity > 0 else np.nan,
         "stock_value_usd": float(sum(values.values())),
         "position_count": int(len(rows)),
+        "position_count_total": int(len(rows)),
+        "equity_position_count": int(
+            sum(1 for row in rows if not bool(row.get("reserve_asset")))
+        ),
+        "reserve_position_count": int(
+            sum(1 for row in rows if bool(row.get("reserve_asset")))
+        ),
         "fill_mode": fill_mode,
         "cost_bps_per_side": float(cost_bps),
         "integer_shares": bool(integer_shares),
@@ -903,12 +937,22 @@ def latest_account_state(
                         if not bool(row.get("reserve_asset"))
                     )
                 ),
+                "position_count_total": int(len(rows)),
+                "equity_position_count": int(
+                    sum(1 for row in rows if not bool(row.get("reserve_asset")))
+                ),
+                "reserve_position_count": int(
+                    sum(1 for row in rows if bool(row.get("reserve_asset")))
+                ),
                 "reserve_asset_policy": reserve_policy_payload,
                 "reserve_asset_value_usd": reserve_asset_value,
                 "reserve_value_usd": reserve_value,
                 "reserve_weight": float(reserve_value / equity) if equity > 0 else np.nan,
                 "target_reserve_reason_reconciliation": target_reconciliation,
                 "reserve_reason_reconciliation": actual_reconciliation,
+                RESERVE_REASON_SOURCE_HASH_FIELD: actual_reconciliation[
+                    RESERVE_REASON_SOURCE_HASH_FIELD
+                ],
                 **{
                     reason: float(actual_reconciliation["reason_weights"][reason])
                     for reason in RESERVE_REASONS
@@ -948,6 +992,7 @@ def replay(
     reserve_asset_policy: ReserveAssetPolicy | None = None,
     reserve_mode: str | None = None,
     partial_resize_two_signal_confirmation: bool = False,
+    evidence_end_date: Any = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
@@ -1011,6 +1056,12 @@ def replay(
         champion_filters,
         disable_champion_filter=disable_concentrated_champion_filter,
     )
+    evidence_end = pd.to_datetime(evidence_end_date, errors="coerce")
+    evidence_end = (
+        pd.Timestamp(evidence_end).normalize() if not pd.isna(evidence_end) else None
+    )
+    if evidence_end is not None and not targets.empty:
+        targets = targets.loc[targets["rebalance_date"] <= evidence_end].copy()
     if targets.empty:
         payload = {
             "status": "blocked",
@@ -1059,6 +1110,8 @@ def replay(
             (pd.Timestamp(px.index.max()).normalize() for px in stock_prices),
             default=pd.Timestamp(targets["rebalance_date"].max()).normalize(),
         )
+        if evidence_end is not None:
+            required_end = min(required_end, evidence_end)
         history = reserve_history_status(
             prices.get(reserve_asset_policy.asset_ticker, pd.DataFrame()),
             policy=reserve_asset_policy,
@@ -1102,7 +1155,12 @@ def replay(
             }
             (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
             return payload
-    periods = target_period_ends(targets, price_cache, calendar_prices if carry_enabled else None)
+    periods = target_period_ends(
+        targets,
+        price_cache,
+        calendar_prices if carry_enabled else None,
+        evidence_end,
+    )
     state = LedgerState(cash=float(starting_capital))
     trade_rows: list[dict[str, Any]] = []
     equity_rows: list[dict[str, Any]] = []
@@ -1140,14 +1198,23 @@ def replay(
             if ticker in CASH_TICKERS:
                 continue
             actual_dt, px = fill_price(prices, ticker, signal_dt, fill_mode, max_fill_lag_days)
-            if actual_dt is not None and px is not None:
-                fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
+            normalized_fill = (
+                pd.Timestamp(actual_dt).normalize() if actual_dt is not None else None
+            )
+            if (
+                normalized_fill is not None
+                and px is not None
+                and (evidence_end is None or normalized_fill <= evidence_end)
+            ):
+                fill_dt_by_ticker[ticker] = normalized_fill
                 fill_px_by_ticker[ticker] = float(px)
         if not fill_dt_by_ticker:
             if not carry_enabled:
                 continue
             fill_dt = calendar_fill_date(calendar_prices, signal_dt, fill_mode, max_fill_lag_days)
-            if fill_dt is None:
+            if fill_dt is None or (
+                evidence_end is not None and pd.Timestamp(fill_dt).normalize() > evidence_end
+            ):
                 continue
         else:
             fill_dt = min(fill_dt_by_ticker.values())
@@ -1372,6 +1439,31 @@ def replay(
                 "cash_weight": cash_weight,
                 "stock_value_usd": float(sum(values.values())),
                 "position_count": int(sum(1 for qty in state.shares.values() if abs(qty) > 1e-12)),
+                "position_count_total": int(
+                    sum(1 for qty in state.shares.values() if abs(qty) > 1e-12)
+                ),
+                "equity_position_count": int(
+                    sum(
+                        1
+                        for ticker, qty in state.shares.items()
+                        if abs(qty) > 1e-12
+                        and not (
+                            reserve_explicit
+                            and reserve_asset_policy.tradeable
+                            and ticker == reserve_asset_policy.asset_ticker
+                        )
+                    )
+                ),
+                "reserve_position_count": int(
+                    sum(
+                        1
+                        for ticker, qty in state.shares.items()
+                        if abs(qty) > 1e-12
+                        and reserve_explicit
+                        and reserve_asset_policy.tradeable
+                        and ticker == reserve_asset_policy.asset_ticker
+                    )
+                ),
                 "fill_mode": fill_mode,
             }
             if reserve_explicit:
@@ -1395,6 +1487,25 @@ def replay(
                                 1
                                 for ticker, qty in state.shares.items()
                                 if abs(qty) > 1e-12 and ticker != reserve_asset_policy.asset_ticker
+                            )
+                        ),
+                        "position_count_total": int(
+                            sum(1 for qty in state.shares.values() if abs(qty) > 1e-12)
+                        ),
+                        "equity_position_count": int(
+                            sum(
+                                1
+                                for ticker, qty in state.shares.items()
+                                if abs(qty) > 1e-12
+                                and ticker != reserve_asset_policy.asset_ticker
+                            )
+                        ),
+                        "reserve_position_count": int(
+                            sum(
+                                1
+                                for ticker, qty in state.shares.items()
+                                if abs(qty) > 1e-12
+                                and ticker == reserve_asset_policy.asset_ticker
                             )
                         ),
                     }
@@ -1472,6 +1583,10 @@ def replay(
                 and integer_shares
                 and not carry_enabled
                 and not partial_resize_two_signal_confirmation
+                and not reserve_explicit
+            ),
+            "stock_evidence_end_date": (
+                evidence_end.date().isoformat() if evidence_end is not None else ""
             ),
             "max_fill_lag_days": int(max_fill_lag_days),
             **weight_diag,
@@ -1502,6 +1617,9 @@ def replay(
                 "reserve_turnover_usd": float(pd.to_numeric(reserve_trades.get("gross_value", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()),
                 "reserve_fees_usd": float(pd.to_numeric(reserve_trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()),
                 "reserve_reason_reconciliation": latest_reason,
+                RESERVE_REASON_SOURCE_HASH_FIELD: latest_reason.get(
+                    RESERVE_REASON_SOURCE_HASH_FIELD, ""
+                ),
                 "reserve_reason_reconciled_all_dates": bool(
                     reserve_reason_audit.get("reconciled", pd.Series(dtype=bool)).fillna(False).all()
                 ),
