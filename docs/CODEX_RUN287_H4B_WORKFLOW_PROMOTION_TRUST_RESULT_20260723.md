@@ -7,57 +7,67 @@ Pull request: #322
 
 ## Result
 
-The daily operating workflow now evaluates promotion only after the accepted
-paper transaction has been verified, forward outcomes have been resolved, and
-the runtime scorecard has been rebuilt from that exact paper snapshot.
+The daily operating path is now fail-closed from the accepted paper
+transaction through outcome resolution, scorecard reconstruction, promotion
+evaluation, and artifact publication.
 
-- The enforced order is paper transaction, paper snapshot integrity, outcome
-  resolution, runtime scorecard, promotion gate, post-gate reports, and only
-  then artifact publication.
-- Accepted artifact and Drive publication require both the transactional paper
-  step and the post-gate operating review to succeed.
-- The promotion gate resets tracked scorecard trust and resolved outcome counts
-  before applying runtime evidence.
-- A missing paper snapshot also clears tracked session, decision-week, and all
-  horizon counts before returning a blocked runtime result.
-- Runtime scorecard trust is accepted only when its integrity-manifest SHA and
-  paper-snapshot hash bind to the exact verified paper directory being gated.
-- Completed 21D, 63D, and 126D counts and distinct decision weeks are overlaid
-  from the runtime outcome archive only when that archive reports
-  `READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY`.
-- A missing, stale, forged, or not-ready scorecard/outcome artifact remains
-  fail-closed and cannot advance promotion state.
-- Automatic champion replacement or promotion-state advancement remains
-  disabled; the workflow produces evidence for manual review only.
-
-## Fixtures
-
-The focused fixtures prove:
-
-1. the top-level workflow order cannot move promotion ahead of transaction,
-   integrity, outcome, or scorecard construction;
-2. a runtime scorecard bound to the exact paper snapshot can overlay trust;
-3. a forged paper-snapshot hash is rejected;
-4. runtime completed counts are mapped independently for 21D, 63D, and 126D;
-5. accepted publication remains blocked unless both transactional and
-   post-gate review steps succeed.
+- Enforced order: paper transaction -> snapshot integrity -> outcome resolution
+  -> runtime scorecard -> promotion gate -> post-gate reports -> accepted
+  publication.
+- Canonical governance states, thresholds, checks, rollback triggers, and rules
+  are immutable at runtime. Malformed contracts produce a structured rollback.
+- Runtime counters, evaluability, account pairing, and integrity availability
+  reset before every overlay; missing evidence cannot preserve a stale pass.
+- The scorecard must equal an independent rebuild from its exact source
+  registry and verified paper snapshot. Metric/headline pruning or value
+  tampering fails closed.
+- Decision/outcome archives are replayed semantically from their append-only
+  events, exact paths, source hashes, and frozen contracts. Late-recorded
+  signals remain evidence but are excluded from promotion sample counts.
+- Initial outcome-cache absence returns an explicit review-only bootstrap state;
+  a second resolver pass is required before READY. SKIPPED output uses the same
+  complete false safety envelope as READY.
+- Paper fills, rejections, pending orders, accounts, positions, fees, realized
+  P&L, reserve arithmetic, and equity curves are replayed from immutable
+  bootstrap accounts instead of trusting stored totals.
+- Every market fill is bound through its event hash to a frozen execution-price
+  source inside the paper snapshot. Only the exact next NYSE session close is
+  accepted; missing, later-substituted, same-day, future, stale, duplicate, or
+  orphan price evidence blocks the atomic transaction.
+- Snapshot continuity requires the same genesis, immutable bootstrap files,
+  exact append-only fill/rejection/equity prefixes, and semantic replay.
+  Self-asserted ancestry metadata alone cannot replace accepted state.
+- Drive persistence writes a content-addressed immutable head before canonical
+  publication, rechecks the canonical anchor before and after sync, validates
+  head-folder/hash identity, and blocks divergent heads instead of overwriting
+  them.
+- The accepted-publication manifest binds the gate step hash, every gate-read
+  file, target/account/preview identities, scorecard, outcomes, and the complete
+  paper snapshot. Reverification recursively checks every snapshot file.
+- Accepted GitHub and Drive packages contain the decision archive and complete
+  risk price cache, so the downloaded package can be independently reverified.
+- Automatic champion replacement, state advancement, production activation,
+  and live trading remain disabled.
 
 ## Validation
 
-- Workflow artifact smoke: PASS.
-- Paper-ledger transaction smoke: PASS.
-- Promotion gate smoke: `11/11` PASS.
-- Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `438.16s` after merging the H4a merge
-  commit from the current `master` into H4b.
-- YAML parse and `git diff --check`: PASS.
+- Promotion gate adversarial smoke: `31/31` PASS.
+- Accepted-publication manifest smoke: `10/10` PASS.
+- Daily simulated fill ledger: PASS.
+- Paper-ledger transaction and real descendant installation: PASS.
+- Paper snapshot continuity: PASS.
+- Risk outcome archive and replay price cache: PASS.
+- Runtime operating scorecard: PASS.
+- Workflow artifact/order contract: PASS.
+- Python compile and `git diff --check`: PASS.
+- Full Tier-1 PR validation: `193/193` PASS in `431.04s`.
+- Final independent release review: P0 `0`, P1 `0`, P2 `0`.
 
 ## Safety and next gate
 
-H4a passed independent exact-head review, merged as PR #321, and passed
-exact-merge validation on `master`. H4b is integrated against that merged
-`master`, validated, and ready for independent PR review. Durable session
-catch-up remains the next separate P0 operation after H4b merge.
+H4a merged as PR #321. H4b is integrated with that master state and is ready
+for exact-head PR checks and review. Durable chronological catch-up remains a
+separate P0 operation after H4b merges.
 
 - Fullrun executed: false.
 - Durable catch-up executed: false.

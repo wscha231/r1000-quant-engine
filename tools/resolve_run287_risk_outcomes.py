@@ -32,6 +32,9 @@ from tools.run_free_data_forward_paper_ledger import (  # noqa: E402
     load_cached_prices,
     load_nyse_sessions,
 )
+from tools.archive_run287_decision_observation import (  # noqa: E402
+    canonical_tracked_contract_sha256,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -40,6 +43,10 @@ EVENT_LOG_NAME = "risk_outcome_events.jsonl"
 READY_STATUS = "READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY"
 SKIPPED_STATUS = "SKIPPED_NO_DECISION_OBSERVATIONS"
 BLOCKED_STATUS = "BLOCKED_RISK_OUTCOME_ARCHIVE"
+NEEDS_PRICE_CACHE_STATUS = "NEEDS_PRICE_CACHE_BOOTSTRAP_REVIEW_ONLY"
+CONTRACT_EXPECTED_SHA256 = (
+    "cc15a0a79968723ad0bdeef34a56b2c47e547dc8e9d469dfe9d3cfbc53986103"
+)
 ALLOWED_STATES = {"ALERT", "WATCH", "NORMAL", "DATA_INSUFFICIENT"}
 FALSE_SOURCE_FLAGS = (
     "portfolio_transition_allowed",
@@ -398,6 +405,17 @@ def recovery_from_trough(values: pd.Series) -> float:
     return float(numeric.iloc[-1] / trough - 1.0) if trough > 0 else 0.0
 
 
+def exact_price_path_sha256(values: pd.Series) -> str:
+    payload = [
+        {
+            "date": pd.Timestamp(index).date().isoformat(),
+            "close": float(value),
+        }
+        for index, value in values.items()
+    ]
+    return sha256_text(canonical_json(payload))
+
+
 def outcome_event(
     signal: Mapping[str, Any],
     horizon: int,
@@ -479,6 +497,13 @@ def outcome_event(
             "actionable_start_date": pd.Timestamp(target_sessions[0]).date().isoformat(),
             "actionable_metrics_status": "not_applicable_at_1d" if horizon == 1 else "completed",
             "price_basis": "adjusted_close",
+            "price_evidence_hash_basis": "exact_nyse_close_path_v1",
+            "ticker_price_path_sha256": exact_price_path_sha256(
+                ticker_window
+            ),
+            "benchmark_price_path_sha256": exact_price_path_sha256(
+                benchmark_window
+            ),
             "ticker_price_cache_sha256": ticker_hash,
             "benchmark_price_cache_sha256": benchmark_hash,
             "outcome_status": "completed",
@@ -655,15 +680,22 @@ def write_price_universe(
             complete &= status[f"outcome_{horizon}d_status"].eq("completed")
         pending_rows = status[~complete].copy()
     rows: list[dict[str, Any]] = []
-    if not pending_rows.empty:
-        for ticker, group in pending_rows.groupby("ticker", sort=True):
+    if not status.empty:
+        for ticker, group in status.groupby("ticker", sort=True):
+            ticker_pending = pending_rows[
+                pending_rows["ticker"].astype(str).eq(str(ticker))
+            ]
             rows.append(
                 {
                     "ticker": ticker,
-                    "source": "unresolved_risk_observation",
+                    "source": (
+                        "unresolved_risk_observation"
+                        if not ticker_pending.empty
+                        else "completed_risk_observation_replay"
+                    ),
                     "families": "|".join(sorted(set(group["family"].astype(str)))),
                     "rebalance_date": min(group["decision_date"].astype(str)),
-                    "unresolved_observation_count": int(len(group)),
+                    "unresolved_observation_count": int(len(ticker_pending)),
                 }
             )
     rows.append(
@@ -710,15 +742,25 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
     as_of = pd.Timestamp(args.as_of_date).normalize()
     archive = repo_path(args.decision_archive)
     price_cache = repo_path(args.price_cache)
+    price_cache_manifest_path = (
+        price_cache / "replay_price_cache_manifest.json"
+    )
     output = repo_path(args.output_dir)
     contract_path = repo_path(args.contract)
     contract = read_json(contract_path)
+    contract_sha256 = canonical_tracked_contract_sha256(
+        contract_path,
+        contract,
+        CONTRACT_EXPECTED_SHA256,
+    )
     output.mkdir(parents=True, exist_ok=True)
     manifest_path = archive / "manifest.json"
     candidate_path = archive / "candidate_risk_history.jsonl"
     position_path = archive / "position_history.jsonl"
     source_manifest = read_json(manifest_path)
     blockers: list[str] = []
+    if contract_sha256 != CONTRACT_EXPECTED_SHA256:
+        blockers.append("risk_outcome_contract_not_canonical")
     source_status = clean_text(source_manifest.get("status"))
     source_absent = bool(
         not candidate_path.is_file()
@@ -753,11 +795,17 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
             "price_universe_unique_ticker_count": 0,
             "mechanism_review_gate": {"warning_63d_count": 0, "normal_63d_count": 0},
             "mechanism_review_ready": False,
+            "mechanism_promotion_allowed": False,
             "review_only": True,
+            "threshold_tuning_allowed": False,
+            "stop_or_exit_rule_created": False,
+            "selector_weights_changed": False,
+            "cash_policy_changed": False,
             "portfolio_transition_allowed": False,
             "orders_generated": False,
             "target_books_mutated": False,
             "historical_cagr_mdd_evidence_changed": False,
+            "backtest_executed": False,
             "fullrun_executed": False,
             "production_activation_allowed": False,
             "live_trading_enabled": False,
@@ -776,11 +824,17 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
             "price_universe_unique_ticker_count": 1,
             "mechanism_review_gate": {"warning_63d_count": 0, "normal_63d_count": 0},
             "mechanism_review_ready": False,
+            "mechanism_promotion_allowed": False,
             "review_only": True,
+            "threshold_tuning_allowed": False,
+            "stop_or_exit_rule_created": False,
+            "selector_weights_changed": False,
+            "cash_policy_changed": False,
             "portfolio_transition_allowed": False,
             "orders_generated": False,
             "target_books_mutated": False,
             "historical_cagr_mdd_evidence_changed": False,
+            "backtest_executed": False,
             "fullrun_executed": False,
             "production_activation_allowed": False,
             "live_trading_enabled": False,
@@ -835,9 +889,22 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
             "diagnostic_group_metrics_horizons_trading_days", [21, 63]
         )
     )
+    price_cache_manifest_sha256 = (
+        sha256_file(price_cache_manifest_path)
+        if price_cache_manifest_path.is_file()
+        else ""
+    )
     summary = {
         "schema_version": SCHEMA_VERSION,
-        "status": BLOCKED_STATUS if blockers else READY_STATUS,
+        "status": (
+            BLOCKED_STATUS
+            if blockers
+            else (
+                READY_STATUS
+                if price_cache_manifest_sha256
+                else NEEDS_PRICE_CACHE_STATUS
+            )
+        ),
         "as_of_date": as_of.date().isoformat(),
         "generated_at_utc": recorded_at,
         "blockers": blockers,
@@ -863,7 +930,8 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
             "decision_archive_manifest_sha256": sha256_file(manifest_path),
             "candidate_risk_history_sha256": sha256_file(candidate_path),
             "position_history_sha256": sha256_file(position_path),
-            "contract_sha256": sha256_file(contract_path),
+            "contract_sha256": contract_sha256,
+            "price_cache_manifest_sha256": price_cache_manifest_sha256,
         },
         "outputs": {
             "event_log_sha256": sha256_file(event_log),

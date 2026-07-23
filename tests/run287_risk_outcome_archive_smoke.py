@@ -19,12 +19,14 @@ if str(ROOT) not in sys.path:
 
 from tools.resolve_run287_risk_outcomes import (  # noqa: E402
     BLOCKED_STATUS,
+    NEEDS_PRICE_CACHE_STATUS,
     READY_STATUS,
     SKIPPED_STATUS,
     EVENT_LOG_NAME,
     group_metrics,
     load_nyse_sessions,
     run,
+    sha256_file,
 )
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
@@ -133,6 +135,28 @@ def sessions_through_126() -> pd.DatetimeIndex:
 def write_price(cache: Path, ticker: str, sessions: pd.DatetimeIndex, values: np.ndarray) -> None:
     cache.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({"Close": values, "Adj Close": values}, index=sessions).to_parquet(cache / px_cache_name(ticker))
+    cache_files = {}
+    for path in sorted(cache.glob("*.parquet")):
+        cache_ticker = path.stem
+        cache_files[cache_ticker] = {
+            "file": path.name,
+            "sha256": sha256_file(path),
+            "bytes": path.stat().st_size,
+        }
+    (cache / "replay_price_cache_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "run287-replay-price-cache-manifest-v2",
+                "book_inputs": [],
+                "cache_files": cache_files,
+                "review_only": True,
+                "production_mutation_allowed": False,
+                "live_trading_enabled": False,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_capture_pending_and_bounded_price_universe() -> None:
@@ -141,7 +165,7 @@ def test_capture_pending_and_bounded_price_universe() -> None:
         archive, cache, output = root / "archive", root / "cache", root / "out"
         write_archive(archive)
         result = run(args(archive, cache, output, DECISION), now_utc="2026-01-06T01:00:00Z")
-        assert result["status"] == READY_STATUS, result
+        assert result["status"] == NEEDS_PRICE_CACHE_STATUS, result
         assert result["signal_observation_count"] == 2
         assert result["held_signal_observation_count"] == 1
         assert result["candidate_signal_observation_count"] == 1
@@ -160,6 +184,22 @@ def test_missing_initial_source_skips_without_breaking_daily_workflow() -> None:
         assert result["status"] == SKIPPED_STATUS
         assert result["signal_observation_count"] == 0
         assert result["orders_generated"] is False
+        for field in (
+            "mechanism_promotion_allowed",
+            "threshold_tuning_allowed",
+            "stop_or_exit_rule_created",
+            "selector_weights_changed",
+            "cash_policy_changed",
+            "portfolio_transition_allowed",
+            "orders_generated",
+            "target_books_mutated",
+            "historical_cagr_mdd_evidence_changed",
+            "backtest_executed",
+            "fullrun_executed",
+            "production_activation_allowed",
+            "live_trading_enabled",
+        ):
+            assert result[field] is False, field
         assert not (root / "out" / EVENT_LOG_NAME).exists()
 
 
@@ -250,7 +290,10 @@ def test_changed_or_unsafe_source_fails_closed() -> None:
         root = Path(td)
         archive, cache, output = root / "archive", root / "cache", root / "out"
         write_archive(archive)
-        assert run(args(archive, cache, output, DECISION))["status"] == READY_STATUS
+        assert (
+            run(args(archive, cache, output, DECISION))["status"]
+            == NEEDS_PRICE_CACHE_STATUS
+        )
         before = (output / EVENT_LOG_NAME).read_bytes()
         write_archive(archive, candidate_state="ALERT")
         conflict = run(args(archive, cache, output, DECISION))

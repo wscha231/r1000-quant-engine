@@ -33,6 +33,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -52,7 +53,12 @@ from tools.run287_paper_ledger_integrity import (  # noqa: E402
     verify_integrity_manifest,
     write_integrity_manifest,
 )
-from tools.run_weekly_evaluation import load_price_series, price_on_or_after, price_on_or_before  # noqa: E402
+from tools.run_weekly_evaluation import (  # noqa: E402
+    load_price_series,
+    price_on_or_after,
+    price_on_or_before,
+    px_cache_name,
+)
 from tools.security_lifecycle import (  # noqa: E402
     SecurityLifecycleSnapshot,
     filter_terminal_tickers,
@@ -74,9 +80,14 @@ from tools.reserve_asset_policy import (  # noqa: E402
 
 
 PORTFOLIOS = ("main", "concentrated")
+NYSE_CALENDAR = mcal.get_calendar("NYSE")
 GENESIS_HASH = "0" * 64
 EVENT_HASH_FIELDS = {"event_hash"}
-OPTIONAL_EVENT_FIELDS = {"execution_ticker"}
+PRICE_SOURCE_FIELDS = {
+    "execution_price_source_path",
+    "execution_price_source_sha256",
+}
+OPTIONAL_EVENT_FIELDS = {"execution_ticker", *PRICE_SOURCE_FIELDS}
 PENDING_COLUMNS = [
     "portfolio_kind",
     "signal_date",
@@ -99,6 +110,73 @@ PENDING_COLUMNS = [
     "pending_status",
     "created_at_utc",
 ]
+EVENT_CHAIN_COLUMNS = {
+    "event_sequence",
+    "event_id",
+    "event_type",
+    "event_date",
+    "event_reason",
+    "previous_event_hash",
+    "event_hash",
+}
+EVENT_SAFETY_COLUMNS = {
+    "review_only",
+    "simulated",
+    "live_trading_enabled",
+    "production_mutation_allowed",
+}
+FILL_COLUMNS = {
+    "portfolio_kind",
+    "date",
+    "signal_date",
+    "ticker",
+    "execution_ticker",
+    "side",
+    "quantity",
+    "requested_quantity",
+    "fill_price",
+    "gross_value",
+    "fee_usd",
+    "cash_delta",
+    "cash_after",
+    "shares_after",
+    "target_weight",
+    "reason",
+    "sell_taxonomy",
+    "sell_taxonomy_reason",
+    "fill_mode",
+    "cost_bps_per_side",
+    "client_order_id",
+    "idempotency_key",
+    "order_batch_id",
+    "target_hash",
+    "execution_status",
+    "record_type",
+    *PRICE_SOURCE_FIELDS,
+    *EVENT_SAFETY_COLUMNS,
+    *EVENT_CHAIN_COLUMNS,
+}
+REJECTION_COLUMNS = {
+    "portfolio_kind",
+    "date",
+    "signal_date",
+    "ticker",
+    "execution_ticker",
+    "side",
+    "requested_quantity",
+    "target_weight",
+    "sell_taxonomy",
+    "sell_taxonomy_reason",
+    "client_order_id",
+    "idempotency_key",
+    "order_batch_id",
+    "target_hash",
+    "execution_status",
+    "fill_mode",
+    "cost_bps_per_side",
+    *EVENT_SAFETY_COLUMNS,
+    *EVENT_CHAIN_COLUMNS,
+}
 PREVIEW_ORDER_COLUMNS = [
     "ticker",
     "ledger_ticker",
@@ -673,7 +751,987 @@ def load_or_seed_account(
     return account, state_from_account(account), seeded
 
 
-def validate_restored_snapshot(portfolio_dir: Path, portfolio: str) -> None:
+def _blank(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower() in {"", "nan", "none", "null"}
+
+
+def _strict_number(value: Any, label: str) -> float:
+    if isinstance(value, (bool, np.bool_)) or _blank(value):
+        raise ValueError(f"{label}:finite_number_required")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label}:finite_number_required") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{label}:finite_number_required")
+    return number
+
+
+def _strict_integer(value: Any, label: str, *, positive: bool = False) -> int:
+    number = _strict_number(value, label)
+    rounded = round(number)
+    if not math.isclose(number, rounded, rel_tol=0.0, abs_tol=1e-9):
+        raise ValueError(f"{label}:integer_required")
+    integer = int(rounded)
+    if positive and integer <= 0:
+        raise ValueError(f"{label}:positive_integer_required")
+    return integer
+
+
+def _strict_bool(value: Any, label: str) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    text = str(value or "").strip().lower()
+    if text in {"true", "1"}:
+        return True
+    if text in {"false", "0"}:
+        return False
+    raise ValueError(f"{label}:boolean_required")
+
+
+def _valid_sha256_text(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
+
+
+def _strict_date(value: Any, label: str) -> pd.Timestamp:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        raise ValueError(f"{label}:date_required")
+    return pd.Timestamp(parsed).tz_localize(None).normalize()
+
+
+def next_nyse_session_after(value: Any, *, label: str) -> pd.Timestamp:
+    signal_date = _strict_date(value, label)
+    signal_schedule = NYSE_CALENDAR.schedule(
+        start_date=signal_date,
+        end_date=signal_date,
+    )
+    if signal_schedule.empty:
+        raise ValueError(f"{label}:not_nyse_session")
+    start = signal_date + pd.Timedelta(days=1)
+    schedule = NYSE_CALENDAR.schedule(
+        start_date=start,
+        end_date=start + pd.Timedelta(days=14),
+    )
+    if schedule.empty:
+        raise ValueError(f"{label}:next_nyse_session_unavailable")
+    return pd.Timestamp(schedule.index[0]).tz_localize(None).normalize()
+
+
+def _strict_utc_timestamp(value: Any, label: str) -> pd.Timestamp:
+    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(parsed) or _blank(value):
+        raise ValueError(f"{label}:utc_timestamp_required")
+    raw = pd.Timestamp(value)
+    if raw.tzinfo is None:
+        raise ValueError(f"{label}:timezone_required")
+    return pd.Timestamp(parsed)
+
+
+def _close_enough(left: Any, right: Any) -> bool:
+    return math.isclose(
+        float(left),
+        float(right),
+        rel_tol=1e-9,
+        abs_tol=1e-6,
+    )
+
+
+def _require_frame_schema(
+    frame: pd.DataFrame,
+    *,
+    required: set[str],
+    allowed: set[str],
+    label: str,
+) -> None:
+    if frame.empty:
+        return
+    columns = {str(column) for column in frame.columns}
+    missing = sorted(required - columns)
+    extra = sorted(columns - allowed)
+    if missing or extra:
+        raise ValueError(
+            f"{label}:schema_mismatch:missing={missing}:extra={extra}"
+        )
+
+
+def _strict_bootstrap_state(
+    *,
+    bootstrap_path: Path,
+    manifest: dict[str, Any],
+    portfolio: str,
+    account_date: pd.Timestamp,
+    cost_bps: float,
+) -> LedgerState:
+    if not bootstrap_path.is_file():
+        raise ValueError("bootstrap_account_missing")
+    if (
+        not _valid_sha256_text(manifest.get("seed_account_sha256"))
+        or file_hash(bootstrap_path) != str(manifest.get("seed_account_sha256"))
+    ):
+        raise ValueError("bootstrap_account_hash_mismatch")
+    bootstrap = read_json(bootstrap_path)
+    validate_seed_account(
+        bootstrap,
+        portfolio,
+        account_date,
+        cost_bps,
+    )
+    cash = _strict_number(bootstrap.get("cash_usd"), "bootstrap.cash_usd")
+    if cash < -1e-8:
+        raise ValueError("bootstrap.cash_usd:negative")
+    positions = (
+        bootstrap.get("positions")
+        if isinstance(bootstrap.get("positions"), list)
+        else []
+    )
+    shares: dict[str, float] = {}
+    basis: dict[str, float] = {}
+    for index, row in enumerate(positions):
+        if not isinstance(row, dict):
+            raise ValueError(f"bootstrap.positions[{index}]:object_required")
+        ticker = clean_ticker(row.get("ticker"))
+        if not ticker or ticker in shares:
+            raise ValueError(
+                f"bootstrap.positions[{index}]:ticker_missing_or_duplicate"
+            )
+        quantity = _strict_integer(
+            row.get("shares"),
+            f"bootstrap.positions[{index}].shares",
+            positive=True,
+        )
+        cost_basis = _strict_number(
+            row.get("cost_basis", row.get("price")),
+            f"bootstrap.positions[{index}].cost_basis",
+        )
+        if cost_basis <= 0:
+            raise ValueError(
+                f"bootstrap.positions[{index}].cost_basis:positive_required"
+            )
+        shares[ticker] = float(quantity)
+        basis[ticker] = cost_basis
+    realized_payload = (
+        bootstrap.get("realized_pnl_by_ticker")
+        if isinstance(bootstrap.get("realized_pnl_by_ticker"), dict)
+        else {}
+    )
+    realized: dict[str, float] = {}
+    for raw_ticker, raw_value in realized_payload.items():
+        ticker = clean_ticker(raw_ticker)
+        if not ticker or ticker in realized:
+            raise ValueError("bootstrap.realized_pnl:ticker_missing_or_duplicate")
+        realized[ticker] = _strict_number(
+            raw_value, f"bootstrap.realized_pnl.{ticker}"
+        )
+    return LedgerState(
+        cash=cash,
+        shares=shares,
+        cost_basis=basis,
+        realized_pnl=realized,
+    )
+
+
+def _validate_pending_rows(
+    *,
+    pending: pd.DataFrame,
+    manifest: dict[str, Any],
+    meta: dict[str, Any],
+    portfolio: str,
+    account_date: pd.Timestamp,
+    cost_bps: float,
+) -> None:
+    _require_frame_schema(
+        pending,
+        required=set(PENDING_COLUMNS),
+        allowed=set(PENDING_COLUMNS),
+        label="pending",
+    )
+    client_ids: set[str] = set()
+    idempotency_keys: set[str] = set()
+    priorities: set[int] = set()
+    batch_ids: set[str] = set()
+    for index, row in enumerate(pending.to_dict("records")):
+        label = f"pending[{index}]"
+        if str(row.get("portfolio_kind") or "").strip().lower() != portfolio:
+            raise ValueError(f"{label}:portfolio_kind")
+        signal_date = _strict_date(row.get("signal_date"), f"{label}.signal_date")
+        if signal_date > account_date:
+            raise ValueError(f"{label}:future_signal_date")
+        ticker = clean_ticker(row.get("ticker"))
+        execution_ticker = clean_ticker(row.get("execution_ticker"))
+        if not ticker or not execution_ticker:
+            raise ValueError(f"{label}:ticker_required")
+        side = str(row.get("side") or "").strip().upper()
+        if side not in {"BUY", "SELL"}:
+            raise ValueError(f"{label}:side_invalid")
+        quantity = _strict_integer(
+            row.get("quantity"), f"{label}.quantity", positive=True
+        )
+        if quantity <= 0:
+            raise ValueError(f"{label}:quantity_invalid")
+        reference_price = _strict_number(
+            row.get("reference_price"), f"{label}.reference_price"
+        )
+        if reference_price <= 0:
+            raise ValueError(f"{label}:reference_price_positive_required")
+        target_weight = _strict_number(
+            row.get("target_weight"), f"{label}.target_weight"
+        )
+        if target_weight < -1e-12 or target_weight > 1.0 + 1e-12:
+            raise ValueError(f"{label}:target_weight_out_of_range")
+        if not str(row.get("reason") or "").strip():
+            raise ValueError(f"{label}:reason_required")
+        sell_taxonomy, _taxonomy_reason = normalized_sell_taxonomy(row)
+        if side == "BUY" and sell_taxonomy != "NOT_APPLICABLE":
+            raise ValueError(f"{label}:buy_sell_taxonomy_invalid")
+        if str(row.get("fill_mode") or "") != "next_close":
+            raise ValueError(f"{label}:fill_mode_invalid")
+        if not _close_enough(
+            _strict_number(
+                row.get("cost_bps_per_side"),
+                f"{label}.cost_bps_per_side",
+            ),
+            cost_bps,
+        ):
+            raise ValueError(f"{label}:cost_bps_mismatch")
+        client_id = str(row.get("client_order_id") or "").strip()
+        idempotency_key = str(row.get("idempotency_key") or "").strip()
+        batch_id = str(row.get("order_batch_id") or "").strip()
+        if (
+            not client_id
+            or client_id in client_ids
+            or not idempotency_key
+            or idempotency_key in idempotency_keys
+            or not batch_id
+        ):
+            raise ValueError(f"{label}:order_identity_invalid")
+        client_ids.add(client_id)
+        idempotency_keys.add(idempotency_key)
+        batch_ids.add(batch_id)
+        if (
+            not _valid_sha256_text(row.get("target_hash"))
+            or str(row.get("target_hash")) != str(manifest.get("target_hash"))
+        ):
+            raise ValueError(f"{label}:target_hash_mismatch")
+        priority = _strict_integer(
+            row.get("priority"), f"{label}.priority", positive=True
+        )
+        if priority in priorities:
+            raise ValueError(f"{label}:priority_duplicate")
+        priorities.add(priority)
+        if str(row.get("pending_status") or "") != "PENDING_NEXT_CLOSE":
+            raise ValueError(f"{label}:pending_status_invalid")
+        _strict_utc_timestamp(
+            row.get("created_at_utc"), f"{label}.created_at_utc"
+        )
+    if len(batch_ids) > 1:
+        raise ValueError("pending:multiple_order_batches")
+    if batch_ids and str(meta.get("last_order_batch_id") or "") not in batch_ids:
+        raise ValueError("pending:state_meta_order_batch_mismatch")
+
+
+def _validate_event_identity_and_safety(
+    *,
+    row: dict[str, Any],
+    label: str,
+    portfolio: str,
+    account_date: pd.Timestamp,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    if str(row.get("portfolio_kind") or "").strip().lower() != portfolio:
+        raise ValueError(f"{label}:portfolio_kind")
+    event_date = _strict_date(row.get("date"), f"{label}.date")
+    if event_date != _strict_date(row.get("event_date"), f"{label}.event_date"):
+        raise ValueError(f"{label}:event_date_mismatch")
+    signal_date = _strict_date(row.get("signal_date"), f"{label}.signal_date")
+    if signal_date > event_date or event_date > account_date:
+        raise ValueError(f"{label}:event_chronology_invalid")
+    for field, expected in (
+        ("review_only", True),
+        ("simulated", True),
+        ("live_trading_enabled", False),
+        ("production_mutation_allowed", False),
+    ):
+        if _strict_bool(row.get(field), f"{label}.{field}") is not expected:
+            raise ValueError(f"{label}:{field}_unsafe")
+    for field in (
+        "client_order_id",
+        "idempotency_key",
+        "order_batch_id",
+        "event_id",
+        "event_reason",
+    ):
+        if not str(row.get(field) or "").strip():
+            raise ValueError(f"{label}:{field}_required")
+    raw_previous = row.get("previous_event_hash")
+    previous_text = "" if raw_previous is None else str(raw_previous)
+    sequence = _strict_integer(
+        row.get("event_sequence"), f"{label}.event_sequence", positive=True
+    )
+    if sequence == 1 and previous_text in {"0", "0.0"}:
+        previous_text = GENESIS_HASH
+    if (
+        not _valid_sha256_text(previous_text)
+        or not _valid_sha256_text(row.get("event_hash"))
+    ):
+        raise ValueError(f"{label}:event_hash_identity_invalid")
+    if not _valid_sha256_text(row.get("target_hash")):
+        raise ValueError(f"{label}:target_hash_invalid")
+    target_weight = _strict_number(
+        row.get("target_weight"), f"{label}.target_weight"
+    )
+    if target_weight < -1e-12 or target_weight > 1.0 + 1e-12:
+        raise ValueError(f"{label}:target_weight_out_of_range")
+    return signal_date, event_date
+
+
+def _validate_execution_price_source(
+    *,
+    row: dict[str, Any],
+    label: str,
+    portfolio_dir: Path,
+    signal_date: pd.Timestamp,
+    event_date: pd.Timestamp,
+    fill_price: float,
+    max_fill_lag_days: int,
+) -> str:
+    event_id = str(row.get("event_id") or "").strip()
+    client_order_id = str(row.get("client_order_id") or "").strip()
+    ticker = clean_ticker(row.get("ticker"))
+    execution_ticker = clean_ticker(row.get("execution_ticker"))
+    expected_relative = (
+        Path("execution_price_sources") / f"{event_id}.json"
+    ).as_posix()
+    relative = str(row.get("execution_price_source_path") or "").strip()
+    expected_sha256 = str(
+        row.get("execution_price_source_sha256") or ""
+    ).strip()
+    if relative != expected_relative:
+        raise ValueError(f"{label}:execution_price_source_path_invalid")
+    if (
+        not _valid_sha256_text(expected_sha256)
+        or expected_sha256 != expected_sha256.lower()
+    ):
+        raise ValueError(f"{label}:execution_price_source_sha256_invalid")
+    source_path = portfolio_dir / Path(relative)
+    try:
+        source_path.resolve().relative_to(portfolio_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"{label}:execution_price_source_path_escape"
+        ) from exc
+    if (
+        not source_path.is_file()
+        or source_path.is_symlink()
+        or file_hash(source_path) != expected_sha256
+    ):
+        raise ValueError(f"{label}:execution_price_source_hash_mismatch")
+    source = read_json(source_path)
+    if set(source) != EXECUTION_PRICE_SOURCE_KEYS:
+        raise ValueError(f"{label}:execution_price_source_schema_mismatch")
+    if (
+        source.get("schema_version") != EXECUTION_PRICE_SOURCE_SCHEMA
+        or str(source.get("event_id") or "") != event_id
+        or str(source.get("client_order_id") or "") != client_order_id
+        or clean_ticker(source.get("ticker")) != ticker
+        or clean_ticker(source.get("execution_ticker"))
+        != execution_ticker
+        or str(source.get("source_cache_file") or "")
+        != px_cache_name(execution_ticker)
+        or str(source.get("source_close_semantics") or "")
+        != "adjusted_close_if_available_else_close"
+    ):
+        raise ValueError(f"{label}:execution_price_source_identity_mismatch")
+    source_cache_sha256 = str(
+        source.get("source_cache_sha256") or ""
+    ).strip()
+    if (
+        not _valid_sha256_text(source_cache_sha256)
+        or source_cache_sha256 != source_cache_sha256.lower()
+        or _strict_integer(
+            source.get("source_cache_size_bytes"),
+            f"{label}.source_cache_size_bytes",
+            positive=True,
+        )
+        <= 0
+    ):
+        raise ValueError(f"{label}:execution_price_cache_identity_invalid")
+    source_signal_date = _strict_date(
+        source.get("signal_date"), f"{label}.source_signal_date"
+    )
+    first_eligible_date = _strict_date(
+        source.get("first_eligible_date"),
+        f"{label}.source_first_eligible_date",
+    )
+    source_fill_date = _strict_date(
+        source.get("fill_date"), f"{label}.source_fill_date"
+    )
+    captured_through = _strict_date(
+        source.get("captured_through"), f"{label}.source_captured_through"
+    )
+    expected_first_eligible = next_nyse_session_after(
+        signal_date,
+        label=f"{label}.signal_date",
+    )
+    if (
+        event_date != expected_first_eligible
+        or source_signal_date != signal_date
+        or first_eligible_date != expected_first_eligible
+        or source_fill_date != event_date
+        or captured_through != event_date
+        or (event_date - signal_date).days
+        > int(max_fill_lag_days)
+    ):
+        raise ValueError(f"{label}:execution_price_source_chronology_invalid")
+    observations = source.get("observations")
+    if (
+        not isinstance(observations, list)
+        or len(observations) != 1
+        or not isinstance(observations[0], dict)
+        or set(observations[0]) != {"date", "close"}
+    ):
+        raise ValueError(f"{label}:execution_price_observations_invalid")
+    observed_date = _strict_date(
+        observations[0].get("date"), f"{label}.source_observation_date"
+    )
+    observed_close = _strict_number(
+        observations[0].get("close"), f"{label}.source_observation_close"
+    )
+    if (
+        observed_date != event_date
+        or observed_close <= 0
+        or not _close_enough(observed_close, fill_price)
+    ):
+        raise ValueError(f"{label}:execution_price_exact_close_mismatch")
+    return relative
+
+
+def _validate_and_replay_events(
+    *,
+    fills: pd.DataFrame,
+    rejections: pd.DataFrame,
+    replay_state: LedgerState,
+    manifest: dict[str, Any],
+    portfolio_dir: Path,
+    portfolio: str,
+    account_date: pd.Timestamp,
+    cost_bps: float,
+    max_fill_lag_days: int,
+) -> tuple[LedgerState, float]:
+    _require_frame_schema(
+        fills,
+        required=FILL_COLUMNS,
+        allowed=FILL_COLUMNS,
+        label="fills",
+    )
+    _require_frame_schema(
+        rejections,
+        required=REJECTION_COLUMNS,
+        allowed=REJECTION_COLUMNS,
+        label="rejections",
+    )
+    if any(
+        str(value) not in {"FILL", "LIFECYCLE_SETTLEMENT"}
+        for value in fills.get("event_type", pd.Series(dtype=str)).tolist()
+    ):
+        raise ValueError("fills:event_type_invalid")
+    if any(
+        str(value) != "REJECTION"
+        for value in rejections.get(
+            "event_type", pd.Series(dtype=str)
+        ).tolist()
+    ):
+        raise ValueError("rejections:event_type_invalid")
+    total_fees = 0.0
+    referenced_price_sources: set[str] = set()
+    for row in combined_events(fills, rejections):
+        sequence = _strict_integer(row.get("event_sequence"), "event.sequence")
+        label = f"event[{sequence}]"
+        signal_date, event_date = _validate_event_identity_and_safety(
+            row=row,
+            label=label,
+            portfolio=portfolio,
+            account_date=account_date,
+        )
+        event_type = str(row.get("event_type") or "")
+        ticker = clean_ticker(row.get("ticker"))
+        side = str(row.get("side") or "").strip().upper()
+        requested = _strict_integer(
+            row.get("requested_quantity"),
+            f"{label}.requested_quantity",
+            positive=True,
+        )
+        if event_type == "REJECTION":
+            if not ticker or side not in {"BUY", "SELL"}:
+                raise ValueError(f"{label}:rejection_order_domain_invalid")
+            if str(row.get("execution_status") or "") != "SIMULATED_REJECTED":
+                raise ValueError(f"{label}:rejection_status_invalid")
+            fill_mode = str(row.get("fill_mode") or "")
+            if fill_mode not in {"next_close", "lifecycle_cancel"}:
+                raise ValueError(f"{label}:rejection_fill_mode_invalid")
+            if not _close_enough(
+                _strict_number(
+                    row.get("cost_bps_per_side"),
+                    f"{label}.cost_bps_per_side",
+                ),
+                cost_bps,
+            ):
+                raise ValueError(f"{label}:rejection_cost_mismatch")
+            sell_taxonomy, _taxonomy_reason = normalized_sell_taxonomy(row)
+            if side == "BUY" and sell_taxonomy != "NOT_APPLICABLE":
+                raise ValueError(f"{label}:buy_sell_taxonomy_invalid")
+            continue
+        if event_type not in {"FILL", "LIFECYCLE_SETTLEMENT"}:
+            raise ValueError(f"{label}:event_type_invalid")
+        if not ticker:
+            raise ValueError(f"{label}:ticker_required")
+        execution_ticker = clean_ticker(row.get("execution_ticker"))
+        if not execution_ticker:
+            raise ValueError(f"{label}:execution_ticker_required")
+        if not str(row.get("reason") or "").strip():
+            raise ValueError(f"{label}:reason_required")
+        quantity = _strict_integer(
+            row.get("quantity"), f"{label}.quantity", positive=True
+        )
+        fill_price = _strict_number(
+            row.get("fill_price"), f"{label}.fill_price"
+        )
+        if fill_price <= 0:
+            raise ValueError(f"{label}:fill_price_positive_required")
+        observed = {
+            field: _strict_number(row.get(field), f"{label}.{field}")
+            for field in (
+                "gross_value",
+                "fee_usd",
+                "cash_delta",
+                "cash_after",
+                "shares_after",
+            )
+        }
+        if observed["gross_value"] <= 0 or observed["fee_usd"] < 0:
+            raise ValueError(f"{label}:fill_value_domain_invalid")
+        if event_type == "FILL":
+            if side not in {"BUY", "SELL"}:
+                raise ValueError(f"{label}:side_invalid")
+            if (
+                str(row.get("fill_mode") or "") != "next_close"
+                or str(row.get("record_type") or "") != "FORWARD_PAPER"
+                or str(row.get("event_reason") or "")
+                != "next_close_simulated_fill"
+                or not _close_enough(
+                    _strict_number(
+                        row.get("cost_bps_per_side"),
+                        f"{label}.cost_bps_per_side",
+                    ),
+                    cost_bps,
+                )
+            ):
+                raise ValueError(f"{label}:fill_contract_invalid")
+            sell_taxonomy, _taxonomy_reason = normalized_sell_taxonomy(row)
+            if side == "BUY" and sell_taxonomy != "NOT_APPLICABLE":
+                raise ValueError(f"{label}:buy_sell_taxonomy_invalid")
+            source_relative = _validate_execution_price_source(
+                row=row,
+                label=label,
+                portfolio_dir=portfolio_dir,
+                signal_date=signal_date,
+                event_date=event_date,
+                fill_price=fill_price,
+                max_fill_lag_days=max_fill_lag_days,
+            )
+            if source_relative in referenced_price_sources:
+                raise ValueError(
+                    f"{label}:execution_price_source_duplicate_reference"
+                )
+            referenced_price_sources.add(source_relative)
+            expected = execute_order(
+                state=replay_state,
+                ticker=ticker,
+                side=side,
+                desired_qty=float(requested),
+                price=fill_price,
+                cost_bps=cost_bps,
+                integer_shares=True,
+            )
+            if expected is None:
+                raise ValueError(f"{label}:fill_not_executable_from_prior_state")
+            expected_status = (
+                "SIMULATED_FILL"
+                if _close_enough(expected["quantity"], requested)
+                else "SIMULATED_PARTIAL_FILL"
+            )
+            if str(row.get("execution_status") or "") != expected_status:
+                raise ValueError(f"{label}:execution_status_mismatch")
+            expected_values = {
+                "quantity": expected["quantity"],
+                "gross_value": expected["gross_value"],
+                "fee_usd": expected["fee_usd"],
+                "cash_delta": expected["cash_delta"],
+                "cash_after": expected["cash_after"],
+                "shares_after": expected["shares_after"],
+            }
+        else:
+            if (
+                side != "SETTLEMENT"
+                or execution_ticker != ticker
+                or str(row.get("fill_mode") or "")
+                != "verified_lifecycle_proceeds"
+                or str(row.get("record_type") or "")
+                != "FORWARD_PAPER_LIFECYCLE"
+                or str(row.get("execution_status") or "")
+                != "SIMULATED_LIFECYCLE_SETTLEMENT"
+                or not _close_enough(
+                    _strict_number(
+                        row.get("cost_bps_per_side"),
+                        f"{label}.cost_bps_per_side",
+                    ),
+                    0.0,
+                )
+                or str(row.get("order_batch_id") or "") != "LIFECYCLE"
+                or str(row.get("target_hash") or "")
+                != str(manifest.get("security_lifecycle_snapshot_hash") or "")
+            ):
+                raise ValueError(f"{label}:lifecycle_fill_contract_invalid")
+            held = float(replay_state.shares.get(ticker, 0.0))
+            if (
+                not _close_enough(held, quantity)
+                or requested != quantity
+                or not _close_enough(observed["fee_usd"], 0.0)
+            ):
+                raise ValueError(f"{label}:lifecycle_position_mismatch")
+            gross = float(quantity) * fill_price
+            basis = float(replay_state.cost_basis.get(ticker, fill_price))
+            replay_state.cash += gross
+            replay_state.realized_pnl[ticker] = float(
+                replay_state.realized_pnl.get(ticker, 0.0)
+                + quantity * (fill_price - basis)
+            )
+            replay_state.shares.pop(ticker, None)
+            replay_state.cost_basis.pop(ticker, None)
+            expected_values = {
+                "quantity": float(quantity),
+                "gross_value": gross,
+                "fee_usd": 0.0,
+                "cash_delta": gross,
+                "cash_after": replay_state.cash,
+                "shares_after": 0.0,
+            }
+        for field, expected_value in expected_values.items():
+            actual_value = (
+                float(quantity) if field == "quantity" else observed[field]
+            )
+            if not _close_enough(actual_value, expected_value):
+                raise ValueError(f"{label}:{field}_mismatch")
+        total_fees += observed["fee_usd"]
+    source_root = portfolio_dir / "execution_price_sources"
+    actual_price_sources: set[str] = set()
+    if source_root.exists():
+        if not source_root.is_dir() or source_root.is_symlink():
+            raise ValueError("execution_price_sources:directory_required")
+        for source_path in sorted(source_root.rglob("*")):
+            if source_path.is_symlink() or not source_path.is_file():
+                raise ValueError(
+                    "execution_price_sources:non_regular_source"
+                )
+            actual_price_sources.add(
+                source_path.relative_to(portfolio_dir).as_posix()
+            )
+    if actual_price_sources != referenced_price_sources:
+        raise ValueError("execution_price_sources:reference_set_mismatch")
+    return replay_state, total_fees
+
+
+def _validate_final_state_parity(
+    *,
+    replay_state: LedgerState,
+    total_fees: float,
+    account: dict[str, Any],
+    positions: pd.DataFrame,
+    curve: pd.DataFrame,
+    fills: pd.DataFrame,
+    portfolio: str,
+) -> None:
+    account_cash = _strict_number(account.get("cash_usd"), "account.cash_usd")
+    if account_cash < -1e-8 or not _close_enough(account_cash, replay_state.cash):
+        raise ValueError("account.cash_usd:replay_mismatch")
+    equity = _strict_number(account.get("equity_usd"), "account.equity_usd")
+    if equity <= 0:
+        raise ValueError("account.equity_usd:positive_required")
+    if not isinstance(account.get("positions"), list):
+        raise ValueError("account.positions:list_required")
+    account_positions = account["positions"]
+    account_date = _strict_date(account.get("as_of_date"), "account.as_of_date")
+    account_by_ticker: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(account_positions):
+        if not isinstance(row, dict):
+            raise ValueError(f"account.positions[{index}]:object_required")
+        if (
+            _strict_date(
+                row.get("as_of_date"),
+                f"account.positions[{index}].as_of_date",
+            )
+            != account_date
+        ):
+            raise ValueError(
+                f"account.positions[{index}].as_of_date:account_mismatch"
+            )
+        ticker = clean_ticker(row.get("ticker"))
+        if not ticker or ticker in account_by_ticker:
+            raise ValueError(
+                f"account.positions[{index}]:ticker_missing_or_duplicate"
+            )
+        shares = _strict_integer(
+            row.get("shares"),
+            f"account.positions[{index}].shares",
+            positive=True,
+        )
+        cost_basis = _strict_number(
+            row.get("cost_basis"),
+            f"account.positions[{index}].cost_basis",
+        )
+        if cost_basis <= 0:
+            raise ValueError(
+                f"account.positions[{index}].cost_basis:positive_required"
+            )
+        if (
+            ticker not in replay_state.shares
+            or not _close_enough(shares, replay_state.shares[ticker])
+            or not _close_enough(
+                cost_basis, replay_state.cost_basis.get(ticker, math.nan)
+            )
+        ):
+            raise ValueError(f"account.positions[{index}]:replay_mismatch")
+        account_by_ticker[ticker] = row
+    if set(account_by_ticker) != set(replay_state.shares):
+        raise ValueError("account.positions:replay_ticker_set_mismatch")
+    account_realized_payload = account.get("realized_pnl_by_ticker")
+    if not isinstance(account_realized_payload, dict):
+        raise ValueError("account.realized_pnl:object_required")
+    account_realized: dict[str, float] = {}
+    for raw_ticker, value in account_realized_payload.items():
+        ticker = clean_ticker(raw_ticker)
+        if not ticker or ticker in account_realized:
+            raise ValueError("account.realized_pnl:ticker_missing_or_duplicate")
+        account_realized[ticker] = _strict_number(
+            value, f"account.realized_pnl.{ticker}"
+        )
+    if set(account_realized) != set(replay_state.realized_pnl) or any(
+        not _close_enough(
+            account_realized[ticker], replay_state.realized_pnl[ticker]
+        )
+        for ticker in account_realized
+    ):
+        raise ValueError("account.realized_pnl:replay_mismatch")
+    expected_fills = len(fills)
+    if (
+        not _close_enough(
+            _strict_number(
+                account.get("total_fees_usd"), "account.total_fees_usd"
+            ),
+            total_fees,
+        )
+        or _strict_integer(
+            account.get("forward_fill_count"),
+            "account.forward_fill_count",
+        )
+        != expected_fills
+    ):
+        raise ValueError("account.fill_totals:replay_mismatch")
+    if "total_realized_pnl_usd" in account and not _close_enough(
+        _strict_number(
+            account.get("total_realized_pnl_usd"),
+            "account.total_realized_pnl_usd",
+        ),
+        sum(replay_state.realized_pnl.values()),
+    ):
+        raise ValueError("account.total_realized_pnl_usd:replay_mismatch")
+
+    if len(positions) != len(account_by_ticker):
+        raise ValueError("positions_latest:row_count_mismatch")
+    stored_by_ticker: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(positions.to_dict("records")):
+        if (
+            _strict_date(
+                row.get("as_of_date"),
+                f"positions_latest[{index}].as_of_date",
+            )
+            != account_date
+        ):
+            raise ValueError(
+                f"positions_latest[{index}].as_of_date:account_mismatch"
+            )
+        ticker = clean_ticker(row.get("ticker"))
+        if not ticker or ticker in stored_by_ticker:
+            raise ValueError(
+                f"positions_latest[{index}]:ticker_missing_or_duplicate"
+            )
+        stored_by_ticker[ticker] = row
+    if set(stored_by_ticker) != set(account_by_ticker):
+        raise ValueError("positions_latest:ticker_set_mismatch")
+    market_value = 0.0
+    reserve_market_value = 0.0
+    for ticker, account_row in account_by_ticker.items():
+        stored_row = stored_by_ticker[ticker]
+        for field in (
+            "shares",
+            "price",
+            "market_value_usd",
+            "weight",
+            "cost_basis",
+            "unrealized_pnl_usd",
+            "realized_pnl_usd",
+        ):
+            account_value = _strict_number(
+                account_row.get(field), f"account.positions.{ticker}.{field}"
+            )
+            stored_value = _strict_number(
+                stored_row.get(field), f"positions_latest.{ticker}.{field}"
+            )
+            if not _close_enough(account_value, stored_value):
+                raise ValueError(
+                    f"positions_latest.{ticker}.{field}:account_mismatch"
+                )
+        shares = _strict_number(
+            account_row.get("shares"), f"account.positions.{ticker}.shares"
+        )
+        price = _strict_number(
+            account_row.get("price"), f"account.positions.{ticker}.price"
+        )
+        value = _strict_number(
+            account_row.get("market_value_usd"),
+            f"account.positions.{ticker}.market_value_usd",
+        )
+        basis = _strict_number(
+            account_row.get("cost_basis"),
+            f"account.positions.{ticker}.cost_basis",
+        )
+        unrealized = _strict_number(
+            account_row.get("unrealized_pnl_usd"),
+            f"account.positions.{ticker}.unrealized_pnl_usd",
+        )
+        weight = _strict_number(
+            account_row.get("weight"), f"account.positions.{ticker}.weight"
+        )
+        realized = _strict_number(
+            account_row.get("realized_pnl_usd"),
+            f"account.positions.{ticker}.realized_pnl_usd",
+        )
+        if (
+            price <= 0
+            or value <= 0
+            or not _close_enough(value, shares * price)
+            or not _close_enough(unrealized, value - shares * basis)
+            or not _close_enough(weight, value / equity)
+            or not _close_enough(
+                realized, replay_state.realized_pnl.get(ticker, 0.0)
+            )
+        ):
+            raise ValueError(f"account.positions.{ticker}:valuation_mismatch")
+        is_reserve = _strict_bool(
+            account_row.get("reserve_asset"),
+            f"account.positions.{ticker}.reserve_asset",
+        )
+        stored_reserve = _strict_bool(
+            stored_row.get("reserve_asset"),
+            f"positions_latest.{ticker}.reserve_asset",
+        )
+        if is_reserve is not stored_reserve:
+            raise ValueError(
+                f"positions_latest.{ticker}.reserve_asset:account_mismatch"
+            )
+        if is_reserve:
+            reserve_market_value += value
+        else:
+            market_value += value
+    stock_value = _strict_number(
+        account.get("stock_value_usd"), "account.stock_value_usd"
+    )
+    if (
+        not _close_enough(stock_value, market_value)
+        or not _close_enough(equity, account_cash + market_value + reserve_market_value)
+    ):
+        raise ValueError("account:equity_position_arithmetic_mismatch")
+    reserve_value = account_cash + reserve_market_value
+    if not _close_enough(
+        _strict_number(
+            account.get("reserve_asset_value_usd"),
+            "account.reserve_asset_value_usd",
+        ),
+        reserve_market_value,
+    ):
+        raise ValueError("account.reserve_asset_value_usd:mismatch")
+    if (
+        not _close_enough(
+            _strict_number(
+                account.get("reserve_value_usd"),
+                "account.reserve_value_usd",
+            ),
+            reserve_value,
+        )
+        or not _close_enough(
+            _strict_number(account.get("cash_weight"), "account.cash_weight"),
+            account_cash / equity,
+        )
+        or not _close_enough(
+            _strict_number(
+                account.get("reserve_weight"), "account.reserve_weight"
+            ),
+            reserve_value / equity,
+        )
+    ):
+        raise ValueError("account:reserve_arithmetic_mismatch")
+    reserve_count = sum(
+        1
+        for row in account_by_ticker.values()
+        if _strict_bool(row.get("reserve_asset"), "account.reserve_asset")
+    )
+    equity_count = len(account_by_ticker) - reserve_count
+    for field, expected in (
+        ("position_count_total", len(account_by_ticker)),
+        ("position_count", equity_count),
+        ("equity_position_count", equity_count),
+        ("reserve_position_count", reserve_count),
+    ):
+        if _strict_integer(account.get(field), f"account.{field}") != expected:
+            raise ValueError(f"account.{field}:position_count_mismatch")
+    if not curve.empty:
+        curve_dates = pd.to_datetime(curve.get("date"), errors="coerce")
+        if (
+            curve_dates.isna().any()
+            or curve_dates.duplicated().any()
+            or not curve_dates.is_monotonic_increasing
+            or pd.Timestamp(curve_dates.iloc[-1]).normalize() != account_date
+        ):
+            raise ValueError("equity_curve:date_sequence_invalid")
+        last = curve.iloc[-1]
+        for field in ("equity_usd", "cash_usd", "stock_value_usd"):
+            if not _close_enough(
+                _strict_number(last.get(field), f"equity_curve.{field}"),
+                _strict_number(account.get(field), f"account.{field}"),
+            ):
+                raise ValueError(f"equity_curve.{field}:account_mismatch")
+        for index, row in curve.iterrows():
+            for field in ("equity_usd", "cash_usd", "stock_value_usd"):
+                value = _strict_number(
+                    row.get(field), f"equity_curve[{index}].{field}"
+                )
+                if field == "cash_usd" and value < -1e-8:
+                    raise ValueError("equity_curve.cash_usd:negative")
+
+
+def validate_restored_snapshot(
+    portfolio_dir: Path,
+    portfolio: str,
+    *,
+    bootstrap_path: Path | None = None,
+) -> None:
     """Validate a prior committed portfolio before advancing its state."""
     account_path = portfolio_dir / "account_state_latest.json"
     if not account_path.is_file():
@@ -696,6 +1754,7 @@ def validate_restored_snapshot(portfolio_dir: Path, portfolio: str) -> None:
     manifest = read_json(portfolio_dir / "manifest.json")
     meta = read_json(portfolio_dir / "state_meta.json")
     curve = read_csv(portfolio_dir / "equity_curve.csv")
+    positions = read_csv(portfolio_dir / "positions_latest.csv")
     pending = read_csv(portfolio_dir / "pending_orders.csv")
     fills = read_csv(portfolio_dir / "fills.csv")
     rejections = read_csv(portfolio_dir / "rejections.csv")
@@ -741,7 +1800,64 @@ def validate_restored_snapshot(portfolio_dir: Path, portfolio: str) -> None:
         errors.append("stored_event_chain_hash")
     if int(safe_float(account.get("pending_order_count"), -1)) != len(pending):
         errors.append("account_pending_order_count")
-    state_from_account(account)
+    try:
+        state_from_account(account)
+        restored_date = _strict_date(
+            account.get("as_of_date"), "account.as_of_date"
+        )
+        restored_cost_bps = _strict_number(
+            manifest.get("cost_bps_per_side"),
+            "manifest.cost_bps_per_side",
+        )
+        restored_max_fill_lag_days = _strict_integer(
+            manifest.get("max_fill_lag_days"),
+            "manifest.max_fill_lag_days",
+            positive=True,
+        )
+        seed_path = (
+            bootstrap_path
+            if bootstrap_path is not None
+            else portfolio_dir.parent
+            / "bootstrap"
+            / f"{portfolio}_account.json"
+        )
+        replay_state = _strict_bootstrap_state(
+            bootstrap_path=seed_path,
+            manifest=manifest,
+            portfolio=portfolio,
+            account_date=restored_date,
+            cost_bps=restored_cost_bps,
+        )
+        _validate_pending_rows(
+            pending=pending,
+            manifest=manifest,
+            meta=meta,
+            portfolio=portfolio,
+            account_date=restored_date,
+            cost_bps=restored_cost_bps,
+        )
+        replay_state, total_fees = _validate_and_replay_events(
+            fills=fills,
+            rejections=rejections,
+            replay_state=replay_state,
+            manifest=manifest,
+            portfolio_dir=portfolio_dir,
+            portfolio=portfolio,
+            account_date=restored_date,
+            cost_bps=restored_cost_bps,
+            max_fill_lag_days=restored_max_fill_lag_days,
+        )
+        _validate_final_state_parity(
+            replay_state=replay_state,
+            total_fees=total_fees,
+            account=account,
+            positions=positions,
+            curve=curve,
+            fills=fills,
+            portfolio=portfolio,
+        )
+    except (TypeError, ValueError) as exc:
+        errors.append(f"semantic_replay:{exc}")
     if errors:
         raise PaperLedgerIntegrityError(
             "BLOCKED_INTEGRITY", f"restored {portfolio} snapshot validation failed: {','.join(errors)}"
@@ -760,7 +1876,24 @@ def ensure_genesis_identity(
     seed_dates: set[str] = set()
     starting_capitals: set[float] = set()
     for portfolio in PORTFOLIOS:
-        account = read_json(bootstrap_paths[portfolio])
+        bootstrap_source = bootstrap_paths[portfolio]
+        embedded_bootstrap = (
+            state_root / "bootstrap" / f"{portfolio}_account.json"
+        )
+        if not bootstrap_source.is_file():
+            raise FileNotFoundError(
+                f"missing bootstrap account for {portfolio}"
+            )
+        embedded_bootstrap.parent.mkdir(parents=True, exist_ok=True)
+        if embedded_bootstrap.is_file():
+            if file_hash(embedded_bootstrap) != file_hash(bootstrap_source):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    f"embedded bootstrap account changed:{portfolio}",
+                )
+        else:
+            shutil.copy2(bootstrap_source, embedded_bootstrap)
+        account = read_json(embedded_bootstrap)
         validate_seed_account(account, portfolio, pd.Timestamp.max.normalize(), cost_bps)
         seed_date = clean_date(account.get("seed_as_of_date") or account.get("as_of_date"))
         if not seed_date:
@@ -777,7 +1910,7 @@ def ensure_genesis_identity(
             "starting_capital_usd": capital,
             "target_hash": digest,
             "target_sha256": str(account.get("target_sha256") or file_hash(target_paths[portfolio])),
-            "bootstrap_account_sha256": file_hash(bootstrap_paths[portfolio]),
+            "bootstrap_account_sha256": file_hash(embedded_bootstrap),
         }
     contract = {
         "fill_mode": "next_close",
@@ -842,6 +1975,177 @@ def load_prices(
         if not frame.empty:
             prices[ticker] = frame
     return prices
+
+
+EXECUTION_PRICE_SOURCE_SCHEMA = "run287-paper-execution-price-source-v1"
+EXECUTION_PRICE_SOURCE_KEYS = {
+    "schema_version",
+    "event_id",
+    "client_order_id",
+    "ticker",
+    "execution_ticker",
+    "signal_date",
+    "first_eligible_date",
+    "fill_date",
+    "captured_through",
+    "source_cache_file",
+    "source_cache_sha256",
+    "source_cache_size_bytes",
+    "source_close_semantics",
+    "observations",
+}
+
+
+def event_id_for(
+    *,
+    client_order_id: str,
+    event_type: str,
+    event_date: str,
+    reason: str,
+) -> str:
+    return canonical_hash(
+        {
+            "client_order_id": client_order_id,
+            "event_type": event_type,
+            "event_date": event_date,
+            "reason": reason,
+        }
+    )[:32]
+
+
+def materialize_execution_price_source(
+    *,
+    portfolio_dir: Path,
+    price_cache: Path,
+    event_id: str,
+    client_order_id: str,
+    ticker: str,
+    execution_ticker: str,
+    signal_date: pd.Timestamp,
+    fill_date: pd.Timestamp,
+    fill_price: float,
+) -> tuple[str, str]:
+    """Freeze the exact execution-ticker close used by a forward fill.
+
+    The external cache may later append or revise history.  A fill therefore
+    carries a hash-chain reference to a canonical, point-in-time source record
+    inside the durable paper snapshot.  The directory integrity manifest (and
+    accepted publication manifest that binds it) transitively attests the
+    frozen source record.
+    """
+
+    signal_date = pd.Timestamp(signal_date).tz_localize(None).normalize()
+    fill_date = pd.Timestamp(fill_date).tz_localize(None).normalize()
+    if fill_date <= signal_date:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"same-day or pre-signal fill source:{event_id}",
+        )
+    execution_ticker = clean_ticker(execution_ticker)
+    ticker = clean_ticker(ticker)
+    if not event_id or not client_order_id or not ticker or not execution_ticker:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"incomplete fill source identity:{event_id}",
+        )
+    source_cache_path = price_cache / px_cache_name(execution_ticker)
+    if (
+        not source_cache_path.is_file()
+        or source_cache_path.is_symlink()
+        or source_cache_path.stat().st_size <= 0
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"missing execution-ticker cache source:{execution_ticker}",
+        )
+    source = load_price_series(price_cache, execution_ticker)
+    if source.empty or "close" not in source.columns:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"unreadable execution-ticker cache source:{execution_ticker}",
+        )
+    source = source.copy()
+    source.index = pd.to_datetime(source.index, errors="coerce").tz_localize(
+        None
+    ).normalize()
+    if source.index.isna().any() or source.index.duplicated().any():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"non-canonical execution-ticker cache dates:{execution_ticker}",
+        )
+    source = source.sort_index()
+    first_eligible_date = next_nyse_session_after(
+        signal_date,
+        label="execution_price_source.signal_date",
+    )
+    if fill_date != first_eligible_date:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"fill is not the next NYSE session:{event_id}",
+        )
+    observed_date, observed_close = price_on_or_after(
+        source, first_eligible_date, "close"
+    )
+    observed_date = (
+        pd.Timestamp(observed_date).tz_localize(None).normalize()
+        if observed_date is not None
+        else None
+    )
+    if (
+        observed_date != fill_date
+        or observed_close is None
+        or not math.isfinite(float(observed_close))
+        or float(observed_close) <= 0
+        or not _close_enough(float(observed_close), fill_price)
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"fill is not execution-ticker exact-next-close:{event_id}",
+        )
+    source_window = source.loc[source.index == fill_date, ["close"]]
+    if len(source_window) != 1:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"ambiguous execution-ticker exact-next-close:{event_id}",
+        )
+    close = float(source_window.iloc[0]["close"])
+    if not math.isfinite(close) or close <= 0:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+            f"invalid execution-ticker exact-next-close:{event_id}",
+        )
+    payload = {
+        "schema_version": EXECUTION_PRICE_SOURCE_SCHEMA,
+        "event_id": event_id,
+        "client_order_id": client_order_id,
+        "ticker": ticker,
+        "execution_ticker": execution_ticker,
+        "signal_date": signal_date.date().isoformat(),
+        "first_eligible_date": first_eligible_date.date().isoformat(),
+        "fill_date": fill_date.date().isoformat(),
+        "captured_through": fill_date.date().isoformat(),
+        "source_cache_file": px_cache_name(execution_ticker),
+        "source_cache_sha256": file_hash(source_cache_path),
+        "source_cache_size_bytes": int(source_cache_path.stat().st_size),
+        "source_close_semantics": "adjusted_close_if_available_else_close",
+        "observations": [
+            {
+                "date": fill_date.date().isoformat(),
+                "close": close,
+            }
+        ],
+    }
+    relative_path = Path("execution_price_sources") / f"{event_id}.json"
+    destination = portfolio_dir / relative_path
+    if destination.is_file():
+        if read_json(destination) != payload:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_EXECUTION_PRICE_EVIDENCE",
+                f"immutable execution price source changed:{event_id}",
+            )
+    else:
+        write_json(destination, payload)
+    return relative_path.as_posix(), file_hash(destination)
 
 
 def require_exact_session_closes(
@@ -910,9 +2214,19 @@ def validate_event_chain(fills: pd.DataFrame, rejections: pd.DataFrame) -> tuple
             raise ValueError("forward paper event sequence is not contiguous")
         if not event_id or event_id in event_ids:
             raise ValueError("forward paper event id is missing or duplicated")
-        if str(row.get("previous_event_hash") or "") != previous:
+        raw_previous = row.get("previous_event_hash")
+        observed_previous = (
+            "" if raw_previous is None else str(raw_previous)
+        )
+        if sequence == 1 and observed_previous in {"0", "0.0"}:
+            # pandas may infer an all-zero genesis hash column as numeric when
+            # the ledger contains exactly one event.
+            observed_previous = GENESIS_HASH
+        if observed_previous != previous:
             raise ValueError("forward paper previous-event hash mismatch")
-        expected = canonical_hash(event_payload_for_hash(row))
+        normalized_row = dict(row)
+        normalized_row["previous_event_hash"] = observed_previous
+        expected = canonical_hash(event_payload_for_hash(normalized_row))
         if str(row.get("event_hash") or "") != expected:
             raise ValueError("forward paper event hash mismatch")
         previous = expected
@@ -938,14 +2252,12 @@ def append_event(
     payload: dict[str, Any],
 ) -> tuple[int, str]:
     sequence += 1
-    event_id = canonical_hash(
-        {
-            "client_order_id": client_order_id,
-            "event_type": event_type,
-            "event_date": event_date,
-            "reason": reason,
-        }
-    )[:32]
+    event_id = event_id_for(
+        client_order_id=client_order_id,
+        event_type=event_type,
+        event_date=event_date,
+        reason=reason,
+    )
     row = {
         **payload,
         "event_sequence": sequence,
@@ -1027,6 +2339,7 @@ def apply_lifecycle_actions(
             "date": as_of_date.date().isoformat(),
             "signal_date": str(event["available_from"]),
             "ticker": ticker,
+            "execution_ticker": ticker,
             "side": "SETTLEMENT",
             "quantity": quantity,
             "requested_quantity": quantity,
@@ -1048,6 +2361,8 @@ def apply_lifecycle_actions(
             "target_hash": lifecycle.snapshot_hash,
             "execution_status": "SIMULATED_LIFECYCLE_SETTLEMENT",
             "record_type": "FORWARD_PAPER_LIFECYCLE",
+            "execution_price_source_path": "",
+            "execution_price_source_sha256": "",
             "review_only": True,
             "simulated": True,
             "live_trading_enabled": False,
@@ -1132,6 +2447,7 @@ def apply_lifecycle_actions(
 def resolve_pending_orders(
     *,
     portfolio: str,
+    portfolio_dir: Path,
     state: LedgerState,
     pending: pd.DataFrame,
     fills: pd.DataFrame,
@@ -1186,23 +2502,41 @@ def resolve_pending_orders(
         if signal_date >= as_of_date:
             keep_pending.append(row)
             continue
-        target_date = signal_date + pd.Timedelta(days=1)
-        actual_date, fill_px = price_on_or_after(prices.get(ticker, pd.DataFrame()), target_date, "close")
+        try:
+            target_date = next_nyse_session_after(
+                signal_date,
+                label=f"pending.{client_id}.signal_date",
+            )
+        except ValueError as exc:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PENDING_ORDER_DATE",
+                str(exc),
+            ) from exc
+        if target_date > as_of_date:
+            keep_pending.append(row)
+            continue
+        actual_date, fill_px = price_on_or_after(
+            prices.get(ticker, pd.DataFrame()),
+            target_date,
+            "close",
+        )
         actual_date = pd.Timestamp(actual_date).normalize() if actual_date is not None else None
         terminal_cutoff = (terminal_fill_cutoffs or {}).get(ticker)
         if terminal_cutoff is not None and (
-            actual_date is None or actual_date > pd.Timestamp(terminal_cutoff).normalize()
+            target_date > pd.Timestamp(terminal_cutoff).normalize()
         ):
             keep_pending.append(row)
             continue
-        lag_expired = as_of_date > target_date + pd.Timedelta(days=int(max_fill_lag_days))
-        if actual_date is None or fill_px is None or actual_date > as_of_date:
-            if lag_expired:
-                stale_rejections.append((row, "missing_next_close_after_max_lag"))
-            else:
-                keep_pending.append(row)
-            continue
-        if (actual_date - target_date).days > int(max_fill_lag_days):
+        if (
+            actual_date is None
+            or fill_px is None
+            or actual_date != target_date
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_MISSING_EXACT_CLOSE",
+                f"{ticker}:{target_date.date().isoformat()}",
+            )
+        if (actual_date - signal_date).days > int(max_fill_lag_days):
             stale_rejections.append((row, "next_close_exceeds_max_lag"))
             continue
         side_priority = 0 if side == "SELL" else 1
@@ -1305,13 +2639,37 @@ def resolve_pending_orders(
             continue
         filled_quantity = float(order.get("quantity") or 0.0)
         execution_status = "SIMULATED_FILL" if abs(filled_quantity - requested) <= 1e-9 else "SIMULATED_PARTIAL_FILL"
+        execution_ticker = (
+            clean_ticker(row.get("execution_ticker"))
+            or clean_ticker(row.get("ticker"))
+        )
+        event_date_text = fill_date.date().isoformat()
+        event_reason = "next_close_simulated_fill"
+        event_id = event_id_for(
+            client_order_id=client_id,
+            event_type="FILL",
+            event_date=event_date_text,
+            reason=event_reason,
+        )
+        execution_price_source_path, execution_price_source_sha256 = (
+            materialize_execution_price_source(
+                portfolio_dir=portfolio_dir,
+                price_cache=price_cache,
+                event_id=event_id,
+                client_order_id=client_id,
+                ticker=clean_ticker(row.get("ticker")),
+                execution_ticker=execution_ticker,
+                signal_date=pd.Timestamp(row.get("signal_date")),
+                fill_date=fill_date,
+                fill_price=float(order.get("fill_price") or fill_px),
+            )
+        )
         payload = {
             "portfolio_kind": portfolio,
-            "date": fill_date.date().isoformat(),
+            "date": event_date_text,
             "signal_date": clean_date(row.get("signal_date")),
             "ticker": clean_ticker(row.get("ticker")),
-            "execution_ticker": clean_ticker(row.get("execution_ticker"))
-            or clean_ticker(row.get("ticker")),
+            "execution_ticker": execution_ticker,
             "side": str(row.get("side") or "").upper(),
             "quantity": filled_quantity,
             "requested_quantity": requested,
@@ -1333,6 +2691,9 @@ def resolve_pending_orders(
             "target_hash": str(row.get("target_hash") or ""),
             "execution_status": execution_status,
             "record_type": "FORWARD_PAPER",
+            "execution_price_source_path": execution_price_source_path,
+            "execution_price_source_sha256":
+                execution_price_source_sha256,
             "review_only": True,
             "simulated": True,
             "live_trading_enabled": False,
@@ -1344,8 +2705,8 @@ def resolve_pending_orders(
             previous_hash=previous_hash,
             client_order_id=client_id,
             event_type="FILL",
-            event_date=fill_date.date().isoformat(),
-            reason="next_close_simulated_fill",
+            event_date=event_date_text,
+            reason=event_reason,
             payload=payload,
         )
         new_fill_count += 1
@@ -2009,7 +3370,11 @@ def run_portfolio(
 ) -> dict[str, Any]:
     portfolio_dir = state_root / portfolio
     portfolio_dir.mkdir(parents=True, exist_ok=True)
-    validate_restored_snapshot(portfolio_dir, portfolio)
+    validate_restored_snapshot(
+        portfolio_dir,
+        portfolio,
+        bootstrap_path=bootstrap_path,
+    )
     source_target_path = target_path
     target_path, _adjusted_target = materialize_lifecycle_adjusted_target(
         source_target_path=source_target_path,
@@ -2126,6 +3491,7 @@ def run_portfolio(
     }
     pending, fills, rejections, resolved = resolve_pending_orders(
         portfolio=portfolio,
+        portfolio_dir=portfolio_dir,
         state=state,
         pending=pending,
         fills=fills,
@@ -2161,7 +3527,11 @@ def run_portfolio(
         provider_symbol_links=lifecycle.provider_symbol_links,
     )
     write_csv(portfolio_dir / "pending_orders.csv", pending, PENDING_COLUMNS)
-    write_csv(portfolio_dir / "fills.csv", fills)
+    write_csv(
+        portfolio_dir / "fills.csv",
+        fills,
+        sorted(FILL_COLUMNS) if not fills.empty else None,
+    )
     write_csv(portfolio_dir / "rejections.csv", rejections)
 
     marked_account, positions = mark_account(
@@ -2397,8 +3767,32 @@ def verify_accepted_publication(
     preview_root: Path,
 ) -> dict[str, Any]:
     payload = read_json(state_root / "accepted_publication.json")
-    if payload.get("status") != "ACCEPTED_ATOMIC_PUBLICATION":
-        raise PaperLedgerIntegrityError("BLOCKED_PUBLICATION_PARITY", "accepted publication manifest missing")
+    if (
+        payload.get("schema_version")
+        != "run287-paper-accepted-publication-v1"
+        or payload.get("status") != "ACCEPTED_ATOMIC_PUBLICATION"
+        or payload.get("transaction_mode") not in {"MARK_ONLY", "SELECTED_TARGET"}
+        or payload.get("review_only") is not True
+        or payload.get("live_trading_enabled") is not False
+        or payload.get("production_mutation_allowed") is not False
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_PUBLICATION_PARITY",
+            "accepted publication contract invalid",
+        )
+    suppress_new_orders = payload.get("transaction_mode") == "MARK_ONLY"
+    summary = read_json(state_root / "summary.json")
+    if (
+        summary.get("schema_version")
+        != "daily-simulated-fill-ledger-summary-v1"
+        or summary.get("status") != "completed"
+        or summary.get("new_order_generation_suppressed")
+        is not suppress_new_orders
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_PUBLICATION_PARITY",
+            "accepted publication summary mode mismatch",
+        )
     for portfolio in PORTFOLIOS:
         row = (payload.get("portfolios") or {}).get(portfolio) or {}
         published_path = Path(str(row.get("published_target_path") or ""))
@@ -2416,6 +3810,22 @@ def verify_accepted_publication(
                     f"{portfolio}:{field}",
                 )
         preview_manifest = read_json(preview_root / portfolio / "order_batch_manifest.json")
+        ledger_manifest = read_json(state_root / portfolio / "manifest.json")
+        expected_preview_mode = (
+            "NO_NEW_ORDER" if suppress_new_orders else "EXECUTABLE_CANDIDATE"
+        )
+        if (
+            ledger_manifest.get("new_order_generation_suppressed")
+            is not suppress_new_orders
+            or preview_manifest.get("new_order_generation_suppressed")
+            is not suppress_new_orders
+            or preview_manifest.get("preview_mode") != expected_preview_mode
+            or row.get("preview_mode_at_acceptance") != expected_preview_mode
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PUBLICATION_PARITY",
+                f"{portfolio}:transaction_mode",
+            )
         if str(preview_manifest.get("accepted_account_sha256") or "") != checks["account_state_sha256"]:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_PREVIEW_PARITY",

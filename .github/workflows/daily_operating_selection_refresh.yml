@@ -158,6 +158,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
+          PAPER_CACHE_ANCHOR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_cache_anchor"
+          rm -rf "$PAPER_CACHE_ANCHOR"
+          if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
+             python tools/run287_paper_ledger_integrity.py \
+               --state-dir outputs/daily_simulated_fill_ledger \
+               --require-integrity; then
+            cp -a outputs/daily_simulated_fill_ledger "$PAPER_CACHE_ANCHOR"
+            echo "[paper-ledger] preserved checksum-verified GitHub cache continuity anchor"
+          fi
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
             if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
               BASE="gdrive:"
@@ -167,10 +176,15 @@ jobs:
             restore_dir() {
               local remote="$1"
               local local_dir="$2"
+              local exclude_glob="${3:-}"
+              local filter_args=()
+              if [ -n "$exclude_glob" ]; then
+                filter_args=(--exclude "$exclude_glob")
+              fi
               mkdir -p "$local_dir"
               if rclone lsf "$BASE$remote" >/dev/null 2>&1; then
                 echo "[gdrive] restore $remote -> $local_dir"
-                timeout 12m rclone copy "$BASE$remote" "$local_dir/" --transfers 6 --checkers 12 --stats 30s --stats-one-line || true
+                timeout 12m rclone copy "$BASE$remote" "$local_dir/" "${filter_args[@]}" --transfers 6 --checkers 12 --stats 30s --stats-one-line || true
               else
                 echo "[gdrive] missing $remote"
               fi
@@ -199,7 +213,7 @@ jobs:
             restore_dir data_pit/etf_holdings data_pit/etf_holdings
             restore_dir data_pit/macro data_pit/macro
             restore_dir manifests/free_data manifests/free_data
-            restore_dir outputs outputs
+            restore_dir outputs outputs "daily_simulated_fill_ledger/**"
             if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ]; then
               restore_dir "$LATEST_RUN_INPUT" "$LATEST_RUN_INPUT"
             fi
@@ -215,6 +229,26 @@ jobs:
             mkdir -p outputs
             cp -a cloud_results/full_rebuild/latest_global_alpha_universe/. outputs/
           fi
+          if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ] && \
+             [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
+             python tools/run287_paper_ledger_integrity.py \
+               --state-dir outputs/daily_simulated_fill_ledger \
+               --require-integrity; then
+            if [ -d "$PAPER_CACHE_ANCHOR" ]; then
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir "$PAPER_CACHE_ANCHOR" \
+                --install-source outputs/daily_simulated_fill_ledger \
+                --require-install-continuity
+              echo "[paper-ledger] reconciled explicit latest_run ledger with immutable-cache anchor"
+            else
+              cp -a outputs/daily_simulated_fill_ledger "$PAPER_CACHE_ANCHOR"
+              echo "[paper-ledger] adopted checksum-verified explicit latest_run ledger as continuity anchor"
+            fi
+          fi
+          rm -rf outputs/daily_simulated_fill_ledger
+          if [ -d "$PAPER_CACHE_ANCHOR" ]; then
+            cp -a "$PAPER_CACHE_ANCHOR" outputs/daily_simulated_fill_ledger
+          fi
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
             PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"
             PAPER_LOCAL_RECOVERY="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_pre_remote"
@@ -227,21 +261,57 @@ jobs:
                python tools/run287_paper_ledger_integrity.py \
                  --state-dir "$PAPER_REMOTE_CANDIDATE" \
                  --require-integrity; then
-              python tools/run287_paper_ledger_integrity.py \
-                --state-dir outputs/daily_simulated_fill_ledger \
-                --install-source "$PAPER_REMOTE_CANDIDATE"
-              echo "[paper-ledger] installed checksum-verified Drive snapshot; pre-install recovery=$PAPER_LOCAL_RECOVERY"
+              if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
+                 python tools/run287_paper_ledger_integrity.py \
+                   --state-dir outputs/daily_simulated_fill_ledger \
+                   --require-integrity; then
+                python tools/run287_paper_ledger_integrity.py \
+                  --state-dir outputs/daily_simulated_fill_ledger \
+                  --install-source "$PAPER_REMOTE_CANDIDATE" \
+                  --require-install-continuity
+              else
+                python tools/run287_paper_ledger_integrity.py \
+                  --state-dir outputs/daily_simulated_fill_ledger \
+                  --install-source "$PAPER_REMOTE_CANDIDATE"
+              fi
+              echo "[paper-ledger] reconciled Drive snapshot against immutable-cache continuity anchor; pre-install recovery=$PAPER_LOCAL_RECOVERY"
             elif [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
                  python tools/run287_paper_ledger_integrity.py \
                    --state-dir outputs/daily_simulated_fill_ledger \
                    --require-integrity; then
               echo "[paper-ledger] Drive snapshot was unverified; retained verified cache/local snapshot"
-            elif [ ! -d outputs/daily_simulated_fill_ledger ] && [ -d "$PAPER_REMOTE_CANDIDATE" ]; then
-              echo "[paper-ledger] one-time legacy restore; ledger semantic validation must migrate it before save"
-              mv "$PAPER_REMOTE_CANDIDATE" outputs/daily_simulated_fill_ledger
             else
-              echo "[paper-ledger] no checksum-verified remote replacement applied"
+              echo "[paper-ledger] BLOCKED: no checksum-verified cross-source continuity anchor"
+              exit 2
             fi
+            PAPER_REMOTE_HEADS="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
+            PAPER_HEAD_LIST="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads.txt"
+            rclone lsf "$PAPER_REMOTE_HEADS/" --dirs-only 2>/dev/null | \
+              sed 's#/$##' | sort -u > "$PAPER_HEAD_LIST" || true
+            while IFS= read -r PAPER_HEAD_HASH; do
+              [ -n "$PAPER_HEAD_HASH" ] || continue
+              if ! [[ "$PAPER_HEAD_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+                echo "[paper-ledger] BLOCKED: invalid immutable head name=$PAPER_HEAD_HASH"
+                exit 2
+              fi
+              PAPER_HEAD_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_${PAPER_HEAD_HASH}"
+              rm -rf "$PAPER_HEAD_CANDIDATE"
+              mkdir -p "$PAPER_HEAD_CANDIDATE"
+              rclone copy "$PAPER_REMOTE_HEADS/$PAPER_HEAD_HASH/" "$PAPER_HEAD_CANDIDATE/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir "$PAPER_HEAD_CANDIDATE" \
+                --require-integrity
+              VERIFIED_HEAD_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_HEAD_CANDIDATE/snapshot_integrity.json")"
+              if [ "$VERIFIED_HEAD_HASH" != "$PAPER_HEAD_HASH" ]; then
+                echo "[paper-ledger] BLOCKED: immutable head folder/hash mismatch folder=$PAPER_HEAD_HASH manifest=$VERIFIED_HEAD_HASH"
+                exit 2
+              fi
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --install-source "$PAPER_HEAD_CANDIDATE" \
+                --require-install-continuity
+            done < "$PAPER_HEAD_LIST"
+            echo "[paper-ledger] reconciled all immutable Drive heads; divergent heads fail closed"
             restore_dir paper_archive/run287_holding_risk_watch outputs/holding_risk_watch
             restore_dir paper_archive/run287_decision_observation_archive outputs/run287_decision_observation_archive
             restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
@@ -676,6 +746,7 @@ jobs:
           PY
 
       - name: Verify transactional forward paper snapshot
+        id: paper_integrity
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
@@ -683,8 +754,10 @@ jobs:
             --state-dir outputs/daily_simulated_fill_ledger \
             --require-integrity \
             --output outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+          echo "integrity_sha256=$(sha256sum outputs/daily_simulated_fill_ledger/snapshot_integrity.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve append-only forward outcomes
+        id: risk_outcomes
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
@@ -726,8 +799,14 @@ jobs:
             python tools/resolve_run287_risk_outcomes.py "${RISK_OUTCOME_ARGS[@]}" \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
           fi
+          test -s outputs/run287_risk_outcome_archive/summary.json
+          echo "summary_sha256=$(sha256sum outputs/run287_risk_outcome_archive/summary.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          if [ -s outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json ]; then
+            echo "price_cache_manifest_sha256=$(sha256sum outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build runtime operating scorecard
+        id: operating_scorecard
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
@@ -747,27 +826,42 @@ jobs:
                   + ",".join(scorecard.get("scorecard_trust_blockers") or [])
               )
           PY
+          echo "scorecard_sha256=$(sha256sum outputs/run287_operating_scorecard/operating_scorecard.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate single promotion and rollback gate
+        id: promotion_gate
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
+          PROMOTION_ANCHORS=(
+            --expected-paper-integrity-sha256 "${{ steps.paper_integrity.outputs.integrity_sha256 }}"
+            --expected-risk-outcome-summary-sha256 "${{ steps.risk_outcomes.outputs.summary_sha256 }}"
+            --expected-scorecard-sha256 "${{ steps.operating_scorecard.outputs.scorecard_sha256 }}"
+          )
+          if [ -n "${{ steps.risk_outcomes.outputs.price_cache_manifest_sha256 }}" ]; then
+            PROMOTION_ANCHORS+=(
+              --expected-risk-price-cache-manifest-sha256 "${{ steps.risk_outcomes.outputs.price_cache_manifest_sha256 }}"
+            )
+          fi
           python tools/run_run287_promotion_gate.py \
             --contract data_static/run287_promotion_gate_contract.json \
             --state data_static/run287_promotion_state.json \
             --evidence data_static/run287_promotion_evidence_current.json \
             --latest-run outputs \
             --output-dir outputs/run287_promotion_gate \
+            "${PROMOTION_ANCHORS[@]}" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_promotion_gate.log
+          test -s outputs/run287_promotion_gate/promotion_gate.json
+          echo "promotion_gate_sha256=$(sha256sum outputs/run287_promotion_gate/promotion_gate.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Build post-gate operating reports
         id: operating_review
         if: steps.market.outputs.ready == 'yes'
         run: |
           set -euo pipefail
-          python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/daily_operating_snapshot.log || true
-          python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/daily_user_portfolio_reports.log || true
-          python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log || true
+          python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/daily_operating_snapshot.log
+          python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/daily_user_portfolio_reports.log
+          python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log
           mkdir -p outputs/user_current
           cat > outputs/user_current/DAILY_REVIEW_ONLY.md <<'EOF'
           # Daily Review-Only Current Output
@@ -796,7 +890,23 @@ jobs:
             --source-commit-sha "${GITHUB_SHA}" \
             --source-branch "${GITHUB_REF_NAME}" \
             --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
-            2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log || true
+            2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log
+
+      - name: Verify accepted publication manifest
+        id: accepted_publication
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run outputs \
+            --output outputs/run287_accepted_publication/manifest.json \
+            --source-commit-sha "${GITHUB_SHA}" \
+            --workflow-identity "${GITHUB_WORKFLOW_REF}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --expected-promotion-gate-sha256 "${{ steps.promotion_gate.outputs.promotion_gate_sha256 }}" \
+            2>&1 | tee outputs/full_rebuild_logs/daily_accepted_publication_manifest.log
+          echo "manifest_sha256=$(sha256sum outputs/run287_accepted_publication/manifest.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload daily operating evidence artifact
         if: always() && steps.market.outputs.ready == 'yes'
@@ -820,9 +930,10 @@ jobs:
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_decision_observation_archive/
             outputs/run287_risk_outcome_archive/
+            outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
             outputs/run287_operating_scorecard/
             outputs/run287_promotion_gate/
-            outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
+            outputs/run287_accepted_publication/
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -843,12 +954,23 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
             outputs/full_rebuild_logs/daily_run287_operating_scorecard.log
             outputs/full_rebuild_logs/daily_run287_promotion_gate.log
+            outputs/full_rebuild_logs/daily_accepted_publication_manifest.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             cache_prices/replay_price_cache_manifest.json
           retention-days: 45
 
+      - name: Reverify accepted publication before GitHub publication
+        id: accepted_publication_preflight
+        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run outputs \
+            --verify-manifest outputs/run287_accepted_publication/manifest.json \
+            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+
       - name: Upload accepted paper transaction artifact
-        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.operating_review.outcome == 'success'
+        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.risk_outcomes.outcome == 'success' && steps.operating_scorecard.outcome == 'success' && steps.promotion_gate.outcome == 'success' && steps.operating_review.outcome == 'success' && steps.accepted_publication.outcome == 'success' && steps.accepted_publication_preflight.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: accepted-paper-transaction-${{ github.run_id }}
@@ -860,11 +982,28 @@ jobs:
             outputs/account_ledger_preview/
             outputs/daily_simulated_fill_ledger/
             outputs/run287_same_close_decision/
+            outputs/run287_decision_observation_archive/
+            outputs/run287_risk_outcome_archive/
+            outputs/run287_risk_outcome_price_cache/
+            outputs/run287_operating_scorecard/
+            outputs/run287_promotion_gate/
+            outputs/run287_accepted_publication/
             outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+          if-no-files-found: error
           retention-days: 45
 
+      - name: Reverify accepted publication before state cache
+        id: accepted_state_preflight
+        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run outputs \
+            --verify-manifest outputs/run287_accepted_publication/manifest.json \
+            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+
       - name: Save validated forward paper state cache
-        if: success() && steps.market.outputs.ready == 'yes'
+        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success' && steps.accepted_state_preflight.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -906,12 +1045,16 @@ jobs:
           fi
 
       - name: Sync accepted paper transaction to Google Drive
-        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.operating_review.outcome == 'success'
+        if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.risk_outcomes.outcome == 'success' && steps.operating_scorecard.outcome == 'success' && steps.promotion_gate.outcome == 'success' && steps.operating_review.outcome == 'success' && steps.accepted_publication.outcome == 'success'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
         run: |
           set -euo pipefail
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run outputs \
+            --verify-manifest outputs/run287_accepted_publication/manifest.json \
+            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
           if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
             echo "[gdrive] not configured; accepted paper transaction remains in GitHub artifact/cache"
             exit 0
@@ -922,8 +1065,8 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
-          DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision; do
+          DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"
+          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
             test -d "$d"
             rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           done
@@ -931,14 +1074,21 @@ jobs:
             test -s "$f"
             rclone copyto "$f" "$DEST/$f"
           done
+          # Publish the verified manifest last as the remote acceptance marker.
+          test -s outputs/run287_accepted_publication/manifest.json
+          rclone copy outputs/run287_accepted_publication "$DEST/outputs/run287_accepted_publication/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
 
       - name: Persist validated forward paper ledger state
-        if: success() && steps.market.outputs.ready == 'yes'
+        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
         run: |
           set -euo pipefail
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run outputs \
+            --verify-manifest outputs/run287_accepted_publication/manifest.json \
+            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
           if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
             echo "[gdrive] not configured; validated paper state remains in the GitHub cache/artifact"
             exit 0
@@ -956,10 +1106,59 @@ jobs:
             --require-integrity
           RECOVERY="${BASE}paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/run287_daily_simulated_fill_ledger"
           CANONICAL="${BASE}paper_archive/run287_daily_simulated_fill_ledger"
+          HEADS="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
+          PAPER_REMOTE_PERSIST_ANCHOR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_persist_anchor"
+          PAPER_REMOTE_CAS_CHECK="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_cas_check"
+          PAPER_REMOTE_POSTCHECK="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_postcheck"
+          rm -rf "$PAPER_REMOTE_PERSIST_ANCHOR"
+          mkdir -p "$PAPER_REMOTE_PERSIST_ANCHOR"
+          rclone copy "$CANONICAL/" "$PAPER_REMOTE_PERSIST_ANCHOR/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          test -s "$PAPER_REMOTE_PERSIST_ANCHOR/snapshot_integrity.json"
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir "$PAPER_REMOTE_PERSIST_ANCHOR" \
+            --require-integrity
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --require-integrity \
+            --require-state-descends-from "$PAPER_REMOTE_PERSIST_ANCHOR"
+          LOCAL_SNAPSHOT_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json", encoding="utf-8"))["snapshot_hash"])')"
+          ANCHOR_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_PERSIST_ANCHOR/snapshot_integrity.json")"
+          if ! [[ "$LOCAL_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]] || ! [[ "$ANCHOR_SNAPSHOT_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "[paper-ledger] BLOCKED: invalid local or remote continuity hash"
+            exit 2
+          fi
           rclone copy outputs/daily_simulated_fill_ledger "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           rclone check outputs/daily_simulated_fill_ledger "$RECOVERY/" --checksum --one-way
+          rclone copy outputs/daily_simulated_fill_ledger "$HEADS/$LOCAL_SNAPSHOT_HASH/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          rclone check outputs/daily_simulated_fill_ledger "$HEADS/$LOCAL_SNAPSHOT_HASH/" --checksum
+          rm -rf "$PAPER_REMOTE_CAS_CHECK"
+          mkdir -p "$PAPER_REMOTE_CAS_CHECK"
+          rclone copy "$CANONICAL/" "$PAPER_REMOTE_CAS_CHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir "$PAPER_REMOTE_CAS_CHECK" \
+            --require-integrity
+          CAS_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_CAS_CHECK/snapshot_integrity.json")"
+          if [ "$CAS_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]; then
+            echo "[paper-ledger] BLOCKED_CONTINUITY: canonical Drive head changed after preflight; immutable local head retained"
+            exit 2
+          fi
           rclone sync outputs/daily_simulated_fill_ledger "$CANONICAL/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
-          rclone check outputs/daily_simulated_fill_ledger "$CANONICAL/" --checksum --one-way
+          rclone check outputs/daily_simulated_fill_ledger "$CANONICAL/" --checksum
+          rm -rf "$PAPER_REMOTE_POSTCHECK"
+          mkdir -p "$PAPER_REMOTE_POSTCHECK"
+          rclone copy "$CANONICAL/" "$PAPER_REMOTE_POSTCHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir "$PAPER_REMOTE_POSTCHECK" \
+            --require-integrity
+          POSTCHECK_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_REMOTE_POSTCHECK/snapshot_integrity.json")"
+          if [ "$POSTCHECK_SNAPSHOT_HASH" != "$LOCAL_SNAPSHOT_HASH" ]; then
+            echo "[paper-ledger] BLOCKED_CONTINUITY: canonical Drive postcheck differs; immutable heads preserve both accepted states"
+            exit 2
+          fi
+          if [ "$LOCAL_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ] && \
+             rclone lsf "$HEADS/$ANCHOR_SNAPSHOT_HASH/" >/dev/null 2>&1; then
+            rclone purge "$HEADS/$ANCHOR_SNAPSHOT_HASH"
+          fi
           rclone copy outputs/holding_risk_watch "${BASE}paper_archive/run287_holding_risk_watch/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           if [ -s outputs/run287_decision_observation_archive/manifest.json ]; then
             rclone copy outputs/run287_decision_observation_archive "${BASE}paper_archive/run287_decision_observation_archive/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
@@ -971,8 +1170,18 @@ jobs:
             rclone copy outputs/run287_risk_outcome_price_cache "${BASE}paper_archive/run287_risk_outcome_price_cache/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           fi
 
+      - name: Reverify accepted publication before refreshed cache
+        id: accepted_refresh_preflight
+        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run outputs \
+            --verify-manifest outputs/run287_accepted_publication/manifest.json \
+            --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+
       - name: Save refreshed GitHub cache
-        if: always() && steps.market.outputs.ready == 'yes'
+        if: success() && steps.market.outputs.ready == 'yes' && steps.accepted_publication.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: |

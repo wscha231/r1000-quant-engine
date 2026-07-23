@@ -25,6 +25,20 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def verify_runtime_anchor(path: Path, expected_sha256: str, label: str) -> str:
+    expected = str(expected_sha256 or "").strip().lower()
+    if len(expected) != 64 or any(
+        character not in "0123456789abcdef" for character in expected
+    ):
+        raise ValueError(f"runtime_step_anchor_invalid:{label}")
+    if not path.is_file():
+        raise ValueError(f"runtime_step_anchor_missing:{label}")
+    actual = sha256_file(path)
+    if actual != expected:
+        raise ValueError(f"runtime_step_anchor_mismatch:{label}")
+    return actual
+
+
 def render_report(gate: dict[str, Any]) -> str:
     actuals = gate["forward_paper_gate"]["actuals"]
     return "\n".join(
@@ -85,6 +99,10 @@ def main() -> int:
     parser.add_argument("--evidence", default=str(DEFAULT_EVIDENCE))
     parser.add_argument("--output-dir", default="outputs/run287_promotion_gate")
     parser.add_argument("--latest-run", default="")
+    parser.add_argument("--expected-paper-integrity-sha256", default="")
+    parser.add_argument("--expected-risk-outcome-summary-sha256", default="")
+    parser.add_argument("--expected-risk-price-cache-manifest-sha256", default="")
+    parser.add_argument("--expected-scorecard-sha256", default="")
     parser.add_argument("--request-state")
     parser.add_argument("--transition-authorization")
     args = parser.parse_args()
@@ -95,12 +113,45 @@ def main() -> int:
     contract = read_json(paths["contract"])
     state = read_json(paths["state"])
     evidence = read_json(paths["evidence"])
+    runtime_anchor_specs: dict[str, tuple[str, str]] = {
+        "paper_integrity": (
+            "daily_simulated_fill_ledger/snapshot_integrity.json",
+            args.expected_paper_integrity_sha256,
+        ),
+        "risk_outcome_summary": (
+            "run287_risk_outcome_archive/summary.json",
+            args.expected_risk_outcome_summary_sha256,
+        ),
+        "risk_price_cache_manifest": (
+            "run287_risk_outcome_price_cache/replay_price_cache_manifest.json",
+            args.expected_risk_price_cache_manifest_sha256,
+        ),
+        "scorecard": (
+            "run287_operating_scorecard/operating_scorecard.json",
+            args.expected_scorecard_sha256,
+        ),
+    }
+    runtime_anchor_hashes: dict[str, str] = {}
     if args.latest_run:
-        evidence = overlay_latest_run_evidence(evidence, Path(args.latest_run).resolve())
+        latest_run = Path(args.latest_run).resolve()
+        for label, (relative, expected) in runtime_anchor_specs.items():
+            if expected:
+                runtime_anchor_hashes[
+                    f"runtime_{label}_sha256"
+                ] = verify_runtime_anchor(
+                    latest_run / relative,
+                    expected,
+                    label,
+                )
+        evidence = overlay_latest_run_evidence(evidence, latest_run)
+        for label, (relative, expected) in runtime_anchor_specs.items():
+            if expected:
+                verify_runtime_anchor(latest_run / relative, expected, label)
     authorization = read_json(Path(args.transition_authorization).resolve()) if args.transition_authorization else None
     hashes = {f"{key}_sha256": sha256_file(path) for key, path in paths.items()}
     hashes["base_evidence_sha256"] = hashes["evidence_sha256"]
     hashes["evidence_sha256"] = canonical_sha256(evidence)
+    hashes.update(runtime_anchor_hashes)
     gate = evaluate_gate(
         contract,
         state,

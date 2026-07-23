@@ -1011,6 +1011,25 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "daily_run287_operating_scorecard.log",
         "Evaluate single promotion and rollback gate",
         "Build post-gate operating reports",
+        "Verify accepted publication manifest",
+        "tools/build_run287_accepted_publication_manifest.py",
+        "outputs/run287_accepted_publication/manifest.json",
+        "id: paper_integrity",
+        "id: risk_outcomes",
+        "id: operating_scorecard",
+        "id: promotion_gate",
+        "id: accepted_publication",
+        "promotion_gate_sha256=",
+        "--expected-promotion-gate-sha256",
+        "manifest_sha256=",
+        "--expected-manifest-sha256",
+        "--verify-manifest",
+        "Reverify accepted publication before GitHub publication",
+        "Reverify accepted publication before state cache",
+        "Reverify accepted publication before refreshed cache",
+        "steps.accepted_publication.outcome == 'success'",
+        "if-no-files-found: error",
+        "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction",
         "paper_archive/run287_decision_observation_archive",
         "--allow-missing",
         "--require-exact-close",
@@ -1062,11 +1081,64 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     scorecard_idx = text.index("python tools/build_run287_operating_scorecard.py")
     promotion_idx = text.index("python tools/run_run287_promotion_gate.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
+    accepted_idx = text.index(
+        "python tools/build_run287_accepted_publication_manifest.py"
+    )
     assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
-    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx, "paper ledger must verify integrity before outcomes; scorecard and promotion must consume that same runtime state before reports"
+    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
+    for log_name in (
+        "daily_operating_snapshot.log",
+        "daily_user_portfolio_reports.log",
+        "daily_user_current_report.log",
+        "daily_user_current_contract.log",
+    ):
+        assert f"{log_name} || true" not in text, (
+            "post-gate operating report failures must block accepted publication"
+        )
+    assert text.count("steps.accepted_publication.outcome == 'success'") >= 5
+    accepted_upload = text[
+        text.index("- name: Upload accepted paper transaction artifact"):
+        text.index("- name: Save validated forward paper state cache")
+    ]
+    for path in (
+        "outputs/run287_decision_observation_archive/",
+        "outputs/run287_risk_outcome_archive/",
+        "outputs/run287_risk_outcome_price_cache/",
+        "outputs/run287_operating_scorecard/",
+        "outputs/run287_promotion_gate/",
+        "outputs/run287_accepted_publication/",
+    ):
+        assert path in accepted_upload, path
+    accepted_drive = text[
+        text.index("- name: Sync accepted paper transaction to Google Drive"):
+        text.index("- name: Persist validated forward paper ledger state")
+    ]
+    assert (
+        'DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"'
+        in accepted_drive
+    )
+    assert (
+        '${GITHUB_RUN_ID}/daily_operating_selection_refresh' not in accepted_drive
+    ), "accepted Drive publication must not share the always-on diagnostic namespace"
+    assert "outputs/run287_decision_observation_archive" in accepted_drive
+    assert "outputs/run287_risk_outcome_price_cache" in accepted_drive
+    assert accepted_drive.index(
+        'rclone copyto "$f" "$DEST/$f"'
+    ) < accepted_drive.index(
+        "rclone copy outputs/run287_accepted_publication"
+    ), "the accepted manifest must be the final remote acceptance marker"
+    diagnostic_drive = text[
+        text.index("- name: Sync daily operating artifact to Google Drive"):
+        text.index("- name: Sync accepted paper transaction to Google Drive")
+    ]
+    assert "--verify-manifest" not in diagnostic_drive, (
+        "always-on diagnostic publication must not require an accepted manifest"
+    )
+    assert text.count("--verify-manifest") >= 5
+    assert text.count("--expected-manifest-sha256") >= 5
 
 
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:

@@ -15,7 +15,11 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run287_paper_ledger_integrity import directory_hashes, verify_integrity_manifest  # noqa: E402
+from tools.run287_paper_ledger_integrity import (  # noqa: E402
+    directory_hashes,
+    install_verified_snapshot,
+    verify_integrity_manifest,
+)
 from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
     GENESIS_HASH,
     canonical_hash,
@@ -149,8 +153,10 @@ def test_twenty_sessions_remain_continuous_and_same_session_is_byte_identical() 
         dates = [date.date().isoformat() for date in pd.bdate_range("2026-01-02", periods=20)]
         prepare(root, dates)
         statuses: list[str] = []
-        for date in dates:
+        for index, date in enumerate(dates):
             statuses.append(str(run(ledger_args(root, date))["result_status"]))
+            if index == 0:
+                shutil.copytree(root / "paper", root / "first_snapshot")
         assert statuses[0] == "GENESIS"
         assert statuses[1:] == ["RESTORED_CONTINUATION"] * 19
         for portfolio in ("main", "concentrated"):
@@ -162,6 +168,19 @@ def test_twenty_sessions_remain_continuous_and_same_session_is_byte_identical() 
             assert account["starting_capital_usd"] == 2_000.0
         verified = verify_integrity_manifest(root / "paper", require=True)
         assert verified["status"] == "VERIFIED"
+        shutil.copytree(root / "first_snapshot", root / "restored_snapshot")
+        installed = install_verified_snapshot(
+            root / "paper",
+            root / "restored_snapshot",
+            require_continuity=True,
+        )
+        assert installed["install_status"] == "INSTALLED_VERIFIED_DESCENDANT"
+        assert (
+            verify_integrity_manifest(
+                root / "restored_snapshot", require=True
+            )["snapshot_hash"]
+            == verified["snapshot_hash"]
+        )
         before = directory_hashes(root / "paper")
         rerun = run(ledger_args(root, dates[-1]))
         assert rerun["result_status"] == "SAME_SESSION_REUSE"
@@ -475,6 +494,8 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
     assert "outputs/account_ledger_preview/" in accepted_paths
     assert "outputs/daily_simulated_fill_ledger/" in accepted_paths
     assert "outputs/reports/operating_*_target_book.csv" in accepted_paths
+    assert "outputs/run287_decision_observation_archive/" in accepted_paths
+    assert "outputs/run287_risk_outcome_price_cache/" in accepted_paths
 
 
 def main() -> int:
