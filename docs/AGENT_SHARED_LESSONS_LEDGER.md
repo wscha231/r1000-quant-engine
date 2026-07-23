@@ -3363,7 +3363,8 @@ Expected contract:
 - Automatic promotion remains prohibited. A complete evidence packet is a
   review input, not authorization to replace the champion.
 - Focused H4b tests, repository pytest (`129/129`), and full Tier-1 validation
-  (`191/191`, `694.76s` on the final local head) passed.
+  (`191/191`, `389.94s` after merging the final H4a branch head into the local
+  H4b branch) passed.
 - Evidence:
   `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
