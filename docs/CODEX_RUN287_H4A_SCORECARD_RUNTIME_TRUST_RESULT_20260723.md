@@ -50,7 +50,7 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `526.96s` on the final local
+- Full PR validation: `191/191` PASS in `535.51s` on the final local
   follow-up head.
 - Python compilation and `git diff --check`: PASS.
 
@@ -98,6 +98,9 @@ The first exact-head Codex review identified two valid provenance gaps.
   verification, then records that same SHA-256 as metric provenance. A
   concurrent ledger republish cannot mix a pre-verification object with a
   post-verification manifest.
+- The manifest itself is rebound after verification as well: its parsed payload
+  must equal the verifier's returned payload, and its exact post-verification
+  bytes supply both `manifest_sha256` and the integrity source provenance.
 - Only managed absorbed source ids can make a bundle error source-scoped. An
   unregistered manifest member remains a global bundle fault even when its id
   happens to match a non-managed registry source.
@@ -110,7 +113,8 @@ The first exact-head Codex review identified two valid provenance gaps.
   that bundle-rejected sources, unattested paper values, and P6 metrics whose
   required summary failed verification cannot leak into the scorecard. The
   final exact-head regressions republish the paper summary during verification
-  and inject a non-managed registry id into the canonical bundle.
+  and inject a non-managed registry id into the canonical bundle. The republish
+  regression also proves the manifest SHA is rebound to the same new snapshot.
 
 ## Safety and next gate
 

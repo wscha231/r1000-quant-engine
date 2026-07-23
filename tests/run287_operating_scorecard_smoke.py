@@ -432,6 +432,16 @@ def test_paper_metrics_use_the_manifest_bound_summary_bytes() -> None:
         assert fill_count["provenance"]["source_sha256"] == scorecard[
             "runtime_trust_manifest"
         ]["paper_snapshot"]["summary_sha256"]
+        assert scorecard["runtime_trust_manifest"]["paper_snapshot"][
+            "manifest_sha256"
+        ] == digest(paper_root / "snapshot_integrity.json")
+        manifest_source = next(
+            row for row in scorecard["sources"]
+            if row["source_id"] == "current_paper_integrity"
+        )
+        assert manifest_source["sha256"] == digest(
+            paper_root / "snapshot_integrity.json"
+        )
 
 
 def test_blocked_p6_summary_cannot_absorb_stale_metrics() -> None:

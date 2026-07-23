@@ -629,7 +629,20 @@ def build_scorecard(
             summary_relative = summary_path.resolve().relative_to(
                 ledger_root
             ).as_posix()
-            verified_files = verified_manifest.get("files") or {}
+            manifest_bytes = manifest_path.read_bytes()
+            rebound_manifest = json.loads(manifest_bytes)
+            verified_manifest_payload = {
+                key: value
+                for key, value in verified_manifest.items()
+                if key != "status"
+            }
+            if rebound_manifest != verified_manifest_payload:
+                paper_summary_binding_error = (
+                    "paper integrity manifest changed after verification"
+                )
+                raise ValueError(paper_summary_binding_error)
+            bound_manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+            verified_files = rebound_manifest.get("files") or {}
             summary_bytes = summary_path.read_bytes()
             bound_summary_sha256 = hashlib.sha256(summary_bytes).hexdigest()
             if (
@@ -648,11 +661,15 @@ def build_scorecard(
             records_by_id["current_paper_summary"]["sha256"] = (
                 bound_summary_sha256
             )
+            records_by_id["current_paper_integrity"]["sha256"] = (
+                bound_manifest_sha256
+            )
             paper_runtime_manifest.update(
                 {
                     "status": "VERIFIED",
-                    "snapshot_hash": verified_manifest.get("snapshot_hash"),
-                    "file_count": int(verified_manifest.get("file_count") or 0),
+                    "manifest_sha256": bound_manifest_sha256,
+                    "snapshot_hash": rebound_manifest.get("snapshot_hash"),
+                    "file_count": int(rebound_manifest.get("file_count") or 0),
                     "summary_path": str(summary_path),
                     "summary_relative_path": summary_relative,
                     "summary_sha256": bound_summary_sha256,
