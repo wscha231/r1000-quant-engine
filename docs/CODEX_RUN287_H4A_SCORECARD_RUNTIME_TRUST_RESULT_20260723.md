@@ -50,7 +50,7 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `624.10s` on the final local
+- Full PR validation: `191/191` PASS in `631.80s` on the final local
   follow-up head.
 - Python compilation and `git diff --check`: PASS.
 
@@ -76,9 +76,21 @@ The first exact-head Codex review identified two valid provenance gaps.
 - A missing or blank registry pin for the bundle manifest is a global trust
   failure; member declarations and file hashes cannot substitute for the
   immutable manifest SHA-256.
+- Canonical source and manifest paths are resolved before trust. Required
+  `ABSORBED_SOURCE` rows are selected independently of their path string, and
+  any resolved path outside the canonical bundle root fails closed.
+- Current-paper trust now requires the loaded summary and canonical
+  `snapshot_integrity.json` to share one directory, and the verified manifest
+  must contain the summary's exact relative path and SHA-256.
+- A P6 summary with a blocked status, explicit invalid-for-absorption flag, or
+  explicit downstream-evaluation false flag blocks the historical lane and
+  suppresses any stale companion selection metrics.
 - New regressions mutate source bytes behind unchanged declarations and inject
   true-forward-only bundle path and source-set mismatches. All fail closed in
   the intended lane.
+- Additional regressions cover path traversal from a required absorbed source,
+  a paper summary outside the verified ledger directory, and a blocked P6
+  summary paired with stale metrics.
 
 ## Safety and next gate
 

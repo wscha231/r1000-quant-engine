@@ -140,7 +140,7 @@ def make_fixture(
             "path": str(path), "format": fmt,
             "expected_sha256": digest(path) if path.exists() else None,
             "as_of_date": "2026-07-10", "metric_mode": "fixture",
-            "required": required, "disposition": "ABSORBED_SOURCE",
+            "required": required, "disposition": "FIXTURE_SOURCE",
         })
     registry = root / "registry.json"
     write_json(registry, {
@@ -166,7 +166,7 @@ def test_scorecard_keeps_evidence_lanes_and_provenance_separate() -> None:
         }
         assert scorecard["historical_acceptance_overwritten_by_forward"] is False
         assert scorecard["source_artifacts_copied"] is False
-        assert scorecard["absorbed_source_count"] >= 2
+        assert len(scorecard["sources"]) == 12
         assert all(row["provenance"]["source_sha256"] for row in scorecard["metrics"] if row["status"] == "AVAILABLE")
         assert "UNAVAILABLE" in render_report(scorecard)
 
@@ -251,6 +251,8 @@ def test_bundle_verifier_hashes_source_file_bytes() -> None:
                     "path": source_rel,
                     "expected_sha256": digest(source),
                     "evidence_class": "historical",
+                    "required": True,
+                    "disposition": "ABSORBED_SOURCE",
                 }
             ],
         }
@@ -270,6 +272,123 @@ def test_bundle_verifier_hashes_source_file_bytes() -> None:
         assert errors == [
             "canonical_source_bundle_source_hash_mismatch:fixture_historical"
         ]
+
+
+def test_required_absorbed_source_cannot_escape_canonical_bundle() -> None:
+    bundle_root = ROOT / "data_static" / "run287_operating_scorecard_sources_v1"
+    with tempfile.TemporaryDirectory(dir=bundle_root) as manifest_td, \
+            tempfile.TemporaryDirectory(dir=bundle_root.parent) as source_td:
+        manifest_root = Path(manifest_td)
+        outside_source = Path(source_td) / "source.json"
+        write_json(outside_source, {"value": 1})
+        traversal_path = (
+            Path("data_static/run287_operating_scorecard_sources_v1")
+            / ".."
+            / Path(source_td).name
+            / "source.json"
+        ).as_posix()
+        source_id = "escaped_required_absorbed"
+        manifest = manifest_root / "manifest.json"
+        write_json(
+            manifest,
+            {
+                "schema_version": "run287-operating-scorecard-source-bundle-v1",
+                "immutable": True,
+                "sources": [
+                    {
+                        "id": source_id,
+                        "path": traversal_path,
+                        "sha256": digest(outside_source),
+                    }
+                ],
+            },
+        )
+        registry = {
+            "canonical_source_bundle_manifest": {
+                "path": manifest.relative_to(ROOT).as_posix(),
+                "expected_sha256": digest(manifest),
+            },
+            "sources": [
+                {
+                    "id": source_id,
+                    "path": traversal_path,
+                    "expected_sha256": digest(outside_source),
+                    "evidence_class": "historical",
+                    "required": True,
+                    "disposition": "ABSORBED_SOURCE",
+                }
+            ],
+        }
+        bundle, errors = verify_canonical_source_bundle(registry)
+        assert bundle["status"] == "INTEGRITY_ERROR"
+        assert (
+            "canonical_source_bundle_source_outside_root:"
+            "escaped_required_absorbed"
+        ) in errors
+        assert (
+            "canonical_source_bundle_manifest_path_outside_root:"
+            "escaped_required_absorbed"
+        ) in errors
+
+
+def test_paper_summary_must_share_verified_manifest_directory() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        registry_path = make_fixture(root)
+        registry = load_registry(registry_path)
+        unattested = root / "unattested" / "summary.json"
+        unattested.parent.mkdir()
+        write_json(unattested, {"fill_count": 999, "integrity": {}})
+        summary_spec = next(
+            row for row in registry["sources"]
+            if row["id"] == "current_paper_summary"
+        )
+        summary_spec["path"] = str(unattested)
+        summary_spec["expected_sha256"] = digest(unattested)
+        scorecard = build_scorecard(
+            registry, source_registry_path=registry_path
+        )
+        assert scorecard["scorecard_trusted"] is False
+        assert scorecard["runtime_trust_manifest"]["paper_snapshot"][
+            "status"
+        ] == "INTEGRITY_ERROR"
+        assert "paper_summary_not_bound_to_snapshot_manifest" in scorecard[
+            "integrity_errors_by_lane"
+        ]["current_paper_execution"]
+
+
+def test_blocked_p6_summary_cannot_absorb_stale_metrics() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        registry_path = make_fixture(root)
+        registry = load_registry(registry_path)
+        p6_spec = next(
+            row for row in registry["sources"]
+            if row["id"] == "p6_selection_summary"
+        )
+        p6_path = Path(p6_spec["path"])
+        write_json(
+            p6_path,
+            {
+                "status": "BLOCKED_PREDICTION_HEAD_INTEGRITY",
+                "downstream_outcome_evaluation_executed": False,
+                "valid_for_scorecard_absorption": False,
+            },
+        )
+        p6_spec["expected_sha256"] = digest(p6_path)
+        scorecard = build_scorecard(
+            registry, source_registry_path=registry_path
+        )
+        assert scorecard["headline_performance_trust"] == "NOT_TRUSTED"
+        assert "p6_source_invalid_for_scorecard_absorption" in scorecard[
+            "integrity_errors_by_lane"
+        ]["historical"]
+        selection_rows = [
+            row for row in scorecard["metrics"]
+            if row["section"] == "selection_quality"
+        ]
+        assert selection_rows
+        assert all(row["status"] == "UNAVAILABLE" for row in selection_rows)
 
 
 def test_true_forward_bundle_error_does_not_poison_historical_lane() -> None:
@@ -353,6 +472,9 @@ def main() -> int:
     test_runtime_manifest_ignores_forged_verified_boolean()
     test_committed_source_registry_uses_verified_canonical_bundle()
     test_bundle_verifier_hashes_source_file_bytes()
+    test_required_absorbed_source_cannot_escape_canonical_bundle()
+    test_paper_summary_must_share_verified_manifest_directory()
+    test_blocked_p6_summary_cannot_absorb_stale_metrics()
     test_true_forward_bundle_error_does_not_poison_historical_lane()
     test_metric_definition_change_requires_migration_note()
     print("run287_operating_scorecard_smoke: PASS")

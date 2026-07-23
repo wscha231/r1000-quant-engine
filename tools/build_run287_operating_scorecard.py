@@ -59,11 +59,22 @@ PAPER_INTEGRITY_FIELDS = (
 )
 EVIDENCE_LANES = ("historical", "current_paper_execution", "true_forward")
 CANONICAL_SOURCE_PREFIX = "data_static/run287_operating_scorecard_sources_v1/"
+CANONICAL_SOURCE_ROOT = (
+    REPO_ROOT / CANONICAL_SOURCE_PREFIX.rstrip("/")
+).resolve()
 
 
 def repo_path(value: str | Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def sha256_file(path: Path) -> str:
@@ -110,9 +121,8 @@ def verify_canonical_source_bundle(
     managed = {
         str(row["id"]): row
         for row in registry.get("sources", [])
-        if str(row.get("path") or "").replace("\\", "/").startswith(
-            CANONICAL_SOURCE_PREFIX
-        )
+        if row.get("required") is True
+        and str(row.get("disposition") or "") == "ABSORBED_SOURCE"
     }
     spec = registry.get("canonical_source_bundle_manifest")
     record: dict[str, Any] = {
@@ -138,6 +148,10 @@ def verify_canonical_source_bundle(
     if not record["expected_sha256"]:
         return record, [
             "canonical_source_bundle_manifest_expected_sha256_missing"
+        ]
+    if not path_is_within(path, CANONICAL_SOURCE_ROOT):
+        return record, [
+            "canonical_source_bundle_manifest_outside_canonical_root"
         ]
     if not path.is_file():
         return record, ["canonical_source_bundle_manifest_unavailable"]
@@ -191,15 +205,26 @@ def verify_canonical_source_bundle(
         item = by_id.get(source_id)
         if not isinstance(item, dict):
             continue
-        if str(item.get("path") or "").replace("\\", "/") != str(
-            source.get("path") or ""
-        ).replace("\\", "/"):
+        source_path = repo_path(str(source.get("path") or ""))
+        item_path = repo_path(str(item.get("path") or ""))
+        source_inside_root = path_is_within(source_path, CANONICAL_SOURCE_ROOT)
+        item_inside_root = path_is_within(item_path, CANONICAL_SOURCE_ROOT)
+        if not source_inside_root:
+            errors.append(
+                f"canonical_source_bundle_source_outside_root:{source_id}"
+            )
+        if not item_inside_root:
+            errors.append(
+                f"canonical_source_bundle_manifest_path_outside_root:{source_id}"
+            )
+        if item_path.resolve() != source_path.resolve():
             errors.append(f"canonical_source_bundle_path_mismatch:{source_id}")
         manifest_hash = str(item.get("sha256") or "").lower()
         registry_hash = str(source.get("expected_sha256") or "").lower()
         if not manifest_hash or manifest_hash != registry_hash:
             errors.append(f"canonical_source_bundle_hash_mismatch:{source_id}")
-        source_path = repo_path(str(source.get("path") or ""))
+        if not source_inside_root:
+            continue
         if not source_path.is_file():
             errors.append(f"canonical_source_bundle_source_missing:{source_id}")
         elif not manifest_hash or sha256_file(source_path) != manifest_hash:
@@ -327,9 +352,8 @@ def build_scorecard(
             managed_lanes = {
                 str(row.get("evidence_class") or "historical")
                 for row in source_specs_by_id.values()
-                if str(row.get("path") or "").replace("\\", "/").startswith(
-                    CANONICAL_SOURCE_PREFIX
-                )
+                if row.get("required") is True
+                and str(row.get("disposition") or "") == "ABSORBED_SOURCE"
             }
             for lane in managed_lanes or {"historical"}:
                 record_integrity_error(lane, value)
@@ -369,6 +393,16 @@ def build_scorecard(
 
     p6 = loaded.get("p6_selection_summary")
     p6_metrics = loaded.get("p6_selection_metrics")
+    if isinstance(p6, dict) and (
+        str(p6.get("status") or "").upper().startswith("BLOCKED_")
+        or p6.get("valid_for_scorecard_absorption") is False
+        or p6.get("downstream_outcome_evaluation_executed") is False
+    ):
+        record_integrity_error(
+            "historical", "p6_source_invalid_for_scorecard_absorption"
+        )
+        p6 = None
+        p6_metrics = None
     if isinstance(p6, dict):
         stability = p6.get("rank_stability", {})
         for metric_id, key in (
@@ -563,18 +597,48 @@ def build_scorecard(
         "trusted_boolean_fields_ignored": True,
     }
     if isinstance(paper_integrity, dict):
+        paper_summary_binding_error = ""
         try:
             try:
                 from tools.run287_paper_ledger_integrity import verify_integrity_manifest
             except ModuleNotFoundError:
                 from run287_paper_ledger_integrity import verify_integrity_manifest
             manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
-            verified_manifest = verify_integrity_manifest(manifest_path.parent, require=True)
+            summary_path = repo_path(records_by_id["current_paper_summary"]["path"])
+            ledger_root = manifest_path.parent.resolve()
+            if manifest_path.resolve() != (
+                ledger_root / "snapshot_integrity.json"
+            ).resolve():
+                paper_summary_binding_error = (
+                    "paper integrity source is not the canonical snapshot manifest"
+                )
+                raise ValueError(paper_summary_binding_error)
+            if summary_path.parent.resolve() != ledger_root:
+                paper_summary_binding_error = (
+                    "paper summary and integrity manifest directories differ"
+                )
+                raise ValueError(paper_summary_binding_error)
+            verified_manifest = verify_integrity_manifest(ledger_root, require=True)
+            summary_relative = summary_path.resolve().relative_to(
+                ledger_root
+            ).as_posix()
+            verified_files = verified_manifest.get("files") or {}
+            if (
+                summary_relative not in verified_files
+                or verified_files.get(summary_relative) != sha256_file(summary_path)
+            ):
+                paper_summary_binding_error = (
+                    "paper summary is not hash-bound by the verified snapshot manifest"
+                )
+                raise ValueError(paper_summary_binding_error)
             paper_runtime_manifest.update(
                 {
                     "status": "VERIFIED",
                     "snapshot_hash": verified_manifest.get("snapshot_hash"),
                     "file_count": int(verified_manifest.get("file_count") or 0),
+                    "summary_path": str(summary_path),
+                    "summary_relative_path": summary_relative,
+                    "summary_sha256": sha256_file(summary_path),
                 }
             )
         except Exception as exc:
@@ -583,6 +647,11 @@ def build_scorecard(
             record_integrity_error(
                 "current_paper_execution", "paper_snapshot_hash_chain_unverified"
             )
+            if paper_summary_binding_error:
+                record_integrity_error(
+                    "current_paper_execution",
+                    "paper_summary_not_bound_to_snapshot_manifest",
+                )
     elif isinstance(paper, dict):
         record_integrity_error(
             "current_paper_execution", "paper_snapshot_integrity_missing"

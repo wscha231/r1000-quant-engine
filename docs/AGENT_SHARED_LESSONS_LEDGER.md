@@ -3309,11 +3309,20 @@ Expected contract:
   optimization. Even perfectly matching member declarations and file hashes
   cannot produce `VERIFIED` when the registry's expected manifest SHA-256 is
   absent.
+- Required absorbed evidence must be identified by its contract fields, not by
+  an already-trusted path prefix. Resolve both registry and manifest paths and
+  reject traversal outside the canonical bundle root.
+- Directory-manifest verification attests only files in that directory. Bind
+  the exact loaded paper summary path and hash to the verified manifest before
+  using its metrics or setting runtime paper trust.
+- A diagnostic producer's explicit blocked/invalid absorption state outranks
+  stale companion artifacts. Suppress those metrics and mark the source lane
+  untrusted even when all file hashes are internally consistent.
 - Missing model heads are an expected fail-closed operating condition, not an
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.
 - Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and full
-  Tier-1 validation (`191/191`, `624.10s` on the final local follow-up head)
+  Tier-1 validation (`191/191`, `631.80s` on the final local follow-up head)
   passed.
 - Evidence:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.
