@@ -3301,3 +3301,25 @@ Expected contract:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-07-23 - Issue #315 H4b workflow/promotion trust
+
+- Promotion evidence must be constructed after the accepted transaction and
+  must bind to the exact verified paper snapshot; merely running integrity and
+  scorecard steps in the same workflow is insufficient.
+- Runtime overlays must clear tracked trust and outcome counts first. Otherwise
+  a missing runtime artifact can inherit stale positive evidence from source
+  control.
+- Horizon outcome counts must be mapped independently from the ready runtime
+  archive. Reusing a single historical count for 21D, 63D, and 126D can make an
+  immature challenger appear promotion-ready.
+- Publication is part of the transaction boundary: accepted artifacts must
+  require both ledger mutation success and all post-gate operating checks.
+- Automatic promotion remains prohibited. A complete evidence packet is a
+  review input, not authorization to replace the champion.
+- Focused H4b tests, repository pytest (`129/129`), and full Tier-1 validation
+  (`191/191`, `621.36s`) passed.
+- Evidence:
+  `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.
