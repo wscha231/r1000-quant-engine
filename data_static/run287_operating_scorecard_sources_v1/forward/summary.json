@@ -1,0 +1,318 @@
+{
+  "appended_event_counts": {},
+  "as_of_date": "2026-07-10",
+  "benchmark_proxy": "SPY adjusted-close total-return proxy",
+  "benchmark_ticker": "SPY",
+  "capture_audit": {
+    "blocked_observation_rows": 60,
+    "blockers": [
+      "contemporaneous_base_selection_rank_required"
+    ],
+    "candidate_rows": 60,
+    "cohort_capture": {
+      "cohort_contract_schema_version": "free-data-forward-paper-cohorts-v1",
+      "cohort_counts": {
+        "base_top30": 30,
+        "forward_arm": 10,
+        "matched_control_ranks31_60": 30,
+        "overlay_top30": 30,
+        "true_forward_signal": 11
+      },
+      "cohort_rows": 60,
+      "complete_fixed_cohorts": false,
+      "missing_forward_evidence_policy": "neutral",
+      "required_exact_cohort_counts": {
+        "base_top30": 30,
+        "matched_control_ranks31_60": 30,
+        "overlay_top30": 30
+      },
+      "source_mode": "full_ranked_universe",
+      "source_ranked_rows": 741,
+      "source_ranked_universe_path": null,
+      "source_ranked_universe_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED"
+    },
+    "duplicate_observation_rows": 0,
+    "new_observation_rows": 0,
+    "outcome_refresh_allowed_for_existing_observations": true
+  },
+  "coverage": {
+    "decision_date_count": 1,
+    "horizons": {
+      "126d": {
+        "completed_ratio": 0.0,
+        "status_counts": {
+          "pending_reference": 30
+        }
+      },
+      "21d": {
+        "completed_ratio": 0.0,
+        "status_counts": {
+          "pending_reference": 30
+        }
+      },
+      "63d": {
+        "completed_ratio": 0.0,
+        "status_counts": {
+          "pending_reference": 30
+        }
+      }
+    },
+    "observation_count": 30,
+    "reference_status_counts": {
+      "pending_next_close_not_elapsed": 30
+    },
+    "unique_ticker_count": 30
+  },
+  "current_status_csv": null,
+  "current_status_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
+  "event_counts": {
+    "signal_observed": 30
+  },
+  "event_log": null,
+  "event_log_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
+  "fullrun_dispatched": false,
+  "generated_at_utc": "2026-07-10T06:54:46Z",
+  "historical_backtest_acceptance_allowed": false,
+  "ledger_mode": "append_only_event_log",
+  "live_trading_enabled": false,
+  "missing_prices_and_unelapsed_outcomes_remain_pending": true,
+  "pre_observation_signal_backfill_allowed": false,
+  "production_promotion_allowed": false,
+  "review_readiness": {
+    "bootstrap": {
+      "confidence": 0.95,
+      "deterministic_seed": true,
+      "replications": 2000,
+      "statistic": "mean of decision-week mean SPY excess returns",
+      "unit": "decision_week"
+    },
+    "cohort_metrics": {
+      "base_top30": {
+        "126d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "21d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "63d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        }
+      },
+      "matched_control_ranks31_60": {
+        "126d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "21d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "63d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        }
+      },
+      "overlay_top30": {
+        "126d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "21d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "63d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        }
+      },
+      "true_forward_arm": {
+        "126d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "21d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        },
+        "63d": {
+          "completed_count": 0,
+          "decision_week_block_count": 0,
+          "mean_spy_excess_return": null,
+          "mean_ticker_max_drawdown": null,
+          "median_spy_excess_return": null,
+          "week_block_bootstrap_mean_lower_95": null
+        }
+      }
+    },
+    "distinct_true_forward_ticker_count": 10,
+    "drawdown_degradation_vs_matched_control": {
+      "21d": null,
+      "63d": null
+    },
+    "evidence_checks": {
+      "drawdown_degradation_at_most_2pp_21d": {
+        "actual": null,
+        "passed": false,
+        "required": "<=0.02"
+      },
+      "drawdown_degradation_at_most_2pp_63d": {
+        "actual": null,
+        "passed": false,
+        "required": "<=0.02"
+      },
+      "mean_spy_excess_direction_positive_126d": {
+        "actual": null,
+        "passed": false,
+        "required": ">0"
+      },
+      "mean_spy_excess_positive_21d": {
+        "actual": null,
+        "passed": false,
+        "required": ">0"
+      },
+      "mean_spy_excess_positive_63d": {
+        "actual": null,
+        "passed": false,
+        "required": ">0"
+      },
+      "median_spy_excess_positive_21d": {
+        "actual": null,
+        "passed": false,
+        "required": ">0"
+      },
+      "median_spy_excess_positive_63d": {
+        "actual": null,
+        "passed": false,
+        "required": ">0"
+      },
+      "week_block_bootstrap_lower_nonnegative_21d": {
+        "actual": null,
+        "passed": false,
+        "required": ">=0"
+      },
+      "week_block_bootstrap_lower_nonnegative_63d": {
+        "actual": null,
+        "passed": false,
+        "required": ">=0"
+      }
+    },
+    "observed_true_forward_ticker_count_all_cohorts": 10,
+    "paired_week_drawdown_metrics": {
+      "21d": {
+        "max_paired_week_drawdown_degradation": null,
+        "mean_paired_week_drawdown_degradation": null,
+        "paired_decision_week_block_count": 0
+      },
+      "63d": {
+        "max_paired_week_drawdown_degradation": null,
+        "mean_paired_week_drawdown_degradation": null,
+        "paired_decision_week_block_count": 0
+      }
+    },
+    "paper_only": true,
+    "resolved_horizon_row_count_diagnostic": 0,
+    "resolved_observation_count": 0,
+    "resolved_outcome_count": 0,
+    "resolved_outcome_definition": "unique completed 63D true-forward-arm decision-date/ticker observations",
+    "review_ready": false,
+    "sample_checks": {
+      "decision_week_blocks_21d": {
+        "actual": 0,
+        "passed": false,
+        "required": ">=12"
+      },
+      "decision_week_blocks_63d": {
+        "actual": 0,
+        "passed": false,
+        "required": ">=8"
+      },
+      "distinct_true_forward_tickers": {
+        "actual": 10,
+        "passed": false,
+        "required": ">=50"
+      },
+      "matched_control_decision_week_blocks_21d": {
+        "actual": 0,
+        "passed": false,
+        "required": ">=12"
+      },
+      "matched_control_decision_week_blocks_63d": {
+        "actual": 0,
+        "passed": false,
+        "required": ">=8"
+      },
+      "paired_drawdown_decision_week_blocks_21d": {
+        "actual": 0,
+        "passed": false,
+        "required": ">=12"
+      },
+      "paired_drawdown_decision_week_blocks_63d": {
+        "actual": 0,
+        "passed": false,
+        "required": ">=8"
+      },
+      "resolved_outcomes": {
+        "actual": 0,
+        "passed": false,
+        "required": ">=200 unique completed 63D decision-ticker observations"
+      }
+    },
+    "status": "UNDERPOWERED",
+    "valid_for_historical_backtest_acceptance": false
+  },
+  "schema_json": null,
+  "schema_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
+  "schema_version": "free-data-forward-paper-ledger-v2",
+  "status": "forward_paper_tracking_active",
+  "target_books_mutated": false,
+  "valid_for_backtest": false,
+  "valid_for_production": false
+}

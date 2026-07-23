@@ -57,11 +57,24 @@ PAPER_INTEGRITY_FIELDS = (
     "lifecycle_unresolved_count",
     "degraded_data_day_count",
 )
+EVIDENCE_LANES = ("historical", "current_paper_execution", "true_forward")
+CANONICAL_SOURCE_PREFIX = "data_static/run287_operating_scorecard_sources_v1/"
+CANONICAL_SOURCE_ROOT = (
+    REPO_ROOT / CANONICAL_SOURCE_PREFIX.rstrip("/")
+).resolve()
 
 
 def repo_path(value: str | Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def sha256_file(path: Path) -> str:
@@ -99,6 +112,147 @@ def load_registry(path: Path) -> dict[str, Any]:
     if not ids or len(ids) != len(set(ids)) or any(not value for value in ids):
         raise ValueError("source ids must be present and unique")
     return payload
+
+
+def verify_canonical_source_bundle(
+    registry: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Verify the committed immutable source bundle against the source registry."""
+    managed = {
+        str(row["id"]): row
+        for row in registry.get("sources", [])
+        if row.get("required") is True
+        and str(row.get("disposition") or "") == "ABSORBED_SOURCE"
+    }
+    spec = registry.get("canonical_source_bundle_manifest")
+    record: dict[str, Any] = {
+        "status": "NOT_REQUIRED" if not managed else "UNVERIFIED",
+        "path": None,
+        "sha256": None,
+        "expected_sha256": None,
+        "source_count": 0,
+        "verified_source_count": 0,
+    }
+    errors: list[str] = []
+    if not managed:
+        return record, errors
+    if not isinstance(spec, dict) or not str(spec.get("path") or "").strip():
+        return record, ["canonical_source_bundle_manifest_missing"]
+    path = repo_path(str(spec["path"]))
+    record.update(
+        {
+            "path": str(path),
+            "expected_sha256": str(spec.get("expected_sha256") or "").lower(),
+        }
+    )
+    if not record["expected_sha256"]:
+        return record, [
+            "canonical_source_bundle_manifest_expected_sha256_missing"
+        ]
+    if not path_is_within(path, CANONICAL_SOURCE_ROOT):
+        return record, [
+            "canonical_source_bundle_manifest_outside_canonical_root"
+        ]
+    if not path.is_file():
+        return record, ["canonical_source_bundle_manifest_unavailable"]
+    actual_hash = sha256_file(path)
+    record["sha256"] = actual_hash
+    manifest_hash_mismatch = bool(
+        record["expected_sha256"]
+        and actual_hash != record["expected_sha256"]
+    )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        parse_errors = [
+            f"canonical_source_bundle_manifest_parse_error:{type(exc).__name__}"
+        ]
+        if manifest_hash_mismatch:
+            parse_errors.append("canonical_source_bundle_manifest_hash_mismatch")
+        return record, sorted(parse_errors)
+    if payload.get("schema_version") != "run287-operating-scorecard-source-bundle-v1":
+        errors.append("canonical_source_bundle_manifest_schema_mismatch")
+    if payload.get("immutable") is not True:
+        errors.append("canonical_source_bundle_not_immutable")
+    items = payload.get("sources")
+    if not isinstance(items, list):
+        items = []
+        errors.append("canonical_source_bundle_sources_invalid")
+    item_ids = [
+        str(item.get("id") or "")
+        for item in items
+        if isinstance(item, dict) and str(item.get("id") or "")
+    ]
+    if len(item_ids) != len(items):
+        errors.append("canonical_source_bundle_source_entry_invalid")
+    by_id = {
+        str(item.get("id") or ""): item
+        for item in items
+        if isinstance(item, dict) and str(item.get("id") or "")
+    }
+    record["source_count"] = len(by_id)
+    for source_id in sorted({value for value in item_ids if item_ids.count(value) > 1}):
+        errors.append(f"canonical_source_bundle_source_id_duplicate:{source_id}")
+    for source_id in sorted(set(managed) - set(by_id)):
+        errors.append(
+            f"canonical_source_bundle_manifest_source_missing:{source_id}"
+        )
+    for source_id in sorted(set(by_id) - set(managed)):
+        errors.append(
+            f"canonical_source_bundle_manifest_source_unregistered:{source_id}"
+        )
+    for source_id, source in managed.items():
+        item = by_id.get(source_id)
+        if not isinstance(item, dict):
+            continue
+        source_path = repo_path(str(source.get("path") or ""))
+        item_path = repo_path(str(item.get("path") or ""))
+        source_inside_root = path_is_within(source_path, CANONICAL_SOURCE_ROOT)
+        item_inside_root = path_is_within(item_path, CANONICAL_SOURCE_ROOT)
+        if not source_inside_root:
+            errors.append(
+                f"canonical_source_bundle_source_outside_root:{source_id}"
+            )
+        if not item_inside_root:
+            errors.append(
+                f"canonical_source_bundle_manifest_path_outside_root:{source_id}"
+            )
+        if item_path.resolve() != source_path.resolve():
+            errors.append(f"canonical_source_bundle_path_mismatch:{source_id}")
+        manifest_hash = str(item.get("sha256") or "").lower()
+        registry_hash = str(source.get("expected_sha256") or "").lower()
+        if not manifest_hash or manifest_hash != registry_hash:
+            errors.append(f"canonical_source_bundle_hash_mismatch:{source_id}")
+        if not source_inside_root:
+            continue
+        if not source_path.is_file():
+            errors.append(f"canonical_source_bundle_source_missing:{source_id}")
+        elif not manifest_hash or sha256_file(source_path) != manifest_hash:
+            errors.append(
+                f"canonical_source_bundle_source_hash_mismatch:{source_id}"
+            )
+        else:
+            record["verified_source_count"] += 1
+    if manifest_hash_mismatch:
+        scoped_source_ids = sorted({
+            token
+            for value in errors
+            for token in value.split(":")[1:]
+            if token in managed
+        })
+        global_errors = [
+            value for value in errors
+            if not any(token in managed for token in value.split(":")[1:])
+        ]
+        if scoped_source_ids and not global_errors:
+            errors.extend(
+                f"canonical_source_bundle_manifest_hash_mismatch:{source_id}"
+                for source_id in scoped_source_ids
+            )
+        else:
+            errors.append("canonical_source_bundle_manifest_hash_mismatch")
+    record["status"] = "VERIFIED" if not errors else "INTEGRITY_ERROR"
+    return record, sorted(set(errors))
 
 
 def validate_metric_migration(previous: dict[str, Any], registry: dict[str, Any]) -> None:
@@ -161,8 +315,78 @@ def build_scorecard(
     registry: dict[str, Any], *, source_registry_path: Path,
     promotion_state_path: Path | None = None,
 ) -> dict[str, Any]:
-    loaded, source_records, integrity_errors = load_sources(registry)
+    loaded, source_records, source_integrity_errors = load_sources(registry)
     records_by_id = {row["source_id"]: row for row in source_records}
+    source_specs_by_id = {
+        str(row["id"]): row for row in registry.get("sources", [])
+    }
+    lane_integrity_errors: dict[str, list[str]] = {
+        lane: [] for lane in EVIDENCE_LANES
+    }
+    managed_source_ids = {
+        source_id
+        for source_id, spec in source_specs_by_id.items()
+        if spec.get("required") is True
+        and str(spec.get("disposition") or "") == "ABSORBED_SOURCE"
+    }
+
+    def record_integrity_error(lane: str, value: str) -> None:
+        resolved_lane = lane if lane in lane_integrity_errors else "historical"
+        lane_integrity_errors[resolved_lane].append(value)
+
+    for value in source_integrity_errors:
+        parts = value.split(":")
+        source_id = parts[1] if len(parts) > 1 else ""
+        lane = str(
+            source_specs_by_id.get(source_id, {}).get("evidence_class") or "historical"
+        )
+        record_integrity_error(lane, value)
+    source_bundle, source_bundle_errors = verify_canonical_source_bundle(registry)
+    for value in source_bundle_errors:
+        affected_source_ids = [
+            token for token in value.split(":")[1:]
+            if token in managed_source_ids
+        ]
+        if affected_source_ids:
+            for source_id in affected_source_ids:
+                lane = str(
+                    source_specs_by_id[source_id].get("evidence_class")
+                    or "historical"
+                )
+                record_integrity_error(lane, value)
+        else:
+            managed_lanes = {
+                str(row.get("evidence_class") or "historical")
+                for row in source_specs_by_id.values()
+                if row.get("required") is True
+                and str(row.get("disposition") or "") == "ABSORBED_SOURCE"
+            }
+            for lane in managed_lanes or {"historical"}:
+                record_integrity_error(lane, value)
+    if source_bundle.get("status") not in {"VERIFIED", "NOT_REQUIRED"}:
+        scoped_failed_source_ids = {
+            token
+            for value in source_bundle_errors
+            for token in value.split(":")[1:]
+            if token in managed_source_ids
+        }
+        has_global_bundle_error = any(
+            not any(
+                token in managed_source_ids
+                for token in value.split(":")[1:]
+            )
+            for value in source_bundle_errors
+        )
+        rejected_source_ids = (
+            managed_source_ids
+            if has_global_bundle_error
+            else scoped_failed_source_ids
+        )
+        for source_id in rejected_source_ids:
+            loaded.pop(source_id, None)
+            if source_id in records_by_id:
+                records_by_id[source_id]["status"] = "BUNDLE_INTEGRITY_ERROR"
+        source_bundle["rejected_source_ids"] = sorted(rejected_source_ids)
     metrics: list[dict[str, Any]] = []
 
     def add(
@@ -199,6 +423,19 @@ def build_scorecard(
 
     p6 = loaded.get("p6_selection_summary")
     p6_metrics = loaded.get("p6_selection_metrics")
+    if records_by_id.get("p6_selection_summary", {}).get("status") != "VERIFIED":
+        p6 = None
+        p6_metrics = None
+    elif isinstance(p6, dict) and (
+        str(p6.get("status") or "").upper().startswith("BLOCKED_")
+        or p6.get("valid_for_scorecard_absorption") is False
+        or p6.get("downstream_outcome_evaluation_executed") is False
+    ):
+        record_integrity_error(
+            "historical", "p6_source_invalid_for_scorecard_absorption"
+        )
+        p6 = None
+        p6_metrics = None
     if isinstance(p6, dict):
         stability = p6.get("rank_stability", {})
         for metric_id, key in (
@@ -235,7 +472,7 @@ def build_scorecard(
     headlines: dict[str, Any] = {}
     if isinstance(p5, dict):
         if not bool(p5.get("control_parity_passed")):
-            integrity_errors.append("p5_control_parity_failed")
+            record_integrity_error("historical", "p5_control_parity_failed")
         for portfolio in ("main", "concentrated"):
             pdata = p5.get("portfolios", {}).get(portfolio, {})
             expected = pdata.get("control_parity", {}).get("expected", {})
@@ -327,9 +564,9 @@ def build_scorecard(
     p4 = loaded.get("p4_reserve_summary")
     if isinstance(p4, dict):
         if not bool(p4.get("double_count_check_passed")):
-            integrity_errors.append("reserve_double_count_check_failed")
+            record_integrity_error("historical", "reserve_double_count_check_failed")
         if not bool(p4.get("reason_reconciliation_passed")):
-            integrity_errors.append("reserve_reason_reconciliation_failed")
+            record_integrity_error("historical", "reserve_reason_reconciliation_failed")
     reserve_metrics = loaded.get("p4_reserve_metrics")
     if isinstance(reserve_metrics, pd.DataFrame):
         rows = reserve_metrics[reserve_metrics["mode"].astype(str).eq("DGS3MO_CARRY")]
@@ -356,15 +593,124 @@ def build_scorecard(
                     source_id, evidence_class="historical", portfolio=portfolio, unit="weight")
 
     paper = loaded.get("current_paper_summary")
-    paper_integrity = loaded.get("current_paper_integrity")
-    if isinstance(paper, dict):
+    paper_runtime_manifest: dict[str, Any] = {
+        "status": "UNAVAILABLE",
+        "manifest_path": records_by_id.get("current_paper_integrity", {}).get("path"),
+        "manifest_sha256": records_by_id.get("current_paper_integrity", {}).get("sha256"),
+        "snapshot_hash": None,
+        "file_count": 0,
+        "trusted_boolean_fields_ignored": True,
+    }
+    verified_paper_payload: dict[str, Any] | None = None
+    manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
+    summary_path = repo_path(records_by_id["current_paper_summary"]["path"])
+    if manifest_path.is_file():
+        paper_summary_binding_error = ""
+        try:
+            try:
+                from tools.run287_paper_ledger_integrity import verify_integrity_manifest
+            except ModuleNotFoundError:
+                from run287_paper_ledger_integrity import verify_integrity_manifest
+            ledger_root = manifest_path.parent.resolve()
+            if manifest_path.resolve() != (
+                ledger_root / "snapshot_integrity.json"
+            ).resolve():
+                paper_summary_binding_error = (
+                    "paper integrity source is not the canonical snapshot manifest"
+                )
+                raise ValueError(paper_summary_binding_error)
+            if summary_path.parent.resolve() != ledger_root:
+                paper_summary_binding_error = (
+                    "paper summary and integrity manifest directories differ"
+                )
+                raise ValueError(paper_summary_binding_error)
+            verified_manifest = verify_integrity_manifest(ledger_root, require=True)
+            summary_relative = summary_path.resolve().relative_to(
+                ledger_root
+            ).as_posix()
+            manifest_bytes = manifest_path.read_bytes()
+            rebound_manifest = json.loads(manifest_bytes)
+            verified_manifest_payload = {
+                key: value
+                for key, value in verified_manifest.items()
+                if key != "status"
+            }
+            if rebound_manifest != verified_manifest_payload:
+                paper_summary_binding_error = (
+                    "paper integrity manifest changed after verification"
+                )
+                raise ValueError(paper_summary_binding_error)
+            bound_manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+            verified_files = rebound_manifest.get("files") or {}
+            summary_bytes = summary_path.read_bytes()
+            bound_summary_sha256 = hashlib.sha256(summary_bytes).hexdigest()
+            if (
+                summary_relative not in verified_files
+                or verified_files.get(summary_relative) != bound_summary_sha256
+            ):
+                paper_summary_binding_error = (
+                    "paper summary is not hash-bound by the verified snapshot manifest"
+                )
+                raise ValueError(paper_summary_binding_error)
+            rebound_paper = json.loads(summary_bytes)
+            if not isinstance(rebound_paper, dict):
+                paper_summary_binding_error = "paper summary is not a JSON object"
+                raise ValueError(paper_summary_binding_error)
+            verified_paper_payload = rebound_paper
+            records_by_id["current_paper_summary"]["sha256"] = (
+                bound_summary_sha256
+            )
+            records_by_id["current_paper_summary"]["status"] = "VERIFIED"
+            records_by_id["current_paper_integrity"]["sha256"] = (
+                bound_manifest_sha256
+            )
+            records_by_id["current_paper_integrity"]["status"] = "VERIFIED"
+            paper_runtime_manifest.update(
+                {
+                    "status": "VERIFIED",
+                    "manifest_sha256": bound_manifest_sha256,
+                    "snapshot_hash": rebound_manifest.get("snapshot_hash"),
+                    "file_count": int(rebound_manifest.get("file_count") or 0),
+                    "summary_path": str(summary_path),
+                    "summary_relative_path": summary_relative,
+                    "summary_sha256": bound_summary_sha256,
+                }
+            )
+        except Exception as exc:
+            paper_runtime_manifest["status"] = "INTEGRITY_ERROR"
+            paper_runtime_manifest["error"] = f"{type(exc).__name__}:{exc}"
+            record_integrity_error(
+                "current_paper_execution", "paper_snapshot_hash_chain_unverified"
+            )
+            if paper_summary_binding_error:
+                record_integrity_error(
+                    "current_paper_execution",
+                    "paper_summary_not_bound_to_snapshot_manifest",
+                )
+    elif isinstance(paper, dict) or summary_path.is_file():
+        record_integrity_error(
+            "current_paper_execution", "paper_snapshot_integrity_missing"
+        )
+
+    verified_paper = (
+        verified_paper_payload
+        if isinstance(verified_paper_payload, dict)
+        and paper_runtime_manifest.get("status") == "VERIFIED"
+        else None
+    )
+    if isinstance(verified_paper, dict):
         for field in PAPER_INTEGRITY_FIELDS:
-            value = paper.get("integrity", {}).get(field, paper.get(field))
+            value = verified_paper.get("integrity", {}).get(
+                field, verified_paper.get(field)
+            )
             status = "AVAILABLE" if value is not None else "UNAVAILABLE"
             add("integrity", field, value, "current_paper_summary",
                 evidence_class="current_paper_execution", status=status, unit="count")
             if finite(value) and float(value) > 0 and field != "degraded_data_day_count":
-                integrity_errors.append(f"current_paper_integrity:{field}:{int(float(value))}")
+                record_integrity_error(
+                    "current_paper_execution",
+                    f"current_paper_integrity:{field}:{int(float(value))}",
+                )
         for metric_id, key, unit in (
             ("turnover", "turnover", "weight"), ("fill_count", "fill_count", "count"),
             ("fees_usd", "fees_usd", "usd"), ("slippage", "slippage", "return"),
@@ -373,7 +719,7 @@ def build_scorecard(
             ("rejected_order_count", "rejected_order_count", "count"),
             ("unfilled_order_count", "unfilled_order_count", "count"),
         ):
-            add("execution", metric_id, paper.get(key), "current_paper_summary",
+            add("execution", metric_id, verified_paper.get(key), "current_paper_summary",
                 evidence_class="current_paper_execution", unit=unit)
     else:
         for field in PAPER_INTEGRITY_FIELDS:
@@ -381,22 +727,6 @@ def build_scorecard(
                 evidence_class="current_paper_execution", status="UNAVAILABLE", unit="count")
         add("execution", "current_paper_execution", None, "current_paper_summary",
             evidence_class="current_paper_execution", status="UNAVAILABLE")
-    if isinstance(paper_integrity, dict):
-        verified = paper_integrity.get("verified")
-        if verified is None and paper_integrity.get("status") is not None:
-            verified = paper_integrity.get("status") in {"PASS", "VERIFIED"}
-        if verified is None:
-            try:
-                from tools.run287_paper_ledger_integrity import verify_integrity_manifest
-                manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
-                verify_integrity_manifest(manifest_path.parent, require=True)
-                verified = True
-            except Exception:
-                verified = False
-        if verified is False:
-            integrity_errors.append("paper_snapshot_hash_chain_unverified")
-    elif isinstance(paper, dict):
-        integrity_errors.append("paper_snapshot_integrity_missing")
 
     forward = loaded.get("true_forward_summary")
     if isinstance(forward, dict):
@@ -435,8 +765,14 @@ def build_scorecard(
             0 if bool(p4.get("reason_reconciliation_passed")) else 1,
             "p4_reserve_summary", evidence_class="historical", unit="count")
 
-    integrity_errors = sorted(set(integrity_errors))
-    headline_trust = "NOT_TRUSTED" if integrity_errors else "TRUSTED"
+    lane_integrity_errors = {
+        lane: sorted(set(values)) for lane, values in lane_integrity_errors.items()
+    }
+    integrity_errors = sorted(
+        {value for values in lane_integrity_errors.values() for value in values}
+    )
+    historical_integrity_errors = lane_integrity_errors["historical"]
+    headline_trust = "NOT_TRUSTED" if historical_integrity_errors else "TRUSTED"
     for payload in headlines.values():
         payload["trust"] = headline_trust
         source = records_by_id.get(str(payload.get("source_id")), {})
@@ -445,19 +781,38 @@ def build_scorecard(
             "as_of_date": source.get("as_of_date"), "metric_mode": source.get("metric_mode"),
         }
 
-    paper_integrity_error = any(
-        value.startswith(("current_paper_integrity:", "paper_snapshot_"))
-        for value in integrity_errors
-    )
     evidence_status = {
-        "historical": "NOT_TRUSTED" if integrity_errors else "AVAILABLE_PARTIAL",
+        "historical": "NOT_TRUSTED" if historical_integrity_errors else "AVAILABLE_PARTIAL",
         "current_paper_execution": (
-            "NOT_TRUSTED" if paper_integrity_error else
-            "AVAILABLE" if isinstance(paper, dict) else "UNAVAILABLE"
+            "NOT_TRUSTED" if lane_integrity_errors["current_paper_execution"] else
+            "AVAILABLE" if isinstance(verified_paper, dict) and paper_runtime_manifest["status"] == "VERIFIED"
+            else "UNAVAILABLE"
         ),
-        "true_forward": str(forward.get("review_readiness", {}).get("status") or "UNDERPOWERED")
-        if isinstance(forward, dict) else "UNAVAILABLE",
+        "true_forward": (
+            "NOT_TRUSTED" if lane_integrity_errors["true_forward"] else
+            str(forward.get("review_readiness", {}).get("status") or "UNDERPOWERED")
+            if isinstance(forward, dict) else "UNAVAILABLE"
+        ),
     }
+    trust_lanes = {
+        lane: {
+            "status": evidence_status[lane],
+            "trusted": (
+                False if lane_integrity_errors[lane]
+                else None if evidence_status[lane] == "UNAVAILABLE"
+                else True
+            ),
+            "integrity_errors": lane_integrity_errors[lane],
+        }
+        for lane in EVIDENCE_LANES
+    }
+    scorecard_trust_blockers = list(integrity_errors)
+    if not isinstance(verified_paper, dict):
+        scorecard_trust_blockers.append("current_paper_summary_unavailable")
+    if paper_runtime_manifest["status"] != "VERIFIED":
+        scorecard_trust_blockers.append("current_paper_runtime_manifest_unverified")
+    scorecard_trust_blockers = sorted(set(scorecard_trust_blockers))
+    scorecard_trusted = not scorecard_trust_blockers
     section_status: dict[str, str] = {}
     for section in SECTIONS:
         section_rows = [row for row in metrics if row["section"] == section]
@@ -517,9 +872,19 @@ def build_scorecard(
         "live_trading_enabled": False,
         "promotion_governance": promotion,
         "historical_acceptance_overwritten_by_forward": False,
+        "scorecard_trusted": scorecard_trusted,
+        "scorecard_trust_basis": "runtime-source-sha256-and-paper-directory-manifest-v1",
+        "scorecard_trust_blockers": scorecard_trust_blockers,
+        "runtime_trust_manifest": {
+            "source_bundle": source_bundle,
+            "paper_snapshot": paper_runtime_manifest,
+            "trusted_boolean_fields_ignored": True,
+        },
         "headline_performance_trust": headline_trust,
         "headline_performance": headlines,
         "integrity_errors": integrity_errors,
+        "integrity_errors_by_lane": lane_integrity_errors,
+        "trust_lanes": trust_lanes,
         "evidence_status": evidence_status,
         "section_status": section_status,
         "performance_attribution": attribution,
@@ -537,6 +902,7 @@ def render_report(scorecard: dict[str, Any]) -> str:
         "",
         f"As of: {scorecard.get('scorecard_as_of_date')}",
         f"Headline trust: **{scorecard['headline_performance_trust']}**",
+        f"Runtime scorecard trusted: **{str(scorecard['scorecard_trusted']).lower()}**",
         "",
         "Historical, current-paper, and true-forward evidence are deliberately separate. "
         "Forward evidence never changes the historical acceptance label.",

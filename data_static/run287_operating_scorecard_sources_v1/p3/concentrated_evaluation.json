@@ -1,0 +1,178 @@
+{
+  "full_period": {
+    "baseline_cagr": 0.47689756959903273,
+    "baseline_mdd": -0.23221642590645364,
+    "cagr_delta": -0.16234266711435663,
+    "fees_usd": 47996.71760609993,
+    "mdd_delta": -0.00041388505000095055,
+    "policy_cagr": 0.3145549024846761,
+    "policy_mdd": -0.2326303109564546,
+    "policy_sharpe": 1.2431378193392228,
+    "trade_count": 720,
+    "turnover_gross_traded_usd": 19198687.04243997
+  },
+  "fullrun_executed": false,
+  "live_trading_enabled": false,
+  "production_enabled": false,
+  "promotion_failures": [
+    "negative_full_period_cagr_delta",
+    "green_cash_trap_detected"
+  ],
+  "research_only": true,
+  "schema_version": "run287-crisis-policy-evaluation-v1",
+  "state_evaluation": {
+    "cash_trap_snapshot_count": 7,
+    "defense_episode_count": 11,
+    "episode_metrics": [
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2019-05-31",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEGRADED_DATA"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.024854561157080846,
+        "entry_date": "2023-09-29",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.021779366210110118,
+        "entry_date": "2024-08-02",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "CRISIS"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.013192820464129063,
+        "entry_date": "2024-08-06",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.029829840750499326,
+        "entry_date": "2025-03-26",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.012831405632799942,
+        "entry_date": "2025-03-31",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "CRISIS"
+      },
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2025-04-30",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2025-10-10",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.042616125009945605,
+        "entry_date": "2025-11-18",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2026-02-05",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2026-03-31",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "CRISIS"
+      }
+    ],
+    "false_defense_episode_count": 11,
+    "false_reentry_redefense_count": 9,
+    "reentry_episode_count": 28,
+    "reentry_recovery_business_days": {
+      "25": {
+        "maximum": 47,
+        "median": 7.0,
+        "observations": 11
+      },
+      "50": {
+        "maximum": 47,
+        "median": 20.0,
+        "observations": 11
+      },
+      "75": {
+        "maximum": 1227,
+        "median": 25.0,
+        "observations": 11
+      },
+      "95": {
+        "maximum": 1305,
+        "median": 57.0,
+        "observations": 11
+      }
+    },
+    "state_counts": {
+      "CRISIS": 3,
+      "DEFENSE": 8,
+      "DEGRADED_DATA": 52,
+      "GREEN": 11,
+      "REENTRY_STAGE_1": 14,
+      "REENTRY_STAGE_2": 28,
+      "WATCH": 6
+    }
+  },
+  "status": "REJECTED_POLICY_PROMOTION",
+  "stress_windows": [
+    {
+      "available": false,
+      "baseline_mdd": null,
+      "end": "2011-10-31",
+      "mdd_delta": null,
+      "policy_mdd": null,
+      "start": "2011-07-01",
+      "stress_window": "2011_us_downgrade"
+    },
+    {
+      "available": false,
+      "baseline_mdd": null,
+      "end": "2016-03-31",
+      "mdd_delta": null,
+      "policy_mdd": null,
+      "start": "2015-08-01",
+      "stress_window": "2015_2016_growth_credit"
+    },
+    {
+      "available": false,
+      "baseline_mdd": null,
+      "end": "2018-12-31",
+      "mdd_delta": null,
+      "policy_mdd": null,
+      "start": "2018-09-01",
+      "stress_window": "2018_q4"
+    },
+    {
+      "available": true,
+      "baseline_mdd": -0.2086168833399844,
+      "end": "2020-06-30",
+      "mdd_delta": 0.026001460967454704,
+      "policy_mdd": -0.1826154223725297,
+      "start": "2020-02-01",
+      "stress_window": "2020_covid"
+    },
+    {
+      "available": true,
+      "baseline_mdd": -0.1069825671365201,
+      "end": "2022-12-31",
+      "mdd_delta": 0.0012191904861592606,
+      "policy_mdd": -0.10576337665036084,
+      "start": "2022-01-01",
+      "stress_window": "2022_bear"
+    }
+  ],
+  "threshold_grid_search_executed": false
+}

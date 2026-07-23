@@ -1,0 +1,214 @@
+{
+  "full_period": {
+    "baseline_cagr": 0.3353522691734745,
+    "baseline_mdd": -0.256526842052752,
+    "cagr_delta": -0.10800172367263872,
+    "fees_usd": 36058.06646017027,
+    "mdd_delta": 0.04101958987153498,
+    "policy_cagr": 0.22735054550083578,
+    "policy_mdd": -0.21550725218121702,
+    "policy_sharpe": 1.0788081800439613,
+    "trade_count": 1713,
+    "turnover_gross_traded_usd": 14423226.584068106
+  },
+  "fullrun_executed": false,
+  "live_trading_enabled": false,
+  "production_enabled": false,
+  "promotion_failures": [
+    "negative_full_period_cagr_delta",
+    "green_cash_trap_detected"
+  ],
+  "research_only": true,
+  "schema_version": "run287-crisis-policy-evaluation-v1",
+  "state_evaluation": {
+    "cash_trap_snapshot_count": 4,
+    "defense_episode_count": 17,
+    "episode_metrics": [
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2019-05-31",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEGRADED_DATA"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.048156147935034976,
+        "entry_date": "2023-09-27",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.013850874367944743,
+        "entry_date": "2023-10-26",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "CRISIS"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.00042497116091244624,
+        "entry_date": "2023-10-30",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.05286208314665941,
+        "entry_date": "2024-08-01",
+        "false_defense_no_5pct_drawdown": false,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.022683392644547107,
+        "entry_date": "2024-08-02",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "CRISIS"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.011375154958940925,
+        "entry_date": "2024-08-06",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.01725068402941765,
+        "entry_date": "2025-03-10",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "CRISIS"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.07431202102355194,
+        "entry_date": "2025-03-24",
+        "false_defense_no_5pct_drawdown": false,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.06240075995826733,
+        "entry_date": "2025-03-26",
+        "false_defense_no_5pct_drawdown": false,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.05536633445825734,
+        "entry_date": "2025-03-27",
+        "false_defense_no_5pct_drawdown": false,
+        "state": "CRISIS"
+      },
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2025-04-30",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.0009580146327718975,
+        "entry_date": "2025-10-10",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.03843133218503059,
+        "entry_date": "2025-11-18",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": 0.0,
+        "entry_date": "2026-02-05",
+        "false_defense_no_5pct_drawdown": true,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.07565659018731308,
+        "entry_date": "2026-03-03",
+        "false_defense_no_5pct_drawdown": false,
+        "state": "DEFENSE"
+      },
+      {
+        "baseline_forward_63_session_drawdown": -0.07804673560929354,
+        "entry_date": "2026-03-20",
+        "false_defense_no_5pct_drawdown": false,
+        "state": "CRISIS"
+      }
+    ],
+    "false_defense_episode_count": 11,
+    "false_reentry_redefense_count": 9,
+    "reentry_episode_count": 28,
+    "reentry_recovery_business_days": {
+      "25": {
+        "maximum": 20,
+        "median": 2.0,
+        "observations": 17
+      },
+      "50": {
+        "maximum": 29,
+        "median": 2.0,
+        "observations": 17
+      },
+      "75": {
+        "maximum": 1227,
+        "median": 23.0,
+        "observations": 15
+      },
+      "95": {
+        "maximum": 1259,
+        "median": 110.0,
+        "observations": 15
+      }
+    },
+    "state_counts": {
+      "CRISIS": 7,
+      "DEFENSE": 13,
+      "DEGRADED_DATA": 52,
+      "GREEN": 11,
+      "REENTRY_STAGE_1": 14,
+      "REENTRY_STAGE_2": 28,
+      "WATCH": 6
+    }
+  },
+  "status": "REJECTED_POLICY_PROMOTION",
+  "stress_windows": [
+    {
+      "available": false,
+      "baseline_mdd": null,
+      "end": "2011-10-31",
+      "mdd_delta": null,
+      "policy_mdd": null,
+      "start": "2011-07-01",
+      "stress_window": "2011_us_downgrade"
+    },
+    {
+      "available": false,
+      "baseline_mdd": null,
+      "end": "2016-03-31",
+      "mdd_delta": null,
+      "policy_mdd": null,
+      "start": "2015-08-01",
+      "stress_window": "2015_2016_growth_credit"
+    },
+    {
+      "available": false,
+      "baseline_mdd": null,
+      "end": "2018-12-31",
+      "mdd_delta": null,
+      "policy_mdd": null,
+      "start": "2018-09-01",
+      "stress_window": "2018_q4"
+    },
+    {
+      "available": true,
+      "baseline_mdd": -0.22401387103602066,
+      "end": "2020-06-30",
+      "mdd_delta": 0.016020547755448145,
+      "policy_mdd": -0.20799332328057252,
+      "start": "2020-02-01",
+      "stress_window": "2020_covid"
+    },
+    {
+      "available": true,
+      "baseline_mdd": -0.13999563092449152,
+      "end": "2022-12-31",
+      "mdd_delta": 0.005404611046557539,
+      "policy_mdd": -0.13459101987793398,
+      "start": "2022-01-01",
+      "stress_window": "2022_bear"
+    }
+  ],
+  "threshold_grid_search_executed": false
+}

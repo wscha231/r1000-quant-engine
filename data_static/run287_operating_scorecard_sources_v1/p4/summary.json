@@ -1,0 +1,73 @@
+{
+  "cash_rate_path": null,
+  "cash_rate_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
+  "cash_rate_sha256": "d5f8c9bf116a918500107361c971e4de78ddf7835070511745c47a343b693490",
+  "cost_bps_per_side": 25.0,
+  "default_current_paper_mode": "BROKER_CASH_OR_MMF",
+  "default_historical_mode": "DGS3MO_CARRY",
+  "double_count_check_passed": true,
+  "fill_mode": "next_close",
+  "fullrun_executed": false,
+  "inputs": {
+    "concentrated": {
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
+      "sha256": "848c1bac00985ab0b132794ee3e1c2942c1561d2f728b0a89778bd6c4e63660e"
+    },
+    "main": {
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
+      "sha256": "356bac22ec55090b2d2da882c7505b1460973227639a5d0b7a4c59c25c0ccff9"
+    }
+  },
+  "integer_shares": true,
+  "live_trading_enabled": false,
+  "metrics_path": "data_static/run287_operating_scorecard_sources_v1/p4/reserve_mode_metrics.csv",
+  "metrics_provenance_status": "CANONICAL_BUNDLED",
+  "price_cache": null,
+  "price_cache_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
+  "production_enabled": false,
+  "reason_reconciliation_passed": true,
+  "reserve_modes_tested": [
+    "BROKER_CASH_OR_MMF",
+    "DGS3MO_CARRY",
+    "BIL_TOTAL_RETURN",
+    "SGOV_TOTAL_RETURN"
+  ],
+  "schema_version": "run287-reserve-asset-evaluation-v1",
+  "status": "READY_RESERVE_ASSET_RESEARCH",
+  "zero_yield_exact_parity": {
+    "concentrated": {
+      "canonical_trade_sha256": "03db57357d09d72da0ce099e817540601bf3a02d2f8cfe09b3422185b94328af",
+      "legacy_trade_sha256": "03db57357d09d72da0ce099e817540601bf3a02d2f8cfe09b3422185b94328af",
+      "metric_fields": [
+        "cagr",
+        "max_dd",
+        "sharpe",
+        "ending_capital_usd",
+        "trade_count",
+        "total_fees_usd",
+        "gross_traded_usd"
+      ],
+      "metric_match": true,
+      "passed": true,
+      "trade_hash_match": true
+    },
+    "main": {
+      "canonical_trade_sha256": "c98769182297ca6e265cae9f2da3d7a5e981e38b87d131f99b720dde56c31a66",
+      "legacy_trade_sha256": "c98769182297ca6e265cae9f2da3d7a5e981e38b87d131f99b720dde56c31a66",
+      "metric_fields": [
+        "cagr",
+        "max_dd",
+        "sharpe",
+        "ending_capital_usd",
+        "trade_count",
+        "total_fees_usd",
+        "gross_traded_usd"
+      ],
+      "metric_match": true,
+      "passed": true,
+      "trade_hash_match": true
+    }
+  }
+}
