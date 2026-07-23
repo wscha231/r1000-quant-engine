@@ -465,7 +465,7 @@ def test_paper_metrics_use_the_manifest_bound_summary_bytes() -> None:
         )
 
 
-def test_rebound_paper_controls_runtime_availability_and_trust() -> None:
+def test_rebound_paper_and_manifest_control_runtime_trust() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         registry_path = make_fixture(root)
@@ -477,12 +477,17 @@ def test_rebound_paper_controls_runtime_availability_and_trust() -> None:
         ) -> tuple[dict[str, object], list[dict[str, object]], list[str]]:
             loaded, records, errors = original_load_sources(source_registry)
             loaded.pop("current_paper_summary", None)
-            summary_record = next(
-                row for row in records
-                if row["source_id"] == "current_paper_summary"
-            )
-            summary_record["status"] = "UNAVAILABLE"
-            summary_record["sha256"] = None
+            loaded.pop("current_paper_integrity", None)
+            for source_id in (
+                "current_paper_summary",
+                "current_paper_integrity",
+            ):
+                source_record = next(
+                    row for row in records
+                    if row["source_id"] == source_id
+                )
+                source_record["status"] = "UNAVAILABLE"
+                source_record["sha256"] = None
             return loaded, records, errors
 
         with patch.object(
@@ -507,6 +512,11 @@ def test_rebound_paper_controls_runtime_availability_and_trust() -> None:
             if row["source_id"] == "current_paper_summary"
         )
         assert summary_source["status"] == "VERIFIED"
+        integrity_source = next(
+            row for row in scorecard["sources"]
+            if row["source_id"] == "current_paper_integrity"
+        )
+        assert integrity_source["status"] == "VERIFIED"
 
 
 def test_blocked_p6_summary_cannot_absorb_stale_metrics() -> None:
@@ -677,7 +687,7 @@ def main() -> int:
     test_paper_summary_must_share_verified_manifest_directory()
     test_unverified_p6_summary_suppresses_companion_metrics()
     test_paper_metrics_use_the_manifest_bound_summary_bytes()
-    test_rebound_paper_controls_runtime_availability_and_trust()
+    test_rebound_paper_and_manifest_control_runtime_trust()
     test_blocked_p6_summary_cannot_absorb_stale_metrics()
     test_true_forward_bundle_error_does_not_poison_historical_lane()
     test_nonmanaged_bundle_member_is_a_global_integrity_failure()

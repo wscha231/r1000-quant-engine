@@ -593,7 +593,6 @@ def build_scorecard(
                     source_id, evidence_class="historical", portfolio=portfolio, unit="weight")
 
     paper = loaded.get("current_paper_summary")
-    paper_integrity = loaded.get("current_paper_integrity")
     paper_runtime_manifest: dict[str, Any] = {
         "status": "UNAVAILABLE",
         "manifest_path": records_by_id.get("current_paper_integrity", {}).get("path"),
@@ -603,15 +602,15 @@ def build_scorecard(
         "trusted_boolean_fields_ignored": True,
     }
     verified_paper_payload: dict[str, Any] | None = None
-    if isinstance(paper_integrity, dict):
+    manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
+    summary_path = repo_path(records_by_id["current_paper_summary"]["path"])
+    if manifest_path.is_file():
         paper_summary_binding_error = ""
         try:
             try:
                 from tools.run287_paper_ledger_integrity import verify_integrity_manifest
             except ModuleNotFoundError:
                 from run287_paper_ledger_integrity import verify_integrity_manifest
-            manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
-            summary_path = repo_path(records_by_id["current_paper_summary"]["path"])
             ledger_root = manifest_path.parent.resolve()
             if manifest_path.resolve() != (
                 ledger_root / "snapshot_integrity.json"
@@ -688,7 +687,7 @@ def build_scorecard(
                     "current_paper_execution",
                     "paper_summary_not_bound_to_snapshot_manifest",
                 )
-    elif isinstance(paper, dict):
+    elif isinstance(paper, dict) or summary_path.is_file():
         record_integrity_error(
             "current_paper_execution", "paper_snapshot_integrity_missing"
         )
