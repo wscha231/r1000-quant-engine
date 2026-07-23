@@ -536,9 +536,13 @@ def evaluate(
 
     def prices(ticker: str) -> tuple[pd.DataFrame, str, str]:
         if ticker not in frame_cache:
+            cache_path = price_cache / px_cache_name(ticker)
+            if not cache_path.is_file():
+                frame_cache[ticker] = (pd.DataFrame(), "unavailable", "")
+                return frame_cache[ticker]
             frame, basis = load_cached_prices(price_cache, ticker)
             frame = frame[frame.index <= as_of].copy() if not frame.empty else frame
-            frame_cache[ticker] = (frame, basis, sha256_file(price_cache / px_cache_name(ticker)))
+            frame_cache[ticker] = (frame, basis, sha256_file(cache_path))
         return frame_cache[ticker]
 
     appended: list[dict[str, Any]] = []
@@ -844,6 +848,23 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
         return summary
     append_events(event_log, signal_events)
     events_after_signals = existing + signal_events
+    required_price_tickers = sorted(
+        {
+            ticker
+            for event in events_after_signals
+            if event.get("event_type") == "risk_signal_observed"
+            for ticker in (
+                clean_text(event.get("ticker")),
+                clean_text(event.get("benchmark_ticker")),
+            )
+            if ticker
+        }
+    )
+    missing_price_cache_tickers = [
+        ticker
+        for ticker in required_price_tickers
+        if not (price_cache / px_cache_name(ticker)).is_file()
+    ]
     outcome_events, evaluations = evaluate(events_after_signals, price_cache, contract, as_of, recorded_at)
     append_events(event_log, outcome_events)
     all_events = events_after_signals + outcome_events
@@ -894,6 +915,18 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
         if price_cache_manifest_path.is_file()
         else ""
     )
+    price_cache_bootstrap_required = bool(
+        missing_price_cache_tickers
+        or any(
+            status_value
+            in {
+                "pending_ticker_adjusted_price_unavailable",
+                "pending_benchmark_adjusted_price_unavailable",
+            }
+            for horizon_statuses in evaluations.values()
+            for status_value in horizon_statuses.values()
+        )
+    )
     summary = {
         "schema_version": SCHEMA_VERSION,
         "status": (
@@ -902,6 +935,7 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
             else (
                 READY_STATUS
                 if price_cache_manifest_sha256
+                and not price_cache_bootstrap_required
                 else NEEDS_PRICE_CACHE_STATUS
             )
         ),
@@ -916,6 +950,8 @@ def run_unlocked(args: argparse.Namespace, *, now_utc: str | None = None) -> dic
         "distinct_decision_week_count": weeks,
         "price_universe_unique_ticker_count": int(len(universe)),
         "price_universe_cap": max_tickers,
+        "price_cache_bootstrap_required": price_cache_bootstrap_required,
+        "missing_price_cache_tickers": missing_price_cache_tickers,
         "horizon_status_counts": {
             f"{horizon}d": {str(key): int(value) for key, value in status[f"outcome_{horizon}d_status"].value_counts().to_dict().items()}
             for horizon in horizons

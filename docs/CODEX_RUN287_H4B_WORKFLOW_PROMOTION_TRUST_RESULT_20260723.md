@@ -37,6 +37,11 @@ evaluation, and artifact publication.
 - Snapshot continuity requires the same genesis, immutable bootstrap files,
   exact append-only fill/rejection/equity prefixes, and semantic replay.
   Self-asserted ancestry metadata alone cannot replace accepted state.
+- Advancing a restored ledger preserves its existing fill-CSV header order, so
+  a schema-equivalent descendant cannot be rejected as a false prefix rewrite.
+- A newly observed outcome ticker with no restored price-cache file now emits
+  the explicit review-only bootstrap state and complete price universe before
+  the bounded cache builder reruns the resolver.
 - Drive persistence writes a content-addressed immutable head before canonical
   publication, rechecks the canonical anchor before and after sync, validates
   head-folder/hash identity, and blocks divergent heads instead of overwriting
@@ -60,8 +65,8 @@ evaluation, and artifact publication.
 - Runtime operating scorecard: PASS.
 - Workflow artifact/order contract: PASS.
 - Python compile and `git diff --check`: PASS.
-- Full Tier-1 PR validation: `193/193` PASS in `431.04s`.
-- Final independent release review: P0 `0`, P1 `0`, P2 `0`.
+- Full Tier-1 PR validation after exact-head review fixes: `193/193` PASS in
+  `361.71s`.
 
 ## Safety and next gate
 

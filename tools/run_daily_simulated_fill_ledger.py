@@ -3527,11 +3527,10 @@ def run_portfolio(
         provider_symbol_links=lifecycle.provider_symbol_links,
     )
     write_csv(portfolio_dir / "pending_orders.csv", pending, PENDING_COLUMNS)
-    write_csv(
-        portfolio_dir / "fills.csv",
-        fills,
-        sorted(FILL_COLUMNS) if not fills.empty else None,
-    )
+    # A restored append-only ledger owns its CSV header order.  Reordering the
+    # same schema here would make a valid descendant fail the exact-prefix
+    # continuity proof even though no historical event changed.
+    write_csv(portfolio_dir / "fills.csv", fills)
     write_csv(portfolio_dir / "rejections.csv", rejections)
 
     marked_account, positions = mark_account(

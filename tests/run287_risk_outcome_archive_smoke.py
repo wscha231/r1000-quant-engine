@@ -177,6 +177,43 @@ def test_capture_pending_and_bounded_price_universe() -> None:
         assert result["price_universe_unique_ticker_count"] == 3
 
 
+def test_restored_price_cache_bootstraps_new_observation_ticker() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        archive, cache, output = root / "archive", root / "cache", root / "out"
+        write_archive(archive)
+        sessions = sessions_through_126()[:2]
+        write_price(cache, "AAA", sessions, np.linspace(100, 99, len(sessions)))
+        write_price(cache, "SPY", sessions, np.linspace(100, 101, len(sessions)))
+        assert (cache / "replay_price_cache_manifest.json").is_file()
+        assert not (cache / px_cache_name("BBB")).exists()
+
+        result = run(
+            args(
+                archive,
+                cache,
+                output,
+                pd.Timestamp(sessions[-1]).date().isoformat(),
+            ),
+            now_utc="2026-01-07T01:00:00Z",
+        )
+
+        assert result["status"] == NEEDS_PRICE_CACHE_STATUS, result
+        assert result["price_cache_bootstrap_required"] is True
+        assert result["missing_price_cache_tickers"] == ["BBB"]
+        assert json.loads((output / "summary.json").read_text(encoding="utf-8"))[
+            "status"
+        ] == NEEDS_PRICE_CACHE_STATUS
+        universe = pd.read_csv(output / "price_universe.csv")
+        assert set(universe["ticker"]) == {"AAA", "BBB", "SPY"}
+        status = pd.read_csv(output / "current_status.csv")
+        bbb = status[status["ticker"].eq("BBB")].iloc[0]
+        assert (
+            bbb["outcome_1d_status"]
+            == "pending_ticker_adjusted_price_unavailable"
+        )
+
+
 def test_missing_initial_source_skips_without_breaking_daily_workflow() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -338,6 +375,7 @@ def test_data_insufficient_is_not_a_normal_control() -> None:
 
 def main() -> int:
     test_capture_pending_and_bounded_price_universe()
+    test_restored_price_cache_bootstraps_new_observation_ticker()
     test_missing_initial_source_skips_without_breaking_daily_workflow()
     test_restored_signals_continue_resolving_when_daily_source_skips()
     test_elapsed_outcomes_and_idempotence()

@@ -30,6 +30,8 @@ from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
 )
 from tools.run287_paper_ledger_integrity import (  # noqa: E402
     PaperLedgerIntegrityError,
+    require_state_descends_from,
+    write_integrity_manifest,
 )
 from tools.reserve_asset_policy import (  # noqa: E402
     RESERVE_REASON_SOURCE_HASH_FIELD,
@@ -1027,6 +1029,75 @@ def test_restored_snapshot_rejects_zero_fill_account_totals_tampering() -> None:
             raise AssertionError("zero-fill account totals tampering was accepted")
 
 
+def test_advancing_snapshot_preserves_restored_fill_header_order() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        run(args_for(root, "2026-01-06"))
+
+        state = root / "paper"
+        prior_integrity = json.loads(
+            (state / "snapshot_integrity.json").read_text(encoding="utf-8")
+        )
+        expected_headers: dict[str, list[str]] = {}
+        for portfolio in ("main", "concentrated"):
+            fills_path = state / portfolio / "fills.csv"
+            fills = pd.read_csv(fills_path)
+            assert not fills.empty
+            legacy_order = [
+                "portfolio_kind",
+                "date",
+                "signal_date",
+                "ticker",
+                *[
+                    column
+                    for column in fills.columns
+                    if column not in {"portfolio_kind", "date", "signal_date", "ticker"}
+                ],
+            ]
+            assert legacy_order != sorted(legacy_order)
+            fills.reindex(columns=legacy_order).to_csv(fills_path, index=False)
+            expected_headers[portfolio] = legacy_order
+
+        (state / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            state,
+            as_of_date="2026-01-06",
+            previous_snapshot_hash=str(
+                prior_integrity.get("previous_snapshot_hash") or ""
+            ),
+        )
+        anchor = root / "anchor"
+        shutil.copytree(state, anchor)
+
+        dates = pd.to_datetime(
+            ["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07"]
+        )
+        for ticker, closes in (
+            ("AAA", [100.0, 102.0, 103.0, 104.0]),
+            ("BBB", [50.0, 51.0, 52.0, 53.0]),
+        ):
+            pd.DataFrame(
+                {
+                    "Open": closes,
+                    "Close": closes,
+                    "Adj Close": closes,
+                    "Volume": [1_000_000] * len(closes),
+                },
+                index=dates,
+            ).to_parquet(root / "cache_prices" / px_cache_name(ticker))
+
+        run(args_for(root, "2026-01-07", suppress_new_orders=True))
+        for portfolio, expected in expected_headers.items():
+            observed = list(
+                pd.read_csv(state / portfolio / "fills.csv", nrows=0).columns
+            )
+            assert observed == expected
+        continuity = require_state_descends_from(state, anchor)
+        assert continuity["continuity_status"] == "CANDIDATE_DESCENDS_FROM_ANCHOR"
+
+
 def main() -> int:
     test_pending_resolves_once_at_next_close()
     test_next_close_uses_nyse_calendar_and_never_skips_missing_session()
@@ -1046,6 +1117,7 @@ def main() -> int:
     test_restored_snapshot_rejects_pending_schema_and_domain_tampering()
     test_restored_snapshot_rejects_fill_schema_tampering()
     test_restored_snapshot_rejects_zero_fill_account_totals_tampering()
+    test_advancing_snapshot_preserves_restored_fill_header_order()
     print("daily_simulated_fill_ledger_smoke: PASS")
     return 0
 
