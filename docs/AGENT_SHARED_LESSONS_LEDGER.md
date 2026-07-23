@@ -3318,11 +3318,18 @@ Expected contract:
 - A diagnostic producer's explicit blocked/invalid absorption state outranks
   stale companion artifacts. Suppress those metrics and mark the source lane
   untrusted even when all file hashes are internally consistent.
+- Lane trust alone is not enough to fail closed: remove bundle-rejected
+  absorbed sources from the usable payload set so downstream builders cannot
+  publish their values as `AVAILABLE`. Likewise, a companion CSV is unusable
+  whenever its required semantic summary is missing, corrupt, or unparsable.
+- Verify a paper summary's exact manifest path and hash before extracting any
+  values. Recording a later integrity error does not undo metrics that were
+  already emitted, so extraction must occur only after successful binding.
 - Missing model heads are an expected fail-closed operating condition, not an
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.
 - Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and full
-  Tier-1 validation (`191/191`, `631.80s` on the final local follow-up head)
+  Tier-1 validation (`191/191`, `715.88s` on the final local follow-up head)
   passed.
 - Evidence:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.

@@ -50,7 +50,7 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `631.80s` on the final local
+- Full PR validation: `191/191` PASS in `715.88s` on the final local
   follow-up head.
 - Python compilation and `git diff --check`: PASS.
 
@@ -85,12 +85,23 @@ The first exact-head Codex review identified two valid provenance gaps.
 - A P6 summary with a blocked status, explicit invalid-for-absorption flag, or
   explicit downstream-evaluation false flag blocks the historical lane and
   suppresses any stale companion selection metrics.
+- Any required absorbed source rejected by bundle verification is removed from
+  the usable source set and marked `BUNDLE_INTEGRITY_ERROR`; its bytes cannot
+  remain visible as `AVAILABLE` metrics merely because its registry hash
+  matched.
+- P6 companion metrics are suppressed whenever the required P6 summary is not
+  verified, including missing, hash-mismatched, and unparsable summaries.
+- Current-paper values are emitted only after the exact summary path and hash
+  are bound by the successfully verified ledger manifest. A failed binding
+  leaves every paper metric explicitly `UNAVAILABLE`.
 - New regressions mutate source bytes behind unchanged declarations and inject
   true-forward-only bundle path and source-set mismatches. All fail closed in
   the intended lane.
 - Additional regressions cover path traversal from a required absorbed source,
   a paper summary outside the verified ledger directory, and a blocked P6
-  summary paired with stale metrics.
+  summary paired with stale metrics. Final follow-up regressions also prove
+  that bundle-rejected sources, unattested paper values, and P6 metrics whose
+  required summary failed verification cannot leak into the scorecard.
 
 ## Safety and next gate
 

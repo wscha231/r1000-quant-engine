@@ -357,6 +357,36 @@ def build_scorecard(
             }
             for lane in managed_lanes or {"historical"}:
                 record_integrity_error(lane, value)
+    managed_source_ids = {
+        source_id
+        for source_id, spec in source_specs_by_id.items()
+        if spec.get("required") is True
+        and str(spec.get("disposition") or "") == "ABSORBED_SOURCE"
+    }
+    if source_bundle.get("status") not in {"VERIFIED", "NOT_REQUIRED"}:
+        scoped_failed_source_ids = {
+            token
+            for value in source_bundle_errors
+            for token in value.split(":")[1:]
+            if token in managed_source_ids
+        }
+        has_global_bundle_error = any(
+            not any(
+                token in managed_source_ids
+                for token in value.split(":")[1:]
+            )
+            for value in source_bundle_errors
+        )
+        rejected_source_ids = (
+            managed_source_ids
+            if has_global_bundle_error
+            else scoped_failed_source_ids
+        )
+        for source_id in rejected_source_ids:
+            loaded.pop(source_id, None)
+            if source_id in records_by_id:
+                records_by_id[source_id]["status"] = "BUNDLE_INTEGRITY_ERROR"
+        source_bundle["rejected_source_ids"] = sorted(rejected_source_ids)
     metrics: list[dict[str, Any]] = []
 
     def add(
@@ -393,7 +423,10 @@ def build_scorecard(
 
     p6 = loaded.get("p6_selection_summary")
     p6_metrics = loaded.get("p6_selection_metrics")
-    if isinstance(p6, dict) and (
+    if records_by_id.get("p6_selection_summary", {}).get("status") != "VERIFIED":
+        p6 = None
+        p6_metrics = None
+    elif isinstance(p6, dict) and (
         str(p6.get("status") or "").upper().startswith("BLOCKED_")
         or p6.get("valid_for_scorecard_absorption") is False
         or p6.get("downstream_outcome_evaluation_executed") is False
@@ -561,33 +594,6 @@ def build_scorecard(
 
     paper = loaded.get("current_paper_summary")
     paper_integrity = loaded.get("current_paper_integrity")
-    if isinstance(paper, dict):
-        for field in PAPER_INTEGRITY_FIELDS:
-            value = paper.get("integrity", {}).get(field, paper.get(field))
-            status = "AVAILABLE" if value is not None else "UNAVAILABLE"
-            add("integrity", field, value, "current_paper_summary",
-                evidence_class="current_paper_execution", status=status, unit="count")
-            if finite(value) and float(value) > 0 and field != "degraded_data_day_count":
-                record_integrity_error(
-                    "current_paper_execution",
-                    f"current_paper_integrity:{field}:{int(float(value))}",
-                )
-        for metric_id, key, unit in (
-            ("turnover", "turnover", "weight"), ("fill_count", "fill_count", "count"),
-            ("fees_usd", "fees_usd", "usd"), ("slippage", "slippage", "return"),
-            ("target_tracking_error", "target_tracking_error", "weight"),
-            ("pending_fill_lag", "pending_fill_lag", "days"),
-            ("rejected_order_count", "rejected_order_count", "count"),
-            ("unfilled_order_count", "unfilled_order_count", "count"),
-        ):
-            add("execution", metric_id, paper.get(key), "current_paper_summary",
-                evidence_class="current_paper_execution", unit=unit)
-    else:
-        for field in PAPER_INTEGRITY_FIELDS:
-            add("integrity", field, None, "current_paper_summary",
-                evidence_class="current_paper_execution", status="UNAVAILABLE", unit="count")
-        add("execution", "current_paper_execution", None, "current_paper_summary",
-            evidence_class="current_paper_execution", status="UNAVAILABLE")
     paper_runtime_manifest: dict[str, Any] = {
         "status": "UNAVAILABLE",
         "manifest_path": records_by_id.get("current_paper_integrity", {}).get("path"),
@@ -656,6 +662,42 @@ def build_scorecard(
         record_integrity_error(
             "current_paper_execution", "paper_snapshot_integrity_missing"
         )
+
+    verified_paper = (
+        paper
+        if isinstance(paper, dict)
+        and paper_runtime_manifest.get("status") == "VERIFIED"
+        else None
+    )
+    if isinstance(verified_paper, dict):
+        for field in PAPER_INTEGRITY_FIELDS:
+            value = verified_paper.get("integrity", {}).get(
+                field, verified_paper.get(field)
+            )
+            status = "AVAILABLE" if value is not None else "UNAVAILABLE"
+            add("integrity", field, value, "current_paper_summary",
+                evidence_class="current_paper_execution", status=status, unit="count")
+            if finite(value) and float(value) > 0 and field != "degraded_data_day_count":
+                record_integrity_error(
+                    "current_paper_execution",
+                    f"current_paper_integrity:{field}:{int(float(value))}",
+                )
+        for metric_id, key, unit in (
+            ("turnover", "turnover", "weight"), ("fill_count", "fill_count", "count"),
+            ("fees_usd", "fees_usd", "usd"), ("slippage", "slippage", "return"),
+            ("target_tracking_error", "target_tracking_error", "weight"),
+            ("pending_fill_lag", "pending_fill_lag", "days"),
+            ("rejected_order_count", "rejected_order_count", "count"),
+            ("unfilled_order_count", "unfilled_order_count", "count"),
+        ):
+            add("execution", metric_id, verified_paper.get(key), "current_paper_summary",
+                evidence_class="current_paper_execution", unit=unit)
+    else:
+        for field in PAPER_INTEGRITY_FIELDS:
+            add("integrity", field, None, "current_paper_summary",
+                evidence_class="current_paper_execution", status="UNAVAILABLE", unit="count")
+        add("execution", "current_paper_execution", None, "current_paper_summary",
+            evidence_class="current_paper_execution", status="UNAVAILABLE")
 
     forward = loaded.get("true_forward_summary")
     if isinstance(forward, dict):

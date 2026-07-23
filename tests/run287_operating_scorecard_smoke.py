@@ -355,6 +355,38 @@ def test_paper_summary_must_share_verified_manifest_directory() -> None:
         assert "paper_summary_not_bound_to_snapshot_manifest" in scorecard[
             "integrity_errors_by_lane"
         ]["current_paper_execution"]
+        paper_rows = [
+            row for row in scorecard["metrics"]
+            if row["evidence_class"] == "current_paper_execution"
+        ]
+        assert paper_rows
+        assert all(row["status"] == "UNAVAILABLE" for row in paper_rows)
+        assert all(row["value"] is None for row in paper_rows)
+
+
+def test_unverified_p6_summary_suppresses_companion_metrics() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        registry_path = make_fixture(root)
+        registry = load_registry(registry_path)
+        p6_spec = next(
+            row for row in registry["sources"]
+            if row["id"] == "p6_selection_summary"
+        )
+        write_json(Path(p6_spec["path"]), {"rank_stability": {"mean_score_spearman": 0.99}})
+        scorecard = build_scorecard(
+            registry, source_registry_path=registry_path
+        )
+        assert "source_hash_mismatch:p6_selection_summary" in scorecard[
+            "integrity_errors_by_lane"
+        ]["historical"]
+        selection_rows = [
+            row for row in scorecard["metrics"]
+            if row["section"] == "selection_quality"
+        ]
+        assert selection_rows
+        assert all(row["status"] == "UNAVAILABLE" for row in selection_rows)
+        assert all(row["value"] is None for row in selection_rows)
 
 
 def test_blocked_p6_summary_cannot_absorb_stale_metrics() -> None:
@@ -419,6 +451,18 @@ def test_true_forward_bundle_error_does_not_poison_historical_lane() -> None:
         assert expected not in scorecard["integrity_errors_by_lane"]["historical"]
         assert scorecard["headline_performance_trust"] == "TRUSTED"
         assert scorecard["evidence_status"]["true_forward"] == "NOT_TRUSTED"
+        forward_source = next(
+            row for row in scorecard["sources"]
+            if row["source_id"] == "true_forward_summary"
+        )
+        assert forward_source["status"] == "BUNDLE_INTEGRITY_ERROR"
+        forward_rows = [
+            row for row in scorecard["metrics"]
+            if row["evidence_class"] == "true_forward"
+        ]
+        assert forward_rows
+        assert all(row["status"] == "UNAVAILABLE" for row in forward_rows)
+        assert all(row["value"] is None for row in forward_rows)
 
         missing_source_manifest = json.loads(
             source_manifest_path.read_text(encoding="utf-8")
@@ -474,6 +518,7 @@ def main() -> int:
     test_bundle_verifier_hashes_source_file_bytes()
     test_required_absorbed_source_cannot_escape_canonical_bundle()
     test_paper_summary_must_share_verified_manifest_directory()
+    test_unverified_p6_summary_suppresses_companion_metrics()
     test_blocked_p6_summary_cannot_absorb_stale_metrics()
     test_true_forward_bundle_error_does_not_poison_historical_lane()
     test_metric_definition_change_requires_migration_note()
