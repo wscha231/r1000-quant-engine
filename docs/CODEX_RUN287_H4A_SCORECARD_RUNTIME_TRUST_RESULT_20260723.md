@@ -50,10 +50,71 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation runner reached and completed its final tests (`191/191`);
-  the final top-manager and N-PORT fixtures were explicitly rerun and passed
-  after the supervising shell timeout.
+- Full PR validation: `191/191` PASS in `535.51s` on the final local
+  follow-up head.
 - Python compilation and `git diff --check`: PASS.
+
+## Exact-head review follow-up
+
+The first exact-head Codex review identified two valid provenance gaps.
+
+- The bundle verifier compared manifest and registry declarations without
+  hashing each referenced source file. It now requires every source file to
+  exist and match the manifest SHA-256 before reporting `VERIFIED`.
+- Six JSON declarations were based on their former CRLF bytes even though the
+  committed canonical blobs are LF-normalized. The bundle manifest and source
+  registry now pin the actual LF blob hashes, and the manifest hash is updated.
+- Source-specific bundle errors are attributed to the registry source's
+  evidence lane. A true-forward-only path or hash error no longer relabels the
+  historical headline as untrusted.
+- Missing and duplicate bundle entries retain their source id as well, so a
+  true-forward-only source-set defect stays in the true-forward lane.
+- Raw manifest hash drift no longer short-circuits member inspection. When the
+  parsed delta is source-scoped and no global structural fault exists, the
+  manifest mismatch retains those source ids; parse/global faults still block
+  every managed lane.
+- A missing or blank registry pin for the bundle manifest is a global trust
+  failure; member declarations and file hashes cannot substitute for the
+  immutable manifest SHA-256.
+- Canonical source and manifest paths are resolved before trust. Required
+  `ABSORBED_SOURCE` rows are selected independently of their path string, and
+  any resolved path outside the canonical bundle root fails closed.
+- Current-paper trust now requires the loaded summary and canonical
+  `snapshot_integrity.json` to share one directory, and the verified manifest
+  must contain the summary's exact relative path and SHA-256.
+- A P6 summary with a blocked status, explicit invalid-for-absorption flag, or
+  explicit downstream-evaluation false flag blocks the historical lane and
+  suppresses any stale companion selection metrics.
+- Any required absorbed source rejected by bundle verification is removed from
+  the usable source set and marked `BUNDLE_INTEGRITY_ERROR`; its bytes cannot
+  remain visible as `AVAILABLE` metrics merely because its registry hash
+  matched.
+- P6 companion metrics are suppressed whenever the required P6 summary is not
+  verified, including missing, hash-mismatched, and unparsable summaries.
+- Current-paper values are emitted only after the exact summary path and hash
+  are bound by the successfully verified ledger manifest. A failed binding
+  leaves every paper metric explicitly `UNAVAILABLE`.
+- The builder re-reads and parses the exact paper summary bytes after manifest
+  verification, then records that same SHA-256 as metric provenance. A
+  concurrent ledger republish cannot mix a pre-verification object with a
+  post-verification manifest.
+- The manifest itself is rebound after verification as well: its parsed payload
+  must equal the verifier's returned payload, and its exact post-verification
+  bytes supply both `manifest_sha256` and the integrity source provenance.
+- Only managed absorbed source ids can make a bundle error source-scoped. An
+  unregistered manifest member remains a global bundle fault even when its id
+  happens to match a non-managed registry source.
+- New regressions mutate source bytes behind unchanged declarations and inject
+  true-forward-only bundle path and source-set mismatches. All fail closed in
+  the intended lane.
+- Additional regressions cover path traversal from a required absorbed source,
+  a paper summary outside the verified ledger directory, and a blocked P6
+  summary paired with stale metrics. Final follow-up regressions also prove
+  that bundle-rejected sources, unattested paper values, and P6 metrics whose
+  required summary failed verification cannot leak into the scorecard. The
+  final exact-head regressions republish the paper summary during verification
+  and inject a non-managed registry id into the canonical bundle. The republish
+  regression also proves the manifest SHA is rebound to the same new snapshot.
 
 ## Safety and next gate
 

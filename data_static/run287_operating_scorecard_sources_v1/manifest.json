@@ -7,7 +7,7 @@
     {
       "id": "p6_selection_summary",
       "path": "data_static/run287_operating_scorecard_sources_v1/p6/summary.json",
-      "sha256": "11204cb39472fda867022ee02f9ff0f7995346ccab40cfcd5522f27c1cdc8565"
+      "sha256": "a6a2574c4854645790c52be0beac268573e4e9ab7686b4260d9d1dd4f5860525"
     },
     {
       "id": "p6_selection_metrics",
@@ -17,12 +17,12 @@
     {
       "id": "p5_hold_exit",
       "path": "data_static/run287_operating_scorecard_sources_v1/p5/summary.json",
-      "sha256": "60d075f6502533e9ab0df50be8a067e695872ac9978b436ab50c4724dae8fa23"
+      "sha256": "f514e02d76cea4e10a4c099781c7d1765821522d93d3602a68103df46dbdc54b"
     },
     {
       "id": "p4_reserve_summary",
       "path": "data_static/run287_operating_scorecard_sources_v1/p4/summary.json",
-      "sha256": "a0f74bb0b4d9918b70553bbd49be1a45c2c02aa016848d82753b6a51df408560"
+      "sha256": "55e82e56d2d5b86333a958e34e55f6cf6e941ade9c77c69dd2da3c5391309716"
     },
     {
       "id": "p4_reserve_metrics",
@@ -42,17 +42,17 @@
     {
       "id": "p3_main_crisis",
       "path": "data_static/run287_operating_scorecard_sources_v1/p3/main_evaluation.json",
-      "sha256": "7cbc12ac088a7326e861fbecfeef7b679dd25bec51a36cc2efaa4cb1c2faf359"
+      "sha256": "ceb261eb7576796f88e1789fd134cc491f0bbd1178d014acd1716006a540a03a"
     },
     {
       "id": "p3_concentrated_crisis",
       "path": "data_static/run287_operating_scorecard_sources_v1/p3/concentrated_evaluation.json",
-      "sha256": "20751ef0885af98b1ff9d0ecba991ad9b272a9e103051eb46d90517507f5728d"
+      "sha256": "5ac5c32feec41e378ff68b6a57db921a0739d4e22b71d8b2c4c6f8f2934f3094"
     },
     {
       "id": "true_forward_summary",
       "path": "data_static/run287_operating_scorecard_sources_v1/forward/summary.json",
-      "sha256": "aad6d73619ea254833b978356e828562ab1785b786620c991bca56d5545852ed"
+      "sha256": "bdbee4229ef8ca31349ceed6606d697742608cde3e9e36fb1e1c13c6510815a6"
     }
   ]
 }

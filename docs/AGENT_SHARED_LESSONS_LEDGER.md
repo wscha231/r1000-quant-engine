@@ -3292,11 +3292,55 @@ Expected contract:
 - A fixed absorbed forward summary is also an immutable input: leaving it under
   ignored `outputs/` breaks clean-checkout scorecard reproduction even when all
   historical fixtures are committed.
+- A bundle is not verified by agreement between two declarations. Hash every
+  referenced source file's committed bytes, and pin hashes after line-ending
+  normalization; otherwise manifest and registry can agree on the same stale
+  CRLF digest while the LF blob differs.
+- Bundle integrity errors must retain the affected source id and evidence lane.
+  A true-forward-only provenance fault must block true-forward/global trust
+  without poisoning independently verified historical headline evidence. This
+  includes path/hash faults and missing/duplicate source-set members.
+- Do not return on a bundle-manifest raw-hash mismatch before parsing its
+  members. A stale/tampered manifest hash can otherwise erase the affected
+  source id and turn a lane-local true-forward defect into a false historical
+  integrity failure. Preserve global fail-closed behavior for parse or
+  structural faults.
+- The bundle manifest hash is a required root of trust, not an optional
+  optimization. Even perfectly matching member declarations and file hashes
+  cannot produce `VERIFIED` when the registry's expected manifest SHA-256 is
+  absent.
+- Required absorbed evidence must be identified by its contract fields, not by
+  an already-trusted path prefix. Resolve both registry and manifest paths and
+  reject traversal outside the canonical bundle root.
+- Directory-manifest verification attests only files in that directory. Bind
+  the exact loaded paper summary path and hash to the verified manifest before
+  using its metrics or setting runtime paper trust.
+- A diagnostic producer's explicit blocked/invalid absorption state outranks
+  stale companion artifacts. Suppress those metrics and mark the source lane
+  untrusted even when all file hashes are internally consistent.
+- Lane trust alone is not enough to fail closed: remove bundle-rejected
+  absorbed sources from the usable payload set so downstream builders cannot
+  publish their values as `AVAILABLE`. Likewise, a companion CSV is unusable
+  whenever its required semantic summary is missing, corrupt, or unparsable.
+- Verify a paper summary's exact manifest path and hash before extracting any
+  values. Recording a later integrity error does not undo metrics that were
+  already emitted, so extraction must occur only after successful binding.
+- A verification result and an object loaded before that verification are not
+  an atomic snapshot. Re-read one byte buffer after manifest verification,
+  compare its hash to the returned manifest, and parse that same buffer for
+  metric emission and provenance.
+- Rebind the manifest bytes too. If a concurrent publish is supported, leaving
+  a pre-verification manifest SHA beside a post-verification snapshot hash and
+  summary SHA creates an internally inconsistent trust record.
+- Bundle source scoping applies only to members governed by the bundle. If an
+  unregistered member id collides with a non-managed registry source, it is
+  still a global bundle fault and must not be routed to that source's lane.
 - Missing model heads are an expected fail-closed operating condition, not an
   unstructured crash. Emit a blocked report with input hashes and suppress all
   downstream outcome evaluation.
-- Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and the
-  full `191`-test PR validation path passed.
+- Focused H4a tests, promotion gate `9/9`, repository pytest `129/129`, and full
+  Tier-1 validation (`191/191`, `535.51s` on the final local follow-up head)
+  passed.
 - Evidence:
   `docs/CODEX_RUN287_H4A_SCORECARD_RUNTIME_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
