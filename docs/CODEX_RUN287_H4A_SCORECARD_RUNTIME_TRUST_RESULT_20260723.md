@@ -50,7 +50,7 @@ The focused fixtures prove:
 - Operating scorecard smoke: PASS.
 - Promotion gate smoke: `9/9` PASS with tracked scorecard trust fail-closed.
 - Repository pytest: `129/129` PASS.
-- Full PR validation: `191/191` PASS in `535.51s` on the final local
+- Full PR validation: `191/191` PASS in `646.89s` on the final local
   follow-up head.
 - Python compilation and `git diff --check`: PASS.
 
@@ -101,6 +101,14 @@ The first exact-head Codex review identified two valid provenance gaps.
 - The manifest itself is rebound after verification as well: its parsed payload
   must equal the verifier's returned payload, and its exact post-verification
   bytes supply both `manifest_sha256` and the integrity source provenance.
+- Paper lane availability, source status, and scorecard blockers are computed
+  from the rebound, manifest-verified payload. A directory swap that made the
+  initial source read temporarily unavailable cannot leave a stale blocker
+  after a later exact snapshot verification succeeds.
+- Canonical bundle JSON contains no private `_tmp_tests` or `H:\\codex` paths.
+  Embedded provenance that is present in the bundle is rebound to a stable
+  repo-relative path; hash-only historical artifacts that were not committed
+  are explicitly `EXTERNAL_HISTORICAL_NOT_BUNDLED` with a null path.
 - Only managed absorbed source ids can make a bundle error source-scoped. An
   unregistered manifest member remains a global bundle fault even when its id
   happens to match a non-managed registry source.
@@ -114,7 +122,9 @@ The first exact-head Codex review identified two valid provenance gaps.
   required summary failed verification cannot leak into the scorecard. The
   final exact-head regressions republish the paper summary during verification
   and inject a non-managed registry id into the canonical bundle. The republish
-  regression also proves the manifest SHA is rebound to the same new snapshot.
+  regression also proves the manifest SHA is rebound to the same new snapshot,
+  and a transiently missing initial paper read cannot poison verified runtime
+  trust. Canonical-provenance checks reject private local paths.
 
 ## Safety and next gate
 

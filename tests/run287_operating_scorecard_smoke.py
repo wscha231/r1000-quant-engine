@@ -26,6 +26,7 @@ from tools.build_run287_operating_scorecard import (  # noqa: E402
 )
 from tools.run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
 import tools.run287_paper_ledger_integrity as paper_integrity_module  # noqa: E402
+import tools.build_run287_operating_scorecard as scorecard_module  # noqa: E402
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -221,6 +222,26 @@ def test_committed_source_registry_uses_verified_canonical_bundle() -> None:
     assert bundle["status"] == "VERIFIED"
     assert bundle["source_count"] == 10
     assert bundle["verified_source_count"] == 10
+    bundle_root = ROOT / "data_static" / "run287_operating_scorecard_sources_v1"
+    for json_path in bundle_root.rglob("*.json"):
+        payload_text = json_path.read_text(encoding="utf-8")
+        assert "_tmp_tests" not in payload_text
+        assert "H:\\\\codex" not in payload_text
+    p6_summary = json.loads(
+        (bundle_root / "p6" / "summary.json").read_text(encoding="utf-8")
+    )
+    bundled_metrics = p6_summary["outputs"]["selected_vs_rank_matched_metrics"]
+    assert bundled_metrics["path"] == (
+        "data_static/run287_operating_scorecard_sources_v1/"
+        "p6/selected_vs_rank_matched_metrics.csv"
+    )
+    assert bundled_metrics["provenance_status"] == "CANONICAL_BUNDLED"
+    assert all(
+        output["path"] is None
+        and output["provenance_status"] == "EXTERNAL_HISTORICAL_NOT_BUNDLED"
+        for name, output in p6_summary["outputs"].items()
+        if name != "selected_vs_rank_matched_metrics"
+    )
 
 
 def test_bundle_verifier_hashes_source_file_bytes() -> None:
@@ -444,6 +465,50 @@ def test_paper_metrics_use_the_manifest_bound_summary_bytes() -> None:
         )
 
 
+def test_rebound_paper_controls_runtime_availability_and_trust() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        registry_path = make_fixture(root)
+        registry = load_registry(registry_path)
+        original_load_sources = scorecard_module.load_sources
+
+        def initially_missing_summary(
+            source_registry: dict[str, object],
+        ) -> tuple[dict[str, object], list[dict[str, object]], list[str]]:
+            loaded, records, errors = original_load_sources(source_registry)
+            loaded.pop("current_paper_summary", None)
+            summary_record = next(
+                row for row in records
+                if row["source_id"] == "current_paper_summary"
+            )
+            summary_record["status"] = "UNAVAILABLE"
+            summary_record["sha256"] = None
+            return loaded, records, errors
+
+        with patch.object(
+            scorecard_module,
+            "load_sources",
+            side_effect=initially_missing_summary,
+        ):
+            scorecard = build_scorecard(
+                registry, source_registry_path=registry_path
+            )
+
+        assert scorecard["runtime_trust_manifest"]["paper_snapshot"][
+            "status"
+        ] == "VERIFIED"
+        assert scorecard["evidence_status"]["current_paper_execution"] == "AVAILABLE"
+        assert "current_paper_summary_unavailable" not in scorecard[
+            "scorecard_trust_blockers"
+        ]
+        assert scorecard["scorecard_trusted"] is True
+        summary_source = next(
+            row for row in scorecard["sources"]
+            if row["source_id"] == "current_paper_summary"
+        )
+        assert summary_source["status"] == "VERIFIED"
+
+
 def test_blocked_p6_summary_cannot_absorb_stale_metrics() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -612,6 +677,7 @@ def main() -> int:
     test_paper_summary_must_share_verified_manifest_directory()
     test_unverified_p6_summary_suppresses_companion_metrics()
     test_paper_metrics_use_the_manifest_bound_summary_bytes()
+    test_rebound_paper_controls_runtime_availability_and_trust()
     test_blocked_p6_summary_cannot_absorb_stale_metrics()
     test_true_forward_bundle_error_does_not_poison_historical_lane()
     test_nonmanaged_bundle_member_is_a_global_integrity_failure()

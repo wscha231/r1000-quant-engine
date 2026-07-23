@@ -28,7 +28,8 @@
       },
       "source_mode": "full_ranked_universe",
       "source_ranked_rows": 741,
-      "source_ranked_universe_path": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\free_data_selection_overlay\\ranked_universe.csv"
+      "source_ranked_universe_path": null,
+      "source_ranked_universe_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED"
     },
     "duplicate_observation_rows": 0,
     "new_observation_rows": 0,
@@ -62,11 +63,13 @@
     },
     "unique_ticker_count": 30
   },
-  "current_status_csv": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\free_data_forward_paper_ledger\\current_status.csv",
+  "current_status_csv": null,
+  "current_status_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
   "event_counts": {
     "signal_observed": 30
   },
-  "event_log": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\free_data_forward_paper_ledger\\ledger_events.jsonl",
+  "event_log": null,
+  "event_log_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
   "fullrun_dispatched": false,
   "generated_at_utc": "2026-07-10T06:54:46Z",
   "historical_backtest_acceptance_allowed": false,
@@ -305,7 +308,8 @@
     "status": "UNDERPOWERED",
     "valid_for_historical_backtest_acceptance": false
   },
-  "schema_json": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\free_data_forward_paper_ledger\\schema.json",
+  "schema_json": null,
+  "schema_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
   "schema_version": "free-data-forward-paper-ledger-v2",
   "status": "forward_paper_tracking_active",
   "target_books_mutated": false,

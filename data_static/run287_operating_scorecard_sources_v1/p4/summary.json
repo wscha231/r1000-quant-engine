@@ -1,5 +1,6 @@
 {
-  "cash_rate_path": "H:\\codex\\tmp_r1000_grossfloor_20260625\\cache_macro\\fred_dgs3mo_DGS3MO.parquet",
+  "cash_rate_path": null,
+  "cash_rate_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
   "cash_rate_sha256": "d5f8c9bf116a918500107361c971e4de78ddf7835070511745c47a343b693490",
   "cost_bps_per_side": 25.0,
   "default_current_paper_mode": "BROKER_CASH_OR_MMF",
@@ -9,18 +10,22 @@
   "fullrun_executed": false,
   "inputs": {
     "concentrated": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_multisource_fusion_broker_ab\\signal_replays\\growth_confirmation_score\\concentrated\\baseline\\target_book.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "sha256": "848c1bac00985ab0b132794ee3e1c2942c1561d2f728b0a89778bd6c4e63660e"
     },
     "main": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_multisource_fusion_broker_ab\\signal_replays\\growth_confirmation_score\\main\\baseline\\target_book.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "sha256": "356bac22ec55090b2d2da882c7505b1460973227639a5d0b7a4c59c25c0ccff9"
     }
   },
   "integer_shares": true,
   "live_trading_enabled": false,
-  "metrics_path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p4_reserve_actual_v2_20260720\\reserve_mode_metrics.csv",
-  "price_cache": "H:\\codex\\r1000_run287_closeout_20260707\\outputs\\run287_temporal_extension_20260713_close_20260710_attempt02_commit_4323ce11\\inputs\\cache_prices",
+  "metrics_path": "data_static/run287_operating_scorecard_sources_v1/p4/reserve_mode_metrics.csv",
+  "metrics_provenance_status": "CANONICAL_BUNDLED",
+  "price_cache": null,
+  "price_cache_provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
   "production_enabled": false,
   "reason_reconciliation_passed": true,
   "reserve_modes_tested": [

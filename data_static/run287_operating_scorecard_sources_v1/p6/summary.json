@@ -20,52 +20,62 @@
   "live_trading_enabled": false,
   "outputs": {
     "candidate_selection_decomposition": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\candidate_selection_decomposition.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 47435,
       "sha256": "1b793debcf7dd24ffda2c2707072fe4e68f6ee5e490e36ba111e65125e0a9c87"
     },
     "data_completeness_outcomes": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\data_completeness_outcomes.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 12,
       "sha256": "236179dbfcbe27eb975744bfb3939babd2010398e9c2055fa107c653d902b979"
     },
     "forward_outcomes_measurement_only": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\forward_outcomes_measurement_only.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 47435,
       "sha256": "b5e502f3422d2f592a5b4af5b5a640672cce1d32c9459aa9467031b94ded37ac"
     },
     "oos_ic_hit_rate": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\oos_ic_hit_rate.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 12,
       "sha256": "5e0dc8ae943d3d3d92fb2f95649ce559b8e580f3e70ca4cc9d28fdd095d0dd13"
     },
     "prediction_head_activity_and_drift": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\prediction_head_activity_and_drift.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 6,
       "sha256": "b2e944c571e4ac6b41c802c6a86272ac9897383a6e64c5d8dcfdfec9549c39e0"
     },
     "rank_stability": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\rank_stability.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 84,
       "sha256": "723ea4b6f6b2cf9a40649dbda4a596c90795d94503437cf3c5d539806fba235c"
     },
     "rejection_reason_outcomes": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\rejection_reason_outcomes.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 28,
       "sha256": "84674fa4d60dc976900aae7592c1eaa2150b7133c1bbfd7466c0f55e8b90af5a"
     },
     "rejection_reason_rows": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\rejection_reason_rows.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 93981,
       "sha256": "ef1428032026fd616ca9a4a7a202ca46db90a1e63751e46896f69ba19fe220b8"
     },
     "selected_vs_rank_matched_metrics": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\selected_vs_rank_matched_metrics.csv",
+      "path": "data_static/run287_operating_scorecard_sources_v1/p6/selected_vs_rank_matched_metrics.csv",
+      "provenance_status": "CANONICAL_BUNDLED",
       "row_count": 48,
       "sha256": "60d1cf95553fbe58ffa0bd0717a7176f35e35a091485cbd401cbc25ae5ac921b"
     },
     "selected_vs_rank_matched_rows": {
-      "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\selected_vs_rank_matched_rows.csv",
+      "path": null,
+      "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
       "row_count": 3130,
       "sha256": "40ec7e89b6f309fea55abc3dbe8d5ca1c55a52b53a1284854195a67c764545dc"
     }
@@ -98,7 +108,8 @@
     "VALUATION_OR_THESIS_FAILURE"
   ],
   "repaired_candidate_artifact": {
-    "path": "H:\\codex\\r1000_run287_closeout_20260707\\_tmp_tests\\p6_candidate_gate_actual_v2_20260720\\candidate_artifact_sector_rs_repaired.csv",
+    "path": null,
+    "provenance_status": "EXTERNAL_HISTORICAL_NOT_BUNDLED",
     "row_count": 47435,
     "sha256": "c325dd3845711643a82736e35ccdfb8e6727102a91b7e4c1e7913c79fda522b9"
   },
