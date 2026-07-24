@@ -152,6 +152,49 @@ def verify_environment_credential_binding(
     return hmac.compare_digest(actual_hmac, expected_hmac)
 
 
+def credential_binding_diagnostics(
+    *,
+    attestation_value: str,
+    credentials: dict[str, str],
+) -> dict[str, Any]:
+    """Return non-secret fingerprints needed to diagnose a fail-closed bind."""
+
+    supplied = {
+        variable_name: str(credentials.get(variable_name) or "")
+        for variable_name in ENVIRONMENT_CREDENTIAL_NAMES
+        if str(credentials.get(variable_name) or "").strip()
+    }
+    credential_name = next(iter(supplied)) if len(supplied) == 1 else None
+    credential_value = supplied.get(credential_name or "", "")
+    attestation_sha256 = (
+        hashlib.sha256(attestation_value.encode("utf-8")).hexdigest()
+        if attestation_value
+        else None
+    )
+    credential_hmac_sha256 = (
+        hmac.new(
+            attestation_value.encode("utf-8"),
+            credential_value.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        if attestation_value and credential_value
+        else None
+    )
+    return {
+        "credential_name": credential_name,
+        "credential_count": len(supplied),
+        "credential_utf8_bytes": len(credential_value.encode("utf-8")),
+        "carriage_return_count": credential_value.count("\r"),
+        "line_feed_count": credential_value.count("\n"),
+        "trailing_newline": credential_value.endswith(("\r", "\n")),
+        "marker_present": bool(
+            RCLONE_ENVIRONMENT_MARKER_RE.search(credential_value)
+        ),
+        "attestation_sha256": attestation_sha256,
+        "credential_hmac_sha256": credential_hmac_sha256,
+    }
+
+
 def evaluate_readiness(
     *,
     phase: str,
@@ -385,7 +428,7 @@ def evaluate_environment(
         attestation_value=attestation_value,
         credentials=credentials,
     )
-    return evaluate_readiness(
+    result = evaluate_readiness(
         phase=phase,
         catchup_mode=as_bool(os.environ.get("PAPER_CATCHUP_MODE")),
         auth_configured=bool(
@@ -417,6 +460,18 @@ def evaluate_environment(
             os.environ.get("PAPER_DURABLE_RESTORE_MODE") or ""
         ),
     )
+    if (
+        phase == "authentication"
+        and environment_attested
+        and not credential_attested
+    ):
+        result["credential_binding_diagnostics"] = (
+            credential_binding_diagnostics(
+                attestation_value=attestation_value,
+                credentials=credentials,
+            )
+        )
+    return result
 
 
 def main() -> int:

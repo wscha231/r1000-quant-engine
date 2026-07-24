@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from tools.check_run287_catchup_drive_readiness import (  # noqa: E402
     ENVIRONMENT_CONTRACT_PATH,
     VALID_RESTORE_MODE_STATES,
+    credential_binding_diagnostics,
     evaluate_readiness,
     evaluate_environment,
     load_environment_contract,
@@ -161,6 +162,31 @@ def test_environment_attestation_contract() -> None:
         attestation_value=test_value,
         credentials={},
     )
+    newline_mismatch = test_credential + "\n"
+    diagnostics = credential_binding_diagnostics(
+        attestation_value=test_value,
+        credentials={"RCLONE_CONFIG_GDRIVE": newline_mismatch},
+    )
+    assert diagnostics == {
+        "credential_name": "RCLONE_CONFIG_GDRIVE",
+        "credential_count": 1,
+        "credential_utf8_bytes": len(newline_mismatch.encode("utf-8")),
+        "carriage_return_count": 0,
+        "line_feed_count": newline_mismatch.count("\n"),
+        "trailing_newline": True,
+        "marker_present": True,
+        "attestation_sha256": hashlib.sha256(
+            test_value.encode("utf-8")
+        ).hexdigest(),
+        "credential_hmac_sha256": hmac.new(
+            test_value.encode("utf-8"),
+            newline_mismatch.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest(),
+    }
+    serialized_diagnostics = json.dumps(diagnostics, sort_keys=True)
+    assert test_value not in serialized_diagnostics
+    assert test_credential not in serialized_diagnostics
 
     with tempfile.TemporaryDirectory() as tmp:
         contract_path = Path(tmp) / "contract.json"
@@ -181,6 +207,25 @@ def test_environment_attestation_contract() -> None:
             )
         assert ready["allowed"] is True
         assert ready["status"] == "READY_AUTH_CONFIGURED_AND_ATTESTED"
+        assert "credential_binding_diagnostics" not in ready
+
+        trailing_newline_environment = {
+            **correct_environment,
+            "RCLONE_CONFIG_GDRIVE": newline_mismatch,
+        }
+        with patch.dict(
+            os.environ, trailing_newline_environment, clear=True
+        ):
+            newline_blocked = evaluate_environment(
+                "authentication", contract_path=contract_path
+            )
+        assert newline_blocked["allowed"] is False
+        assert newline_blocked["status"] == (
+            "BLOCKED_DURABLE_CREDENTIAL_BINDING"
+        )
+        assert newline_blocked["credential_binding_diagnostics"] == (
+            diagnostics
+        )
 
         for changed_key, changed_value, expected_status in (
             (
