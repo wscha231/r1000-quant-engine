@@ -20,6 +20,7 @@ from tools.run287_paper_ledger_integrity import (  # noqa: E402
     PaperLedgerIntegrityError,
     directory_hashes,
     install_verified_snapshot,
+    reconcile_immutable_paper_head_cache,
     require_state_descends_from,
     verify_integrity_manifest,
     write_integrity_manifest,
@@ -1824,6 +1825,123 @@ def test_replay_price_evidence_revalidates_parquet_and_is_transactional() -> Non
             for relative in integrity["files"]
         )
 
+        pre_field = root / "pre_field_replay_head"
+        shutil.copytree(root / "paper", pre_field)
+        shutil.rmtree(pre_field / "replay_target_source")
+        pre_field_summary_path = pre_field / "summary.json"
+        pre_field_summary = json.loads(
+            pre_field_summary_path.read_text(encoding="utf-8")
+        )
+        pre_field_summary.pop("target_source_evidence")
+        pre_field_summary_path.write_text(
+            json.dumps(pre_field_summary, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+        pre_field_integrity = json.loads(
+            (pre_field / "snapshot_integrity.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        (pre_field / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            pre_field,
+            as_of_date=session_date,
+            previous_snapshot_hash=str(
+                pre_field_integrity.get("previous_snapshot_hash") or ""
+            ),
+        )
+        verified_pre_field = reconcile_immutable_paper_head_cache(
+            root / "pre_field_heads",
+            add_head_sources=(pre_field,),
+        )
+        assert verified_pre_field["cache_status"] == (
+            "RECONCILED_IMMUTABLE_PAPER_HEAD_CACHE"
+        )
+
+        missing_target_files = root / "missing_replay_target_files"
+        shutil.copytree(root / "paper", missing_target_files)
+        shutil.rmtree(
+            missing_target_files / "replay_target_source"
+        )
+        missing_summary_path = missing_target_files / "summary.json"
+        missing_summary = json.loads(
+            missing_summary_path.read_text(encoding="utf-8")
+        )
+        missing_summary["target_source_evidence"]["targets"] = None
+        missing_summary_path.write_text(
+            json.dumps(missing_summary, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+        (missing_target_files / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            missing_target_files,
+            as_of_date=session_date,
+            previous_snapshot_hash="",
+        )
+        try:
+            reconcile_immutable_paper_head_cache(
+                root / "missing_target_heads",
+                add_head_sources=(missing_target_files,),
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_INTEGRITY"
+            assert "target source evidence" in str(exc)
+        else:
+            raise AssertionError(
+                "null replay target evidence passed verification"
+            )
+
+        mismatched_target_source = (
+            root / "mismatched_replay_target_source"
+        )
+        shutil.copytree(root / "paper", mismatched_target_source)
+        mismatched_main = (
+            mismatched_target_source
+            / durable_target_relative
+            / "main.csv"
+        )
+        mismatched_main.write_bytes(
+            mismatched_main.read_bytes() + b"\n"
+        )
+        mismatched_summary_path = (
+            mismatched_target_source / "summary.json"
+        )
+        mismatched_summary = json.loads(
+            mismatched_summary_path.read_text(encoding="utf-8")
+        )
+        mismatched_record = mismatched_summary[
+            "target_source_evidence"
+        ]["targets"]["main"]
+        mismatched_record["sha256"] = file_hash(mismatched_main)
+        mismatched_record["bytes"] = mismatched_main.stat().st_size
+        mismatched_summary_path.write_text(
+            json.dumps(
+                mismatched_summary, indent=2, sort_keys=True
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (mismatched_target_source / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            mismatched_target_source,
+            as_of_date=session_date,
+            previous_snapshot_hash="",
+        )
+        try:
+            reconcile_immutable_paper_head_cache(
+                root / "mismatched_target_heads",
+                add_head_sources=(mismatched_target_source,),
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_INTEGRITY"
+            assert "target source evidence" in str(exc)
+        else:
+            raise AssertionError(
+                "replay target evidence was not bound to source hash"
+            )
+
         retry_sources = root / "retry_sources"
         retry_sources.mkdir()
         for portfolio in ("main", "concentrated"):
@@ -2357,7 +2475,10 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
         in transaction
     )
     assert 'if [ "$PAPER_STATE_AS_OF" = "$PAPER_AS_OF" ]; then' in transaction
-    assert 'test -s "$DURABLE_TARGET_SOURCE_DIR/main.csv"' in transaction
+    assert (
+        'if [ -s "$DURABLE_TARGET_SOURCE_DIR/main.csv" ]'
+        in transaction
+    )
     assert (
         'SOURCE_MAIN_TARGET="$DURABLE_TARGET_SOURCE_DIR/main.csv"'
         in transaction
@@ -2366,6 +2487,11 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
         'SOURCE_CONCENTRATED_TARGET="$DURABLE_TARGET_SOURCE_DIR/concentrated.csv"'
         in transaction
     )
+    assert (
+        "pre-field replay target source backfill blocked:"
+        in transaction
+    )
+    assert 'manifest.get("source_target_sha256")' in transaction
     assert transaction.count("cmp -s") >= 2
     source_snapshot_index = transaction.index(
         'CATCHUP_TARGET_SOURCE_DIR="outputs/run287_catchup_target_source/${PAPER_AS_OF}"'

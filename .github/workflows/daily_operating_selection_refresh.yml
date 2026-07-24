@@ -2095,10 +2095,39 @@ jobs:
                 # pre-transaction bytes retained inside the immutable ledger.
                 # Reconstructing them from the post-transaction effective
                 # target would change source_target_sha256.
-                test -s "$DURABLE_TARGET_SOURCE_DIR/main.csv"
-                test -s "$DURABLE_TARGET_SOURCE_DIR/concentrated.csv"
-                SOURCE_MAIN_TARGET="$DURABLE_TARGET_SOURCE_DIR/main.csv"
-                SOURCE_CONCENTRATED_TARGET="$DURABLE_TARGET_SOURCE_DIR/concentrated.csv"
+                if [ -s "$DURABLE_TARGET_SOURCE_DIR/main.csv" ] && \
+                   [ -s "$DURABLE_TARGET_SOURCE_DIR/concentrated.csv" ]; then
+                  SOURCE_MAIN_TARGET="$DURABLE_TARGET_SOURCE_DIR/main.csv"
+                  SOURCE_CONCENTRATED_TARGET="$DURABLE_TARGET_SOURCE_DIR/concentrated.csv"
+                else
+                  # Compatibility for immutable replay heads accepted before
+                  # durable target-source retention existed. The effective
+                  # target is a valid backfill only when its exact bytes equal
+                  # the source hash already sealed in each ledger manifest.
+                  python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("outputs/daily_simulated_fill_ledger")
+          for portfolio in ("main", "concentrated"):
+              source = root / portfolio / "effective_target_latest.csv"
+              manifest = json.loads(
+                  (root / portfolio / "manifest.json").read_text(
+                      encoding="utf-8"
+                  )
+              )
+              actual = hashlib.sha256(source.read_bytes()).hexdigest()
+              expected = str(
+                  manifest.get("source_target_sha256") or ""
+              ).lower()
+              if actual != expected:
+                  raise SystemExit(
+                      "pre-field replay target source backfill blocked:"
+                      f"{portfolio}:effective/source hash mismatch"
+                  )
+          PY
+                fi
               fi
               cp \
                 "$SOURCE_MAIN_TARGET" \

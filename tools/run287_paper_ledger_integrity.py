@@ -774,31 +774,59 @@ def _validate_complete_paper_snapshot(
                 f"{REPLAY_TARGET_SOURCE_PREFIX}/{as_of_date}"
             )
             if target_evidence is None:
-                if summary.get("result_status") not in {
-                    "LEGACY_ATTESTED",
-                    "LEGACY_SCHEMA_UPGRADE",
-                }:
+                # Immutable heads accepted before target-source retention was
+                # introduced remain readable. They cannot claim the new
+                # evidence contract or carry an unbound partial archive.
+                if replay_target_sessions:
                     raise ValueError(
-                        "replay target source evidence is missing"
+                        "pre-field replay head contains unbound target source "
+                        "evidence"
                     )
-            elif (
-                not isinstance(target_evidence, dict)
-                or set(target_evidence)
-                != REPLAY_TARGET_SOURCE_SUMMARY_KEYS
-                or target_evidence.get("schema_version")
-                != "run287-replay-target-source-evidence-v1"
-                or target_evidence.get("status")
-                != "VERIFIED_DURABLE_REPLAY_TARGET_SOURCE"
-                or target_evidence.get("selected_session_date")
-                != as_of_date
-                or target_evidence.get("durable_snapshot_path")
-                != expected_target_relative
-                or target_evidence.get("targets")
-                != replay_target_sessions.get(as_of_date)
-            ):
-                raise ValueError(
-                    "replay target source evidence summary contract"
+            else:
+                revalidated_targets = replay_target_sessions.get(
+                    as_of_date
                 )
+                if (
+                    not isinstance(target_evidence, dict)
+                    or set(target_evidence)
+                    != REPLAY_TARGET_SOURCE_SUMMARY_KEYS
+                    or target_evidence.get("schema_version")
+                    != "run287-replay-target-source-evidence-v1"
+                    or target_evidence.get("status")
+                    != "VERIFIED_DURABLE_REPLAY_TARGET_SOURCE"
+                    or target_evidence.get("selected_session_date")
+                    != as_of_date
+                    or target_evidence.get("durable_snapshot_path")
+                    != expected_target_relative
+                    or not isinstance(revalidated_targets, dict)
+                    or set(revalidated_targets) != set(PORTFOLIOS)
+                    or target_evidence.get("targets")
+                    != revalidated_targets
+                    or any(
+                        revalidated_targets[portfolio].get("sha256")
+                        != (
+                            summary.get("portfolios", {})
+                            .get(portfolio, {})
+                            .get("source_target_sha256")
+                        )
+                        or revalidated_targets[portfolio].get("sha256")
+                        != (
+                            publication.get("portfolios", {})
+                            .get(portfolio, {})
+                            .get("source_target_sha256")
+                        )
+                        or revalidated_targets[portfolio].get("sha256")
+                        != (
+                            publication.get("portfolios", {})
+                            .get(portfolio, {})
+                            .get("published_target_sha256")
+                        )
+                        for portfolio in PORTFOLIOS
+                    )
+                ):
+                    raise ValueError(
+                        "replay target source evidence summary contract"
+                    )
             durable_root = root / expected_relative
             if (
                 durable_root.is_symlink()
