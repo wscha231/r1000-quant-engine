@@ -78,7 +78,11 @@ def _expect_continuity_block(callable_) -> None:
     try:
         callable_()
     except PaperLedgerIntegrityError as exc:
-        assert exc.status == "BLOCKED_CONTINUITY", str(exc)
+        assert exc.status in {
+            "BLOCKED_CONTINUITY",
+            "BLOCKED_INTEGRITY",
+            "BLOCKED_PRICE_EVIDENCE",
+        }, str(exc)
     else:
         raise AssertionError("unsafe snapshot continuity was accepted")
 
@@ -347,6 +351,24 @@ def test_manifest_ancestry_tamper_and_noncanonical_date_fail_closed() -> None:
         else:
             raise AssertionError("tampered ancestry was accepted")
 
+        extra_key = root / "extra-key"
+        _new_snapshot(extra_key, "2026-07-20", "accepted-a")
+        extra_manifest_path = extra_key / INTEGRITY_FILE
+        extra_payload = json.loads(
+            extra_manifest_path.read_text(encoding="utf-8")
+        )
+        extra_payload["forward_promotion_eligible"] = True
+        extra_manifest_path.write_text(
+            json.dumps(extra_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            verify_integrity_manifest(extra_key, require=True)
+        except PaperLedgerIntegrityError as exc:
+            assert "keys mismatch" in str(exc)
+        else:
+            raise AssertionError("unknown integrity-manifest key was accepted")
+
         invalid = root / "invalid-date"
         invalid.mkdir()
         (invalid / "state.json").write_text("{}", encoding="utf-8")
@@ -413,15 +435,19 @@ def test_workflow_preserves_cache_anchor_and_checks_restore_and_persist_chains()
         "--require-install-continuity",
         "reconciled explicit latest_run ledger with immutable-cache anchor",
         "adopted checksum-verified explicit latest_run ledger as continuity anchor",
-        "--require-state-descends-from \"$PAPER_REMOTE_PERSIST_ANCHOR\"",
+        "--install-immutable-heads-root \"$PAPER_IMMUTABLE_HEADS_LOCAL\"",
+        "--select-immutable-heads-root",
+        "restored the unique verified immutable terminal",
         "run287_daily_simulated_fill_ledger_heads",
         "persist_immutable_paper_head",
         "--exclude snapshot_integrity.json",
         '"$remote_head/snapshot_integrity.json"',
         "ignore incomplete uncommitted immutable head",
-        'if [ "$VERIFIED_HEAD_HASH" != "$PAPER_HEAD_HASH" ]',
-        "reconciled all immutable Drive heads; divergent heads fail closed",
-        'if [ "$CAS_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]',
+        'install_prospective_head "$PAPER_CACHE_ANCHOR"',
+        'select_head_set "$PAPER_PROSPECTIVE_HEADS"',
+        "local snapshot is not the prospective unique terminal",
+        "committed immutable terminal differs from local state",
+        "immutable terminal changed during canonical mirror publication",
         'if [ "$POSTCHECK_SNAPSHOT_HASH" != "$LOCAL_SNAPSHOT_HASH" ]',
     )
     for fragment in required:
@@ -430,24 +456,34 @@ def test_workflow_preserves_cache_anchor_and_checks_restore_and_persist_chains()
     transaction_index = text.index(
         "- name: Run transactional paper ledger and same-close selector"
     )
-    persist_index = text.index(
-        "--require-state-descends-from \"$PAPER_REMOTE_PERSIST_ANCHOR\""
+    prospective_index = text.index(
+        'select_head_set "$PAPER_PROSPECTIVE_HEADS"'
     )
     sync_index = text.index(
         "rclone sync outputs/daily_simulated_fill_ledger \"$CANONICAL/\""
     )
     immutable_head_index = text.index(
         "persist_immutable_paper_head \\\n"
-        "            outputs/daily_simulated_fill_ledger"
+        '              "$PAPER_PROSPECTIVE_HEADS/$prospective_hash"'
     )
-    cas_index = text.index(
-        'if [ "$CAS_SNAPSHOT_HASH" != "$ANCHOR_SNAPSHOT_HASH" ]'
+    postcommit_index = text.index(
+        'download_committed_paper_heads "$PAPER_REMOTE_HEADS_POSTCOMMIT"'
     )
     postcheck_index = text.index(
         'if [ "$POSTCHECK_SNAPSHOT_HASH" != "$LOCAL_SNAPSHOT_HASH" ]'
     )
+    postmirror_index = text.index(
+        'download_committed_paper_heads "$PAPER_REMOTE_HEADS_POSTMIRROR"'
+    )
     assert restore_index < transaction_index
-    assert persist_index < immutable_head_index < cas_index < sync_index < postcheck_index
+    assert (
+        prospective_index
+        < immutable_head_index
+        < postcommit_index
+        < sync_index
+        < postcheck_index
+        < postmirror_index
+    )
 
 
 def main() -> int:

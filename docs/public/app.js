@@ -346,7 +346,19 @@ function renderTrades() {
     <tr>
       <td>${formatDate(item.date)}</td>
       <td>${formatDate(item.signal_date)}</td>
-      <td><span class="record-badge ${item.record_type === "FORWARD_PAPER" ? "record-forward" : "record-backtest"}">${item.record_type === "FORWARD_PAPER" ? "Forward 모의" : "Backtest"}</span></td>
+      <td><span class="record-badge ${
+        item.record_type === "FORWARD_PAPER"
+          ? "record-forward"
+          : item.record_type === "FORWARD_PAPER_REPLAY"
+            ? "record-replay"
+            : "record-backtest"
+      }">${
+        item.record_type === "FORWARD_PAPER"
+          ? "Forward 모의"
+          : item.record_type === "FORWARD_PAPER_REPLAY"
+            ? "Catch-up replay"
+            : "Backtest"
+      }</span></td>
       <td><span class="side-badge ${item.side === "BUY" ? "side-buy" : "side-sell"}">${item.side === "BUY" ? "매수" : "매도"}</span></td>
       <td class="ticker-cell">${escapeHtml(item.ticker)}</td>
       <td class="number">${price(item.fill_price)}</td>

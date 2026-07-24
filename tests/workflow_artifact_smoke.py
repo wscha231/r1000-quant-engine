@@ -962,7 +962,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--expected-seed-date 2026-07-13",
         "--starting-capital 100000",
         "tools/run_daily_simulated_fill_ledger.py",
-        "--decision-time-utc \"$RISK_AVAILABLE_FROM\"",
+        "--decision-time-utc \"$DECISION_CUTOFF_UTC\"",
         "--security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv",
         "outputs/daily_simulated_fill_ledger/",
         "daily_simulated_fill_ledger.log",
@@ -1037,8 +1037,13 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "explicitly adopted integrity-valid pre-head Drive canonical",
         "PAPER_VERIFIED_CANONICAL_BOOTSTRAP_PENDING",
         "migration evidence mismatch",
-        "committed explicitly attested pre-head canonical as first immutable paper head",
+        "committed explicitly attested pre-head canonical in the verified immutable chain",
         "persist_immutable_paper_head",
+        "--select-immutable-heads-root",
+        "--install-immutable-heads-root",
+        "select_head_set \"$PAPER_PROSPECTIVE_HEADS\"",
+        "committed immutable terminal differs from local state",
+        "immutable terminal changed during canonical mirror publication",
         "ignore incomplete uncommitted immutable head",
         "--exclude snapshot_integrity.json",
         '"$remote_head/snapshot_integrity.json"',
@@ -1088,9 +1093,37 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "paper_archive/run287_decision_observation_archive",
         "--allow-missing",
         "--require-exact-close",
-        "RISK_AVAILABLE_FROM=\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"",
-        "--available-from \"$RISK_AVAILABLE_FROM\"",
+        "GENERATED_AT_UTC=\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"",
+        "--available-from \"$GENERATED_AT_UTC\"",
+        "catchup_price_evidence_run_id",
+        "catchup_price_evidence_artifact_digest",
+        "Restore immutable catch-up price evidence",
+        "Restore validated cross-mode paper continuity cache",
+        "daily-paper-continuity-v1-",
+        "outputs/run287_paper_immutable_head_bundles",
+        "origin_verification_mode",
+        "DEFAULT_BRANCH_ANCESTOR",
+        "APPROVED_LEGACY_ARTIFACT_PIN",
+        "workflow_identity_verified",
+        "repository_identity_verified",
+        "head_lineage_verified",
+        "actions/runs/${EVIDENCE_RUN_ID}",
+        "actions/workflows/daily_operating_selection_refresh.yml",
+        "compare/${ARTIFACT_HEAD_SHA}...${GITHUB_SHA}",
+        "validate_github_compare_payload",
+        "unsafe catch-up artifact archive member",
+        "tools/build_run287_catchup_price_evidence.py",
+        "--price-evidence-manifest",
+        "--replay-only",
+        "Enforce default-branch sole writer",
         "Persist validated forward paper ledger state",
+        "Reverify default head before accepted publication and cache",
+        "default_head_publication_gate",
+        "Reverify default head immediately before accepted cache saves",
+        "default_head_cache_gate",
+        "Reverify default head after accepted publication",
+        "final_default_head_gate",
+        "assert_current_default_head",
         "--max-fill-lag-days 7",
         "daily-operating-selection-refresh",
         "cancel-in-progress: false",
@@ -1119,6 +1152,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "python run_local.py --full",
         "git commit",
         "tools/run_broker_ledger_replay.py",
+        'payload.get("head_commit")',
     ]:
         assert forbidden not in text, forbidden
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
@@ -1213,6 +1247,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/run287_operating_scorecard/",
         "outputs/run287_promotion_gate/",
         "outputs/run287_accepted_publication/",
+        "outputs/run287_paper_immutable_head_bundles/",
     ):
         assert path in accepted_upload, path
     accepted_drive = text[
@@ -1228,6 +1263,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     accepted_cache_idx = text.index(
         "- name: Save validated forward paper state cache"
     )
+    continuity_cache_idx = text.index(
+        "- name: Save validated cross-mode paper continuity cache"
+    )
     accepted_drive_idx = text.index(
         "- name: Sync accepted paper transaction to Google Drive"
     )
@@ -1235,6 +1273,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         persist_step_idx
         < accepted_upload_idx
         < accepted_cache_idx
+        < continuity_cache_idx
         < accepted_drive_idx
     ), "canonical paper persistence must precede every accepted publication/cache"
     assert (
@@ -1271,6 +1310,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert "outputs/run287_accepted_publication" in cache_save
     assert "outputs/run287_risk_outcome_accepted_head_bundles" in cache_save
     assert "outputs/run287_risk_outcome_accepted_head_manifests" in cache_save
+    assert "daily-paper-continuity-v1-" in cache_save
+    assert "outputs/run287_paper_immutable_head_bundles" in cache_save
     assert text.count("--verify-manifest") >= 4
     assert text.count("--expected-manifest-sha256") >= 4
 

@@ -54,6 +54,59 @@ def test_session_gate_handles_regular_holiday_weekend_and_early_close() -> None:
     assert early_close["early_close_aware"] is True
 
 
+def test_session_gate_selects_only_explicit_completed_catchup_sessions() -> None:
+    catchup = evaluate_market_session(
+        now_utc="2026-07-24T01:00:00Z",
+        force=True,
+        session_date="2026-07-17",
+    )
+    assert catchup["ready"] is True
+    assert catchup["status"] == "READY_FORCED_CATCHUP_SESSION"
+    assert catchup["session_date"] == "2026-07-17"
+    assert catchup["latest_completed_session_date"] == "2026-07-23"
+    assert catchup["catchup_mode"] is True
+
+    for kwargs, message in (
+        (
+            {
+                "now_utc": "2026-07-24T01:00:00Z",
+                "session_date": "2026-07-17",
+            },
+            "--session-date requires --force",
+        ),
+        (
+            {
+                "now_utc": "2026-07-24T01:00:00Z",
+                "force": True,
+                "session_date": "2026-07-18",
+            },
+            "--session-date must be an NYSE session",
+        ),
+        (
+            {
+                "now_utc": "2026-07-23T18:00:00Z",
+                "force": True,
+                "session_date": "2026-07-23",
+            },
+            "--session-date must be a completed NYSE session",
+        ),
+        (
+            {
+                "now_utc": "2026-07-24T01:00:00Z",
+                "force": True,
+                "session_date": "2026-07-17T00:00:00",
+            },
+            "--session-date must use canonical YYYY-MM-DD",
+        ),
+    ):
+        try:
+            evaluate_market_session(**kwargs)
+        except ValueError as exc:
+            assert message in str(exc)
+        else:
+            raise AssertionError(f"unsafe selected session was accepted: {kwargs}")
+
+
 def test_exact_close_coverage_includes_targets_accounts_pending_and_benchmarks() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -106,6 +159,7 @@ def test_exact_close_coverage_includes_targets_accounts_pending_and_benchmarks()
 
 def main() -> int:
     test_session_gate_handles_regular_holiday_weekend_and_early_close()
+    test_session_gate_selects_only_explicit_completed_catchup_sessions()
     test_exact_close_coverage_includes_targets_accounts_pending_and_benchmarks()
     print("daily_market_close_gate_smoke: PASS")
     return 0

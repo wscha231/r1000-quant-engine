@@ -56,6 +56,13 @@ def write_prices(cache: Path, ticker: str, closes: list[float]) -> None:
 
 
 def write_seed(path: Path, portfolio: str) -> None:
+    bootstrap_target = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 0.50},
+            {"ticker": "CASH", "target_weight": 0.50},
+        ]
+    )
+    bootstrap_target_bytes = bootstrap_target.to_csv(index=False).encode("utf-8")
     payload = {
         "schema_version": "account-ledger-v1",
         "portfolio_kind": portfolio,
@@ -81,6 +88,8 @@ def write_seed(path: Path, portfolio: str) -> None:
             }
         ],
         "realized_pnl_by_ticker": {},
+        "assumed_applied_target_hash": target_hash(bootstrap_target),
+        "target_sha256": hashlib.sha256(bootstrap_target_bytes).hexdigest(),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -304,11 +313,21 @@ def test_next_close_uses_nyse_calendar_and_never_skips_missing_session() -> None
         try:
             run(args_for(root, "2026-01-07"))
         except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_SESSION_GAP"
+            assert "2026-01-06" in str(exc)
+        else:
+            raise AssertionError(
+                "a later session skipped the missing next NYSE session"
+            )
+        assert directory_hashes(root / "paper") == before
+        try:
+            run(args_for(root, "2026-01-06"))
+        except PaperLedgerIntegrityError as exc:
             assert exc.status == "BLOCKED_MISSING_EXACT_CLOSE"
             assert "2026-01-06" in str(exc)
         else:
             raise AssertionError(
-                "a later close replaced the missing next NYSE close"
+                "the missing next NYSE close was silently accepted"
             )
         assert directory_hashes(root / "paper") == before
 
@@ -402,6 +421,8 @@ def test_delayed_catchup_fills_before_terminal_settlement() -> None:
 
         first = run(args_for(root, "2026-01-02", str(lifecycle)))
         assert first["status"] == "completed"
+        catchup = run(args_for(root, "2026-01-05", str(lifecycle)))
+        assert catchup["status"] == "completed"
         second = run(args_for(root, "2026-01-06", str(lifecycle)))
         assert second["status"] == "completed"
         for portfolio in ("main", "concentrated"):

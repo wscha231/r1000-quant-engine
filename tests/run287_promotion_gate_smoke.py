@@ -6,6 +6,7 @@ import copy
 import csv
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from datetime import date, timedelta
@@ -53,6 +54,10 @@ from resolve_run287_risk_outcomes import (  # noqa: E402
 )
 from run_weekly_evaluation import px_cache_name  # noqa: E402
 from build_run287_operating_scorecard import build_scorecard  # noqa: E402
+from tests.run287_paper_ledger_transaction_smoke import (  # noqa: E402
+    write_prices,
+    write_replay_price_manifest,
+)
 
 
 def _inputs() -> tuple[dict, dict, dict]:
@@ -207,7 +212,13 @@ def _write_valid_paper_portfolio(
     ) as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["date", "equity_usd", "cash_usd", "stock_value_usd"],
+            fieldnames=[
+                "date",
+                "equity_usd",
+                "cash_usd",
+                "stock_value_usd",
+                "record_type",
+            ],
         )
         writer.writeheader()
         for row_date, cash in dates_and_cash:
@@ -217,6 +228,7 @@ def _write_valid_paper_portfolio(
                     "equity_usd": 100.0,
                     "cash_usd": cash,
                     "stock_value_usd": 100.0 - cash,
+                    "record_type": "FORWARD_MARK",
                 }
             )
     common = {
@@ -1266,6 +1278,74 @@ def test_missed_daily_mark_does_not_invalidate_later_paper_snapshot() -> None:
             "runtime_paper_missing_or_extra_nyse_session" in value
             for value in overlaid["runtime_limitations"]
         )
+
+
+def test_durable_replay_marks_never_count_as_forward_sessions() -> None:
+    _, _, evidence = _inputs()
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        paper = root / "daily_simulated_fill_ledger"
+        sessions = [
+            "2026-04-06",
+            "2026-04-07",
+            "2026-04-08",
+            "2026-04-09",
+        ]
+        for portfolio in ("main", "concentrated"):
+            _write_valid_paper_portfolio(
+                paper,
+                portfolio,
+                dates_and_cash=[
+                    (session, 100.0) for session in sessions
+                ],
+            )
+        write_prices(
+            root / "prices",
+            "AAA",
+            sessions,
+            [100.0, 101.0, 102.0, 103.0],
+        )
+        write_prices(
+            root / "prices",
+            "BBB",
+            sessions,
+            [100.0, 101.0, 102.0, 103.0],
+        )
+        write_replay_price_manifest(root, "2026-04-08")
+        durable = (
+            paper
+            / "replay_price_evidence"
+            / "2026-04-08"
+        )
+        shutil.copytree(root / "prices", durable)
+        _finalize_valid_paper(paper)
+
+        overlaid = overlay_latest_run_evidence(evidence, root)
+        assert (
+            overlaid["forward_paper"]["completed_market_sessions"]
+            == 3
+        )
+        observation = overlaid["latest_run_observation"]
+        assert observation["raw_common_equity_dates"] == 4
+        assert observation["replay_sessions_excluded"] == 1
+        assert observation["completed_market_sessions"] == 3
+
+        (durable / next(
+            path.name
+            for path in durable.iterdir()
+            if path.name != "manifest.json"
+        )).unlink()
+        (paper / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            paper,
+            as_of_date=sessions[-1],
+        )
+        blocked = overlay_latest_run_evidence(evidence, root)
+        assert (
+            blocked["forward_paper"]["completed_market_sessions"]
+            == 0
+        )
+        assert blocked["rollback"]["integrity_error"] is True
 
 
 def test_root_and_portfolio_integrity_counts_must_reconcile() -> None:

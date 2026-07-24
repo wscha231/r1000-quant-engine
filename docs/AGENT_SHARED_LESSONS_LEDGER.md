@@ -3378,3 +3378,49 @@ Expected contract:
   `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-07-24 - H4b chronological catch-up and durable publication hardening
+
+- A historical market session is not a normal forced daily run. It must be a
+  separate replay-only transition that suppresses target recomputation,
+  same-close selection, new orders, outcomes, scorecards, and promotion.
+- Exact replay prices must become immutable files inside the accepted paper
+  snapshot. A pointer to an external cache or a manifest alone is insufficient
+  because later cache replacement can silently change historical evidence.
+- Replay equity marks must never inflate forward promotion sample counts.
+  Recompute eligible sessions from verified `FORWARD_MARK` rows after excluding
+  every session in the durable replay-evidence registry.
+- Preserve anomalous source OHLC instead of silently repairing it. Record the
+  anomaly and allow only the independently valid field required by the narrow
+  replay contract; explicitly mark the reference OHLC as execution-ineligible.
+- Validate APIs against actual response shapes. GitHub's compare response has
+  `base_commit`, `merge_base_commit`, `ahead_by`, and `behind_by`, but no
+  `head_commit`. Tests should include captured real payload shapes, not only
+  invented fixtures.
+- Artifact provenance is a tuple: exact run and artifact IDs, API/ZIP digest,
+  repository, workflow identity, branch, SHA lineage, event, terminal state,
+  timestamps, and a closed metadata schema. Self-asserted booleans or a digest
+  without origin identity are not sufficient.
+- Cross-mode continuity requires one shared cache containing the complete
+  immutable chain. Separate normal/catch-up caches or terminal-only caching
+  lose mode transitions and cannot recover safely from multiple offline runs.
+- Append-only CSV acceptance is byte-level, not merely dataframe-equivalent.
+  Re-serializing prior floating-point rows can break a valid descendant, so
+  retain the frozen header and append bytes without rewriting the prefix.
+- Default-branch validation only at workflow start leaves a TOCTOU window.
+  Recheck the remote SHA immediately before data/marker writes, canonical and
+  accepted publication, cache save, and once more after final publication.
+- Real pinned artifacts for 2026-07-17, 20, 21, and 22 produced a four-head
+  replay-only chain with zero new orders/fills and terminal
+  `f2c95d8c1ca3b1f1fe1fd76f25a65be42734ab5238722222d02a6b8d88b79ebf`.
+  All four observations were excluded from promotion counts.
+- Pre-H4b workflow reruns cannot be retroactively protected by new YAML. Rotate
+  and move Drive credentials to a protected workflow-specific environment
+  after merge.
+- Focused tests, actual artifact v2 replay/consumer validation, YAML and Bash
+  syntax checks, read-only security audit, and full Tier-1 validation
+  (`196/196`, `785.39s`) passed.
+- Evidence:
+  `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.

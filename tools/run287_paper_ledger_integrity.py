@@ -36,6 +36,26 @@ PAPER_APPEND_ONLY_FILES = tuple(
     for portfolio in PORTFOLIOS
     for filename in ("fills.csv", "rejections.csv", "equity_curve.csv")
 )
+PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA = (
+    "run287-paper-immutable-head-selection-v1"
+)
+PAPER_IMMUTABLE_HEAD_SELECTION_STATUS = (
+    "VERIFIED_LINEAR_IMMUTABLE_PAPER_HEAD_SELECTED"
+)
+REPLAY_PRICE_EVIDENCE_PREFIX = "replay_price_evidence"
+REPLAY_PRICE_EVIDENCE_SUMMARY_KEYS = frozenset(
+    {
+        "manifest_sha256",
+        "price_cache_tree_sha256",
+        "source_generated_at_utc",
+        "artifact_captured_at_utc",
+        "ingested_at_utc",
+        "artifact",
+        "ticker_count",
+        "durable_snapshot_path",
+        "durable_price_cache_tree_sha256",
+    }
+)
 
 
 class PaperLedgerIntegrityError(ValueError):
@@ -110,6 +130,25 @@ def _validate_manifest_envelope(payload: Any) -> dict[str, Any]:
     ):
         raise PaperLedgerIntegrityError(
             "BLOCKED_INTEGRITY", "integrity manifest schema mismatch"
+        )
+    expected_keys = {
+        "schema_version",
+        "as_of_date",
+        "files",
+        "file_count",
+        "genesis_identity_sha256",
+        "previous_snapshot_hash",
+        "generated_at_utc",
+        "snapshot_hash",
+    }
+    if payload["schema_version"] == INTEGRITY_SCHEMA:
+        expected_keys.add("ancestor_snapshot_hashes")
+    if set(payload) != expected_keys:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "integrity manifest keys mismatch:"
+            f"missing={sorted(expected_keys - set(payload))}:"
+            f"extra={sorted(set(payload) - expected_keys)}",
         )
     _strict_iso_date(payload.get("as_of_date"), field="as_of_date")
     expected = payload.get("files")
@@ -511,6 +550,235 @@ def _validate_paper_semantics(root: Path) -> None:
         ) from exc
 
 
+def verified_replay_price_evidence_sessions(
+    root: Path,
+) -> dict[str, dict[str, Any]]:
+    """Revalidate every immutable replay cache and return it by session."""
+    evidence_root = root / REPLAY_PRICE_EVIDENCE_PREFIX
+    if not evidence_root.exists():
+        return {}
+    if evidence_root.is_symlink() or not evidence_root.is_dir():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_PRICE_EVIDENCE",
+            "durable replay price evidence root is unsafe",
+        )
+    sessions: dict[str, dict[str, Any]] = {}
+    for entry in sorted(evidence_root.iterdir(), key=lambda path: path.name):
+        if entry.is_symlink() or not entry.is_dir():
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PRICE_EVIDENCE",
+                "durable replay price evidence contains a non-directory entry",
+            )
+        parsed = _strict_iso_date(
+            entry.name,
+            field="replay_price_evidence.session",
+        )
+        session = parsed.isoformat()
+        if session != entry.name or session in sessions:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PRICE_EVIDENCE",
+                "durable replay price evidence session is not canonical",
+            )
+        if any(path.is_symlink() for path in entry.rglob("*")):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PRICE_EVIDENCE",
+                f"durable replay price evidence contains a symlink:{session}",
+            )
+        try:
+            import pandas as pd
+
+            try:
+                from tools.run_daily_simulated_fill_ledger import (
+                    validate_replay_price_evidence,
+                )
+            except ModuleNotFoundError:
+                from run_daily_simulated_fill_ledger import (
+                    validate_replay_price_evidence,
+                )
+            validated = validate_replay_price_evidence(
+                price_cache=entry,
+                manifest_path=entry / "manifest.json",
+                as_of_date=pd.Timestamp(session),
+            )
+        except PaperLedgerIntegrityError:
+            raise
+        except Exception as exc:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_PRICE_EVIDENCE",
+                "durable replay price evidence semantic validation failed:"
+                f"{session}:{exc}",
+            ) from exc
+        sessions[session] = {
+            **validated,
+            "durable_snapshot_path": (
+                f"{REPLAY_PRICE_EVIDENCE_PREFIX}/{session}"
+            ),
+            "durable_price_cache_tree_sha256": validated[
+                "price_cache_tree_sha256"
+            ],
+        }
+    return sessions
+
+
+def _validate_complete_paper_snapshot(
+    root: Path,
+    integrity: dict[str, Any],
+) -> None:
+    """Require a hash-valid immutable head to be a complete accepted ledger."""
+    account_paths = {
+        portfolio: root / portfolio / "account_state_latest.json"
+        for portfolio in PORTFOLIOS
+    }
+    if not all(path.is_file() for path in account_paths.values()):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "immutable paper head is not a complete two-portfolio ledger",
+        )
+    _validate_paper_semantics(root)
+    try:
+        summary = _continuity_json(root / "summary.json")
+        publication = _continuity_json(root / "accepted_publication.json")
+        as_of_date = str(integrity["as_of_date"])
+        replay_sessions = verified_replay_price_evidence_sessions(root)
+        suppressed = summary.get("new_order_generation_suppressed")
+        expected_mode = "MARK_ONLY" if suppressed is True else "SELECTED_TARGET"
+        if (
+            summary.get("schema_version")
+            != "daily-simulated-fill-ledger-summary-v1"
+            or summary.get("status") != "completed"
+            or summary.get("as_of_date") != as_of_date
+            or not isinstance(suppressed, bool)
+            or summary.get("review_only") is not True
+            or summary.get("simulated") is not True
+            or summary.get("live_trading_enabled") is not False
+            or summary.get("production_mutation_allowed") is not False
+            or summary.get("historical_cagr_mdd_replacement_allowed")
+            is not False
+            or set((summary.get("portfolios") or {}).keys())
+            != set(PORTFOLIOS)
+        ):
+            raise ValueError("root summary contract")
+        if (
+            publication.get("schema_version")
+            != "run287-paper-accepted-publication-v1"
+            or publication.get("status") != "ACCEPTED_ATOMIC_PUBLICATION"
+            or publication.get("as_of_date") != as_of_date
+            or publication.get("transaction_mode") != expected_mode
+            or publication.get("review_only") is not True
+            or publication.get("live_trading_enabled") is not False
+            or publication.get("production_mutation_allowed") is not False
+            or set((publication.get("portfolios") or {}).keys())
+            != set(PORTFOLIOS)
+        ):
+            raise ValueError("accepted publication contract")
+        if summary.get("replay_only") is True:
+            evidence = summary.get("price_evidence")
+            expected_relative = (
+                f"{REPLAY_PRICE_EVIDENCE_PREFIX}/{as_of_date}"
+            )
+            if (
+                summary.get("forward_promotion_eligible") is not False
+                or not isinstance(evidence, dict)
+                or set(evidence) != REPLAY_PRICE_EVIDENCE_SUMMARY_KEYS
+                or evidence.get("durable_snapshot_path")
+                != expected_relative
+                or not valid_sha256(
+                    evidence.get("manifest_sha256")
+                )
+                or not valid_sha256(
+                    evidence.get("price_cache_tree_sha256")
+                )
+                or not valid_sha256(
+                    evidence.get("durable_price_cache_tree_sha256")
+                )
+                or evidence.get("durable_price_cache_tree_sha256")
+                != evidence.get("price_cache_tree_sha256")
+            ):
+                raise ValueError("replay price evidence summary contract")
+            durable_root = root / expected_relative
+            if (
+                durable_root.is_symlink()
+                or not durable_root.is_dir()
+                or any(
+                    path.is_symlink()
+                    for path in durable_root.rglob("*")
+                )
+            ):
+                raise ValueError("durable replay price evidence path")
+            revalidated = replay_sessions.get(as_of_date)
+            if revalidated is None:
+                raise ValueError(
+                    "durable replay price evidence session is missing"
+                )
+            for key, value in revalidated.items():
+                if evidence.get(key) != value:
+                    raise ValueError(
+                        f"durable replay price evidence parity:{key}"
+                    )
+            durable_hashes = directory_hashes(durable_root)
+            durable_tree_sha256 = canonical_hash(durable_hashes)
+            if (
+                durable_tree_sha256
+                != evidence.get("durable_price_cache_tree_sha256")
+                or file_hash(durable_root / "manifest.json")
+                != evidence.get("manifest_sha256")
+                or {
+                    key: value
+                    for key, value in integrity["files"].items()
+                    if key.startswith(expected_relative + "/")
+                }
+                != {
+                    f"{expected_relative}/{key}": value
+                    for key, value in durable_hashes.items()
+                }
+            ):
+                raise ValueError("durable replay price evidence hash binding")
+        elif "price_evidence" in summary:
+            raise ValueError("non-replay summary contains price evidence")
+        for portfolio in PORTFOLIOS:
+            portfolio_root = root / portfolio
+            manifest_path = portfolio_root / "manifest.json"
+            target_path = portfolio_root / "effective_target_latest.csv"
+            manifest = _continuity_json(manifest_path)
+            row = publication["portfolios"][portfolio]
+            if not isinstance(row, dict):
+                raise ValueError(f"{portfolio} publication row")
+            target_sha256 = file_hash(target_path)
+            if (
+                summary["portfolios"][portfolio] != manifest
+                or manifest.get("as_of_date") != as_of_date
+                or manifest.get("new_order_generation_suppressed")
+                is not suppressed
+                or not target_path.is_file()
+                or not valid_sha256(target_sha256)
+                or manifest.get("target_sha256") != target_sha256
+                or not valid_sha256(manifest.get("source_target_sha256"))
+                or row.get("source_target_sha256")
+                != manifest.get("source_target_sha256")
+                or row.get("published_target_sha256")
+                != manifest.get("source_target_sha256")
+                or row.get("account_state_sha256")
+                != file_hash(account_paths[portfolio])
+                or row.get("ledger_manifest_sha256")
+                != file_hash(manifest_path)
+                or not valid_sha256(row.get("preview_identity_at_acceptance"))
+                or row.get("preview_mode_at_acceptance")
+                != (
+                    "NO_NEW_ORDER"
+                    if suppressed
+                    else "EXECUTABLE_CANDIDATE"
+                )
+            ):
+                raise ValueError(f"{portfolio} root publication parity")
+    except PaperLedgerIntegrityError:
+        raise
+    except Exception as exc:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            f"immutable paper head acceptance contract failed: {exc}",
+        ) from exc
+
+
 def _continuity_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -798,6 +1066,48 @@ def _verify_snapshot_extension(candidate_root: Path, anchor_root: Path) -> None:
                 "BLOCKED_CONTINUITY",
                 "durable legacy migration attestation changed or disappeared",
             )
+    evidence_prefix = f"{REPLAY_PRICE_EVIDENCE_PREFIX}/"
+    anchor_evidence = {
+        relative: digest
+        for relative, digest in directory_hashes(anchor_root).items()
+        if relative.startswith(evidence_prefix)
+    }
+    candidate_evidence = {
+        relative: digest
+        for relative, digest in directory_hashes(candidate_root).items()
+        if relative.startswith(evidence_prefix)
+    }
+    changed_or_missing_evidence = sorted(
+        relative
+        for relative, digest in anchor_evidence.items()
+        if candidate_evidence.get(relative) != digest
+    )
+    if changed_or_missing_evidence:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_CONTINUITY",
+            "durable replay price evidence changed or disappeared: "
+            + ",".join(changed_or_missing_evidence),
+        )
+    added_evidence = sorted(set(candidate_evidence) - set(anchor_evidence))
+    if added_evidence:
+        expected_added_prefix = (
+            f"{evidence_prefix}{candidate_integrity['as_of_date']}/"
+        )
+        candidate_summary = _continuity_json(
+            candidate_root / "summary.json"
+        )
+        if (
+            candidate_summary.get("replay_only") is not True
+            or any(
+                not relative.startswith(expected_added_prefix)
+                for relative in added_evidence
+            )
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_CONTINUITY",
+                "new durable replay price evidence is not bound to the "
+                "candidate replay session",
+            )
 
     history_files = (
         PAPER_APPEND_ONLY_FILES
@@ -837,8 +1147,18 @@ def _verify_snapshot_extension(candidate_root: Path, anchor_root: Path) -> None:
                 f"append-only history is not an exact prefix: {relative}",
             )
         advanced = advanced or len(candidate_rows) > len(anchor_rows)
-    _validate_paper_semantics(anchor_root)
-    _validate_paper_semantics(candidate_root)
+    if real_paper_anchor:
+        _validate_complete_paper_snapshot(
+            anchor_root,
+            anchor_integrity,
+        )
+        _validate_complete_paper_snapshot(
+            candidate_root,
+            candidate_integrity,
+        )
+    else:
+        _validate_paper_semantics(anchor_root)
+        _validate_paper_semantics(candidate_root)
     if same_session:
         _verify_same_session_extension(
             candidate_root,
@@ -927,11 +1247,304 @@ def install_verified_snapshot(
     }
 
 
+def _immutable_paper_head_nodes(heads_root: Path) -> dict[str, dict[str, Any]]:
+    """Return verified marker-committed immutable paper heads by snapshot hash.
+
+    An immutable-head directory is committed only once its integrity manifest
+    has been written.  This mirrors marker-last publication: directories that
+    have not reached that final marker are ignored, while every directory that
+    has reached it must verify completely and be named by its snapshot hash.
+    """
+    if heads_root.is_symlink() or not heads_root.is_dir():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", "immutable paper heads root is missing or unsafe"
+        )
+    nodes: dict[str, dict[str, Any]] = {}
+    for entry in sorted(heads_root.iterdir(), key=lambda path: path.name):
+        if entry.is_symlink():
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY", f"immutable paper head symlink is forbidden: {entry.name}"
+            )
+        if not entry.is_dir():
+            continue
+        marker = entry / INTEGRITY_FILE
+        # A missing marker means a publisher has not committed this directory
+        # yet.  Do not let partial uploads affect the accepted chain.
+        if not marker.exists() and not marker.is_symlink():
+            continue
+        if not valid_sha256(entry.name):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY", f"immutable paper head directory name is invalid: {entry.name}"
+            )
+        if marker.is_symlink() or not marker.is_file():
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY", f"immutable paper head marker is unsafe: {entry.name}"
+            )
+        for descendant in entry.rglob("*"):
+            if descendant.is_symlink():
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    f"immutable paper head bundle symlink is forbidden: {entry.name}",
+                )
+        verified = verify_integrity_manifest(entry, require=True)
+        _validate_complete_paper_snapshot(entry, verified)
+        snapshot_hash = str(verified["snapshot_hash"])
+        if snapshot_hash != entry.name:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                "immutable paper head directory/hash mismatch: "
+                f"directory={entry.name} manifest={snapshot_hash}",
+            )
+        nodes[snapshot_hash] = {**verified, "_head_dir": entry.resolve()}
+    if not nodes:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", "immutable paper heads contain no committed head"
+        )
+    return nodes
+
+
+def _linear_immutable_paper_head_chain(
+    nodes: dict[str, dict[str, Any]],
+) -> tuple[str, str, list[str]]:
+    """Validate one complete immutable-head chain without recursive traversal."""
+    parents: dict[str, str] = {}
+    children: dict[str, list[str]] = {snapshot_hash: [] for snapshot_hash in nodes}
+    roots: list[str] = []
+    for snapshot_hash, manifest in nodes.items():
+        parent = str(manifest.get("previous_snapshot_hash") or "")
+        if not parent:
+            roots.append(snapshot_hash)
+            parents[snapshot_hash] = ""
+            continue
+        if parent not in nodes:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"immutable paper head parent is missing: child={snapshot_hash} parent={parent}",
+            )
+        parents[snapshot_hash] = parent
+        children[parent].append(snapshot_hash)
+
+    # Keep cycle detection iterative: a durable daily ledger can be much
+    # longer than Python's recursion limit.
+    colours: dict[str, int] = {snapshot_hash: 0 for snapshot_hash in nodes}
+    for start in sorted(nodes):
+        if colours[start] == 2:
+            continue
+        cursor = start
+        active: list[str] = []
+        while cursor and colours[cursor] == 0:
+            colours[cursor] = 1
+            active.append(cursor)
+            cursor = parents[cursor]
+        if cursor and colours[cursor] == 1:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY", f"immutable paper head cycle detected: {cursor}"
+            )
+        for snapshot_hash in reversed(active):
+            colours[snapshot_hash] = 2
+
+    for snapshot_hash, parent in parents.items():
+        if not parent:
+            continue
+        manifest = nodes[snapshot_hash]
+        parent_manifest = nodes[parent]
+        expected_ancestors = [parent, *parent_manifest["ancestor_snapshot_hashes"]]
+        if manifest["ancestor_snapshot_hashes"] != expected_ancestors:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"immutable paper head parent lineage mismatch: child={snapshot_hash} parent={parent}",
+            )
+        if (
+            manifest.get("genesis_identity_sha256", "")
+            != parent_manifest.get("genesis_identity_sha256", "")
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"immutable paper head parent genesis mismatch: child={snapshot_hash} parent={parent}",
+            )
+        if _strict_iso_date(manifest["as_of_date"], field="as_of_date") < _strict_iso_date(
+            parent_manifest["as_of_date"], field="parent.as_of_date"
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"immutable paper head predates parent: child={snapshot_hash} parent={parent}",
+            )
+
+    if len(roots) != 1:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", f"immutable paper head root count is invalid: {len(roots)}"
+        )
+    for parent, child_hashes in children.items():
+        if len(child_hashes) > 1:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                "immutable paper head fork detected: "
+                f"parent={parent} children={','.join(sorted(child_hashes))}",
+            )
+    terminals = sorted(
+        snapshot_hash
+        for snapshot_hash, child_hashes in children.items()
+        if not child_hashes
+    )
+    if len(terminals) != 1:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            f"immutable paper head terminal count is invalid: {len(terminals)}",
+        )
+
+    chain = [roots[0]]
+    while children[chain[-1]]:
+        chain.append(children[chain[-1]][0])
+    if len(chain) != len(nodes):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", "immutable paper head chain is disconnected"
+        )
+    return roots[0], terminals[0], chain
+
+
+def select_verified_immutable_paper_head(heads_root: Path) -> dict[str, Any]:
+    """Select the unique terminal verified paper head from local head bundles."""
+    root = Path(heads_root)
+    nodes = _immutable_paper_head_nodes(root)
+    root_hash, terminal_hash, chain = _linear_immutable_paper_head_chain(nodes)
+    for parent_hash, child_hash in zip(chain, chain[1:], strict=False):
+        _verify_snapshot_extension(
+            Path(nodes[child_hash]["_head_dir"]),
+            Path(nodes[parent_hash]["_head_dir"]),
+        )
+    terminal = nodes[terminal_hash]
+    return {
+        "schema_version": PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA,
+        "status": PAPER_IMMUTABLE_HEAD_SELECTION_STATUS,
+        "heads_root": str(root.resolve()),
+        "immutable_head_count": len(chain),
+        "root_snapshot_hash": root_hash,
+        "terminal_snapshot_hash": terminal_hash,
+        "selected_snapshot_hash": terminal_hash,
+        "selected_head_dir": str(terminal["_head_dir"]),
+        "selected_as_of_date": terminal["as_of_date"],
+        "chain_snapshot_hashes": chain,
+    }
+
+
+def install_unique_verified_immutable_paper_head(
+    heads_root: Path,
+    destination: Path,
+    *,
+    require_continuity: bool = False,
+) -> dict[str, Any]:
+    """Select and install the only terminal committed immutable paper head."""
+    selection = select_verified_immutable_paper_head(heads_root)
+    installed = install_verified_snapshot(
+        Path(selection["selected_head_dir"]),
+        Path(destination),
+        require_continuity=require_continuity,
+    )
+    return {**selection, **installed}
+
+
+def reconcile_immutable_paper_head_cache(
+    cache_root: Path,
+    *,
+    merge_heads_roots: Iterable[Path] = (),
+    add_head_sources: Iterable[Path] = (),
+    expected_terminal_hash: str = "",
+) -> dict[str, Any]:
+    """Atomically merge complete immutable chains and accepted snapshots."""
+    destination = Path(cache_root)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.reconcile-",
+            dir=destination.parent,
+        )
+    )
+    try:
+        if destination.exists():
+            if destination.is_symlink() or not destination.is_dir():
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper head cache destination is unsafe",
+                )
+            select_verified_immutable_paper_head(destination)
+            shutil.copytree(destination, stage, dirs_exist_ok=True)
+
+        def install_head(source: Path) -> None:
+            verified = verify_integrity_manifest(source, require=True)
+            _validate_complete_paper_snapshot(source, verified)
+            snapshot_hash = str(verified["snapshot_hash"])
+            target = stage / snapshot_hash
+            if target.exists():
+                if directory_hashes(target) != directory_hashes(source):
+                    raise PaperLedgerIntegrityError(
+                        "BLOCKED_INTEGRITY",
+                        "one immutable paper hash has divergent bundles:"
+                        f"{snapshot_hash}",
+                    )
+                return
+            shutil.copytree(source, target)
+
+        for source_root in merge_heads_roots:
+            source_root = Path(source_root)
+            nodes = _immutable_paper_head_nodes(source_root)
+            _linear_immutable_paper_head_chain(nodes)
+            for snapshot_hash in sorted(nodes):
+                install_head(Path(nodes[snapshot_hash]["_head_dir"]))
+        for source in add_head_sources:
+            install_head(Path(source))
+
+        selection = select_verified_immutable_paper_head(stage)
+        expected = str(expected_terminal_hash or "")
+        if expected and (
+            not valid_sha256(expected)
+            or selection["selected_snapshot_hash"] != expected
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_CONTINUITY",
+                "reconciled immutable paper terminal differs from the "
+                "expected accepted state",
+            )
+        journal = destination.parent / (
+            f".{destination.name}.reconcile-transaction.json"
+        )
+        atomic_publish_bundle(
+            [(stage, destination)],
+            journal_path=journal,
+            validators=[
+                lambda: select_verified_immutable_paper_head(
+                    destination
+                )
+            ],
+        )
+        published_selection = select_verified_immutable_paper_head(destination)
+        return {
+            **published_selection,
+            "cache_status": "RECONCILED_IMMUTABLE_PAPER_HEAD_CACHE",
+        }
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--state-dir", required=True)
+    parser.add_argument("--state-dir", default="")
     parser.add_argument("--require-integrity", action="store_true")
     parser.add_argument("--install-source", default="")
+    parser.add_argument("--install-immutable-heads-root", default="")
+    parser.add_argument("--select-immutable-heads-root", default="")
+    parser.add_argument("--reconcile-immutable-head-cache", default="")
+    parser.add_argument(
+        "--merge-immutable-heads-root",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--add-head-source",
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--expected-terminal-hash", default="")
     parser.add_argument("--require-install-continuity", action="store_true")
     parser.add_argument("--require-state-descends-from", default="")
     parser.add_argument("--output", default="")
@@ -940,19 +1553,77 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    destination = Path(args.state_dir)
     try:
-        if args.require_install_continuity and not args.install_source:
+        modes = [
+            bool(args.install_source),
+            bool(args.install_immutable_heads_root),
+            bool(args.select_immutable_heads_root),
+            bool(args.reconcile_immutable_head_cache),
+            bool(args.require_state_descends_from),
+        ]
+        if sum(modes) > 1:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_CONTINUITY",
-                "--require-install-continuity requires --install-source",
+                "install, immutable-head selection, and descendant assertion modes "
+                "are mutually exclusive",
             )
-        if args.install_source and args.require_state_descends_from:
+        if args.require_install_continuity and not (
+            args.install_source or args.install_immutable_heads_root
+        ):
             raise PaperLedgerIntegrityError(
                 "BLOCKED_CONTINUITY",
-                "install and descendant assertion modes are mutually exclusive",
+                "--require-install-continuity requires an install mode",
             )
-        if args.install_source:
+        if (
+            args.merge_immutable_heads_root
+            or args.add_head_source
+            or args.expected_terminal_hash
+        ) and not args.reconcile_immutable_head_cache:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                "immutable head merge arguments require reconciliation mode",
+            )
+        if not args.select_immutable_heads_root and not args.state_dir:
+            if args.reconcile_immutable_head_cache:
+                pass
+            else:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "--state-dir is required for this mode",
+                )
+        destination = Path(args.state_dir) if args.state_dir else Path()
+        if args.select_immutable_heads_root:
+            result = select_verified_immutable_paper_head(
+                Path(args.select_immutable_heads_root)
+            )
+        elif args.reconcile_immutable_head_cache:
+            if not (
+                args.merge_immutable_heads_root
+                or args.add_head_source
+                or Path(args.reconcile_immutable_head_cache).is_dir()
+            ):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable head cache reconciliation has no source",
+                )
+            result = reconcile_immutable_paper_head_cache(
+                Path(args.reconcile_immutable_head_cache),
+                merge_heads_roots=[
+                    Path(value)
+                    for value in args.merge_immutable_heads_root
+                ],
+                add_head_sources=[
+                    Path(value) for value in args.add_head_source
+                ],
+                expected_terminal_hash=args.expected_terminal_hash,
+            )
+        elif args.install_immutable_heads_root:
+            result = install_unique_verified_immutable_paper_head(
+                Path(args.install_immutable_heads_root),
+                destination,
+                require_continuity=bool(args.require_install_continuity),
+            )
+        elif args.install_source:
             result = install_verified_snapshot(
                 Path(args.install_source),
                 destination,

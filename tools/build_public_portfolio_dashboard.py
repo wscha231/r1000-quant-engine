@@ -29,8 +29,14 @@ from typing import Any, Iterable
 
 try:
     from tools.run287_promotion_gate import gate_for_consumer
+    from tools.run287_paper_ledger_integrity import (
+        verified_replay_price_evidence_sessions,
+    )
 except ModuleNotFoundError:  # direct `python tools/...` execution
     from run287_promotion_gate import gate_for_consumer
+    from run287_paper_ledger_integrity import (
+        verified_replay_price_evidence_sessions,
+    )
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -268,6 +274,9 @@ def public_forward_paper_trades(source: Path, portfolio: str) -> list[dict[str, 
     if int(safe_float(manifest.get("fill_count"), 0) or 0) != len(rows):
         raise ValueError(f"daily simulated fill count mismatch for {portfolio}")
     allowed_rows: list[dict[str, Any]] = []
+    replay_sessions = set(
+        verified_replay_price_evidence_sessions(root)
+    )
     for row in rows:
         if (
             not str(row.get("execution_status") or "").startswith("SIMULATED_")
@@ -279,7 +288,12 @@ def public_forward_paper_trades(source: Path, portfolio: str) -> list[dict[str, 
             or not flag_is(row.get("production_mutation_allowed"), False)
         ):
             raise ValueError(f"unsafe or non-simulated fill row for {portfolio}")
-        allowed_rows.append({**row, "record_type": "FORWARD_PAPER"})
+        record_type = (
+            "FORWARD_PAPER_REPLAY"
+            if str(row.get("date") or "") in replay_sessions
+            else "FORWARD_PAPER"
+        )
+        allowed_rows.append({**row, "record_type": record_type})
     return replay_trades(allowed_rows, limit=100_000)
 
 
@@ -541,13 +555,21 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
     official_metrics = metrics_by_portfolio(read_json(current_dir / "04_official_metrics.json"))
 
     forward_fill_count = 0
+    replay_paper_fill_count = 0
     for portfolio in PORTFOLIOS:
         holdings, cash = current[portfolio]
         prior = dashboard.get("portfolios", {}).get(portfolio, {})
         if not holdings and not prior:
             continue
         forward_trades = public_forward_paper_trades(source, portfolio)
-        forward_fill_count += len(forward_trades)
+        forward_fill_count += sum(
+            row.get("record_type") == "FORWARD_PAPER"
+            for row in forward_trades
+        )
+        replay_paper_fill_count += sum(
+            row.get("record_type") == "FORWARD_PAPER_REPLAY"
+            for row in forward_trades
+        )
         dashboard.setdefault("portfolios", {})[portfolio] = {
             "label": PORTFOLIO_LABELS[portfolio],
             "metrics": official_metrics.get(portfolio, prior.get("metrics", {})),
@@ -588,6 +610,7 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
                 else "retained_from_last_validated_replay"
             ),
             "forward_paper_fill_count": forward_fill_count,
+            "replay_paper_fill_count": replay_paper_fill_count,
             "market_session_gate": "exact_close_passed",
         }
     )

@@ -1,6 +1,6 @@
 # Run287 H4b workflow/promotion trust result
 
-Date: 2026-07-23
+Date: 2026-07-23 (final hardening validated 2026-07-24)
 
 Scope: Issue #315 H4b only
 Pull request: #322
@@ -118,6 +118,37 @@ evaluation, and artifact publication.
   risk price cache, so the downloaded package can be independently reverified.
 - Automatic champion replacement, state advancement, production activation,
   and live trading remain disabled.
+- Historical catch-up is an explicit forced, chronological, replay-only path.
+  It may mark the already accepted accounts but cannot recompute targets,
+  enqueue orders, resolve same-close decisions, outcomes, scorecards, or
+  promotion. Every exact source cache is copied into the paper snapshot and
+  recursively hash-bound before the transaction is accepted.
+- Catch-up rows are excluded from forward promotion evidence even when they
+  extend the equity curve. The durable replay-evidence registry is reverified
+  before forward sessions are counted, and the public dashboard labels any
+  related fill as `FORWARD_PAPER_REPLAY` instead of presenting it as live
+  forward evidence.
+- GitHub catch-up artifacts require an exact run ID, artifact ID and API/ZIP
+  digest, repository and workflow identity, run state, branch and commit
+  lineage, timestamps, and an exact metadata schema. Non-legacy evidence must
+  come from a default-branch ancestor of the current exact default head. The
+  sole approved legacy artifact is pinned separately and cannot widen the
+  exception.
+- The GitHub compare contract uses the actual API fields: `base_commit`,
+  `merge_base_commit`, `status`, `ahead_by`, and `behind_by`. It does not rely
+  on a nonexistent `head_commit` field.
+- A common cross-mode cache now retains the full immutable paper-head chain,
+  not only the mutable terminal. Normal and catch-up runs therefore recover
+  across multiple Drive-offline sessions without creating a fork or losing an
+  intermediate accepted state.
+- Equity curves and event CSVs append with a frozen header and byte prefix.
+  Pandas serialization is not allowed to rewrite accepted floating-point text
+  when a later session is added.
+- Default-branch sole-writer checks compare the workflow SHA to the current
+  remote default head at start, before durable data and marker writes, before
+  canonical and accepted-package publication, immediately before cache saves,
+  and after final publication. If the branch advances, no subsequent accepted
+  artifact or cache is published.
 - Trust boundary: this workflow is the repository-wide single writer for the
   mutable Drive canonical, enforced by its static GitHub concurrency group.
   Immutable paper/outcome heads are the accepted state; the canonical is only a
@@ -126,9 +157,47 @@ evaluation, and artifact publication.
   signatures, and external checkpoints remain U6 work and H4b does not claim
   storage-writer tamper resistance.
 
+## Real artifact and chronological replay validation
+
+The final code was exercised against four exact GitHub artifacts in temporary
+local storage. This was a non-durable rehearsal: it did not mutate GitHub,
+Drive, production, or the live/paper canonical.
+
+| Session | Run | Artifact | ZIP SHA-256 | Tickers | Anomalies |
+|---|---:|---:|---|---:|---:|
+| 2026-07-17 | 29625744031 | 8424009573 | `703c34ffbbca84221c2c4448d1f95e75d696d6c52323435cd267429364793242` | 53 | 2 |
+| 2026-07-20 | 29801446668 | 8484210406 | `dbfea52e2011c6e15213bc16fb85aa5f90d682ed91ba510d2cd654f017f5192d` | 24 | 0 |
+| 2026-07-21 | 29891348660 | 8518649969 | `5d234b34b452ebedfc848cfb2f076b20e27d4d9891cb4f0c92d972c9c2c05d11` | 24 | 0 |
+| 2026-07-22 | 29979802627 | 8553065730 | `15df41d43c698d3990c3acdc986ba62bbdab210d8fd703f6ed889fd1fb891c99` | 24 | 0 |
+
+- The approved 2026-07-17 legacy tree had 20 files and exact tree SHA-256
+  `8d8b39e1a9e49b27e5a16bee0c511b5e5627eb8a5443911e7ad5de2539fc204a`.
+- The same-session legacy revision audit found no economic revision:
+  main maximum relative difference
+  `1.963096399367302e-16`, concentrated `0.0`, zero revised tickers, and no
+  remark. Both are below the 1 bp (`0.0001`) gate and preserve the accepted
+  mark.
+- The source contains two 2026-07-17 reference-OHLC anomalies: ATO open
+  `176.0399932861328` is below low `176.8800048828125`, and DTM open
+  `148.07000732421875` is above high `147.6199951171875`. Raw values and anomaly
+  codes are preserved, while those opens are explicitly ineligible for
+  execution. Exact close remains usable only for replay mark/next-close fill.
+- Sequential results were `LEGACY_SCHEMA_UPGRADE` for 2026-07-17 followed by
+  three `RESTORED_CONTINUATION` sessions. Every session suppressed new orders;
+  enqueued orders and resolved fills were both zero.
+- The four-head chain passed semantic descendant verification and full-chain
+  reconciliation. Its selected terminal is
+  `f2c95d8c1ca3b1f1fe1fd76f25a65be42734ab5238722222d02a6b8d88b79ebf`
+  as of 2026-07-22.
+- Both portfolios reported four excluded replay observations and only one
+  eligible pre-existing forward observation, proving catch-up cannot satisfy
+  the 60-session promotion threshold.
+- Final temporary validation evidence:
+  `H:\codex\_tmp_run287_h4b_v2_real_replay_20260724_01`.
+
 ## Validation
 
-- Promotion gate adversarial smoke: `35/35` PASS.
+- Promotion gate adversarial smoke: `36/36` PASS.
 - Accepted-publication manifest smoke: `13/13` PASS.
 - Immutable accepted-outcome head smoke: `21/21` PASS, including a
   three-generation offline/recovery chain and a 1,305-head longevity case.
@@ -139,13 +208,20 @@ evaluation, and artifact publication.
 - Runtime operating scorecard: PASS.
 - Workflow artifact/order contract: PASS.
 - Python compile and `git diff --check`: PASS.
-- Full Tier-1 PR validation: `194/194` PASS in `372.36s`.
+- Workflow YAML: 48 steps parsed; Git Bash syntax: 34 run blocks PASS.
+- Final read-only security audit: no blocking finding.
+- Full Tier-1 PR validation: `196/196` PASS in `785.39s`.
 
 ## Safety and next gate
 
 H4a merged as PR #321. H4b is integrated with that master state and is ready
 for exact-head PR checks and review. Durable chronological catch-up remains a
 separate P0 operation after H4b merges.
+
+One operational residual cannot be fixed retroactively in source: a rerun of a
+pre-H4b workflow uses its historical YAML and could still access repository
+Drive credentials. After merge, rotate/move those credentials into a protected,
+workflow-specific GitHub environment before durable catch-up.
 
 - Fullrun executed: false.
 - Durable catch-up executed: false.

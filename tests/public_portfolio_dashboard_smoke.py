@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +15,10 @@ if str(ROOT) not in sys.path:
 from tools.build_public_portfolio_dashboard import (  # noqa: E402
     build_dashboard,
     validate_public_payload,
+)
+from tests.run287_paper_ledger_transaction_smoke import (  # noqa: E402
+    write_prices,
+    write_replay_price_manifest,
 )
 
 
@@ -349,6 +354,32 @@ def test_daily_artifact_merges_only_safe_forward_paper_fills() -> None:
         encoded = json.dumps(payload).lower()
         for forbidden in ['"quantity":', '"fee_usd":', '"cash_after":']:
             assert forbidden not in encoded, forbidden
+
+        write_prices(
+            root / "prices",
+            "AAA",
+            ["2026-07-14"],
+            [100.0],
+        )
+        write_prices(
+            root / "prices",
+            "BBB",
+            ["2026-07-14"],
+            [100.0],
+        )
+        write_replay_price_manifest(root, "2026-07-14")
+        shutil.copytree(
+            root / "prices",
+            ledger / "replay_price_evidence" / "2026-07-14",
+        )
+        replay_payload = build_dashboard(
+            daily,
+            base_json=base_path,
+        )
+        replay_trades = replay_payload["portfolios"]["main"]["trades"]
+        assert replay_trades[0]["record_type"] == "FORWARD_PAPER_REPLAY"
+        assert replay_payload["source"]["forward_paper_fill_count"] == 0
+        assert replay_payload["source"]["replay_paper_fill_count"] == 1
 
 
 def test_daily_artifact_rejects_stale_or_missing_close_gate() -> None:

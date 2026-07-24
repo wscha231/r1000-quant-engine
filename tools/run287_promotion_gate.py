@@ -2501,7 +2501,8 @@ def overlay_latest_run_evidence(
         )
         return evidence
     observed_files: dict[str, str] = {}
-    session_sets: list[set[str]] = []
+    raw_session_sets: list[set[str]] = []
+    equity_rows_by_portfolio: dict[str, list[dict[str, Any]]] = {}
     negative_cash = 0
     duplicate_ids = 0
     all_resolved_client_ids: list[str] = []
@@ -2528,8 +2529,9 @@ def overlay_latest_run_evidence(
         rejection_path = paper_root / portfolio / "rejections.csv"
         manifest_path = paper_root / portfolio / "manifest.json"
         rows = _csv_rows(equity_path)
+        equity_rows_by_portfolio[portfolio] = rows
         dates = {str(row.get("date") or "") for row in rows if row.get("date")}
-        session_sets.append(dates)
+        raw_session_sets.append(dates)
         negative_cash += sum(float(row.get("cash_usd") or 0) < -1e-8 for row in rows)
         fills = _csv_rows(fill_path)
         rejections = _csv_rows(rejection_path)
@@ -2561,15 +2563,14 @@ def overlay_latest_run_evidence(
     duplicate_ids = max(
         0, len(all_resolved_client_ids) - len(set(all_resolved_client_ids))
     )
-    common_sessions = set.intersection(*session_sets) if session_sets else set()
-    weeks = set()
-    for value in common_sessions:
-        try:
-            parsed = date.fromisoformat(value)
-        except ValueError:
-            continue
-        iso = parsed.isocalendar()
-        weeks.add(f"{iso.year:04d}-W{iso.week:02d}")
+    raw_common_sessions = (
+        set.intersection(*raw_session_sets)
+        if raw_session_sets
+        else set()
+    )
+    common_sessions: set[str] = set()
+    weeks: set[str] = set()
+    replay_sessions: set[str] = set()
     observed_counts = {
         "negative_cash_count": negative_cash,
         "duplicate_client_order_id_count": duplicate_ids,
@@ -2597,13 +2598,42 @@ def overlay_latest_run_evidence(
         observed_files[integrity_path.relative_to(latest_run).as_posix()] = sha256_file(integrity_path)
         try:
             try:
-                from tools.run287_paper_ledger_integrity import verify_integrity_manifest
+                from tools.run287_paper_ledger_integrity import (
+                    verified_replay_price_evidence_sessions,
+                    verify_integrity_manifest,
+                )
             except ModuleNotFoundError:
-                from run287_paper_ledger_integrity import verify_integrity_manifest
+                from run287_paper_ledger_integrity import (
+                    verified_replay_price_evidence_sessions,
+                    verify_integrity_manifest,
+                )
             candidate_manifest = verify_integrity_manifest(paper_root, require=True)
             derived_integrity = _validate_verified_paper_snapshot(
                 paper_root, candidate_manifest
             )
+            replay_sessions = set(
+                verified_replay_price_evidence_sessions(paper_root)
+            )
+            eligible_session_sets = [
+                {
+                    str(row.get("date") or "")
+                    for row in equity_rows_by_portfolio[portfolio]
+                    if str(row.get("record_type") or "")
+                    == "FORWARD_MARK"
+                    and str(row.get("date") or "")
+                    not in replay_sessions
+                }
+                for portfolio in PORTFOLIOS
+            ]
+            common_sessions = (
+                set.intersection(*eligible_session_sets)
+                if eligible_session_sets
+                else set()
+            )
+            for value in common_sessions:
+                parsed = date.fromisoformat(value)
+                iso = parsed.isocalendar()
+                weeks.add(f"{iso.year:04d}-W{iso.week:02d}")
             rebound_manifest = verify_integrity_manifest(paper_root, require=True)
             if rebound_manifest != candidate_manifest:
                 raise ValueError("runtime_paper_snapshot_changed_during_validation")
@@ -2761,6 +2791,18 @@ def overlay_latest_run_evidence(
         "observed_file_hashes": observed_files,
         "completed_market_sessions": len(common_sessions),
         "distinct_decision_weeks": len(weeks),
+        "raw_common_equity_dates": len(raw_common_sessions),
+        "replay_sessions_excluded": len(
+            raw_common_sessions & replay_sessions
+        ),
+        "non_forward_equity_dates_excluded": len(
+            raw_common_sessions
+            - common_sessions
+            - replay_sessions
+        ),
+        "session_eligibility_rule": (
+            "PAIRED_FORWARD_MARK_AND_NOT_DURABLE_REPLAY_SESSION"
+        ),
     }
     return evidence
 
