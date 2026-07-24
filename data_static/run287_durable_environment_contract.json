@@ -5,7 +5,7 @@
   },
   "credential_hmac_sha256": {
     "RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY": null,
-    "RUN287_DURABLE_RCLONE_CONFIG_GDRIVE": "193608c57dc4422635525bc2ff3b54c77b35fe2728339a24d6371ec0066bcd1a"
+    "RUN287_DURABLE_RCLONE_CONFIG_GDRIVE": "2fca278b35a6f660d6f659ec5c31517ad45d5f8874cfd3eace3b5412c8717a3a"
   },
   "credential_binding_marker_required": true,
   "environment": "run287-paper-durable",
