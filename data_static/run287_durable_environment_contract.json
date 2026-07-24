@@ -1,11 +1,11 @@
 {
   "attestation": {
     "secret_name": "RUN287_DURABLE_ENVIRONMENT_ATTESTATION",
-    "sha256": "e8a41fedc711abac2b990ace570803ee68d9a87d7691b99fa50c2d7115a3862d"
+    "sha256": "5b04b05ffd140784ac3123811b36842e5b471fba0d51cbe5ff6b7b9b81011bce"
   },
   "credential_hmac_sha256": {
     "RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY": null,
-    "RUN287_DURABLE_RCLONE_CONFIG_GDRIVE": "925cc19a9de83c975fd4f5735dfe9be906d1bc7e805122622a61c62a637e54cf"
+    "RUN287_DURABLE_RCLONE_CONFIG_GDRIVE": "cf9a7edc361147820e90042b93c1ee5f7b03ce6382043c8ccd72ed68961221a3"
   },
   "credential_binding_marker_required": true,
   "environment": "run287-paper-durable",
