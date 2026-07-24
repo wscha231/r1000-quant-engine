@@ -2231,6 +2231,26 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
         in transaction
     )
     assert 'if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]' in transaction
+    assert (
+        'CATCHUP_TARGET_SOURCE_DIR="outputs/run287_catchup_target_source/${PAPER_AS_OF}"'
+        in transaction
+    )
+    assert (
+        'PAPER_MAIN_TARGET="$CATCHUP_TARGET_SOURCE_DIR/main.csv"'
+        in transaction
+    )
+    assert (
+        'PAPER_CONCENTRATED_TARGET="$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"'
+        in transaction
+    )
+    assert transaction.count("cmp -s") >= 2
+    source_snapshot_index = transaction.index(
+        'CATCHUP_TARGET_SOURCE_DIR="outputs/run287_catchup_target_source/${PAPER_AS_OF}"'
+    )
+    ledger_index = transaction.index(
+        "python tools/run_daily_simulated_fill_ledger.py"
+    )
+    assert source_snapshot_index < ledger_index
     cleanup_index = transaction.index(
         "clear_previous_materialization(Path(sys.argv[1]))"
     )
@@ -2267,6 +2287,10 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
     )
     assert (
         "outputs/run287_paper_immutable_head_bundles/"
+        in catchup_artifact["with"]["path"]
+    )
+    assert (
+        "outputs/run287_catchup_target_source/"
         in catchup_artifact["with"]["path"]
     )
     catchup_cache = by_name[

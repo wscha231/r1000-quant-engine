@@ -2077,8 +2077,29 @@ jobs:
               PAPER_CONCENTRATED_TARGET="${CATCHUP_CONCENTRATED_TARGET:?missing immutable catch-up concentrated target}"
               test -s "${CATCHUP_TARGET_MANIFEST:?missing immutable catch-up target manifest}"
             else
-              PAPER_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"
-              PAPER_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"
+              # The accepted effective targets live inside the directory that
+              # the ledger replaces atomically. Preserve their exact input
+              # bytes outside that directory so accepted-publication
+              # provenance remains resolvable after the state swap.
+              CATCHUP_TARGET_SOURCE_DIR="outputs/run287_catchup_target_source/${PAPER_AS_OF}"
+              mkdir -p "$CATCHUP_TARGET_SOURCE_DIR"
+              rm -f \
+                "$CATCHUP_TARGET_SOURCE_DIR/main.csv" \
+                "$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"
+              cp \
+                outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv \
+                "$CATCHUP_TARGET_SOURCE_DIR/main.csv"
+              cp \
+                outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv \
+                "$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"
+              cmp -s \
+                outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv \
+                "$CATCHUP_TARGET_SOURCE_DIR/main.csv"
+              cmp -s \
+                outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv \
+                "$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"
+              PAPER_MAIN_TARGET="$CATCHUP_TARGET_SOURCE_DIR/main.csv"
+              PAPER_CONCENTRATED_TARGET="$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"
             fi
             test -s "$PAPER_MAIN_TARGET"
             test -s "$PAPER_CONCENTRATED_TARGET"
@@ -3722,6 +3743,7 @@ jobs:
             outputs/run287_catchup_price_cache/
             outputs/run287_catchup_target_evidence_status.json
             outputs/run287_catchup_target_evidence/
+            outputs/run287_catchup_target_source/
             outputs/daily_simulated_fill_ledger/
             outputs/run287_paper_immutable_head_bundles/
             outputs/account_ledger_preview/
@@ -3752,6 +3774,7 @@ jobs:
             outputs/run287_catchup_price_cache/
             outputs/run287_catchup_target_evidence_status.json
             outputs/run287_catchup_target_evidence/
+            outputs/run287_catchup_target_source/
             ${{ runner.temp }}/run287_durable_scope_initial.json
             ${{ runner.temp }}/run287_durable_scope_final.json
             ${{ runner.temp }}/run287_durable_scope_persist.json
