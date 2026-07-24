@@ -1187,6 +1187,20 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]:
         assert token in text, token
     assert "--minimum-core-candidate-coverage 0.98" not in text
+    exact_close_step = text[
+        text.index("- name: Require exact completed-session close prices"):
+        text.index("- name: Refresh daily macro snapshot")
+    ]
+    for token in (
+        "CATCHUP_PRICE_CACHE: ${{ steps.catchup_price_evidence.outputs.price_cache }}",
+        'CLOSE_PRICE_CACHE="cache_prices"',
+        'if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then',
+        'CLOSE_PRICE_CACHE="${CATCHUP_PRICE_CACHE:?missing immutable catch-up price cache}"',
+        'test -s "$CLOSE_PRICE_CACHE/manifest.json"',
+        '--price-cache "$CLOSE_PRICE_CACHE"',
+    ):
+        assert token in exact_close_step, token
+    assert "--price-cache cache_prices" not in exact_close_step
     for forbidden in [
         "python run_local.py --full",
         "git commit",

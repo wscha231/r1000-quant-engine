@@ -1769,11 +1769,18 @@ jobs:
 
       - name: Require exact completed-session close prices
         if: steps.market.outputs.ready == 'yes'
+        env:
+          CATCHUP_PRICE_CACHE: ${{ steps.catchup_price_evidence.outputs.price_cache }}
         run: |
           set -euo pipefail
+          CLOSE_PRICE_CACHE="cache_prices"
+          if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
+            CLOSE_PRICE_CACHE="${CATCHUP_PRICE_CACHE:?missing immutable catch-up price cache}"
+            test -s "$CLOSE_PRICE_CACHE/manifest.json"
+          fi
           python tools/validate_daily_close_prices.py \
             --session-date "$LAST_NYSE_SESSION_DATE" \
-            --price-cache cache_prices \
+            --price-cache "$CLOSE_PRICE_CACHE" \
             --target outputs/reports/operating_main_target_book.csv \
             --target outputs/reports/operating_concentrated_target_book.csv \
             --account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
