@@ -891,6 +891,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "15 1 * * 2-6",
         "force_run",
         "strict_selection",
+        "allow_risk_outcome_genesis_bootstrap",
+        "allow_quarantined_legacy_outcome_parent",
         "LATEST_RUN_INPUT",
         "hydrate outputs/ from requested latest_run",
         "cache_prices",
@@ -960,7 +962,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--expected-seed-date 2026-07-13",
         "--starting-capital 100000",
         "tools/run_daily_simulated_fill_ledger.py",
-        "--decision-time-utc \"$RISK_AVAILABLE_FROM\"",
+        "--decision-time-utc \"$DECISION_CUTOFF_UTC\"",
         "--security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv",
         "outputs/daily_simulated_fill_ledger/",
         "daily_simulated_fill_ledger.log",
@@ -1003,15 +1005,129 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/archive_run287_decision_observation.py",
         "outputs/run287_decision_observation_archive/",
         "daily_run287_decision_observation_archive.log",
+        "Restore verified risk-outcome accepted head",
+        "tools/manage_run287_risk_outcome_accepted_heads.py",
+        "paper_archive/run287_risk_outcome_accepted_heads",
+        "outputs/run287_risk_outcome_parent_accepted/manifest.json",
+        "outputs/run287_risk_outcome_accepted_head_bundles",
+        "outputs/run287_risk_outcome_accepted_head_manifests",
+        "quarantined invalid GitHub-cache accepted head",
+        "transient paper-archive discovery failure",
+        "authoritative configured-base absence confirmed; first bootstrap may create it",
+        "authoritative outcome configured-base absence confirmed; first bootstrap may create it",
+        'rclone lsf "gdrive:" --dirs-only',
+        "PAPER_CANONICAL_REMOTE_STATE=PROVEN_PRESENT",
+        "PAPER_CANONICAL_REMOTE_STATE=PROVEN_ABSENT",
+        "assert_remote_canonical_absent",
+        "canonical Drive state appeared after authoritative absence preflight",
+        "transient paper-head listing failure",
+        "discard partial remote view and use only verified cache state",
+        "authoritative Drive head discovery is unavailable",
+        "cached accepted-state manifest has no complete verified bundle or authoritative remote commit",
+        "cached accepted-publication marker is absent from the complete verified cache/remote union",
+        "authoritative legacy outcome archive could not be fetched exactly",
+        "outcome genesis requires proven absence of authoritative legacy state",
+        "legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+        "outcome genesis requires explicit one-time workflow_dispatch authorization",
+        "genesis and legacy-quarantine bootstrap authorizations are mutually exclusive",
+        "allow_verified_paper_canonical_head_bootstrap",
+        "ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP",
+        "run287-verified-paper-canonical-bootstrap-v1",
+        "EXPLICIT_ONE_TIME_MIGRATION_AUTHORIZED",
+        "explicitly adopted integrity-valid pre-head Drive canonical",
+        "PAPER_VERIFIED_CANONICAL_BOOTSTRAP_PENDING",
+        "migration evidence mismatch",
+        "committed explicitly attested pre-head canonical in the verified immutable chain",
+        "persist_immutable_paper_head",
+        "--select-immutable-heads-root",
+        "--install-immutable-heads-root",
+        "select_head_set \"$PAPER_PROSPECTIVE_HEADS\"",
+        "committed immutable terminal differs from local state",
+        "immutable terminal changed during canonical mirror publication",
+        "ignore incomplete uncommitted immutable head",
+        "--exclude snapshot_integrity.json",
+        '"$remote_head/snapshot_integrity.json"',
+        "daily_run287_outcome_parent_paper_continuity.json",
+        "ACCEPTED_OUTCOME_PAPER_IS_ANCESTOR",
+        "ancestor_snapshot_hashes",
+        "persist_immutable_outcome_head",
+        "Freeze accepted risk-outcome parent",
+        "tools/build_run287_risk_outcome_parent_anchor.py",
+        "outputs/run287_risk_outcome_parent_anchor/anchor.json",
+        "daily_run287_risk_outcome_parent_anchor.log",
+        "--parent-accepted-manifest",
+        "--expected-parent-accepted-manifest-sha256",
+        "--allow-quarantined-legacy-parent",
+        "--parent-anchor outputs/run287_risk_outcome_parent_anchor/anchor.json",
+        "--expected-prior-invocation-summary-sha256",
+        "Resolve append-only forward outcomes",
+        "tools/resolve_run287_risk_outcomes.py",
+        "Build runtime operating scorecard",
+        "tools/build_run287_operating_scorecard.py",
+        "outputs/run287_operating_scorecard/",
+        "daily_run287_operating_scorecard.log",
+        "Evaluate single promotion and rollback gate",
+        "Build post-gate operating reports",
+        "Verify accepted publication manifest",
+        "tools/build_run287_accepted_publication_manifest.py",
+        "outputs/run287_accepted_publication/manifest.json",
+        "id: paper_integrity",
+        "id: risk_outcome_accepted_parent",
+        "id: risk_outcome_parent",
+        "id: risk_outcomes",
+        "id: operating_scorecard",
+        "id: promotion_gate",
+        "id: accepted_publication",
+        "promotion_gate_sha256=",
+        "--expected-risk-outcome-parent-anchor-sha256",
+        "--expected-promotion-gate-sha256",
+        "manifest_sha256=",
+        "--expected-manifest-sha256",
+        "--verify-manifest",
+        "Reverify accepted publication before GitHub publication",
+        "Reverify accepted publication before refreshed cache",
+        "id: paper_persist",
+        "steps.accepted_publication.outcome == 'success'",
+        "if-no-files-found: error",
+        "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction",
         "paper_archive/run287_decision_observation_archive",
         "--allow-missing",
         "--require-exact-close",
-        "RISK_AVAILABLE_FROM=\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"",
-        "--available-from \"$RISK_AVAILABLE_FROM\"",
+        "GENERATED_AT_UTC=\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"",
+        "--available-from \"$GENERATED_AT_UTC\"",
+        "catchup_price_evidence_run_id",
+        "catchup_price_evidence_artifact_digest",
+        "Restore immutable catch-up price evidence",
+        "Restore validated cross-mode paper continuity cache",
+        "daily-paper-continuity-v1-",
+        "outputs/run287_paper_immutable_head_bundles",
+        "origin_verification_mode",
+        "DEFAULT_BRANCH_ANCESTOR",
+        "APPROVED_LEGACY_ARTIFACT_PIN",
+        "workflow_identity_verified",
+        "repository_identity_verified",
+        "head_lineage_verified",
+        "actions/runs/${EVIDENCE_RUN_ID}",
+        "actions/workflows/daily_operating_selection_refresh.yml",
+        "compare/${ARTIFACT_HEAD_SHA}...${GITHUB_SHA}",
+        "validate_github_compare_payload",
+        "unsafe catch-up artifact archive member",
+        "tools/build_run287_catchup_price_evidence.py",
+        "--price-evidence-manifest",
+        "--replay-only",
+        "Enforce default-branch sole writer",
         "Persist validated forward paper ledger state",
+        "Reverify default head before accepted publication and cache",
+        "default_head_publication_gate",
+        "Reverify default head immediately before accepted cache saves",
+        "default_head_cache_gate",
+        "Reverify default head after accepted publication",
+        "final_default_head_gate",
+        "assert_current_default_head",
         "--max-fill-lag-days 7",
         "daily-operating-selection-refresh",
         "cancel-in-progress: false",
+        "environment: run287-paper-durable",
         "review_only",
         "canonical_production_sync",
         "live_trading_enabled",
@@ -1025,6 +1141,18 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/user_current/DAILY_REVIEW_ONLY.md",
         "outputs/full_rebuild_logs/daily_user_current_contract.log",
         "STRICT_SELECTION",
+        'if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${STRICT_SELECTION:-false}" != "true" ]; then',
+        "daily target mutation is always fail-closed",
+        '--asof-date "$LAST_NYSE_SESSION_DATE"',
+        "--strict-selection",
+        'core_coverage.get("required_for_target_mutation") is not False',
+        "--freshness-status outputs/data_freshness_contract/status.json",
+        "--freshness-snapshot-manifest outputs/data_freshness_contract/data_snapshot_manifest.json",
+        '--expected-source-run-id "${GITHUB_RUN_ID}"',
+        '--expected-source-commit-sha "${GITHUB_SHA}"',
+        '--expected-source-branch "${GITHUB_REF_NAME}"',
+        '--expected-source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}"',
+        "fail-closed freshness mutation gate is not satisfied",
         "outputs/full_rebuild_logs/data_freshness_contract.log",
         "daily-operating-selection-refresh-${{ github.run_id }}",
         "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh",
@@ -1033,26 +1161,175 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]:
         assert token in text, token
+    assert "--minimum-core-candidate-coverage 0.98" not in text
     for forbidden in [
         "python run_local.py --full",
         "git commit",
         "tools/run_broker_ledger_replay.py",
+        'payload.get("head_commit")',
     ]:
         assert forbidden not in text, forbidden
+    freshness_idx = text.index("python tools/run_data_freshness_contract.py")
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
+    accepted_parent_restore_idx = text.index(
+        "- name: Restore verified risk-outcome accepted head"
+    )
     holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
     exact_upstream_idx = text.index("python tools/run_run287_exact_packet_upstream.py")
     input_registry_idx = text.index("python tools/build_run287_exact_packet_input_registry.py")
     exact_packet_idx = text.index("python tools/run_run287_exact_packet_producer.py")
     same_close_idx = text.index("python tools/build_run287_same_close_target_books.py")
     selected_paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py", paper_idx + 1)
+    integrity_idx = text.index(
+        "python tools/run287_paper_ledger_integrity.py", selected_paper_idx
+    )
+    parent_clear_idx = text.index(
+        "rm -rf outputs/run287_risk_outcome_parent_anchor"
+    )
+    parent_idx = text.index(
+        "python tools/build_run287_risk_outcome_parent_anchor.py"
+    )
     decision_archive_idx = text.index("python tools/archive_run287_decision_observation.py")
+    outcome_idx = text.index("python tools/resolve_run287_risk_outcomes.py", decision_archive_idx)
+    scorecard_clear_idx = text.index(
+        "rm -rf outputs/run287_operating_scorecard"
+    )
+    scorecard_idx = text.index("python tools/build_run287_operating_scorecard.py")
+    promotion_clear_idx = text.index("rm -rf outputs/run287_promotion_gate")
+    promotion_idx = text.index("python tools/run_run287_promotion_gate.py")
     snapshot_idx = text.index("python tools/run_operating_snapshot.py")
-    assert paper_idx < snapshot_idx, "paper account must be resolved before the operating snapshot"
+    accepted_clear_idx = text.index(
+        "rm -rf outputs/run287_accepted_publication"
+    )
+    accepted_idx = text.index(
+        "python tools/build_run287_accepted_publication_manifest.py"
+    )
+    assert freshness_idx < paper_idx, "freshness must fail closed before any paper-ledger mutation"
+    assert accepted_parent_restore_idx < paper_idx < snapshot_idx, "the immutable prior outcome head must be restored before the paper account is advanced"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
-    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < decision_archive_idx < snapshot_idx, "bounded upstream, exact input registration, packet production, same-close target gating, selected paper order generation, and archive ingestion must run after the exact-close risk watch and before reports"
+    assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < parent_clear_idx < parent_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity and freeze the restored outcome parent before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
+    assert text.count(
+        "--parent-anchor outputs/run287_risk_outcome_parent_anchor/anchor.json"
+    ) == 1, "both resolver invocations must reuse the single frozen parent through RISK_OUTCOME_ARGS"
+    assert text.count("--expected-prior-invocation-summary-sha256") == 1
+    assert text.index(
+        "python tools/manage_run287_risk_outcome_accepted_heads.py select"
+    ) < parent_idx
+    accepted_head_verify_idx = text.index(
+        "python tools/manage_run287_risk_outcome_accepted_heads.py verify",
+        accepted_parent_restore_idx,
+    )
+    accepted_paper_continuity_idx = text.index(
+        "daily_run287_outcome_parent_paper_continuity.json"
+    )
+    accepted_head_install_idx = text.index(
+        'cp -a "$SELECTED_HEAD/run287_risk_outcome_archive"'
+    )
+    assert (
+        accepted_head_verify_idx
+        < accepted_paper_continuity_idx
+        < accepted_head_install_idx
+    ), "an accepted outcome head must prove paper ancestry before installation"
+    assert text.index(
+        "python tools/manage_run287_risk_outcome_accepted_heads.py stage"
+    ) > accepted_idx
+    assert outcome_idx < scorecard_clear_idx < scorecard_idx
+    assert scorecard_idx < promotion_clear_idx < promotion_idx
+    assert snapshot_idx < accepted_clear_idx < accepted_idx
     assert "run_daily_simulated_fill_ledger.py --" not in text
     assert "daily_simulated_fill_ledger.log || true" not in text
+    for log_name in (
+        "daily_operating_snapshot.log",
+        "daily_user_portfolio_reports.log",
+        "daily_user_current_report.log",
+        "daily_user_current_contract.log",
+    ):
+        assert f"{log_name} || true" not in text, (
+            "post-gate operating report failures must block accepted publication"
+        )
+    assert text.count("steps.accepted_publication.outcome == 'success'") >= 5
+    accepted_upload = text[
+        text.index("- name: Upload accepted paper transaction artifact"):
+        text.index("- name: Save validated forward paper state cache")
+    ]
+    for path in (
+        "outputs/run287_decision_observation_archive/",
+        "outputs/run287_risk_outcome_parent_accepted/",
+        "outputs/run287_risk_outcome_parent_anchor/",
+        "outputs/run287_risk_outcome_accepted_head_bundles/",
+        "outputs/run287_risk_outcome_accepted_head_manifests/",
+        "outputs/run287_risk_outcome_archive/",
+        "outputs/run287_risk_outcome_price_cache/",
+        "outputs/run287_operating_scorecard/",
+        "outputs/run287_promotion_gate/",
+        "outputs/run287_accepted_publication/",
+        "outputs/run287_paper_immutable_head_bundles/",
+    ):
+        assert path in accepted_upload, path
+    accepted_drive = text[
+        text.index("- name: Sync accepted paper transaction to Google Drive"):
+        text.index("- name: Save refreshed GitHub cache")
+    ]
+    persist_step_idx = text.index(
+        "- name: Persist validated forward paper ledger state"
+    )
+    accepted_upload_idx = text.index(
+        "- name: Upload accepted paper transaction artifact"
+    )
+    accepted_cache_idx = text.index(
+        "- name: Save validated forward paper state cache"
+    )
+    continuity_cache_idx = text.index(
+        "- name: Save validated cross-mode paper continuity cache"
+    )
+    accepted_drive_idx = text.index(
+        "- name: Sync accepted paper transaction to Google Drive"
+    )
+    assert (
+        persist_step_idx
+        < accepted_upload_idx
+        < accepted_cache_idx
+        < continuity_cache_idx
+        < accepted_drive_idx
+    ), "canonical paper persistence must precede every accepted publication/cache"
+    assert (
+        'DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"'
+        in accepted_drive
+    )
+    assert (
+        '${GITHUB_RUN_ID}/daily_operating_selection_refresh' not in accepted_drive
+    ), "accepted Drive publication must not share the always-on diagnostic namespace"
+    assert "outputs/run287_decision_observation_archive" in accepted_drive
+    assert "outputs/run287_risk_outcome_parent_accepted" in accepted_drive
+    assert "outputs/run287_risk_outcome_parent_anchor" in accepted_drive
+    assert "outputs/run287_risk_outcome_accepted_head_manifests" in accepted_drive
+    assert "outputs/run287_risk_outcome_price_cache" in accepted_drive
+    assert accepted_drive.index(
+        'rclone copyto "$f" "$DEST/$f"'
+    ) < accepted_drive.index(
+        "rclone copy outputs/run287_accepted_publication"
+    ), "the accepted manifest must be the final remote acceptance marker"
+    diagnostic_drive = text[
+        text.index("- name: Sync daily operating artifact to Google Drive"):
+        text.index("- name: Persist validated forward paper ledger state")
+    ]
+    assert "--verify-manifest" not in diagnostic_drive, (
+        "always-on diagnostic publication must not require an accepted manifest"
+    )
+    assert "outputs/run287_risk_outcome_parent_anchor" in diagnostic_drive
+    assert "outputs/run287_risk_outcome_parent_accepted" in diagnostic_drive
+    assert "outputs/run287_risk_outcome_accepted_head_manifests" in diagnostic_drive
+    cache_save = text[
+        text.index("- name: Save validated forward paper state cache"):
+        text.index("- name: Sync accepted paper transaction to Google Drive")
+    ]
+    assert "outputs/run287_accepted_publication" in cache_save
+    assert "outputs/run287_risk_outcome_accepted_head_bundles" in cache_save
+    assert "outputs/run287_risk_outcome_accepted_head_manifests" in cache_save
+    assert "daily-paper-continuity-v1-" in cache_save
+    assert "outputs/run287_paper_immutable_head_bundles" in cache_save
+    assert text.count("--verify-manifest") >= 4
+    assert text.count("--expected-manifest-sha256") >= 4
 
 
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:

@@ -9,12 +9,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_run287_exact_packet_producer import resolve_portable_path, sha256_file
 from tools.run_run287_exact_packet_upstream import (
+    BLOCKED_STATUS,
     PLAN_SCHEMA,
     PLAN_STATUS,
     PREFLIGHT_STATUS,
@@ -24,6 +27,9 @@ from tools.run_run287_exact_packet_upstream import (
     existing_bundle_records,
     nyse_sec_index_dates,
 )
+from tools.security_lifecycle import REQUIRED_COLUMNS
+from tools.run_weekly_evaluation import px_cache_name
+from tools.run287_code_identity import current_code_identity, identity_sha256
 
 
 PATH_LABELS = (
@@ -74,6 +80,12 @@ def make_plan(root: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         if label == "universe":
             path.write_text("ticker\nAAPL\n", encoding="utf-8")
+        elif label == "base_selection_context":
+            pd.DataFrame({"ticker": ["AAPL"]}).to_parquet(path, index=False)
+        elif label == "security_lifecycle_events":
+            pd.DataFrame(columns=sorted(REQUIRED_COLUMNS)).to_csv(
+                path, index=False
+            )
         else:
             path.write_text(f"{label}\n", encoding="utf-8")
         paths[label] = {"path": str(path), "sha256": sha256_file(path)}
@@ -110,6 +122,26 @@ def make_plan(root: Path) -> Path:
 
 
 class UpstreamSmoke(unittest.TestCase):
+    def test_cli_returns_nonzero_for_skipped_prerequisites(self) -> None:
+        from tools import run_run287_exact_packet_upstream as upstream
+
+        with patch.object(
+            upstream, "parse_args", return_value=object()
+        ), patch.object(
+            upstream,
+            "build",
+            return_value={"status": SKIPPED_STATUS},
+        ), patch("builtins.print"):
+            self.assertEqual(upstream.main(), 2)
+        with patch.object(
+            upstream, "parse_args", return_value=object()
+        ), patch.object(
+            upstream,
+            "build",
+            return_value={"status": PREFLIGHT_STATUS},
+        ), patch("builtins.print"):
+            self.assertEqual(upstream.main(), 0)
+
     def test_nyse_dates_are_weekend_aware(self) -> None:
         self.assertEqual(
             nyse_sec_index_dates("2026-07-13"), ["20260710", "20260713"]
@@ -122,7 +154,17 @@ class UpstreamSmoke(unittest.TestCase):
             ready = build(arguments(root, plan, "ready"))
             self.assertEqual(ready["status"], PREFLIGHT_STATUS)
             self.assertEqual(ready["preflight"]["estimated_scored_latest_provider_batches"], 1)
+            self.assertEqual(
+                ready["preflight"]["ticker_identity"][
+                    "pre_lifecycle_context_count"
+                ],
+                1,
+            )
             self.assertFalse(ready["network_execution_authorized"])
+            self.assertEqual(
+                len(ready["preflight"]["code_identity"]["identity_sha256"]),
+                64,
+            )
 
             payload = json.loads(plan.read_text(encoding="utf-8"))
             Path(payload["paths"]["model_meta"]["path"]).unlink()
@@ -198,6 +240,121 @@ class UpstreamSmoke(unittest.TestCase):
             self.assertEqual(result["network_requests_executed"], 0)
             self.assertFalse(result["network_execution_authorized"])
             publisher.assert_called_once()
+            self.assertEqual(
+                publisher.call_args.kwargs["expected_code_identity"],
+                result["preflight"]["code_identity"],
+            )
+
+    def test_code_identity_change_before_bundle_reuse_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = make_plan(root)
+            args = arguments(root, plan, "reuse-code-change")
+            args.allow_network = True
+            args.preflight_only = False
+            dated = (
+                Path(args.source_bundle_output)
+                / "by_date"
+                / "2026-07-13"
+                / "source_bundle.json"
+            )
+            dated.parent.mkdir(parents=True)
+            dated.write_text(
+                json.dumps(
+                    {
+                        "valuation_price_cutoff_date": "2026-07-13",
+                        "inputs": {
+                            "decision_manifest": {"path": "exact.json"}
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stable = current_code_identity()
+            changed = json.loads(json.dumps(stable))
+            changed["source_commit_sha"] = "f" * 40
+            changed["source_tree_sha"] = "e" * 40
+            changed["identity_sha256"] = identity_sha256(changed)
+            with patch.dict(
+                "os.environ",
+                {"SEC_USER_AGENT": "research test@example.com"},
+            ), patch(
+                "tools.run_run287_exact_packet_upstream.current_code_identity",
+                side_effect=[stable, changed],
+            ), patch(
+                "tools.run_run287_exact_packet_upstream.publish_bundle"
+            ) as publisher:
+                blocked = build(args)
+            self.assertEqual(blocked["status"], BLOCKED_STATUS, blocked)
+            self.assertIn(
+                "code_identity:current_mismatch",
+                blocked["stage_audit"][-1]["failures"],
+            )
+            publisher.assert_not_called()
+
+    def test_preflight_input_mutation_before_reused_ready_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = make_plan(root)
+            args = arguments(root, plan, "reuse-mutation")
+            args.allow_network = True
+            args.preflight_only = False
+            dated = (
+                Path(args.source_bundle_output)
+                / "by_date"
+                / "2026-07-13"
+                / "source_bundle.json"
+            )
+            dated.parent.mkdir(parents=True)
+            dated.write_text(
+                json.dumps(
+                    {
+                        "valuation_price_cutoff_date": "2026-07-13",
+                        "inputs": {
+                            "decision_manifest": {"path": "exact.json"}
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            plan_payload = json.loads(plan.read_text(encoding="utf-8"))
+            model_meta = Path(
+                plan_payload["paths"]["model_meta"]["path"]
+            )
+
+            def mutate_after_preflight(**_: object) -> dict[str, object]:
+                model_meta.write_text("model_meta:mutated\n", encoding="utf-8")
+                (root / "prices" / px_cache_name("AAPL")).write_bytes(
+                    b"late-price-cache"
+                )
+                return {
+                    "status": (
+                        "READY_EXISTING_EXACT_PACKET_INPUT_SOURCE_BUNDLE_REVIEW_ONLY"
+                    ),
+                    "current_source_bundle": {
+                        "path": str(dated),
+                        "sha256": "abc",
+                    },
+                }
+
+            with patch.dict(
+                "os.environ",
+                {"SEC_USER_AGENT": "research test@example.com"},
+            ), patch(
+                "tools.run_run287_exact_packet_upstream.publish_bundle",
+                side_effect=mutate_after_preflight,
+            ):
+                result = build(args)
+            self.assertEqual(result["status"], BLOCKED_STATUS)
+            self.assertEqual(result["failed_stage"], "preflight_input_rehash")
+            self.assertIn(
+                "preflight_input_changed:model_meta",
+                result["stage_audit"][-1]["failures"],
+            )
+            self.assertIn(
+                "preflight_price_cache_changed:AAPL",
+                result["stage_audit"][-1]["failures"],
+            )
 
 
 if __name__ == "__main__":

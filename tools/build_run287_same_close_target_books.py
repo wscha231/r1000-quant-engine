@@ -32,6 +32,11 @@ from tools.run287_crisis_policy import (  # noqa: E402
     availability_records,
     component_availability,
 )
+from tools.run_data_freshness_contract import (  # noqa: E402
+    core_candidate_coverage_for_path,
+    core_candidate_coverage_semantic_view,
+    core_candidate_ticker_set_sha256,
+)
 from tools.reserve_asset_policy import (  # noqa: E402
     DEFAULT_CURRENT_PAPER_MODE,
     RESERVE_REASONS,
@@ -67,6 +72,26 @@ TIMESTAMP_FIELDS = (
     "order_eligible_close_date",
     "same_close_selector_recomputed",
 )
+MINIMUM_CORE_CANDIDATE_COVERAGE = 0.98
+FRESHNESS_SCHEMA_VERSION = "data-freshness-contract-v1"
+FRESHNESS_SNAPSHOT_SCHEMA_VERSION = "data-snapshot-manifest-v1"
+CORE_CANDIDATE_COVERAGE_SCHEMA_VERSION = "run287-core-candidate-coverage-v1"
+CURRENT_SCORE_SCHEMA_VERSION = "run287-scored-latest-refresh-v4"
+PRODUCER_SCHEMA_VERSION = "run287-exact-packet-producer-v1"
+PRODUCER_READY_STATUSES = {
+    "READY_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY",
+    "READY_EXISTING_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY",
+}
+MATERIALIZED_OUTPUT_NAMES = (
+    "status.json",
+    "decision_snapshot.json",
+    "same_close_main_target_book.csv",
+    "same_close_concentrated_target_book.csv",
+    "same_close_main_crisis_shadow_target_book.csv",
+    "same_close_concentrated_crisis_shadow_target_book.csv",
+    "risk_intersection_audit.csv",
+    "canonical_crisis_policy_audit.csv",
+)
 
 
 def repo_path(value: str | Path) -> Path:
@@ -83,10 +108,29 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
         json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
     )
+    temporary.replace(path)
+
+
+def clear_previous_materialization(output_dir: Path) -> list[str]:
+    failures: list[str] = []
+    for name in MATERIALIZED_OUTPUT_NAMES:
+        path = output_dir / name
+        if path.is_dir():
+            failures.append(f"materialized_output_is_directory:{name}")
+            continue
+        if path.exists() or path.is_symlink():
+            try:
+                path.unlink()
+            except OSError as exc:
+                failures.append(
+                    f"materialized_output_cleanup:{name}:{type(exc).__name__}"
+                )
+    return failures
 
 
 def sha256_file(path: Path) -> str:
@@ -106,6 +150,150 @@ def fingerprint(path: Path) -> dict[str, Any]:
         "bytes": int(path.stat().st_size),
         "sha256": sha256_file(path),
     }
+
+
+def changed_fingerprint_failures(
+    records: Mapping[str, Any],
+    *,
+    failure_prefix: str,
+) -> list[str]:
+    failures: list[str] = []
+    for label, expected in records.items():
+        if not isinstance(expected, Mapping) or not expected.get("path"):
+            continue
+        current = fingerprint(Path(str(expected.get("path") or "")))
+        if any(
+            current.get(field) != expected.get(field)
+            for field in ("path", "exists", "bytes", "sha256")
+        ):
+            failures.append(f"{failure_prefix}:{label}")
+    return failures
+
+
+def validate_freshness_gate(
+    *,
+    status_path: Path,
+    snapshot_path: Path,
+    valuation_date: str,
+    expected_source_run_id: str,
+    expected_source_commit_sha: str,
+    expected_source_branch: str,
+    expected_source_artifact_name: str,
+) -> tuple[dict[str, Any], dict[str, Any], list[str], dict[str, dict[str, Any]]]:
+    failures: list[str] = []
+    fingerprints = {
+        "freshness_status": fingerprint(status_path),
+        "freshness_snapshot_manifest": fingerprint(snapshot_path),
+    }
+    if not status_path.is_file():
+        failures.append("freshness_status_missing")
+    if not snapshot_path.is_file():
+        failures.append("freshness_snapshot_manifest_missing")
+    if failures:
+        return {}, {}, failures, fingerprints
+    try:
+        status = read_json(status_path)
+    except Exception as exc:
+        failures.append(f"freshness_status:{type(exc).__name__}:{exc}")
+        status = {}
+    try:
+        snapshot = read_json(snapshot_path)
+    except Exception as exc:
+        failures.append(f"freshness_snapshot_manifest:{type(exc).__name__}:{exc}")
+        snapshot = {}
+
+    if status.get("schema_version") != FRESHNESS_SCHEMA_VERSION:
+        failures.append("freshness_status_schema")
+    if status.get("status") != "pass":
+        failures.append("freshness_status_not_pass")
+    if status.get("selection_allowed") is not True:
+        failures.append("freshness_selection_not_allowed")
+    if status.get("blockers"):
+        failures.append("freshness_blockers_present")
+    if status.get("source_context") != "daily_operating_refresh":
+        failures.append("freshness_source_context")
+    if status.get("freshness_contract_non_fatal") is not False:
+        failures.append("freshness_non_fatal_context")
+    if iso_date(status.get("asof_date")) != valuation_date:
+        failures.append("freshness_valuation_date_mismatch")
+
+    expected_identity = {
+        "source_run_id": expected_source_run_id,
+        "source_commit_sha": expected_source_commit_sha,
+        "source_branch": expected_source_branch,
+        "source_artifact_name": expected_source_artifact_name,
+    }
+    if not all(str(value or "").strip() for value in expected_identity.values()):
+        failures.append("freshness_expected_source_identity_incomplete")
+    for field, expected in expected_identity.items():
+        if str(status.get(field) or "") != str(expected or ""):
+            failures.append(f"freshness_status_{field}_mismatch")
+
+    if snapshot.get("schema_version") != FRESHNESS_SNAPSHOT_SCHEMA_VERSION:
+        failures.append("freshness_snapshot_schema")
+    for field, expected in expected_identity.items():
+        if str(snapshot.get(field) or "") != str(expected or ""):
+            failures.append(f"freshness_snapshot_{field}_mismatch")
+
+    declared_snapshot = resolve_path(
+        str(((status.get("outputs") or {}).get("data_snapshot_manifest_json")) or ""),
+        status_path,
+    )
+    try:
+        if declared_snapshot.resolve() != snapshot_path.resolve():
+            failures.append("freshness_snapshot_path_mismatch")
+    except OSError:
+        failures.append("freshness_snapshot_path_invalid")
+
+    # The restored pre-refresh score is diagnostic only. The mutation gate is
+    # owned by the attempt-specific scorer/selector chain validated below.
+    coverage = status.get("core_candidate_coverage") or {}
+    snapshot_coverage = snapshot.get("core_candidate_coverage") or {}
+    if coverage != snapshot_coverage:
+        failures.append("freshness_core_candidate_coverage_snapshot_mismatch")
+    if coverage.get("schema_version") != CORE_CANDIDATE_COVERAGE_SCHEMA_VERSION:
+        failures.append("freshness_core_candidate_coverage_schema")
+    if coverage.get("required_for_target_mutation") is not False:
+        failures.append("freshness_core_candidate_coverage_must_be_diagnostic")
+
+    source_files = snapshot.get("files") or []
+    if not isinstance(source_files, list):
+        failures.append("freshness_snapshot_files_schema")
+        source_files = []
+    for index, declared in enumerate(source_files):
+        if not isinstance(declared, Mapping):
+            failures.append(f"freshness_snapshot_file_{index:02d}_schema")
+            continue
+        source_path = resolve_path(str(declared.get("path") or ""), snapshot_path)
+        current = fingerprint(source_path)
+        label = f"freshness_source_{index:02d}"
+        fingerprints[label] = current
+        declared_exists = declared.get("exists") is True
+        if declared_exists:
+            expected_sha = str(declared.get("sha256") or "").lower()
+            try:
+                expected_bytes = int(declared.get("bytes"))
+            except (TypeError, ValueError):
+                expected_bytes = -1
+            if (
+                current.get("exists") is not True
+                or not expected_sha
+                or current.get("sha256") != expected_sha
+                or int(current.get("bytes") or -1) != expected_bytes
+            ):
+                failures.append(f"{label}_fingerprint")
+        elif current.get("exists") is True:
+            failures.append(f"{label}_unexpected_file")
+    current_fingerprints = {
+        "freshness_status": fingerprint(status_path),
+        "freshness_snapshot_manifest": fingerprint(snapshot_path),
+    }
+    if any(
+        current_fingerprints[label] != fingerprints[label]
+        for label in current_fingerprints
+    ):
+        failures.append("freshness_inputs_changed_during_validation")
+    return status, snapshot, sorted(set(failures)), fingerprints
 
 
 def resolve_path(raw: str, owner: Path) -> Path:
@@ -445,7 +633,17 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     valuation_date = pd.Timestamp(args.valuation_date).date().isoformat()
+    cleanup_failures = clear_previous_materialization(output_dir)
+    if cleanup_failures:
+        return blocked_payload(
+            output_dir=output_dir,
+            valuation_date=valuation_date,
+            failures=cleanup_failures,
+            inputs={},
+        )
     producer_path = repo_path(args.producer_status)
+    freshness_status_path = repo_path(args.freshness_status)
+    freshness_snapshot_path = repo_path(args.freshness_snapshot_manifest)
     contract_path = repo_path(
         getattr(args, "contract", "docs/run287_same_close_target_contract.json")
     )
@@ -453,7 +651,23 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "producer_status": fingerprint(producer_path),
         "same_close_contract": fingerprint(contract_path),
     }
-    failures: list[str] = []
+    _, _, failures, freshness_inputs = validate_freshness_gate(
+        status_path=freshness_status_path,
+        snapshot_path=freshness_snapshot_path,
+        valuation_date=valuation_date,
+        expected_source_run_id=str(args.expected_source_run_id),
+        expected_source_commit_sha=str(args.expected_source_commit_sha),
+        expected_source_branch=str(args.expected_source_branch),
+        expected_source_artifact_name=str(args.expected_source_artifact_name),
+    )
+    inputs.update(freshness_inputs)
+    if failures:
+        return blocked_payload(
+            output_dir=output_dir,
+            valuation_date=valuation_date,
+            failures=failures,
+            inputs=inputs,
+        )
     try:
         declared_contract = read_json(contract_path)
     except Exception as exc:
@@ -471,6 +685,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             inputs=inputs,
         )
     producer = read_json(producer_path)
+    if producer.get("schema_version") != PRODUCER_SCHEMA_VERSION:
+        failures.append("producer_schema_mismatch")
+    if producer.get("status") not in PRODUCER_READY_STATUSES:
+        failures.append("producer_status_not_ready")
     if producer.get("exact_packet_ready") is not True:
         failures.append("exact_packet_not_ready")
     if iso_date(producer.get("valuation_price_cutoff_date")) != valuation_date:
@@ -505,8 +723,24 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             (selector.get("source_inputs") or {}).get("decision_manifest") or {},
             "decision_manifest",
         )
+        current_score_manifest_path, inputs["freshness_current_score_manifest"] = (
+            verified_record(
+                selector_path,
+                (selector.get("source_inputs") or {}).get("price_manifest") or {},
+                "price_manifest",
+            )
+        )
         score = read_json(score_path)
         decision = read_json(decision_path)
+        current_score_manifest = read_json(current_score_manifest_path)
+        (
+            current_scored_path,
+            inputs["freshness_current_scored_latest"],
+        ) = verified_output(
+            current_score_manifest_path,
+            current_score_manifest,
+            "scored_latest.csv",
+        )
         crisis_path, inputs["crisis_manifest"] = verified_record(
             producer_path,
             (producer.get("source_inputs") or {}).get("crisis_manifest") or {},
@@ -533,6 +767,110 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         failures.append("candidate_risk_not_ready")
     if score.get("status") != SCORE_STATUS:
         failures.append("score_stack_not_ready")
+    if current_score_manifest.get("status") != "READY_RESEARCH_SCORED_LATEST":
+        failures.append("current_score_manifest_not_ready")
+    if current_score_manifest.get("schema_version") != CURRENT_SCORE_SCHEMA_VERSION:
+        failures.append("current_score_manifest_schema")
+    if iso_date(current_score_manifest.get("session_date")) != valuation_date:
+        failures.append("current_score_manifest_date_mismatch")
+    current_score_coverage = current_score_manifest.get("coverage") or {}
+    try:
+        pre_lifecycle_rows = int(
+            current_score_coverage.get("pre_lifecycle_context_count")
+        )
+        expected_core_rows = int(
+            current_score_coverage.get("post_lifecycle_context_count")
+        )
+        lifecycle_excluded_rows = int(
+            current_score_coverage.get("lifecycle_excluded_count")
+        )
+        current_context_rows = int(
+            current_score_coverage.get("current_context_count")
+        )
+        exact_close_rows = int(
+            current_score_coverage.get("exact_session_close_count")
+        )
+    except (TypeError, ValueError):
+        pre_lifecycle_rows = 0
+        expected_core_rows = 0
+        lifecycle_excluded_rows = 0
+        current_context_rows = 0
+        exact_close_rows = 0
+        failures.append("current_core_candidate_counts_invalid")
+    if pre_lifecycle_rows != expected_core_rows + lifecycle_excluded_rows:
+        failures.append("current_core_candidate_lifecycle_reconciliation")
+    if current_context_rows != expected_core_rows:
+        failures.append("current_core_candidate_context_count")
+    if exact_close_rows != expected_core_rows:
+        failures.append("current_core_candidate_exact_close_count")
+    recomputed_current_core, current_core_failures = (
+        core_candidate_coverage_for_path(
+            current_scored_path,
+            minimum_ratio=MINIMUM_CORE_CANDIDATE_COVERAGE,
+            expected_row_count=expected_core_rows,
+            expected_valuation_date=valuation_date,
+            decision_time_utc=str(decision.get("decision_time_utc") or ""),
+            expected_ticker_set_sha256=str(
+                (
+                    current_score_manifest.get("core_candidate_coverage") or {}
+                ).get("expected_ticker_set_sha256")
+                or ""
+            ),
+        )
+    )
+    declared_current_core = (
+        current_score_manifest.get("core_candidate_coverage") or {}
+    )
+    declared_expected_ticker_hash = str(
+        declared_current_core.get("expected_ticker_set_sha256") or ""
+    ).lower()
+    if (
+        declared_current_core.get("schema_version")
+        != CORE_CANDIDATE_COVERAGE_SCHEMA_VERSION
+    ):
+        failures.append("current_core_candidate_coverage_schema")
+    if (
+        len(declared_expected_ticker_hash) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in declared_expected_ticker_hash
+        )
+        or declared_current_core.get("ticker_set_matches_expected") is not True
+        or str(declared_current_core.get("ticker_set_sha256") or "").lower()
+        != declared_expected_ticker_hash
+    ):
+        failures.append("current_core_candidate_expected_ticker_set_contract")
+    declared_current_semantic = core_candidate_coverage_semantic_view(
+        declared_current_core
+    )
+    recomputed_current_semantic = core_candidate_coverage_semantic_view(
+        recomputed_current_core
+    )
+    if declared_current_semantic != recomputed_current_semantic:
+        failures.append("current_core_candidate_coverage_manifest_mismatch")
+    failures.extend(
+        f"current_core_candidate_coverage:{item}"
+        for item in current_core_failures
+    )
+    if declared_current_core.get("passed") is not True:
+        failures.append("current_core_candidate_coverage_not_passed")
+    score_available = utc_timestamp(
+        current_score_manifest.get("score_available_from")
+    )
+    selector_time = utc_timestamp(
+        (selector.get("timestamp_contract") or {}).get(
+            "selector_decision_time_utc"
+        )
+    )
+    decision_cutoff = utc_timestamp(decision.get("decision_time_utc"))
+    if (
+        pd.isna(score_available)
+        or pd.isna(selector_time)
+        or pd.isna(decision_cutoff)
+        or score_available < decision_cutoff
+        or score_available > selector_time
+    ):
+        failures.append("current_score_availability_contract")
     if crisis.get("status") != "READY_CURRENT_CRISIS_STATE_NONSELECTING":
         failures.append("crisis_state_not_ready")
     if iso_date(crisis.get("valuation_price_cutoff_date")) != valuation_date:
@@ -556,6 +894,24 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     risk_rows = pd.read_csv(risk_rows_path, low_memory=False)
     crisis_rows = pd.read_csv(crisis_row_path, low_memory=False)
     selection_context = pd.read_parquet(selection_context_path)
+    if "ticker" not in selection_context.columns:
+        failures.append("selection_context_ticker_missing")
+    else:
+        decision_ticker_set_sha256 = core_candidate_ticker_set_sha256(
+            selection_context["ticker"].tolist()
+        )
+        if len(selection_context) != expected_core_rows:
+            failures.append("current_core_candidate_decision_context_count")
+        if decision_ticker_set_sha256 != str(
+            recomputed_current_core.get("ticker_set_sha256") or ""
+        ):
+            failures.append("current_core_candidate_decision_ticker_set")
+        inputs["current_decision_ticker_set"] = {
+            "ticker_set_sha256": decision_ticker_set_sha256,
+            "expected_ticker_set_sha256": str(
+                recomputed_current_core.get("ticker_set_sha256") or ""
+            ),
+        }
     required_projection = {"portfolio_kind", "scenario", "ticker", "advisory_weight"}
     required_comparison = {"portfolio_kind", "scenario", "ticker", "marked_weight"}
     if not required_projection.issubset(projection.columns):
@@ -697,6 +1053,20 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             inputs=inputs,
         )
 
+    failures.extend(
+        changed_fingerprint_failures(
+            inputs,
+            failure_prefix="input_changed_before_target_write",
+        )
+    )
+    if failures:
+        return blocked_payload(
+            output_dir=output_dir,
+            valuation_date=valuation_date,
+            failures=sorted(set(failures)),
+            inputs=inputs,
+        )
+
     output_records: dict[str, Any] = {}
     target_hashes: dict[str, str] = {}
     crisis_shadow_hashes: dict[str, str] = {}
@@ -784,6 +1154,24 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     snapshot_path = output_dir / "decision_snapshot.json"
     write_json(snapshot_path, decision_snapshot)
     output_records["decision_snapshot"] = fingerprint(snapshot_path)
+    publish_failures = [
+        *changed_fingerprint_failures(
+            inputs,
+            failure_prefix="input_changed_before_target_publish",
+        ),
+        *changed_fingerprint_failures(
+            output_records,
+            failure_prefix="output_changed_before_target_publish",
+        ),
+    ]
+    if publish_failures:
+        cleanup_failures = clear_previous_materialization(output_dir)
+        return blocked_payload(
+            output_dir=output_dir,
+            valuation_date=valuation_date,
+            failures=sorted(set([*publish_failures, *cleanup_failures])),
+            inputs=inputs,
+        )
     status = {
         **decision_snapshot,
         "contract_failures": [],
@@ -797,6 +1185,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--producer-status", required=True)
+    parser.add_argument("--freshness-status", required=True)
+    parser.add_argument("--freshness-snapshot-manifest", required=True)
+    parser.add_argument("--expected-source-run-id", required=True)
+    parser.add_argument("--expected-source-commit-sha", required=True)
+    parser.add_argument("--expected-source-branch", required=True)
+    parser.add_argument("--expected-source-artifact-name", required=True)
     parser.add_argument("--valuation-date", required=True)
     parser.add_argument(
         "--contract", default="docs/run287_same_close_target_contract.json"

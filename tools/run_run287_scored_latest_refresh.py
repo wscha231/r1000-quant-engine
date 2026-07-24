@@ -10,6 +10,7 @@ snapshot.  It never selects, sizes, backtests, writes target books, or trades.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import math
@@ -22,6 +23,7 @@ from typing import Any, Callable, Mapping
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -47,6 +49,10 @@ from tools.run_run287_current_score_stack_audit import (  # noqa: E402
     PREDICTION_COLUMNS,
     execute_stack,
 )
+from tools.run_data_freshness_contract import (  # noqa: E402
+    core_candidate_coverage_for_path,
+    core_candidate_ticker_set_sha256,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 from tools import stage_run287_price_batch as checkpoint  # noqa: E402
 from tools.security_lifecycle import (  # noqa: E402
@@ -55,8 +61,19 @@ from tools.security_lifecycle import (  # noqa: E402
 )
 
 
-SCHEMA_VERSION = "run287-scored-latest-refresh-v3"
+SCHEMA_VERSION = "run287-scored-latest-refresh-v4"
 REQUIRED_PRICE_COLUMNS = ("Open", "High", "Low", "Close", "Adj Close", "Volume")
+PREFLIGHT_INPUT_LABELS = (
+    "universe",
+    "base_selection_context",
+    "base_score_stack",
+    "model_classification",
+    "model_regression",
+    "model_bundle",
+    "model_meta",
+    "scored_oos",
+    "security_lifecycle_events",
+)
 DEFAULT_CANONICAL = (
     "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"
 )
@@ -92,6 +109,172 @@ def parse_provider_symbol_overrides(values: list[str]) -> dict[str, str]:
     return overrides
 
 
+def parse_expected_input_sha256(values: list[str]) -> dict[str, str]:
+    """Parse the exact upstream-preflight hash contract for scorer inputs."""
+
+    expected: dict[str, str] = {}
+    for raw in values:
+        if "=" not in str(raw):
+            raise ValueError(f"invalid expected input sha256: {raw}")
+        label, digest = str(raw).split("=", 1)
+        label = label.strip()
+        digest = digest.strip().lower()
+        if (
+            label not in PREFLIGHT_INPUT_LABELS
+            or label in expected
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError(f"invalid expected input sha256: {raw}")
+        expected[label] = digest
+    missing = sorted(set(PREFLIGHT_INPUT_LABELS).difference(expected))
+    extra = sorted(set(expected).difference(PREFLIGHT_INPUT_LABELS))
+    if missing or extra:
+        raise ValueError(
+            "expected_input_sha256_contract_failed:"
+            f"missing={','.join(missing)}:extra={','.join(extra)}"
+        )
+    return expected
+
+
+def validate_preflight_input_hashes(
+    input_paths: Mapping[str, Path],
+    expected_sha256: Mapping[str, str],
+) -> dict[str, dict[str, Any]]:
+    """Hash every fixed scorer input before any of those inputs is parsed."""
+
+    if set(input_paths) != set(PREFLIGHT_INPUT_LABELS):
+        raise ValueError("preflight_input_path_contract_failed")
+    audits: dict[str, dict[str, Any]] = {}
+    failures: list[str] = []
+    for label in PREFLIGHT_INPUT_LABELS:
+        path = input_paths[label]
+        audit = checkpoint.fingerprint(path)
+        expected = str(expected_sha256.get(label) or "").lower()
+        audit["expected_sha256"] = expected
+        audit["hash_matches"] = bool(
+            audit.get("exists") is True
+            and len(expected) == 64
+            and audit.get("sha256") == expected
+        )
+        audits[label] = audit
+        if audit["hash_matches"] is not True:
+            failures.append(label)
+    if failures:
+        raise ValueError(
+            "preflight_input_hash_contract_failed:" + ",".join(sorted(failures))
+        )
+    return audits
+
+
+def changed_preflight_inputs(
+    initial_audit: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    """Rehash fixed inputs immediately before READY publication."""
+
+    failures: list[str] = []
+    for label in PREFLIGHT_INPUT_LABELS:
+        prior = initial_audit.get(label) or {}
+        current = checkpoint.fingerprint(Path(str(prior.get("path") or "")))
+        if any(
+            current.get(field) != prior.get(field)
+            for field in ("exists", "bytes", "sha256")
+        ):
+            failures.append(f"input_changed_before_scorer_ready:{label}")
+    return failures
+
+
+def validate_ticker_identity(
+    *,
+    label: str,
+    tickers: list[str],
+    expected_count: int,
+    expected_ticker_set_sha256: str,
+) -> dict[str, Any]:
+    """Validate count and membership against the upstream-preflight identity."""
+
+    expected_sha = str(expected_ticker_set_sha256 or "").strip().lower()
+    actual_sha = core_candidate_ticker_set_sha256(tickers)
+    valid_expected_sha = bool(
+        len(expected_sha) == 64
+        and all(character in "0123456789abcdef" for character in expected_sha)
+    )
+    unique_count = len(
+        {
+            normalize_ticker(value)
+            for value in tickers
+            if normalize_ticker(value)
+        }
+    )
+    matches = bool(
+        valid_expected_sha
+        and int(expected_count) == len(tickers)
+        and unique_count == len(tickers)
+        and actual_sha == expected_sha
+    )
+    audit = {
+        "label": label,
+        "expected_count": int(expected_count),
+        "actual_count": len(tickers),
+        "unique_count": unique_count,
+        "expected_ticker_set_sha256": expected_sha,
+        "actual_ticker_set_sha256": actual_sha,
+        "matches": matches,
+    }
+    if not matches:
+        raise ValueError(f"{label}_ticker_identity_contract_failed")
+    return audit
+
+
+def build_price_cache_input_audit(
+    tickers: list[str],
+    price_cache: Path,
+) -> dict[str, Any]:
+    """Fingerprint the exact historical cache files the scorer may consume."""
+
+    inputs = {
+        ticker: checkpoint.fingerprint(price_cache / px_cache_name(ticker))
+        for ticker in tickers
+    }
+    semantic = [
+        {
+            "ticker": ticker,
+            "exists": record.get("exists") is True,
+            "bytes": int(record.get("bytes") or 0),
+            "sha256": str(record.get("sha256") or ""),
+        }
+        for ticker, record in sorted(inputs.items())
+    ]
+    contract_sha256 = hashlib.sha256(
+        json.dumps(
+            semantic, sort_keys=True, separators=(",", ":"), default=str
+        ).encode("utf-8")
+    ).hexdigest()
+    return {
+        "schema_version": "run287-price-cache-input-audit-v1",
+        "ticker_count": len(tickers),
+        "ticker_set_sha256": core_candidate_ticker_set_sha256(tickers),
+        "contract_sha256": contract_sha256,
+        "inputs": inputs,
+    }
+
+
+def changed_price_cache_inputs(
+    initial_audit: Mapping[str, Any],
+    *,
+    failure_prefix: str = "price_cache_changed_before_scorer_ready",
+) -> list[str]:
+    failures: list[str] = []
+    for ticker, prior in (initial_audit.get("inputs") or {}).items():
+        current = checkpoint.fingerprint(Path(str((prior or {}).get("path") or "")))
+        if any(
+            current.get(field) != (prior or {}).get(field)
+            for field in ("exists", "bytes", "sha256")
+        ):
+            failures.append(f"{failure_prefix}:{ticker}")
+    return failures
+
+
 def drop_stale_prediction_columns(frame: pd.DataFrame) -> pd.DataFrame:
     """Prevent pandas merge suffixes from hiding newly computed predictions."""
 
@@ -105,6 +288,50 @@ def normalize_price(frame: pd.DataFrame) -> pd.DataFrame:
     out.index = pd.to_datetime(out.index, errors="coerce", utc=True).tz_localize(None)
     out = out.loc[out.index.notna()].sort_index()
     return out.loc[~out.index.duplicated(keep="last")]
+
+
+def advance_feature_available_from(
+    frame: pd.DataFrame,
+    *,
+    refreshed_feature_available_at: pd.Timestamp,
+) -> pd.DataFrame:
+    """Advance refreshed rows to the public availability of the exact close."""
+
+    out = frame.copy()
+    available_at = pd.Timestamp(refreshed_feature_available_at)
+    if available_at.tzinfo is None:
+        available_at = available_at.tz_localize("UTC")
+    else:
+        available_at = available_at.tz_convert("UTC")
+    if "feature_available_from" in out:
+        inherited = pd.to_datetime(
+            out["feature_available_from"], errors="coerce", utc=True
+        )
+        effective = inherited.where(inherited > available_at, available_at)
+    else:
+        effective = pd.Series(available_at, index=out.index, dtype="datetime64[ns, UTC]")
+    out["feature_available_from"] = effective.map(
+        lambda value: pd.Timestamp(value).isoformat()
+    )
+    return out
+
+
+def nyse_session_close_utc(session: pd.Timestamp) -> pd.Timestamp:
+    """Return the actual scheduled NYSE close, including half-day sessions."""
+
+    session_date = pd.Timestamp(session).date()
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=session_date,
+        end_date=session_date,
+    )
+    if len(schedule) != 1:
+        raise ValueError(f"session_date_is_not_one_nyse_session:{session_date}")
+    close = pd.Timestamp(schedule.iloc[0]["market_close"])
+    if close.tzinfo is None:
+        close = close.tz_localize("UTC")
+    else:
+        close = close.tz_convert("UTC")
+    return close
 
 
 def max_price_date_from_metadata(path: Path) -> pd.Timestamp | None:
@@ -440,6 +667,9 @@ def build(
         raise ValueError(
             "--decision-time-utc is required and must include a valid timestamp"
         )
+    exact_close_available_at = nyse_session_close_utc(session)
+    if pd.Timestamp(decision_time) < exact_close_available_at:
+        raise ValueError("decision_time_precedes_exact_nyse_close")
     if not args.allow_network_refresh and download_fn is None:
         raise ValueError("--allow-network-refresh is required")
     PROVIDER_SYMBOL_OVERRIDES.clear()
@@ -453,29 +683,45 @@ def build(
     price_cache = repo_path(args.price_cache)
     model_root = repo_path(args.model_root)
     scored_oos_path = repo_path(args.scored_oos)
-    model_meta_path = model_root / "phase4_latest_scoring_meta.json"
-    cat_reg_path = model_root / "phase4_latest_cat_reg.cbm"
-    cat_cls_path = model_root / "phase4_latest_cat_cls.cbm"
-    model_bundle_path = model_root / "model_bundle_latest.json"
+    model_meta_path = repo_path(args.model_meta)
+    cat_reg_path = repo_path(args.model_regression)
+    cat_cls_path = repo_path(args.model_classification)
+    model_bundle_path = repo_path(args.model_bundle)
+    lifecycle_path = repo_path(args.security_lifecycle_events)
     input_paths = {
         "universe": universe_path,
         "base_selection_context": context_path,
         "base_score_stack": prior_stack_path,
-        "model_meta": model_meta_path,
-        "cat_reg": cat_reg_path,
-        "cat_cls": cat_cls_path,
+        "model_classification": cat_cls_path,
+        "model_regression": cat_reg_path,
         "model_bundle": model_bundle_path,
+        "model_meta": model_meta_path,
         "scored_oos": scored_oos_path,
+        "security_lifecycle_events": lifecycle_path,
     }
-    missing = [name for name, path in input_paths.items() if not path.is_file()]
-    if missing or not price_cache.is_dir():
-        raise FileNotFoundError(f"required_inputs_missing:{','.join(missing)}")
+    expected_input_sha256 = parse_expected_input_sha256(
+        args.expected_input_sha256
+    )
+    input_audit = validate_preflight_input_hashes(
+        input_paths, expected_input_sha256
+    )
+    if not price_cache.is_dir() or not model_root.is_dir():
+        raise FileNotFoundError("required_input_directory_missing")
 
     universe = pd.read_csv(universe_path, dtype={"ticker": str}, low_memory=False)
     base = pd.read_parquet(context_path)
     base["ticker"] = base["ticker"].map(normalize_ticker)
     prior_stack = pd.read_csv(prior_stack_path, low_memory=False)
     prior_stack["ticker"] = prior_stack["ticker"].map(normalize_ticker)
+    universe_ticker_list = [
+        normalize_ticker(value) for value in universe["ticker"].tolist()
+    ]
+    universe_ticker_identity = validate_ticker_identity(
+        label="universe",
+        tickers=universe_ticker_list,
+        expected_count=int(args.expected_universe_count),
+        expected_ticker_set_sha256=args.expected_universe_ticker_set_sha256,
+    )
     base_ticker_list = base["ticker"].tolist()
     if base.empty or base["ticker"].duplicated().any() or not all(base_ticker_list):
         raise ValueError("base_context_dynamic_unique_ticker_contract_failed")
@@ -489,10 +735,11 @@ def build(
             "base_context_external_count_contract_failed:"
             f"{pre_lifecycle_context_count}!={expected_pre_lifecycle_context_count}"
         )
-    lifecycle_path = (
-        repo_path(args.security_lifecycle_events)
-        if str(args.security_lifecycle_events or "").strip()
-        else None
+    pre_lifecycle_ticker_identity = validate_ticker_identity(
+        label="pre_lifecycle_context",
+        tickers=base_ticker_list,
+        expected_count=expected_pre_lifecycle_context_count,
+        expected_ticker_set_sha256=args.expected_pre_lifecycle_ticker_set_sha256,
     )
     lifecycle = resolve_security_lifecycle(
         lifecycle_path,
@@ -519,6 +766,28 @@ def build(
         != len(lifecycle_excluded_tickers) + post_lifecycle_context_count
     ):
         raise ValueError("security_lifecycle_dynamic_count_contract_failed")
+    post_lifecycle_ticker_identity = validate_ticker_identity(
+        label="post_lifecycle_context",
+        tickers=tickers,
+        expected_count=int(args.expected_post_lifecycle_context_count),
+        expected_ticker_set_sha256=args.expected_post_lifecycle_ticker_set_sha256,
+    )
+    price_cache_input_audit = build_price_cache_input_audit(
+        tickers, price_cache
+    )
+    expected_price_cache_contract_sha256 = str(
+        args.expected_price_cache_contract_sha256 or ""
+    ).strip().lower()
+    if (
+        len(expected_price_cache_contract_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in expected_price_cache_contract_sha256
+        )
+        or price_cache_input_audit.get("contract_sha256")
+        != expected_price_cache_contract_sha256
+    ):
+        raise ValueError("price_cache_preflight_contract_failed")
     universe_tickers = {normalize_ticker(value) for value in universe["ticker"]}
     excluded = sorted((universe_tickers - set(tickers)) - {""})
 
@@ -710,6 +979,10 @@ def build(
     context["technical_available_after_close"] = session.date().isoformat()
     context = recompute_long_momentum_columns(context)
     context = transform_feature_context(context, EngineConfig())
+    context = advance_feature_available_from(
+        context,
+        refreshed_feature_available_at=exact_close_available_at,
+    )
 
     model_meta = json.loads(model_meta_path.read_text(encoding="utf-8"))
     model_bundle = json.loads(model_bundle_path.read_text(encoding="utf-8"))
@@ -732,7 +1005,113 @@ def build(
     )
     context.to_parquet(output_dir / "selection_context.parquet", index=False)
     scaled.to_parquet(output_dir / "scaled_model_input.parquet", index=False)
-    scored.to_csv(output_dir / "scored_latest.csv", index=False)
+    scored_path = output_dir / "scored_latest.csv"
+    scored.to_csv(scored_path, index=False)
+    core_candidate_coverage, core_coverage_failures = (
+        core_candidate_coverage_for_path(
+            scored_path,
+            minimum_ratio=0.98,
+            expected_row_count=post_lifecycle_context_count,
+            expected_valuation_date=session.date().isoformat(),
+            decision_time_utc=pd.Timestamp(decision_time).isoformat(),
+            expected_ticker_set_sha256=(
+                post_lifecycle_ticker_identity[
+                    "expected_ticker_set_sha256"
+                ]
+            ),
+        )
+    )
+
+    output_records = {
+        name: checkpoint.fingerprint(output_dir / name)
+        for name in (
+            "provider_price_overlap.parquet",
+            "provider_batch_audit.csv",
+            "ticker_refresh_audit.csv",
+            "security_lifecycle_applicable_events.csv",
+            "latest_technical_features.csv",
+            "selection_context.parquet",
+            "scaled_model_input.parquet",
+            "scored_latest.csv",
+        )
+    }
+    ticker_identity = {
+        "universe": universe_ticker_identity,
+        "pre_lifecycle_context": pre_lifecycle_ticker_identity,
+        "post_lifecycle_context": post_lifecycle_ticker_identity,
+    }
+
+    def block_changed_inputs(contract_failures: list[str]) -> dict[str, Any]:
+        blocked_payload = {
+            "schema_version": SCHEMA_VERSION,
+            "status": "BLOCKED_PREFLIGHT_INPUT_CHANGED",
+            "session_date": session.date().isoformat(),
+            "decision_time_utc": pd.Timestamp(decision_time).isoformat(),
+            "score_available_from": utc_now(),
+            "contract_failures": sorted(set(contract_failures)),
+            "ticker_identity": ticker_identity,
+            "research_only": True,
+            "current_decision_only": True,
+            "fullrun_executed": False,
+            "selector_executed": False,
+            "target_book_generation_executed": False,
+            "target_books_mutated": False,
+            "backtest_executed": False,
+            "production_activation_allowed": False,
+            "live_trading_enabled": False,
+            "source_cache_mutated": False,
+            "source_inputs": input_audit,
+            "price_cache_inputs": price_cache_input_audit,
+            "outputs": output_records,
+            "performance": {"elapsed_seconds": time.perf_counter() - started},
+        }
+        checkpoint.write_json(output_dir / "manifest.json", blocked_payload)
+        return blocked_payload
+
+    input_change_failures = [
+        *changed_preflight_inputs(input_audit),
+        *changed_price_cache_inputs(price_cache_input_audit),
+    ]
+    if input_change_failures:
+        return block_changed_inputs(input_change_failures)
+
+    if core_coverage_failures:
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "status": "BLOCKED_CORE_CANDIDATE_COVERAGE",
+            "session_date": session.date().isoformat(),
+            "decision_time_utc": pd.Timestamp(decision_time).isoformat(),
+            "score_available_from": utc_now(),
+            "contract_failures": sorted(set(core_coverage_failures)),
+            "core_candidate_coverage": core_candidate_coverage,
+            "coverage": {
+                "universe_count": len(universe),
+                "pre_lifecycle_context_count": pre_lifecycle_context_count,
+                "lifecycle_excluded_count": len(lifecycle_excluded_tickers),
+                "post_lifecycle_context_count": post_lifecycle_context_count,
+                "current_context_count": len(context),
+                "core_candidate_coverage_ratio": core_candidate_coverage[
+                    "coverage_ratio"
+                ],
+            },
+            "ticker_identity": ticker_identity,
+            "research_only": True,
+            "current_decision_only": True,
+            "fullrun_executed": False,
+            "selector_executed": False,
+            "target_book_generation_executed": False,
+            "target_books_mutated": False,
+            "backtest_executed": False,
+            "production_activation_allowed": False,
+            "live_trading_enabled": False,
+            "source_cache_mutated": False,
+            "source_inputs": input_audit,
+            "price_cache_inputs": price_cache_input_audit,
+            "outputs": output_records,
+            "performance": {"elapsed_seconds": time.perf_counter() - started},
+        }
+        checkpoint.write_json(output_dir / "manifest.json", payload)
+        return payload
 
     canonical_rel = str(args.canonical_output).replace("\\", "/")
     prior_canonical = read_git_csv(canonical_rel) if canonical_rel else pd.DataFrame()
@@ -751,23 +1130,23 @@ def build(
             both[["score_prior", "score_current"]].corr(method="spearman").iloc[0, 1]
         )
     if canonical_rel:
+        input_change_failures = [
+            *changed_preflight_inputs(input_audit),
+            *changed_price_cache_inputs(price_cache_input_audit),
+        ]
+        if input_change_failures:
+            return block_changed_inputs(input_change_failures)
         canonical_path = repo_path(canonical_rel)
         canonical_path.parent.mkdir(parents=True, exist_ok=True)
         scored.to_csv(canonical_path, index=False)
 
-    output_records = {
-        name: checkpoint.fingerprint(output_dir / name)
-        for name in (
-            "provider_price_overlap.parquet",
-            "provider_batch_audit.csv",
-            "ticker_refresh_audit.csv",
-            "security_lifecycle_applicable_events.csv",
-            "latest_technical_features.csv",
-            "selection_context.parquet",
-            "scaled_model_input.parquet",
-            "scored_latest.csv",
-        )
-    }
+    input_change_failures = [
+        *changed_preflight_inputs(input_audit),
+        *changed_price_cache_inputs(price_cache_input_audit),
+    ]
+    if input_change_failures:
+        return block_changed_inputs(input_change_failures)
+
     payload = {
         "schema_version": SCHEMA_VERSION,
         "status": "READY_RESEARCH_SCORED_LATEST",
@@ -789,6 +1168,8 @@ def build(
         "source_cache_mutated": False,
         "network_download_batch_count": len(batch_audits),
         "provider_symbol_overrides": dict(PROVIDER_SYMBOL_OVERRIDES),
+        "core_candidate_coverage": core_candidate_coverage,
+        "ticker_identity": ticker_identity,
         "coverage": {
             "universe_count": len(universe),
             "base_context_count": pre_lifecycle_context_count,
@@ -797,6 +1178,9 @@ def build(
             "lifecycle_excluded_count": len(lifecycle_excluded_tickers),
             "post_lifecycle_context_count": post_lifecycle_context_count,
             "current_context_count": len(context),
+            "core_candidate_coverage_ratio": core_candidate_coverage[
+                "coverage_ratio"
+            ],
             "security_lifecycle_terminal_event_count": len(terminal_exclusions),
             "security_lifecycle_terminal_exclusion_count": len(lifecycle_excluded_tickers),
             "security_lifecycle_terminal_tickers": sorted(terminal_tickers),
@@ -812,16 +1196,10 @@ def build(
         "score_diagnostics": score_diag,
         "comparison_to_prior_canonical": comparison,
         "source_inputs": {
-            **{
-                name: checkpoint.fingerprint(path)
-                for name, path in input_paths.items()
-            },
-            **(
-                {"security_lifecycle_events": checkpoint.fingerprint(lifecycle_path)}
-                if lifecycle_path is not None
-                else {}
-            ),
+            name: dict(audit)
+            for name, audit in input_audit.items()
         },
+        "price_cache_inputs": price_cache_input_audit,
         "security_lifecycle": lifecycle.audit(),
         "outputs": output_records,
         "canonical_output": canonical_rel,
@@ -842,9 +1220,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--universe", required=True)
     parser.add_argument("--base-selection-context", required=True)
     parser.add_argument("--expected-pre-lifecycle-context-count", type=int, required=True)
+    parser.add_argument("--expected-post-lifecycle-context-count", type=int, required=True)
+    parser.add_argument("--expected-universe-count", type=int, required=True)
+    parser.add_argument("--expected-universe-ticker-set-sha256", required=True)
+    parser.add_argument("--expected-pre-lifecycle-ticker-set-sha256", required=True)
+    parser.add_argument("--expected-post-lifecycle-ticker-set-sha256", required=True)
+    parser.add_argument("--expected-price-cache-contract-sha256", required=True)
+    parser.add_argument(
+        "--expected-input-sha256",
+        action="append",
+        default=[],
+        metavar="LABEL=SHA256",
+        help="Repeat for every upstream-preflight scorer input.",
+    )
     parser.add_argument("--base-score-stack", required=True)
     parser.add_argument("--price-cache", required=True)
     parser.add_argument("--model-root", required=True)
+    parser.add_argument("--model-classification", required=True)
+    parser.add_argument("--model-regression", required=True)
+    parser.add_argument("--model-bundle", required=True)
+    parser.add_argument("--model-meta", required=True)
     parser.add_argument("--scored-oos", required=True)
     parser.add_argument("--overlap-start", default="2026-01-02")
     parser.add_argument("--missing-history-start", default="2021-01-04")
@@ -869,7 +1264,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     payload = build(parse_args())
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
-    return 0
+    return 0 if payload.get("status") == "READY_RESEARCH_SCORED_LATEST" else 2
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ hashed parquet cache format consumed by run_weekly_evaluation.py.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -44,6 +45,14 @@ OFFICIAL_START_WARMUP_DAYS = 25
 def repo_path(path_like: str | Path) -> Path:
     path = Path(path_like)
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def read_csv(path: Path) -> pd.DataFrame:
@@ -347,6 +356,34 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     result["end"] = actual_end.date().isoformat() if actual_end is not None else ""
     result["actual_cached_ticker_count"] = int(actual_ticker_count)
     result["manifest_end_source"] = "actual_cached_bars" if actual_end is not None else "missing_cache"
+    result.update(
+        {
+            "schema_version": "run287-replay-price-cache-manifest-v2",
+            "book_inputs": [
+                {
+                    "path": str(path),
+                    "sha256": sha256_file(path),
+                    "bytes": path.stat().st_size,
+                }
+                for path in book_paths
+                if path.is_file()
+            ],
+            "cache_files": {
+                ticker: {
+                    "file": px_cache_name(ticker),
+                    "sha256": sha256_file(output_dir / px_cache_name(ticker)),
+                    "bytes": (
+                        output_dir / px_cache_name(ticker)
+                    ).stat().st_size,
+                }
+                for ticker in tickers
+                if (output_dir / px_cache_name(ticker)).is_file()
+            },
+            "review_only": True,
+            "production_mutation_allowed": False,
+            "live_trading_enabled": False,
+        }
+    )
     manifest = output_dir / "replay_price_cache_manifest.json"
     manifest.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result

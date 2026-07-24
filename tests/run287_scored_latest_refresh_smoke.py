@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 import sys
 
@@ -13,13 +14,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_run287_scored_latest_refresh import (
+    PREFLIGHT_INPUT_LABELS,
+    advance_feature_available_from,
+    build_price_cache_input_audit,
+    changed_preflight_inputs,
+    changed_price_cache_inputs,
     drop_stale_prediction_columns,
     max_price_date_from_metadata,
     merge_current_vintage,
     lifecycle_download_start,
     normalize_price,
+    nyse_session_close_utc,
     parse_provider_symbol_overrides,
+    validate_preflight_input_hashes,
+    validate_ticker_identity,
 )
+from tools import run_run287_scored_latest_refresh as refresh
 
 
 def prices(start: str, periods: int, scale: float = 1.0) -> pd.DataFrame:
@@ -39,6 +49,33 @@ def prices(start: str, periods: int, scale: float = 1.0) -> pd.DataFrame:
 
 
 class ScoredLatestRefreshSmoke(unittest.TestCase):
+    def test_refreshed_features_cannot_keep_pre_close_availability(self) -> None:
+        exact_close = nyse_session_close_utc(pd.Timestamp("2026-07-13"))
+        self.assertEqual(exact_close, pd.Timestamp("2026-07-13T20:00:00Z"))
+        frame = pd.DataFrame(
+            {
+                "ticker": ["OLD", "MISSING", "FUTURE"],
+                "feature_available_from": [
+                    "2026-07-10T20:00:00Z",
+                    "",
+                    "2026-07-14T12:00:00Z",
+                ],
+            }
+        )
+        refreshed = advance_feature_available_from(
+            frame,
+            refreshed_feature_available_at=exact_close,
+        )
+        available = pd.to_datetime(
+            refreshed["feature_available_from"], utc=True
+        )
+        self.assertEqual(available.iloc[0], exact_close)
+        self.assertEqual(available.iloc[1], exact_close)
+        self.assertEqual(
+            available.iloc[2], pd.Timestamp("2026-07-14T12:00:00Z")
+        )
+        self.assertTrue((available >= exact_close).all())
+
     def test_metadata_date_and_source_prefix_are_preserved(self) -> None:
         source = prices("2022-01-03", 800, scale=0.5)
         provider = prices(str(source.index[-20].date()), 25, scale=1.0)
@@ -132,6 +169,66 @@ class ScoredLatestRefreshSmoke(unittest.TestCase):
         self.assertIn("--expected-pre-lifecycle-context-count", upstream)
         self.assertIn("base_context_external_count_contract_failed", source)
 
+    def test_same_count_ticker_substitution_fails_external_identity(self) -> None:
+        expected = refresh.core_candidate_ticker_set_sha256(["AAA", "BBB"])
+        ready = validate_ticker_identity(
+            label="pre_lifecycle_context",
+            tickers=["AAA", "BBB"],
+            expected_count=2,
+            expected_ticker_set_sha256=expected,
+        )
+        self.assertTrue(ready["matches"])
+        with self.assertRaisesRegex(
+            ValueError, "pre_lifecycle_context_ticker_identity_contract_failed"
+        ):
+            validate_ticker_identity(
+                label="pre_lifecycle_context",
+                tickers=["AAA", "CCC"],
+                expected_count=2,
+                expected_ticker_set_sha256=expected,
+            )
+
+    def test_model_or_base_input_change_is_detected_before_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_paths = {}
+            expected = {}
+            for label in PREFLIGHT_INPUT_LABELS:
+                path = root / label
+                path.write_text(f"{label}:frozen\n", encoding="utf-8")
+                input_paths[label] = path
+                expected[label] = refresh.checkpoint.sha256_file(path)
+            audit = validate_preflight_input_hashes(input_paths, expected)
+            self.assertEqual(changed_preflight_inputs(audit), [])
+
+            input_paths["model_meta"].write_text(
+                "model_meta:mutated\n", encoding="utf-8"
+            )
+            self.assertIn(
+                "input_changed_before_scorer_ready:model_meta",
+                changed_preflight_inputs(audit),
+            )
+            input_paths["base_selection_context"].write_text(
+                "same-row-count:different-ticker\n", encoding="utf-8"
+            )
+            self.assertIn(
+                "input_changed_before_scorer_ready:base_selection_context",
+                changed_preflight_inputs(audit),
+            )
+
+    def test_consumed_price_cache_change_is_detected_before_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            source = cache / refresh.px_cache_name("AAA")
+            source.write_bytes(b"frozen-price-history")
+            audit = build_price_cache_input_audit(["AAA"], cache)
+            self.assertEqual(changed_price_cache_inputs(audit), [])
+            source.write_bytes(b"mutated-price-history")
+            self.assertEqual(
+                changed_price_cache_inputs(audit),
+                ["price_cache_changed_before_scorer_ready:AAA"],
+            )
+
     def test_provider_symbol_override_is_explicit(self) -> None:
         self.assertEqual(parse_provider_symbol_overrides(["OLD=NEW"]), {"OLD": "NEW"})
         with self.assertRaisesRegex(ValueError, "invalid provider symbol override"):
@@ -148,6 +245,20 @@ class ScoredLatestRefreshSmoke(unittest.TestCase):
         )
         clean = drop_stale_prediction_columns(frame)
         self.assertEqual(clean.columns.tolist(), ["ticker", "score"])
+
+    def test_blocked_manifest_returns_nonzero(self) -> None:
+        with mock.patch.object(refresh, "parse_args", return_value=object()), mock.patch.object(
+            refresh,
+            "build",
+            return_value={"status": "BLOCKED_CORE_CANDIDATE_COVERAGE"},
+        ), mock.patch("builtins.print"):
+            self.assertEqual(refresh.main(), 2)
+        with mock.patch.object(refresh, "parse_args", return_value=object()), mock.patch.object(
+            refresh,
+            "build",
+            return_value={"status": "READY_RESEARCH_SCORED_LATEST"},
+        ), mock.patch("builtins.print"):
+            self.assertEqual(refresh.main(), 0)
 
 
 if __name__ == "__main__":

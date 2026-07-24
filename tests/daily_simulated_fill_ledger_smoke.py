@@ -17,11 +17,21 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
+    GENESIS_HASH,
+    canonical_hash,
+    event_payload_for_hash,
     materialize_lifecycle_adjusted_target,
+    next_nyse_session_after,
     normalized_target,
     run,
     target_hash,
     validate_event_chain,
+    validate_restored_snapshot,
+)
+from tools.run287_paper_ledger_integrity import (  # noqa: E402
+    PaperLedgerIntegrityError,
+    require_state_descends_from,
+    write_integrity_manifest,
 )
 from tools.reserve_asset_policy import (  # noqa: E402
     RESERVE_REASON_SOURCE_HASH_FIELD,
@@ -46,6 +56,13 @@ def write_prices(cache: Path, ticker: str, closes: list[float]) -> None:
 
 
 def write_seed(path: Path, portfolio: str) -> None:
+    bootstrap_target = pd.DataFrame(
+        [
+            {"ticker": "AAA", "target_weight": 0.50},
+            {"ticker": "CASH", "target_weight": 0.50},
+        ]
+    )
+    bootstrap_target_bytes = bootstrap_target.to_csv(index=False).encode("utf-8")
     payload = {
         "schema_version": "account-ledger-v1",
         "portfolio_kind": portfolio,
@@ -71,6 +88,8 @@ def write_seed(path: Path, portfolio: str) -> None:
             }
         ],
         "realized_pnl_by_ticker": {},
+        "assumed_applied_target_hash": target_hash(bootstrap_target),
+        "target_sha256": hashlib.sha256(bootstrap_target_bytes).hexdigest(),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -174,6 +193,12 @@ def test_pending_resolves_once_at_next_close() -> None:
         first = run(args_for(root, "2026-01-05"))
         assert first["status"] == "completed"
         for portfolio in ("main", "concentrated"):
+            embedded_bootstrap = (
+                root / "paper" / "bootstrap" / f"{portfolio}_account.json"
+            )
+            assert embedded_bootstrap.read_bytes() == (
+                root / "seed" / f"{portfolio}.json"
+            ).read_bytes()
             directory = root / "paper" / portfolio
             pending = pd.read_csv(directory / "pending_orders.csv")
             assert len(pending) == 2
@@ -251,6 +276,60 @@ def test_pending_resolves_once_at_next_close() -> None:
             assert "hash mismatch" in str(exc)
         else:
             raise AssertionError("tampered forward fill chain was accepted")
+
+
+def test_next_close_uses_nyse_calendar_and_never_skips_missing_session() -> None:
+    assert next_nyse_session_after(
+        "2026-01-16", label="test.signal_date"
+    ).date().isoformat() == "2026-01-20"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True)
+        write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+        write_prices(cache, "BBB", [50.0, 51.0, 52.0])
+        for portfolio in ("main", "concentrated"):
+            write_seed(root / "seed" / f"{portfolio}.json", portfolio)
+            write_target(root / "targets" / f"{portfolio}.csv")
+        run(args_for(root, "2026-01-05"))
+        before = directory_hashes(root / "paper")
+
+        dates = pd.to_datetime(
+            ["2026-01-02", "2026-01-05", "2026-01-07"]
+        )
+        for ticker, closes in (
+            ("AAA", [100.0, 102.0, 104.0]),
+            ("BBB", [50.0, 51.0, 53.0]),
+        ):
+            pd.DataFrame(
+                {
+                    "Open": closes,
+                    "Close": closes,
+                    "Adj Close": closes,
+                    "Volume": [1_000_000] * len(closes),
+                },
+                index=dates,
+            ).to_parquet(cache / px_cache_name(ticker))
+        try:
+            run(args_for(root, "2026-01-07"))
+        except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_SESSION_GAP"
+            assert "2026-01-06" in str(exc)
+        else:
+            raise AssertionError(
+                "a later session skipped the missing next NYSE session"
+            )
+        assert directory_hashes(root / "paper") == before
+        try:
+            run(args_for(root, "2026-01-06"))
+        except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_MISSING_EXACT_CLOSE"
+            assert "2026-01-06" in str(exc)
+        else:
+            raise AssertionError(
+                "the missing next NYSE close was silently accepted"
+            )
+        assert directory_hashes(root / "paper") == before
 
 
 def test_verified_cash_merger_settles_without_future_close_and_cancels_pending() -> None:
@@ -342,6 +421,8 @@ def test_delayed_catchup_fills_before_terminal_settlement() -> None:
 
         first = run(args_for(root, "2026-01-02", str(lifecycle)))
         assert first["status"] == "completed"
+        catchup = run(args_for(root, "2026-01-05", str(lifecycle)))
+        assert catchup["status"] == "completed"
         second = run(args_for(root, "2026-01-06", str(lifecycle)))
         assert second["status"] == "completed"
         for portfolio in ("main", "concentrated"):
@@ -444,6 +525,17 @@ def test_post_cutover_exit_executes_against_predecessor_ledger_position() -> Non
             fills = pd.read_csv(root / "paper" / portfolio / "fills.csv")
             assert set(fills["ticker"]) == {"OLD"}
             assert set(fills["execution_ticker"]) == {"NEW"}
+            source_path = (
+                root
+                / "paper"
+                / portfolio
+                / str(fills.iloc[0]["execution_price_source_path"])
+            )
+            source = json.loads(source_path.read_text(encoding="utf-8"))
+            assert source["ticker"] == "OLD"
+            assert source["execution_ticker"] == "NEW"
+            assert source["fill_date"] == "2026-01-07"
+            assert float(source["observations"][0]["close"]) == 121.0
 
 
 def test_last_terminal_stock_materializes_explicit_all_cash_target() -> None:
@@ -671,8 +763,365 @@ def test_suppressed_mark_can_transition_once_to_fresh_same_close_target() -> Non
             assert not pending.empty
 
 
+def _write_standard_fixture_inputs(root: Path) -> None:
+    cache = root / "cache_prices"
+    cache.mkdir(parents=True)
+    write_prices(cache, "AAA", [100.0, 102.0, 103.0])
+    write_prices(cache, "BBB", [50.0, 51.0, 52.0])
+    for portfolio in ("main", "concentrated"):
+        write_seed(root / "seed" / f"{portfolio}.json", portfolio)
+        write_target(root / "targets" / f"{portfolio}.csv")
+
+
+def _reseal_fill_chain(portfolio_dir: Path) -> None:
+    fills_path = portfolio_dir / "fills.csv"
+    fills = pd.read_csv(fills_path).sort_values("event_sequence")
+    previous = GENESIS_HASH
+    rows: list[dict] = []
+    for row in fills.to_dict("records"):
+        row["previous_event_hash"] = previous
+        row["event_hash"] = canonical_hash(event_payload_for_hash(row))
+        previous = str(row["event_hash"])
+        rows.append(row)
+    pd.DataFrame(rows).to_csv(fills_path, index=False)
+    try:
+        rejections = pd.read_csv(portfolio_dir / "rejections.csv")
+    except pd.errors.EmptyDataError:
+        rejections = pd.DataFrame()
+    sequence, chain_hash, _client_ids = validate_event_chain(
+        pd.read_csv(fills_path),
+        rejections,
+    )
+    for name in ("manifest.json", "state_meta.json"):
+        path = portfolio_dir / name
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["event_sequence"] = sequence
+        payload["event_chain_hash"] = chain_hash
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_restored_snapshot_rejects_resealed_impossible_fill() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        run(args_for(root, "2026-01-06"))
+        directory = root / "paper" / "main"
+        validate_restored_snapshot(
+            directory,
+            "main",
+            bootstrap_path=root / "seed" / "main.json",
+        )
+
+        fills_path = directory / "fills.csv"
+        fills = pd.read_csv(fills_path).sort_values("event_sequence")
+        fills.loc[fills.index[0], "cash_delta"] = 1_000_000_000.0
+        fills.to_csv(fills_path, index=False)
+        _reseal_fill_chain(directory)
+        try:
+            validate_restored_snapshot(
+                directory,
+                "main",
+                bootstrap_path=root / "seed" / "main.json",
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert "cash_delta_mismatch" in str(exc)
+        else:
+            raise AssertionError(
+                "hash-resealed economically impossible fill was accepted"
+            )
+
+
+def test_restored_snapshot_binds_fill_to_attested_execution_close() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        run(args_for(root, "2026-01-06"))
+        directory = root / "paper" / "main"
+        fills_path = directory / "fills.csv"
+        fills = pd.read_csv(fills_path).sort_values("event_sequence")
+        first = fills.iloc[0]
+        source_relative = str(first["execution_price_source_path"])
+        source_path = directory / source_relative
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        assert source["execution_ticker"] == first["execution_ticker"]
+        assert source["fill_date"] == first["date"]
+        assert float(source["observations"][0]["close"]) == float(
+            first["fill_price"]
+        )
+        integrity = json.loads(
+            (root / "paper" / "snapshot_integrity.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        integrity_key = f"main/{source_relative}"
+        assert (
+            integrity["files"][integrity_key]
+            == hashlib.sha256(source_path.read_bytes()).hexdigest()
+            == first["execution_price_source_sha256"]
+        )
+
+        # Mutating the frozen source and resealing both its event reference and
+        # the event-chain manifests must still fail exact-close semantic replay.
+        source["observations"][0]["close"] = (
+            float(source["observations"][0]["close"]) + 1.0
+        )
+        source_path.write_text(json.dumps(source), encoding="utf-8")
+        fills.loc[
+            fills.index[0], "execution_price_source_sha256"
+        ] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        fills.to_csv(fills_path, index=False)
+        _reseal_fill_chain(directory)
+        try:
+            validate_restored_snapshot(
+                directory,
+                "main",
+                bootstrap_path=root / "seed" / "main.json",
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert "execution_price_exact_close_mismatch" in str(exc)
+        else:
+            raise AssertionError(
+                "hash-resealed mutated execution close was accepted"
+            )
+
+
+def test_execution_price_source_chronology_fails_closed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        run(args_for(root, "2026-01-06"))
+        directory = root / "paper" / "main"
+        fills_path = directory / "fills.csv"
+        fills = pd.read_csv(fills_path).sort_values("event_sequence")
+        source_path = (
+            directory / str(fills.iloc[0]["execution_price_source_path"])
+        )
+        originals = {
+            path: path.read_bytes()
+            for path in (
+                fills_path,
+                directory / "manifest.json",
+                directory / "state_meta.json",
+                source_path,
+            )
+        }
+
+        def restore() -> tuple[pd.DataFrame, dict]:
+            for path, payload in originals.items():
+                path.write_bytes(payload)
+            return (
+                pd.read_csv(fills_path).sort_values("event_sequence"),
+                json.loads(source_path.read_text(encoding="utf-8")),
+            )
+
+        for mode in ("same_day", "stale", "future"):
+            candidate_fills, source = restore()
+            if mode == "same_day":
+                event_date = str(candidate_fills.iloc[0]["date"])
+                candidate_fills.loc[
+                    candidate_fills.index[0], "signal_date"
+                ] = event_date
+                source["signal_date"] = event_date
+                source["first_eligible_date"] = (
+                    pd.Timestamp(event_date) + pd.Timedelta(days=1)
+                ).date().isoformat()
+            elif mode == "stale":
+                source["observations"][0]["date"] = source["signal_date"]
+            else:
+                source["captured_through"] = (
+                    pd.Timestamp(source["fill_date"]) + pd.Timedelta(days=1)
+                ).date().isoformat()
+            source_path.write_text(json.dumps(source), encoding="utf-8")
+            candidate_fills.loc[
+                candidate_fills.index[0],
+                "execution_price_source_sha256",
+            ] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            candidate_fills.to_csv(fills_path, index=False)
+            _reseal_fill_chain(directory)
+            try:
+                validate_restored_snapshot(
+                    directory,
+                    "main",
+                    bootstrap_path=root / "seed" / "main.json",
+                )
+            except PaperLedgerIntegrityError as exc:
+                if mode == "stale":
+                    assert "execution_price_exact_close_mismatch" in str(exc)
+                else:
+                    assert (
+                        "execution_price_source_chronology_invalid"
+                        in str(exc)
+                    )
+            else:
+                raise AssertionError(
+                    f"{mode} execution price source was accepted"
+                )
+
+
+def test_restored_snapshot_rejects_pending_schema_and_domain_tampering() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        directory = root / "paper" / "main"
+        seed = root / "seed" / "main.json"
+        validate_restored_snapshot(
+            directory, "main", bootstrap_path=seed
+        )
+        pending_path = directory / "pending_orders.csv"
+        original = pending_path.read_bytes()
+
+        pending = pd.read_csv(pending_path)
+        pending["broker_order_sent"] = True
+        pending.to_csv(pending_path, index=False)
+        try:
+            validate_restored_snapshot(
+                directory, "main", bootstrap_path=seed
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert "pending:schema_mismatch" in str(exc)
+        else:
+            raise AssertionError("pending order schema expansion was accepted")
+
+        pending_path.write_bytes(original)
+        pending = pd.read_csv(pending_path)
+        pending.loc[pending.index[0], "quantity"] = -1
+        pending.to_csv(pending_path, index=False)
+        try:
+            validate_restored_snapshot(
+                directory, "main", bootstrap_path=seed
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert "positive_integer_required" in str(exc)
+        else:
+            raise AssertionError("negative pending order quantity was accepted")
+
+
+def test_restored_snapshot_rejects_fill_schema_tampering() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        run(args_for(root, "2026-01-06"))
+        directory = root / "paper" / "main"
+        fills_path = directory / "fills.csv"
+        fills = pd.read_csv(fills_path).drop(columns=["execution_ticker"])
+        fills.to_csv(fills_path, index=False)
+        _reseal_fill_chain(directory)
+
+        try:
+            validate_restored_snapshot(
+                directory,
+                "main",
+                bootstrap_path=root / "seed" / "main.json",
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert "fills:schema_mismatch" in str(exc)
+            assert "execution_ticker" in str(exc)
+        else:
+            raise AssertionError("hash-resealed incomplete fill schema was accepted")
+
+
+def test_restored_snapshot_rejects_zero_fill_account_totals_tampering() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        directory = root / "paper" / "main"
+        account_path = directory / "account_state_latest.json"
+        account = json.loads(account_path.read_text(encoding="utf-8"))
+        assert account["forward_fill_count"] == 0
+        account["total_fees_usd"] = 123.0
+        account["forward_fill_count"] = 7
+        account_path.write_text(json.dumps(account), encoding="utf-8")
+
+        try:
+            validate_restored_snapshot(
+                directory,
+                "main",
+                bootstrap_path=root / "seed" / "main.json",
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert "account.fill_totals:replay_mismatch" in str(exc)
+        else:
+            raise AssertionError("zero-fill account totals tampering was accepted")
+
+
+def test_advancing_snapshot_preserves_restored_fill_header_order() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write_standard_fixture_inputs(root)
+        run(args_for(root, "2026-01-05"))
+        run(args_for(root, "2026-01-06"))
+
+        state = root / "paper"
+        prior_integrity = json.loads(
+            (state / "snapshot_integrity.json").read_text(encoding="utf-8")
+        )
+        expected_headers: dict[str, list[str]] = {}
+        for portfolio in ("main", "concentrated"):
+            fills_path = state / portfolio / "fills.csv"
+            fills = pd.read_csv(fills_path)
+            assert not fills.empty
+            legacy_order = [
+                "portfolio_kind",
+                "date",
+                "signal_date",
+                "ticker",
+                *[
+                    column
+                    for column in fills.columns
+                    if column not in {"portfolio_kind", "date", "signal_date", "ticker"}
+                ],
+            ]
+            assert legacy_order != sorted(legacy_order)
+            fills.reindex(columns=legacy_order).to_csv(fills_path, index=False)
+            expected_headers[portfolio] = legacy_order
+
+        (state / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            state,
+            as_of_date="2026-01-06",
+            previous_snapshot_hash=str(
+                prior_integrity.get("previous_snapshot_hash") or ""
+            ),
+        )
+        anchor = root / "anchor"
+        shutil.copytree(state, anchor)
+
+        dates = pd.to_datetime(
+            ["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07"]
+        )
+        for ticker, closes in (
+            ("AAA", [100.0, 102.0, 103.0, 104.0]),
+            ("BBB", [50.0, 51.0, 52.0, 53.0]),
+        ):
+            pd.DataFrame(
+                {
+                    "Open": closes,
+                    "Close": closes,
+                    "Adj Close": closes,
+                    "Volume": [1_000_000] * len(closes),
+                },
+                index=dates,
+            ).to_parquet(root / "cache_prices" / px_cache_name(ticker))
+
+        run(args_for(root, "2026-01-07", suppress_new_orders=True))
+        for portfolio, expected in expected_headers.items():
+            observed = list(
+                pd.read_csv(state / portfolio / "fills.csv", nrows=0).columns
+            )
+            assert observed == expected
+        continuity = require_state_descends_from(state, anchor)
+        assert continuity["continuity_status"] == "CANDIDATE_DESCENDS_FROM_ANCHOR"
+
+
 def main() -> int:
     test_pending_resolves_once_at_next_close()
+    test_next_close_uses_nyse_calendar_and_never_skips_missing_session()
     test_verified_cash_merger_settles_without_future_close_and_cancels_pending()
     test_delayed_catchup_fills_before_terminal_settlement()
     test_ticker_change_uses_successor_exact_close_after_last_trade()
@@ -683,6 +1132,13 @@ def main() -> int:
     test_bootstrap_does_not_retrade_an_already_effective_target()
     test_same_session_price_revision_reuses_frozen_state_and_input_change_fails_closed()
     test_suppressed_mark_can_transition_once_to_fresh_same_close_target()
+    test_restored_snapshot_rejects_resealed_impossible_fill()
+    test_restored_snapshot_binds_fill_to_attested_execution_close()
+    test_execution_price_source_chronology_fails_closed()
+    test_restored_snapshot_rejects_pending_schema_and_domain_tampering()
+    test_restored_snapshot_rejects_fill_schema_tampering()
+    test_restored_snapshot_rejects_zero_fill_account_totals_tampering()
+    test_advancing_snapshot_preserves_restored_fill_header_order()
     print("daily_simulated_fill_ledger_smoke: PASS")
     return 0
 

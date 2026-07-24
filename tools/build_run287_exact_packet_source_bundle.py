@@ -36,6 +36,10 @@ from tools.run_run287_exact_packet_producer import (  # noqa: E402
     resolve_portable_path,
     write_json,
 )
+from tools.run287_code_identity import (  # noqa: E402
+    code_identity_failures,
+    current_code_identity,
+)
 
 
 SCHEMA_VERSION = "run287-exact-packet-source-bundle-publisher-v1"
@@ -124,9 +128,8 @@ def immutable_publish(
             )
             return BLOCKED_STATUS, None
 
-    dated.parent.mkdir(parents=True, exist_ok=True)
-    dated.write_text(serialized, encoding="utf-8")
-    current.write_text(serialized, encoding="utf-8")
+    write_json(dated, bundle)
+    write_json(current, bundle)
     return READY_STATUS, dated
 
 
@@ -136,6 +139,7 @@ def build_from_records(
     input_records: Mapping[str, str | Path],
     producer_contract: str | Path,
     output_dir: str | Path,
+    expected_code_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     valuation_date = pd.Timestamp(valuation_date).date().isoformat()
@@ -148,6 +152,23 @@ def build_from_records(
     expected_labels = set(dynamic) | set(fixed)
     supplied_labels = set(input_records)
     failures: list[str] = []
+    try:
+        current_identity = current_code_identity()
+    except Exception as exc:
+        current_identity = {}
+        failures.append(f"code_identity_current:{type(exc).__name__}")
+    frozen_identity: Mapping[str, Any] = (
+        expected_code_identity
+        if isinstance(expected_code_identity, Mapping)
+        else current_identity
+    )
+    failures.extend(
+        code_identity_failures(
+            frozen_identity,
+            current=current_identity,
+            prefix="code_identity",
+        )
+    )
     missing_labels = sorted(expected_labels.difference(supplied_labels))
     extra_labels = sorted(supplied_labels.difference(expected_labels))
     if missing_labels:
@@ -173,6 +194,7 @@ def build_from_records(
             f"missing_files:{','.join(sorted(missing_files))}"
         ]
         payload["input_audit"] = audits
+        payload["code_identity"] = dict(frozen_identity)
         write_json(destination / "status.json", payload)
         return payload
 
@@ -223,6 +245,7 @@ def build_from_records(
         payload = base_payload(BLOCKED_STATUS, valuation_date, started)
         payload["contract_failures"] = failures
         payload["input_audit"] = audits
+        payload["code_identity"] = dict(frozen_identity)
         write_json(destination / "status.json", payload)
         return payload
 
@@ -238,6 +261,7 @@ def build_from_records(
         "target_books_mutated": False,
         "production_activation_allowed": False,
         "live_trading_enabled": False,
+        "code_identity": dict(frozen_identity),
         "inputs": {
             label: {
                 "path": str(resolved[label].resolve()),
@@ -250,6 +274,7 @@ def build_from_records(
     payload = base_payload(status, valuation_date, started)
     payload["contract_failures"] = failures
     payload["input_audit"] = audits
+    payload["code_identity"] = dict(frozen_identity)
     if dated is not None:
         payload["dated_source_bundle"] = fingerprint(dated)
         payload["current_source_bundle"] = fingerprint(destination / "source_bundle.json")

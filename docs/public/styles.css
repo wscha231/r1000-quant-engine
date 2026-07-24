@@ -298,6 +298,7 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.022); }
 .side-sell { color: var(--red); background: rgba(255, 122, 144, 0.12); }
 .record-badge { min-width: 76px; padding: 5px 8px; }
 .record-forward { color: var(--blue); background: rgba(94, 177, 255, 0.13); }
+.record-replay { color: var(--amber); background: rgba(255, 190, 92, 0.13); }
 .record-backtest { color: var(--muted-strong); background: rgba(255, 255, 255, 0.06); }
 .action-badge { padding: 6px 9px; color: var(--amber); background: rgba(255, 204, 115, 0.11); }
 .review-badge { padding: 8px 12px; color: var(--amber); border: 1px solid rgba(255, 204, 115, 0.24); background: rgba(255, 204, 115, 0.08); }
