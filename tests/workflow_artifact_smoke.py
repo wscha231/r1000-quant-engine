@@ -1099,6 +1099,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "catchup_price_evidence_artifact_digest",
         "Restore immutable catch-up price evidence",
         "Restore validated cross-mode paper continuity cache",
+        "Enforce durable Drive for chronological catch-up",
+        "tools/check_run287_catchup_drive_readiness.py",
+        "RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY",
+        "RUN287_DURABLE_RCLONE_CONFIG_GDRIVE",
         "daily-paper-continuity-v1-",
         "outputs/run287_paper_immutable_head_bundles",
         "origin_verification_mode",
@@ -1170,6 +1174,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]:
         assert forbidden not in text, forbidden
     freshness_idx = text.index("python tools/run_data_freshness_contract.py")
+    durable_catchup_drive_idx = text.index(
+        "- name: Enforce durable Drive for chronological catch-up"
+    )
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
     accepted_parent_restore_idx = text.index(
         "- name: Restore verified risk-outcome accepted head"
@@ -1205,6 +1212,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "python tools/build_run287_accepted_publication_manifest.py"
     )
     assert freshness_idx < paper_idx, "freshness must fail closed before any paper-ledger mutation"
+    assert durable_catchup_drive_idx < paper_idx, (
+        "catch-up must prove durable Drive availability before any paper-ledger mutation"
+    )
     assert accepted_parent_restore_idx < paper_idx < snapshot_idx, "the immutable prior outcome head must be restored before the paper account is advanced"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
     assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < parent_clear_idx < parent_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity and freeze the restored outcome parent before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"

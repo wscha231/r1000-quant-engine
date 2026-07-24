@@ -503,14 +503,15 @@ jobs:
       - name: Configure rclone
         if: steps.market.outputs.ready == 'yes'
         env:
-          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
-          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
         run: |
           set -euo pipefail
+          python tools/check_run287_catchup_drive_readiness.py \
+            --phase authentication
           if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
             echo "[gdrive] no auth configured; continuing cache/local only"
-            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
             exit 0
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
@@ -1073,6 +1074,12 @@ jobs:
             restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
             restore_dir paper_archive/run287_risk_outcome_price_cache outputs/run287_risk_outcome_price_cache
           fi
+
+      - name: Enforce durable Drive for chronological catch-up
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
+        run: |
+          set -euo pipefail
+          python tools/check_run287_catchup_drive_readiness.py --phase restored
 
       - name: Restore verified risk-outcome accepted head
         id: risk_outcome_accepted_parent

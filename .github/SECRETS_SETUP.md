@@ -29,6 +29,24 @@ values in this file, PR bodies, issue comments, artifacts, or handoff notes.
 | `RCLONE_CONFIG_GDRIVE` | Google Drive sync | Alternative to service-account JSON. |
 | `GDRIVE_ROOT_FOLDER_ID` | Google Drive root | May be a secret or repository variable. |
 
+## Run287 Durable Environment Secrets
+
+Chronological Run287 paper-ledger catch-up uses dedicated secrets in the
+`run287-paper-durable` GitHub environment. Add these names to that environment,
+not to repository secrets:
+
+| Environment-only name | Purpose |
+|-----------------------|---------|
+| `RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY` | Service-account JSON for the durable paper archive. |
+| `RUN287_DURABLE_RCLONE_CONFIG_GDRIVE` | Alternative rclone configuration for the durable paper archive. |
+
+The daily Run287 workflow maps these environment-only names to its local rclone
+variables. Generic repository-level `GOOGLE_SERVICE_ACCOUNT_KEY` and
+`RCLONE_CONFIG_GDRIVE` values cannot satisfy its catch-up authentication gate.
+Before dispatching catch-up, verify that at least one dedicated name exists in
+the environment and that neither dedicated name exists at repository scope.
+Never paste either value into chat or a command transcript.
+
 ## Agent Access Contract
 
 Agents must use these secrets through one of two paths:

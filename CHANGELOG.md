@@ -3,6 +3,41 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-07-24
+
+### 14:58 KST - Fail closed when chronological catch-up cannot reach durable Drive state
+
+- scope:
+  - Prevent a chronological paper-ledger catch-up from reporting success when Google Drive authentication or authoritative canonical-state discovery is unavailable.
+  - Preserve cache/local fallback behavior for ordinary scheduled operation while requiring durable Drive for replay-only catch-up.
+- files:
+  - `.github/workflows/daily_operating_selection_refresh.yml` ->uses dedicated environment-only Drive secret names and blocks catch-up before any paper-ledger mutation when authentication or authoritative restore state is missing.
+  - `tools/check_run287_catchup_drive_readiness.py` ->evaluates authentication and post-restore readiness without exposing secret values.
+  - `tests/run287_catchup_drive_readiness_smoke.py` ->executes the authentication/restore matrix and parses workflow scope and step ordering.
+  - `tests/workflow_artifact_smoke.py` and `tools/run_pr_validation.py` ->lock and run the new guard.
+  - `.github/SECRETS_SETUP.md` ->documents the `run287-paper-durable` environment-only credential contract.
+- symbols_added:
+  - `tools.check_run287_catchup_drive_readiness.evaluate_readiness`
+  - `tools.check_run287_catchup_drive_readiness.evaluate_environment`
+  - `tools.check_run287_catchup_drive_readiness.append_github_env`
+- symbols_changed:
+  - `daily_operating_selection_refresh.refresh` ->requires durable Drive authentication and classified canonical state for chronological catch-up.
+- config_fields_added:
+  - environment secret `RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY`.
+  - environment secret `RUN287_DURABLE_RCLONE_CONFIG_GDRIVE`.
+- breaking_changes:
+  - Catch-up dispatches can no longer fall back to GitHub cache/local-only persistence; they fail before ledger mutation until durable Drive is available.
+  - Generic repository-level Drive secrets no longer authorize this durable workflow.
+- validation:
+  - standard PR validation ->197/197 PASS in 1009.88 seconds.
+  - workflow artifact smoke ->PASS.
+  - catch-up Drive readiness behavioral smoke ->PASS.
+  - catch-up price evidence smoke ->PASS.
+  - daily market-close gate smoke ->PASS.
+  - paper-ledger transaction smoke ->PASS.
+  - two independent read-only re-audits ->no remaining High/Medium findings.
+  - fullrun, production activation, and live trading ->NOT RUN.
+
 ## 2026-07-14
 
 ### 12:40 KST - Restore and lock the rejected SEC filing-quality source screen
