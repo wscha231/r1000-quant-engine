@@ -10,32 +10,58 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Prevent a chronological paper-ledger catch-up from reporting success when Google Drive authentication or authoritative canonical-state discovery is unavailable.
   - Preserve cache/local fallback behavior for ordinary scheduled operation while requiring durable Drive for replay-only catch-up.
+  - Cryptographically attest that the durable GitHub environment is active and require a verified remote paper-state anchor rather than a cache/local fallback before ledger mutation.
 - files:
-  - `.github/workflows/daily_operating_selection_refresh.yml` ->uses dedicated environment-only Drive secret names and blocks catch-up before any paper-ledger mutation when authentication or authoritative restore state is missing.
-  - `tools/check_run287_catchup_drive_readiness.py` ->evaluates authentication and post-restore readiness without exposing secret values.
-  - `tests/run287_catchup_drive_readiness_smoke.py` ->executes the authentication/restore matrix and parses workflow scope and step ordering.
+  - `.github/workflows/daily_operating_selection_refresh.yml` ->verifies a short-lived owner-authored scope attestation, consumes it once with an append-only Actions-bot record, rechecks both records before the local transaction and again immediately before durable persistence, uses dedicated environment-only Drive secrets, and exports a verified durable restore mode.
+  - `data_static/run287_durable_environment_contract.json` ->pins the durable environment identity, repository-scope prohibition, SHA-256 of the random environment attestation, and its HMAC binding to exactly one Drive credential carrying an environment-only random marker.
+  - `tools/check_run287_github_secret_scope.py` ->validates complete GitHub repository/environment secret metadata for the owner-side preflight.
+  - `tools/create_run287_catchup_scope_attestation.py` ->queries name-only metadata with the owner's local `gh` session, requires the critical preflight/workflow/contract paths to be clean at exact master, pins repository/owner/issue/workflow identities and every safe dispatch input, and posts only with explicit `--post`.
+  - `tools/verify_run287_catchup_scope_attestation.py` ->verifies canonical owner comments, exact run/event/input identity, a 15-minute dispatch window, a 60-minute exact-run lease, immutable re-fetch parity, and a line-ending-independent durable-environment contract hash.
+  - `tools/run287_catchup_scope_consumption.py` ->prevents replay through a serialized, one-time Actions-bot consumption record and two-phase receipt verification while ignoring non-bot public pre-consumption claims.
+  - `tools/check_run287_catchup_drive_readiness.py` ->evaluates authentication, environment and credential binding, and post-restore mode/state pairs without exposing secret values.
+  - `tests/run287_catchup_drive_readiness_smoke.py` ->executes the authentication/attestation/restore/mutation matrix and parses the two-phase workflow ordering.
+  - `tests/run287_github_secret_scope_smoke.py` ->covers environment requirements, repository collisions, identity/input/time mutations, rerun and replay blocking, creator/verifier round trips, one-time consumption, and success-only GitHub environment handoffs.
   - `tests/workflow_artifact_smoke.py` and `tools/run_pr_validation.py` ->lock and run the new guard.
   - `.github/SECRETS_SETUP.md` ->documents the `run287-paper-durable` environment-only credential contract.
 - symbols_added:
   - `tools.check_run287_catchup_drive_readiness.evaluate_readiness`
   - `tools.check_run287_catchup_drive_readiness.evaluate_environment`
   - `tools.check_run287_catchup_drive_readiness.append_github_env`
+  - `tools.check_run287_catchup_drive_readiness.load_environment_contract`
+  - `tools.check_run287_catchup_drive_readiness.verify_environment_attestation`
+  - `tools.check_run287_catchup_drive_readiness.verify_environment_credential_binding`
+  - `tools.check_run287_github_secret_scope.evaluate_scope_metadata`
+  - `tools.create_run287_catchup_scope_attestation.build_attestation`
+  - `tools.verify_run287_catchup_scope_attestation.verify_attestation_comment`
+  - `tools.run287_catchup_scope_consumption.build_consumption_record`
+  - `tools.run287_catchup_scope_consumption.verify_consumption_comment`
 - symbols_changed:
   - `daily_operating_selection_refresh.refresh` ->requires durable Drive authentication and classified canonical state for chronological catch-up.
 - config_fields_added:
   - environment secret `RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY`.
   - environment secret `RUN287_DURABLE_RCLONE_CONFIG_GDRIVE`.
+  - environment secret `RUN287_DURABLE_ENVIRONMENT_ATTESTATION`.
+  - environment `PAPER_DURABLE_RESTORE_MODE`.
+  - contract field `credential_hmac_sha256`.
+  - workflow input `catchup_secret_scope_attestation_comment_id`.
+  - workflow permission `issues: write`, limited to the append-only scope-consumption audit.
 - breaking_changes:
   - Catch-up dispatches can no longer fall back to GitHub cache/local-only persistence; they fail before ledger mutation until durable Drive is available.
   - Generic repository-level Drive secrets no longer authorize this durable workflow.
+  - A configured dedicated credential without the exact environment-only attestation now fails closed.
+  - An attested environment combined with a credential that does not match the pinned HMAC now fails closed.
+  - Missing, incomplete, or conflicting GitHub secret-scope metadata now blocks owner attestation creation.
+  - Catch-up requires a fresh exact owner comment, safe exact dispatch inputs, run attempt 1, a unique strict Actions-bot consumption record, receipt-file hash parity, and an unexpired exact-run lease; edited, expired, foreign, replayed, or mismatched evidence blocks before rclone or paper mutation.
+  - A broad PAT is intentionally not stored in Actions; workflow-time scope authorization comes from the short-lived owner audit plus the pinned runtime environment/credential binding.
 - validation:
-  - standard PR validation ->197/197 PASS in 1009.88 seconds.
+  - standard PR validation ->198/198 PASS in 922.91 seconds.
   - workflow artifact smoke ->PASS.
   - catch-up Drive readiness behavioral smoke ->PASS.
+  - GitHub scope attestation and one-time consumption smoke ->PASS.
   - catch-up price evidence smoke ->PASS.
   - daily market-close gate smoke ->PASS.
   - paper-ledger transaction smoke ->PASS.
-  - two independent read-only re-audits ->no remaining High/Medium findings.
+  - three independent read-only audits ->no remaining High/Medium findings after the owner preflight, strict Actions-bot consumption, bounded exact-run lease, and dual mutation-start reverification fixes.
   - fullrun, production activation, and live trading ->NOT RUN.
 
 ## 2026-07-14

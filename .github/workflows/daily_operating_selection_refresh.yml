@@ -19,6 +19,10 @@ on:
         description: 'Required for catch-up: pinned GitHub artifact digest (sha256:<64 hex>)'
         type: string
         default: ''
+      catchup_secret_scope_attestation_comment_id:
+        description: 'Required for catch-up: fresh owner-authored scope attestation comment on issue #324'
+        type: string
+        default: ''
       latest_run:
         description: 'Run directory restored/used as operating source'
         type: string
@@ -46,6 +50,7 @@ on:
 permissions:
   actions: read
   contents: read
+  issues: write
 
 concurrency:
   group: daily-operating-selection-refresh
@@ -57,6 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
+      RUN287_DURABLE_ENVIRONMENT_NAME: run287-paper-durable
       RUN287_LEGACY_V1_APPROVED_TREE_SHA256: 8d8b39e1a9e49b27e5a16bee0c511b5e5627eb8a5443911e7ad5de2539fc204a
       RUN287_LEGACY_V1_SOURCE_RUN_ID: '29625744031'
       RUN287_LEGACY_V1_SOURCE_ARTIFACT_ID: '8424009573'
@@ -500,11 +506,107 @@ jobs:
           restore-keys: |
             daily-paper-continuity-v1-${{ runner.os }}-
 
+      - name: Verify owner scope attestation for catch-up
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCOPE_COMMENT_ID: ${{ inputs.catchup_secret_scope_attestation_comment_id }}
+          EXPECTED_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_EVIDENCE_RUN_ID: ${{ inputs.catchup_price_evidence_run_id }}
+          EXPECTED_EVIDENCE_ARTIFACT_DIGEST: ${{ inputs.catchup_price_evidence_artifact_digest }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${SCOPE_COMMENT_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[run287-scope-attestation] BLOCKED: a positive issue-comment id is required for catch-up"
+            exit 2
+          fi
+          COMMENT_EVIDENCE="$RUNNER_TEMP/run287_durable_scope_attestation_comment.json"
+          RUN_EVIDENCE="$RUNNER_TEMP/run287_durable_scope_workflow_run.json"
+          SCOPE_EVIDENCE="$RUNNER_TEMP/run287_durable_scope_initial.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/comments/${SCOPE_COMMENT_ID}" \
+            > "$COMMENT_EVIDENCE"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            > "$RUN_EVIDENCE"
+          python tools/verify_run287_catchup_scope_attestation.py \
+            --comment "$COMMENT_EVIDENCE" \
+            --run "$RUN_EVIDENCE" \
+            --event "$GITHUB_EVENT_PATH" \
+            --expected-comment-id "$SCOPE_COMMENT_ID" \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-default-branch "$EXPECTED_DEFAULT_BRANCH" \
+            --expected-default-branch-sha "$GITHUB_SHA" \
+            --expected-session-date "$LAST_NYSE_SESSION_DATE" \
+            --expected-evidence-run-id "$EXPECTED_EVIDENCE_RUN_ID" \
+            --expected-evidence-artifact-digest "$EXPECTED_EVIDENCE_ARTIFACT_DIGEST" \
+            --expected-workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-actor "$GITHUB_ACTOR" \
+            --output "$SCOPE_EVIDENCE" \
+            --github-env "$GITHUB_ENV"
+          SCOPE_INITIAL_SHA256="$(sha256sum "$SCOPE_EVIDENCE" | awk '{print $1}')"
+          echo "RUN287_DURABLE_SCOPE_INITIAL_SHA256=$SCOPE_INITIAL_SHA256" >> "$GITHUB_ENV"
+
+      - name: Consume owner scope attestation once
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SCOPE_EVIDENCE="$RUNNER_TEMP/run287_durable_scope_initial.json"
+          RUN_EVIDENCE="$RUNNER_TEMP/run287_durable_scope_workflow_run.json"
+          COMMENT_INVENTORY="$RUNNER_TEMP/run287_durable_scope_comment_inventory.json"
+          CONSUMPTION_RECORD="$RUNNER_TEMP/run287_durable_scope_consumption_record.json"
+          CONSUMPTION_REQUEST="$RUNNER_TEMP/run287_durable_scope_consumption_request.json"
+          CONSUMPTION_COMMENT="$RUNNER_TEMP/run287_durable_scope_consumption_comment.json"
+          CONSUMPTION_RECEIPT="$RUNNER_TEMP/run287_durable_scope_consumption_initial.json"
+          if ! [[ "${RUN287_DURABLE_SCOPE_INITIAL_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || \
+             [ "$(sha256sum "$SCOPE_EVIDENCE" | awk '{print $1}')" != "$RUN287_DURABLE_SCOPE_INITIAL_SHA256" ]; then
+            echo "[run287-scope-consumption] BLOCKED: initial scope receipt hash mismatch"
+            exit 2
+          fi
+          gh api \
+            --paginate \
+            --slurp \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/324/comments?per_page=100" \
+            > "$COMMENT_INVENTORY"
+          python tools/run287_catchup_scope_consumption.py prepare \
+            --verification "$SCOPE_EVIDENCE" \
+            --run "$RUN_EVIDENCE" \
+            --existing-comments "$COMMENT_INVENTORY" \
+            --record-output "$CONSUMPTION_RECORD" \
+            --request-output "$CONSUMPTION_REQUEST"
+          gh api \
+            --method POST \
+            --input "$CONSUMPTION_REQUEST" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/324/comments" \
+            > "$CONSUMPTION_COMMENT"
+          python tools/run287_catchup_scope_consumption.py verify \
+            --comment "$CONSUMPTION_COMMENT" \
+            --expected-record "$CONSUMPTION_RECORD" \
+            --verification "$SCOPE_EVIDENCE" \
+            --run "$RUN_EVIDENCE" \
+            --output "$CONSUMPTION_RECEIPT" \
+            --github-env "$GITHUB_ENV"
+          CONSUMPTION_RECORD_SHA256="$(sha256sum "$CONSUMPTION_RECORD" | awk '{print $1}')"
+          CONSUMPTION_RECEIPT_SHA256="$(sha256sum "$CONSUMPTION_RECEIPT" | awk '{print $1}')"
+          echo "RUN287_DURABLE_SCOPE_CONSUMPTION_RECORD_SHA256=$CONSUMPTION_RECORD_SHA256" >> "$GITHUB_ENV"
+          echo "RUN287_DURABLE_SCOPE_CONSUMPTION_RECEIPT_SHA256=$CONSUMPTION_RECEIPT_SHA256" >> "$GITHUB_ENV"
+
       - name: Configure rclone
         if: steps.market.outputs.ready == 'yes'
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+          RUN287_DURABLE_ENVIRONMENT_ATTESTATION: ${{ secrets.RUN287_DURABLE_ENVIRONMENT_ATTESTATION }}
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
         run: |
           set -euo pipefail
@@ -544,6 +646,8 @@ jobs:
           ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_verified_paper_canonical_head_bootstrap || 'false' }}
         run: |
           set -euo pipefail
+          PAPER_DURABLE_RESTORE_MODE=UNAVAILABLE
+          echo "PAPER_DURABLE_RESTORE_MODE=$PAPER_DURABLE_RESTORE_MODE" >> "$GITHUB_ENV"
           mkdir -p outputs/full_rebuild_logs
           PAPER_CACHE_ANCHOR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_cache_anchor"
           rm -rf "$PAPER_CACHE_ANCHOR"
@@ -878,6 +982,8 @@ jobs:
                   echo "PAPER_CANONICAL_REMOTE_STATE=REPAIR_FROM_IMMUTABLE" >> "$GITHUB_ENV"
                 fi
               fi
+              PAPER_DURABLE_RESTORE_MODE=IMMUTABLE_HEAD
+              echo "PAPER_DURABLE_RESTORE_MODE=$PAPER_DURABLE_RESTORE_MODE" >> "$GITHUB_ENV"
               echo "[paper-ledger] restored the unique verified immutable terminal; mutable canonical is only a checked mirror"
             elif [ -s "$PAPER_REMOTE_CANDIDATE/snapshot_integrity.json" ] && \
                python tools/run287_paper_ledger_integrity.py \
@@ -1025,6 +1131,8 @@ jobs:
                   exit 2
                 fi
               fi
+              PAPER_DURABLE_RESTORE_MODE=VERIFIED_CANONICAL
+              echo "PAPER_DURABLE_RESTORE_MODE=$PAPER_DURABLE_RESTORE_MODE" >> "$GITHUB_ENV"
               echo "[paper-ledger] reconciled Drive snapshot against immutable-cache continuity anchor; pre-install recovery=$PAPER_LOCAL_RECOVERY"
             elif [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
                  python tools/run287_paper_ledger_integrity.py \
@@ -1051,6 +1159,8 @@ jobs:
               cp -a "$PAPER_REMOTE_CANDIDATE" outputs/daily_simulated_fill_ledger
               PAPER_LEGACY_MIGRATION_PENDING=yes
               echo "PAPER_LEGACY_MIGRATION_PENDING=yes" >> "$GITHUB_ENV"
+              PAPER_DURABLE_RESTORE_MODE=VERIFIED_LEGACY_MIGRATION_SOURCE
+              echo "PAPER_DURABLE_RESTORE_MODE=$PAPER_DURABLE_RESTORE_MODE" >> "$GITHUB_ENV"
               echo "[paper-ledger] quarantined legacy Drive ledger; semantic attestation is required before acceptance"
             elif [ "$PAPER_CANONICAL_REMOTE_PRESENT" = "no" ] && \
                  [ ! -d "$PAPER_CACHE_ANCHOR" ] && \
@@ -1077,6 +1187,10 @@ jobs:
 
       - name: Enforce durable Drive for chronological catch-up
         if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+          RUN287_DURABLE_ENVIRONMENT_ATTESTATION: ${{ secrets.RUN287_DURABLE_ENVIRONMENT_ATTESTATION }}
         run: |
           set -euo pipefail
           python tools/check_run287_catchup_drive_readiness.py --phase restored
@@ -1789,6 +1903,105 @@ jobs:
           # is recorded here, but a restored target can never authorize a new
           # paper order or set same_close_selector_recomputed=true.
           PY
+
+      - name: Reverify one-time scope attestation before local paper transaction
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCOPE_COMMENT_ID: ${{ inputs.catchup_secret_scope_attestation_comment_id }}
+          EXPECTED_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_EVIDENCE_RUN_ID: ${{ inputs.catchup_price_evidence_run_id }}
+          EXPECTED_EVIDENCE_ARTIFACT_DIGEST: ${{ inputs.catchup_price_evidence_artifact_digest }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${SCOPE_COMMENT_ID:-}" =~ ^[1-9][0-9]*$ ]] || \
+             ! [[ "${RUN287_DURABLE_SCOPE_CONSUMPTION_COMMENT_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[run287-scope-attestation] BLOCKED: immutable comment ids are unavailable"
+            exit 2
+          fi
+          OWNER_COMMENT="$RUNNER_TEMP/run287_durable_scope_attestation_comment_final.json"
+          CONSUMPTION_COMMENT="$RUNNER_TEMP/run287_durable_scope_consumption_comment_final.json"
+          RUN_EVIDENCE="$RUNNER_TEMP/run287_durable_scope_workflow_run_final.json"
+          SCOPE_INITIAL="$RUNNER_TEMP/run287_durable_scope_initial.json"
+          SCOPE_FINAL="$RUNNER_TEMP/run287_durable_scope_final.json"
+          CONSUMPTION_RECORD="$RUNNER_TEMP/run287_durable_scope_consumption_record.json"
+          CONSUMPTION_INITIAL="$RUNNER_TEMP/run287_durable_scope_consumption_initial.json"
+          CONSUMPTION_FINAL="$RUNNER_TEMP/run287_durable_scope_consumption_final.json"
+          verify_receipt_hash() {
+            local path="$1"
+            local expected="$2"
+            local label="$3"
+            if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || \
+               [ "$(sha256sum "$path" | awk '{print $1}')" != "$expected" ]; then
+              echo "[run287-scope-attestation] BLOCKED: $label receipt hash mismatch"
+              exit 2
+            fi
+          }
+          verify_receipt_hash \
+            "$SCOPE_INITIAL" \
+            "${RUN287_DURABLE_SCOPE_INITIAL_SHA256:-}" \
+            "initial owner scope"
+          verify_receipt_hash \
+            "$CONSUMPTION_RECORD" \
+            "${RUN287_DURABLE_SCOPE_CONSUMPTION_RECORD_SHA256:-}" \
+            "consumption record"
+          verify_receipt_hash \
+            "$CONSUMPTION_INITIAL" \
+            "${RUN287_DURABLE_SCOPE_CONSUMPTION_RECEIPT_SHA256:-}" \
+            "initial consumption"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/comments/${SCOPE_COMMENT_ID}" \
+            > "$OWNER_COMMENT"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/comments/${RUN287_DURABLE_SCOPE_CONSUMPTION_COMMENT_ID}" \
+            > "$CONSUMPTION_COMMENT"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            > "$RUN_EVIDENCE"
+          python tools/verify_run287_catchup_scope_attestation.py \
+            --comment "$OWNER_COMMENT" \
+            --run "$RUN_EVIDENCE" \
+            --event "$GITHUB_EVENT_PATH" \
+            --prior-verification "$SCOPE_INITIAL" \
+            --expected-comment-id "$SCOPE_COMMENT_ID" \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-default-branch "$EXPECTED_DEFAULT_BRANCH" \
+            --expected-default-branch-sha "$GITHUB_SHA" \
+            --expected-session-date "$LAST_NYSE_SESSION_DATE" \
+            --expected-evidence-run-id "$EXPECTED_EVIDENCE_RUN_ID" \
+            --expected-evidence-artifact-digest "$EXPECTED_EVIDENCE_ARTIFACT_DIGEST" \
+            --expected-workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-actor "$GITHUB_ACTOR" \
+            --output "$SCOPE_FINAL" \
+            --github-env "$GITHUB_ENV"
+          python tools/run287_catchup_scope_consumption.py verify \
+            --comment "$CONSUMPTION_COMMENT" \
+            --expected-record "$CONSUMPTION_RECORD" \
+            --verification "$SCOPE_INITIAL" \
+            --run "$RUN_EVIDENCE" \
+            --prior-receipt "$CONSUMPTION_INITIAL" \
+            --output "$CONSUMPTION_FINAL" \
+            --github-env "$GITHUB_ENV"
+          SCOPE_PRE_TRANSACTION_SHA256="$(sha256sum "$SCOPE_FINAL" | awk '{print $1}')"
+          CONSUMPTION_PRE_TRANSACTION_SHA256="$(sha256sum "$CONSUMPTION_FINAL" | awk '{print $1}')"
+          echo "RUN287_DURABLE_SCOPE_PRE_TRANSACTION_SHA256=$SCOPE_PRE_TRANSACTION_SHA256" >> "$GITHUB_ENV"
+          echo "RUN287_DURABLE_SCOPE_CONSUMPTION_PRE_TRANSACTION_SHA256=$CONSUMPTION_PRE_TRANSACTION_SHA256" >> "$GITHUB_ENV"
+
+      - name: Enforce one-time durable scope before local paper transaction
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+          RUN287_DURABLE_ENVIRONMENT_ATTESTATION: ${{ secrets.RUN287_DURABLE_ENVIRONMENT_ATTESTATION }}
+        run: |
+          set -euo pipefail
+          python tools/check_run287_catchup_drive_readiness.py --phase mutation
 
       - name: Run transactional paper ledger and same-close selector
         id: paper_transaction
@@ -2637,15 +2850,168 @@ jobs:
             rclone copyto cache_prices/replay_price_cache_manifest.json "$DEST/cache_prices/replay_price_cache_manifest.json" || true
           fi
 
+      - name: Reverify one-time scope attestation before durable persistence
+        id: durable_scope_persist_preflight
+        if: success() && steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCOPE_COMMENT_ID: ${{ inputs.catchup_secret_scope_attestation_comment_id }}
+          EXPECTED_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_EVIDENCE_RUN_ID: ${{ inputs.catchup_price_evidence_run_id }}
+          EXPECTED_EVIDENCE_ARTIFACT_DIGEST: ${{ inputs.catchup_price_evidence_artifact_digest }}
+        run: |
+          set -euo pipefail
+          SCOPE_INITIAL="$RUNNER_TEMP/run287_durable_scope_initial.json"
+          SCOPE_PRE_TRANSACTION="$RUNNER_TEMP/run287_durable_scope_final.json"
+          SCOPE_PRE_PERSIST="$RUNNER_TEMP/run287_durable_scope_persist.json"
+          CONSUMPTION_RECORD="$RUNNER_TEMP/run287_durable_scope_consumption_record.json"
+          CONSUMPTION_INITIAL="$RUNNER_TEMP/run287_durable_scope_consumption_initial.json"
+          CONSUMPTION_PRE_TRANSACTION="$RUNNER_TEMP/run287_durable_scope_consumption_final.json"
+          CONSUMPTION_PRE_PERSIST="$RUNNER_TEMP/run287_durable_scope_consumption_persist.json"
+          OWNER_COMMENT="$RUNNER_TEMP/run287_durable_scope_attestation_comment_persist.json"
+          CONSUMPTION_COMMENT="$RUNNER_TEMP/run287_durable_scope_consumption_comment_persist.json"
+          RUN_EVIDENCE="$RUNNER_TEMP/run287_durable_scope_workflow_run_persist.json"
+          verify_receipt_hash() {
+            local path="$1"
+            local expected="$2"
+            local label="$3"
+            if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || \
+               [ "$(sha256sum "$path" | awk '{print $1}')" != "$expected" ]; then
+              echo "[run287-scope-attestation] BLOCKED: $label receipt hash mismatch"
+              exit 2
+            fi
+          }
+          verify_receipt_hash \
+            "$SCOPE_INITIAL" \
+            "${RUN287_DURABLE_SCOPE_INITIAL_SHA256:-}" \
+            "initial owner scope"
+          verify_receipt_hash \
+            "$CONSUMPTION_RECORD" \
+            "${RUN287_DURABLE_SCOPE_CONSUMPTION_RECORD_SHA256:-}" \
+            "consumption record"
+          verify_receipt_hash \
+            "$CONSUMPTION_INITIAL" \
+            "${RUN287_DURABLE_SCOPE_CONSUMPTION_RECEIPT_SHA256:-}" \
+            "initial consumption"
+          verify_receipt_hash \
+            "$SCOPE_PRE_TRANSACTION" \
+            "${RUN287_DURABLE_SCOPE_PRE_TRANSACTION_SHA256:-}" \
+            "pre-transaction owner scope"
+          verify_receipt_hash \
+            "$CONSUMPTION_PRE_TRANSACTION" \
+            "${RUN287_DURABLE_SCOPE_CONSUMPTION_PRE_TRANSACTION_SHA256:-}" \
+            "pre-transaction consumption"
+          if ! [[ "${SCOPE_COMMENT_ID:-}" =~ ^[1-9][0-9]*$ ]] || \
+             ! [[ "${RUN287_DURABLE_SCOPE_CONSUMPTION_COMMENT_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[run287-scope-attestation] BLOCKED: immutable comment ids are unavailable"
+            exit 2
+          fi
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/comments/${SCOPE_COMMENT_ID}" \
+            > "$OWNER_COMMENT"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/comments/${RUN287_DURABLE_SCOPE_CONSUMPTION_COMMENT_ID}" \
+            > "$CONSUMPTION_COMMENT"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            > "$RUN_EVIDENCE"
+          python tools/verify_run287_catchup_scope_attestation.py \
+            --comment "$OWNER_COMMENT" \
+            --run "$RUN_EVIDENCE" \
+            --event "$GITHUB_EVENT_PATH" \
+            --prior-verification "$SCOPE_INITIAL" \
+            --expected-comment-id "$SCOPE_COMMENT_ID" \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-default-branch "$EXPECTED_DEFAULT_BRANCH" \
+            --expected-default-branch-sha "$GITHUB_SHA" \
+            --expected-session-date "$LAST_NYSE_SESSION_DATE" \
+            --expected-evidence-run-id "$EXPECTED_EVIDENCE_RUN_ID" \
+            --expected-evidence-artifact-digest "$EXPECTED_EVIDENCE_ARTIFACT_DIGEST" \
+            --expected-workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-actor "$GITHUB_ACTOR" \
+            --output "$SCOPE_PRE_PERSIST"
+          python tools/run287_catchup_scope_consumption.py verify \
+            --comment "$CONSUMPTION_COMMENT" \
+            --expected-record "$CONSUMPTION_RECORD" \
+            --verification "$SCOPE_INITIAL" \
+            --run "$RUN_EVIDENCE" \
+            --prior-receipt "$CONSUMPTION_INITIAL" \
+            --output "$CONSUMPTION_PRE_PERSIST"
+          SCOPE_PRE_PERSIST_SHA256="$(sha256sum "$SCOPE_PRE_PERSIST" | awk '{print $1}')"
+          CONSUMPTION_PRE_PERSIST_SHA256="$(sha256sum "$CONSUMPTION_PRE_PERSIST" | awk '{print $1}')"
+          echo "RUN287_DURABLE_SCOPE_PRE_PERSIST_SHA256=$SCOPE_PRE_PERSIST_SHA256" >> "$GITHUB_ENV"
+          echo "RUN287_DURABLE_SCOPE_CONSUMPTION_PRE_PERSIST_SHA256=$CONSUMPTION_PRE_PERSIST_SHA256" >> "$GITHUB_ENV"
+
       - name: Persist validated forward paper ledger state
         id: paper_persist
-        if: success() && steps.market.outputs.ready == 'yes'
+        if: success() && steps.market.outputs.ready == 'yes' && (steps.market.outputs.catchup_mode != 'yes' || steps.durable_scope_persist_preflight.outcome == 'success')
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
+          if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
+            SCOPE_PRE_PERSIST="$RUNNER_TEMP/run287_durable_scope_persist.json"
+            CONSUMPTION_PRE_PERSIST="$RUNNER_TEMP/run287_durable_scope_consumption_persist.json"
+            CONSUMPTION_RECORD="$RUNNER_TEMP/run287_durable_scope_consumption_record.json"
+            if ! [[ "${RUN287_DURABLE_SCOPE_PRE_PERSIST_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || \
+               [ "$(sha256sum "$SCOPE_PRE_PERSIST" | awk '{print $1}')" != "$RUN287_DURABLE_SCOPE_PRE_PERSIST_SHA256" ] || \
+               ! [[ "${RUN287_DURABLE_SCOPE_CONSUMPTION_PRE_PERSIST_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || \
+               [ "$(sha256sum "$CONSUMPTION_PRE_PERSIST" | awk '{print $1}')" != "$RUN287_DURABLE_SCOPE_CONSUMPTION_PRE_PERSIST_SHA256" ]; then
+              echo "[run287-scope-attestation] BLOCKED: durable-persistence preflight hash mismatch"
+              exit 2
+            fi
+            python - \
+              "$SCOPE_PRE_PERSIST" \
+              "$CONSUMPTION_PRE_PERSIST" \
+              "$CONSUMPTION_RECORD" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          scope = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          consumption = json.loads(
+              Path(sys.argv[2]).read_text(encoding="utf-8")
+          )
+          record = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+          if (
+              scope.get("schema_version")
+              != "run287-durable-scope-comment-verification-v2"
+              or scope.get("status")
+              != "VERIFIED_OWNER_SCOPE_ATTESTATION"
+              or scope.get("verification_phase") != "REVERIFICATION"
+              or scope.get("allowed") is not True
+              or scope.get("failures") != []
+              or consumption.get("schema_version")
+              != "run287-durable-scope-consumption-receipt-v1"
+              or consumption.get("status") != "CONSUMPTION_RECORDED"
+              or consumption.get("verification_phase") != "REVERIFICATION"
+              or consumption.get("allowed") is not True
+              or consumption.get("failures") != []
+              or record.get("workflow_run_lease_expires_at")
+              != scope.get("workflow_run_lease_expires_at")
+          ):
+              raise SystemExit(
+                  "durable-persistence scope receipts are not accepted"
+              )
+          lease = datetime.strptime(
+              str(scope["workflow_run_lease_expires_at"]),
+              "%Y-%m-%dT%H:%M:%SZ",
+          ).replace(tzinfo=timezone.utc)
+          if datetime.now(timezone.utc) > lease:
+              raise SystemExit(
+                  "exact workflow-run lease expired before persistence start"
+              )
+          PY
+          fi
           assert_current_default_head() {
             if [ -z "${DEFAULT_BRANCH:-}" ]; then
               echo "[paper-ledger] BLOCKED: repository default branch is unavailable"
@@ -3297,6 +3663,13 @@ jobs:
             outputs/run287_paper_immutable_head_bundles/
             outputs/account_ledger_preview/
             outputs/run287_same_close_decision/*/status.json
+            ${{ runner.temp }}/run287_durable_scope_initial.json
+            ${{ runner.temp }}/run287_durable_scope_final.json
+            ${{ runner.temp }}/run287_durable_scope_persist.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_record.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_initial.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_final.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_persist.json
             outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
             outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
@@ -3314,6 +3687,13 @@ jobs:
             outputs/run287_catchup_price_evidence/status.json
             outputs/run287_catchup_price_evidence/github_artifact_metadata.json
             outputs/run287_catchup_price_cache/
+            ${{ runner.temp }}/run287_durable_scope_initial.json
+            ${{ runner.temp }}/run287_durable_scope_final.json
+            ${{ runner.temp }}/run287_durable_scope_persist.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_record.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_initial.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_final.json
+            ${{ runner.temp }}/run287_durable_scope_consumption_persist.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
             outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
             outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json

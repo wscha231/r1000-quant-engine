@@ -1,0 +1,14 @@
+{
+  "attestation": {
+    "secret_name": "RUN287_DURABLE_ENVIRONMENT_ATTESTATION",
+    "sha256": "e8a41fedc711abac2b990ace570803ee68d9a87d7691b99fa50c2d7115a3862d"
+  },
+  "credential_hmac_sha256": {
+    "RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY": null,
+    "RUN287_DURABLE_RCLONE_CONFIG_GDRIVE": "925cc19a9de83c975fd4f5735dfe9be906d1bc7e805122622a61c62a637e54cf"
+  },
+  "credential_binding_marker_required": true,
+  "environment": "run287-paper-durable",
+  "repository_scope_allowed": false,
+  "schema_version": "run287-durable-environment-contract-v2"
+}
