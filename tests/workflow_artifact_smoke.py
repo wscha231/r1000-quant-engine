@@ -1138,6 +1138,12 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "validate_github_compare_payload",
         "unsafe catch-up artifact archive member",
         "tools/build_run287_catchup_price_evidence.py",
+        "tools/build_run287_catchup_target_evidence.py",
+        "Restore immutable catch-up target evidence for legacy migration",
+        "id: catchup_target_evidence",
+        "env.PAPER_LEGACY_MIGRATION_PENDING == 'yes'",
+        "outputs/run287_catchup_target_evidence/",
+        "outputs/run287_catchup_target_evidence_status.json",
         "--price-evidence-manifest",
         "--replay-only",
         "Enforce default-branch sole writer",
@@ -1193,14 +1199,41 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]
     for token in (
         "CATCHUP_PRICE_CACHE: ${{ steps.catchup_price_evidence.outputs.price_cache }}",
+        "CATCHUP_MAIN_TARGET: ${{ steps.catchup_target_evidence.outputs.main_target }}",
+        "CATCHUP_CONCENTRATED_TARGET: ${{ steps.catchup_target_evidence.outputs.concentrated_target }}",
+        "CATCHUP_TARGET_MANIFEST: ${{ steps.catchup_target_evidence.outputs.target_manifest }}",
         'CLOSE_PRICE_CACHE="cache_prices"',
+        'CLOSE_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"',
+        'CLOSE_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"',
         'if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then',
         'CLOSE_PRICE_CACHE="${CATCHUP_PRICE_CACHE:?missing immutable catch-up price cache}"',
+        'CLOSE_MAIN_TARGET="${CATCHUP_MAIN_TARGET:?missing immutable catch-up main target}"',
+        'CLOSE_CONCENTRATED_TARGET="${CATCHUP_CONCENTRATED_TARGET:?missing immutable catch-up concentrated target}"',
+        'CLOSE_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"',
+        'CLOSE_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"',
         'test -s "$CLOSE_PRICE_CACHE/manifest.json"',
+        'test -s "${CATCHUP_TARGET_MANIFEST:?missing immutable catch-up target manifest}"',
         '--price-cache "$CLOSE_PRICE_CACHE"',
+        '--target "$CLOSE_MAIN_TARGET"',
+        '--target "$CLOSE_CONCENTRATED_TARGET"',
     ):
         assert token in exact_close_step, token
     assert "--price-cache cache_prices" not in exact_close_step
+    paper_step = text[
+        text.index("- name: Run transactional paper ledger and same-close selector"):
+        text.index("- name: Verify transactional forward paper snapshot")
+    ]
+    for token in (
+        'PAPER_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"',
+        'PAPER_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"',
+        'PAPER_MAIN_TARGET="${CATCHUP_MAIN_TARGET:?missing immutable catch-up main target}"',
+        'PAPER_CONCENTRATED_TARGET="${CATCHUP_CONCENTRATED_TARGET:?missing immutable catch-up concentrated target}"',
+        'PAPER_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"',
+        'PAPER_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"',
+        '--main-target "$PAPER_MAIN_TARGET"',
+        '--concentrated-target "$PAPER_CONCENTRATED_TARGET"',
+    ):
+        assert token in paper_step, token
     for forbidden in [
         "python run_local.py --full",
         "git commit",
@@ -1209,6 +1242,15 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]:
         assert forbidden not in text, forbidden
     freshness_idx = text.index("python tools/run_data_freshness_contract.py")
+    persistent_restore_idx = text.index(
+        "- name: Restore persistent data and operating outputs"
+    )
+    catchup_target_evidence_idx = text.index(
+        "- name: Restore immutable catch-up target evidence for legacy migration"
+    )
+    exact_close_gate_idx = text.index(
+        "- name: Require exact completed-session close prices"
+    )
     durable_catchup_drive_idx = text.index(
         "- name: Enforce durable Drive for chronological catch-up"
     )
@@ -1247,6 +1289,15 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "python tools/build_run287_accepted_publication_manifest.py"
     )
     assert freshness_idx < paper_idx, "freshness must fail closed before any paper-ledger mutation"
+    assert (
+        persistent_restore_idx
+        < catchup_target_evidence_idx
+        < exact_close_gate_idx
+        < paper_idx
+    ), (
+        "legacy target evidence must be restored only after durable-state "
+        "classification and before close validation or paper mutation"
+    )
     assert durable_catchup_drive_idx < paper_idx, (
         "catch-up must prove durable Drive availability before any paper-ledger mutation"
     )

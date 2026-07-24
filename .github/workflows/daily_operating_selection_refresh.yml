@@ -467,6 +467,8 @@ jobs:
             --output-evidence outputs/run287_catchup_price_evidence/status.json
           echo "price_cache=outputs/run287_catchup_price_cache" >> "$GITHUB_OUTPUT"
           echo "manifest=outputs/run287_catchup_price_cache/manifest.json" >> "$GITHUB_OUTPUT"
+          echo "artifact_root=$ARTIFACT_ROOT" >> "$GITHUB_OUTPUT"
+          echo "artifact_metadata=$ARTIFACT_METADATA" >> "$GITHUB_OUTPUT"
 
       - name: Restore Run287 research-static archive cache
         if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
@@ -1195,6 +1197,24 @@ jobs:
           set -euo pipefail
           python tools/check_run287_catchup_drive_readiness.py --phase restored
 
+      - name: Restore immutable catch-up target evidence for legacy migration
+        id: catchup_target_evidence
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes' && env.PAPER_LEGACY_MIGRATION_PENDING == 'yes'
+        env:
+          CATCHUP_ARTIFACT_ROOT: ${{ steps.catchup_price_evidence.outputs.artifact_root }}
+          CATCHUP_ARTIFACT_METADATA: ${{ steps.catchup_price_evidence.outputs.artifact_metadata }}
+        run: |
+          set -euo pipefail
+          python tools/build_run287_catchup_target_evidence.py \
+            --artifact-root "${CATCHUP_ARTIFACT_ROOT:?missing catch-up artifact root}" \
+            --artifact-metadata "${CATCHUP_ARTIFACT_METADATA:?missing catch-up artifact metadata}" \
+            --session-date "$LAST_NYSE_SESSION_DATE" \
+            --output-target-dir outputs/run287_catchup_target_evidence \
+            --output-evidence outputs/run287_catchup_target_evidence_status.json
+          echo "target_manifest=outputs/run287_catchup_target_evidence/manifest.json" >> "$GITHUB_OUTPUT"
+          echo "main_target=outputs/run287_catchup_target_evidence/operating_main_target_book.csv" >> "$GITHUB_OUTPUT"
+          echo "concentrated_target=outputs/run287_catchup_target_evidence/operating_concentrated_target_book.csv" >> "$GITHUB_OUTPUT"
+
       - name: Restore verified risk-outcome accepted head
         id: risk_outcome_accepted_parent
         if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
@@ -1771,18 +1791,33 @@ jobs:
         if: steps.market.outputs.ready == 'yes'
         env:
           CATCHUP_PRICE_CACHE: ${{ steps.catchup_price_evidence.outputs.price_cache }}
+          CATCHUP_MAIN_TARGET: ${{ steps.catchup_target_evidence.outputs.main_target }}
+          CATCHUP_CONCENTRATED_TARGET: ${{ steps.catchup_target_evidence.outputs.concentrated_target }}
+          CATCHUP_TARGET_MANIFEST: ${{ steps.catchup_target_evidence.outputs.target_manifest }}
         run: |
           set -euo pipefail
           CLOSE_PRICE_CACHE="cache_prices"
+          CLOSE_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"
+          CLOSE_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"
           if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
             CLOSE_PRICE_CACHE="${CATCHUP_PRICE_CACHE:?missing immutable catch-up price cache}"
             test -s "$CLOSE_PRICE_CACHE/manifest.json"
+            if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+              CLOSE_MAIN_TARGET="${CATCHUP_MAIN_TARGET:?missing immutable catch-up main target}"
+              CLOSE_CONCENTRATED_TARGET="${CATCHUP_CONCENTRATED_TARGET:?missing immutable catch-up concentrated target}"
+              test -s "${CATCHUP_TARGET_MANIFEST:?missing immutable catch-up target manifest}"
+            else
+              CLOSE_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"
+              CLOSE_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"
+            fi
+            test -s "$CLOSE_MAIN_TARGET"
+            test -s "$CLOSE_CONCENTRATED_TARGET"
           fi
           python tools/validate_daily_close_prices.py \
             --session-date "$LAST_NYSE_SESSION_DATE" \
             --price-cache "$CLOSE_PRICE_CACHE" \
-            --target outputs/reports/operating_main_target_book.csv \
-            --target outputs/reports/operating_concentrated_target_book.csv \
+            --target "$CLOSE_MAIN_TARGET" \
+            --target "$CLOSE_CONCENTRATED_TARGET" \
             --account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
             --account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
             --state-dir outputs/daily_simulated_fill_ledger \
@@ -2016,11 +2051,16 @@ jobs:
         env:
           CATCHUP_PRICE_CACHE: ${{ steps.catchup_price_evidence.outputs.price_cache }}
           CATCHUP_PRICE_MANIFEST: ${{ steps.catchup_price_evidence.outputs.manifest }}
+          CATCHUP_MAIN_TARGET: ${{ steps.catchup_target_evidence.outputs.main_target }}
+          CATCHUP_CONCENTRATED_TARGET: ${{ steps.catchup_target_evidence.outputs.concentrated_target }}
+          CATCHUP_TARGET_MANIFEST: ${{ steps.catchup_target_evidence.outputs.target_manifest }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
           PAPER_AS_OF="$LAST_NYSE_SESSION_DATE"
           PAPER_PRICE_CACHE="cache_prices"
+          PAPER_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"
+          PAPER_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"
           PAPER_REPLAY_ARGS=()
           if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
             DECISION_CUTOFF_UTC="$(python -c 'import os; import pandas as pd; print((pd.Timestamp(os.environ["LAST_NYSE_CLOSE_UTC"]) + pd.Timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
@@ -2032,6 +2072,16 @@ jobs:
               "$CATCHUP_PRICE_MANIFEST"
             )
             test -s "$PAPER_PRICE_CACHE/manifest.json"
+            if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
+              PAPER_MAIN_TARGET="${CATCHUP_MAIN_TARGET:?missing immutable catch-up main target}"
+              PAPER_CONCENTRATED_TARGET="${CATCHUP_CONCENTRATED_TARGET:?missing immutable catch-up concentrated target}"
+              test -s "${CATCHUP_TARGET_MANIFEST:?missing immutable catch-up target manifest}"
+            else
+              PAPER_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"
+              PAPER_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"
+            fi
+            test -s "$PAPER_MAIN_TARGET"
+            test -s "$PAPER_CONCENTRATED_TARGET"
             rm -rf \
               outputs/daily_operating_selection_refresh \
               outputs/holding_risk_watch \
@@ -2063,8 +2113,8 @@ jobs:
             --order-preview-root outputs/account_ledger_preview \
             --main-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
             --concentrated-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
-            --main-target outputs/reports/operating_main_target_book.csv \
-            --concentrated-target outputs/reports/operating_concentrated_target_book.csv \
+            --main-target "$PAPER_MAIN_TARGET" \
+            --concentrated-target "$PAPER_CONCENTRATED_TARGET" \
             --as-of-date "$PAPER_AS_OF" \
             --decision-time-utc "$DECISION_CUTOFF_UTC" \
             --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv \
@@ -3670,6 +3720,8 @@ jobs:
             outputs/run287_catchup_price_evidence/status.json
             outputs/run287_catchup_price_evidence/github_artifact_metadata.json
             outputs/run287_catchup_price_cache/
+            outputs/run287_catchup_target_evidence_status.json
+            outputs/run287_catchup_target_evidence/
             outputs/daily_simulated_fill_ledger/
             outputs/run287_paper_immutable_head_bundles/
             outputs/account_ledger_preview/
@@ -3698,6 +3750,8 @@ jobs:
             outputs/run287_catchup_price_evidence/status.json
             outputs/run287_catchup_price_evidence/github_artifact_metadata.json
             outputs/run287_catchup_price_cache/
+            outputs/run287_catchup_target_evidence_status.json
+            outputs/run287_catchup_target_evidence/
             ${{ runner.temp }}/run287_durable_scope_initial.json
             ${{ runner.temp }}/run287_durable_scope_final.json
             ${{ runner.temp }}/run287_durable_scope_persist.json
