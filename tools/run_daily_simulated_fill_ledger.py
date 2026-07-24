@@ -47,6 +47,7 @@ from tools.run_broker_ledger_replay import LedgerState, account_equity, execute_
 from tools.run287_hold_exit_policy import SELL_TAXONOMY  # noqa: E402
 from tools.run287_paper_ledger_integrity import (  # noqa: E402
     INTEGRITY_FILE,
+    REPLAY_TARGET_SOURCE_PREFIX,
     PaperLedgerIntegrityError,
     atomic_publish_bundle,
     clone_directory,
@@ -963,6 +964,84 @@ def freeze_replay_price_evidence(
         **validated_evidence,
         "durable_snapshot_path": relative.as_posix(),
         "durable_price_cache_tree_sha256": source_tree_sha256,
+    }
+
+
+def freeze_replay_target_sources(
+    *,
+    state_root: Path,
+    target_paths: dict[str, Path],
+    as_of_date: pd.Timestamp,
+) -> dict[str, Any]:
+    """Bind exact replay target inputs into the immutable ledger snapshot."""
+    session = as_of_date.date().isoformat()
+    relative = Path(REPLAY_TARGET_SOURCE_PREFIX) / session
+    destination = state_root / relative
+    if destination.is_symlink():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_EVIDENCE",
+            "durable replay target source path is a symlink",
+        )
+    destination.mkdir(parents=True, exist_ok=True)
+    targets: dict[str, dict[str, Any]] = {}
+    for portfolio in PORTFOLIOS:
+        source = target_paths[portfolio]
+        target = destination / f"{portfolio}.csv"
+        if (
+            source.is_symlink()
+            or not source.is_file()
+            or source.stat().st_size <= 0
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_TARGET_EVIDENCE",
+                f"replay target source is invalid:{portfolio}",
+            )
+        source_sha256 = file_hash(source)
+        if target.is_symlink():
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_TARGET_EVIDENCE",
+                f"durable replay target source is a symlink:{portfolio}",
+            )
+        if target.exists():
+            if (
+                not target.is_file()
+                or file_hash(target) != source_sha256
+            ):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_TARGET_EVIDENCE",
+                    "durable replay target source conflicts with the "
+                    f"accepted session:{portfolio}",
+                )
+        else:
+            shutil.copy2(source, target)
+        if (
+            target.stat().st_size != source.stat().st_size
+            or file_hash(target) != source_sha256
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_TARGET_EVIDENCE",
+                f"durable replay target source copy mismatch:{portfolio}",
+            )
+        targets[portfolio] = {
+            "path": (relative / f"{portfolio}.csv").as_posix(),
+            "sha256": source_sha256,
+            "bytes": target.stat().st_size,
+        }
+    actual_names = {
+        path.name
+        for path in destination.iterdir()
+    }
+    if actual_names != {f"{portfolio}.csv" for portfolio in PORTFOLIOS}:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_EVIDENCE",
+            "durable replay target source file set mismatch",
+        )
+    return {
+        "schema_version": "run287-replay-target-source-evidence-v1",
+        "status": "VERIFIED_DURABLE_REPLAY_TARGET_SOURCE",
+        "selected_session_date": session,
+        "durable_snapshot_path": relative.as_posix(),
+        "targets": targets,
     }
 
 
@@ -6350,6 +6429,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     stage_preview = clone_directory(preview_root, preview_root.parent, f".{preview_root.name}.candidate-")
     staged_publication_files: list[Path] = []
     failpoint = str(getattr(args, "transaction_failpoint", "") or "")
+    replay_target_source_evidence: dict[str, Any] = {}
     try:
         if legacy_schema_profile == LEGACY_SCHEMA_PROFILE_V1_ZERO_EVENT:
             _validate_legacy_v1_zero_event_snapshot(
@@ -6362,6 +6442,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 price_cache=price_cache,
                 as_of_date=as_of_date,
                 validated_evidence=replay_price_evidence,
+            )
+            replay_target_source_evidence = freeze_replay_target_sources(
+                state_root=stage_state,
+                target_paths=target_paths,
+                as_of_date=as_of_date,
             )
         replay_session_dates = set(
             verified_replay_price_evidence_sessions(stage_state)
@@ -6490,6 +6575,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         pd.Timestamp(decision_time).isoformat()
                     ),
                     "price_evidence": replay_price_evidence,
+                    "target_source_evidence": (
+                        replay_target_source_evidence
+                    ),
                 }
                 if replay_only
                 else {}

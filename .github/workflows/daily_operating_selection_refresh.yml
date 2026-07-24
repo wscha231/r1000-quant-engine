@@ -2082,21 +2082,35 @@ jobs:
               # bytes outside that directory so accepted-publication
               # provenance remains resolvable after the state swap.
               CATCHUP_TARGET_SOURCE_DIR="outputs/run287_catchup_target_source/${PAPER_AS_OF}"
+              DURABLE_TARGET_SOURCE_DIR="outputs/daily_simulated_fill_ledger/replay_target_source/${PAPER_AS_OF}"
+              PAPER_STATE_AS_OF="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/summary.json", encoding="utf-8"))["as_of_date"])')"
               mkdir -p "$CATCHUP_TARGET_SOURCE_DIR"
               rm -f \
                 "$CATCHUP_TARGET_SOURCE_DIR/main.csv" \
                 "$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"
+              SOURCE_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"
+              SOURCE_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"
+              if [ "$PAPER_STATE_AS_OF" = "$PAPER_AS_OF" ]; then
+                # A retry of an already accepted session must reuse the exact
+                # pre-transaction bytes retained inside the immutable ledger.
+                # Reconstructing them from the post-transaction effective
+                # target would change source_target_sha256.
+                test -s "$DURABLE_TARGET_SOURCE_DIR/main.csv"
+                test -s "$DURABLE_TARGET_SOURCE_DIR/concentrated.csv"
+                SOURCE_MAIN_TARGET="$DURABLE_TARGET_SOURCE_DIR/main.csv"
+                SOURCE_CONCENTRATED_TARGET="$DURABLE_TARGET_SOURCE_DIR/concentrated.csv"
+              fi
               cp \
-                outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv \
+                "$SOURCE_MAIN_TARGET" \
                 "$CATCHUP_TARGET_SOURCE_DIR/main.csv"
               cp \
-                outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv \
+                "$SOURCE_CONCENTRATED_TARGET" \
                 "$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"
               cmp -s \
-                outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv \
+                "$SOURCE_MAIN_TARGET" \
                 "$CATCHUP_TARGET_SOURCE_DIR/main.csv"
               cmp -s \
-                outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv \
+                "$SOURCE_CONCENTRATED_TARGET" \
                 "$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"
               PAPER_MAIN_TARGET="$CATCHUP_TARGET_SOURCE_DIR/main.csv"
               PAPER_CONCENTRATED_TARGET="$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"

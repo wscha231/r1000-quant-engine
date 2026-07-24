@@ -43,6 +43,7 @@ PAPER_IMMUTABLE_HEAD_SELECTION_STATUS = (
     "VERIFIED_LINEAR_IMMUTABLE_PAPER_HEAD_SELECTED"
 )
 REPLAY_PRICE_EVIDENCE_PREFIX = "replay_price_evidence"
+REPLAY_TARGET_SOURCE_PREFIX = "replay_target_source"
 REPLAY_PRICE_EVIDENCE_SUMMARY_KEYS = frozenset(
     {
         "manifest_sha256",
@@ -54,6 +55,15 @@ REPLAY_PRICE_EVIDENCE_SUMMARY_KEYS = frozenset(
         "ticker_count",
         "durable_snapshot_path",
         "durable_price_cache_tree_sha256",
+    }
+)
+REPLAY_TARGET_SOURCE_SUMMARY_KEYS = frozenset(
+    {
+        "schema_version",
+        "status",
+        "selected_session_date",
+        "durable_snapshot_path",
+        "targets",
     }
 )
 
@@ -620,6 +630,69 @@ def verified_replay_price_evidence_sessions(
     return sessions
 
 
+def verified_replay_target_source_sessions(
+    root: Path,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Revalidate exact target bytes retained for replay retry provenance."""
+    evidence_root = root / REPLAY_TARGET_SOURCE_PREFIX
+    if not evidence_root.exists():
+        return {}
+    if evidence_root.is_symlink() or not evidence_root.is_dir():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_EVIDENCE",
+            "durable replay target source root is unsafe",
+        )
+    sessions: dict[str, dict[str, dict[str, Any]]] = {}
+    expected_names = {f"{portfolio}.csv" for portfolio in PORTFOLIOS}
+    for entry in sorted(evidence_root.iterdir(), key=lambda path: path.name):
+        if entry.is_symlink() or not entry.is_dir():
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_TARGET_EVIDENCE",
+                "durable replay target source contains a non-directory entry",
+            )
+        parsed = _strict_iso_date(
+            entry.name,
+            field="replay_target_source.session",
+        )
+        session = parsed.isoformat()
+        actual_entries = {
+            path.name
+            for path in entry.iterdir()
+        }
+        if (
+            session != entry.name
+            or session in sessions
+            or actual_entries != expected_names
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_TARGET_EVIDENCE",
+                "durable replay target source session contract is invalid",
+            )
+        targets: dict[str, dict[str, Any]] = {}
+        for portfolio in PORTFOLIOS:
+            path = entry / f"{portfolio}.csv"
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or path.stat().st_size <= 0
+            ):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_TARGET_EVIDENCE",
+                    f"durable replay target source is invalid:{session}:{portfolio}",
+                )
+            targets[portfolio] = {
+                "path": (
+                    Path(REPLAY_TARGET_SOURCE_PREFIX)
+                    / session
+                    / f"{portfolio}.csv"
+                ).as_posix(),
+                "sha256": file_hash(path),
+                "bytes": path.stat().st_size,
+            }
+        sessions[session] = targets
+    return sessions
+
+
 def _validate_complete_paper_snapshot(
     root: Path,
     integrity: dict[str, Any],
@@ -640,6 +713,7 @@ def _validate_complete_paper_snapshot(
         publication = _continuity_json(root / "accepted_publication.json")
         as_of_date = str(integrity["as_of_date"])
         replay_sessions = verified_replay_price_evidence_sessions(root)
+        replay_target_sessions = verified_replay_target_source_sessions(root)
         suppressed = summary.get("new_order_generation_suppressed")
         expected_mode = "MARK_ONLY" if suppressed is True else "SELECTED_TARGET"
         if (
@@ -673,6 +747,7 @@ def _validate_complete_paper_snapshot(
             raise ValueError("accepted publication contract")
         if summary.get("replay_only") is True:
             evidence = summary.get("price_evidence")
+            target_evidence = summary.get("target_source_evidence")
             expected_relative = (
                 f"{REPLAY_PRICE_EVIDENCE_PREFIX}/{as_of_date}"
             )
@@ -695,6 +770,35 @@ def _validate_complete_paper_snapshot(
                 != evidence.get("price_cache_tree_sha256")
             ):
                 raise ValueError("replay price evidence summary contract")
+            expected_target_relative = (
+                f"{REPLAY_TARGET_SOURCE_PREFIX}/{as_of_date}"
+            )
+            if target_evidence is None:
+                if summary.get("result_status") not in {
+                    "LEGACY_ATTESTED",
+                    "LEGACY_SCHEMA_UPGRADE",
+                }:
+                    raise ValueError(
+                        "replay target source evidence is missing"
+                    )
+            elif (
+                not isinstance(target_evidence, dict)
+                or set(target_evidence)
+                != REPLAY_TARGET_SOURCE_SUMMARY_KEYS
+                or target_evidence.get("schema_version")
+                != "run287-replay-target-source-evidence-v1"
+                or target_evidence.get("status")
+                != "VERIFIED_DURABLE_REPLAY_TARGET_SOURCE"
+                or target_evidence.get("selected_session_date")
+                != as_of_date
+                or target_evidence.get("durable_snapshot_path")
+                != expected_target_relative
+                or target_evidence.get("targets")
+                != replay_target_sessions.get(as_of_date)
+            ):
+                raise ValueError(
+                    "replay target source evidence summary contract"
+                )
             durable_root = root / expected_relative
             if (
                 durable_root.is_symlink()
@@ -735,6 +839,10 @@ def _validate_complete_paper_snapshot(
                 raise ValueError("durable replay price evidence hash binding")
         elif "price_evidence" in summary:
             raise ValueError("non-replay summary contains price evidence")
+        elif "target_source_evidence" in summary:
+            raise ValueError(
+                "non-replay summary contains replay target source evidence"
+            )
         for portfolio in PORTFOLIOS:
             portfolio_root = root / portfolio
             manifest_path = portfolio_root / "manifest.json"
@@ -1106,6 +1214,50 @@ def _verify_snapshot_extension(candidate_root: Path, anchor_root: Path) -> None:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_CONTINUITY",
                 "new durable replay price evidence is not bound to the "
+                "candidate replay session",
+            )
+    target_evidence_prefix = f"{REPLAY_TARGET_SOURCE_PREFIX}/"
+    anchor_target_evidence = {
+        relative: digest
+        for relative, digest in directory_hashes(anchor_root).items()
+        if relative.startswith(target_evidence_prefix)
+    }
+    candidate_target_evidence = {
+        relative: digest
+        for relative, digest in directory_hashes(candidate_root).items()
+        if relative.startswith(target_evidence_prefix)
+    }
+    changed_or_missing_target_evidence = sorted(
+        relative
+        for relative, digest in anchor_target_evidence.items()
+        if candidate_target_evidence.get(relative) != digest
+    )
+    if changed_or_missing_target_evidence:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_CONTINUITY",
+            "durable replay target source changed or disappeared: "
+            + ",".join(changed_or_missing_target_evidence),
+        )
+    added_target_evidence = sorted(
+        set(candidate_target_evidence) - set(anchor_target_evidence)
+    )
+    if added_target_evidence:
+        expected_added_target_prefix = (
+            f"{target_evidence_prefix}{candidate_integrity['as_of_date']}/"
+        )
+        candidate_summary = _continuity_json(
+            candidate_root / "summary.json"
+        )
+        if (
+            candidate_summary.get("replay_only") is not True
+            or any(
+                not relative.startswith(expected_added_target_prefix)
+                for relative in added_target_evidence
+            )
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_CONTINUITY",
+                "new durable replay target source is not bound to the "
                 "candidate replay session",
             )
 

@@ -1790,9 +1790,95 @@ def test_replay_price_evidence_revalidates_parquet_and_is_transactional() -> Non
             relative.startswith(durable_relative + "/")
             for relative in integrity["files"]
         )
+        durable_target_relative = (
+            accepted["target_source_evidence"][
+                "durable_snapshot_path"
+            ]
+        )
+        assert durable_target_relative == (
+            f"replay_target_source/{session_date}"
+        )
+        durable_target_root = root / "paper" / durable_target_relative
+        assert directory_hashes(durable_target_root) == {
+            "concentrated.csv": file_hash(
+                root / "targets" / "concentrated.csv"
+            ),
+            "main.csv": file_hash(root / "targets" / "main.csv"),
+        }
+        assert accepted["target_source_evidence"]["targets"] == {
+            portfolio: {
+                "path": (
+                    f"{durable_target_relative}/{portfolio}.csv"
+                ),
+                "sha256": file_hash(
+                    root / "targets" / f"{portfolio}.csv"
+                ),
+                "bytes": (
+                    root / "targets" / f"{portfolio}.csv"
+                ).stat().st_size,
+            }
+            for portfolio in ("main", "concentrated")
+        }
+        assert any(
+            relative.startswith(durable_target_relative + "/")
+            for relative in integrity["files"]
+        )
+
+        retry_sources = root / "retry_sources"
+        retry_sources.mkdir()
+        for portfolio in ("main", "concentrated"):
+            shutil.copy2(
+                durable_target_root / f"{portfolio}.csv",
+                retry_sources / f"{portfolio}.csv",
+            )
+        retry_args = replay_ledger_args(root, session_date)
+        retry_args.main_target = str(retry_sources / "main.csv")
+        retry_args.concentrated_target = str(
+            retry_sources / "concentrated.csv"
+        )
+        retried = run(retry_args)
+        assert retried["result_status"] in {
+            "NO_NEW_ORDER_PREVIEW",
+            "SAME_SESSION_REUSE",
+        }
+        assert retried["same_session_reused_portfolio_count"] == 2
+        for portfolio in ("main", "concentrated"):
+            assert (
+                retried["portfolios"][portfolio][
+                    "source_target_sha256"
+                ]
+                == accepted["portfolios"][portfolio][
+                    "source_target_sha256"
+                ]
+            )
+        after_retry = directory_hashes(root / "paper")
+        assert after_retry
+
+        with (retry_sources / "main.csv").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write("\n")
+        conflicting_args = replay_ledger_args(root, session_date)
+        conflicting_args.main_target = str(
+            retry_sources / "main.csv"
+        )
+        conflicting_args.concentrated_target = str(
+            retry_sources / "concentrated.csv"
+        )
+        try:
+            run(conflicting_args)
+        except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_TARGET_EVIDENCE"
+            assert "conflicts with the accepted session" in str(exc)
+        else:
+            raise AssertionError(
+                "same-session replay replaced its durable target source"
+            )
+        assert directory_hashes(root / "paper") == after_retry
 
         anchor = root / "replay_anchor"
         forged = root / "replay_forged_descendant"
+        forged_target = root / "replay_forged_target_descendant"
         shutil.copytree(root / "paper", anchor)
         write_prices(
             root / "prices",
@@ -1808,6 +1894,7 @@ def test_replay_price_evidence_revalidates_parquet_and_is_transactional() -> Non
         )
         run(replay_ledger_args(root, "2026-04-09"))
         shutil.copytree(root / "paper", forged)
+        shutil.copytree(root / "paper", forged_target)
         prior_bar = (
             forged
             / "replay_price_evidence"
@@ -1829,6 +1916,28 @@ def test_replay_price_evidence_revalidates_parquet_and_is_transactional() -> Non
         else:
             raise AssertionError(
                 "descendant rewrote a prior replay price evidence bar"
+            )
+        prior_target = (
+            forged_target
+            / "replay_target_source"
+            / session_date
+            / "main.csv"
+        )
+        prior_target.write_bytes(prior_target.read_bytes() + b"\n")
+        (forged_target / "snapshot_integrity.json").unlink()
+        write_integrity_manifest(
+            forged_target,
+            as_of_date="2026-04-09",
+            previous_snapshot_hash=integrity["snapshot_hash"],
+        )
+        try:
+            require_state_descends_from(forged_target, anchor)
+        except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_CONTINUITY"
+            assert "replay target source changed" in str(exc)
+        else:
+            raise AssertionError(
+                "descendant rewrote a prior replay target source"
             )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -2241,6 +2350,20 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
     )
     assert (
         'PAPER_CONCENTRATED_TARGET="$CATCHUP_TARGET_SOURCE_DIR/concentrated.csv"'
+        in transaction
+    )
+    assert (
+        'DURABLE_TARGET_SOURCE_DIR="outputs/daily_simulated_fill_ledger/replay_target_source/${PAPER_AS_OF}"'
+        in transaction
+    )
+    assert 'if [ "$PAPER_STATE_AS_OF" = "$PAPER_AS_OF" ]; then' in transaction
+    assert 'test -s "$DURABLE_TARGET_SOURCE_DIR/main.csv"' in transaction
+    assert (
+        'SOURCE_MAIN_TARGET="$DURABLE_TARGET_SOURCE_DIR/main.csv"'
+        in transaction
+    )
+    assert (
+        'SOURCE_CONCENTRATED_TARGET="$DURABLE_TARGET_SOURCE_DIR/concentrated.csv"'
         in transaction
     )
     assert transaction.count("cmp -s") >= 2
