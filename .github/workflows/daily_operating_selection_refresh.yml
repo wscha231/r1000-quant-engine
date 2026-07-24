@@ -53,6 +53,7 @@ concurrency:
 
 jobs:
   refresh:
+    environment: run287-paper-durable
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:

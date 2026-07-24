@@ -3414,9 +3414,10 @@ Expected contract:
   replay-only chain with zero new orders/fills and terminal
   `f2c95d8c1ca3b1f1fe1fd76f25a65be42734ab5238722222d02a6b8d88b79ebf`.
   All four observations were excluded from promotion counts.
-- Pre-H4b workflow reruns cannot be retroactively protected by new YAML. Rotate
-  and move Drive credentials to a protected workflow-specific environment
-  after merge.
+- Pre-H4b workflow reruns cannot be retroactively protected by new YAML. The
+  master-only `run287-paper-durable` environment exists and the daily job
+  declares it, but isolation is incomplete until fresh Drive credentials are
+  added there and the repository-level copies are deleted.
 - Focused tests, actual artifact v2 replay/consumer validation, YAML and Bash
   syntax checks, read-only security audit, and full Tier-1 validation
   (`196/196`, `785.39s`) passed.

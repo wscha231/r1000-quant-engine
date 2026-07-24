@@ -218,10 +218,12 @@ H4a merged as PR #321. H4b is integrated with that master state and is ready
 for exact-head PR checks and review. Durable chronological catch-up remains a
 separate P0 operation after H4b merges.
 
-One operational residual cannot be fixed retroactively in source: a rerun of a
-pre-H4b workflow uses its historical YAML and could still access repository
-Drive credentials. After merge, rotate/move those credentials into a protected,
-workflow-specific GitHub environment before durable catch-up.
+The master-only `run287-paper-durable` GitHub environment now exists and the
+daily job declares it. One operational residual cannot be completed from source:
+a rerun of a pre-H4b workflow uses its historical YAML while the two Drive
+credentials remain repository-level secrets. Before durable catch-up, rotate
+and add `GOOGLE_SERVICE_ACCOUNT_KEY` and `RCLONE_CONFIG_GDRIVE` to the
+environment, verify their timestamps, then delete the repository-level copies.
 
 - Fullrun executed: false.
 - Durable catch-up executed: false.

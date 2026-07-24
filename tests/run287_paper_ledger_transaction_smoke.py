@@ -1976,6 +1976,10 @@ def test_workflow_legacy_drive_migration_is_one_time_and_quarantined() -> None:
 
     workflow_path = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    assert (
+        workflow["jobs"]["refresh"]["environment"]
+        == "run287-paper-durable"
+    )
     steps = workflow["jobs"]["refresh"]["steps"]
     by_name = {str(step.get("name")): step for step in steps}
     assert (

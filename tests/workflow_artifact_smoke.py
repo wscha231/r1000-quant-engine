@@ -1127,6 +1127,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--max-fill-lag-days 7",
         "daily-operating-selection-refresh",
         "cancel-in-progress: false",
+        "environment: run287-paper-durable",
         "review_only",
         "canonical_production_sync",
         "live_trading_enabled",
