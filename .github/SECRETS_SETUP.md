@@ -71,7 +71,11 @@ These commands list names and update times only. Never paste any value into
 chat or a command transcript. Rotating the attestation requires a new random
 value in the environment, a recomputed credential HMAC, and the corresponding
 hash updates to the reviewed contract in the same change; never print either
-secret while computing those hashes.
+secret while computing those hashes. Normalize the marker-bound rclone
+configuration to LF line endings with no trailing newline before both computing
+the HMAC and storing the environment secret. GitHub Actions verifies the exact
+Linux environment-variable bytes, so a hash computed from a Windows CRLF copy
+will fail closed.
 
 GitHub's default workflow token cannot read repository/environment secret
 inventories. Do not add a broad PAT to the workflow. Instead, an owner runs the
