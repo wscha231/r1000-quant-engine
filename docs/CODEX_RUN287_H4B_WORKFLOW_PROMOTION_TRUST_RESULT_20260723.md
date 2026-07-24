@@ -149,6 +149,96 @@ evaluation, and artifact publication.
   canonical and accepted-package publication, immediately before cache saves,
   and after final publication. If the branch advances, no subsequent accepted
   artifact or cache is published.
+- Normal forward-paper selection now invokes the freshness contract in
+  unconditional strict mode before the first paper-ledger transaction.
+  `strict_selection=false` cannot bypass the gate. The restored pre-refresh
+  score is diagnostic only; it cannot authorize a target mutation.
+- The attempt-specific exact scorer owns the mutation coverage contract. Its
+  post-lifecycle candidate denominator requires at least 98% complete `px`,
+  score, 1/3/6/12-month momentum, relative strength, valuation cutoff, and
+  feature-availability data. Ranking eligibility flags remain a separate
+  selector contract. Duplicate, placeholder, substituted, unexpected, stale,
+  or future rows fail closed.
+- The 2% completeness allowance applies only to missing non-price numeric alpha
+  fields. An invalid ticker, non-positive/non-finite close, wrong valuation
+  date, or future `feature_available_from` is a hard PIT-integrity violation:
+  one such row blocks the packet even when aggregate completeness remains above
+  98%.
+- Legacy exact-scorer v3 and earlier bundles do not contain this declaration and are
+  intentionally non-authoritative. They are not silently migrated or reused for
+  a same-session target mutation; that session remains blocked unless an
+  explicit reviewed migration is added, while the next fresh session uses v4.
+- The exact-packet registry consumes the current workflow-attempt upstream
+  status and verifies every source-bundle path and declared SHA. It also binds
+  the internal DAG by hash: decision to exact score/macro, score stack to
+  decision, crisis to macro, and SOXX to crisis. Same-date, same-universe
+  manifests from different attempts therefore cannot be mixed.
+- The exact-packet chain now freezes one self-hashed code identity containing
+  the Git HEAD/tree plus LF-normalized bytes for the daily workflow and every
+  upstream, scorer, bundle, registry, producer, selector, and candidate-risk
+  builder. Upstream, the immutable source bundle, registry, and producer all
+  compare that identity with the current checkout, including immediately
+  before READY publication. A same-date bundle from another commit or changed
+  builder therefore collides instead of being silently reused.
+- Before any network-backed score refresh, the upstream attempt freezes and
+  hashes the universe, base context/stack, four model artifacts, OOS frame, and
+  lifecycle file. It independently records universe, pre-lifecycle, and
+  post-lifecycle ticker-set identities plus every potentially consumed
+  historical price-cache file. The scorer validates those anchors before read,
+  rehashes them before READY, and the registry cross-checks the scorer manifest
+  against the exact attempt preflight. A same-count ticker substitution,
+  missing-cache bootstrap, or changed model/cache therefore has an explicit,
+  reproducible outcome rather than an implicit fallback.
+- Exact-close technical rows advance `feature_available_from` to at least the
+  actual scheduled NYSE close, including half days, while preserving any later
+  inherited availability. `score_available_from` remains the separate scorer
+  completion time. A pre-close decision time, malformed/future holding-watch
+  availability, or future inherited feature timestamp blocks selection.
+- Relative-strength benchmarks are closed inputs. SPY, QQQ, and SMH must each
+  have exactly one hash-pinned macro-audit row and an exact valuation-date
+  close; only those three verified files enter an isolated selector cache.
+  SOXX remains independently manifest-bound. All source and isolated hashes
+  are rechecked after selector/risk evaluation and before producer READY.
+- An immutable producer reuse is not a shortcut around validation. Every
+  decision, score, crisis, price, macro, SOXX, and price-map transitive output
+  is revalidated before `READY_EXISTING`, and every path-bearing producer input
+  is rehashed again immediately before either READY status is published. The
+  registry must bind the exact producer-contract SHA, and reuse additionally
+  binds holding-watch bytes, risk contracts, builders, git head, and selector
+  holding inputs through one canonical packet-input identity.
+- Producer-generated files are also roots of trust. The selector's exact ten
+  declared outputs and the candidate-risk packet's exact three declared
+  outputs, including `risk_history.jsonl`, must use their canonical packet
+  directory and filename, may not be symlink aliases, and must match recorded
+  existence, byte size, and SHA-256. Fresh builds validate before reading the
+  comparison, after risk evaluation, and immediately before READY; reuse
+  repeats the same checks and preserves the frozen output audit in status.
+- Normal-session workflow retries clear prior same-close materializations
+  before the chain starts. Upstream, registry, or producer failure writes a
+  current BLOCKED marker and cannot leave a restored READY status or target
+  artifact available to the summary, decision archive, or artifact upload.
+  Catch-up also clears any restored run-local target materialization before
+  publishing its replay-only BLOCKED marker.
+- Same-close target materialization requires the exact freshness status and
+  snapshot manifest for the session, run ID, commit SHA, branch, and artifact.
+  It then independently recomputes the attempt-specific 98% contract and
+  reconciles the scored-file SHA, expected ticker-set SHA, lifecycle counts,
+  decision-context ticker set, valuation date, and score availability. Every
+  mutation-bound file receives an unlimited streaming SHA-256 and is rechecked
+  immediately before target write, and every just-written target/decision byte
+  is rehashed again before READY. A blocked, stale, mismatched, or concurrently
+  changed input removes prior run-local target artifacts, writes no new target,
+  preserves accepted ledger/canonical state, and cannot reach the second ledger
+  transaction.
+- The target boundary accepts only producer schema v1 with one of the two exact
+  READY statuses and `exact_packet_ready=true`; a legacy, BLOCKED, or forged
+  marker cannot authorize target bytes even if its nested file hashes are
+  otherwise self-consistent.
+- The second paper-ledger transaction receives the exact same-close status SHA
+  plus both target-book SHAs. The ledger validates schema/status/safety/date,
+  canonical paths, and file hashes before processing and again immediately
+  before same-session return or atomic publication, closing the target-to-ledger
+  handoff rather than trusting workflow order alone.
 - Trust boundary: this workflow is the repository-wide single writer for the
   mutable Drive canonical, enforced by its static GitHub concurrency group.
   Immutable paper/outcome heads are the accepted state; the canonical is only a
@@ -210,7 +300,8 @@ Drive, production, or the live/paper canonical.
 - Python compile and `git diff --check`: PASS.
 - Workflow YAML: 48 steps parsed; Git Bash syntax: 34 run blocks PASS.
 - Final read-only security audit: no blocking finding.
-- Full Tier-1 PR validation: `196/196` PASS in `785.39s`.
+- Full Tier-1 PR validation: `196/196` PASS in `857.13s` on the final
+  code-lineage, generated-output, and target-to-ledger handoff tree.
 
 ## Safety and next gate
 

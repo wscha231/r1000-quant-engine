@@ -1684,6 +1684,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${STRICT_SELECTION:-false}" != "true" ]; then
+            echo "::error::daily target mutation is always fail-closed; strict_selection=false is not permitted"
+            exit 2
+          fi
           python tools/audit_data_readiness.py \
             --latest-run outputs \
             --price-cache cache_prices \
@@ -1693,7 +1697,9 @@ jobs:
             --latest-run outputs \
             --price-cache cache_prices \
             --output-dir outputs/data_freshness_contract \
+            --asof-date "$LAST_NYSE_SESSION_DATE" \
             --require-current-operating-books \
+            --strict-selection \
             --source-run-id "${GITHUB_RUN_ID}" \
             --source-commit-sha "${GITHUB_SHA}" \
             --source-branch "${GITHUB_REF_NAME}" \
@@ -1707,6 +1713,18 @@ jobs:
 
           status_path = Path("outputs/data_freshness_contract/status.json")
           status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+          core_coverage = status.get("core_candidate_coverage") or {}
+          if (
+              status.get("schema_version") != "data-freshness-contract-v1"
+              or status.get("status") != "pass"
+              or status.get("selection_allowed") is not True
+              or status.get("blockers")
+              or status.get("source_context") != "daily_operating_refresh"
+              or status.get("freshness_contract_non_fatal") is not False
+              or status.get("asof_date") != os.environ.get("LAST_NYSE_SESSION_DATE", "")
+              or core_coverage.get("required_for_target_mutation") is not False
+          ):
+              raise SystemExit("fail-closed freshness mutation gate is not satisfied")
           session_path = Path("outputs/daily_market_session_gate/session.json")
           coverage_path = Path("outputs/daily_market_session_gate/close_price_coverage.json")
           session = json.loads(session_path.read_text(encoding="utf-8")) if session_path.exists() else {}
@@ -1932,6 +1950,20 @@ jobs:
           PY
           fi
           SAME_CLOSE_READY=no
+          python - "$SAME_CLOSE_DIR" <<'PY'
+          import sys
+          from pathlib import Path
+
+          from tools.build_run287_same_close_target_books import (
+              clear_previous_materialization,
+          )
+
+          failures = clear_previous_materialization(Path(sys.argv[1]))
+          if failures:
+              raise SystemExit(
+                  "same-close stale-output cleanup blocked: " + ",".join(failures)
+              )
+          PY
           if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
             mkdir -p "$SAME_CLOSE_DIR"
             python - <<'PY'
@@ -1981,41 +2013,130 @@ jobs:
             --require-exact-close \
             2>&1 | tee outputs/full_rebuild_logs/daily_holding_risk_watch.log
           export SEC_USER_AGENT="${SEC_USER_AGENT:-R1000QuantEngine research andrewcha231@gmail.com}"
+          UPSTREAM_READY=no
+          REGISTRY_READY=no
+          PRODUCER_READY=no
+          CHAIN_BLOCK_REASON=""
+          UPSTREAM_STATUS="outputs/run287_exact_packet_upstream/attempts/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/status.json"
+          PRODUCER_STATUS="outputs/run287_exact_packet_producer/status.json"
+          PREVIOUS_PRODUCER_STATUS="outputs/run287_exact_packet_producer/previous_status_for_reuse.json"
           if python tools/run_run287_exact_packet_upstream.py \
             --valuation-date "$PAPER_AS_OF" \
             --decision-time-utc "$DECISION_CUTOFF_UTC" \
             --attempt-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --allow-network \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_exact_packet_upstream.log; then
-            echo "[daily-operating] bounded exact-packet upstream completed or safely skipped"
+            UPSTREAM_READY=yes
+            echo "[daily-operating] bounded exact-packet upstream command completed"
           else
-            echo "[daily-operating] bounded exact-packet upstream blocked; registry will fail closed"
+            CHAIN_BLOCK_REASON="current_upstream_not_ready"
+            echo "[daily-operating] bounded exact-packet upstream blocked; registry and producer are skipped"
           fi
-          if python tools/build_run287_exact_packet_input_registry.py \
-            --source-bundle outputs/run287_exact_packet_input_sources/source_bundle.json \
-            --valuation-date "$PAPER_AS_OF" \
-            --output-dir outputs/run287_exact_packet_input_registry \
-            --allow-missing \
-            2>&1 | tee outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log; then
-            echo "[daily-operating] exact packet input registry completed or safely skipped"
+          if [ "$UPSTREAM_READY" = "yes" ]; then
+            if python tools/build_run287_exact_packet_input_registry.py \
+              --source-bundle outputs/run287_exact_packet_input_sources/source_bundle.json \
+              --upstream-status "$UPSTREAM_STATUS" \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_exact_packet_input_registry \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log; then
+              REGISTRY_READY=yes
+              echo "[daily-operating] exact packet input registry completed"
+            else
+              CHAIN_BLOCK_REASON="current_registry_not_ready"
+              echo "[daily-operating] exact packet input registry blocked; producer is skipped"
+            fi
           else
-            echo "[daily-operating] exact packet input registry blocked; producer will fail closed"
+            echo "[daily-operating] exact packet input registry skipped because current upstream failed"
+            python - "$PAPER_AS_OF" "$UPSTREAM_STATUS" <<'PY'
+          import sys
+          import time
+          from pathlib import Path
+
+          from tools.build_run287_exact_packet_input_registry import (
+              BLOCKED_STATUS,
+              base_payload,
+              finish,
+          )
+          from tools.run_run287_exact_packet_producer import fingerprint
+
+          valuation_date, upstream_status = sys.argv[1:3]
+          output_dir = Path("outputs/run287_exact_packet_input_registry")
+          finish(
+              output_dir,
+              base_payload(BLOCKED_STATUS, valuation_date, time.perf_counter()),
+              failures=["current_upstream_not_ready"],
+              sources={"upstream_status": fingerprint(Path(upstream_status))},
+          )
+          PY
           fi
-          if python tools/run_run287_exact_packet_producer.py \
-            --input-registry outputs/run287_exact_packet_input_registry/registry.json \
-            --valuation-date "$PAPER_AS_OF" \
-            --holding-watch-summary outputs/holding_risk_watch/summary.json \
-            --holding-watch-csv outputs/holding_risk_watch/holding_risk_watch.csv \
-            --output-dir outputs/run287_exact_packet_producer \
-            --packet-root outputs \
-            --allow-missing \
-            2>&1 | tee outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log; then
-            echo "[daily-operating] exact packet producer completed"
+          if [ "$REGISTRY_READY" = "yes" ]; then
+            python - "$PRODUCER_STATUS" "$PREVIOUS_PRODUCER_STATUS" <<'PY'
+          import sys
+          from pathlib import Path
+
+          current, previous = map(Path, sys.argv[1:3])
+          previous.unlink(missing_ok=True)
+          if current.is_file():
+              previous.parent.mkdir(parents=True, exist_ok=True)
+              current.replace(previous)
+          PY
+            if python tools/run_run287_exact_packet_producer.py \
+              --input-registry outputs/run287_exact_packet_input_registry/registry.json \
+              --previous-status "$PREVIOUS_PRODUCER_STATUS" \
+              --valuation-date "$PAPER_AS_OF" \
+              --holding-watch-summary outputs/holding_risk_watch/summary.json \
+              --holding-watch-csv outputs/holding_risk_watch/holding_risk_watch.csv \
+              --output-dir outputs/run287_exact_packet_producer \
+              --packet-root outputs \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log; then
+              PRODUCER_READY=yes
+              echo "[daily-operating] exact packet producer completed"
+            else
+              echo "[daily-operating] exact packet producer blocked; same-close target generation is skipped"
+            fi
+            python - "$PREVIOUS_PRODUCER_STATUS" <<'PY'
+          import sys
+          from pathlib import Path
+
+          Path(sys.argv[1]).unlink(missing_ok=True)
+          PY
           else
-            echo "[daily-operating] exact packet producer blocked; archive will fail closed or skip"
+            echo "[daily-operating] exact packet producer skipped because current registry failed"
           fi
+          if [ "$REGISTRY_READY" != "yes" ]; then
+            python - "$PAPER_AS_OF" "$UPSTREAM_STATUS" "${CHAIN_BLOCK_REASON:-current_registry_not_ready}" <<'PY'
+          import sys
+          import time
+          from pathlib import Path
+
+          from tools.run_run287_exact_packet_producer import (
+              BLOCKED_STATUS,
+              base_payload,
+              fingerprint,
+              finish,
+          )
+
+          valuation_date, upstream_status, reason = sys.argv[1:4]
+          output_dir = Path("outputs/run287_exact_packet_producer")
+          payload = base_payload(BLOCKED_STATUS, valuation_date, time.perf_counter())
+          payload["skip_reason"] = reason
+          finish(
+              output_dir,
+              payload,
+              failures=[reason],
+              sources={"upstream_status": fingerprint(Path(upstream_status))},
+          )
+          PY
+          fi
+          if [ "$PRODUCER_READY" = "yes" ]; then
           if python tools/build_run287_same_close_target_books.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
+            --freshness-status outputs/data_freshness_contract/status.json \
+            --freshness-snapshot-manifest outputs/data_freshness_contract/data_snapshot_manifest.json \
+            --expected-source-run-id "${GITHUB_RUN_ID}" \
+            --expected-source-commit-sha "${GITHUB_SHA}" \
+            --expected-source-branch "${GITHUB_REF_NAME}" \
+            --expected-source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
             --valuation-date "$PAPER_AS_OF" \
             --output-dir "$SAME_CLOSE_DIR" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_same_close_target_books.log; then
@@ -2023,6 +2144,60 @@ jobs:
             # A second same-session transaction is permitted only after the
             # suppressed mark and only when the target identity changed.  It
             # enqueues review-only orders eligible for the next NYSE close.
+            read -r TARGET_HANDOFF_SHA MAIN_TARGET_SHA CONCENTRATED_TARGET_SHA < <(
+              python - \
+                "$SAME_CLOSE_DIR/status.json" \
+                "$SAME_CLOSE_DIR/same_close_main_target_book.csv" \
+                "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          status_path, main_path, concentrated_path = map(Path, sys.argv[1:4])
+          status = json.loads(status_path.read_text(encoding="utf-8"))
+          targets = {
+              "main": main_path,
+              "concentrated": concentrated_path,
+          }
+
+          def sha256(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          if (
+              status.get("schema_version")
+              != "run287-same-close-target-books-v1"
+              or status.get("status") != "READY_SAME_CLOSE_PAPER_TARGETS"
+              or status.get("target_book_file_written") is not True
+              or status.get("orders_generated") is not False
+          ):
+              raise SystemExit("same-close target handoff marker is not READY")
+          hashes = {}
+          outputs = status.get("outputs") or {}
+          for portfolio, target_path in targets.items():
+              record = outputs.get(f"{portfolio}_target_book") or {}
+              recorded_path = Path(str(record.get("path") or ""))
+              actual_sha = sha256(target_path)
+              if (
+                  not target_path.is_file()
+                  or recorded_path.resolve() != target_path.resolve()
+                  or str(record.get("sha256") or "").lower() != actual_sha
+              ):
+                  raise SystemExit(
+                      f"same-close target handoff mismatch:{portfolio}"
+                  )
+              hashes[portfolio] = actual_sha
+          print(
+              sha256(status_path),
+              hashes["main"],
+              hashes["concentrated"],
+          )
+          PY
+            )
             python tools/run_daily_simulated_fill_ledger.py \
               --state-dir outputs/daily_simulated_fill_ledger \
               --price-cache cache_prices \
@@ -2031,6 +2206,10 @@ jobs:
               --concentrated-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
               --main-target "$SAME_CLOSE_DIR/same_close_main_target_book.csv" \
               --concentrated-target "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" \
+              --target-handoff-manifest "$SAME_CLOSE_DIR/status.json" \
+              --expected-target-handoff-sha256 "$TARGET_HANDOFF_SHA" \
+              --main-target-sha256 "$MAIN_TARGET_SHA" \
+              --concentrated-target-sha256 "$CONCENTRATED_TARGET_SHA" \
               --main-publish-target outputs/reports/operating_main_target_book.csv \
               --concentrated-publish-target outputs/reports/operating_concentrated_target_book.csv \
               --as-of-date "$PAPER_AS_OF" \
@@ -2041,6 +2220,23 @@ jobs:
               2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger.log
           else
             echo "[daily-operating] same-close selector blocked; prior fills/marks retained and zero new orders generated"
+          fi
+          else
+            echo "[daily-operating] same-close selector skipped because current producer failed"
+            python - "$SAME_CLOSE_DIR" "$PAPER_AS_OF" "${CHAIN_BLOCK_REASON:-current_producer_not_ready}" <<'PY'
+          import sys
+          from pathlib import Path
+
+          from tools.build_run287_same_close_target_books import blocked_payload
+
+          output_dir, valuation_date, reason = sys.argv[1:4]
+          blocked_payload(
+              output_dir=Path(output_dir),
+              valuation_date=valuation_date,
+              failures=[reason],
+              inputs={},
+          )
+          PY
           fi
           fi
           export SAME_CLOSE_READY

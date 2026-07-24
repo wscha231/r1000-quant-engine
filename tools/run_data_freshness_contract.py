@@ -127,6 +127,42 @@ COVERAGE_FLOORS = {
     "top_manager": 0.05,
 }
 
+CORE_CANDIDATE_REQUIRED_COLUMNS = (
+    "ticker",
+    "px",
+    "score_total",
+    "mom_1m",
+    "mom_3m",
+    "mom_6m",
+    "mom_12m",
+    "relative_strength_composite",
+    "valuation_price_cutoff_date",
+    "feature_available_from",
+)
+CORE_CANDIDATE_NUMERIC_COLUMNS = {
+    "px",
+    "score_total",
+    "mom_1m",
+    "mom_3m",
+    "mom_6m",
+    "mom_12m",
+    "relative_strength_composite",
+}
+CORE_CANDIDATE_DATETIME_COLUMNS = {
+    "valuation_price_cutoff_date",
+    "feature_available_from",
+}
+CORE_CANDIDATE_CASH_TICKERS = {"CASH", "__CASH__", "USD", "BIL", "SHV", "SGOV"}
+CORE_CANDIDATE_INVALID_TICKERS = {
+    "",
+    "N/A",
+    "NA",
+    "NAN",
+    "NONE",
+    "NULL",
+    "UNKNOWN",
+}
+
 
 def repo_path(value: str | Path) -> Path:
     path = Path(value)
@@ -149,7 +185,12 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
 
 
 def parse_dt(value: Any) -> datetime | None:
@@ -182,8 +223,12 @@ def days_old(value: Any, *, today: date | None = None) -> float | None:
     return float((today - dt).days)
 
 
-def sha256_file(path: Path, *, max_bytes: int = 50_000_000) -> str:
-    if not path.exists() or not path.is_file() or path.stat().st_size > max_bytes:
+def sha256_file(path: Path, *, max_bytes: int | None = 50_000_000) -> str:
+    if (
+        not path.exists()
+        or not path.is_file()
+        or (max_bytes is not None and path.stat().st_size > max_bytes)
+    ):
         return ""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -192,7 +237,11 @@ def sha256_file(path: Path, *, max_bytes: int = 50_000_000) -> str:
     return digest.hexdigest()
 
 
-def path_stats(path: Path) -> dict[str, Any]:
+def path_stats(
+    path: Path,
+    *,
+    hash_max_bytes: int | None = 50_000_000,
+) -> dict[str, Any]:
     if not path.exists():
         return {"exists": False, "path": str(path)}
     if path.is_dir():
@@ -215,7 +264,7 @@ def path_stats(path: Path) -> dict[str, Any]:
         "kind": "file",
         "bytes": int(stat.st_size),
         "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-        "sha256": sha256_file(path),
+        "sha256": sha256_file(path, max_bytes=hash_max_bytes),
     }
 
 
@@ -449,6 +498,277 @@ def coverage_status(latest_run: Path, required_layers: set[str], warn_layers: se
     }, blockers, warnings
 
 
+def _core_value_is_valid(column: str, value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if column == "ticker":
+        return text.upper() not in CORE_CANDIDATE_INVALID_TICKERS
+    if column in CORE_CANDIDATE_NUMERIC_COLUMNS:
+        try:
+            numeric = float(text)
+            return math.isfinite(numeric) and (column != "px" or numeric > 0.0)
+        except (TypeError, ValueError):
+            return False
+    if column in CORE_CANDIDATE_DATETIME_COLUMNS:
+        return parse_dt(text) is not None
+    return True
+
+
+def core_candidate_ticker_set_sha256(tickers: list[str] | tuple[str, ...] | set[str]) -> str:
+    normalized = sorted(
+        {
+            str(value or "").strip().upper()
+            for value in tickers
+            if str(value or "").strip().upper() not in CORE_CANDIDATE_CASH_TICKERS
+        }
+    )
+    payload = ("\n".join(normalized) + ("\n" if normalized else "")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def core_candidate_coverage_semantic_view(
+    payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return the portable coverage contract, excluding location-only metadata."""
+    return {
+        key: value
+        for key, value in dict(payload or {}).items()
+        if key != "path"
+    }
+
+
+def core_candidate_coverage_for_path(
+    path: Path,
+    *,
+    minimum_ratio: float,
+    expected_row_count: int | None = None,
+    expected_valuation_date: str = "",
+    decision_time_utc: str = "",
+    expected_ticker_set_sha256: str = "",
+) -> tuple[dict[str, Any], list[str]]:
+    required = minimum_ratio > 0.0
+    expected_date = parse_date(expected_valuation_date)
+    decision_time = parse_dt(decision_time_utc)
+    result: dict[str, Any] = {
+        "schema_version": "run287-core-candidate-coverage-v1",
+        "path": str(path),
+        "coverage_semantics": (
+            "complete finite core candidate data fields over the declared "
+            "expected candidate universe; ranking eligibility flags are "
+            "validated by the exact-packet selector, not counted as data coverage"
+        ),
+        "required_for_target_mutation": required,
+        "minimum_coverage_ratio": float(minimum_ratio),
+        "expected_row_count": (
+            int(expected_row_count) if expected_row_count is not None else None
+        ),
+        "expected_valuation_date": (
+            expected_date.isoformat() if expected_date is not None else ""
+        ),
+        "decision_time_utc": (
+            decision_time.isoformat() if decision_time is not None else ""
+        ),
+        "expected_ticker_set_sha256": str(expected_ticker_set_sha256 or "").lower(),
+        "ticker_set_sha256": "",
+        "ticker_set_matches_expected": None,
+        "source_sha256": "",
+        "source_bytes": 0,
+        "required_columns": list(CORE_CANDIDATE_REQUIRED_COLUMNS),
+        "exists": path.is_file(),
+        "row_count": 0,
+        "coverage_denominator_count": 0,
+        "missing_expected_row_count": 0,
+        "unexpected_row_count": 0,
+        "complete_row_count": 0,
+        "invalid_row_count": 0,
+        "coverage_ratio": 0.0,
+        "missing_columns": list(CORE_CANDIDATE_REQUIRED_COLUMNS),
+        "invalid_by_column": {},
+        "hard_integrity_invalid_by_column": {},
+        "duplicate_ticker_count": 0,
+        "invalid_examples": [],
+        "passed": False,
+    }
+    blockers: list[str] = []
+    if expected_row_count is not None and expected_row_count <= 0:
+        blockers.append("core candidate expected row count must be positive")
+    if expected_valuation_date and expected_date is None:
+        blockers.append("core candidate expected valuation date is invalid")
+    if decision_time_utc and decision_time is None:
+        blockers.append("core candidate decision time is invalid")
+    expected_ticker_hash = str(expected_ticker_set_sha256 or "").lower()
+    if expected_ticker_hash and (
+        len(expected_ticker_hash) != 64
+        or any(character not in "0123456789abcdef" for character in expected_ticker_hash)
+    ):
+        blockers.append("core candidate expected ticker-set SHA-256 is invalid")
+    if not path.is_file():
+        if required:
+            blockers.append("core candidate coverage source scored_latest.csv is missing")
+        return result, blockers
+
+    source_before = path_stats(path, hash_max_bytes=None)
+    result["source_sha256"] = str(source_before.get("sha256") or "")
+    result["source_bytes"] = int(source_before.get("bytes") or 0)
+    invalid_by_column = {column: 0 for column in CORE_CANDIDATE_REQUIRED_COLUMNS}
+    invalid_examples: list[dict[str, Any]] = []
+    seen_tickers: set[str] = set()
+    duplicate_tickers: set[str] = set()
+    row_count = 0
+    complete_count = 0
+    with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fields = set(reader.fieldnames or [])
+        missing_columns = [
+            column for column in CORE_CANDIDATE_REQUIRED_COLUMNS if column not in fields
+        ]
+        result["missing_columns"] = missing_columns
+        for row_number, row in enumerate(reader, start=2):
+            ticker = str(row.get("ticker") or "").strip().upper()
+            if ticker in CORE_CANDIDATE_CASH_TICKERS:
+                continue
+            row_count += 1
+            if ticker:
+                if ticker in seen_tickers:
+                    duplicate_tickers.add(ticker)
+                seen_tickers.add(ticker)
+            invalid_fields = [
+                column
+                for column in CORE_CANDIDATE_REQUIRED_COLUMNS
+                if column in fields and not _core_value_is_valid(column, row.get(column))
+            ]
+            if (
+                "valuation_price_cutoff_date" in fields
+                and expected_date is not None
+                and parse_date(row.get("valuation_price_cutoff_date"))
+                != expected_date
+            ):
+                invalid_fields.append("valuation_price_cutoff_date")
+            if "feature_available_from" in fields and decision_time is not None:
+                available_from = parse_dt(row.get("feature_available_from"))
+                if available_from is None or available_from > decision_time:
+                    invalid_fields.append("feature_available_from")
+            invalid_fields.extend(missing_columns)
+            invalid_fields = sorted(set(invalid_fields))
+            if invalid_fields:
+                for column in invalid_fields:
+                    invalid_by_column[column] += 1
+                if len(invalid_examples) < 10:
+                    invalid_examples.append(
+                        {
+                            "row_number": row_number,
+                            "ticker": ticker,
+                            "invalid_fields": invalid_fields,
+                        }
+                    )
+            else:
+                complete_count += 1
+
+    source_after = path_stats(path, hash_max_bytes=None)
+    if (
+        source_after.get("sha256") != source_before.get("sha256")
+        or source_after.get("bytes") != source_before.get("bytes")
+    ):
+        blockers.append("core candidate coverage source changed while being validated")
+    result["source_sha256"] = str(source_after.get("sha256") or "")
+    result["source_bytes"] = int(source_after.get("bytes") or 0)
+    ticker_set_sha256 = core_candidate_ticker_set_sha256(seen_tickers)
+    ticker_set_matches_expected = (
+        ticker_set_sha256 == expected_ticker_hash if expected_ticker_hash else None
+    )
+    denominator = (
+        int(expected_row_count)
+        if expected_row_count is not None and expected_row_count > 0
+        else row_count
+    )
+    missing_expected = max(denominator - row_count, 0)
+    unexpected_rows = max(row_count - denominator, 0)
+    ratio = float(complete_count / denominator) if denominator else 0.0
+    result.update(
+        {
+            "row_count": int(row_count),
+            "coverage_denominator_count": int(denominator),
+            "missing_expected_row_count": int(missing_expected),
+            "unexpected_row_count": int(unexpected_rows),
+            "complete_row_count": int(complete_count),
+            "invalid_row_count": int(row_count - complete_count),
+            "coverage_ratio": ratio,
+            "invalid_by_column": {
+                column: int(count)
+                for column, count in invalid_by_column.items()
+                if count
+            },
+            "duplicate_ticker_count": int(len(duplicate_tickers)),
+            "duplicate_ticker_examples": sorted(duplicate_tickers)[:10],
+            "ticker_set_sha256": ticker_set_sha256,
+            "ticker_set_matches_expected": ticker_set_matches_expected,
+            "invalid_examples": invalid_examples,
+        }
+    )
+    hard_integrity_counts = {
+        column: int(invalid_by_column.get(column) or 0)
+        for column in (
+            "ticker",
+            "px",
+            "valuation_price_cutoff_date",
+            "feature_available_from",
+        )
+        if int(invalid_by_column.get(column) or 0) > 0
+    }
+    result["hard_integrity_invalid_by_column"] = hard_integrity_counts
+    if required:
+        for column, count in hard_integrity_counts.items():
+            blockers.append(
+                f"core candidate hard integrity violation in {column}: {count} row(s)"
+            )
+    result["passed"] = bool(
+        row_count > 0
+        and not result["missing_columns"]
+        and ratio >= minimum_ratio
+        and not duplicate_tickers
+        and unexpected_rows == 0
+        and not hard_integrity_counts
+        and ticker_set_matches_expected is not False
+        and not blockers
+    )
+    if required:
+        if row_count <= 0:
+            blockers.append("core candidate coverage has no non-cash rows")
+        if result["missing_columns"]:
+            blockers.append(
+                "core candidate coverage is missing required columns: "
+                + ",".join(result["missing_columns"])
+            )
+        if ratio < minimum_ratio:
+            blockers.append(
+                f"core candidate coverage {ratio:.6f} < required {minimum_ratio:.6f}"
+            )
+        if duplicate_tickers:
+            blockers.append(
+                f"core candidate coverage has {len(duplicate_tickers)} duplicate ticker(s)"
+            )
+        if unexpected_rows:
+            blockers.append(
+                f"core candidate coverage has {unexpected_rows} row(s) above the expected universe"
+            )
+        if ticker_set_matches_expected is False:
+            blockers.append("core candidate ticker set does not match the expected universe")
+    result["passed"] = bool(result["passed"] and not blockers)
+    return result, blockers
+
+
+def core_candidate_coverage_status(
+    latest_run: Path,
+    *,
+    minimum_ratio: float,
+) -> tuple[dict[str, Any], list[str]]:
+    return core_candidate_coverage_for_path(
+        latest_run / "scored_latest.csv",
+        minimum_ratio=minimum_ratio,
+    )
+
+
 def build_snapshot_manifest(
     *,
     latest_run: Path,
@@ -457,6 +777,7 @@ def build_snapshot_manifest(
     readiness: dict[str, Any],
     operating: dict[str, Any],
     coverage: dict[str, Any],
+    core_candidate_coverage: dict[str, Any],
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     files = [
@@ -469,7 +790,11 @@ def build_snapshot_manifest(
     ]
     entries = []
     for path in files:
-        stats = path_stats(path)
+        # These exact bytes can authorize a paper target proposal. Unlike
+        # diagnostic source watermarks, mutation-bound snapshot members must
+        # always receive a streaming SHA-256, even when a candidate CSV is
+        # larger than the diagnostic 50 MB hashing budget.
+        stats = path_stats(path, hash_max_bytes=None)
         entries.append(
             {
                 "path": str(path),
@@ -494,6 +819,7 @@ def build_snapshot_manifest(
         "readiness": readiness,
         "operating_target_books": operating,
         "evidence_coverage": coverage,
+        "core_candidate_coverage": core_candidate_coverage,
         "files": entries,
         "production_mutation_allowed": False,
     }
@@ -509,6 +835,9 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- latest_observable_close_date: `{(payload.get('readiness') or {}).get('latest_observable_close_date') or ''}`",
         f"- effective_latest_target_date: `{(payload.get('readiness') or {}).get('effective_latest_target_date') or ''}`",
         f"- production_mutation_allowed: `{str(payload.get('production_mutation_allowed')).lower()}`",
+        f"- core_candidate_coverage_ratio: `{(payload.get('core_candidate_coverage') or {}).get('coverage_ratio')}`",
+        f"- core_candidate_coverage_floor: `{(payload.get('core_candidate_coverage') or {}).get('minimum_coverage_ratio')}`",
+        f"- core_candidate_coverage_passed: `{str((payload.get('core_candidate_coverage') or {}).get('passed')).lower()}`",
         "",
         "## Blockers",
         "",
@@ -593,6 +922,15 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     blockers.extend(c_blockers)
     warnings.extend(c_warnings)
 
+    minimum_core_candidate_coverage = float(
+        getattr(args, "minimum_core_candidate_coverage", 0.0) or 0.0
+    )
+    core_candidate_coverage, core_blockers = core_candidate_coverage_status(
+        latest_run,
+        minimum_ratio=minimum_core_candidate_coverage,
+    )
+    blockers.extend(core_blockers)
+
     selection_allowed = not blockers
     promotion_blockers = list(blockers)
     if not coverage.get("exists"):
@@ -610,6 +948,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         readiness=readiness,
         operating=operating,
         coverage=coverage,
+        core_candidate_coverage=core_candidate_coverage,
         args=args,
     )
     payload = {
@@ -623,11 +962,16 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "production_mutation_allowed": False,
         "source_context": str(getattr(args, "source_context", "") or ""),
         "freshness_contract_non_fatal": bool(getattr(args, "freshness_contract_non_fatal", False)),
+        "source_run_id": str(args.source_run_id or os.environ.get("GITHUB_RUN_ID") or "local"),
+        "source_commit_sha": str(args.source_commit_sha or os.environ.get("GITHUB_SHA") or ""),
+        "source_branch": str(args.source_branch or os.environ.get("GITHUB_REF_NAME") or ""),
+        "source_artifact_name": str(args.source_artifact_name or ""),
         "latest_run": str(latest_run),
         "price_cache": str(price_cache),
         "readiness": readiness,
         "operating_target_books": operating,
         "evidence_coverage": coverage,
+        "core_candidate_coverage": core_candidate_coverage,
         "watermarks": watermarks,
         "blockers": sorted(set(blockers)),
         "warnings": sorted(set(warnings)),
@@ -652,6 +996,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--require-current-operating-books", action="store_true")
     parser.add_argument("--require-coverage-layers", default="")
     parser.add_argument("--warn-only-coverage-layers", default="etf,sec_v1_evidence,13f,smart_money,top_manager")
+    parser.add_argument("--minimum-core-candidate-coverage", type=float, default=0.0)
     parser.add_argument("--strict-selection", action="store_true")
     parser.add_argument("--strict-promotion", action="store_true")
     parser.add_argument("--source-run-id", default="")
@@ -673,13 +1018,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if not 0.0 <= float(args.minimum_core_candidate_coverage) <= 1.0:
+        raise SystemExit("--minimum-core-candidate-coverage must be between 0 and 1")
     output_dir = repo_path(args.output_dir)
-    payload = build_payload(args)
     output_dir.mkdir(parents=True, exist_ok=True)
-    write_json(output_dir / "status.json", {k: v for k, v in payload.items() if k != "data_snapshot_manifest"})
+    status_path = output_dir / "status.json"
+    status_path.unlink(missing_ok=True)
+    payload = build_payload(args)
     write_json(output_dir / "data_watermarks.json", {"schema_version": "data-watermarks-v1", "watermarks": payload["watermarks"]})
     write_json(output_dir / "data_snapshot_manifest.json", payload["data_snapshot_manifest"])
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
+    write_json(status_path, {k: v for k, v in payload.items() if k != "data_snapshot_manifest"})
     print(
         json.dumps(
             {

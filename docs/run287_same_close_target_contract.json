@@ -23,6 +23,44 @@
     "pred_cat_p"
   ],
   "prediction_head_gate": "every head must be finite, nonzero, and nonconstant",
+  "freshness_and_candidate_coverage": {
+    "pre_refresh_freshness": "strict source/session gate; restored scored_latest coverage is diagnostic only",
+    "authoritative_source": "attempt-specific run287-scored-latest-refresh-v4 output",
+    "minimum_complete_ratio": 0.98,
+    "hard_pit_violation_tolerance": 0,
+    "hard_pit_violations": [
+      "invalid or placeholder ticker",
+      "non-positive or non-finite close price",
+      "valuation date mismatch",
+      "future feature availability"
+    ],
+    "denominator": "post-lifecycle candidate count",
+    "required_identity": [
+      "scored_latest_sha256",
+      "expected_ticker_set_sha256",
+      "valuation_price_cutoff_date",
+      "feature_available_from",
+      "score_available_from"
+    ],
+    "ranking_eligibility_is_separate": true,
+    "exact_packet_lineage": [
+      "decision -> scored latest and macro",
+      "score stack -> decision",
+      "crisis -> macro",
+      "SOXX -> crisis"
+    ],
+    "relative_strength_benchmarks": {
+      "macro_isolated_and_rehashed": ["SPY", "QQQ", "SMH"],
+      "separate_manifest_bound": ["SOXX"]
+    },
+    "upstream_preflight_binding": [
+      "nine fixed scorer input hashes",
+      "universe and pre/post-lifecycle ticker-set identity",
+      "consumed historical price-cache fingerprints"
+    ],
+    "refreshed_feature_available_from": "max(inherited availability, actual scheduled NYSE close)",
+    "holding_available_from_must_be_valid_and_not_future": true
+  },
   "risk_intersection": {
     "new_entry": "selector alpha admits the candidate only when exact-date candidate risk is NORMAL",
     "held_incremental_buy": "cap at marked weight when held state is ALERT or WATCH or action freezes incremental buys",
@@ -46,6 +84,13 @@
     "live_trading_allowed": false,
     "fullrun_allowed": false,
     "pit_universe_label_clean": false,
-    "restored_target_may_set_same_close_selector_recomputed": false
+    "restored_target_may_set_same_close_selector_recomputed": false,
+    "current_attempt_upstream_status_required": true,
+    "producer_schema_and_exact_ready_status_required": true,
+    "producer_contract_sha256_required": true,
+    "existing_packet_input_identity_required": true,
+    "skipped_stage_may_reuse_restored_ready_marker": false,
+    "blocked_rerun_removes_prior_run_local_targets": true,
+    "blocked_rerun_preserves_accepted_ledger_and_canonical_state": true
   }
 }

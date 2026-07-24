@@ -3419,9 +3419,84 @@ Expected contract:
   declares it, but isolation is incomplete until fresh Drive credentials are
   added there and the repository-level copies are deleted.
 - Focused tests, actual artifact v2 replay/consumer validation, YAML and Bash
-  syntax checks, read-only security audit, and full Tier-1 validation
-  (`196/196`, `785.39s`) passed.
+  syntax checks, read-only security audit, and final full Tier-1 validation
+  (`196/196`, `857.13s`) passed.
 - Evidence:
   `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.
+
+## 2026-07-24 - H4b freshness-to-ledger fail-closed boundary
+
+- Setting a strictness input or environment variable is not enforcement. The
+  invoked tool must receive its strict flag, and the workflow must reject any
+  operator attempt to disable a mandatory target-mutation gate.
+- A freshness report is not sufficient evidence for a target builder unless
+  the builder consumes it. Bind the exact status and snapshot hashes, source
+  run, commit, branch, artifact, session date, and blocker state at the
+  same-close materialization boundary. A restored pre-refresh score is
+  diagnostic; mutation authority belongs to the attempt-specific exact scorer.
+- Candidate coverage needs a declared semantic denominator and fields. Run287
+  now uses the post-lifecycle candidate count and requires 98% completeness for
+  price, score, 1/3/6/12-month momentum, relative strength, valuation cutoff,
+  and feature availability. Ranking eligibility flags are validated separately.
+  Duplicate, placeholder, substituted, unexpected, wrong-date, and
+  future-available rows fail closed.
+- Hashing only the gate JSON leaves a TOCTOU gap. Bind the actual scored-file
+  SHA and ticker-set SHA, reconcile it with the decision context, use streaming
+  hashes even above 50 MB, and reverify every mutation-bound file immediately
+  before target bytes are written.
+- A source bundle is not an internally consistent packet merely because each
+  member independently has a valid status/date/hash. Verify the downstream
+  manifests' recorded upstream SHA edges so same-date artifacts from different
+  attempts cannot be spliced into one registry.
+- Data identity is not code identity. Freeze one self-hashed Git HEAD/tree plus
+  normalized workflow/builder byte identity before upstream work, carry it
+  through the immutable source bundle and registry, and compare it with the
+  current checkout again at every READY boundary. Otherwise a same-date
+  immutable data bundle can be reused under different executable logic.
+- Count equality is not universe identity. Freeze the exact universe,
+  pre-/post-lifecycle ticker-set hashes, fixed scorer inputs, and consumed
+  historical price-cache fingerprints before network work; bind the scorer
+  back to that attempt and rehash before publication. Normalize absent-cache
+  fingerprints so a legitimate first download is distinct from mutation but
+  remains portable across fingerprint implementations.
+- Row-level availability must move when exact-close features move. Advance
+  refreshed feature rows to at least the scheduled NYSE close while keeping
+  score-completion and ingestion timing separate; malformed or future
+  holding-watch timestamps must never inflate the effective selector time.
+- A ratio allowance for missing alpha values must not relax PIT integrity.
+  Invalid tickers, wrong valuation dates, and future availability timestamps
+  are absolute blockers even when 99% or more of rows are otherwise complete.
+- Every benchmark read by relative strength is an input. Validate and isolate
+  SPY, QQQ, and SMH from the macro audit, retain SOXX's separate manifest
+  binding, and rehash both original and isolated bytes after selector use.
+- Immutable reuse must repeat the fresh-build transitive checks. A matching
+  top-level registry/selector/status hash does not excuse revalidating manifest
+  outputs, price-map source files, or the final input snapshot. Bind the exact
+  producer contract and all non-generated packet inputs, including the holding
+  watch and code builders, before accepting an existing selector/risk packet.
+- Generated outputs need the same treatment as inputs. Freeze the exact selector
+  and candidate-risk output key sets, canonical packet paths and filenames,
+  symlink policy, byte sizes, and SHA-256 values; revalidate them after each
+  dependent stage and immediately before fresh or reused READY publication.
+  `risk_history.jsonl` is part of that contract, not an incidental side file.
+- Boolean readiness alone is not a type contract. The target builder must
+  require the producer schema and exact READY status as well as
+  `exact_packet_ready=true`.
+- A skipped downstream builder must still invalidate restored READY markers and
+  run-local outputs. Clear the known same-close materializations before the
+  chain and emit a current BLOCKED marker when upstream, registry, or producer
+  is unavailable.
+- A blocked rerun must remove only prior run-local target materializations and
+  its READY marker. Accepted paper ledger and canonical state remain untouched.
+- Rehash materialized targets after all writes and pass the exact same-close
+  status SHA plus both target SHAs into the ledger. The ledger must validate
+  that handoff before processing and immediately before atomic publication;
+  workflow step order alone is not an integrity boundary.
+- A blocked freshness step must precede even the mark-only normal-session
+  paper transaction. Historical catch-up remains a separate replay-only path
+  and never enters same-close target materialization. Catch-up must also clear
+  any restored run-local target bytes before emitting its replay-only marker.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.

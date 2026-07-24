@@ -42,6 +42,23 @@ from tools.run_run287_exact_packet_producer import (  # noqa: E402
     sha256_file,
     write_json,
 )
+from tools.run_run287_scored_latest_refresh import (  # noqa: E402
+    PREFLIGHT_INPUT_LABELS as SCORER_PREFLIGHT_INPUT_LABELS,
+    build_price_cache_input_audit,
+    changed_price_cache_inputs,
+    normalize_ticker,
+)
+from tools.run_data_freshness_contract import (  # noqa: E402
+    core_candidate_ticker_set_sha256,
+)
+from tools.security_lifecycle import (  # noqa: E402
+    filter_terminal_tickers,
+    resolve_security_lifecycle,
+)
+from tools.run287_code_identity import (  # noqa: E402
+    code_identity_failures,
+    current_code_identity,
+)
 
 
 SCHEMA_VERSION = "run287-exact-packet-upstream-orchestrator-v3"
@@ -155,6 +172,136 @@ def plan_paths(
         elif expected and audit.get("sha256") != expected:
             failures.append(f"path_hash:{label}")
     return paths, audits, failures
+
+
+def valid_sha256(value: Any) -> bool:
+    digest = str(value or "").strip().lower()
+    return bool(
+        len(digest) == 64
+        and all(character in "0123456789abcdef" for character in digest)
+    )
+
+
+def preflight_ticker_identity(
+    *,
+    paths: Mapping[str, Path],
+    valuation_date: str,
+    decision_time: pd.Timestamp,
+    expected_context_count: int,
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Freeze universe membership before any network-backed stage starts."""
+
+    failures: list[str] = []
+    identity: dict[str, Any] = {}
+    post_tickers: list[str] = []
+    try:
+        universe = pd.read_csv(
+            paths["universe"], dtype={"ticker": str}, low_memory=False
+        )
+        if "ticker" not in universe:
+            raise ValueError("universe_ticker_column_missing")
+        universe_tickers = [
+            normalize_ticker(value) for value in universe["ticker"].tolist()
+        ]
+        if (
+            not universe_tickers
+            or not all(universe_tickers)
+            or len(set(universe_tickers)) != len(universe_tickers)
+        ):
+            raise ValueError("universe_ticker_identity_invalid")
+        identity["universe_count"] = len(universe_tickers)
+        identity["universe_ticker_set_sha256"] = (
+            core_candidate_ticker_set_sha256(universe_tickers)
+        )
+    except Exception as exc:
+        failures.append(f"ticker_identity:universe:{type(exc).__name__}:{exc}")
+        universe_tickers = []
+
+    try:
+        base = pd.read_parquet(paths["base_selection_context"])
+        if "ticker" not in base:
+            raise ValueError("base_selection_context_ticker_column_missing")
+        base["ticker"] = base["ticker"].map(normalize_ticker)
+        pre_tickers = base["ticker"].tolist()
+        if (
+            not pre_tickers
+            or not all(pre_tickers)
+            or len(set(pre_tickers)) != len(pre_tickers)
+        ):
+            raise ValueError("base_selection_context_ticker_identity_invalid")
+        if expected_context_count <= 0 or len(pre_tickers) != expected_context_count:
+            raise ValueError(
+                f"base_selection_context_count:{len(pre_tickers)}"
+                f"!={expected_context_count}"
+            )
+        lifecycle = resolve_security_lifecycle(
+            paths["security_lifecycle_events"],
+            session_date=pd.Timestamp(valuation_date),
+            decision_time_utc=decision_time,
+            active_tickers=set(pre_tickers),
+        )
+        post = filter_terminal_tickers(base, lifecycle)
+        post_tickers = post["ticker"].tolist()
+        if not post_tickers or len(set(post_tickers)) != len(post_tickers):
+            raise ValueError("post_lifecycle_ticker_identity_invalid")
+        identity.update(
+            {
+                "pre_lifecycle_context_count": len(pre_tickers),
+                "pre_lifecycle_ticker_set_sha256": (
+                    core_candidate_ticker_set_sha256(pre_tickers)
+                ),
+                "post_lifecycle_context_count": len(post_tickers),
+                "post_lifecycle_ticker_set_sha256": (
+                    core_candidate_ticker_set_sha256(post_tickers)
+                ),
+                "lifecycle_snapshot_sha256": lifecycle.snapshot_hash,
+            }
+        )
+    except Exception as exc:
+        failures.append(
+            f"ticker_identity:base_selection_context:{type(exc).__name__}:{exc}"
+        )
+    return identity, failures, post_tickers
+
+
+def changed_preflight_input_failures(
+    input_audit: Mapping[str, Mapping[str, Any]],
+    plan_audit: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Rehash all plan inputs before source-bundle readiness is published."""
+
+    failures: list[str] = []
+    audits: dict[str, Mapping[str, Any]] = dict(input_audit)
+    if plan_audit is not None:
+        audits["plan"] = plan_audit
+    for label, prior in audits.items():
+        raw_path = str((prior or {}).get("path") or "")
+        if not raw_path:
+            failures.append(f"preflight_input_path_missing:{label}")
+            continue
+        current = fingerprint(Path(raw_path))
+        if any(
+            current.get(field) != prior.get(field)
+            for field in ("exists", "bytes", "sha256")
+        ):
+            failures.append(f"preflight_input_changed:{label}")
+    return failures
+
+
+def changed_code_identity_failures(
+    frozen_identity: Mapping[str, Any],
+) -> list[str]:
+    """Reject a commit/workflow/builder change during the current attempt."""
+
+    try:
+        current_identity = current_code_identity()
+    except Exception as exc:
+        return [f"code_identity_current:{type(exc).__name__}"]
+    return code_identity_failures(
+        frozen_identity,
+        current=current_identity,
+        prefix="code_identity",
+    )
 
 
 def existing_bundle_records(
@@ -321,6 +468,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     directory_overrides = parse_input_records(args.directory_override)
     paths, input_audit, failures = plan_paths(plan, overrides)
     failures = validate_plan(plan) + failures
+    try:
+        code_identity = current_code_identity()
+        failures.extend(
+            code_identity_failures(
+                code_identity,
+                current=code_identity,
+                prefix="code_identity",
+            )
+        )
+    except Exception as exc:
+        code_identity = {}
+        failures.append(f"code_identity_current:{type(exc).__name__}")
     directories = plan.get("directories") or {}
     unknown_directory_overrides = sorted(
         set(directory_overrides).difference({"price_cache", "model_root", "source_macro_dirs"})
@@ -362,14 +521,53 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     expected_context = int(runtime.get("expected_context_count") or 0)
     universe_rows = 0
     if paths.get("universe") and paths["universe"].is_file():
-        universe_rows = int(len(pd.read_csv(paths["universe"], low_memory=False)))
-        estimated_batches = int(
-            math.ceil(universe_rows / int(runtime.get("price_batch_size") or 40))
-        )
-        if estimated_batches > int(budgets.get("scored_latest_provider_batches") or 0):
-            failures.append("scored_latest_batch_budget")
+        try:
+            universe_rows = int(
+                len(pd.read_csv(paths["universe"], low_memory=False))
+            )
+            estimated_batches = int(
+                math.ceil(universe_rows / int(runtime.get("price_batch_size") or 40))
+            )
+            if estimated_batches > int(
+                budgets.get("scored_latest_provider_batches") or 0
+            ):
+                failures.append("scored_latest_batch_budget")
+        except Exception as exc:
+            estimated_batches = 0
+            failures.append(f"universe_read:{type(exc).__name__}")
     else:
         estimated_batches = 0
+
+    for label in SCORER_PREFLIGHT_INPUT_LABELS:
+        audit = input_audit.get(label) or {}
+        expected_sha = str(audit.get("expected_sha256") or "").lower()
+        if not valid_sha256(expected_sha):
+            failures.append(f"scorer_preflight_expected_sha256:{label}")
+        elif (
+            audit.get("hash_matches") is not True
+            or audit.get("sha256") != expected_sha
+        ):
+            failures.append(f"scorer_preflight_hash:{label}")
+    (
+        ticker_identity,
+        ticker_identity_failures,
+        preflight_post_lifecycle_tickers,
+    ) = preflight_ticker_identity(
+        paths=paths,
+        valuation_date=valuation_date,
+        decision_time=decision_time,
+        expected_context_count=expected_context,
+    )
+    failures.extend(ticker_identity_failures)
+    price_cache_input_audit = (
+        build_price_cache_input_audit(
+            preflight_post_lifecycle_tickers, price_cache
+        )
+        if preflight_post_lifecycle_tickers
+        else {}
+    )
+    if not price_cache_input_audit:
+        failures.append("price_cache_input_audit_missing")
 
     sec_user_agent = str(os.environ.get("SEC_USER_AGENT") or "").strip()
     if args.allow_network and (not sec_user_agent or "@" not in sec_user_agent):
@@ -377,9 +575,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     preflight = {
         "plan": fingerprint(plan_path),
+        "code_identity": code_identity,
         "input_audit": input_audit,
         "directory_audit": directory_audit,
         "universe_rows": universe_rows,
+        "ticker_identity": ticker_identity,
+        "price_cache_input_audit": price_cache_input_audit,
         "estimated_scored_latest_provider_batches": estimated_batches,
         "decision_time_utc": decision_time.isoformat(),
         "sec_user_agent_configured": bool(sec_user_agent and "@" in sec_user_agent),
@@ -418,11 +619,36 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         )
     if existing is not None:
         dated, records = existing
+        input_changes = [
+            *changed_code_identity_failures(code_identity),
+            *changed_preflight_input_failures(
+                input_audit, preflight.get("plan") or {}
+            ),
+            *changed_price_cache_inputs(
+                price_cache_input_audit,
+                failure_prefix="preflight_price_cache_changed",
+            ),
+        ]
+        if input_changes:
+            return finish_blocked(
+                attempt_root,
+                valuation_date,
+                started,
+                preflight,
+                [
+                    {
+                        "name": "preflight_input_rehash",
+                        "failures": input_changes,
+                        "network_requests_executed": 0,
+                    }
+                ],
+            )
         reused = publish_bundle(
             valuation_date=valuation_date,
             input_records=records,
             producer_contract=args.producer_contract,
             output_dir=args.source_bundle_output,
+            expected_code_identity=code_identity,
         )
         if reused.get("status") != BUNDLE_REUSED_STATUS:
             return finish_blocked(
@@ -434,6 +660,30 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     {
                         "name": "existing_source_bundle",
                         "failures": [str(reused.get("status") or "invalid")],
+                        "network_requests_executed": 0,
+                    }
+                ],
+            )
+        input_changes = [
+            *changed_code_identity_failures(code_identity),
+            *changed_preflight_input_failures(
+                input_audit, preflight.get("plan") or {}
+            ),
+            *changed_price_cache_inputs(
+                price_cache_input_audit,
+                failure_prefix="preflight_price_cache_changed",
+            ),
+        ]
+        if input_changes:
+            return finish_blocked(
+                attempt_root,
+                valuation_date,
+                started,
+                preflight,
+                [
+                    {
+                        "name": "preflight_input_rehash",
+                        "failures": input_changes,
                         "network_requests_executed": 0,
                     }
                 ],
@@ -490,25 +740,53 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         return manifest
 
     scored_dir = attempt_root / "scored_latest"
+    scorer_expected_hash_args: list[str] = []
+    for label in SCORER_PREFLIGHT_INPUT_LABELS:
+        scorer_expected_hash_args.extend(
+            [
+                "--expected-input-sha256",
+                f"{label}={input_audit[label]['expected_sha256']}",
+            ]
+        )
+    scored_values = [
+        "--session-date", valuation_date,
+        "--decision-time-utc", decision_time.isoformat(),
+        "--universe", str(paths["universe"]),
+        "--expected-universe-count", str(ticker_identity["universe_count"]),
+        "--expected-universe-ticker-set-sha256",
+        str(ticker_identity["universe_ticker_set_sha256"]),
+        "--base-selection-context", str(paths["base_selection_context"]),
+        "--expected-pre-lifecycle-context-count", str(
+            ticker_identity["pre_lifecycle_context_count"]
+        ),
+        "--expected-pre-lifecycle-ticker-set-sha256",
+        str(ticker_identity["pre_lifecycle_ticker_set_sha256"]),
+        "--expected-post-lifecycle-context-count", str(
+            ticker_identity["post_lifecycle_context_count"]
+        ),
+        "--expected-post-lifecycle-ticker-set-sha256",
+        str(ticker_identity["post_lifecycle_ticker_set_sha256"]),
+        "--expected-price-cache-contract-sha256",
+        str(price_cache_input_audit["contract_sha256"]),
+        "--base-score-stack", str(paths["base_score_stack"]),
+        "--price-cache", str(price_cache),
+        "--model-root", str(model_root),
+        "--model-classification", str(paths["model_classification"]),
+        "--model-regression", str(paths["model_regression"]),
+        "--model-bundle", str(paths["model_bundle"]),
+        "--model-meta", str(paths["model_meta"]),
+        "--scored-oos", str(paths["scored_oos"]),
+        "--batch-size", str(runtime.get("price_batch_size") or 40),
+        "--security-lifecycle-events", str(paths["security_lifecycle_events"]),
+        "--output-dir", str(scored_dir),
+        "--canonical-output", str(scored_dir / "canonical_scored_latest.csv"),
+        "--allow-network-refresh",
+        *scorer_expected_hash_args,
+    ]
     scored = execute(
         "scored_latest",
         "tools/run_run287_scored_latest_refresh.py",
-        [
-            "--session-date", valuation_date,
-            "--decision-time-utc", decision_time.isoformat(),
-            "--universe", str(paths["universe"]),
-            "--base-selection-context", str(paths["base_selection_context"]),
-            "--expected-pre-lifecycle-context-count", str(expected_context),
-            "--base-score-stack", str(paths["base_score_stack"]),
-            "--price-cache", str(price_cache),
-            "--model-root", str(model_root),
-            "--scored-oos", str(paths["scored_oos"]),
-            "--batch-size", str(runtime.get("price_batch_size") or 40),
-            "--security-lifecycle-events", str(paths["security_lifecycle_events"]),
-            "--output-dir", str(scored_dir),
-            "--canonical-output", str(scored_dir / "canonical_scored_latest.csv"),
-            "--allow-network-refresh",
-        ],
+        scored_values,
         scored_dir,
         "READY_RESEARCH_SCORED_LATEST",
         "session_date",
@@ -703,15 +981,58 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "selector_contract_manifest": paths["selector_contract_manifest"],
         "target_generation_manifest": paths["target_generation_manifest"],
     }
+    input_changes = [
+        *changed_code_identity_failures(code_identity),
+        *changed_preflight_input_failures(
+            input_audit, preflight.get("plan") or {}
+        ),
+        *changed_price_cache_inputs(
+            price_cache_input_audit,
+            failure_prefix="preflight_price_cache_changed",
+        ),
+    ]
+    if input_changes:
+        stage_audits.append(
+            {
+                "name": "preflight_input_rehash",
+                "failures": input_changes,
+                "network_requests_executed": 0,
+            }
+        )
+        return finish_blocked(
+            attempt_root, valuation_date, started, preflight, stage_audits
+        )
     bundle = publish_bundle(
         valuation_date=valuation_date,
         input_records=bundle_inputs,
         producer_contract=args.producer_contract,
         output_dir=args.source_bundle_output,
+        expected_code_identity=code_identity,
     )
     if bundle.get("status") not in {BUNDLE_READY_STATUS, BUNDLE_REUSED_STATUS}:
         stage_audits.append({"name": "source_bundle", "failures": [str(bundle.get("status"))]})
         return finish_blocked(attempt_root, valuation_date, started, preflight, stage_audits)
+    input_changes = [
+        *changed_code_identity_failures(code_identity),
+        *changed_preflight_input_failures(
+            input_audit, preflight.get("plan") or {}
+        ),
+        *changed_price_cache_inputs(
+            price_cache_input_audit,
+            failure_prefix="preflight_price_cache_changed",
+        ),
+    ]
+    if input_changes:
+        stage_audits.append(
+            {
+                "name": "preflight_input_rehash",
+                "failures": input_changes,
+                "network_requests_executed": 0,
+            }
+        )
+        return finish_blocked(
+            attempt_root, valuation_date, started, preflight, stage_audits
+        )
 
     payload = base_payload(READY_STATUS, valuation_date, started)
     payload["preflight"] = preflight
@@ -783,7 +1104,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     payload = build(parse_args())
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
-    return 2 if payload.get("status") == BLOCKED_STATUS else 0
+    return (
+        0
+        if payload.get("status") in {READY_STATUS, REUSED_STATUS, PREFLIGHT_STATUS}
+        else 2
+    )
 
 
 if __name__ == "__main__":

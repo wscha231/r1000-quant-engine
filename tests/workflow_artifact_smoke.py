@@ -1141,6 +1141,18 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/user_current/DAILY_REVIEW_ONLY.md",
         "outputs/full_rebuild_logs/daily_user_current_contract.log",
         "STRICT_SELECTION",
+        'if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${STRICT_SELECTION:-false}" != "true" ]; then',
+        "daily target mutation is always fail-closed",
+        '--asof-date "$LAST_NYSE_SESSION_DATE"',
+        "--strict-selection",
+        'core_coverage.get("required_for_target_mutation") is not False',
+        "--freshness-status outputs/data_freshness_contract/status.json",
+        "--freshness-snapshot-manifest outputs/data_freshness_contract/data_snapshot_manifest.json",
+        '--expected-source-run-id "${GITHUB_RUN_ID}"',
+        '--expected-source-commit-sha "${GITHUB_SHA}"',
+        '--expected-source-branch "${GITHUB_REF_NAME}"',
+        '--expected-source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}"',
+        "fail-closed freshness mutation gate is not satisfied",
         "outputs/full_rebuild_logs/data_freshness_contract.log",
         "daily-operating-selection-refresh-${{ github.run_id }}",
         "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh",
@@ -1149,6 +1161,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]:
         assert token in text, token
+    assert "--minimum-core-candidate-coverage 0.98" not in text
     for forbidden in [
         "python run_local.py --full",
         "git commit",
@@ -1156,6 +1169,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         'payload.get("head_commit")',
     ]:
         assert forbidden not in text, forbidden
+    freshness_idx = text.index("python tools/run_data_freshness_contract.py")
     paper_idx = text.index("python tools/run_daily_simulated_fill_ledger.py")
     accepted_parent_restore_idx = text.index(
         "- name: Restore verified risk-outcome accepted head"
@@ -1190,6 +1204,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     accepted_idx = text.index(
         "python tools/build_run287_accepted_publication_manifest.py"
     )
+    assert freshness_idx < paper_idx, "freshness must fail closed before any paper-ledger mutation"
     assert accepted_parent_restore_idx < paper_idx < snapshot_idx, "the immutable prior outcome head must be restored before the paper account is advanced"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
     assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < parent_clear_idx < parent_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity and freeze the restored outcome parent before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"

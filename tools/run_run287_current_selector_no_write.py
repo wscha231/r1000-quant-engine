@@ -27,6 +27,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run287_pinned_git_import import pinned_import_context
+from tools.run_data_freshness_contract import (
+    core_candidate_coverage_for_path,
+    core_candidate_coverage_semantic_view,
+    core_candidate_ticker_set_sha256,
+)
 from tools.run_run287_current_advisory_selector import (
     FORBIDDEN_COLUMNS,
     SCENARIOS,
@@ -49,6 +54,7 @@ SCHEMA_VERSION = "run287-current-selector-no-write-v1"
 READY_STATUS = "READY_CURRENT_SELECTOR_NO_WRITE_REVIEW_REQUIRED"
 BLOCKED_STATUS = "BLOCKED_CURRENT_SELECTOR_NO_WRITE"
 POLICY_COMMIT = "15176b588d5bb0792bce1df6367758d795a8a33a"
+CURRENT_SCORE_SCHEMA_VERSION = "run287-scored-latest-refresh-v4"
 
 
 def next_nyse_session(valuation_date: str) -> str:
@@ -76,6 +82,20 @@ def input_audit(path: Path, expected: str, label: str) -> dict[str, Any]:
         hash_matches=bool(expected and row.get("sha256") == expected),
     )
     return row
+
+
+def changed_input_failures(audits: Mapping[str, Any]) -> list[str]:
+    failures: list[str] = []
+    for label, expected in audits.items():
+        if not isinstance(expected, Mapping) or not expected.get("path"):
+            continue
+        current = fingerprint(Path(str(expected.get("path") or "")))
+        if any(
+            current.get(field) != expected.get(field)
+            for field in ("exists", "bytes", "sha256")
+        ):
+            failures.append(f"input_changed_before_selector_publish:{label}")
+    return failures
 
 
 def verified_output(
@@ -424,6 +444,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         provider_path, audits["provider_price_overlap"] = verified_output(
             paths["price_manifest"], manifests["price_manifest"], "provider_price_overlap.parquet"
         )
+        current_scored_path, audits["current_scored_latest"] = verified_output(
+            paths["price_manifest"], manifests["price_manifest"], "scored_latest.csv"
+        )
         soxx_path, audits["soxx_price_file"] = verified_output(
             paths["soxx_manifest"], manifests["soxx_manifest"], "price_file"
         )
@@ -467,8 +490,110 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         failures.append("decision_timestamp_invalid")
     elif feature_available > decision_time:
         failures.append("future_feature_available_from")
+    if pd.isna(holding_available):
+        failures.append("holding_available_from_invalid")
+    elif holding_available > pd.Timestamp.now(tz="UTC") + pd.Timedelta(minutes=5):
+        failures.append("holding_available_from_future")
+    price_manifest = manifests["price_manifest"]
+    if price_manifest.get("schema_version") != CURRENT_SCORE_SCHEMA_VERSION:
+        failures.append("price_manifest_schema")
+    price_coverage = price_manifest.get("coverage") or {}
+    try:
+        pre_lifecycle_rows = int(
+            price_coverage.get("pre_lifecycle_context_count")
+        )
+        expected_core_rows = int(
+            price_coverage.get("post_lifecycle_context_count")
+        )
+        lifecycle_excluded_rows = int(
+            price_coverage.get("lifecycle_excluded_count")
+        )
+        current_context_rows = int(price_coverage.get("current_context_count"))
+        exact_close_rows = int(price_coverage.get("exact_session_close_count"))
+    except (TypeError, ValueError):
+        pre_lifecycle_rows = 0
+        expected_core_rows = 0
+        lifecycle_excluded_rows = 0
+        current_context_rows = 0
+        exact_close_rows = 0
+        failures.append("core_candidate_expected_row_count_invalid")
+    if pre_lifecycle_rows != expected_core_rows + lifecycle_excluded_rows:
+        failures.append("core_candidate_lifecycle_count_reconciliation")
+    if current_context_rows != expected_core_rows:
+        failures.append("core_candidate_current_context_count_mismatch")
+    if exact_close_rows != expected_core_rows:
+        failures.append("core_candidate_exact_close_count_mismatch")
+    recomputed_core_coverage, core_coverage_failures = (
+        core_candidate_coverage_for_path(
+            current_scored_path,
+            minimum_ratio=0.98,
+            expected_row_count=expected_core_rows,
+            expected_valuation_date=args.valuation_date,
+            decision_time_utc=(
+                pd.Timestamp(decision_time).isoformat()
+                if pd.notna(decision_time)
+                else ""
+            ),
+            expected_ticker_set_sha256=str(
+                (price_manifest.get("core_candidate_coverage") or {}).get(
+                    "expected_ticker_set_sha256"
+                )
+                or ""
+            ),
+        )
+    )
+    declared_core_coverage = price_manifest.get("core_candidate_coverage") or {}
+    declared_expected_ticker_hash = str(
+        declared_core_coverage.get("expected_ticker_set_sha256") or ""
+    ).lower()
+    if (
+        declared_core_coverage.get("schema_version")
+        != "run287-core-candidate-coverage-v1"
+    ):
+        failures.append("core_candidate_coverage_schema")
+    if (
+        len(declared_expected_ticker_hash) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in declared_expected_ticker_hash
+        )
+        or declared_core_coverage.get("ticker_set_matches_expected") is not True
+        or str(declared_core_coverage.get("ticker_set_sha256") or "").lower()
+        != declared_expected_ticker_hash
+    ):
+        failures.append("core_candidate_expected_ticker_set_contract")
+    declared_core_semantic = core_candidate_coverage_semantic_view(
+        declared_core_coverage
+    )
+    recomputed_core_semantic = core_candidate_coverage_semantic_view(
+        recomputed_core_coverage
+    )
+    if declared_core_semantic != recomputed_core_semantic:
+        failures.append("core_candidate_coverage_manifest_mismatch")
+    failures.extend(
+        f"core_candidate_coverage:{item}" for item in core_coverage_failures
+    )
+    if declared_core_coverage.get("passed") is not True:
+        failures.append("core_candidate_coverage_not_passed")
+    score_available = pd.to_datetime(
+        price_manifest.get("score_available_from"), errors="coerce", utc=True
+    )
+    if pd.isna(score_available):
+        failures.append("score_available_from_invalid")
+    elif pd.notna(decision_time) and score_available < decision_time:
+        failures.append("score_available_before_decision_cutoff")
+    elif score_available > pd.Timestamp.now(tz="UTC") + pd.Timedelta(minutes=5):
+        failures.append("score_available_from_future")
+    audits["core_candidate_coverage"] = {
+        "declared": declared_core_coverage,
+        "recomputed": recomputed_core_coverage,
+        "passed": not core_coverage_failures
+        and declared_core_semantic == recomputed_core_semantic,
+    }
     selector_times = [
-        value for value in (decision_time, holding_available) if pd.notna(value)
+        value
+        for value in (decision_time, holding_available, score_available)
+        if pd.notna(value)
     ]
     if not selector_times:
         failures.append("selector_decision_time_unavailable")
@@ -492,6 +617,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     candidate = merge_stack_precedence(context, stack)
     candidate["rebalance_date"] = valuation
     candidate["ticker"] = clean_tickers(candidate["ticker"])
+    candidate_ticker_set_sha256 = core_candidate_ticker_set_sha256(
+        candidate["ticker"].tolist()
+    )
+    if expected_core_rows != int(args.expected_context_count):
+        failures.append("core_candidate_decision_context_count_mismatch")
+    if candidate_ticker_set_sha256 != str(
+        recomputed_core_coverage.get("ticker_set_sha256") or ""
+    ):
+        failures.append("core_candidate_decision_ticker_set_mismatch")
+    audits["core_candidate_coverage"]["decision_context_ticker_set_sha256"] = (
+        candidate_ticker_set_sha256
+    )
     forbidden = sorted(FORBIDDEN_COLUMNS & set(candidate.columns))
     if forbidden:
         failures.append(f"forbidden_future_columns:{','.join(forbidden)}")
@@ -667,6 +804,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     telemetry = pd.DataFrame(telemetry_rows)
     stage_audit = pd.DataFrame(stage_rows)
     pit_audit = pd.concat(pit_rows, ignore_index=True) if pit_rows else pd.DataFrame()
+    failures.extend(changed_input_failures(audits))
+    if failures:
+        return blocked(
+            output_dir,
+            sorted(set(failures)),
+            audits,
+            started,
+            selector_executed=True,
+        )
     outputs = {
         "advisory_policy_projection": projection,
         "advisory_transition_audit": transition,

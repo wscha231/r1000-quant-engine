@@ -33,6 +33,7 @@ from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
     event_payload_for_hash,
     file_hash,
     run,
+    validate_target_handoff,
     validate_event_chain,
 )
 from tools.prepare_run287_legacy_paper_migration import (  # noqa: E402
@@ -164,6 +165,68 @@ def ledger_args(
         main_publish_target=str(root / "published" / "operating_main_target_book.csv") if publish_targets else "",
         concentrated_publish_target=str(root / "published" / "operating_concentrated_target_book.csv") if publish_targets else "",
     )
+
+
+def test_same_close_target_handoff_is_hash_pinned() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        date = "2026-01-05"
+        targets = {
+            "main": root / "targets" / "main.csv",
+            "concentrated": root / "targets" / "concentrated.csv",
+        }
+        for portfolio, path in targets.items():
+            write_target(path, portfolio, "AAA", date)
+        status_path = root / "same_close" / "status.json"
+        status_path.parent.mkdir(parents=True)
+        status = {
+            "schema_version": "run287-same-close-target-books-v1",
+            "status": "READY_SAME_CLOSE_PAPER_TARGETS",
+            "valuation_close_date": date,
+            "target_book_file_written": True,
+            "orders_generated": False,
+            "paper_only": True,
+            "production_activation_allowed": False,
+            "live_trading_enabled": False,
+            "fullrun_executed": False,
+            "outputs": {
+                f"{portfolio}_target_book": {
+                    "path": str(path.resolve()),
+                    "sha256": file_hash(path),
+                }
+                for portfolio, path in targets.items()
+            },
+        }
+        status_path.write_text(
+            json.dumps(status, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        args = SimpleNamespace(
+            target_handoff_manifest=str(status_path),
+            expected_target_handoff_sha256=file_hash(status_path),
+            main_target_sha256=file_hash(targets["main"]),
+            concentrated_target_sha256=file_hash(targets["concentrated"]),
+        )
+        audit = validate_target_handoff(
+            args=args,
+            target_paths=targets,
+            as_of_date=pd.Timestamp(date),
+        )
+        assert audit["manifest_sha256"] == file_hash(status_path)
+
+        targets["main"].write_bytes(
+            targets["main"].read_bytes() + b"\n"
+        )
+        try:
+            validate_target_handoff(
+                args=args,
+                target_paths=targets,
+                as_of_date=pd.Timestamp(date),
+            )
+        except PaperLedgerIntegrityError as exc:
+            assert exc.status == "BLOCKED_TARGET_HANDOFF"
+        else:
+            raise AssertionError("changed same-close target must block ledger handoff")
 
 
 def pinned_legacy_args(
@@ -1865,12 +1928,75 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
     steps = workflow["jobs"]["refresh"]["steps"]
     by_name = {str(step.get("name")): step for step in steps}
+    step_names = [str(step.get("name")) for step in steps]
+    freshness = by_name["Validate freshness contract"]
+    assert "--strict-selection" in freshness["run"]
+    assert "--minimum-core-candidate-coverage 0.98" not in freshness["run"]
+    assert (
+        'core_coverage.get("required_for_target_mutation") is not False'
+        in freshness["run"]
+    )
+    assert (
+        step_names.index("Validate freshness contract")
+        < step_names.index("Run transactional paper ledger and same-close selector")
+    ), "blocked freshness must stop before the first paper-ledger mutation"
     transaction = by_name["Run transactional paper ledger and same-close selector"]
     assert transaction["id"] == "paper_transaction"
     script = transaction["run"]
+    assert "--freshness-status outputs/data_freshness_contract/status.json" in script
+    assert (
+        "--freshness-snapshot-manifest "
+        "outputs/data_freshness_contract/data_snapshot_manifest.json"
+        in script
+    )
+    assert "--upstream-status \"$UPSTREAM_STATUS\"" in script
+    assert "UPSTREAM_READY=no" in script
+    assert "REGISTRY_READY=no" in script
+    assert "PRODUCER_READY=no" in script
+    assert "clear_previous_materialization(Path(sys.argv[1]))" in script
+    assert 'if [ "$UPSTREAM_READY" = "yes" ]; then' in script
+    assert 'if [ "$REGISTRY_READY" = "yes" ]; then' in script
+    assert 'if [ "$PRODUCER_READY" = "yes" ]; then' in script
+    assert "--previous-status \"$PREVIOUS_PRODUCER_STATUS\"" in script
+    assert "current.replace(previous)" in script
+    assert "Path(sys.argv[1]).unlink(missing_ok=True)" in script
+    assert "current_upstream_not_ready" in script
+    assert "current_registry_not_ready" in script
+    assert "current_producer_not_ready" in script
+    registry_call = script[
+        script.index("python tools/build_run287_exact_packet_input_registry.py"):
+        script.index('if [ "$REGISTRY_READY" = "yes" ]; then')
+    ]
+    producer_call = script[
+        script.index("python tools/run_run287_exact_packet_producer.py"):
+        script.index('if [ "$REGISTRY_READY" != "yes" ]; then')
+    ]
+    assert "--allow-missing" not in registry_call
+    assert "--allow-missing" not in producer_call
+    assert (
+        script.index("clear_previous_materialization(Path(sys.argv[1]))")
+        < script.index("python tools/run_run287_exact_packet_upstream.py")
+        < script.index("python tools/build_run287_exact_packet_input_registry.py")
+        < script.index("python tools/run_run287_exact_packet_producer.py")
+        < script.index("python tools/build_run287_same_close_target_books.py")
+    )
     assert 'cp "$SAME_CLOSE_DIR/same_close_main_target_book.csv"' not in script
     assert "--main-publish-target outputs/reports/operating_main_target_book.csv" in script
     assert "--concentrated-publish-target outputs/reports/operating_concentrated_target_book.csv" in script
+    assert '--target-handoff-manifest "$SAME_CLOSE_DIR/status.json"' in script
+    assert '--expected-target-handoff-sha256 "$TARGET_HANDOFF_SHA"' in script
+    assert '--main-target-sha256 "$MAIN_TARGET_SHA"' in script
+    assert (
+        '--concentrated-target-sha256 "$CONCENTRATED_TARGET_SHA"'
+        in script
+    )
+    assert (
+        script.index("read -r TARGET_HANDOFF_SHA")
+        < script.index(
+            "python tools/run_daily_simulated_fill_ledger.py",
+            script.index("read -r TARGET_HANDOFF_SHA"),
+        )
+    )
     reports = by_name["Build post-gate operating reports"]
     assert reports["id"] == "operating_review"
 
@@ -1897,7 +2023,6 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
     assert "outputs/run287_decision_observation_archive/" in accepted_paths
     assert "outputs/run287_risk_outcome_price_cache/" in accepted_paths
     assert "daily_paper_legacy_drive_migration.json" in accepted_paths
-    step_names = [str(step.get("name")) for step in steps]
     persist_index = step_names.index(
         "Persist validated forward paper ledger state"
     )
@@ -2106,6 +2231,11 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
         in transaction
     )
     assert 'if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]' in transaction
+    cleanup_index = transaction.index(
+        "clear_previous_materialization(Path(sys.argv[1]))"
+    )
+    catchup_marker_index = transaction.index("BLOCKED_CATCHUP_MARK_ONLY")
+    assert cleanup_index < catchup_marker_index
     for name in (
         "Build daily market snapshot",
         "Build operating target books",
@@ -2166,6 +2296,7 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
 
 
 def main() -> int:
+    test_same_close_target_handoff_is_hash_pinned()
     test_twenty_sessions_remain_continuous_and_same_session_is_byte_identical()
     test_failed_second_portfolio_and_interrupted_publish_change_zero_durable_files()
     test_session_gap_requires_chronological_catchup()

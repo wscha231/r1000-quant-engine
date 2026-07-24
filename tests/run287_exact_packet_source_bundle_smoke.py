@@ -21,6 +21,7 @@ from tools.build_run287_exact_packet_source_bundle import (
     build_from_records,
 )
 from tools.run_run287_exact_packet_producer import sha256_file
+from tools.run287_code_identity import current_code_identity, identity_sha256
 
 
 DATE = "2026-07-13"
@@ -248,6 +249,37 @@ class SourceBundleSmoke(unittest.TestCase):
             )
             self.assertEqual(collision["status"], BLOCKED_STATUS)
             self.assertIn("immutable_date_collision", collision["contract_failures"])
+
+    def test_same_date_bundle_reuse_rejects_changed_code_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            contract, records = fixture(root)
+            output = root / "bundle"
+            first = build_from_records(
+                valuation_date=DATE,
+                input_records=records,
+                producer_contract=contract,
+                output_dir=output,
+            )
+            self.assertEqual(first["status"], READY_STATUS, first)
+
+            changed = json.loads(json.dumps(current_code_identity()))
+            changed["source_commit_sha"] = "f" * 40
+            changed["source_tree_sha"] = "e" * 40
+            changed["identity_sha256"] = identity_sha256(changed)
+            with patch(
+                "tools.build_run287_exact_packet_source_bundle.current_code_identity",
+                return_value=changed,
+            ):
+                blocked = build_from_records(
+                    valuation_date=DATE,
+                    input_records=records,
+                    producer_contract=contract,
+                    output_dir=output,
+                    expected_code_identity=changed,
+                )
+            self.assertEqual(blocked["status"], BLOCKED_STATUS, blocked)
+            self.assertIn("immutable_date_collision", blocked["contract_failures"])
 
 
 if __name__ == "__main__":

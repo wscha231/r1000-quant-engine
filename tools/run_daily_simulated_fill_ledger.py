@@ -1498,6 +1498,116 @@ def _valid_sha256_text(value: Any) -> bool:
     return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
 
 
+def validate_target_handoff(
+    *,
+    args: argparse.Namespace,
+    target_paths: dict[str, Path],
+    as_of_date: pd.Timestamp,
+) -> dict[str, Any]:
+    """Bind an optional same-close READY marker and exact target bytes."""
+
+    manifest_value = str(
+        getattr(args, "target_handoff_manifest", "") or ""
+    ).strip()
+    expected_manifest_sha = str(
+        getattr(args, "expected_target_handoff_sha256", "") or ""
+    ).strip().lower()
+    expected_targets = {
+        portfolio: str(
+            getattr(args, f"{portfolio}_target_sha256", "") or ""
+        ).strip().lower()
+        for portfolio in PORTFOLIOS
+    }
+    supplied = [
+        bool(manifest_value),
+        bool(expected_manifest_sha),
+        *(bool(value) for value in expected_targets.values()),
+    ]
+    if not any(supplied):
+        return {}
+    if not all(supplied):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_HANDOFF",
+            "same-close target handoff requires manifest and all SHA-256 pins",
+        )
+    if not _valid_sha256_text(expected_manifest_sha) or any(
+        not _valid_sha256_text(value) or value != value.lower()
+        for value in expected_targets.values()
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_HANDOFF",
+            "same-close target handoff contains an invalid SHA-256 pin",
+        )
+    manifest_path = repo_path(manifest_value)
+    if (
+        not manifest_path.is_file()
+        or file_hash(manifest_path) != expected_manifest_sha
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_HANDOFF",
+            "same-close target handoff marker hash mismatch",
+        )
+    manifest = read_json(manifest_path)
+    if (
+        manifest.get("schema_version") != "run287-same-close-target-books-v1"
+        or manifest.get("status") != "READY_SAME_CLOSE_PAPER_TARGETS"
+        or manifest.get("target_book_file_written") is not True
+        or manifest.get("orders_generated") is not False
+        or manifest.get("paper_only") is not True
+        or manifest.get("production_activation_allowed") is not False
+        or manifest.get("live_trading_enabled") is not False
+        or manifest.get("fullrun_executed") is not False
+        or clean_date(manifest.get("valuation_close_date"))
+        != pd.Timestamp(as_of_date).date().isoformat()
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_HANDOFF",
+            "same-close target handoff marker contract mismatch",
+        )
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, dict):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_TARGET_HANDOFF",
+            "same-close target handoff outputs are missing",
+        )
+    target_audit: dict[str, Any] = {}
+    for portfolio in PORTFOLIOS:
+        record = outputs.get(f"{portfolio}_target_book")
+        if not isinstance(record, dict):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_TARGET_HANDOFF",
+                f"same-close target record is missing:{portfolio}",
+            )
+        raw_path = str(record.get("path") or "")
+        recorded_sha = str(record.get("sha256") or "").strip().lower()
+        record_path = Path(raw_path)
+        if not record_path.is_absolute():
+            local = manifest_path.parent / record_path
+            record_path = local if local.exists() else repo_path(record_path)
+        expected_path = target_paths[portfolio].resolve()
+        if (
+            not raw_path
+            or not record_path.is_file()
+            or record_path.resolve() != expected_path
+            or recorded_sha != expected_targets[portfolio]
+            or file_hash(expected_path) != expected_targets[portfolio]
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_TARGET_HANDOFF",
+                f"same-close target identity mismatch:{portfolio}",
+            )
+        target_audit[portfolio] = {
+            "path": portable_path(expected_path),
+            "sha256": expected_targets[portfolio],
+        }
+    return {
+        "schema_version": "run287-paper-target-handoff-v1",
+        "manifest_path": portable_path(manifest_path),
+        "manifest_sha256": expected_manifest_sha,
+        "targets": target_audit,
+    }
+
+
 def _require_exact_keys(
     payload: Any,
     expected: frozenset[str],
@@ -6222,6 +6332,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         portfolio: repo_path(getattr(args, f"{portfolio}_bootstrap_account")) for portfolio in PORTFOLIOS
     }
     target_paths = {portfolio: repo_path(getattr(args, f"{portfolio}_target")) for portfolio in PORTFOLIOS}
+    target_handoff = validate_target_handoff(
+        args=args,
+        target_paths=target_paths,
+        as_of_date=as_of_date,
+    )
     publish_values = {
         portfolio: str(getattr(args, f"{portfolio}_publish_target", "") or "").strip()
         for portfolio in PORTFOLIOS
@@ -6344,6 +6459,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "genesis_identity_hash": identity["genesis_identity_hash"],
             "security_lifecycle": lifecycle.audit(),
             "reserve_asset_policy": reserve_policy.audit(),
+            **(
+                {"target_handoff": target_handoff}
+                if target_handoff
+                else {}
+            ),
             "review_only": True,
             "simulated": True,
             "live_trading_enabled": False,
@@ -6502,6 +6622,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 attestation_path
             )
         if same_session_count == len(PORTFOLIOS) and not legacy_attestation_required:
+            if target_handoff:
+                validate_target_handoff(
+                    args=args,
+                    target_paths=target_paths,
+                    as_of_date=as_of_date,
+                )
             for portfolio, destination in publish_paths.items():
                 if file_hash(destination) != file_hash(target_paths[portfolio]):
                     raise PaperLedgerIntegrityError(
@@ -6546,6 +6672,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 candidate = stage_file_copy(target_paths[portfolio], publish_paths[portfolio])
                 staged_publication_files.append(candidate)
                 publish_pairs.append((candidate, publish_paths[portfolio]))
+        if target_handoff:
+            validate_target_handoff(
+                args=args,
+                target_paths=target_paths,
+                as_of_date=as_of_date,
+            )
         atomic_publish_bundle(
             publish_pairs,
             journal_path=journal_path,
@@ -6574,6 +6706,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concentrated-bootstrap-account", default="outputs/broker_replay/concentrated/account_state_latest.json")
     parser.add_argument("--main-target", default="outputs/reports/operating_main_target_book.csv")
     parser.add_argument("--concentrated-target", default="outputs/reports/operating_concentrated_target_book.csv")
+    parser.add_argument("--target-handoff-manifest", default="")
+    parser.add_argument("--expected-target-handoff-sha256", default="")
+    parser.add_argument("--main-target-sha256", default="")
+    parser.add_argument("--concentrated-target-sha256", default="")
     parser.add_argument("--main-publish-target", default="")
     parser.add_argument("--concentrated-publish-target", default="")
     parser.add_argument("--as-of-date", required=True)
