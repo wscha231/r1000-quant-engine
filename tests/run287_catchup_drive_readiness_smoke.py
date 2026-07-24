@@ -502,6 +502,14 @@ def test_workflow_scope_and_order() -> None:
     steps = workflow["jobs"]["refresh"]["steps"]
     names = [str(step.get("name")) for step in steps]
     by_name = {str(step.get("name")): step for step in steps}
+    for step in steps:
+        run = step.get("run")
+        if isinstance(run, str) and "${{" in run:
+            assert len(run) < 20_000, (
+                f"{step.get('name')} embeds GitHub expressions in a "
+                f"{len(run)}-character run block; inject the values through "
+                "env before GitHub's 21,000-character parser limit"
+            )
     trigger = workflow.get("on") or workflow.get(True)
     inputs = trigger["workflow_dispatch"]["inputs"]
     assert len(inputs) == 10
@@ -659,6 +667,15 @@ def test_workflow_scope_and_order() -> None:
     assert (
         "steps.durable_scope_persist_preflight.outcome == 'success'"
         in str(persist["if"])
+    )
+    assert (
+        persist["env"]["ACCEPTED_PUBLICATION_MANIFEST_SHA256"]
+        == "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+    )
+    assert "${{" not in persist["run"], (
+        "large persistence script must receive step outputs through env; "
+        "inline expressions make GitHub parse the full run block as one "
+        "expression and can exceed the 21,000-character limit"
     )
     for token in (
         "RUN287_DURABLE_SCOPE_PRE_PERSIST_SHA256",

@@ -2006,6 +2006,9 @@ jobs:
       - name: Run transactional paper ledger and same-close selector
         id: paper_transaction
         if: steps.market.outputs.ready == 'yes'
+        env:
+          CATCHUP_PRICE_CACHE: ${{ steps.catchup_price_evidence.outputs.price_cache }}
+          CATCHUP_PRICE_MANIFEST: ${{ steps.catchup_price_evidence.outputs.manifest }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
@@ -2015,11 +2018,11 @@ jobs:
           if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
             DECISION_CUTOFF_UTC="$(python -c 'import os; import pandas as pd; print((pd.Timestamp(os.environ["LAST_NYSE_CLOSE_UTC"]) + pd.Timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
             GENERATED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            PAPER_PRICE_CACHE="${{ steps.catchup_price_evidence.outputs.price_cache }}"
+            PAPER_PRICE_CACHE="$CATCHUP_PRICE_CACHE"
             PAPER_REPLAY_ARGS=(
               --replay-only
               --price-evidence-manifest
-              "${{ steps.catchup_price_evidence.outputs.manifest }}"
+              "$CATCHUP_PRICE_MANIFEST"
             )
             test -s "$PAPER_PRICE_CACHE/manifest.json"
             rm -rf \
@@ -2955,6 +2958,7 @@ jobs:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ACCEPTED_PUBLICATION_MANIFEST_SHA256: ${{ steps.accepted_publication.outputs.manifest_sha256 }}
         run: |
           set -euo pipefail
           if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
@@ -3033,8 +3037,8 @@ jobs:
             python tools/build_run287_accepted_publication_manifest.py \
               --latest-run outputs \
               --verify-manifest outputs/run287_accepted_publication/manifest.json \
-              --expected-manifest-sha256 "${{ steps.accepted_publication.outputs.manifest_sha256 }}"
-            ACCEPTED_OUTCOME_HEAD_SHA="${{ steps.accepted_publication.outputs.manifest_sha256 }}"
+              --expected-manifest-sha256 "$ACCEPTED_PUBLICATION_MANIFEST_SHA256"
+            ACCEPTED_OUTCOME_HEAD_SHA="$ACCEPTED_PUBLICATION_MANIFEST_SHA256"
             OUTCOME_HEAD_STAGING_ROOT="outputs/run287_risk_outcome_accepted_head_staging"
             OUTCOME_HEAD_STAGING="$OUTCOME_HEAD_STAGING_ROOT/$ACCEPTED_OUTCOME_HEAD_SHA"
             rm -rf "$OUTCOME_HEAD_STAGING_ROOT"
