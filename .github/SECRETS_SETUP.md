@@ -75,12 +75,12 @@ secret while computing those hashes. Normalize the marker-bound rclone
 configuration to LF line endings with no trailing newline before both computing
 the HMAC and storing the environment secret. GitHub Actions verifies the exact
 Linux environment-variable bytes, so a hash computed from a Windows CRLF copy
-will fail closed. On Windows, send a multiline rclone value as raw UTF-8 bytes
-through redirected standard input rather than `--body` or a text
-`StreamWriter`; native argument quoting can rewrite token content and a text
-writer can add a byte-order marker. The single-line attestation may use
-`--body`. If a binding fails, use only the secret-safe fingerprint emitted by
-the readiness gate to diagnose the bytes that Actions actually received.
+will fail closed. On Windows, send both values as raw UTF-8 bytes through a
+binary subprocess pipe (for example, Python `subprocess.run(input=bytes)`),
+not `--body`, PowerShell native argument passing, or a .NET text
+`StreamWriter`; those paths can rewrite token content or add a byte-order
+marker. If a binding fails, use only the secret-safe fingerprint emitted by the
+readiness gate to diagnose the bytes that Actions actually received.
 
 GitHub's default workflow token cannot read repository/environment secret
 inventories. Do not add a broad PAT to the workflow. Instead, an owner runs the
