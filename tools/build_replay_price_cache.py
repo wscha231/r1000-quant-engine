@@ -107,7 +107,12 @@ def safe_float(value: Any, default: float = 0.0) -> float:
     return default
 
 
-def collect_scored_tickers(path: Path, max_scored: int) -> set[str]:
+def collect_scored_tickers(
+    path: Path,
+    max_scored: int,
+    *,
+    max_scored_per_sector: int = 0,
+) -> set[str]:
     frame = read_csv(path)
     if frame.empty or "ticker" not in frame.columns or max_scored <= 0:
         return set()
@@ -137,6 +142,32 @@ def collect_scored_tickers(path: Path, max_scored: int) -> set[str]:
     for ticker in d["ticker"].map(normalize_ticker).head(max_scored):
         if ticker:
             out.add(ticker)
+    if max_scored_per_sector > 0:
+        sector_col = next(
+            (
+                column
+                for column in ("sector", "yf_sector", "sage_sector")
+                if column in d.columns
+            ),
+            "",
+        )
+        if sector_col:
+            sectors = (
+                d[sector_col]
+                .fillna("Unknown")
+                .astype(str)
+                .str.strip()
+                .replace("", "Unknown")
+            )
+            for _sector, group in d.assign(_cache_sector=sectors).groupby(
+                "_cache_sector",
+                sort=True,
+            ):
+                for ticker in group["ticker"].map(normalize_ticker).head(
+                    int(max_scored_per_sector)
+                ):
+                    if ticker:
+                        out.add(ticker)
     return out
 
 
@@ -296,9 +327,20 @@ def download_prices(tickers: list[str], start: str, end: str, output_dir: Path, 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    book_paths = [repo_path(x) for x in args.books]
+    book_paths = [repo_path(x) for x in getattr(args, "books", [])]
     book_tickers, min_dt, max_dt = collect_book_tickers(book_paths)
-    scored_tickers = collect_scored_tickers(repo_path(args.scored), args.max_scored) if args.scored else set()
+    max_scored_per_sector = int(
+        getattr(args, "max_scored_per_sector", 0) or 0
+    )
+    scored_tickers = (
+        collect_scored_tickers(
+            repo_path(args.scored),
+            args.max_scored,
+            max_scored_per_sector=max_scored_per_sector,
+        )
+        if args.scored
+        else set()
+    )
     required_tickers = parse_required_tickers(getattr(args, "required_tickers", None))
     tickers = sorted(book_tickers | scored_tickers | required_tickers)
     if args.max_tickers and args.max_tickers > 0:
@@ -331,6 +373,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "ticker_count": len(tickers),
         "book_ticker_count": len(book_tickers),
         "scored_ticker_count": len(scored_tickers),
+        "max_scored_per_sector": max_scored_per_sector,
         "required_tickers": sorted(required_tickers),
         "required_ticker_count": len(required_tickers),
         "existing_cache_count": existing_cache_count(output_dir, set(tickers)),
@@ -391,9 +434,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--books", nargs="+", required=True)
+    parser.add_argument("--books", nargs="*", default=[])
     parser.add_argument("--scored", default="")
     parser.add_argument("--max-scored", type=int, default=250)
+    parser.add_argument(
+        "--max-scored-per-sector",
+        type=int,
+        default=0,
+        help=(
+            "Also retain this many highest-ranked scored names per sector so "
+            "the cache is not dominated by the current leading sector."
+        ),
+    )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT)
     parser.add_argument("--start", default="")
     parser.add_argument("--end", default="")

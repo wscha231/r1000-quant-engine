@@ -201,6 +201,12 @@ def build_target_books(
                     "rs_qqq_3m": row.get("rs_qqq_3m"),
                     "rs_qqq_6m": row.get("rs_qqq_6m"),
                     "sector_leadership_score": row.get("sector_leadership_score"),
+                    "hierarchical_leadership_score": row.get("hierarchical_leadership_score"),
+                    "sector_dynamic_leadership_score": row.get("sector_dynamic_leadership_score"),
+                    "industry_dynamic_leadership_score": row.get("industry_dynamic_leadership_score"),
+                    "subsector_dynamic_leadership_score": row.get("subsector_dynamic_leadership_score"),
+                    "sector_breadth_1m_positive": row.get("sector_breadth_1m_positive"),
+                    "sector_breadth_3m_positive": row.get("sector_breadth_3m_positive"),
                     "price_structure_state": "above_ma50_ma200"
                     if safe_float(row.get("price_above_ma50"), 1.0) >= 0.5 and safe_float(row.get("price_above_ma200"), 1.0) >= 0.5
                     else "broken_price_structure",
@@ -283,6 +289,9 @@ def build_target_books(
                             "rs_qqq_3m": row.get("rs_qqq_3m"),
                             "rs_qqq_6m": row.get("rs_qqq_6m"),
                             "sector_leadership_score": row.get("sector_leadership_score"),
+                            "hierarchical_leadership_score": row.get("hierarchical_leadership_score"),
+                            "sector_breadth_3m_positive": row.get("sector_breadth_3m_positive"),
+                            "industry_relative_to_sector_3m": row.get("industry_relative_to_sector_3m"),
                             "future_winner_score": row.get("future_winner_confirmation_score"),
                             "smart_money_confirmation_score": row.get("smart_money_confirmation_score"),
                             "chase_risk_score": row.get("leader_chase_risk_score"),
@@ -300,6 +309,12 @@ def build_target_books(
                             "position_count": int(selected["ticker"].nunique()),
                             "avg_market_leader_tape_score": float(pd.to_numeric(selected["market_leader_tape_score"], errors="coerce").mean()),
                             "avg_sector_leadership_score": float(pd.to_numeric(selected["sector_leadership_score"], errors="coerce").mean()),
+                            "avg_hierarchical_leadership_score": float(
+                                pd.to_numeric(
+                                    selected["hierarchical_leadership_score"],
+                                    errors="coerce",
+                                ).mean()
+                            ),
                             "avg_future_winner_confirmation_score": float(pd.to_numeric(selected["future_winner_confirmation_score"], errors="coerce").mean()),
                             "avg_smart_money_confirmation_score": float(pd.to_numeric(selected["smart_money_confirmation_score"], errors="coerce").mean()),
                             "avg_leader_chase_risk_score": float(pd.to_numeric(selected["leader_chase_risk_score"], errors="coerce").mean()),
@@ -838,6 +853,19 @@ def main() -> int:
         "feature_store_mutated": False,
         "score_total_changed": False,
         "production_target_defaults_changed": False,
+        "hierarchical_leadership_enabled": True,
+        "hierarchical_levels": [
+            "sector",
+            "industry_group",
+            "subsector",
+            "stock",
+        ],
+        "hierarchical_signal_inputs": [
+            "SPY_QQQ_relative_strength_1w_1m_3m_6m",
+            "group_breadth_1m_3m",
+            "relative_strength_acceleration",
+            "industry_relative_to_parent_sector",
+        ],
         "metric_mode": summary_metric_mode,
         "default_variants_completed_broker_ledger": defaults_completed,
         "cost_sensitivity_path": str(output_dir / "cost_sensitivity.csv"),

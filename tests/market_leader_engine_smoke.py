@@ -15,6 +15,7 @@ from r1000_market_leader_engine import (  # noqa: E402
     RISK_MODE_BENCHMARK_GUARD,
     MarketLeaderVariant,
     apply_benchmark_risk_overlay,
+    compute_sector_leadership_score,
     load_prices,
     score_market_leaders,
     select_market_leader_targets,
@@ -237,6 +238,74 @@ def test_benchmark_guard_reduces_gross_exposure() -> None:
         assert "benchmark_risk_gross_cap" in str(out["selection_reason"].iloc[0])
 
 
+def test_hierarchical_sector_breadth_finds_non_semiconductor_leader() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        returns = {
+            "SPY": 0.0004,
+            "QQQ": 0.0006,
+            "SOFT1": 0.0015,
+            "SOFT2": 0.0013,
+            "BANK1": -0.0002,
+            "BANK2": -0.0003,
+        }
+        for ticker, daily_ret in returns.items():
+            write_price(cache, ticker, 100, daily_ret)
+        rows = [
+            {
+                "ticker": "SOFT1",
+                "sector": "Technology",
+                "industry_group": "Software",
+                "industry": "Application Software",
+            },
+            {
+                "ticker": "SOFT2",
+                "sector": "Technology",
+                "industry_group": "Software",
+                "industry": "Application Software",
+            },
+            {
+                "ticker": "BANK1",
+                "sector": "Financials",
+                "industry_group": "Banks",
+                "industry": "Regional Banks",
+            },
+            {
+                "ticker": "BANK2",
+                "sector": "Financials",
+                "industry_group": "Banks",
+                "industry": "Regional Banks",
+            },
+        ]
+        prices = load_prices(cache, set(returns))
+        scored = score_market_leaders(
+            pd.DataFrame(rows),
+            prices,
+            "2025-08-29",
+        )
+        software = scored[scored["ticker"].eq("SOFT1")].iloc[0]
+        bank = scored[scored["ticker"].eq("BANK1")].iloc[0]
+        assert software["sector_breadth_3m_positive"] == 1.0
+        assert bank["sector_breadth_3m_positive"] == 0.0
+        assert float(software["hierarchical_leadership_score"]) > float(
+            bank["hierarchical_leadership_score"]
+        )
+        assert float(software["sector_leadership_score"]) > float(
+            bank["sector_leadership_score"]
+        )
+
+
+def test_missing_dynamic_rs_preserves_legacy_sector_score() -> None:
+    frame = pd.DataFrame(base_rows())
+    scored = compute_sector_leadership_score(frame)
+    assert not scored["hierarchical_leadership_available"].any()
+    pd.testing.assert_series_equal(
+        scored["sector_leadership_score"],
+        scored["legacy_sector_feature_score"],
+        check_names=False,
+    )
+
+
 def main() -> int:
     test_dual_benchmark_tier_and_concentrated_gate()
     test_missing_evidence_is_confidence_not_quality_zero()
@@ -244,6 +313,8 @@ def main() -> int:
     test_warning_is_no_add_but_previous_holding_can_persist()
     test_chase_risk_reduces_new_entry_cap()
     test_benchmark_guard_reduces_gross_exposure()
+    test_hierarchical_sector_breadth_finds_non_semiconductor_leader()
+    test_missing_dynamic_rs_preserves_legacy_sector_score()
     print("market_leader_engine_smoke: PASS")
     return 0
 

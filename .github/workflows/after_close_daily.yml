@@ -146,26 +146,6 @@ jobs:
           python tools/etf_leadership_snapshot.py --telegram || \
             echo "::warning::ETF leadership snapshot failed"
 
-      - name: Theme leadership tape
-        run: |
-          SCORED_CSV=""
-          for p in \
-            outputs/scored_latest.csv \
-            cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv \
-            cloud_results/full_rebuild/latest/scored_latest.csv
-          do
-            if [ -f "$p" ]; then SCORED_CSV="$p"; break; fi
-          done
-          if [ -n "$SCORED_CSV" ]; then
-            python tools/run_theme_leadership_tape.py \
-              --scored "$SCORED_CSV" \
-              --price-cache cache_prices \
-              --output-dir cloud_results/theme_leadership_tape || \
-              echo "::warning::theme leadership tape failed"
-          else
-            echo "::warning::theme leadership tape skipped: no scored_latest.csv found"
-          fi
-
       - name: Explosive mover scan
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -193,6 +173,51 @@ jobs:
             --max-price-updates 160 \
             --mirror-cloud-results || \
             echo "::warning::tactical alpha review failed"
+
+      - name: Refresh balanced leadership price cache
+        run: |
+          SCORED_CSV=""
+          for p in \
+            outputs/scored_latest.csv \
+            cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv \
+            cloud_results/full_rebuild/latest/scored_latest.csv
+          do
+            if [ -f "$p" ]; then SCORED_CSV="$p"; break; fi
+          done
+          if [ -n "$SCORED_CSV" ]; then
+            python tools/build_replay_price_cache.py \
+              --scored "$SCORED_CSV" \
+              --max-scored 160 \
+              --max-scored-per-sector 12 \
+              --output-dir cache_prices \
+              --required-tickers SPY QQQ DRAM SOXX SMH XSD ARKK XME URA NLR ITA XBI \
+              --refresh-stale-days 0 || \
+              echo "::warning::balanced leadership price refresh failed"
+          else
+            echo "::warning::leadership price refresh skipped: no scored_latest.csv found"
+          fi
+
+      - name: Hierarchical sector and stock leadership tape
+        run: |
+          SCORED_CSV=""
+          for p in \
+            outputs/scored_latest.csv \
+            cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv \
+            cloud_results/full_rebuild/latest/scored_latest.csv
+          do
+            if [ -f "$p" ]; then SCORED_CSV="$p"; break; fi
+          done
+          if [ -n "$SCORED_CSV" ]; then
+            python tools/run_theme_leadership_tape.py \
+              --scored "$SCORED_CSV" \
+              --price-cache cache_prices \
+              --output-dir cloud_results/theme_leadership_tape \
+              --no-network \
+              --min-exact-close-coverage 0.10 || \
+              echo "::warning::hierarchical leadership tape failed"
+          else
+            echo "::warning::hierarchical leadership tape skipped: no scored_latest.csv found"
+          fi
 
       - name: Regime snapshot for paper executor
         env:
