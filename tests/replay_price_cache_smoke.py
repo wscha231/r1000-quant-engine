@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.build_replay_price_cache import run  # noqa: E402
+from tools.build_replay_price_cache import collect_scored_tickers, run  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -131,8 +131,33 @@ def test_replay_price_cache_refreshes_through_required_session() -> None:
         assert payload["download_target_count"] == 1
 
 
+def test_replay_price_cache_balances_scored_names_across_sectors() -> None:
+    with TemporaryDirectory() as tmp:
+        scored = Path(tmp) / "scored.csv"
+        pd.DataFrame(
+            [
+                {"ticker": "TA", "sector": "Technology", "score": 100.0},
+                {"ticker": "TB", "sector": "Technology", "score": 99.0},
+                {"ticker": "TC", "sector": "Technology", "score": 98.0},
+                {"ticker": "EA", "sector": "Energy", "score": 20.0},
+                {"ticker": "EB", "sector": "Energy", "score": 19.0},
+                {"ticker": "HA", "sector": "Health Care", "score": 10.0},
+            ]
+        ).to_csv(scored, index=False)
+
+        selected = collect_scored_tickers(
+            scored,
+            max_scored=2,
+            max_scored_per_sector=1,
+        )
+
+        assert {"TA", "TB", "EA", "HA"}.issubset(selected)
+        assert "EB" not in selected
+
+
 if __name__ == "__main__":
     test_replay_price_cache_marks_stale_existing_tickers()
     test_replay_price_cache_always_includes_required_tickers()
     test_replay_price_cache_refreshes_through_required_session()
+    test_replay_price_cache_balances_scored_names_across_sectors()
     print("replay_price_cache_smoke: PASS")

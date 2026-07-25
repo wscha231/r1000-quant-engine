@@ -396,14 +396,108 @@ def compute_market_leader_tape_score(frame: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+def _hierarchy_label(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.Series:
+    out = pd.Series("Unknown", index=frame.index, dtype=object)
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        values = frame[column].fillna("").astype(str).str.strip()
+        valid = ~values.str.lower().isin({"", "nan", "none", "unknown"})
+        out = out.mask(out.eq("Unknown") & valid, values)
+    return out
+
+
+def _dynamic_group_leadership(
+    frame: pd.DataFrame,
+    group_columns: list[str],
+    *,
+    prefix: str,
+) -> pd.DataFrame:
+    d = frame.copy()
+    grouped = d.groupby(group_columns, dropna=False)
+    d[f"{prefix}_member_count"] = grouped["ticker"].transform("size")
+    for label in ("1w", "1m", "3m", "6m"):
+        source = f"rs_benchmark_{label}"
+        d[f"{prefix}_median_rs_{label}"] = grouped[source].transform("median")
+    positive_1m = numeric(d, "rs_benchmark_1m").gt(0.0).astype(float)
+    positive_3m = numeric(d, "rs_benchmark_3m").gt(0.0).astype(float)
+    d[f"{prefix}_breadth_1m_positive"] = positive_1m.groupby(
+        [d[column] for column in group_columns],
+        dropna=False,
+    ).transform("mean")
+    d[f"{prefix}_breadth_3m_positive"] = positive_3m.groupby(
+        [d[column] for column in group_columns],
+        dropna=False,
+    ).transform("mean")
+    acceleration = numeric(d, "rs_benchmark_1w") - (
+        numeric(d, "rs_benchmark_1m") / 4.0
+    )
+    d[f"{prefix}_median_rs_acceleration"] = acceleration.groupby(
+        [d[column] for column in group_columns],
+        dropna=False,
+    ).transform("median")
+    score = (
+        0.15 * robust_z(d[f"{prefix}_median_rs_1w"])
+        + 0.20 * robust_z(d[f"{prefix}_median_rs_1m"])
+        + 0.25 * robust_z(d[f"{prefix}_median_rs_3m"])
+        + 0.15 * robust_z(d[f"{prefix}_median_rs_6m"])
+        + 0.10 * robust_z(d[f"{prefix}_median_rs_acceleration"])
+        + 0.075 * d[f"{prefix}_breadth_1m_positive"]
+        + 0.075 * d[f"{prefix}_breadth_3m_positive"]
+    )
+    d[f"{prefix}_dynamic_leadership_score"] = score.where(
+        d[f"{prefix}_member_count"].ge(2),
+        0.0,
+    )
+    return d
+
+
 def compute_sector_leadership_score(frame: pd.DataFrame) -> pd.DataFrame:
     d = frame.copy()
-    d["sector_leadership_score"] = (
+    d["leader_sector"] = _hierarchy_label(
+        d,
+        ("sector", "yf_sector", "sage_sector"),
+    )
+    d["leader_industry_group"] = _hierarchy_label(
+        d,
+        ("industry_group", "industry", "yf_industry", "sector"),
+    )
+    if "leader_subindustry" not in d.columns:
+        d["leader_subindustry"] = d.apply(infer_subindustry, axis=1)
+    d = _dynamic_group_leadership(
+        d,
+        ["leader_sector"],
+        prefix="sector",
+    )
+    d = _dynamic_group_leadership(
+        d,
+        ["leader_sector", "leader_industry_group"],
+        prefix="industry",
+    )
+    d = _dynamic_group_leadership(
+        d,
+        ["leader_sector", "leader_industry_group", "leader_subindustry"],
+        prefix="subsector",
+    )
+    d["industry_relative_to_sector_3m"] = (
+        d["industry_median_rs_3m"] - d["sector_median_rs_3m"]
+    )
+    d["hierarchical_leadership_score"] = (
+        0.40 * d["sector_dynamic_leadership_score"]
+        + 0.30 * d["industry_dynamic_leadership_score"]
+        + 0.20 * d["subsector_dynamic_leadership_score"]
+        + 0.10 * robust_z(d["industry_relative_to_sector_3m"])
+    )
+    d["legacy_sector_feature_score"] = (
         0.30 * robust_z(first_numeric(d, ("industry_group_strength_score", "sector_leader_score")))
         + 0.25 * robust_z(first_numeric(d, ("industry_within_leader_rank", "within_sector_leader_score")))
         + 0.20 * robust_z(first_numeric(d, ("oneil_leadership_score", "relative_strength_composite")))
         + 0.15 * robust_z(first_numeric(d, ("sub_industry_rs_score", "rs_sector_composite")))
         + 0.10 * robust_z(first_numeric(d, ("industry_leader_gap", "leader_emergence_score")))
+    )
+    d["sector_leadership_score"] = (
+        0.80 * d["hierarchical_leadership_score"]
+        + 0.20 * d["legacy_sector_feature_score"]
     )
     return d
 
@@ -573,6 +667,8 @@ def infer_broad_theme(row: pd.Series) -> str:
 def score_market_leaders(month: pd.DataFrame, prices: dict[str, pd.DataFrame], rebalance_date: Any) -> pd.DataFrame:
     d = month.copy()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+    d["leader_subindustry"] = d.apply(infer_subindustry, axis=1)
+    d["leader_broad_theme"] = d.apply(infer_broad_theme, axis=1)
     d = add_benchmark_relative_returns(d, prices, rebalance_date)
     d = compute_market_leader_tape_score(d)
     d = compute_sector_leadership_score(d)
@@ -581,8 +677,6 @@ def score_market_leaders(month: pd.DataFrame, prices: dict[str, pd.DataFrame], r
     d = compute_liquidity_capacity_score(d)
     d = compute_leader_selection_score(d)
     d["leader_tier"] = d.apply(classify_leader_tier, axis=1)
-    d["leader_subindustry"] = d.apply(infer_subindustry, axis=1)
-    d["leader_broad_theme"] = d.apply(infer_broad_theme, axis=1)
     return d
 
 
@@ -848,6 +942,19 @@ def target_book_columns() -> list[str]:
         "exit_streak",
         "market_leader_tape_score",
         "sector_leadership_score",
+        "hierarchical_leadership_score",
+        "legacy_sector_feature_score",
+        "sector_dynamic_leadership_score",
+        "industry_dynamic_leadership_score",
+        "subsector_dynamic_leadership_score",
+        "sector_breadth_1m_positive",
+        "sector_breadth_3m_positive",
+        "industry_breadth_1m_positive",
+        "industry_breadth_3m_positive",
+        "industry_relative_to_sector_3m",
+        "leader_sector",
+        "leader_industry_group",
+        "leader_subindustry",
         "future_winner_confirmation_score",
         "smart_money_confirmation_score",
         "smart_money_confirmation_boost",
