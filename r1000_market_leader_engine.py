@@ -414,6 +414,10 @@ def _dynamic_group_leadership(
     prefix: str,
 ) -> pd.DataFrame:
     d = frame.copy()
+    for label in ("1w", "1m", "3m", "6m"):
+        source = f"rs_benchmark_{label}"
+        if source not in d.columns:
+            d[source] = 0.0
     grouped = d.groupby(group_columns, dropna=False)
     d[f"{prefix}_member_count"] = grouped["ticker"].transform("size")
     for label in ("1w", "1m", "3m", "6m"):
@@ -453,6 +457,21 @@ def _dynamic_group_leadership(
 
 
 def compute_sector_leadership_score(frame: pd.DataFrame) -> pd.DataFrame:
+    dynamic_columns = [
+        "rs_benchmark_1w",
+        "rs_benchmark_1m",
+        "rs_benchmark_3m",
+        "rs_benchmark_6m",
+    ]
+    dynamic_available = pd.Series(True, index=frame.index, dtype=bool)
+    for column in dynamic_columns:
+        if column not in frame.columns:
+            dynamic_available[:] = False
+            break
+        dynamic_available &= pd.to_numeric(
+            frame[column],
+            errors="coerce",
+        ).notna()
     d = frame.copy()
     d["leader_sector"] = _hierarchy_label(
         d,
@@ -495,9 +514,14 @@ def compute_sector_leadership_score(frame: pd.DataFrame) -> pd.DataFrame:
         + 0.15 * robust_z(first_numeric(d, ("sub_industry_rs_score", "rs_sector_composite")))
         + 0.10 * robust_z(first_numeric(d, ("industry_leader_gap", "leader_emergence_score")))
     )
-    d["sector_leadership_score"] = (
+    d["hierarchical_leadership_available"] = dynamic_available
+    hierarchical_blend = (
         0.80 * d["hierarchical_leadership_score"]
         + 0.20 * d["legacy_sector_feature_score"]
+    )
+    d["sector_leadership_score"] = hierarchical_blend.where(
+        d["hierarchical_leadership_available"],
+        d["legacy_sector_feature_score"],
     )
     return d
 

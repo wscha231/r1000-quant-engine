@@ -15,6 +15,7 @@ from r1000_market_leader_engine import (  # noqa: E402
     RISK_MODE_BENCHMARK_GUARD,
     MarketLeaderVariant,
     apply_benchmark_risk_overlay,
+    compute_sector_leadership_score,
     load_prices,
     score_market_leaders,
     select_market_leader_targets,
@@ -294,6 +295,17 @@ def test_hierarchical_sector_breadth_finds_non_semiconductor_leader() -> None:
         )
 
 
+def test_missing_dynamic_rs_preserves_legacy_sector_score() -> None:
+    frame = pd.DataFrame(base_rows())
+    scored = compute_sector_leadership_score(frame)
+    assert not scored["hierarchical_leadership_available"].any()
+    pd.testing.assert_series_equal(
+        scored["sector_leadership_score"],
+        scored["legacy_sector_feature_score"],
+        check_names=False,
+    )
+
+
 def main() -> int:
     test_dual_benchmark_tier_and_concentrated_gate()
     test_missing_evidence_is_confidence_not_quality_zero()
@@ -302,6 +314,7 @@ def main() -> int:
     test_chase_risk_reduces_new_entry_cap()
     test_benchmark_guard_reduces_gross_exposure()
     test_hierarchical_sector_breadth_finds_non_semiconductor_leader()
+    test_missing_dynamic_rs_preserves_legacy_sector_score()
     print("market_leader_engine_smoke: PASS")
     return 0
 
