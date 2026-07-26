@@ -141,6 +141,11 @@ def test_replay_price_cache_uses_exact_gate_operating_union() -> None:
                     "ticker": "AAA",
                     "weight": 1.0,
                 },
+                {
+                    "rebalance_date": "2026-07-25",
+                    "ticker": "FUT",
+                    "weight": 1.0,
+                },
             ]
         ).to_csv(book, index=False)
         account = root / "bootstrap_account.json"
@@ -648,6 +653,112 @@ def test_replay_price_cache_uses_provider_close_for_invalid_adj_close() -> None:
         ) == 21.0
 
 
+def test_replay_price_cache_fills_partial_provider_adj_close_by_row() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        book = root / "book.csv"
+        pd.DataFrame(
+            [{"rebalance_date": "2026-07-24", "ticker": "AAA", "weight": 1.0}]
+        ).to_csv(book, index=False)
+        cache = root / "cache_prices"
+        existing = pd.concat(
+            [
+                price_frame("2026-07-21", close=8.0),
+                price_frame("2026-07-22", close=9.0),
+                price_frame("2026-07-23", close=10.0),
+            ]
+        ).drop(columns=["Adj Close"])
+        cache.mkdir(parents=True, exist_ok=True)
+        existing.to_parquet(cache / px_cache_name("AAA"))
+
+        def partial_adj_download(
+            tickers: list[str],
+            _start: str,
+            _end: str,
+        ) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
+            frame = pd.concat(
+                [
+                    price_frame("2026-07-23", close=10.0),
+                    price_frame("2026-07-24", close=21.0),
+                ]
+            )
+            frame.loc[pd.Timestamp("2026-07-23"), "Adj Close"] = float("nan")
+            return {ticker: frame.copy() for ticker in tickers}, {
+                "provider": "fixture"
+            }
+
+        payload = run(
+            Namespace(
+                books=[str(book)],
+                scored="",
+                max_scored=0,
+                output_dir=str(cache),
+                start="2026-07-20",
+                end="2026-07-26",
+                batch_size=40,
+                max_tickers=0,
+                required_tickers=[],
+                refresh_stale_days=-1,
+                refresh_through_date="2026-07-24",
+                dry_run=False,
+            ),
+            download_fn=partial_adj_download,
+        )
+        assert payload["status"] == "completed"
+        refreshed = pd.read_parquet(cache / px_cache_name("AAA"))
+        assert has_valid_exact_close(refreshed, pd.Timestamp("2026-07-24"))
+        assert refreshed["Adj Close"].notna().all()
+        assert refreshed["Adj Close"].tolist() == [8.0, 9.0, 10.0, 21.0]
+
+
+def test_replay_price_cache_fills_partial_adj_close_for_new_ticker() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        book = root / "book.csv"
+        pd.DataFrame(
+            [{"rebalance_date": "2026-07-24", "ticker": "AAA", "weight": 1.0}]
+        ).to_csv(book, index=False)
+        cache = root / "cache_prices"
+
+        def partial_adj_download(
+            tickers: list[str],
+            _start: str,
+            _end: str,
+        ) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
+            frame = pd.concat(
+                [
+                    price_frame("2026-07-23", close=10.0),
+                    price_frame("2026-07-24", close=21.0),
+                ]
+            )
+            frame.loc[pd.Timestamp("2026-07-23"), "Adj Close"] = float("nan")
+            return {ticker: frame.copy() for ticker in tickers}, {
+                "provider": "fixture"
+            }
+
+        payload = run(
+            Namespace(
+                books=[str(book)],
+                scored="",
+                max_scored=0,
+                output_dir=str(cache),
+                start="2026-07-20",
+                end="2026-07-26",
+                batch_size=40,
+                max_tickers=0,
+                required_tickers=[],
+                refresh_stale_days=-1,
+                refresh_through_date="2026-07-24",
+                dry_run=False,
+            ),
+            download_fn=partial_adj_download,
+        )
+        assert payload["status"] == "completed"
+        refreshed = pd.read_parquet(cache / px_cache_name("AAA"))
+        assert refreshed["Adj Close"].tolist() == [10.0, 21.0]
+        assert has_valid_exact_close(refreshed, pd.Timestamp("2026-07-24"))
+
+
 def test_replay_price_cache_repairs_unreadable_existing_file() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -691,6 +802,55 @@ def test_replay_price_cache_repairs_unreadable_existing_file() -> None:
         repaired = pd.read_parquet(cache_path)
         assert has_valid_exact_close(repaired, pd.Timestamp("2026-07-24"))
         assert float(repaired.iloc[-1]["Close"]) == 21.0
+        assert not (cache / "replay_price_cache_transaction.json").exists()
+
+
+def test_replay_price_cache_repairs_zero_byte_cache_and_manifest() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        book = root / "book.csv"
+        pd.DataFrame(
+            [{"rebalance_date": "2026-07-24", "ticker": "AAA", "weight": 1.0}]
+        ).to_csv(book, index=False)
+        cache = root / "cache_prices"
+        cache.mkdir(parents=True, exist_ok=True)
+        cache_path = cache / px_cache_name("AAA")
+        cache_path.write_bytes(b"")
+        manifest_path = cache / "replay_price_cache_manifest.json"
+        manifest_path.write_bytes(b"")
+
+        def valid_download(
+            tickers: list[str],
+            _start: str,
+            _end: str,
+        ) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
+            return {
+                ticker: price_frame("2026-07-24", close=21.0)
+                for ticker in tickers
+            }, {"provider": "fixture"}
+
+        payload = run(
+            Namespace(
+                books=[str(book)],
+                scored="",
+                max_scored=0,
+                output_dir=str(cache),
+                start="2026-07-20",
+                end="2026-07-26",
+                batch_size=40,
+                max_tickers=0,
+                required_tickers=[],
+                refresh_stale_days=-1,
+                refresh_through_date="2026-07-24",
+                dry_run=False,
+            ),
+            download_fn=valid_download,
+        )
+        assert payload["status"] == "completed"
+        repaired = pd.read_parquet(cache_path)
+        assert has_valid_exact_close(repaired, pd.Timestamp("2026-07-24"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest["status"] == "completed"
         assert not (cache / "replay_price_cache_transaction.json").exists()
 
 
@@ -1208,7 +1368,10 @@ if __name__ == "__main__":
     test_replay_price_cache_rejects_nan_exact_close()
     test_replay_price_cache_replaces_invalid_cached_exact_close()
     test_replay_price_cache_uses_provider_close_for_invalid_adj_close()
+    test_replay_price_cache_fills_partial_provider_adj_close_by_row()
+    test_replay_price_cache_fills_partial_adj_close_for_new_ticker()
     test_replay_price_cache_repairs_unreadable_existing_file()
+    test_replay_price_cache_repairs_zero_byte_cache_and_manifest()
     test_replay_price_cache_rolls_back_replace_failure()
     test_replay_price_cache_removes_new_ticker_on_replace_failure()
     test_replay_price_cache_recovers_interrupted_prepared_transaction()

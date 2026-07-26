@@ -1683,6 +1683,7 @@ jobs:
               --required-tickers SPY QQQ SMH SOXX \
               --refresh-through-date "$LAST_NYSE_SESSION_DATE" \
               --refresh-stale-days 2 \
+              --exact-operating-universe \
               --max-scored 0 \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
             PRICE_REFRESH_EXIT=$?

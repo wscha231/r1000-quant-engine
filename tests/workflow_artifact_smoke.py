@@ -1257,6 +1257,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         'PRICE_REFRESH_STATUS="failed"',
         "tools/write_run287_price_refresh_attempt.py",
         "--phase initial_current_books",
+        "--exact-operating-universe",
         'exit "$PRICE_REFRESH_EXIT"',
     ):
         assert token in price_refresh_step, token

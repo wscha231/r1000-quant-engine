@@ -478,52 +478,57 @@ def merge_price_history(
     if provider_normalized.empty:
         raise ValueError("provider_price_history_empty")
     existing_normalized = normalize_price_history(existing)
-    if existing_normalized.empty:
-        return provider_normalized
     columns = list(existing_normalized.columns)
     columns.extend(
         column for column in provider_normalized.columns if column not in columns
     )
     existing_for_merge = existing_normalized.reindex(columns=columns).copy()
     provider_for_merge = provider_normalized.reindex(columns=columns).copy()
-    provider_close_column = (
-        "Adj Close"
-        if "Adj Close" in provider_normalized.columns
-        else "Close"
-    )
-    provider_effective_close = pd.to_numeric(
-        provider_normalized[provider_close_column],
-        errors="coerce",
-    )
-    provider_effective_close = provider_effective_close.where(
-        provider_effective_close.map(
+
+    def positive_close_values(
+        frame: pd.DataFrame,
+        column: str,
+    ) -> pd.Series:
+        if column not in frame.columns:
+            return pd.Series(index=frame.index, dtype=float)
+        values = pd.to_numeric(frame[column], errors="coerce")
+        valid = values.map(
             lambda value: math.isfinite(float(value))
-        )
-        & (provider_effective_close > 0.0)
+        ) & (values > 0.0)
+        return values.where(valid)
+
+    provider_effective_close = positive_close_values(
+        provider_normalized,
+        "Adj Close",
+    ).combine_first(
+        positive_close_values(provider_normalized, "Close")
     )
     for close_column in ("Close", "Adj Close"):
         if close_column not in existing_for_merge.columns:
             continue
-        close_values = pd.to_numeric(
-            existing_for_merge[close_column],
-            errors="coerce",
+        existing_for_merge[close_column] = positive_close_values(
+            existing_for_merge,
+            close_column,
         )
-        invalid = close_values.map(
-            lambda value: not math.isfinite(float(value))
-        ) | (close_values <= 0.0)
-        existing_for_merge.loc[invalid, close_column] = float("nan")
-        provider_close_values = pd.to_numeric(
-            provider_for_merge[close_column],
-            errors="coerce",
-        )
-        provider_valid = provider_close_values.map(
-            lambda value: math.isfinite(float(value))
-        ) & (provider_close_values > 0.0)
-        provider_for_merge[close_column] = provider_close_values.where(
-            provider_valid,
+        provider_for_merge[close_column] = positive_close_values(
+            provider_for_merge,
+            close_column,
+        ).combine_first(
             provider_effective_close,
         )
     merged = existing_for_merge.combine_first(provider_for_merge)
+    merged_effective_close = positive_close_values(
+        merged,
+        "Adj Close",
+    ).combine_first(
+        positive_close_values(merged, "Close")
+    )
+    for close_column in ("Close", "Adj Close"):
+        if close_column in merged.columns:
+            merged[close_column] = positive_close_values(
+                merged,
+                close_column,
+            ).combine_first(merged_effective_close)
     merged = merged.sort_index().reindex(columns=columns)
     merged.index.name = (
         existing_normalized.index.name
@@ -656,7 +661,7 @@ def validate_price_cache_transaction(
                 re.fullmatch(r"[0-9a-f]{64}", original_sha256) is None
                 or not isinstance(original_bytes, int)
                 or isinstance(original_bytes, bool)
-                or original_bytes <= 0
+                or original_bytes < 0
             ):
                 raise ValueError(
                     "price_cache_transaction_original_identity_invalid"
