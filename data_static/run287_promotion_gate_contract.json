@@ -1,6 +1,6 @@
 {
   "schema_version": "run287-promotion-gate-contract-v1",
-  "contract_version": "2026-07-20.1",
+  "contract_version": "2026-07-27.1",
   "states": [
     "RESEARCH_ONLY",
     "SHADOW_OPERATION_READY",
@@ -39,6 +39,7 @@
     "cost_100bps_pass",
     "stress_episodes_pass",
     "ticker_sector_era_concentration_pass",
+    "multiple_testing_pass",
     "scorecard_trusted",
     "lifecycle_delisted_handling_pass",
     "do_not_repeat_conflict_absent"

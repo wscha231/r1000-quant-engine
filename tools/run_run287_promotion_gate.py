@@ -15,6 +15,7 @@ from run287_promotion_gate import (
     evaluate_gate,
     canonical_sha256,
     overlay_latest_run_evidence,
+    overlay_multiple_testing_evidence,
     read_json,
     sha256_file,
 )
@@ -107,6 +108,11 @@ def main() -> int:
     parser.add_argument("--expected-risk-outcome-summary-sha256", default="")
     parser.add_argument("--expected-risk-price-cache-manifest-sha256", default="")
     parser.add_argument("--expected-scorecard-sha256", default="")
+    parser.add_argument("--multiple-testing-gate", default="")
+    parser.add_argument(
+        "--expected-multiple-testing-gate-sha256",
+        default="",
+    )
     parser.add_argument("--request-state")
     parser.add_argument("--transition-authorization")
     args = parser.parse_args()
@@ -117,6 +123,16 @@ def main() -> int:
     contract = read_json(paths["contract"])
     state = read_json(paths["state"])
     evidence = read_json(paths["evidence"])
+    # This check is runtime-owned.  A tracked or caller-supplied boolean is
+    # never sufficient without an exact hash-pinned gate bundle.
+    historical = evidence.setdefault("historical", {})
+    historical["multiple_testing_pass"] = False
+    multiple_testing_limitation = (
+        "No runtime-verified multiple-testing gate evidence is available."
+    )
+    limitations = historical.setdefault("limitations", [])
+    if multiple_testing_limitation not in limitations:
+        limitations.append(multiple_testing_limitation)
     runtime_anchor_specs: dict[str, tuple[str, str]] = {
         "paper_integrity": (
             "daily_simulated_fill_ledger/snapshot_integrity.json",
@@ -161,11 +177,51 @@ def main() -> int:
         for label, (relative, expected) in runtime_anchor_specs.items():
             if expected:
                 verify_runtime_anchor(latest_run / relative, expected, label)
+    multiple_testing_hashes: dict[str, str] = {}
+    if args.multiple_testing_gate:
+        if not args.expected_multiple_testing_gate_sha256:
+            raise ValueError("multiple_testing_gate_expected_sha256_required")
+        multiple_testing_gate_path = Path(
+            args.multiple_testing_gate
+        ).resolve()
+        evidence = overlay_multiple_testing_evidence(
+            evidence,
+            multiple_testing_gate_path,
+            expected_gate_sha256=(
+                args.expected_multiple_testing_gate_sha256
+            ),
+        )
+        observation = evidence.get("multiple_testing_gate_observation") or {}
+        multiple_testing_hashes[
+            "runtime_multiple_testing_gate_sha256"
+        ] = str(observation.get("gate_sha256") or "")
+        for name, digest in (
+            observation.get("artifact_hashes") or {}
+        ).items():
+            key = (
+                "runtime_multiple_testing_"
+                + str(name).replace(".", "_")
+                + "_sha256"
+            )
+            multiple_testing_hashes[key] = str(digest)
+            verify_runtime_anchor(
+                multiple_testing_gate_path.parent / str(name),
+                str(digest),
+                f"multiple_testing_{str(name).replace('.', '_')}",
+            )
+        verify_runtime_anchor(
+            multiple_testing_gate_path,
+            args.expected_multiple_testing_gate_sha256,
+            "multiple_testing_gate",
+        )
+    elif args.expected_multiple_testing_gate_sha256:
+        raise ValueError("multiple_testing_gate_path_required")
     authorization = read_json(Path(args.transition_authorization).resolve()) if args.transition_authorization else None
     hashes = {f"{key}_sha256": sha256_file(path) for key, path in paths.items()}
     hashes["base_evidence_sha256"] = hashes["evidence_sha256"]
     hashes["evidence_sha256"] = canonical_sha256(evidence)
     hashes.update(runtime_anchor_hashes)
+    hashes.update(multiple_testing_hashes)
     gate = evaluate_gate(
         contract,
         state,
