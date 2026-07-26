@@ -1,0 +1,174 @@
+{
+  "schema_version": "run287-system-foundation-review-v1",
+  "review_date": "2026-07-27",
+  "base_commit": "3df80eeeaa2f376fa090b2f645a815af1005dfc4",
+  "branch": "codex/run287-system-foundation-review-20260727",
+  "verdict": "BLOCK_PERFORMANCE_CLAIMS_UNTIL_CORRECTED_REBASELINE",
+  "performance_claim": {
+    "cagr_improved": false,
+    "mdd_improved": false,
+    "reason": "No fullrun was authorized. Exact label maturity and disjoint OOS corrections change the measurement substrate, so the corrected champion must be rebaselined before any improvement claim."
+  },
+  "operating_constraints": {
+    "new_worktree_allowed": false,
+    "fullrun_allowed": false,
+    "production_allowed": false,
+    "live_trading_allowed": false,
+    "automatic_champion_promotion_allowed": false,
+    "catchup_2026_07_27_allowed_before_completed_nyse_close": false
+  },
+  "metric_identities": [
+    {
+      "id": "canonical_fixture_lock",
+      "metric_mode": "broker_ledger_next_close",
+      "end_date": "2026-01-10",
+      "main": {
+        "cagr": 0.3440322188,
+        "max_drawdown": -0.2536294017,
+        "sharpe": 1.2757089749,
+        "average_cash_weight": 0.2930746030
+      },
+      "concentrated": {
+        "cagr": 0.4909680441,
+        "max_drawdown": -0.2295598543,
+        "sharpe": 1.5001888936,
+        "average_cash_weight": 0.4097861383
+      },
+      "source": "tests/fixtures/run287_canonical_baseline/broker_replay"
+    },
+    {
+      "id": "promotion_evidence_current",
+      "as_of_date": "2026-07-10",
+      "main": {
+        "cagr": 0.344032,
+        "max_drawdown": -0.253629
+      },
+      "concentrated": {
+        "cagr": 0.490968,
+        "max_drawdown": -0.22956
+      },
+      "source": "data_static/run287_promotion_evidence_current.json"
+    },
+    {
+      "id": "crisis_policy_evaluation_baseline",
+      "as_of_date": "2026-07-10",
+      "main": {
+        "cagr": 0.3353522692,
+        "max_drawdown": -0.2565268421
+      },
+      "concentrated": {
+        "cagr": 0.4768975696,
+        "max_drawdown": -0.2322164259
+      },
+      "source": "data_static/run287_operating_scorecard_sources_v1/p3"
+    }
+  ],
+  "target_gaps_from_fixture_lock": {
+    "main": {
+      "cagr_target": 0.35,
+      "cagr_gap_percentage_points": 0.59677812,
+      "max_drawdown_floor": -0.25,
+      "max_drawdown_gap_percentage_points": 0.36294017
+    },
+    "concentrated": {
+      "cagr_target": 0.50,
+      "cagr_gap_percentage_points": 0.90319559,
+      "max_drawdown_floor": -0.25,
+      "max_drawdown_gap_percentage_points": 0.0
+    }
+  },
+  "critical_findings": [
+    {
+      "id": "F0_LABEL_MATURITY",
+      "severity": "critical",
+      "prior_state": "Short labels used a 126-calendar-day feature cutoff and 12/24/36-month labels shared that frame; latest scoring could fall back to all prior rows.",
+      "corrected_state": "Every stock and benchmark horizon stores its actual ending trading date. Training requires the complete blended label and label_available_at strictly before the decision date. The unpurged fallback is removed.",
+      "status": "FIXED_AND_SMOKE_TESTED"
+    },
+    {
+      "id": "F0_BENCHMARK_FORWARD_JOIN",
+      "severity": "critical",
+      "prior_state": "Placeholder and calculated benchmark forward columns could merge into _x/_y columns, leaving canonical excess-return labels empty.",
+      "corrected_state": "Placeholders are removed before merge and canonical benchmark value/provenance columns are asserted.",
+      "status": "FIXED_AND_SMOKE_TESTED"
+    },
+    {
+      "id": "F0_OOS_INDEPENDENCE",
+      "severity": "high",
+      "prior_state": "OOS2 beginning 2023-01-01 overlapped OOS beginning 2024-07-01.",
+      "corrected_state": "OOS2 defaults to 2023-01-01 through 2024-06-30 and any overlap fails closed.",
+      "status": "FIXED_AND_SMOKE_TESTED"
+    },
+    {
+      "id": "F0_AUTOMATIC_PROMOTION",
+      "severity": "high",
+      "prior_state": "Two workflows could copy an eligible candidate directly over active feature gates.",
+      "corrected_state": "Automatic learning is proposal-only and cannot mutate the champion even when invoked without --dry-run.",
+      "status": "FIXED_AND_SMOKE_TESTED"
+    },
+    {
+      "id": "F1_CANONICAL_METRIC_IDENTITY",
+      "severity": "high",
+      "prior_state": "Different end dates, target filters and metric modes are presented as baseline performance.",
+      "required_state": "One source manifest, target-book hash, cost contract, reserve contract, lifecycle contract, date window and commit SHA must identify every promoted metric.",
+      "status": "OPEN"
+    },
+    {
+      "id": "F2_EXECUTION_REALISM",
+      "severity": "high",
+      "prior_state": "Primary replay centers on fixed bps costs without full half-spread, ADV participation, volatility impact and capacity scenarios.",
+      "required_state": "Add immutable 0.1%, 0.5% and 1.0% ADV scenarios and compare paper slippage with assumed impact.",
+      "status": "OPEN"
+    },
+    {
+      "id": "F3_MULTIPLE_TESTING",
+      "severity": "high",
+      "prior_state": "No integrated DSR, PBO, White Reality Check or SPA promotion gate was found.",
+      "required_state": "Ledger-aware multiple-testing statistics must fail closed before a challenger can request a fullrun.",
+      "status": "OPEN"
+    }
+  ],
+  "rejected_current_challengers": [
+    {
+      "id": "hierarchical_sector_leadership_portfolio_reconstruction",
+      "github_pr": 336,
+      "status": "REJECT_CAGR_AND_MDD",
+      "note": "Keep the report-only tape; do not promote or repeat the same reconstruction."
+    },
+    {
+      "id": "fixed_crisis_policy",
+      "status": "REJECT_CAGR_AND_CASH_TRAP",
+      "note": "MDD relief did not compensate for CAGR loss; concentrated MDD also worsened slightly."
+    }
+  ],
+  "ordered_next_work": [
+    {
+      "order": 1,
+      "id": "corrected_canonical_rebaseline",
+      "kind": "measurement",
+      "requires_fullrun_approval": true,
+      "promotion_allowed": false
+    },
+    {
+      "order": 2,
+      "id": "execution_cost_capacity_layer",
+      "kind": "infrastructure",
+      "requires_fullrun_approval": false,
+      "promotion_allowed": false
+    },
+    {
+      "order": 3,
+      "id": "dsr_pbo_spa_reality_check_gate",
+      "kind": "validation",
+      "requires_fullrun_approval": false,
+      "promotion_allowed": false
+    },
+    {
+      "order": 4,
+      "id": "single_causal_cagr_mdd_challenger",
+      "kind": "research",
+      "maximum_active_arms": 1,
+      "prerequisite": "Corrected champion identity and experiment ledger are trusted."
+    }
+  ]
+}

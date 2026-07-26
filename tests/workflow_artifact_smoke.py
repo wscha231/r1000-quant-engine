@@ -557,7 +557,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/policy_fusion.log",
         "tools/build_concentrated_trade_journal.py",
         "--extra-trades outputs/concentrated_trade_journal/trades.csv",
-        "auto_learning_promote_live",
+        "tools/auto_learning_promote.py --dry-run",
         "outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main",
         "--target-book outputs/reports/operating_main_target_book.csv",
         "--target-book outputs/reports/operating_concentrated_target_book.csv",

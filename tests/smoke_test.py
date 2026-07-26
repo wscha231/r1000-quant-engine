@@ -1910,8 +1910,8 @@ def test_full_rebuild_pushes_results_to_dispatch_branch() -> None:
 
 @_test("regression.phase18c_auto_learning_gate_wired")
 def test_phase18c_auto_learning_gate_wired() -> None:
-    """Phase 20: learned gates should apply automatically only when the
-    auto-promoted YAML exists; no YAML remains a no-op. scored_latest must keep
+    """Phase 20: learned gates apply only when a separately reviewed active
+    YAML exists; no YAML remains a no-op. scored_latest must keep
     explosion/regime audit columns even when they are all zero.
     """
     pipe_src = _pipeline_src()
@@ -1927,8 +1927,21 @@ def test_phase18c_auto_learning_gate_wired() -> None:
     promote = ROOT / "tools" / "auto_learning_promote.py"
     assert promote.exists(), "tools/auto_learning_promote.py missing"
     promote_src = promote.read_text(encoding="utf-8")
-    for token in ("candidate_gates", "active_gates", "concentrated_cagr_floor", "min_trades"):
+    for token in (
+        "candidate_gates",
+        "active_gates",
+        "concentrated_cagr_floor",
+        "min_trades",
+        '"automatic_promotion_allowed": False',
+        '"proposal_only": True',
+        '"promoted": False',
+    ):
         assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
+    assert "shutil.copy2" not in promote_src
+    for workflow_name in ("quarterly_auto_learning.yml", "full_rebuild_manual.yml"):
+        workflow = (ROOT / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+        assert "promote_live" not in workflow
+        assert "auto_learning_promote.py --dry-run" in workflow
 
 
 @_test("regression.alphaops_report_only_outputs_wired")

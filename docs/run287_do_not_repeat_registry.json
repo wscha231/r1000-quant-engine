@@ -230,6 +230,32 @@
         "docs/CODEX_RUN287_P6_CANDIDATE_GATE_STABILITY_RESULT_20260720.md",
         "_tmp_tests/p6_sector_rs_broker_ab_20260720/summary.json"
       ]
+    },
+    {
+      "id": "hierarchical_sector_leadership_portfolio_reconstruction",
+      "signal": "hierarchical_sector_industry_subsector_theme_stock_leadership",
+      "mechanism": "market_leader_challenger_portfolio_reconstruction",
+      "book": "generated_main_and_concentrated",
+      "window": "2019-05-31_2026-04-30",
+      "status": "REJECT_CAGR_AND_MDD",
+      "blocked_reuse": true,
+      "do_not_repeat_key": "hierarchical_sector_industry_subsector_theme_stock_leadership+market_leader_challenger_portfolio_reconstruction+generated_main_and_concentrated+2019-05-31_2026-04-30",
+      "evidence": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/336"
+      ],
+      "metrics_25bps": {
+        "main": {
+          "cagr": 0.2382,
+          "max_drawdown": -0.3623,
+          "sharpe": 0.93
+        },
+        "concentrated": {
+          "cagr": 0.1684,
+          "max_drawdown": -0.4669,
+          "sharpe": 0.61
+        }
+      },
+      "reuse_note": "The report-only leadership tape remains useful. Reusing it as the same portfolio reconstruction or tilt is blocked unless data coverage or semantics materially change."
     }
   ]
 }

@@ -4408,22 +4408,31 @@ def load_benchmark_price_series(cfg: EngineConfig, paths: dict[str, Path]) -> pd
     return price_close_series(bench_px).dropna().sort_index()
 
 
-def return_series_to_series(close: pd.Series, start_dt: pd.Timestamp, horizon: int) -> Optional[float]:
+def return_series_to_series_with_end_date(
+    close: pd.Series,
+    start_dt: pd.Timestamp,
+    horizon: int,
+) -> tuple[Optional[float], Optional[pd.Timestamp]]:
     if close is None or close.empty:
-        return None
+        return None, None
     idx = pd.DatetimeIndex(pd.to_datetime(close.index).tz_localize(None))
     dt0 = get_date_on_or_after(idx, pd.Timestamp(start_dt))
     if dt0 is None:
-        return None
+        return None, None
     i0 = int(np.where(idx == dt0)[0][0])
     i1 = i0 + int(horizon)
     if i1 >= len(idx):
-        return None
+        return None, None
     p0 = float(close.iloc[i0])
     p1 = float(close.iloc[i1])
     if p0 == 0 or not np.isfinite(p0) or not np.isfinite(p1):
-        return None
-    return p1 / p0 - 1.0
+        return None, None
+    return p1 / p0 - 1.0, pd.Timestamp(idx[i1])
+
+
+def return_series_to_series(close: pd.Series, start_dt: pd.Timestamp, horizon: int) -> Optional[float]:
+    value, _ = return_series_to_series_with_end_date(close, start_dt, horizon)
+    return value
 
 
 def return_series_between_dates(close: pd.Series, entry_dt: pd.Timestamp, exit_dt: pd.Timestamp) -> Optional[float]:
@@ -4621,9 +4630,22 @@ def merge_benchmark_relative_features(cfg: EngineConfig, paths: dict[str, Path],
 
 def attach_benchmark_forward_returns(cfg: EngineConfig, paths: dict[str, Path], monthly: pd.DataFrame) -> pd.DataFrame:
     d = monthly.copy()
-    for c in ["bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m"]:
+    benchmark_horizons = {
+        "1m": int(cfg.target_1m_days),
+        "3m": int(cfg.target_3m_days),
+        "6m": int(cfg.target_6m_days),
+        "12m": int(cfg.target_12m_days),
+        "24m": int(cfg.target_24m_days),
+        "36m": int(cfg.target_36m_days),
+    }
+    benchmark_columns = [
+        col
+        for label in benchmark_horizons
+        for col in (f"bench_r_{label}", f"bench_r_{label}_label_end_date")
+    ]
+    for c in benchmark_columns:
         if c not in d.columns:
-            d[c] = np.nan
+            d[c] = pd.NaT if c.endswith("_label_end_date") else np.nan
     if d.empty or "rebalance_date" not in d.columns:
         return d
 
@@ -4635,21 +4657,19 @@ def attach_benchmark_forward_returns(cfg: EngineConfig, paths: dict[str, Path], 
     unique_dates = pd.to_datetime(d["rebalance_date"], errors="coerce").dropna().drop_duplicates().sort_values()
     for dt in unique_dates:
         start_dt = pd.Timestamp(dt) + pd.Timedelta(days=1)
-        rows.append(
-            {
-                "rebalance_date": pd.Timestamp(dt),
-                "bench_r_1m": return_series_to_series(close, start_dt, cfg.target_1m_days),
-                "bench_r_3m": return_series_to_series(close, start_dt, cfg.target_3m_days),
-                "bench_r_6m": return_series_to_series(close, start_dt, cfg.target_6m_days),
-                "bench_r_12m": return_series_to_series(close, start_dt, cfg.target_12m_days),
-                "bench_r_24m": return_series_to_series(close, start_dt, cfg.target_24m_days),
-                "bench_r_36m": return_series_to_series(close, start_dt, cfg.target_36m_days),
-            }
-        )
+        row: dict[str, Any] = {"rebalance_date": pd.Timestamp(dt)}
+        for label, horizon in benchmark_horizons.items():
+            value, end_date = return_series_to_series_with_end_date(close, start_dt, horizon)
+            row[f"bench_r_{label}"] = value
+            row[f"bench_r_{label}_label_end_date"] = end_date
+        rows.append(row)
     if not rows:
         return d
     bench_forward = pd.DataFrame(rows)
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    # Remove placeholders before merging so pandas does not silently create
+    # bench_r_*_x / bench_r_*_y and leave the canonical columns empty.
+    d = d.drop(columns=benchmark_columns, errors="ignore")
     return d.merge(bench_forward, on="rebalance_date", how="left")
 
 # Stage 3d-ii-min (2026-04-20): compute_event_regime_features moved to r1000_features.py.
@@ -6181,16 +6201,20 @@ def compute_forward_returns_for_dates(
     hist: pd.DataFrame,
     base_dates: pd.Series,
     horizons: list[int],
-) -> tuple[pd.Series, dict[int, pd.Series]]:
+) -> tuple[pd.Series, dict[int, pd.Series], dict[int, pd.Series]]:
     base = pd.to_datetime(base_dates, errors="coerce")
     entry_dates = pd.Series(pd.NaT, index=base.index, dtype="datetime64[ns]")
     returns = {int(h): pd.Series(np.nan, index=base.index, dtype=float) for h in horizons}
+    end_dates = {
+        int(h): pd.Series(pd.NaT, index=base.index, dtype="datetime64[ns]")
+        for h in horizons
+    }
     if hist is None or hist.empty or "Open" not in hist.columns:
-        return entry_dates, returns
+        return entry_dates, returns, end_dates
 
     idx = pd.DatetimeIndex(pd.to_datetime(hist.index).tz_localize(None))
     if len(idx) == 0:
-        return entry_dates, returns
+        return entry_dates, returns, end_dates
     open_px = pd.to_numeric(adjusted_open_series(hist), errors="coerce").astype(float)
     raw_pos = idx.searchsorted((base + pd.Timedelta(days=1)).to_numpy(), side="left")
     valid_entry = base.notna().to_numpy() & (raw_pos < len(idx))
@@ -6210,7 +6234,8 @@ def compute_forward_returns_for_dates(
         good = np.isfinite(p0) & np.isfinite(p1) & (p0 != 0)
         out[good] = p1[good] / p0[good] - 1.0
         returns[int(h)].loc[valid] = out
-    return entry_dates, returns
+        end_dates[int(h)].loc[valid] = pd.to_datetime(idx.to_numpy()[target_pos[valid]])
+    return entry_dates, returns, end_dates
 
 
 def compute_earn_gap_1d_for_dates(hist: pd.DataFrame, accepted_dates: pd.Series) -> pd.Series:
@@ -8275,13 +8300,15 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     universe["r_12m"] = np.nan
     universe["r_24m"] = np.nan
     universe["r_36m"] = np.nan
+    for label in ("1m", "3m", "6m", "12m", "24m", "36m"):
+        universe[f"r_{label}_label_end_date"] = pd.NaT
     universe["earn_gap_1d"] = np.nan
     for t, g in universe.groupby("ticker", sort=False):
         px = load_px(paths, t)
         if px is None or px.empty:
             continue
         gg = g.sort_values("rebalance_date")
-        entry_dates, forward_returns = compute_forward_returns_for_dates(
+        entry_dates, forward_returns, forward_end_dates = compute_forward_returns_for_dates(
             px,
             gg["rebalance_date"],
             [
@@ -8300,6 +8327,12 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         universe.loc[gg.index, "r_12m"] = forward_returns[int(cfg.target_12m_days)].values
         universe.loc[gg.index, "r_24m"] = forward_returns[int(cfg.target_24m_days)].values
         universe.loc[gg.index, "r_36m"] = forward_returns[int(cfg.target_36m_days)].values
+        universe.loc[gg.index, "r_1m_label_end_date"] = forward_end_dates[int(cfg.target_1m_days)].values
+        universe.loc[gg.index, "r_3m_label_end_date"] = forward_end_dates[int(cfg.target_3m_days)].values
+        universe.loc[gg.index, "r_6m_label_end_date"] = forward_end_dates[int(cfg.target_6m_days)].values
+        universe.loc[gg.index, "r_12m_label_end_date"] = forward_end_dates[int(cfg.target_12m_days)].values
+        universe.loc[gg.index, "r_24m_label_end_date"] = forward_end_dates[int(cfg.target_24m_days)].values
+        universe.loc[gg.index, "r_36m_label_end_date"] = forward_end_dates[int(cfg.target_36m_days)].values
         universe.loc[gg.index, "earn_gap_1d"] = compute_earn_gap_1d_for_dates(px, gg["accepted"]).values
     universe = attach_benchmark_forward_returns(cfg, paths, universe)
 
@@ -8414,10 +8447,9 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     # pass, so the current production model/selection behavior is preserved.
     universe = compute_explosion_likelihood_score(universe, cfg)
     universe = compute_regime_state_classifier(universe)
-    # Phase 18c automatic learning hook. No-op unless
-    # research/auto_feature_gates.yaml exists and has not expired. When a
-    # challenger is auto-promoted, learned signal/regime gates apply before
-    # scoring across both historical walk-forward rows and latest scoring rows.
+    # Phase 18c learned-gate hook. No-op unless a separately reviewed active
+    # research/auto_feature_gates.yaml exists and has not expired. Automated
+    # learning can propose this artifact but cannot activate it.
     universe = apply_phase18c_gates_to_frame(universe)
 
     keep_cols = list(
@@ -8437,6 +8469,18 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
                 "feature_date",
                 "entry_date",
                 "rebalance_date",
+                "r_1m_label_end_date",
+                "r_3m_label_end_date",
+                "r_6m_label_end_date",
+                "r_12m_label_end_date",
+                "r_24m_label_end_date",
+                "r_36m_label_end_date",
+                "bench_r_1m_label_end_date",
+                "bench_r_3m_label_end_date",
+                "bench_r_6m_label_end_date",
+                "bench_r_12m_label_end_date",
+                "bench_r_24m_label_end_date",
+                "bench_r_36m_label_end_date",
                 "r_12m",
                 "r_24m",
                 "r_36m",
@@ -8540,6 +8584,8 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     )
     fs["rebalance_date"] = pd.to_datetime(fs["rebalance_date"], errors="coerce")
     fs["feature_date"] = pd.to_datetime(fs["feature_date"], errors="coerce")
+    for c in [col for col in fs.columns if col.endswith("_label_end_date")]:
+        fs[c] = pd.to_datetime(fs[c], errors="coerce")
     (paths["reports"] / "feature_store_quality.json").write_text(
         json.dumps(
             {
@@ -9008,6 +9054,9 @@ def drop_actionable_leakage_columns(df: pd.DataFrame) -> pd.DataFrame:
         if (
             lower in _ACTIONABLE_LEAKAGE_EXACT_COLUMNS
             or lower.startswith("bench_r_")
+            or lower.endswith("_label_end_date")
+            or lower.endswith("_label_available_at")
+            or lower.endswith("_label_complete")
             or lower.endswith("_forward_return")
             or re.match(r"^r_\d+[mdy]$", lower)
         ):
@@ -9037,6 +9086,7 @@ def save_phase4_latest_scoring_artifacts(
         "model_features": list(model_features),
         "scaler": scaler,
         "ranking_enabled": bool(ranking_enabled),
+        "label_availability_policy": LABEL_AVAILABILITY_POLICY,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "ridge": {
             "coef": [float(x) for x in np.asarray(getattr(reg, "coef_", []), dtype=float).tolist()],
@@ -9089,6 +9139,8 @@ def load_phase4_latest_scoring_artifacts(
         return None
     if list(meta.get("model_features", [])) != list(model_features):
         return None
+    if meta.get("label_availability_policy") != LABEL_AVAILABILITY_POLICY:
+        return None
     return meta if isinstance(meta, dict) else None
 
 
@@ -9112,6 +9164,103 @@ def logreg_predict_proba_from_meta(X: np.ndarray, meta: dict[str, Any], key: str
     z = X @ coef + intercept
     z = np.clip(z, -40.0, 40.0)
     return 1.0 / (1.0 + np.exp(-z))
+
+
+LABEL_AVAILABILITY_POLICY = "exact_forward_observation_v1"
+_SHORT_LABEL_WEIGHTS = (
+    ("1m", "target_blend_1m"),
+    ("3m", "target_blend_3m"),
+    ("6m", "target_blend_6m"),
+)
+_FUTURE_LABEL_WEIGHTS = (
+    ("12m", "future_target_blend_12m"),
+    ("24m", "future_target_blend_24m"),
+    ("36m", "future_target_blend_36m"),
+)
+
+
+def derive_label_availability(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
+    """Attach exact label maturity dates for fail-closed model training.
+
+    A blended target is complete only when every positively weighted stock
+    horizon is observed. When excess return contributes to the target, the
+    matching benchmark horizon must also be observed. This prevents a row from
+    entering training before its latest constituent label existed.
+    """
+    d = df.copy()
+    groups = (
+        ("short", _SHORT_LABEL_WEIGHTS, float(cfg.target_excess_weight)),
+        ("future", _FUTURE_LABEL_WEIGHTS, float(cfg.future_target_excess_weight)),
+    )
+    for prefix, weight_spec, excess_weight in groups:
+        complete = pd.Series(True, index=d.index, dtype=bool)
+        maturity_columns: list[pd.Series] = []
+        missing: list[str] = []
+        for label, weight_attr in weight_spec:
+            if float(getattr(cfg, weight_attr)) <= 0.0:
+                continue
+            value_col = f"r_{label}"
+            end_col = f"r_{label}_label_end_date"
+            for col in (value_col, end_col):
+                if col not in d.columns:
+                    missing.append(col)
+            if value_col in d.columns and end_col in d.columns:
+                end = pd.to_datetime(d[end_col], errors="coerce")
+                d[end_col] = end
+                complete &= pd.to_numeric(d[value_col], errors="coerce").notna() & end.notna()
+                maturity_columns.append(end.rename(end_col))
+
+            if excess_weight > 0.0:
+                bench_value_col = f"bench_r_{label}"
+                bench_end_col = f"bench_r_{label}_label_end_date"
+                for col in (bench_value_col, bench_end_col):
+                    if col not in d.columns:
+                        missing.append(col)
+                if bench_value_col in d.columns and bench_end_col in d.columns:
+                    bench_end = pd.to_datetime(d[bench_end_col], errors="coerce")
+                    d[bench_end_col] = bench_end
+                    complete &= (
+                        pd.to_numeric(d[bench_value_col], errors="coerce").notna()
+                        & bench_end.notna()
+                    )
+                    maturity_columns.append(bench_end.rename(bench_end_col))
+
+        if missing:
+            raise RuntimeError(
+                f"{LABEL_AVAILABILITY_POLICY}: missing {prefix} label provenance columns: "
+                + ", ".join(sorted(set(missing)))
+            )
+        if not maturity_columns:
+            raise RuntimeError(f"{LABEL_AVAILABILITY_POLICY}: no positive {prefix} target weights")
+
+        maturity = pd.concat(maturity_columns, axis=1).max(axis=1)
+        # Classification targets use a same-month cross-sectional quantile.
+        # Delay the whole month's label until every complete constituent used
+        # by that quantile is observable, not merely the individual row.
+        date_source = d["feature_date"] if "feature_date" in d.columns else d.get("rebalance_date")
+        if date_source is not None:
+            month_bucket = pd.to_datetime(date_source, errors="coerce").dt.to_period("M")
+            complete_month_maturity = maturity.where(complete).groupby(month_bucket).transform("max")
+            maturity = complete_month_maturity.where(complete, pd.NaT)
+        d[f"{prefix}_label_complete"] = complete
+        d[f"{prefix}_label_available_at"] = maturity.where(complete, pd.NaT)
+    return d
+
+
+def label_ready_before(df: pd.DataFrame, prefix: str, decision_date: Any) -> pd.Series:
+    complete_col = f"{prefix}_label_complete"
+    available_col = f"{prefix}_label_available_at"
+    if complete_col not in df.columns or available_col not in df.columns:
+        raise RuntimeError(f"{LABEL_AVAILABILITY_POLICY}: {prefix} availability was not derived")
+    cutoff = pd.to_datetime(decision_date, errors="coerce")
+    if pd.isna(cutoff):
+        raise ValueError(f"Invalid decision date for label purge: {decision_date!r}")
+    available = pd.to_datetime(df[available_col], errors="coerce")
+    return (
+        df[complete_col].fillna(False).astype(bool)
+        & available.notna()
+        & (available < pd.Timestamp(cutoff))
+    )
 
 
 def make_targets(df: pd.DataFrame, cfg: EngineConfig) -> tuple[np.ndarray, np.ndarray]:
@@ -9843,6 +9992,8 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e14,
     )
+    d = derive_label_availability(d, cfg)
+    d = d[d["short_label_complete"].fillna(False).astype(bool)].copy()
 
     y_all, ybin_all = make_targets(d, cfg)
     d["y_blend"] = y_all
@@ -9850,7 +10001,10 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     future_y_all, future_ybin_all, future_avail_all = make_future_winner_targets(d, cfg)
     d["future_winner_y"] = future_y_all
     d["future_winner_bin"] = future_ybin_all
-    d["future_winner_available"] = future_avail_all
+    d["future_winner_available"] = (
+        future_avail_all
+        & d["future_label_complete"].fillna(False).astype(bool).to_numpy()
+    )
 
     monthly_ticker_counts = (
         d.dropna(subset=["rebalance_date"])
@@ -9965,15 +10119,21 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         need_retrain = current_scaler is None or current_anchor_idx != anchor_idx
         if need_retrain:
             anchor_dt = pd.Timestamp(dates[anchor_idx])
-            anchor_train_end = anchor_dt - pd.Timedelta(days=cfg.embargo_days)
             anchor_train_start = anchor_dt - pd.DateOffset(years=cfg.train_lookback_years)
-            anchor_train_mask = (d["feature_date"] >= anchor_train_start) & (d["feature_date"] <= anchor_train_end)
+            anchor_train_mask = (
+                (d["feature_date"] >= anchor_train_start)
+                & (d["feature_date"] < anchor_dt)
+                & label_ready_before(d, "short", anchor_dt)
+            )
             anchor_train_df = d[anchor_train_mask].copy()
 
             if len(anchor_train_df) < effective_min_train_samples:
-                current_train_end = test_dt - pd.Timedelta(days=cfg.embargo_days)
                 current_train_start = test_dt - pd.DateOffset(years=cfg.train_lookback_years)
-                current_train_mask = (d["feature_date"] >= current_train_start) & (d["feature_date"] <= current_train_end)
+                current_train_mask = (
+                    (d["feature_date"] >= current_train_start)
+                    & (d["feature_date"] < test_dt)
+                    & label_ready_before(d, "short", test_dt)
+                )
                 anchor_train_df = d[current_train_mask].copy()
             train_sample_sizes.append(int(len(anchor_train_df)))
             if len(anchor_train_df) < effective_min_train_samples:
@@ -10004,7 +10164,10 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             else:
                 current_clf = None
 
-            future_fit_df = fit_df[fit_df["future_winner_available"].fillna(False).astype(bool)].copy()
+            future_fit_df = fit_df[
+                fit_df["future_winner_available"].fillna(False).astype(bool)
+                & label_ready_before(fit_df, "future", anchor_dt)
+            ].copy()
             current_future_reg = None
             current_future_clf = None
             if len(future_fit_df) >= max(500, effective_min_train_samples // 4):
@@ -10251,6 +10414,8 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             "future_r_36m": float(cfg.future_target_blend_36m),
             "future_target_excess_weight": float(cfg.future_target_excess_weight),
             "benchmark_history_source": benchmark_history_source_label(cfg),
+            "label_availability_policy": LABEL_AVAILABILITY_POLICY,
+            "label_cutoff_rule": "label_available_at < decision_date",
         },
         ranking_metrics=ranking_metrics,
         adaptive_ensemble_weights={k: float(v) for k, v in adaptive_state_latest.get("weights", {}).items()},
@@ -12410,19 +12575,25 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
     if latest_df.empty:
         raise RuntimeError("Latest recommendation set is empty after price/liquidity filters.")
 
+    hist = derive_label_availability(hist, cfg)
+    hist = hist[hist["short_label_complete"].fillna(False).astype(bool)].copy()
     y_all, ybin_all = make_targets(hist, cfg)
     hist["y_blend"] = y_all
     hist["y_bin"] = ybin_all
     future_y_all, future_ybin_all, future_avail_all = make_future_winner_targets(hist, cfg)
     hist["future_winner_y"] = future_y_all
     hist["future_winner_bin"] = future_ybin_all
-    hist["future_winner_available"] = future_avail_all
+    hist["future_winner_available"] = (
+        future_avail_all
+        & hist["future_label_complete"].fillna(False).astype(bool).to_numpy()
+    )
 
     train_start = latest_dt - pd.DateOffset(years=cfg.train_lookback_years)
-    train_end = latest_dt - pd.Timedelta(days=cfg.embargo_days)
-    train_df = hist[(hist["feature_date"] >= train_start) & (hist["feature_date"] <= train_end)].copy()
-    if len(train_df) < max(800, cfg.min_train_samples // 3):
-        train_df = hist[(hist["feature_date"] >= train_start) & (hist["rebalance_date"] < latest_dt)].copy()
+    train_df = hist[
+        (hist["feature_date"] >= train_start)
+        & (hist["feature_date"] < latest_dt)
+        & label_ready_before(hist, "short", latest_dt)
+    ].copy()
     if len(train_df) < 500:
         raise RuntimeError(
             "Latest recommendation training set is too small. "
@@ -12583,7 +12754,10 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
     X_latest = apply_scaler(latest_df, scaler, model_features)
     y_train = train_df["y_blend"].values
     ybin_train = train_df["y_bin"].values
-    future_train_df = train_df[train_df["future_winner_available"].fillna(False).astype(bool)].copy()
+    future_train_df = train_df[
+        train_df["future_winner_available"].fillna(False).astype(bool)
+        & label_ready_before(train_df, "future", latest_dt)
+    ].copy()
 
     reg = Ridge(alpha=cfg.ridge_alpha, fit_intercept=True, random_state=cfg.random_seed)
     reg.fit(X_train, y_train)
