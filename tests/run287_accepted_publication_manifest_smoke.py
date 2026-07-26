@@ -333,6 +333,11 @@ def build_fixture(root: Path) -> Path:
                 "base_evidence_sha256": sha256_file(
                     ROOT / "data_static/run287_promotion_evidence_current.json"
                 ),
+                "approved_multiple_testing_pointer_sha256": sha256_file(
+                    ROOT
+                    / "data_static"
+                    / "run287_multiple_testing_approved_pointer.json"
+                ),
                 "evidence_sha256": "f" * 64,
                 "runtime_paper_integrity_sha256": sha256_file(
                     paper / "snapshot_integrity.json"

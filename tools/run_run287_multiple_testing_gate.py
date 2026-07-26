@@ -34,10 +34,16 @@ from scipy.stats import kurtosis, norm, rankdata, skew
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_multiple_testing_gate_contract.json"
+DEFAULT_PROMOTION_STATE = ROOT / "data_static" / "run287_promotion_state.json"
 GATE_SCHEMA = "run287-multiple-testing-gate-v1"
 SOURCE_MANIFEST_SCHEMA = "run287-multiple-testing-source-manifest-v1"
 LEDGER_SCHEMA = "run287-complete-experiment-ledger-v1"
 PREREGISTRATION_SCHEMA = "run287-experiment-preregistration-v1"
+EVALUATION_SNAPSHOT_SCHEMA = "run287-experiment-evaluation-snapshot-v1"
+PROMOTION_STATE_SCHEMA = "run287-promotion-state-v1"
+CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH = (
+    "docs/run287_do_not_repeat_registry.json"
+)
 CONTRACT_SCHEMA = "run287-multiple-testing-gate-contract-v1"
 CONTRACT_VERSION = "2026-07-27.1"
 EULER_MASCHERONI = 0.5772156649015329
@@ -45,9 +51,16 @@ EULER_MASCHERONI = 0.5772156649015329
 CANONICAL_INPUT_CONTRACT = {
     "experiment_ledger_schema_version": LEDGER_SCHEMA,
     "preregistration_schema_version": PREREGISTRATION_SCHEMA,
+    "evaluation_snapshot_schema_version": EVALUATION_SNAPSHOT_SCHEMA,
     "git_anchored_preregistration_required": True,
-    "preregistration_commit_must_precede_evaluation_head": True,
+    "preregistration_commit_must_strictly_precede_evaluation_snapshot": True,
+    "evaluation_snapshot_must_precede_or_equal_evaluation_head": True,
     "preregistered_trial_set_must_exactly_match_ledger": True,
+    "canonical_promotion_state_champion_binding_required": True,
+    "canonical_do_not_repeat_registry_path": (
+        CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
+    ),
+    "canonical_registry_history_preservation_required": True,
     "return_matrix_format": "csv",
     "date_column": "date",
     "return_semantics": (
@@ -82,9 +95,10 @@ CANONICAL_THRESHOLDS = {
 }
 CANONICAL_METHODOLOGY = {
     "preregistration": (
-        "candidate identity, causal family, selection rule, complete trial "
-        "parameter hashes, and do-not-repeat registry snapshot must be read "
-        "from a Git blob committed before the evaluation HEAD"
+        "candidate identity, canonical champion, causal family, selection "
+        "rule, complete trial parameter hashes, and canonical do-not-repeat "
+        "registry history must be bound by a preregistration Git blob that "
+        "strictly predates an exact evaluation-start snapshot"
     ),
     "deflated_sharpe": (
         "probabilistic Sharpe ratio against the expected maximum Sharpe "
@@ -130,6 +144,16 @@ CANONICAL_SAFETY = {
 }
 CANONICAL_PREREGISTRATION_SAFETY = {
     "research_only": True,
+    "automatic_promotion_allowed": False,
+    "champion_change_allowed": False,
+    "fullrun_allowed": False,
+    "production_activation_allowed": False,
+    "live_trading_enabled": False,
+}
+CANONICAL_EVALUATION_SNAPSHOT_SAFETY = {
+    "research_only": True,
+    "results_present": False,
+    "evaluation_starts_after_snapshot_commit": True,
     "automatic_promotion_allowed": False,
     "champion_change_allowed": False,
     "fullrun_allowed": False,
@@ -244,6 +268,45 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
 
 def valid_commit(value: Any) -> bool:
     return bool(re.fullmatch(r"[0-9a-f]{40}", str(value or "").lower()))
+
+
+def validate_canonical_champion(
+    ledger: dict[str, Any],
+    promotion_state: dict[str, Any],
+) -> tuple[list[str], dict[str, Any]]:
+    blockers: list[str] = []
+    if promotion_state.get("schema_version") != PROMOTION_STATE_SCHEMA:
+        blockers.append("promotion_state_schema_invalid")
+    canonical = promotion_state.get("canonical_champion")
+    if not isinstance(canonical, dict):
+        blockers.append("canonical_champion_missing")
+        canonical = {}
+    required_fields = {
+        "policy_id",
+        "source_commit",
+        "metric_mode",
+        "main_target_book_sha256",
+        "concentrated_target_book_sha256",
+        "account_namespace",
+    }
+    if set(canonical) != required_fields:
+        blockers.append("canonical_champion_fields_invalid")
+    if not valid_commit(canonical.get("source_commit")):
+        blockers.append("canonical_champion_source_commit_invalid")
+    for field in (
+        "main_target_book_sha256",
+        "concentrated_target_book_sha256",
+    ):
+        if not re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(canonical.get(field) or "").lower(),
+        ):
+            blockers.append(f"canonical_champion_{field}_invalid")
+    if ledger.get("canonical_champion") != canonical:
+        blockers.append("ledger_canonical_champion_mismatch")
+    if ledger.get("champion_id") != canonical.get("policy_id"):
+        blockers.append("ledger_champion_id_mismatch")
+    return unique_sorted(blockers), canonical
 
 
 def validate_ledger(
@@ -372,29 +435,71 @@ def validate_preregistration(
     repository_root: Path,
     ledger: dict[str, Any],
     trials: list[dict[str, Any]],
-) -> tuple[list[str], dict[str, Any], bytes, bytes]:
+    *,
+    promotion_state_sha256: str,
+    canonical_champion: dict[str, Any],
+) -> tuple[
+    list[str],
+    dict[str, Any],
+    bytes,
+    dict[str, Any],
+    bytes,
+    bytes,
+    bytes,
+    bytes,
+]:
     blockers: list[str] = []
     repository_root = repository_root.resolve()
-    commit_sha = str(ledger.get("registration_commit_sha") or "").lower()
-    raw_path = str(ledger.get("preregistration_path") or "").replace(
+    registration_commit = str(
+        ledger.get("registration_commit_sha") or ""
+    ).lower()
+    evaluation_commit = str(
+        ledger.get("evaluation_commit_sha") or ""
+    ).lower()
+    preregistration_path = str(
+        ledger.get("preregistration_path") or ""
+    ).replace(
         "\\", "/"
     )
-    parts = raw_path.split("/") if raw_path else []
-    if (
-        not raw_path
-        or raw_path.startswith("/")
-        or ":" in raw_path
-        or any(part in {"", ".", ".."} for part in parts)
-        or not raw_path.endswith(".json")
-    ):
+    evaluation_snapshot_path = str(
+        ledger.get("evaluation_snapshot_path") or ""
+    ).replace("\\", "/")
+
+    def valid_repo_json_path(value: str) -> bool:
+        parts = value.split("/") if value else []
+        return bool(
+            value
+            and not value.startswith("/")
+            and ":" not in value
+            and all(part not in {"", ".", ".."} for part in parts)
+            and value.endswith(".json")
+        )
+
+    if not valid_repo_json_path(preregistration_path):
         blockers.append("preregistration_path_invalid")
+    if not valid_repo_json_path(evaluation_snapshot_path):
+        blockers.append("evaluation_snapshot_path_invalid")
+    if (
+        preregistration_path
+        and preregistration_path == evaluation_snapshot_path
+    ):
+        blockers.append("registration_and_evaluation_snapshot_path_collision")
     expected_preregistration_sha256 = str(
         ledger.get("preregistration_sha256") or ""
     ).lower()
+    expected_evaluation_snapshot_sha256 = str(
+        ledger.get("evaluation_snapshot_sha256") or ""
+    ).lower()
     if not re.fullmatch(r"[0-9a-f]{64}", expected_preregistration_sha256):
         blockers.append("preregistration_sha256_invalid")
-    if not valid_commit(commit_sha):
+    if not re.fullmatch(
+        r"[0-9a-f]{64}", expected_evaluation_snapshot_sha256
+    ):
+        blockers.append("evaluation_snapshot_sha256_invalid")
+    if not valid_commit(registration_commit):
         blockers.append("registration_commit_sha_invalid")
+    if not valid_commit(evaluation_commit):
+        blockers.append("evaluation_commit_sha_invalid")
 
     head_sha = ""
     if not blockers:
@@ -408,27 +513,58 @@ def validate_preregistration(
         head_sha = head.stdout.strip().lower() if head.returncode == 0 else ""
         if not valid_commit(head_sha):
             blockers.append("evaluation_repository_head_invalid")
-        commit_exists = subprocess.run(
-            ["git", "cat-file", "-e", f"{commit_sha}^{{commit}}"],
+        for label, commit in (
+            ("registration", registration_commit),
+            ("evaluation", evaluation_commit),
+        ):
+            exists = subprocess.run(
+                ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+                cwd=repository_root,
+                capture_output=True,
+                check=False,
+            )
+            if exists.returncode != 0:
+                blockers.append(f"{label}_commit_unavailable")
+        registration_ancestor = subprocess.run(
+            [
+                "git",
+                "merge-base",
+                "--is-ancestor",
+                registration_commit,
+                evaluation_commit,
+            ],
             cwd=repository_root,
             capture_output=True,
             check=False,
         )
-        if commit_exists.returncode != 0:
-            blockers.append("registration_commit_unavailable")
-        ancestor = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", commit_sha, "HEAD"],
+        if (
+            registration_ancestor.returncode != 0
+            or registration_commit == evaluation_commit
+        ):
+            blockers.append(
+                "registration_commit_does_not_strictly_precede_evaluation"
+            )
+        evaluation_ancestor = subprocess.run(
+            [
+                "git",
+                "merge-base",
+                "--is-ancestor",
+                evaluation_commit,
+                "HEAD",
+            ],
             cwd=repository_root,
             capture_output=True,
             check=False,
         )
-        if ancestor.returncode != 0:
-            blockers.append("registration_commit_not_ancestor")
-        if head_sha == commit_sha:
-            blockers.append("registration_commit_does_not_precede_head")
+        if evaluation_ancestor.returncode != 0:
+            blockers.append("evaluation_commit_not_ancestor_of_head")
 
     preregistration_bytes = (
-        git_blob(repository_root, commit_sha, raw_path)
+        git_blob(
+            repository_root,
+            registration_commit,
+            preregistration_path,
+        )
         if not blockers
         else b""
     )
@@ -459,6 +595,8 @@ def validate_preregistration(
         blockers.append("preregistration_mechanism_missing")
     if preregistration.get("safety") != CANONICAL_PREREGISTRATION_SAFETY:
         blockers.append("preregistration_safety_invalid")
+    if preregistration.get("canonical_champion") != canonical_champion:
+        blockers.append("preregistration_canonical_champion_mismatch")
 
     expected_trial_hashes = {
         str(trial["trial_id"]): str(trial["parameter_set_sha256"])
@@ -478,35 +616,180 @@ def validate_preregistration(
     registry_expected_sha256 = str(
         preregistration.get("do_not_repeat_registry_sha256") or ""
     ).lower()
-    registry_bytes = b""
+    registration_registry_bytes = b""
     if (
-        not registry_path
-        or registry_path.startswith("/")
-        or ":" in registry_path
-        or any(part in {"", ".", ".."} for part in registry_path.split("/"))
+        registry_path != CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
         or not re.fullmatch(r"[0-9a-f]{64}", registry_expected_sha256)
     ):
         blockers.append("preregistration_do_not_repeat_registry_anchor_invalid")
-    elif valid_commit(commit_sha):
-        registry_bytes = git_blob(repository_root, commit_sha, registry_path)
+    elif valid_commit(registration_commit):
+        registration_registry_bytes = git_blob(
+            repository_root,
+            registration_commit,
+            CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH,
+        )
         if (
-            not registry_bytes
-            or sha256_bytes(registry_bytes) != registry_expected_sha256
+            not registration_registry_bytes
+            or sha256_bytes(registration_registry_bytes)
+            != registry_expected_sha256
         ):
             blockers.append(
                 "preregistration_do_not_repeat_registry_sha256_mismatch"
             )
-    registry = parse_json_bytes(registry_bytes)
+
+    evaluation_snapshot_bytes = (
+        git_blob(
+            repository_root,
+            evaluation_commit,
+            evaluation_snapshot_path,
+        )
+        if valid_commit(evaluation_commit)
+        and valid_repo_json_path(evaluation_snapshot_path)
+        else b""
+    )
+    if not evaluation_snapshot_bytes:
+        blockers.append("evaluation_snapshot_git_blob_missing")
+    elif (
+        sha256_bytes(evaluation_snapshot_bytes)
+        != expected_evaluation_snapshot_sha256
+    ):
+        blockers.append("evaluation_snapshot_git_blob_sha256_mismatch")
+    evaluation_snapshot = parse_json_bytes(evaluation_snapshot_bytes)
+    if (
+        evaluation_snapshot.get("schema_version")
+        != EVALUATION_SNAPSHOT_SCHEMA
+    ):
+        blockers.append("evaluation_snapshot_schema_invalid")
+    for field in ("candidate_id", "champion_id", "causal_family_id"):
+        if evaluation_snapshot.get(field) != ledger.get(field):
+            blockers.append(f"evaluation_snapshot_{field}_mismatch")
+    if evaluation_snapshot.get("canonical_champion") != canonical_champion:
+        blockers.append("evaluation_snapshot_canonical_champion_mismatch")
+    if (
+        evaluation_snapshot.get("promotion_state_sha256")
+        != promotion_state_sha256
+    ):
+        blockers.append("evaluation_snapshot_promotion_state_sha256_mismatch")
+    if evaluation_snapshot.get("selection_metric") != "daily_sharpe":
+        blockers.append("evaluation_snapshot_selection_metric_invalid")
+    if (
+        evaluation_snapshot.get("trial_parameter_set_sha256")
+        != expected_trial_hashes
+        or evaluation_snapshot.get("evaluation_trial_count")
+        != len(expected_trial_hashes)
+    ):
+        blockers.append("evaluation_snapshot_trial_set_mismatch")
+    if evaluation_snapshot.get(
+        "preregistration"
+    ) != {
+        "commit_sha": registration_commit,
+        "path": preregistration_path,
+        "sha256": expected_preregistration_sha256,
+    }:
+        blockers.append("evaluation_snapshot_preregistration_anchor_mismatch")
+    if (
+        evaluation_snapshot.get("safety")
+        != CANONICAL_EVALUATION_SNAPSHOT_SAFETY
+    ):
+        blockers.append("evaluation_snapshot_safety_invalid")
+
+    evaluation_registry_expected_sha256 = str(
+        evaluation_snapshot.get(
+            "canonical_do_not_repeat_registry_sha256"
+        )
+        or ""
+    ).lower()
+    evaluation_registry_bytes = (
+        git_blob(
+            repository_root,
+            evaluation_commit,
+            CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH,
+        )
+        if valid_commit(evaluation_commit)
+        else b""
+    )
+    if (
+        not re.fullmatch(
+            r"[0-9a-f]{64}", evaluation_registry_expected_sha256
+        )
+        or not evaluation_registry_bytes
+        or sha256_bytes(evaluation_registry_bytes)
+        != evaluation_registry_expected_sha256
+    ):
+        blockers.append("evaluation_snapshot_canonical_registry_mismatch")
+
+    current_registry_path = (
+        repository_root / CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
+    )
+    current_registry_bytes = b""
+    if (
+        not current_registry_path.is_file()
+        or current_registry_path.is_symlink()
+    ):
+        blockers.append("canonical_do_not_repeat_registry_missing")
+    else:
+        current_registry_bytes = current_registry_path.read_bytes()
+
+    registration_registry = parse_json_bytes(registration_registry_bytes)
+    evaluation_registry = parse_json_bytes(evaluation_registry_bytes)
+    current_registry = parse_json_bytes(current_registry_bytes)
+
+    def registry_entries(
+        payload: dict[str, Any],
+        label: str,
+    ) -> dict[str, dict[str, Any]]:
+        if payload.get("schema_version") != "run287-do-not-repeat-registry-v1":
+            blockers.append(f"{label}_registry_schema_invalid")
+            return {}
+        raw_entries = payload.get("entries")
+        if not isinstance(raw_entries, list):
+            blockers.append(f"{label}_registry_entries_invalid")
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        for entry in raw_entries:
+            entry_id = str(entry.get("id") or "") if isinstance(entry, dict) else ""
+            if not entry_id or entry_id in result:
+                blockers.append(f"{label}_registry_entry_id_invalid")
+                continue
+            result[entry_id] = entry
+        return result
+
+    registration_entries = registry_entries(
+        registration_registry, "registration"
+    )
+    evaluation_entries = registry_entries(evaluation_registry, "evaluation")
+    current_entries = registry_entries(current_registry, "current")
+    for older_label, older, newer_label, newer in (
+        (
+            "registration",
+            registration_entries,
+            "evaluation",
+            evaluation_entries,
+        ),
+        ("evaluation", evaluation_entries, "current", current_entries),
+    ):
+        changed = [
+            entry_id
+            for entry_id, entry in older.items()
+            if newer.get(entry_id) != entry
+        ]
+        if changed:
+            blockers.append(
+                f"canonical_registry_history_not_preserved:"
+                f"{older_label}_to_{newer_label}:"
+                + ",".join(sorted(changed))
+            )
+
     descriptor = preregistration.get("do_not_repeat_descriptor")
     if (
         preregistration.get("do_not_repeat_conflict_absent") is not True
         or not isinstance(descriptor, dict)
-        or registry.get("schema_version")
+        or current_registry.get("schema_version")
         != "run287-do-not-repeat-registry-v1"
     ):
         blockers.append("preregistration_do_not_repeat_evidence_invalid")
     else:
-        match_fields = registry.get(
+        match_fields = current_registry.get(
             "match_fields",
             ["signal", "mechanism", "book", "window"],
         )
@@ -517,7 +800,7 @@ def validate_preregistration(
         else:
             conflicts = [
                 str(entry.get("id") or "unknown")
-                for entry in registry.get("entries", [])
+                for entry in current_registry.get("entries", [])
                 if isinstance(entry, dict)
                 and entry.get("blocked_reuse") is True
                 and all(
@@ -535,7 +818,11 @@ def validate_preregistration(
         unique_sorted(blockers),
         preregistration,
         preregistration_bytes,
-        registry_bytes,
+        evaluation_snapshot,
+        evaluation_snapshot_bytes,
+        registration_registry_bytes,
+        evaluation_registry_bytes,
+        current_registry_bytes,
     )
 
 
@@ -966,27 +1253,49 @@ def evaluate(
     return_matrix_path: Path,
     output_dir: Path,
     repository_root: Path = ROOT,
+    promotion_state_path: Path = DEFAULT_PROMOTION_STATE,
 ) -> dict[str, Any]:
     contract_bytes, contract_hash = safe_read(contract_path)
     ledger_bytes, ledger_hash = safe_read(experiment_ledger_path)
     returns_bytes, returns_hash = safe_read(return_matrix_path)
+    promotion_state_bytes, promotion_state_hash = safe_read(
+        promotion_state_path
+    )
     contract = parse_json_bytes(contract_bytes)
     ledger = parse_json_bytes(ledger_bytes)
+    promotion_state = parse_json_bytes(promotion_state_bytes)
     blockers: list[str] = []
     if not contract_bytes:
         blockers.append("contract_missing_or_unreadable")
     if not ledger_bytes:
         blockers.append("experiment_ledger_missing_or_unreadable")
+    if not promotion_state_bytes:
+        blockers.append("promotion_state_missing_or_unreadable")
     contract_blockers = validate_contract(contract)
     blockers.extend(contract_blockers)
     ledger_blockers, trials, return_columns = validate_ledger(ledger)
     blockers.extend(ledger_blockers)
+    champion_blockers, canonical_champion = validate_canonical_champion(
+        ledger,
+        promotion_state,
+    )
+    blockers.extend(champion_blockers)
     (
         preregistration_blockers,
         preregistration,
         preregistration_bytes,
-        do_not_repeat_registry_bytes,
-    ) = validate_preregistration(repository_root, ledger, trials)
+        evaluation_snapshot,
+        evaluation_snapshot_bytes,
+        registration_registry_bytes,
+        evaluation_registry_bytes,
+        current_registry_bytes,
+    ) = validate_preregistration(
+        repository_root,
+        ledger,
+        trials,
+        promotion_state_sha256=promotion_state_hash,
+        canonical_champion=canonical_champion,
+    )
     blockers.extend(preregistration_blockers)
     if str(ledger.get("return_matrix_sha256") or "").lower() != returns_hash:
         blockers.append("experiment_ledger_return_matrix_sha256_mismatch")
@@ -1031,6 +1340,9 @@ def evaluate(
         "experiment_ledger": sha256_file(experiment_ledger_path)
         if experiment_ledger_path.is_file()
         else "",
+        "promotion_state": sha256_file(promotion_state_path)
+        if promotion_state_path.is_file()
+        else "",
         "preregistration": sha256_bytes(
             git_blob(
                 repository_root,
@@ -1042,17 +1354,41 @@ def evaluate(
         )
         if preregistration_bytes
         else "",
-        "do_not_repeat_registry": sha256_bytes(
+        "evaluation_snapshot": sha256_bytes(
             git_blob(
                 repository_root,
-                str(ledger.get("registration_commit_sha") or ""),
+                str(ledger.get("evaluation_commit_sha") or ""),
                 str(
-                    preregistration.get("do_not_repeat_registry_path")
-                    or ""
+                    ledger.get("evaluation_snapshot_path") or ""
                 ).replace("\\", "/"),
             )
         )
-        if do_not_repeat_registry_bytes
+        if evaluation_snapshot_bytes
+        else "",
+        "registration_registry_snapshot": sha256_bytes(
+            git_blob(
+                repository_root,
+                str(ledger.get("registration_commit_sha") or ""),
+                CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH,
+            )
+        )
+        if registration_registry_bytes
+        else "",
+        "evaluation_registry_snapshot": sha256_bytes(
+            git_blob(
+                repository_root,
+                str(ledger.get("evaluation_commit_sha") or ""),
+                CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH,
+            )
+        )
+        if evaluation_registry_bytes
+        else "",
+        "canonical_do_not_repeat_registry": sha256_file(
+            repository_root / CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
+        )
+        if (
+            repository_root / CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
+        ).is_file()
         else "",
         "return_matrix": sha256_file(return_matrix_path)
         if return_matrix_path.is_file()
@@ -1061,11 +1397,27 @@ def evaluate(
     consumed_hashes = {
         "contract": contract_hash,
         "experiment_ledger": ledger_hash,
+        "promotion_state": promotion_state_hash,
         "preregistration": sha256_bytes(preregistration_bytes)
         if preregistration_bytes
         else "",
-        "do_not_repeat_registry": sha256_bytes(do_not_repeat_registry_bytes)
-        if do_not_repeat_registry_bytes
+        "evaluation_snapshot": sha256_bytes(evaluation_snapshot_bytes)
+        if evaluation_snapshot_bytes
+        else "",
+        "registration_registry_snapshot": sha256_bytes(
+            registration_registry_bytes
+        )
+        if registration_registry_bytes
+        else "",
+        "evaluation_registry_snapshot": sha256_bytes(
+            evaluation_registry_bytes
+        )
+        if evaluation_registry_bytes
+        else "",
+        "canonical_do_not_repeat_registry": sha256_bytes(
+            current_registry_bytes
+        )
+        if current_registry_bytes
         else "",
         "return_matrix": returns_hash,
     }
@@ -1107,6 +1459,11 @@ def evaluate(
                 "sha256": ledger_hash,
                 "bytes": len(ledger_bytes),
             },
+            "promotion_state": {
+                "path": source_name(promotion_state_path),
+                "sha256": promotion_state_hash,
+                "bytes": len(promotion_state_bytes),
+            },
             "preregistration": {
                 "path": (
                     "git:"
@@ -1117,20 +1474,46 @@ def evaluate(
                 "sha256": consumed_hashes["preregistration"],
                 "bytes": len(preregistration_bytes),
             },
-            "do_not_repeat_registry": {
+            "evaluation_snapshot": {
+                "path": (
+                    "git:"
+                    + str(ledger.get("evaluation_commit_sha") or "")
+                    + ":"
+                    + str(ledger.get("evaluation_snapshot_path") or "")
+                ),
+                "sha256": consumed_hashes["evaluation_snapshot"],
+                "bytes": len(evaluation_snapshot_bytes),
+            },
+            "registration_registry_snapshot": {
                 "path": (
                     "git:"
                     + str(ledger.get("registration_commit_sha") or "")
                     + ":"
-                    + str(
-                        preregistration.get(
-                            "do_not_repeat_registry_path"
-                        )
-                        or ""
-                    )
+                    + CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
                 ),
-                "sha256": consumed_hashes["do_not_repeat_registry"],
-                "bytes": len(do_not_repeat_registry_bytes),
+                "sha256": consumed_hashes[
+                    "registration_registry_snapshot"
+                ],
+                "bytes": len(registration_registry_bytes),
+            },
+            "evaluation_registry_snapshot": {
+                "path": (
+                    "git:"
+                    + str(ledger.get("evaluation_commit_sha") or "")
+                    + ":"
+                    + CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
+                ),
+                "sha256": consumed_hashes[
+                    "evaluation_registry_snapshot"
+                ],
+                "bytes": len(evaluation_registry_bytes),
+            },
+            "canonical_do_not_repeat_registry": {
+                "path": CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH,
+                "sha256": consumed_hashes[
+                    "canonical_do_not_repeat_registry"
+                ],
+                "bytes": len(current_registry_bytes),
             },
             "return_matrix": {
                 "path": source_name(return_matrix_path),
@@ -1150,11 +1533,20 @@ def evaluate(
     checks = {
         "contract_valid": not contract_blockers,
         "complete_experiment_ledger": not ledger_blockers,
+        "canonical_champion_binding": not champion_blockers,
         "single_preregistered_causal_family": not any(
             "causal_" in blocker or "preregister" in blocker
             for blocker in ledger_blockers + preregistration_blockers
         ),
         "git_anchored_preregistration": not preregistration_blockers,
+        "evaluation_snapshot_binding": not any(
+            "evaluation_" in blocker
+            or "registration_commit_does_not_strictly" in blocker
+            for blocker in preregistration_blockers
+        ),
+        "canonical_registry_history": not any(
+            "registry" in blocker for blocker in preregistration_blockers
+        ),
         "minimum_trials": len(trials)
         >= int(CANONICAL_THRESHOLDS["minimum_trials"]),
         "synchronized_return_matrix": not matrix_blockers and matrix is not None,
@@ -1189,6 +1581,7 @@ def evaluate(
         "causal_family_id": str(ledger.get("causal_family_id") or "") or None,
         "selected_trial_id": selected_id or None,
         "reproduced_selected_trial_id": reproduced_selected or None,
+        "canonical_champion": canonical_champion or None,
         "preregistration": {
             "registration_commit_sha": str(
                 ledger.get("registration_commit_sha") or ""
@@ -1201,6 +1594,27 @@ def evaluate(
             ),
             "do_not_repeat_conflict_absent": (
                 preregistration.get("do_not_repeat_conflict_absent") is True
+            ),
+        },
+        "evaluation_snapshot": {
+            "evaluation_commit_sha": str(
+                ledger.get("evaluation_commit_sha") or ""
+            )
+            or None,
+            "path": str(
+                ledger.get("evaluation_snapshot_path") or ""
+            )
+            or None,
+            "sha256": consumed_hashes["evaluation_snapshot"] or None,
+            "registration_commit_sha": str(
+                ledger.get("registration_commit_sha") or ""
+            )
+            or None,
+            "promotion_state_sha256": promotion_state_hash or None,
+            "results_present": (
+                isinstance(evaluation_snapshot.get("safety"), dict)
+                and evaluation_snapshot["safety"].get("results_present")
+                is True
             ),
         },
         "source_manifest_sha256": source_manifest_sha256,
@@ -1240,6 +1654,10 @@ def evaluate(
         "champion_changed": False,
         "fullrun_executed": False,
     }
+    report_output_bytes = render_report(gate).encode("utf-8")
+    gate["artifact_hashes"]["report.md"] = sha256_bytes(
+        report_output_bytes
+    )
 
     publish_bundle(
         output_dir,
@@ -1248,7 +1666,7 @@ def evaluate(
             "multiple_testing_gate.json": canonical_json_bytes(gate),
             "cscv_splits.csv": cscv_output_bytes,
             "white_reality_check.json": white_output_bytes,
-            "report.md": render_report(gate).encode("utf-8"),
+            "report.md": report_output_bytes,
         },
     )
     return gate
@@ -1261,6 +1679,10 @@ def main() -> int:
     parser.add_argument("--return-matrix", required=True)
     parser.add_argument("--repository-root", default=str(ROOT))
     parser.add_argument(
+        "--promotion-state",
+        default=str(DEFAULT_PROMOTION_STATE),
+    )
+    parser.add_argument(
         "--output-dir",
         default="outputs/run287_multiple_testing_gate",
     )
@@ -1271,6 +1693,7 @@ def main() -> int:
         return_matrix_path=Path(args.return_matrix).resolve(),
         output_dir=Path(args.output_dir).resolve(),
         repository_root=Path(args.repository_root).resolve(),
+        promotion_state_path=Path(args.promotion_state).resolve(),
     )
     print(
         json.dumps(

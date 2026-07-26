@@ -27,6 +27,7 @@ SPEC.loader.exec_module(MOD)
 sys.path.insert(0, str(ROOT / "tools"))
 from run287_promotion_gate import (  # noqa: E402
     DEFAULT_EVIDENCE,
+    DEFAULT_STATE,
     overlay_multiple_testing_evidence,
     read_json,
 )
@@ -70,6 +71,8 @@ def weak_matrix(
 
 
 def ledger_for(matrix: np.ndarray) -> dict[str, Any]:
+    promotion_state = read_json(DEFAULT_STATE)
+    canonical_champion = promotion_state["canonical_champion"]
     trial_ids = [f"trial_{index:02d}" for index in range(matrix.shape[1])]
     sharpes = MOD.sharpe_vector(matrix)
     selected_id, _ = MOD.selected_trial(trial_ids, sharpes)
@@ -96,12 +99,12 @@ def ledger_for(matrix: np.ndarray) -> dict[str, Any]:
     return {
         "schema_version": MOD.LEDGER_SCHEMA,
         "candidate_id": "run287-pit-leadership-acceleration-v1",
-        "champion_id": "run287-canonical-champion",
+        "champion_id": canonical_champion["policy_id"],
+        "canonical_champion": canonical_champion,
         "causal_family_id": "pit_leadership_acceleration_v1",
         "causal_challenger_count": 1,
         "complete_attempt_history": True,
         "preregistered": True,
-        "registration_commit_sha": "a" * 40,
         "selection_metric": "daily_sharpe",
         "return_semantics": MOD.CANONICAL_INPUT_CONTRACT["return_semantics"],
         "costs_included": True,
@@ -116,6 +119,10 @@ def write_fixture(
     matrix: np.ndarray,
     *,
     ledger: dict[str, Any] | None = None,
+    registry_entries: list[dict[str, Any]] | None = None,
+    preregistration_registry_path: str = (
+        "docs/run287_do_not_repeat_registry.json"
+    ),
 ) -> dict[str, Path]:
     root.mkdir(parents=True, exist_ok=True)
     payload = ledger or ledger_for(matrix)
@@ -143,7 +150,7 @@ def write_fixture(
             {
                 "schema_version": "run287-do-not-repeat-registry-v1",
                 "match_fields": ["signal", "mechanism", "book", "window"],
-                "entries": [],
+                "entries": registry_entries or [],
             },
             sort_keys=True,
         )
@@ -158,6 +165,7 @@ def write_fixture(
                 "schema_version": MOD.PREREGISTRATION_SCHEMA,
                 "candidate_id": payload["candidate_id"],
                 "champion_id": payload["champion_id"],
+                "canonical_champion": payload["canonical_champion"],
                 "causal_family_id": payload["causal_family_id"],
                 "causal_challenger_count": 1,
                 "hypothesis": "one PIT leadership acceleration mechanism",
@@ -170,7 +178,7 @@ def write_fixture(
                     for trial in payload["trials"]
                 },
                 "do_not_repeat_registry_path": (
-                    "docs/run287_do_not_repeat_registry.json"
+                    preregistration_registry_path
                 ),
                 "do_not_repeat_registry_sha256": registry_sha256,
                 "do_not_repeat_conflict_absent": True,
@@ -196,6 +204,45 @@ def write_fixture(
         registration_commit,
         "docs/challenger_preregistration.json",
     )
+    promotion_state_sha256 = MOD.sha256_file(DEFAULT_STATE)
+    evaluation_snapshot_path = docs / "challenger_evaluation_snapshot.json"
+    evaluation_snapshot_path.write_text(
+        json.dumps(
+            {
+                "schema_version": MOD.EVALUATION_SNAPSHOT_SCHEMA,
+                "candidate_id": payload["candidate_id"],
+                "champion_id": payload["champion_id"],
+                "canonical_champion": payload["canonical_champion"],
+                "causal_family_id": payload["causal_family_id"],
+                "selection_metric": "daily_sharpe",
+                "evaluation_trial_count": len(payload["trials"]),
+                "trial_parameter_set_sha256": {
+                    trial["trial_id"]: trial["parameter_set_sha256"]
+                    for trial in payload["trials"]
+                },
+                "preregistration": {
+                    "commit_sha": registration_commit,
+                    "path": "docs/challenger_preregistration.json",
+                    "sha256": MOD.sha256_bytes(preregistration_blob),
+                },
+                "promotion_state_sha256": promotion_state_sha256,
+                "canonical_do_not_repeat_registry_sha256": registry_sha256,
+                "safety": MOD.CANONICAL_EVALUATION_SNAPSHOT_SAFETY,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    git("add", "docs/challenger_evaluation_snapshot.json")
+    git("commit", "-q", "-m", "anchor evaluation start")
+    evaluation_commit = git("rev-parse", "HEAD").stdout.strip()
+    evaluation_snapshot_blob = MOD.git_blob(
+        repository,
+        evaluation_commit,
+        "docs/challenger_evaluation_snapshot.json",
+    )
     git("commit", "--allow-empty", "-q", "-m", "evaluation head")
     payload["registration_commit_sha"] = registration_commit
     payload["preregistration_path"] = (
@@ -203,6 +250,13 @@ def write_fixture(
     )
     payload["preregistration_sha256"] = MOD.sha256_bytes(
         preregistration_blob
+    )
+    payload["evaluation_commit_sha"] = evaluation_commit
+    payload["evaluation_snapshot_path"] = (
+        "docs/challenger_evaluation_snapshot.json"
+    )
+    payload["evaluation_snapshot_sha256"] = MOD.sha256_bytes(
+        evaluation_snapshot_blob
     )
     ledger_path = root / "experiment_ledger.json"
     schedule = mcal.get_calendar("NYSE").schedule(
@@ -229,6 +283,7 @@ def write_fixture(
         "returns": return_path,
         "output": root / "output",
         "repository": repository,
+        "promotion_state": DEFAULT_STATE,
     }
 
 
@@ -239,6 +294,7 @@ def run(paths: dict[str, Path]) -> dict[str, Any]:
         return_matrix_path=paths["returns"],
         output_dir=paths["output"],
         repository_root=paths["repository"],
+        promotion_state_path=paths["promotion_state"],
     )
 
 
@@ -332,6 +388,22 @@ def test_selected_trial_is_reproduced_not_trusted() -> None:
         assert gate["deflated_sharpe"]["status"] == "NOT_EVALUATED"
 
 
+def test_canonical_champion_is_not_caller_selected() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        matrix = strong_matrix()
+        ledger = ledger_for(matrix)
+        forged = dict(ledger["canonical_champion"])
+        forged["policy_id"] = "caller-selected-champion"
+        ledger["canonical_champion"] = forged
+        ledger["champion_id"] = forged["policy_id"]
+        paths = write_fixture(root, matrix, ledger=ledger)
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert "ledger_canonical_champion_mismatch" in gate["blockers"]
+        assert gate["checks"]["canonical_champion_binding"] is False
+
+
 def test_preregistration_must_precede_evaluation_head() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -359,10 +431,74 @@ def test_preregistration_must_precede_evaluation_head() -> None:
         gate = run(paths)
         assert gate["passed"] is False
         assert (
-            "registration_commit_does_not_precede_head"
+            "registration_commit_does_not_strictly_precede_evaluation"
             in gate["blockers"]
         )
         assert gate["checks"]["git_anchored_preregistration"] is False
+
+
+def test_registry_must_be_canonical_and_append_only() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        paths = write_fixture(
+            root,
+            strong_matrix(),
+            preregistration_registry_path="docs/arbitrary_empty_registry.json",
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert (
+            "preregistration_do_not_repeat_registry_anchor_invalid"
+            in gate["blockers"]
+        )
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        protected_entry = {
+            "id": "prior-rejected-family",
+            "signal": "prior_signal",
+            "mechanism": "prior_mechanism",
+            "book": "prior_book",
+            "window": "prior_window",
+            "blocked_reuse": True,
+        }
+        paths = write_fixture(
+            root,
+            strong_matrix(),
+            registry_entries=[protected_entry],
+        )
+        registry = (
+            paths["repository"]
+            / "docs"
+            / "run287_do_not_repeat_registry.json"
+        )
+        registry.write_text(
+            json.dumps(
+                {
+                    "schema_version": "run287-do-not-repeat-registry-v1",
+                    "match_fields": [
+                        "signal",
+                        "mechanism",
+                        "book",
+                        "window",
+                    ],
+                    "entries": [],
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert any(
+            blocker.startswith(
+                "canonical_registry_history_not_preserved:"
+                "evaluation_to_current:"
+            )
+            for blocker in gate["blockers"]
+        )
+        assert gate["checks"]["canonical_registry_history"] is False
 
 
 def test_minimum_trials_and_observations_are_fail_closed() -> None:
@@ -421,6 +557,7 @@ def test_contract_thresholds_cannot_be_weakened() -> None:
             return_matrix_path=paths["returns"],
             output_dir=paths["output"],
             repository_root=paths["repository"],
+            promotion_state_path=paths["promotion_state"],
         )
         assert gate["passed"] is False
         assert "contract_thresholds_not_canonical" in gate["blockers"]
@@ -440,24 +577,79 @@ def test_promotion_overlay_requires_exact_untampered_bundle() -> None:
             base,
             gate_path,
             expected_gate_sha256=MOD.sha256_file(gate_path),
+            contract_path=CONTRACT,
+            experiment_ledger_path=paths["ledger"],
+            return_matrix_path=paths["returns"],
+            promotion_state_snapshot_path=paths["promotion_state"],
+            repository_root=paths["repository"],
+            current_promotion_state=read_json(DEFAULT_STATE),
         )
         assert overlaid["historical"]["multiple_testing_pass"] is True
         observation = overlaid["multiple_testing_gate_observation"]
         assert observation["candidate_id"] == gate["candidate_id"]
         assert observation["champion_changed"] is False
 
+        def expect_overlay_error(expected_error: str) -> None:
+            try:
+                overlay_multiple_testing_evidence(
+                    base,
+                    gate_path,
+                    expected_gate_sha256=MOD.sha256_file(gate_path),
+                    contract_path=CONTRACT,
+                    experiment_ledger_path=paths["ledger"],
+                    return_matrix_path=paths["returns"],
+                    promotion_state_snapshot_path=paths["promotion_state"],
+                    repository_root=paths["repository"],
+                    current_promotion_state=read_json(DEFAULT_STATE),
+                )
+            except ValueError as exc:
+                assert expected_error in str(exc), str(exc)
+            else:
+                raise AssertionError(
+                    f"tampered multiple-testing input accepted: {expected_error}"
+                )
+
         white_path = paths["output"] / "white_reality_check.json"
+        original_white = white_path.read_bytes()
         white_path.write_text("{}\n", encoding="utf-8")
+        expect_overlay_error("artifact_sha256_mismatch")
+        white_path.write_bytes(original_white)
+
+        report_path = paths["output"] / "report.md"
+        original_report = report_path.read_bytes()
+        report_path.write_text("forged report\n", encoding="utf-8")
+        expect_overlay_error("artifact_sha256_mismatch:report.md")
+        report_path.write_bytes(original_report)
+
+        original_ledger = paths["ledger"].read_bytes()
+        paths["ledger"].write_text("{}\n", encoding="utf-8")
+        expect_overlay_error(
+            "multiple_testing_recompute_input_sha256_mismatch:"
+            "experiment_ledger"
+        )
+        paths["ledger"].write_bytes(original_ledger)
+
+        forged_state = read_json(DEFAULT_STATE)
+        forged_state["canonical_champion"] = dict(
+            forged_state["canonical_champion"]
+        )
+        forged_state["canonical_champion"]["policy_id"] = "forged"
         try:
             overlay_multiple_testing_evidence(
                 base,
                 gate_path,
                 expected_gate_sha256=MOD.sha256_file(gate_path),
+                contract_path=CONTRACT,
+                experiment_ledger_path=paths["ledger"],
+                return_matrix_path=paths["returns"],
+                promotion_state_snapshot_path=paths["promotion_state"],
+                repository_root=paths["repository"],
+                current_promotion_state=forged_state,
             )
         except ValueError as exc:
-            assert "artifact_sha256_mismatch" in str(exc)
+            assert "canonical_champion_mismatch" in str(exc)
         else:
-            raise AssertionError("tampered White artifact was accepted")
+            raise AssertionError("caller-selected champion was accepted")
 
 
 def test_official_promotion_wrapper_ignores_unattested_true_bit() -> None:
@@ -489,17 +681,50 @@ def test_official_promotion_wrapper_ignores_unattested_true_bit() -> None:
         assert "multiple_testing_pass" in gate["historical_gate"]["blockers"]
 
 
+def test_advanced_state_requires_daily_approved_bundle() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        state = read_json(DEFAULT_STATE)
+        state["promotion_state"] = "FORWARD_PAPER_VALIDATING"
+        state_path = root / "advanced_state.json"
+        state_path.write_text(
+            json.dumps(state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run_run287_promotion_gate.py"),
+                "--state",
+                str(state_path),
+                "--output-dir",
+                str(root / "promotion"),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert process.returncode != 0
+        assert (
+            "advanced_state_multiple_testing_bundle_required"
+            in process.stderr
+        )
+
+
 def main() -> int:
     test_strong_complete_family_passes_and_is_deterministic()
     test_incomplete_or_forged_trial_history_fails_without_statistics()
     test_matrix_must_match_every_recorded_trial_and_date()
     test_selected_trial_is_reproduced_not_trusted()
+    test_canonical_champion_is_not_caller_selected()
     test_preregistration_must_precede_evaluation_head()
+    test_registry_must_be_canonical_and_append_only()
     test_minimum_trials_and_observations_are_fail_closed()
     test_noise_does_not_become_a_promotable_winner()
     test_contract_thresholds_cannot_be_weakened()
     test_promotion_overlay_requires_exact_untampered_bundle()
     test_official_promotion_wrapper_ignores_unattested_true_bit()
+    test_advanced_state_requires_daily_approved_bundle()
     print("run287_multiple_testing_gate_smoke: PASS")
     return 0
 

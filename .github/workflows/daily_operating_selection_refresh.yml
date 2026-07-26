@@ -2885,6 +2885,92 @@ jobs:
               --expected-risk-price-cache-manifest-sha256 "${{ steps.risk_outcomes.outputs.price_cache_manifest_sha256 }}"
             )
           fi
+          MULTIPLE_TESTING_POINTER_OUTPUT="$(python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          state = json.loads(
+              Path("data_static/run287_promotion_state.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          promotion_state = str(state.get("promotion_state") or "")
+          pointer_path = Path(
+              "data_static/run287_multiple_testing_approved_pointer.json"
+          )
+          pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+          if (
+              pointer.get("schema_version")
+              != "run287-approved-multiple-testing-pointer-v1"
+          ):
+              raise SystemExit(
+                  "approved multiple-testing pointer schema invalid"
+              )
+          required_states = pointer.get("required_for_promotion_states") or []
+          if promotion_state == "RESEARCH_ONLY":
+              if pointer.get("status") != "UNAVAILABLE_RESEARCH_ONLY":
+                  raise SystemExit(
+                      "research-only multiple-testing pointer status invalid"
+                  )
+              print("SKIP")
+              raise SystemExit(0)
+          if promotion_state not in required_states:
+              raise SystemExit(
+                  f"promotion state missing pointer policy: {promotion_state}"
+              )
+          if (
+              pointer.get("schema_version")
+              != "run287-approved-multiple-testing-pointer-v1"
+              or pointer.get("status") != "READY_REVIEWED_IMMUTABLE_BUNDLE"
+          ):
+              raise SystemExit(
+                  "advanced promotion state lacks an approved multiple-testing bundle"
+              )
+          fields = [
+              "gate_path",
+              "expected_gate_sha256",
+              "contract_path",
+              "experiment_ledger_path",
+              "return_matrix_path",
+              "promotion_state_snapshot_path",
+          ]
+          values = [str(pointer.get(field) or "") for field in fields]
+          if not re.fullmatch(r"[0-9a-f]{64}", values[1]):
+              raise SystemExit("approved multiple-testing gate SHA is invalid")
+          for field, value in zip(fields[0:1] + fields[2:], values[0:1] + values[2:]):
+              path = Path(value)
+              if (
+                  path.is_absolute()
+                  or ".." in path.parts
+                  or not value.replace("\\", "/").startswith(
+                      "data_static/run287_multiple_testing_approved/"
+                  )
+                  or not path.is_file()
+                  or path.is_symlink()
+              ):
+                  raise SystemExit(
+                      f"approved multiple-testing path invalid: {field}"
+                  )
+          print("READY")
+          for value in values:
+              print(value)
+          PY
+          )"
+          mapfile -t MULTIPLE_TESTING_POINTER \
+            <<<"$MULTIPLE_TESTING_POINTER_OUTPUT"
+          MULTIPLE_TESTING_ARGS=()
+          if [ "${MULTIPLE_TESTING_POINTER[0]}" = "READY" ]; then
+            MULTIPLE_TESTING_ARGS=(
+              --multiple-testing-gate "${MULTIPLE_TESTING_POINTER[1]}"
+              --expected-multiple-testing-gate-sha256 "${MULTIPLE_TESTING_POINTER[2]}"
+              --multiple-testing-contract "${MULTIPLE_TESTING_POINTER[3]}"
+              --multiple-testing-experiment-ledger "${MULTIPLE_TESTING_POINTER[4]}"
+              --multiple-testing-return-matrix "${MULTIPLE_TESTING_POINTER[5]}"
+              --multiple-testing-promotion-state-snapshot "${MULTIPLE_TESTING_POINTER[6]}"
+              --multiple-testing-repository-root "${GITHUB_WORKSPACE}"
+            )
+          fi
           python tools/run_run287_promotion_gate.py \
             --contract data_static/run287_promotion_gate_contract.json \
             --state data_static/run287_promotion_state.json \
@@ -2892,6 +2978,7 @@ jobs:
             --latest-run outputs \
             --output-dir outputs/run287_promotion_gate \
             "${PROMOTION_ANCHORS[@]}" \
+            "${MULTIPLE_TESTING_ARGS[@]}" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_promotion_gate.log
           test -s outputs/run287_promotion_gate/promotion_gate.json
           echo "promotion_gate_sha256=$(sha256sum outputs/run287_promotion_gate/promotion_gate.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"

@@ -7,6 +7,7 @@ import json
 import math
 import csv
 import copy
+import tempfile
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -67,8 +68,11 @@ MULTIPLE_TESTING_CONTRACT_VERSION = "2026-07-27.1"
 MULTIPLE_TESTING_REQUIRED_CHECKS = (
     "contract_valid",
     "complete_experiment_ledger",
+    "canonical_champion_binding",
     "single_preregistered_causal_family",
     "git_anchored_preregistration",
+    "evaluation_snapshot_binding",
+    "canonical_registry_history",
     "minimum_trials",
     "synchronized_return_matrix",
     "minimum_synchronous_observations",
@@ -2539,6 +2543,12 @@ def overlay_multiple_testing_evidence(
     gate_path: Path,
     *,
     expected_gate_sha256: str,
+    contract_path: Path,
+    experiment_ledger_path: Path,
+    return_matrix_path: Path,
+    promotion_state_snapshot_path: Path,
+    repository_root: Path,
+    current_promotion_state: dict[str, Any],
 ) -> dict[str, Any]:
     """Overlay one exact, reviewed, fail-closed multiple-testing result.
 
@@ -2586,6 +2596,18 @@ def overlay_multiple_testing_evidence(
     candidate_id = str(gate.get("candidate_id") or "")
     if not candidate_id or candidate_id != str(evidence.get("candidate_id") or ""):
         raise ValueError("multiple_testing_gate_candidate_mismatch")
+    if current_promotion_state.get("schema_version") != STATE_SCHEMA:
+        raise ValueError("multiple_testing_current_promotion_state_invalid")
+    current_canonical_champion = current_promotion_state.get(
+        "canonical_champion"
+    )
+    if (
+        not isinstance(current_canonical_champion, dict)
+        or gate.get("canonical_champion") != current_canonical_champion
+        or gate.get("champion_id")
+        != current_canonical_champion.get("policy_id")
+    ):
+        raise ValueError("multiple_testing_gate_canonical_champion_mismatch")
     selected_trial_id = str(gate.get("selected_trial_id") or "")
     if (
         not selected_trial_id
@@ -2626,6 +2648,22 @@ def overlay_multiple_testing_evidence(
         or preregistration.get("do_not_repeat_conflict_absent") is not True
     ):
         raise ValueError("multiple_testing_gate_preregistration_invalid")
+    evaluation_snapshot = gate.get("evaluation_snapshot")
+    if (
+        not isinstance(evaluation_snapshot, dict)
+        or not _valid_commit_sha(
+            evaluation_snapshot.get("evaluation_commit_sha")
+        )
+        or not str(evaluation_snapshot.get("path") or "").endswith(".json")
+        or not _valid_sha256(evaluation_snapshot.get("sha256"))
+        or evaluation_snapshot.get("registration_commit_sha")
+        != preregistration.get("registration_commit_sha")
+        or not _valid_sha256(
+            evaluation_snapshot.get("promotion_state_sha256")
+        )
+        or evaluation_snapshot.get("results_present") is not False
+    ):
+        raise ValueError("multiple_testing_gate_evaluation_snapshot_invalid")
 
     sample = gate.get("sample")
     if not isinstance(sample, dict):
@@ -2720,6 +2758,7 @@ def overlay_multiple_testing_evidence(
             "source_manifest.json",
             "cscv_splits.csv",
             "white_reality_check.json",
+            "report.md",
         }
     ):
         raise ValueError("multiple_testing_gate_artifact_hashes_invalid")
@@ -2761,8 +2800,12 @@ def overlay_multiple_testing_evidence(
     if not isinstance(inputs, dict) or set(inputs) != {
         "contract",
         "experiment_ledger",
+        "promotion_state",
         "preregistration",
-        "do_not_repeat_registry",
+        "evaluation_snapshot",
+        "registration_registry_snapshot",
+        "evaluation_registry_snapshot",
+        "canonical_do_not_repeat_registry",
         "return_matrix",
     }:
         raise ValueError("multiple_testing_source_manifest_inputs_invalid")
@@ -2785,6 +2828,52 @@ def overlay_multiple_testing_evidence(
         or gate.get("input_set_sha256") != computed_input_set_sha256
     ):
         raise ValueError("multiple_testing_input_set_sha256_mismatch")
+
+    supplied_inputs = {
+        "contract": contract_path.resolve(),
+        "experiment_ledger": experiment_ledger_path.resolve(),
+        "promotion_state": promotion_state_snapshot_path.resolve(),
+        "return_matrix": return_matrix_path.resolve(),
+    }
+    for input_id, path in supplied_inputs.items():
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(
+                f"multiple_testing_recompute_input_invalid:{input_id}"
+            )
+        if sha256_file(path) != input_hashes[input_id]:
+            raise ValueError(
+                f"multiple_testing_recompute_input_sha256_mismatch:{input_id}"
+            )
+
+    try:
+        from run_run287_multiple_testing_gate import (
+            evaluate as recompute_multiple_testing_gate,
+        )
+    except ModuleNotFoundError as exc:
+        raise ValueError(
+            "multiple_testing_recompute_module_unavailable"
+        ) from exc
+    with tempfile.TemporaryDirectory() as temporary:
+        recomputed_output = (
+            Path(temporary) / "run287_multiple_testing_gate"
+        )
+        recomputed = recompute_multiple_testing_gate(
+            contract_path=supplied_inputs["contract"],
+            experiment_ledger_path=supplied_inputs["experiment_ledger"],
+            return_matrix_path=supplied_inputs["return_matrix"],
+            promotion_state_path=supplied_inputs["promotion_state"],
+            repository_root=repository_root.resolve(),
+            output_dir=recomputed_output,
+        )
+        if recomputed.get("passed") is not True:
+            raise ValueError("multiple_testing_recompute_not_passed")
+        for name in expected_files:
+            if (recomputed_output / name).read_bytes() != (
+                bundle / name
+            ).read_bytes():
+                raise ValueError(
+                    f"multiple_testing_recompute_bundle_mismatch:{name}"
+                )
 
     cscv_path = bundle / "cscv_splits.csv"
     with cscv_path.open("r", encoding="utf-8-sig", newline="") as handle:

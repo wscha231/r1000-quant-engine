@@ -1,0 +1,22 @@
+{
+  "schema_version": "run287-approved-multiple-testing-pointer-v1",
+  "status": "UNAVAILABLE_RESEARCH_ONLY",
+  "applicable_candidate_id": null,
+  "gate_path": null,
+  "expected_gate_sha256": null,
+  "contract_path": null,
+  "experiment_ledger_path": null,
+  "return_matrix_path": null,
+  "promotion_state_snapshot_path": null,
+  "required_for_promotion_states": [
+    "SHADOW_OPERATION_READY",
+    "FORWARD_PAPER_VALIDATING",
+    "FORWARD_PAPER_REVIEW_READY",
+    "PRODUCTION_CANDIDATE_USER_APPROVAL_REQUIRED",
+    "BLOCKED_OR_ROLLED_BACK"
+  ],
+  "storage_policy": "reviewed immutable files under data_static/run287_multiple_testing_approved",
+  "automatic_promotion_allowed": false,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false
+}

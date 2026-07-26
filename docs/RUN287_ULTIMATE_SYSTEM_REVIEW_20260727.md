@@ -70,9 +70,12 @@ hypothesis.
 
 This change adds the missing U4 statistical barrier:
 
-- the candidate, causal family, selection rule, full parameter set, and
-  do-not-repeat registry snapshot must be in a Git-anchored preregistration
-  committed before evaluation;
+- the candidate, canonical champion identity and target hashes, causal family,
+  selection rule, full parameter set, and canonical do-not-repeat registry
+  must be in a Git-anchored preregistration that strictly predates an exact
+  evaluation-start snapshot;
+- rejected registry entries must remain append-only from registration through
+  evaluation and the current canonical registry;
 - every preregistered performance trial must appear in the complete experiment
   ledger and synchronized after-cost excess-return matrix;
 - the matrix must contain at least 504 exact contiguous NYSE sessions;
@@ -80,11 +83,16 @@ This change adds the missing U4 statistical barrier:
 - CSCV PBO over all 70 four-of-eight block splits must be at most 20%;
 - centered circular-block White Reality Check p-values for 5, 21, and 63
   sessions must each be at most 10%;
-- an exact hash-pinned bundle is required before
+- the promotion gate reopens the ledger, returns, contract, promotion-state
+  snapshot, preregistration, and registry history, recomputes the full gate,
+  and requires a byte-identical five-file bundle;
+- every non-research daily evaluation must carry the reviewed immutable bundle
+  through the canonical approved-pointer file before
   `multiple_testing_pass=true` can enter the promotion gate.
 
 Tracked evidence cannot set this bit. The official wrapper resets it to false
-unless the exact runtime bundle is independently supplied and verified.
+unless the exact runtime bundle is independently supplied, recomputed, and
+verified. `report.md` is included in the artifact hashes.
 
 ## CAGR/MDD improvement sequence
 
