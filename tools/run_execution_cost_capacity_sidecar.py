@@ -110,10 +110,22 @@ def build_source_manifest(
         if not target_fill_rows.empty and "fillable" in target_fill_rows.columns
         else pd.Series(dtype=bool)
     )
+    chronology_values = (
+        target_fill_rows["chronology_safe"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1"})
+        if not target_fill_rows.empty
+        and "chronology_safe" in target_fill_rows.columns
+        else pd.Series(dtype=bool)
+    )
     target_fill_coverage_complete = bool(
         not target_fill_rows.empty
         and len(fillable_values) == len(target_fill_rows)
         and fillable_values.all()
+        and len(chronology_values) == len(target_fill_rows)
+        and chronology_values.all()
     )
     price_sources: list[dict[str, Any]] = []
     for ticker in tickers:
@@ -163,9 +175,15 @@ def build_source_manifest(
         "target_fill_coverage_path": str(target_fill_coverage_path),
         "target_fill_coverage_sha256": file_sha256(target_fill_coverage_path),
         "required_target_fill_count": int(len(target_fill_rows)),
+        "required_transition_fill_count": int(len(target_fill_rows)),
         "fillable_target_count": int(fillable_values.sum())
         if len(fillable_values)
         else 0,
+        "transition_fill_chronology_safe": bool(
+            len(chronology_values) == len(target_fill_rows)
+            and len(chronology_values) > 0
+            and chronology_values.all()
+        ),
         "target_fill_coverage_complete": target_fill_coverage_complete,
         "price_source_coverage_complete": bool(
             price_sources

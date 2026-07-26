@@ -377,25 +377,33 @@ class ExecutionCostModel:
         snapshot = self.snapshot(ticker, fill_date)
         observed = self.observed_slippage(ticker, side, fill_date)
         if snapshot.status != "complete":
+            missing_liquidity_ceiling = (
+                float(self.config.maximum_half_spread_bps)
+                + float(self.config.maximum_market_impact_bps)
+            )
+            effective_variable = max(
+                missing_liquidity_ceiling,
+                float(observed) if observed is not None else 0.0,
+            )
             return ExecutionCostQuote(
                 status="blocked",
                 fixed_cost_bps=base_bps,
                 half_spread_bps=None,
                 market_impact_bps=None,
-                estimated_variable_cost_bps=None,
+                estimated_variable_cost_bps=missing_liquidity_ceiling,
                 observed_slippage_bps=observed,
-                effective_variable_cost_bps=None,
-                total_cost_bps=(
-                    base_bps
-                    + float(self.config.maximum_half_spread_bps)
-                    + float(self.config.maximum_market_impact_bps)
-                ),
+                effective_variable_cost_bps=effective_variable,
+                total_cost_bps=base_bps + effective_variable,
                 adv20_usd=snapshot.adv20_usd,
                 participation_rate=None,
                 daily_volatility20=snapshot.daily_volatility20,
                 spread_source="unavailable",
                 slippage_source="paper" if observed is not None else "unavailable",
-                observed_exceeds_model=None,
+                observed_exceeds_model=(
+                    bool(float(observed) > missing_liquidity_ceiling)
+                    if observed is not None
+                    else None
+                ),
                 liquidity_history_end_date=snapshot.history_end_date,
                 reason=snapshot.reason,
             )

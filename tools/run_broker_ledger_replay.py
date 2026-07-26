@@ -550,91 +550,169 @@ def build_target_fill_coverage(
     max_fill_lag_days: int,
     evidence_end_date: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Audit every normalized target row against its actual fill calendar."""
+    """Audit every transition fill against its actual execution calendar.
+
+    The replay mutates a portfolio synchronously at each signal.  A ticker that
+    fills later than the rest of that transition would therefore introduce a
+    future price into an earlier account state.  Dynamic-cost evidence fails
+    closed instead of publishing such an asynchronously executed portfolio.
+    Removed target names are included because they require liquidation fills.
+    """
 
     rows: list[dict[str, Any]] = []
-    required = (
-        targets.loc[~targets["ticker"].isin(CASH_TICKERS), ["rebalance_date", "ticker"]]
-        .drop_duplicates()
-        .sort_values(["rebalance_date", "ticker"])
+    previous_tickers: set[str] = set()
+    normalized_targets = targets.copy()
+    normalized_targets["ticker"] = (
+        normalized_targets["ticker"].astype(str).str.upper().str.strip()
     )
-    for row in required.itertuples(index=False):
-        signal_date = pd.Timestamp(row.rebalance_date).normalize()
-        ticker = str(row.ticker).upper()
-        actual_dt, price = fill_price(
-            prices,
-            ticker,
-            signal_date,
-            fill_mode,
-            max_fill_lag_days,
-        )
-        normalized_fill = (
-            pd.Timestamp(actual_dt).normalize() if actual_dt is not None else None
-        )
-        within_evidence = bool(
-            normalized_fill is not None
-            and (
-                evidence_end_date is None
-                or normalized_fill <= pd.Timestamp(evidence_end_date).normalize()
+    for raw_signal_date in sorted(normalized_targets["rebalance_date"].unique()):
+        signal_date = pd.Timestamp(raw_signal_date).normalize()
+        current_tickers = {
+            str(value).upper()
+            for value in normalized_targets.loc[
+                normalized_targets["rebalance_date"].eq(raw_signal_date),
+                "ticker",
+            ]
+            if str(value).upper() not in CASH_TICKERS
+        }
+        transition_tickers = sorted(current_tickers | previous_tickers)
+        signal_rows: list[dict[str, Any]] = []
+        for ticker in transition_tickers:
+            actual_dt, price = fill_price(
+                prices,
+                ticker,
+                signal_date,
+                fill_mode,
+                max_fill_lag_days,
             )
+            normalized_fill = (
+                pd.Timestamp(actual_dt).normalize()
+                if actual_dt is not None
+                else None
+            )
+            within_evidence = bool(
+                normalized_fill is not None
+                and (
+                    evidence_end_date is None
+                    or normalized_fill
+                    <= pd.Timestamp(evidence_end_date).normalize()
+                )
+            )
+            fillable = bool(
+                within_evidence
+                and price is not None
+                and math.isfinite(float(price))
+                and float(price) > 0.0
+            )
+            signal_rows.append(
+                {
+                    "signal_date": signal_date.date().isoformat(),
+                    "ticker": ticker,
+                    "transition_action": (
+                        "target_exit"
+                        if ticker not in current_tickers
+                        else (
+                            "target_entry"
+                            if ticker not in previous_tickers
+                            else "target_rebalance_or_hold"
+                        )
+                    ),
+                    "actual_fill_date": (
+                        normalized_fill.date().isoformat()
+                        if normalized_fill is not None
+                        else ""
+                    ),
+                    "fill_mode": fill_mode,
+                    "max_fill_lag_days": int(max_fill_lag_days),
+                    "fillable": fillable,
+                    "reason": (
+                        ""
+                        if fillable
+                        else (
+                            "fill_after_evidence_end"
+                            if normalized_fill is not None
+                            and not within_evidence
+                            else "no_fill_within_lag"
+                        )
+                    ),
+                }
+            )
+        distinct_fill_dates = {
+            str(row["actual_fill_date"])
+            for row in signal_rows
+            if row["fillable"] and row["actual_fill_date"]
+        }
+        chronology_safe = bool(
+            signal_rows
+            and all(bool(row["fillable"]) for row in signal_rows)
+            and len(distinct_fill_dates) == 1
         )
-        fillable = bool(
-            within_evidence
-            and price is not None
-            and math.isfinite(float(price))
-            and float(price) > 0.0
-        )
-        rows.append(
-            {
-                "signal_date": signal_date.date().isoformat(),
-                "ticker": ticker,
-                "actual_fill_date": (
-                    normalized_fill.date().isoformat()
-                    if normalized_fill is not None
-                    else ""
-                ),
-                "fill_mode": fill_mode,
-                "max_fill_lag_days": int(max_fill_lag_days),
-                "fillable": fillable,
-                "reason": (
-                    ""
-                    if fillable
-                    else (
-                        "fill_after_evidence_end"
-                        if normalized_fill is not None and not within_evidence
-                        else "no_fill_within_lag"
-                    )
-                ),
-            }
-        )
+        for row in signal_rows:
+            row["signal_fill_date_count"] = len(distinct_fill_dates)
+            row["chronology_safe"] = chronology_safe
+            if (
+                row["fillable"]
+                and len(distinct_fill_dates) > 1
+                and not row["reason"]
+            ):
+                row["reason"] = "asynchronous_transition_fill"
+        rows.extend(signal_rows)
+        previous_tickers = current_tickers
     frame = pd.DataFrame(
         rows,
         columns=[
             "signal_date",
             "ticker",
+            "transition_action",
             "actual_fill_date",
             "fill_mode",
             "max_fill_lag_days",
             "fillable",
+            "signal_fill_date_count",
+            "chronology_safe",
             "reason",
         ],
     )
     missing = (
-        frame.loc[~frame["fillable"].astype(bool), ["signal_date", "ticker", "reason"]]
+        frame.loc[
+            ~frame["fillable"].astype(bool),
+            ["signal_date", "ticker", "transition_action", "reason"],
+        ]
         .to_dict("records")
         if not frame.empty
         else []
     )
+    asynchronous = (
+        frame.loc[
+            frame["signal_fill_date_count"].gt(1),
+            ["signal_date", "ticker", "transition_action", "actual_fill_date"],
+        ]
+        .to_dict("records")
+        if not frame.empty
+        else []
+    )
+    asynchronous_signals = sorted(
+        {str(row["signal_date"]) for row in asynchronous}
+    )
     summary = {
         "required_target_fill_count": int(len(frame)),
+        "required_transition_fill_count": int(len(frame)),
         "fillable_target_count": int(frame["fillable"].astype(bool).sum())
         if not frame.empty
         else 0,
         "missing_target_fill_count": int(len(missing)),
+        "missing_transition_fill_count": int(len(missing)),
+        "chronology_safe": bool(
+            not frame.empty and frame["chronology_safe"].astype(bool).all()
+        ),
+        "asynchronous_signal_count": int(len(asynchronous_signals)),
+        "asynchronous_signals": asynchronous_signals[:100],
+        "asynchronous_transition_fills": asynchronous[:100],
         "coverage_complete": bool(
-            not frame.empty and not missing
+            not frame.empty and not missing and not asynchronous_signals
         ),
         "missing_target_fills": missing[:100],
+        "missing_transition_fills": missing[:100],
     }
     return frame, summary
 
@@ -1418,10 +1496,17 @@ def replay(
     )
     target_fill_coverage = {
         "required_target_fill_count": 0,
+        "required_transition_fill_count": 0,
         "fillable_target_count": 0,
         "missing_target_fill_count": 0,
+        "missing_transition_fill_count": 0,
+        "chronology_safe": True,
+        "asynchronous_signal_count": 0,
+        "asynchronous_signals": [],
+        "asynchronous_transition_fills": [],
         "coverage_complete": True,
         "missing_target_fills": [],
+        "missing_transition_fills": [],
     }
     if execution_cost_config.enabled:
         target_fill_frame, target_fill_coverage = build_target_fill_coverage(
@@ -2195,7 +2280,12 @@ def replay(
 
 def render_report(metrics: dict[str, Any]) -> str:
     if metrics.get("status") != "completed":
-        return "# Broker Ledger Replay\n\nStatus: blocked\n\nReason: " + str(metrics.get("reason", "unknown")) + "\n"
+        return (
+            "# Broker Ledger Replay\n\n"
+            "Status: blocked\n\n"
+            f"Reason: {metrics.get('reason', 'unknown')}\n\n"
+            "Performance metrics: unavailable because this replay failed closed.\n"
+        )
     lines = [
             "# Broker Ledger Replay",
             "",
