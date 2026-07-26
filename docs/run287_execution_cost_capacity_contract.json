@@ -45,8 +45,18 @@
       "combination_policy": "max(observed_paper_slippage, estimated_half_spread_plus_market_impact)",
       "double_counting_allowed": false
     },
+    "target_fill_coverage": {
+      "required": "Every normalized non-cash target/date pair must have its configured fill within max_fill_lag_days",
+      "ticker_specific_fill_date_required": true,
+      "incomplete_policy": "BLOCK_AND_REDACT_PERFORMANCE"
+    },
+    "dynamic_cost_affordability": {
+      "method": "monotone binary search against the original desired quantity",
+      "undersized_fixed_point_lock_allowed": false
+    },
     "missing_liquidity_cost_ceiling_bps": 625.0,
-    "missing_liquidity_evidence_status": "DO_NOT_USE"
+    "missing_liquidity_evidence_status": "DO_NOT_USE",
+    "blocked_nested_artifact_policy": "Remove equity, holdings, cash, position, and account-state artifacts; retain only redacted metrics plus trade-level cost audit"
   },
   "capacity_contract": {
     "adv_participation_rates": [
@@ -67,6 +77,7 @@
     "headline_champion_metric_replaced": false,
     "sidecar_failure_blocks_full_rebuild": false,
     "sidecar_failure_blocks_promotion_use": true,
+    "restored_destination_cleared_before_optional_run": true,
     "artifact_path": "outputs/execution_cost_capacity/{main,concentrated}"
   },
   "governance": {
@@ -79,6 +90,7 @@
   },
   "promotion_prerequisites": [
     "100% execution-cost coverage for all trades used by the metric",
+    "100% configured fill coverage for every normalized non-cash target/date pair",
     "Every non-cash target ticker has a hashed, loadable OHLCV price-cache source",
     "paper slippage does not structurally exceed the modeled assumption",
     "economic meaning remains at 0.1%, 0.5%, and 1.0% ADV scenarios",

@@ -110,22 +110,16 @@ def test_delisted_position_currently_marks_at_cost_basis() -> None:
         )
 
 
-def test_multi_day_fill_uses_min_fill_date_for_stamp() -> None:
-    """Documents bug B2: trade.date uses min(fill_dt_by_ticker) for all trades.
+def test_multi_day_fill_uses_ticker_specific_fill_date_for_stamp() -> None:
+    """Each trade date must use that ticker's observable actual fill date.
 
     Setup: AAA trades from 2026-01-02 onward; LATE only starts trading
     on 2026-01-12. Both are in the same signal date 2026-01-02. AAA's
     fill_dt = 2026-01-05 (within max_fill_lag_days). LATE's fill_dt
     would be 2026-01-12, which is outside max_fill_lag_days=7.
 
-    With max_fill_lag_days=15 to let LATE fill, both AAA and LATE
-    trades are stamped at min(fill_dt) = AAA's earlier fill date,
-    even though LATE could not have executed on that day in reality.
-
-    TODO: when run_broker_ledger_replay.py:582+611 is changed to
-    stamp each trade with its own ticker's actual_dt, flip this test
-    to assert that LATE's trade date == LATE's actual fill date
-    (NOT min).
+    With max_fill_lag_days=15 to let LATE fill, AAA must retain its
+    earlier date while LATE is stamped on its own later observable date.
     """
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -162,14 +156,10 @@ def test_multi_day_fill_uses_min_fill_date_for_stamp() -> None:
             # If max_fill_lag_days was insufficient, LATE never filled — test trivially passes.
             assert not aaa_trades.empty
             return
-        # Bug B2 observed: LATE trade date == AAA trade date (the minimum fill date).
-        # When fixed, LATE trade date should be its own actual fill date (2026-01-12 or later).
         late_date = str(late_trades.iloc[0]["date"])
         aaa_date = str(aaa_trades.iloc[0]["date"])
-        assert late_date == aaa_date, (
-            "current bug: LATE trade stamped with AAA's earlier fill date. "
-            "When fixed, late_date should be >= 2026-01-12."
-        )
+        assert aaa_date < late_date
+        assert late_date >= "2026-01-12"
 
 
 def test_no_look_ahead_in_next_close_fills() -> None:
@@ -271,7 +261,7 @@ def test_long_horizon_equity_curve_continuous() -> None:
 
 def main() -> int:
     test_delisted_position_currently_marks_at_cost_basis()
-    test_multi_day_fill_uses_min_fill_date_for_stamp()
+    test_multi_day_fill_uses_ticker_specific_fill_date_for_stamp()
     test_no_look_ahead_in_next_close_fills()
     test_long_horizon_equity_curve_continuous()
     print("broker_ledger_correctness_smoke: PASS")

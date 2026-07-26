@@ -16,7 +16,12 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.execution_cost_model import (  # noqa: E402
     EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
     ExecutionCostConfig,
+    ExecutionCostModel,
     load_paper_slippage,
+)
+from tools.run_broker_ledger_replay import (  # noqa: E402
+    LedgerState,
+    execute_order,
 )
 from tools.run_execution_cost_capacity_sidecar import run  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
@@ -125,6 +130,130 @@ def test_paper_executed_at_uses_new_york_trade_date() -> None:
         assert loaded.iloc[0]["date"] == pd.Timestamp("2024-01-03")
 
 
+def test_dynamic_affordability_solves_against_original_desired_quantity() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        _write_ohlcv(
+            cache,
+            "AAA",
+            periods=90,
+            initial_close=100.0,
+            daily_step=0.0,
+            volume=10_000,
+        )
+        config = ExecutionCostConfig(
+            mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+            impact_coefficient=5.0,
+            maximum_market_impact_bps=5_000.0,
+        )
+        model = ExecutionCostModel(
+            {"AAA": load_price_series(cache, "AAA", include_liquidity=True)},
+            config,
+        )
+        fill_date = pd.Timestamp("2024-01-31")
+        cash = 10_000.0
+        price = 100.0
+        desired = 100
+        expected = 0
+        for quantity in range(1, desired + 1):
+            quote = model.quote(
+                ticker="AAA",
+                side="BUY",
+                fill_date=fill_date,
+                gross_value=quantity * price,
+                fixed_cost_bps=25.0,
+            )
+            required = quantity * price * (
+                1.0 + quote.total_cost_bps / 10_000.0
+            )
+            if required <= cash + 1e-9:
+                expected = quantity
+        assert 0 < expected < desired
+        state = LedgerState(cash=cash)
+        order = execute_order(
+            state=state,
+            ticker="AAA",
+            side="BUY",
+            desired_qty=float(desired),
+            price=price,
+            cost_bps=25.0,
+            integer_shares=True,
+            fill_date=fill_date,
+            execution_cost_model=model,
+        )
+        assert order is not None
+        assert int(order["quantity"]) == expected
+        assert state.cash >= -1e-9
+
+
+def test_ticker_specific_actual_fill_date_drives_cost_quote() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        output = root / "execution"
+        cache.mkdir()
+        _write_ohlcv(cache, "AAA", initial_close=100.0, volume=1_000_000)
+        _write_ohlcv(cache, "BBB", initial_close=50.0, volume=500_000)
+        bbb_path = cache / px_cache_name("BBB")
+        bbb = pd.read_parquet(bbb_path)
+        bbb = bbb.drop(index=pd.Timestamp("2024-01-03"))
+        bbb.to_parquet(bbb_path)
+        targets = root / "targets.csv"
+        _write_targets(targets)
+        paper = root / "paper.csv"
+        pd.DataFrame(
+            [
+                {
+                    "date": "2024-01-03",
+                    "ticker": "BBB",
+                    "side": "BUY",
+                    "observed_slippage_bps": 5.0,
+                },
+                {
+                    "date": "2024-01-04",
+                    "ticker": "BBB",
+                    "side": "BUY",
+                    "observed_slippage_bps": 123.0,
+                },
+            ]
+        ).to_csv(paper, index=False)
+
+        payload = run(
+            target_book=targets,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=100_000.0,
+            fill_mode="next_close",
+            base_cost_bps=25.0,
+            max_fill_lag_days=7,
+            execution_cost_config=ExecutionCostConfig(
+                mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+                paper_slippage_path=paper,
+            ),
+        )
+
+        assert payload["status"] == "completed"
+        coverage = pd.read_csv(
+            output / "spread_adv_impact" / "target_fill_coverage.csv"
+        )
+        first_bbb = coverage[
+            coverage["ticker"].eq("BBB")
+            & coverage["signal_date"].eq("2024-01-02")
+        ].iloc[0]
+        assert first_bbb["actual_fill_date"] == "2024-01-04"
+        trades = pd.read_csv(output / "spread_adv_impact" / "trades.csv")
+        first_bbb_buy = trades[
+            trades["ticker"].eq("BBB")
+            & trades["side"].eq("BUY")
+        ].sort_values("date").iloc[0]
+        assert first_bbb_buy["date"] == "2024-01-04"
+        assert first_bbb_buy["observed_slippage_bps"] == 123.0
+        assert pd.Timestamp(
+            first_bbb_buy["liquidity_history_end_date"]
+        ) < pd.Timestamp(first_bbb_buy["date"])
+
+
 def test_realistic_cost_replay_is_pit_and_more_conservative() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -195,6 +324,7 @@ def test_realistic_cost_replay_is_pit_and_more_conservative() -> None:
             (output / "source_manifest.json").read_text(encoding="utf-8")
         )
         assert source_manifest["price_source_coverage_complete"] is True
+        assert source_manifest["target_fill_coverage_complete"] is True
         assert source_manifest["price_source_count"] == 2
         assert source_manifest["target_ticker_count"] == 2
         assert all(
@@ -244,6 +374,15 @@ def test_missing_ohlcv_blocks_dynamic_cost_evidence() -> None:
         # Missing data receives the configured conservative ceiling, never a
         # silent fixed-bps fallback.
         assert (trades["total_cost_bps"] == 625.0).all()
+        for arm in ("fixed_bps_control", "spread_adv_impact"):
+            nested = json.loads(
+                (output / arm / "metrics.json").read_text(encoding="utf-8")
+            )
+            assert nested["performance_fields_redacted"] is True
+            assert "cagr" not in nested
+            assert "windows" not in nested
+            assert not (output / arm / "equity_curve.csv").exists()
+            assert not (output / arm / "account_state_latest.json").exists()
 
 
 def test_missing_target_price_source_blocks_manifest_even_without_trade() -> None:
@@ -298,6 +437,69 @@ def test_missing_target_price_source_blocks_manifest_even_without_trade() -> Non
         assert missing[0]["liquidity_ohlcv_loadable"] is False
 
 
+def test_stale_but_loadable_price_history_blocks_target_fill_coverage() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        output = root / "execution"
+        cache.mkdir()
+        _write_ohlcv(cache, "AAA")
+        _write_ohlcv(
+            cache,
+            "STALE",
+            start="2023-01-02",
+            periods=20,
+            initial_close=40.0,
+        )
+        targets = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2024-01-02", "ticker": "AAA", "weight": 0.50},
+                {"rebalance_date": "2024-01-02", "ticker": "STALE", "weight": 0.40},
+                {"rebalance_date": "2024-01-09", "ticker": "AAA", "weight": 0.50},
+                {"rebalance_date": "2024-01-09", "ticker": "STALE", "weight": 0.40},
+            ]
+        ).to_csv(targets, index=False)
+        for arm in ("fixed_bps_control", "spread_adv_impact"):
+            stale_dir = output / arm
+            stale_dir.mkdir(parents=True)
+            (stale_dir / "equity_curve.csv").write_text(
+                "date,equity_usd\n1999-01-01,999999\n",
+                encoding="utf-8",
+            )
+
+        payload = run(
+            target_book=targets,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=100_000.0,
+            fill_mode="next_close",
+            base_cost_bps=25.0,
+            max_fill_lag_days=7,
+            execution_cost_config=ExecutionCostConfig(
+                mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+            ),
+        )
+
+        assert payload["status"] == "blocked"
+        assert "target_fill_coverage_incomplete" in payload["promotion_blockers"]
+        manifest = json.loads(
+            (output / "source_manifest.json").read_text(encoding="utf-8")
+        )
+        assert manifest["price_source_coverage_complete"] is True
+        assert manifest["target_fill_coverage_complete"] is False
+        assert manifest["required_target_fill_count"] == 4
+        assert manifest["fillable_target_count"] == 2
+        for arm in ("fixed_bps_control", "spread_adv_impact"):
+            assert not (output / arm / "equity_curve.csv").exists()
+            nested = json.loads(
+                (output / arm / "metrics.json").read_text(encoding="utf-8")
+            )
+            assert nested["performance_fields_redacted"] is True
+            assert "cagr" not in nested
+
+
 def test_research_sidecar_is_wired_without_replacing_champion_metrics() -> None:
     sidecars = (REPO_ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(
         encoding="utf-8"
@@ -315,6 +517,12 @@ def test_research_sidecar_is_wired_without_replacing_champion_metrics() -> None:
         )
         assert expected in sidecars
         assert expected in replay_workflow
+        cleanup = f"rm -rf outputs/execution_cost_capacity/{portfolio}"
+        assert cleanup in sidecars
+        assert cleanup in replay_workflow
+        assert replay_workflow.index(cleanup) < replay_workflow.index(
+            expected
+        )
     assert "outputs/execution_cost_capacity/" in replay_workflow
     assert "outputs/execution_cost_capacity/" in full_workflow
     assert 'copy_dir_clean outputs/execution_cost_capacity "$DEST/execution_cost_capacity"' in full_workflow
@@ -331,14 +539,23 @@ def test_research_sidecar_is_wired_without_replacing_champion_metrics() -> None:
     assert contract["governance"]["promotion_allowed"] is False
     assert contract["governance"]["fullrun_executed"] is False
     assert contract["capacity_contract"]["adv_participation_rates"] == [0.001, 0.005, 0.01]
+    assert (
+        contract["research_cost_contract"]["target_fill_coverage"][
+            "incomplete_policy"
+        ]
+        == "BLOCK_AND_REDACT_PERFORMANCE"
+    )
 
 
 def main() -> int:
     test_price_loader_preserves_adjusted_ohlcv_for_liquidity()
     test_paper_executed_at_uses_new_york_trade_date()
+    test_dynamic_affordability_solves_against_original_desired_quantity()
+    test_ticker_specific_actual_fill_date_drives_cost_quote()
     test_realistic_cost_replay_is_pit_and_more_conservative()
     test_missing_ohlcv_blocks_dynamic_cost_evidence()
     test_missing_target_price_source_blocks_manifest_even_without_trade()
+    test_stale_but_loadable_price_history_blocks_target_fill_coverage()
     test_research_sidecar_is_wired_without_replacing_champion_metrics()
     print("execution_cost_capacity_sidecar_smoke: PASS")
     return 0

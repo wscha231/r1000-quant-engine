@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import math
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,11 @@ from tools.execution_cost_model import (  # noqa: E402
     EXECUTION_COST_SCHEMA_VERSION,
     ExecutionCostConfig,
 )
-from tools.run_broker_ledger_replay import CASH_TICKERS, replay  # noqa: E402
+from tools.run_broker_ledger_replay import (  # noqa: E402
+    CASH_TICKERS,
+    redact_execution_performance,
+    replay,
+)
 from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
 
 
@@ -65,6 +70,7 @@ def build_source_manifest(
     paper_slippage_path: Path | None,
     execution_cost_config: ExecutionCostConfig,
     realistic_trades_path: Path,
+    target_fill_coverage_path: Path,
 ) -> dict[str, Any]:
     target_tickers: set[str] = set()
     try:
@@ -91,6 +97,24 @@ def build_source_manifest(
             if pd.notna(value) and str(value).strip()
         }
     tickers = sorted(target_tickers | traded_tickers)
+    try:
+        target_fill_rows = pd.read_csv(target_fill_coverage_path)
+    except Exception:
+        target_fill_rows = pd.DataFrame()
+    fillable_values = (
+        target_fill_rows["fillable"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1"})
+        if not target_fill_rows.empty and "fillable" in target_fill_rows.columns
+        else pd.Series(dtype=bool)
+    )
+    target_fill_coverage_complete = bool(
+        not target_fill_rows.empty
+        and len(fillable_values) == len(target_fill_rows)
+        and fillable_values.all()
+    )
     price_sources: list[dict[str, Any]] = []
     for ticker in tickers:
         path = price_cache / px_cache_name(ticker)
@@ -136,6 +160,13 @@ def build_source_manifest(
         "target_ticker_count": len(target_tickers),
         "traded_ticker_count": len(traded_tickers),
         "untraded_target_tickers": sorted(target_tickers - traded_tickers),
+        "target_fill_coverage_path": str(target_fill_coverage_path),
+        "target_fill_coverage_sha256": file_sha256(target_fill_coverage_path),
+        "required_target_fill_count": int(len(target_fill_rows)),
+        "fillable_target_count": int(fillable_values.sum())
+        if len(fillable_values)
+        else 0,
+        "target_fill_coverage_complete": target_fill_coverage_complete,
         "price_source_coverage_complete": bool(
             price_sources
             and all(
@@ -151,6 +182,50 @@ def build_source_manifest(
     }
     manifest["manifest_sha256"] = canonical_sha256(manifest)
     return manifest
+
+
+def clear_replay_child(directory: Path, parent: Path) -> None:
+    resolved_parent = parent.resolve()
+    resolved_directory = directory.resolve()
+    if resolved_directory == resolved_parent or resolved_parent not in resolved_directory.parents:
+        raise ValueError(f"unsafe sidecar replay directory: {resolved_directory}")
+    if directory.exists():
+        shutil.rmtree(directory)
+
+
+def redact_nested_replay(
+    directory: Path,
+    metrics: dict[str, Any],
+    *,
+    reason: str,
+) -> None:
+    redacted = redact_execution_performance(metrics, reason=reason)
+    for artifact_name in (
+        "equity_curve.csv",
+        "holdings_daily.csv",
+        "holdings_weekly.csv",
+        "cash_ledger.csv",
+        "target_vs_actual_weights.csv",
+        "partial_resize_decisions.csv",
+        "positions_latest.csv",
+        "account_state_latest.json",
+    ):
+        artifact_path = directory / artifact_name
+        if artifact_path.is_file():
+            artifact_path.unlink()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "metrics.json").write_text(
+        json.dumps(redacted, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    (directory / "replay_report.md").write_text(
+        "# Broker Ledger Replay\n\n"
+        "Status: blocked\n\n"
+        f"Reason: {reason}\n\n"
+        "Performance artifacts were redacted because the execution-cost "
+        "preflight did not pass.\n",
+        encoding="utf-8",
+    )
 
 
 def finite_float(value: Any) -> float | None:
@@ -307,6 +382,12 @@ def run(
     output_dir.mkdir(parents=True, exist_ok=True)
     fixed_dir = output_dir / "fixed_bps_control"
     realistic_dir = output_dir / "spread_adv_impact"
+    clear_replay_child(fixed_dir, output_dir)
+    clear_replay_child(realistic_dir, output_dir)
+    for artifact_name in ("summary.json", "source_manifest.json", "report.md"):
+        artifact_path = output_dir / artifact_name
+        if artifact_path.is_file():
+            artifact_path.unlink()
     fixed_metrics = replay(
         target_book=target_book,
         price_cache=price_cache,
@@ -338,6 +419,7 @@ def run(
         paper_slippage_path=execution_cost_config.paper_slippage_path,
         execution_cost_config=execution_cost_config,
         realistic_trades_path=realistic_dir / "trades.csv",
+        target_fill_coverage_path=realistic_dir / "target_fill_coverage.csv",
     )
     execution_summary = realistic_metrics.get("execution_cost_summary") or {}
     complete = bool(
@@ -346,16 +428,35 @@ def run(
         and int(execution_summary.get("trade_count") or 0) > 0
         and execution_summary.get("coverage_complete") is True
         and source_manifest.get("price_source_coverage_complete") is True
+        and source_manifest.get("target_fill_coverage_complete") is True
     )
     promotion_blockers: list[str] = []
     if not complete:
         promotion_blockers.append("execution_cost_preflight_failed")
     if source_manifest.get("price_source_coverage_complete") is not True:
         promotion_blockers.append("price_source_manifest_incomplete")
+    if source_manifest.get("target_fill_coverage_complete") is not True:
+        promotion_blockers.append("target_fill_coverage_incomplete")
     if int(execution_summary.get("paper_slippage_trade_count") or 0) == 0:
         promotion_blockers.append("paper_slippage_calibration_unavailable")
     if int(execution_summary.get("paper_slippage_exceeds_model_count") or 0) > 0:
         promotion_blockers.append("paper_slippage_exceeds_model_assumption")
+    if not complete:
+        nested_reason = str(
+            realistic_metrics.get("reason")
+            or fixed_metrics.get("reason")
+            or "execution_cost_preflight_failed"
+        )
+        redact_nested_replay(
+            fixed_dir,
+            fixed_metrics,
+            reason=nested_reason,
+        )
+        redact_nested_replay(
+            realistic_dir,
+            realistic_metrics,
+            reason=nested_reason,
+        )
     payload: dict[str, Any] = {
         "schema_version": SIDECAR_SCHEMA_VERSION,
         "execution_cost_schema_version": EXECUTION_COST_SCHEMA_VERSION,
