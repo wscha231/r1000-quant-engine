@@ -1,0 +1,1604 @@
+name: Run287 Sector Leadership Research
+
+# Research-only downstream consumer. It may read one accepted daily operating
+# run, but it cannot publish or mutate portfolio, paper, or trading state.
+on:
+  workflow_run:
+    workflows:
+      - Daily Operating Selection Refresh
+    types:
+      - completed
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Daily Operating Selection Refresh run id
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: run287-sector-leadership-research-${{ github.event.workflow_run.id || inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  research:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' &&
+       inputs.source_run_id != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Resolve and verify successful default-branch source run
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${REQUESTED_SOURCE_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[sector-leadership] BLOCKED: source_run_id must be a positive integer"
+            exit 2
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}" > "$RUNNER_TEMP/source-repository.json"
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/daily_operating_selection_refresh.yml" \
+            > "$RUNNER_TEMP/source-workflow.json"
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${REQUESTED_SOURCE_RUN_ID}" \
+            > "$RUNNER_TEMP/source-run.json"
+          python - "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          repo = json.loads(
+              Path(os.environ["RUNNER_TEMP"], "source-repository.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          workflow = json.loads(
+              Path(os.environ["RUNNER_TEMP"], "source-workflow.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          run = json.loads(
+              Path(os.environ["RUNNER_TEMP"], "source-run.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          expected_repo = os.environ["GITHUB_REPOSITORY"]
+          requested = int(os.environ["REQUESTED_SOURCE_RUN_ID"])
+          workflow_path = ".github/workflows/daily_operating_selection_refresh.yml"
+          default_branch = str(repo.get("default_branch") or "")
+          run_path = str(run.get("path") or "").split("@", 1)[0]
+          failures = []
+          if repo.get("full_name") != expected_repo:
+              failures.append("repository_identity")
+          if default_branch != "master":
+              failures.append("repository_default_branch")
+          if (
+              os.environ.get("GITHUB_REF_TYPE") != "branch"
+              or os.environ.get("GITHUB_REF_NAME") != default_branch
+              or re.fullmatch(
+                  r"[0-9a-f]{40}",
+                  str(os.environ.get("GITHUB_SHA") or "").lower(),
+              )
+              is None
+          ):
+              failures.append("research_workflow_default_branch")
+          if (
+              workflow.get("path") != workflow_path
+              or workflow.get("state") != "active"
+              or int(workflow.get("id") or 0) <= 0
+          ):
+              failures.append("workflow_identity")
+          if int(run.get("id") or 0) != requested:
+              failures.append("run_id")
+          if int(run.get("workflow_id") or 0) != int(workflow.get("id") or 0):
+              failures.append("run_workflow_id")
+          if run_path != workflow_path:
+              failures.append("run_workflow_path")
+          if (run.get("repository") or {}).get("full_name") != expected_repo:
+              failures.append("run_repository")
+          if (run.get("head_repository") or {}).get("full_name") != expected_repo:
+              failures.append("run_head_repository")
+          if run.get("head_branch") != default_branch:
+              failures.append("run_default_branch")
+          if run.get("status") != "completed" or run.get("conclusion") != "success":
+              failures.append("run_not_successful")
+          head_sha = str(run.get("head_sha") or "").lower()
+          if re.fullmatch(r"[0-9a-f]{40}", head_sha) is None:
+              failures.append("run_head_sha")
+          if str(os.environ.get("GITHUB_SHA") or "").lower() != head_sha:
+              failures.append("research_execution_sha_mismatch")
+          attempt = run.get("run_attempt")
+          if type(attempt) is not int or attempt <= 0:
+              failures.append("run_attempt")
+          for label in ("created_at", "updated_at"):
+              if not str(run.get(label) or "").endswith("Z"):
+                  failures.append(f"run_{label}")
+          if os.environ["GITHUB_EVENT_NAME"] == "workflow_run":
+              event_run = event.get("workflow_run") or {}
+              if (
+                  int(event_run.get("id") or 0) != requested
+                  or event_run.get("conclusion") != "success"
+                  or event_run.get("head_branch") != default_branch
+                  or event_run.get("head_sha") != head_sha
+                  or (event_run.get("head_repository") or {}).get("full_name")
+                  != expected_repo
+              ):
+                  failures.append("workflow_run_event_identity")
+          if failures:
+              raise SystemExit(
+                  "source run verification failed: " + ",".join(sorted(set(failures)))
+              )
+          values = {
+              "run_id": str(requested),
+              "run_attempt": str(attempt),
+              "head_sha": head_sha,
+              "default_branch": default_branch,
+              "workflow_path": workflow_path,
+              "workflow_identity": (
+                  expected_repo
+                  + "/"
+                  + workflow_path
+                  + "@refs/heads/"
+                  + default_branch
+              ),
+              "created_at": str(run["created_at"]),
+              "updated_at": str(run["updated_at"]),
+          }
+          with out.open("a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  if "\n" in value or "\r" in value:
+                      raise SystemExit(f"unsafe source output: {key}")
+                  handle.write(f"{key}={value}\n")
+          PY
+
+      - name: Checkout research implementation
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install bounded research dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements_github.txt
+
+      - name: Resolve and download exact source artifacts
+        id: artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+          SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/source
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" \
+            > "$RUNNER_TEMP/source-artifacts.json"
+          python - "$GITHUB_OUTPUT" "$RUNNER_TEMP/selected-source-artifacts.json" <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          selected_path = Path(sys.argv[2])
+          # Recent July 2026 daily/catch-up archives were at most 1.73 MiB.
+          # Keep ample growth room without accepting an unbounded download.
+          max_source_archive_bytes = 64 * 1024**2
+          payload = json.loads(
+              Path(os.environ["RUNNER_TEMP"], "source-artifacts.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if int(payload.get("total_count") or 0) > 100:
+              raise SystemExit("source artifact selection exceeded the bounded page")
+          run_id = os.environ["SOURCE_RUN_ID"]
+          source_head_sha = os.environ["SOURCE_HEAD_SHA"]
+          expected_names = (
+              f"daily-operating-selection-refresh-{run_id}",
+              f"accepted-paper-transaction-{run_id}",
+          )
+          artifacts = payload.get("artifacts") or []
+          exact = {
+              name: [item for item in artifacts if item.get("name") == name]
+              for name in expected_names
+          }
+          catchup = [
+              item
+              for item in artifacts
+              if re.fullmatch(
+                  rf"accepted-paper-catchup-\d{{4}}-\d{{2}}-\d{{2}}-{run_id}",
+                  str(item.get("name") or ""),
+              )
+              and item.get("expired") is False
+          ]
+          if all(len(exact[name]) == 0 for name in expected_names) and len(catchup) == 1:
+              artifact = catchup[0]
+              name = str(artifact.get("name") or "")
+              matched = re.fullmatch(
+                  rf"accepted-paper-catchup-(\d{{4}}-\d{{2}}-\d{{2}})-{run_id}",
+                  name,
+              )
+              digest = str(artifact.get("digest") or "").lower()
+              size = artifact.get("size_in_bytes")
+              artifact_run = artifact.get("workflow_run") or {}
+              try:
+                  catchup_date = (
+                      dt.date.fromisoformat(matched.group(1))
+                      if matched is not None
+                      else None
+                  )
+              except ValueError:
+                  catchup_date = None
+              if (
+                  catchup_date is None
+                  or type(artifact.get("id")) is not int
+                  or int(artifact["id"]) <= 0
+                  or type(size) is not int
+                  or size <= 0
+                  or size > max_source_archive_bytes
+                  or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None
+                  or int(artifact_run.get("id") or 0) != int(run_id)
+                  or str(artifact_run.get("head_sha") or "").lower()
+                  != source_head_sha
+              ):
+                  raise SystemExit("catch-up artifact metadata is invalid")
+              with out.open("a", encoding="utf-8") as handle:
+                  handle.write("eligible=no\n")
+                  handle.write("catchup=yes\n")
+                  handle.write("skip_reason=chronological_catchup_has_no_normal_artifacts\n")
+                  handle.write(f"catchup_session_date={catchup_date.isoformat()}\n")
+                  handle.write(f"catchup_artifact_name={name}\n")
+                  handle.write(
+                      "catchup_artifact_digest="
+                      + digest.removeprefix("sha256:")
+                      + "\n"
+                  )
+              selected_path.write_text(
+                  json.dumps(
+                      {
+                          "catchup": {
+                              "id": int(artifact["id"]),
+                              "name": name,
+                              "digest": digest,
+                              "size_in_bytes": size,
+                              "session_date": catchup_date.isoformat(),
+                          }
+                      },
+                      indent=2,
+                      sort_keys=True,
+                  )
+                  + "\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit(0)
+          if any(len(exact[name]) != 1 for name in expected_names):
+              raise SystemExit(
+                  "exact daily and accepted source artifacts are both required"
+              )
+          selected = {}
+          for name in expected_names:
+              artifact = exact[name][0]
+              digest = str(artifact.get("digest") or "").lower()
+              size = artifact.get("size_in_bytes")
+              artifact_run = artifact.get("workflow_run") or {}
+              if (
+                  artifact.get("expired") is not False
+                  or type(artifact.get("id")) is not int
+                  or int(artifact["id"]) <= 0
+                  or type(size) is not int
+                  or size <= 0
+                  or size > max_source_archive_bytes
+                  or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None
+                  or int(artifact_run.get("id") or 0) != int(run_id)
+                  or str(artifact_run.get("head_sha") or "").lower()
+                  != source_head_sha
+              ):
+                  raise SystemExit(f"source artifact metadata invalid: {name}")
+              selected[name] = {
+                  "id": int(artifact["id"]),
+                  "digest": digest,
+                  "name": name,
+                  "size_in_bytes": size,
+              }
+          selected_path.write_text(
+              json.dumps(selected, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with out.open("a", encoding="utf-8") as handle:
+              handle.write("eligible=yes\n")
+              handle.write(
+                  "daily_digest="
+                  + selected[expected_names[0]]["digest"].removeprefix("sha256:")
+                  + "\n"
+              )
+              handle.write(
+                  "accepted_digest="
+                  + selected[expected_names[1]]["digest"].removeprefix("sha256:")
+                  + "\n"
+              )
+          PY
+          if ! grep -qx 'eligible=yes' "$GITHUB_OUTPUT"; then
+            echo "[sector-leadership] SKIPPED: catch-up has no normal accepted inputs"
+            exit 0
+          fi
+          readarray -t ARTIFACT_ROWS < <(
+            python - "$RUNNER_TEMP/selected-source-artifacts.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          selected = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          for name in sorted(selected):
+              item = selected[name]
+              print(
+                  f"{item['id']}\t{item['digest']}\t"
+                  f"{item['size_in_bytes']}\t{name}"
+              )
+          PY
+          )
+          for row in "${ARTIFACT_ROWS[@]}"; do
+            IFS=$'\t' read -r ARTIFACT_ID ARTIFACT_DIGEST ARTIFACT_SIZE ARTIFACT_NAME <<<"$row"
+            if [[ "$ARTIFACT_NAME" == daily-operating-selection-refresh-* ]]; then
+              DESTINATION="inputs/source/daily"
+              ARCHIVE="$RUNNER_TEMP/daily-operating-source.zip"
+            else
+              DESTINATION="inputs/source/accepted"
+              ARCHIVE="$RUNNER_TEMP/accepted-paper-source.zip"
+            fi
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" \
+              > "$ARCHIVE"
+            python - "$ARCHIVE" "$ARTIFACT_DIGEST" "$ARTIFACT_SIZE" "$ARTIFACT_NAME" "$DESTINATION" <<'PY'
+          import hashlib
+          import shutil
+          import stat
+          import sys
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          archive = Path(sys.argv[1])
+          expected = sys.argv[2].removeprefix("sha256:")
+          expected_size = int(sys.argv[3])
+          artifact_name = sys.argv[4]
+          destination = Path(sys.argv[5])
+          max_archive_bytes = 64 * 1024**2
+          if artifact_name.startswith("daily-operating-selection-refresh-"):
+              max_member_bytes = 512 * 1024**2
+          elif artifact_name.startswith("accepted-paper-transaction-"):
+              max_member_bytes = 256 * 1024**2
+          else:
+              raise SystemExit("unexpected source artifact name")
+          archive_size = archive.stat().st_size
+          if (
+              archive_size <= 0
+              or archive_size > max_archive_bytes
+              or archive_size != expected_size
+          ):
+              raise SystemExit("GitHub artifact archive size mismatch")
+          digest = hashlib.sha256()
+          with archive.open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          actual = digest.hexdigest()
+          if actual != expected:
+              raise SystemExit("GitHub artifact archive digest mismatch")
+          destination.mkdir(parents=True, exist_ok=False)
+          with zipfile.ZipFile(archive) as bundle:
+              infos = bundle.infolist()
+              if len(infos) > 20000:
+                  raise SystemExit("artifact entry count exceeds bound")
+              if sum(info.file_size for info in infos) > 512 * 1024**2:
+                  raise SystemExit("artifact expanded size exceeds bound")
+              member_types = {}
+              for info in infos:
+                  pure = PurePosixPath(info.filename)
+                  mode = info.external_attr >> 16
+                  normalized = pure.as_posix()
+                  is_directory = info.is_dir()
+                  if (
+                      pure.is_absolute()
+                      or ".." in pure.parts
+                      or "\\" in info.filename
+                      or stat.S_ISLNK(mode)
+                      or not pure.parts
+                      or normalized in {"", "."}
+                      or info.flag_bits & 1
+                      or info.file_size < 0
+                      or info.file_size > max_member_bytes
+                      or (is_directory and info.file_size != 0)
+                  ):
+                      raise SystemExit("unsafe artifact archive member")
+                  if normalized in member_types:
+                      raise SystemExit("duplicate normalized artifact archive member")
+                  for index in range(1, len(pure.parts)):
+                      ancestor = "/".join(pure.parts[:index])
+                      if member_types.get(ancestor) is False:
+                          raise SystemExit("artifact archive file-directory collision")
+                  if not is_directory and any(
+                      existing.startswith(normalized + "/")
+                      for existing in member_types
+                  ):
+                      raise SystemExit("artifact archive file-directory collision")
+                  member_types[normalized] = is_directory
+                  target = destination.joinpath(*pure.parts)
+                  if is_directory:
+                      target.mkdir(parents=True, exist_ok=True)
+                      continue
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with bundle.open(info) as source, target.open("wb") as sink:
+                      shutil.copyfileobj(source, sink)
+          PY
+          done
+
+      - name: Emit observable catch-up research skip
+        if: steps.artifacts.outputs.catchup == 'yes'
+        run: |
+          set -euo pipefail
+          rm -rf outputs/run287_sector_leadership_research
+          python tools/run_run287_sector_leadership_challenger.py \
+            --emit-catchup-skip \
+            --source-run-id "${{ steps.source.outputs.run_id }}" \
+            --source-run-attempt "${{ steps.source.outputs.run_attempt }}" \
+            --source-commit-sha "${{ steps.source.outputs.head_sha }}" \
+            --source-session-date "${{ steps.artifacts.outputs.catchup_session_date }}" \
+            --source-workflow "${{ steps.source.outputs.workflow_identity }}" \
+            --output-dir outputs/run287_sector_leadership_research
+
+      - name: Verify observable catch-up research skip
+        if: steps.artifacts.outputs.catchup == 'yes'
+        env:
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.source.outputs.run_attempt }}
+          SOURCE_COMMIT_SHA: ${{ steps.source.outputs.head_sha }}
+          SOURCE_SESSION_DATE: ${{ steps.artifacts.outputs.catchup_session_date }}
+          SOURCE_WORKFLOW: ${{ steps.source.outputs.workflow_identity }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          status = "SKIPPED_CATCHUP_NO_PIT_SCORE_SNAPSHOT"
+          root = Path("outputs/run287_sector_leadership_research")
+          required = {
+              "source_manifest.json",
+              "feature_manifest.json",
+              "experiment_ledger.json",
+              "sector_leadership.csv",
+              "subsector_leadership.csv",
+              "leadership_transitions.csv",
+              "candidate_ranking.csv",
+              "operation_health.json",
+              "summary.json",
+              "report.md",
+          }
+          if not root.is_dir():
+              raise SystemExit("catch-up research skip output is missing")
+          entries = list(root.iterdir())
+          observed = {path.name for path in entries}
+          if observed != required or any(not path.is_file() for path in entries):
+              raise SystemExit(
+                  f"catch-up research skip file contract mismatch: {sorted(observed)}"
+              )
+          if any(path.is_symlink() for path in root.rglob("*")):
+              raise SystemExit("catch-up research skip may not contain symlinks")
+          summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+          source = summary.get("source_identity") or {}
+          required_false = (
+              "production_activation_allowed",
+              "live_trading_enabled",
+              "target_books_mutated",
+              "orders_generated",
+              "automatic_promotion_allowed",
+              "automatic_champion_replacement_allowed",
+              "production_mutation_allowed",
+              "portfolio_weights_written",
+              "weights_mutated",
+              "cash_allocator_written",
+              "accounts_written",
+              "account_state_mutated",
+              "operating_ledgers_written",
+              "operating_ledger_mutated",
+              "backtest_executed",
+              "fullrun_executed",
+          )
+          if (
+              summary.get("schema_version")
+              != "run287-sector-leadership-summary-v1"
+              or summary.get("status") != status
+              or summary.get("research_only") is not True
+              or summary.get("review_only") is not True
+              or any(summary.get(field) is not False for field in required_false)
+              or str(source.get("run_id") or "") != os.environ["SOURCE_RUN_ID"]
+              or str(source.get("run_attempt") or "")
+              != os.environ["SOURCE_RUN_ATTEMPT"]
+              or str(source.get("commit_sha") or "")
+              != os.environ["SOURCE_COMMIT_SHA"]
+              or str(source.get("session_date") or "")
+              != os.environ["SOURCE_SESSION_DATE"]
+              or str(source.get("workflow") or "")
+              != os.environ["SOURCE_WORKFLOW"]
+              or summary.get("contract_failures")
+              != ["catchup_has_no_pit_score_snapshot"]
+          ):
+              raise SystemExit(
+                  "catch-up research skip safety or source identity mismatch"
+              )
+          artifact_hashes = summary.get("artifact_hashes") or {}
+          expected_hashed = required.difference({"summary.json"})
+          if set(artifact_hashes) != expected_hashed:
+              raise SystemExit(
+                  "catch-up research skip artifact hash set mismatch"
+              )
+          for name in sorted(expected_hashed):
+              record = artifact_hashes.get(name) or {}
+              path = root / name
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if (
+                  re.fullmatch(
+                      r"[0-9a-f]{64}",
+                      str(record.get("sha256") or ""),
+                  )
+                  is None
+                  or record.get("sha256") != digest
+                  or record.get("bytes") != path.stat().st_size
+              ):
+                  raise SystemExit(
+                      f"catch-up research skip hash mismatch: {name}"
+                  )
+          health = json.loads(
+              (root / "operation_health.json").read_text(encoding="utf-8")
+          )
+          expected_gates = {
+              "accepted_publication_bound",
+              "source_identity_bound",
+              "scored_outputs_hash_bound",
+              "benchmark_cache_hash_bound",
+              "full_source_exact_close_coverage_100pct",
+              "eligible_exact_close_coverage_100pct",
+              "exact_stock_close_coverage_100pct",
+              "taxonomy_coverage_at_least_98pct",
+              "all_11_canonical_sectors_represented",
+              "exact_spy_qqq_smh",
+              "no_future_rows",
+              "safe_to_review",
+          }
+          gates = health.get("gates") or {}
+          if (
+              health.get("status") != "SKIPPED"
+              or health.get("challenger_status") != status
+              or health.get("research_only") is not True
+              or health.get("review_only") is not True
+              or any(health.get(field) is not False for field in required_false)
+              or set(gates) != expected_gates
+              or any(gates.get(name) is not False for name in expected_gates)
+              or health.get("contract_failures")
+              != ["catchup_has_no_pit_score_snapshot"]
+          ):
+              raise SystemExit("catch-up research skip health is unsafe")
+          PY
+
+      - name: Restore exact source price cache
+        id: source_cache
+        if: steps.artifacts.outputs.eligible == 'yes'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            cache_prices
+            cache_macro
+            models
+            feature_store/scored_oos_latest.parquet
+            data_raw/free
+            data_pit/free
+            data_pit/sec
+            data_pit/etf_holdings
+            data_pit/macro
+            manifests/free_data
+          key: daily-operating-selection-${{ runner.os }}-${{ steps.source.outputs.run_id }}
+          fail-on-cache-miss: true
+
+      - name: Verify source identities and locate hash-bound inputs
+        id: inputs
+        if: steps.artifacts.outputs.eligible == 'yes'
+        env:
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.source.outputs.run_attempt }}
+          SOURCE_COMMIT_SHA: ${{ steps.source.outputs.head_sha }}
+          SOURCE_WORKFLOW_PATH: ${{ steps.source.outputs.workflow_path }}
+          DAILY_ARTIFACT_DIGEST: ${{ steps.artifacts.outputs.daily_digest }}
+          ACCEPTED_ARTIFACT_DIGEST: ${{ steps.artifacts.outputs.accepted_digest }}
+        run: |
+          set -euo pipefail
+          readarray -t SOURCE_ROOTS < <(
+            python - <<'PY'
+          import os
+          from pathlib import Path
+
+          repository_name = os.environ["GITHUB_REPOSITORY"].split("/", 1)[1]
+          daily_archive = Path("inputs/source/daily")
+          accepted_archive = Path("inputs/source/accepted")
+
+          daily_candidates = (
+              daily_archive,
+              daily_archive / repository_name,
+              daily_archive / repository_name / repository_name,
+          )
+          daily_matches = [
+              path
+              for path in daily_candidates
+              if (
+                  path
+                  / "outputs/run287_exact_packet_upstream/attempts"
+                  / (
+                      os.environ["SOURCE_RUN_ID"]
+                      + "-"
+                      + os.environ["SOURCE_RUN_ATTEMPT"]
+                  )
+                  / "status.json"
+              ).is_file()
+              and (
+                  path / "cache_prices/replay_price_cache_manifest.json"
+              ).is_file()
+          ]
+          accepted_candidates = (
+              accepted_archive / "outputs",
+              accepted_archive,
+              accepted_archive / repository_name / "outputs",
+              accepted_archive / repository_name / repository_name / "outputs",
+          )
+          accepted_matches = [
+              path
+              for path in accepted_candidates
+              if (
+                  path / "run287_accepted_publication/manifest.json"
+              ).is_file()
+              and (path / "daily_simulated_fill_ledger/summary.json").is_file()
+          ]
+          if len(daily_matches) != 1 or len(accepted_matches) != 1:
+              raise SystemExit("source artifact repository roots are absent or ambiguous")
+          print(daily_matches[0])
+          print(accepted_matches[0])
+          PY
+          )
+          if [ "${#SOURCE_ROOTS[@]}" -ne 2 ]; then
+            echo "[sector-leadership] BLOCKED: source artifact roots unresolved"
+            exit 2
+          fi
+          DAILY_REPO_ROOT="${SOURCE_ROOTS[0]}"
+          ACCEPTED_OUTPUTS="${SOURCE_ROOTS[1]}"
+          export DAILY_REPO_ROOT ACCEPTED_OUTPUTS
+          ACCEPTED_MANIFEST="$ACCEPTED_OUTPUTS/run287_accepted_publication/manifest.json"
+          test -s "$ACCEPTED_MANIFEST"
+          ACCEPTED_MANIFEST_SHA="$(sha256sum "$ACCEPTED_MANIFEST" | cut -d' ' -f1)"
+          python tools/build_run287_accepted_publication_manifest.py \
+            --latest-run "$ACCEPTED_OUTPUTS" \
+            --verify-manifest "$ACCEPTED_MANIFEST" \
+            --expected-manifest-sha256 "$ACCEPTED_MANIFEST_SHA"
+          python - "$GITHUB_OUTPUT" "$RUNNER_TEMP/sector-leadership-source-contract.json" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          contract_path = Path(sys.argv[2])
+          daily = Path(os.environ["DAILY_REPO_ROOT"])
+          accepted_outputs = Path(os.environ["ACCEPTED_OUTPUTS"])
+          run_id = os.environ["SOURCE_RUN_ID"]
+          run_attempt = os.environ["SOURCE_RUN_ATTEMPT"]
+          source_sha = os.environ["SOURCE_COMMIT_SHA"]
+
+          def read_json(path: Path) -> dict:
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"required JSON is missing: {path}")
+              value = json.loads(path.read_text(encoding="utf-8"))
+              if not isinstance(value, dict):
+                  raise SystemExit(f"JSON object required: {path}")
+              return value
+
+          def sha256(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def valid_sha(value: object) -> bool:
+              return re.fullmatch(r"[0-9a-f]{64}", str(value or "").lower()) is not None
+
+          def artifact_path(raw: object) -> Path:
+              normalized = str(raw or "").replace("\\", "/")
+              if normalized.startswith("outputs/"):
+                  relative = normalized
+              elif "/outputs/" in normalized:
+                  relative = "outputs/" + normalized.split("/outputs/", 1)[1]
+              else:
+                  raise SystemExit(f"artifact path has no outputs anchor: {normalized}")
+              pure = Path(relative)
+              if pure.is_absolute() or ".." in pure.parts:
+                  raise SystemExit(f"unsafe artifact path: {normalized}")
+              resolved = daily / pure
+              try:
+                  resolved.resolve().relative_to(daily.resolve())
+              except ValueError as exc:
+                  raise SystemExit(f"artifact path escapes root: {normalized}") from exc
+              return resolved
+
+          attempt_status = (
+              daily
+              / "outputs/run287_exact_packet_upstream/attempts"
+              / f"{run_id}-{run_attempt}"
+              / "status.json"
+          )
+          status = read_json(attempt_status)
+          safe_false = (
+              "backtest_executed",
+              "fullrun_executed",
+              "orders_generated",
+              "target_books_mutated",
+              "production_activation_allowed",
+              "live_trading_enabled",
+          )
+          if (
+              status.get("schema_version")
+              != "run287-exact-packet-upstream-orchestrator-v3"
+              or status.get("status")
+              not in {
+                  "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY",
+                  "READY_EXISTING_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY",
+              }
+              or status.get("upstream_ready") is not True
+              or status.get("research_only") is not True
+              or any(status.get(field) is not False for field in safe_false)
+          ):
+              raise SystemExit("exact-packet upstream status is not safe and ready")
+
+          bundle_path = (
+              daily / "outputs/run287_exact_packet_input_sources/source_bundle.json"
+          )
+          bundle_record = status.get("source_bundle") or {}
+          if (
+              bundle_record.get("exists") is not True
+              or not valid_sha(bundle_record.get("sha256"))
+              or sha256(bundle_path) != str(bundle_record["sha256"]).lower()
+          ):
+              raise SystemExit("current source bundle is not bound by upstream status")
+          bundle = read_json(bundle_path)
+          code_identity = bundle.get("code_identity") or {}
+          if (
+              bundle.get("schema_version")
+              != "run287-exact-packet-input-source-bundle-v1"
+              or bundle.get("status")
+              != "READY_EXACT_PACKET_INPUT_SOURCE_PATHS_REVIEW_ONLY"
+              or bundle.get("research_only") is not True
+              or any(bundle.get(field) is not False for field in safe_false)
+              or code_identity.get("source_commit_sha") != source_sha
+          ):
+              raise SystemExit("source bundle safety or code identity mismatch")
+
+          price_record = (bundle.get("inputs") or {}).get("price_manifest") or {}
+          scored_manifest_path = artifact_path(price_record.get("path"))
+          expected_scored_manifest_sha = str(price_record.get("sha256") or "").lower()
+          pattern = re.compile(
+              r"^outputs/run287_exact_packet_upstream/attempts/"
+              r"[A-Za-z0-9_.-]+/scored_latest/manifest\.json$"
+          )
+          relative_scored_manifest = scored_manifest_path.relative_to(daily).as_posix()
+          if (
+              pattern.fullmatch(relative_scored_manifest) is None
+              or not valid_sha(expected_scored_manifest_sha)
+              or sha256(scored_manifest_path) != expected_scored_manifest_sha
+          ):
+              raise SystemExit("exact scored_latest manifest lineage mismatch")
+          scored = read_json(scored_manifest_path)
+          session = str(scored.get("session_date") or "")
+          scored_false = (
+              "backtest_executed",
+              "fullrun_executed",
+              "selector_executed",
+              "target_book_generation_executed",
+              "target_books_mutated",
+              "production_activation_allowed",
+              "live_trading_enabled",
+              "source_cache_mutated",
+          )
+          if (
+              scored.get("schema_version") != "run287-scored-latest-refresh-v4"
+              or scored.get("status") != "READY_RESEARCH_SCORED_LATEST"
+              or re.fullmatch(r"\d{4}-\d{2}-\d{2}", session) is None
+              or scored.get("research_only") is not True
+              or scored.get("next_close_execution_required") is not True
+              or scored.get("same_close_execution_allowed") is not False
+              or any(scored.get(field) is not False for field in scored_false)
+          ):
+              raise SystemExit("scored_latest manifest safety contract failed")
+
+          located = {}
+          for name in (
+              "scored_latest.csv",
+              "provider_price_overlap.parquet",
+              "ticker_refresh_audit.csv",
+          ):
+              record = (scored.get("outputs") or {}).get(name) or {}
+              path = artifact_path(record.get("path"))
+              expected = str(record.get("sha256") or "").lower()
+              if (
+                  path.parent != scored_manifest_path.parent
+                  or path.name != name
+                  or record.get("exists") is not True
+                  or not valid_sha(expected)
+                  or sha256(path) != expected
+              ):
+                  raise SystemExit(f"scored_latest output hash mismatch: {name}")
+              located[name] = {"path": path, "sha256": expected}
+
+          evidence_manifest_path = (
+              daily / "cache_prices/replay_price_cache_manifest.json"
+          )
+          restored_manifest_path = Path(
+              "cache_prices/replay_price_cache_manifest.json"
+          )
+          attempt_path = (
+              daily
+              / "outputs/full_rebuild_logs/"
+              "daily_operating_price_cache_refresh_attempt.json"
+          )
+          evidence_manifest = read_json(evidence_manifest_path)
+          attempt = read_json(attempt_path)
+          evidence_sha = sha256(evidence_manifest_path)
+          if (
+              sha256(restored_manifest_path) != evidence_sha
+              or attempt.get("phase") != "final_operating_universe"
+              or attempt.get("status") != "completed"
+              or attempt.get("exit_code") != 0
+              or attempt.get("manifest_current_attempt") is not True
+              or attempt.get("manifest_sha256") != evidence_sha
+              or str(attempt.get("run_id") or "") != run_id
+              or attempt.get("source_commit_sha") != source_sha
+              or attempt.get("required_through_date") != session
+              or evidence_manifest.get("schema_version")
+              != "run287-replay-price-cache-manifest-v2"
+              or evidence_manifest.get("status") not in {"already_cached", "completed"}
+              or evidence_manifest.get("refresh_through_date") != session
+              or evidence_manifest.get("common_coverage_end") != session
+              or evidence_manifest.get("refresh_through_exact_coverage") is not True
+              or evidence_manifest.get("refresh_through_missing_tickers") != []
+              or evidence_manifest.get("refresh_through_exact_ticker_count")
+              != evidence_manifest.get("refresh_through_ticker_count")
+              or int(
+                  evidence_manifest.get("refresh_through_ticker_count") or 0
+              )
+              <= 0
+          ):
+              raise SystemExit("restored cache is not the exact hash-bound source cache")
+
+          accepted_manifest_path = (
+              accepted_outputs / "run287_accepted_publication/manifest.json"
+          )
+          accepted_manifest = read_json(accepted_manifest_path)
+          daily_accepted_manifest = (
+              daily / "outputs/run287_accepted_publication/manifest.json"
+          )
+          accepted_sha = sha256(accepted_manifest_path)
+          accepted_identity = accepted_manifest.get("source_identity") or {}
+          accepted_workflow = str(accepted_identity.get("workflow") or "")
+          expected_workflow = (
+              os.environ["GITHUB_REPOSITORY"]
+              + "/"
+              + os.environ["SOURCE_WORKFLOW_PATH"]
+              + "@refs/heads/master"
+          )
+          if (
+              sha256(daily_accepted_manifest) != accepted_sha
+              or accepted_manifest.get("status")
+              != "READY_ACCEPTED_PUBLICATION_REVIEW_ONLY"
+              or accepted_manifest.get("as_of_date") != session
+              or accepted_manifest.get("review_only") is not True
+              or accepted_manifest.get("automatic_champion_replacement_allowed")
+              is not False
+              or accepted_manifest.get("production_activation_allowed") is not False
+              or accepted_manifest.get("live_trading_enabled") is not False
+              or accepted_manifest.get("fullrun_executed") is not False
+              or accepted_identity.get("commit_sha") != source_sha
+              or str(accepted_identity.get("run_id") or "") != run_id
+              or str(accepted_identity.get("run_attempt") or "") != run_attempt
+              or accepted_workflow != expected_workflow
+          ):
+              raise SystemExit("accepted publication source identity mismatch")
+
+          ledger_summary = read_json(
+              accepted_outputs / "daily_simulated_fill_ledger/summary.json"
+          )
+          if (
+              ledger_summary.get("status") != "completed"
+              or ledger_summary.get("as_of_date") != session
+              or ledger_summary.get("review_only") is not True
+              or ledger_summary.get("live_trading_enabled") is not False
+              or ledger_summary.get("production_mutation_allowed") is not False
+          ):
+              raise SystemExit("accepted transaction is not a safe normal paper source")
+
+          contract = {
+              "schema_version": "run287-sector-leadership-source-contract-v1",
+              "status": "VERIFIED_EXACT_ACCEPTED_SOURCE",
+              "source_run_id": run_id,
+              "source_run_attempt": run_attempt,
+              "source_commit_sha": source_sha,
+              "source_workflow": accepted_workflow,
+              "source_workflow_path": os.environ["SOURCE_WORKFLOW_PATH"],
+              "source_session_date": session,
+              "artifact_digests": {
+                  "daily_operating": os.environ["DAILY_ARTIFACT_DIGEST"],
+                  "accepted_paper": os.environ["ACCEPTED_ARTIFACT_DIGEST"],
+              },
+              "inputs": {
+                  "accepted_publication_manifest": {
+                      "path": str(accepted_manifest_path),
+                      "sha256": accepted_sha,
+                  },
+                  "scored_latest_manifest": {
+                      "path": str(scored_manifest_path),
+                      "sha256": expected_scored_manifest_sha,
+                  },
+                  **located,
+                  "benchmark_cache_manifest": {
+                      "path": str(restored_manifest_path),
+                      "sha256": evidence_sha,
+                  },
+              },
+              "research_only": True,
+              "production_activation_allowed": False,
+              "live_trading_enabled": False,
+          }
+          contract_path.write_text(
+              json.dumps(contract, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          values = {
+              "source_session_date": session,
+              "source_workflow": accepted_workflow,
+              "accepted_publication_manifest": str(accepted_manifest_path),
+              "accepted_publication_sha256": accepted_sha,
+              "scored_latest_manifest": str(scored_manifest_path),
+              "scored_latest_manifest_sha256": expected_scored_manifest_sha,
+              "scored_latest_csv": str(located["scored_latest.csv"]["path"]),
+              "scored_latest_csv_sha256": located["scored_latest.csv"]["sha256"],
+              "provider_price_overlap": str(
+                  located["provider_price_overlap.parquet"]["path"]
+              ),
+              "provider_price_overlap_sha256": located[
+                  "provider_price_overlap.parquet"
+              ]["sha256"],
+              "ticker_refresh_audit": str(
+                  located["ticker_refresh_audit.csv"]["path"]
+              ),
+              "ticker_refresh_audit_sha256": located[
+                  "ticker_refresh_audit.csv"
+              ]["sha256"],
+              "benchmark_cache_manifest": str(restored_manifest_path),
+              "benchmark_cache_manifest_sha256": evidence_sha,
+          }
+          with out.open("a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  if "\n" in value or "\r" in value:
+                      raise SystemExit(f"unsafe source input output: {key}")
+                  handle.write(f"{key}={value}\n")
+          PY
+
+      - name: Restore newest valid prior READY research artifact
+        id: prior
+        if: steps.artifacts.outputs.eligible == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ steps.source.outputs.default_branch }}
+          SOURCE_CREATED_AT: ${{ steps.source.outputs.created_at }}
+          CURRENT_SESSION_DATE: ${{ steps.inputs.outputs.source_session_date }}
+          CURRENT_SOURCE_WORKFLOW: ${{ steps.inputs.outputs.source_workflow }}
+        run: |
+          set -euo pipefail
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/run287_sector_leadership_research.yml/runs?status=success&branch=${DEFAULT_BRANCH}&per_page=100" \
+            > "$RUNNER_TEMP/prior-research-runs.json"
+          readarray -t PRIOR_RUN_ROWS < <(
+            python - "$RUNNER_TEMP/prior-research-runs.json" <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          runs = payload.get("workflow_runs") or []
+          if len(runs) > 100:
+              raise SystemExit("prior workflow run selection exceeded the bounded page")
+          cutoff = dt.datetime.fromisoformat(
+              os.environ["SOURCE_CREATED_AT"].replace("Z", "+00:00")
+          )
+          candidates = []
+          for run in runs:
+              path = str(run.get("path") or "").split("@", 1)[0]
+              created = str(run.get("created_at") or "")
+              if not created:
+                  continue
+              stamp = dt.datetime.fromisoformat(created.replace("Z", "+00:00"))
+              head_sha = str(run.get("head_sha") or "").lower()
+              if (
+                  run.get("status") == "completed"
+                  and run.get("conclusion") == "success"
+                  and run.get("head_branch") == os.environ["DEFAULT_BRANCH"]
+                  and (run.get("repository") or {}).get("full_name")
+                  == os.environ["GITHUB_REPOSITORY"]
+                  and (run.get("head_repository") or {}).get("full_name")
+                  == os.environ["GITHUB_REPOSITORY"]
+                  and path
+                  == ".github/workflows/run287_sector_leadership_research.yml"
+                  and len(head_sha) == 40
+                  and all(character in "0123456789abcdef" for character in head_sha)
+                  and stamp < cutoff
+              ):
+                  candidates.append((stamp, int(run["id"]), head_sha))
+          for _, run_id, head_sha in sorted(candidates, reverse=True):
+              print(f"{run_id}\t{head_sha}")
+          PY
+          )
+          if [ "${#PRIOR_RUN_ROWS[@]}" -eq 0 ]; then
+            echo "available=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PRIOR_FOUND=no
+          for PRIOR_RUN_ROW in "${PRIOR_RUN_ROWS[@]}"; do
+            IFS=$'\t' read -r PRIOR_RUN_ID PRIOR_RUN_HEAD_SHA <<<"$PRIOR_RUN_ROW"
+            PRIOR_QUERY="$RUNNER_TEMP/prior-research-artifacts-${PRIOR_RUN_ID}.json"
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${PRIOR_RUN_ID}/artifacts?per_page=20" \
+              > "$PRIOR_QUERY"
+            readarray -t PRIOR_FIELDS < <(
+              python - "$PRIOR_QUERY" "$PRIOR_RUN_ID" "$PRIOR_RUN_HEAD_SHA" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if int(payload.get("total_count") or 0) > 20:
+              raise SystemExit("prior artifact selection exceeded the bounded page")
+          matches = [
+              item
+              for item in payload.get("artifacts") or []
+              if re.fullmatch(
+                  r"run287-sector-leadership-research-[1-9][0-9]*",
+                  str(item.get("name") or ""),
+              )
+              and item.get("expired") is False
+          ]
+          if not matches:
+              raise SystemExit(0)
+          if len(matches) != 1:
+              raise SystemExit("prior research artifact is ambiguous")
+          artifact = matches[0]
+          digest = str(artifact.get("digest") or "").lower()
+          size = artifact.get("size_in_bytes")
+          # The research artifact has an exact ten-file contract.
+          max_prior_archive_bytes = 16 * 1024**2
+          artifact_run = artifact.get("workflow_run") or {}
+          expected_head_sha = sys.argv[3]
+          if (
+              type(artifact.get("id")) is not int
+              or int(artifact["id"]) <= 0
+              or type(size) is not int
+              or size <= 0
+              or size > max_prior_archive_bytes
+              or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None
+              or int(artifact_run.get("id") or 0) != int(sys.argv[2])
+              or str(artifact_run.get("head_sha") or "").lower()
+              != expected_head_sha
+          ):
+              raise SystemExit("prior research artifact metadata is invalid")
+          print(artifact["id"])
+          print(digest)
+          print(artifact["name"])
+          print(size)
+          print(expected_head_sha)
+          PY
+            )
+            if [ "${#PRIOR_FIELDS[@]}" -eq 0 ]; then
+              echo "[sector-leadership] prior run ${PRIOR_RUN_ID} has no research artifact; continue"
+              continue
+            fi
+            if [ "${#PRIOR_FIELDS[@]}" -ne 5 ]; then
+              echo "[sector-leadership] BLOCKED: prior artifact metadata incomplete"
+              exit 2
+            fi
+            PRIOR_ARCHIVE="$RUNNER_TEMP/prior-sector-leadership-${PRIOR_RUN_ID}.zip"
+            PRIOR_DESTINATION="inputs/prior_candidates/${PRIOR_RUN_ID}"
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${PRIOR_FIELDS[0]}/zip" \
+              > "$PRIOR_ARCHIVE"
+            if ! python - "$PRIOR_ARCHIVE" "${PRIOR_FIELDS[1]}" "${PRIOR_FIELDS[3]}" "$PRIOR_DESTINATION" <<'PY'
+          import hashlib
+          import shutil
+          import stat
+          import sys
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          archive = Path(sys.argv[1])
+          expected = sys.argv[2].removeprefix("sha256:")
+          expected_size = int(sys.argv[3])
+          destination = Path(sys.argv[4])
+          max_archive_bytes = 16 * 1024**2
+          max_member_bytes = 32 * 1024**2
+          archive_size = archive.stat().st_size
+          if (
+              archive_size <= 0
+              or archive_size > max_archive_bytes
+              or archive_size != expected_size
+          ):
+              raise SystemExit("prior artifact archive size mismatch")
+          digest = hashlib.sha256()
+          with archive.open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          if digest.hexdigest() != expected:
+              raise SystemExit("prior artifact archive digest mismatch")
+          destination.mkdir(parents=True, exist_ok=False)
+          with zipfile.ZipFile(archive) as bundle:
+              infos = bundle.infolist()
+              if len(infos) > 100 or sum(item.file_size for item in infos) > 64 * 1024**2:
+                  raise SystemExit("prior artifact exceeds bounded size")
+              member_types = {}
+              for info in infos:
+                  pure = PurePosixPath(info.filename)
+                  normalized = pure.as_posix()
+                  is_directory = info.is_dir()
+                  if (
+                      pure.is_absolute()
+                      or ".." in pure.parts
+                      or "\\" in info.filename
+                      or stat.S_ISLNK(info.external_attr >> 16)
+                      or not pure.parts
+                      or normalized in {"", "."}
+                      or info.flag_bits & 1
+                      or info.file_size < 0
+                      or info.file_size > max_member_bytes
+                      or (is_directory and info.file_size != 0)
+                  ):
+                      raise SystemExit("unsafe prior artifact archive member")
+                  if normalized in member_types:
+                      raise SystemExit(
+                          "duplicate normalized prior artifact archive member"
+                      )
+                  for index in range(1, len(pure.parts)):
+                      ancestor = "/".join(pure.parts[:index])
+                      if member_types.get(ancestor) is False:
+                          raise SystemExit(
+                              "prior artifact archive file-directory collision"
+                          )
+                  if not is_directory and any(
+                      existing.startswith(normalized + "/")
+                      for existing in member_types
+                  ):
+                      raise SystemExit(
+                          "prior artifact archive file-directory collision"
+                      )
+                  member_types[normalized] = is_directory
+                  target = destination.joinpath(*pure.parts)
+                  if is_directory:
+                      target.mkdir(parents=True, exist_ok=True)
+                      continue
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with bundle.open(info) as source, target.open("wb") as sink:
+                      shutil.copyfileobj(source, sink)
+          PY
+            then
+              echo "[sector-leadership] prior run ${PRIOR_RUN_ID} has an invalid archive; continue"
+              continue
+            fi
+            readarray -t PRIOR_SUMMARY_FIELDS < <(
+              python - "$PRIOR_DESTINATION" "${PRIOR_FIELDS[2]}" "${PRIOR_FIELDS[4]}" <<'PY'
+          import datetime as dt
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          import pandas_market_calendars as mcal
+
+          root = Path(sys.argv[1])
+          artifact_name = sys.argv[2]
+          prior_run_head_sha = sys.argv[3]
+          repository_name = os.environ["GITHUB_REPOSITORY"].split("/", 1)[1]
+          candidates = (
+              root / "summary.json",
+              root / "run287_sector_leadership_research/summary.json",
+              root / "outputs/run287_sector_leadership_research/summary.json",
+              root
+              / repository_name
+              / repository_name
+              / "outputs/run287_sector_leadership_research/summary.json",
+          )
+          matches = [path for path in candidates if path.is_file()]
+          if not matches:
+              raise SystemExit(0)
+          if len(matches) != 1:
+              raise SystemExit("prior challenger summary is ambiguous")
+          summary_path = matches[0]
+          payload = json.loads(summary_path.read_text(encoding="utf-8"))
+          if payload.get("status") != "READY_SECTOR_LEADERSHIP_RESEARCH_ONLY":
+              raise SystemExit(0)
+          required_false = (
+              "production_activation_allowed",
+              "target_books_mutated",
+              "orders_generated",
+              "automatic_promotion_allowed",
+              "automatic_champion_replacement_allowed",
+              "production_mutation_allowed",
+              "portfolio_weights_written",
+              "weights_mutated",
+              "cash_allocator_written",
+              "accounts_written",
+              "account_state_mutated",
+              "operating_ledgers_written",
+              "operating_ledger_mutated",
+              "backtest_executed",
+              "fullrun_executed",
+              "live_trading_enabled",
+          )
+          identity = payload.get("source_identity") or {}
+          session = str(identity.get("session_date") or "")
+          workflow = str(identity.get("workflow") or "")
+          if (
+              payload.get("schema_version")
+              != "run287-sector-leadership-summary-v1"
+              or payload.get("research_only") is not True
+              or payload.get("review_only") is not True
+              or any(payload.get(field) is not False for field in required_false)
+              or payload.get("contract_failures") != []
+              or re.fullmatch(r"[1-9][0-9]*", str(identity.get("run_id") or ""))
+              is None
+              or re.fullmatch(r"[1-9][0-9]*", str(identity.get("run_attempt") or ""))
+              is None
+              or re.fullmatch(
+                  r"[0-9a-f]{40}", str(identity.get("commit_sha") or "")
+              )
+              is None
+              or str(identity.get("commit_sha") or "").lower()
+              != prior_run_head_sha
+              or workflow != os.environ["CURRENT_SOURCE_WORKFLOW"]
+              or artifact_name
+              != "run287-sector-leadership-research-"
+              + str(identity.get("run_id") or "")
+          ):
+              raise SystemExit("prior READY summary safety or identity invalid")
+          try:
+              prior_date = dt.date.fromisoformat(session)
+              current_date = dt.date.fromisoformat(
+                  os.environ["CURRENT_SESSION_DATE"]
+              )
+          except ValueError as exc:
+              raise SystemExit("prior READY summary date invalid") from exc
+          schedule = mcal.get_calendar("NYSE").schedule(
+              start_date=current_date - dt.timedelta(days=14),
+              end_date=current_date,
+          )
+          sessions = [stamp.date() for stamp in schedule.index]
+          if current_date not in sessions:
+              raise SystemExit("current source date is not an NYSE session")
+          previous = [value for value in sessions if value < current_date]
+          if not previous:
+              raise SystemExit("previous NYSE session is unavailable")
+          previous_session = previous[-1]
+          if prior_date != previous_session:
+              raise SystemExit(0)
+          expected_outputs = {
+              "source_manifest.json",
+              "feature_manifest.json",
+              "experiment_ledger.json",
+              "sector_leadership.csv",
+              "subsector_leadership.csv",
+              "leadership_transitions.csv",
+              "candidate_ranking.csv",
+              "operation_health.json",
+              "report.md",
+          }
+          records = payload.get("artifact_hashes") or {}
+          if set(records) != expected_outputs:
+              raise SystemExit("prior READY artifact hash set invalid")
+          output_root = summary_path.parent
+          entries = list(output_root.iterdir())
+          observed = {path.name for path in entries}
+          if (
+              observed != expected_outputs.union({"summary.json"})
+              or any(not path.is_file() for path in entries)
+          ):
+              raise SystemExit("prior READY output file contract invalid")
+          for name in sorted(expected_outputs):
+              path = output_root / name
+              record = records.get(name) or {}
+              if (
+                  not path.is_file()
+                  or hashlib.sha256(path.read_bytes()).hexdigest()
+                  != record.get("sha256")
+                  or path.stat().st_size != record.get("bytes")
+              ):
+                  raise SystemExit(f"prior READY artifact hash mismatch:{name}")
+          health = json.loads(
+              (output_root / "operation_health.json").read_text(encoding="utf-8")
+          )
+          expected_gates = {
+              "accepted_publication_bound",
+              "source_identity_bound",
+              "scored_outputs_hash_bound",
+              "benchmark_cache_hash_bound",
+              "full_source_exact_close_coverage_100pct",
+              "eligible_exact_close_coverage_100pct",
+              "exact_stock_close_coverage_100pct",
+              "taxonomy_coverage_at_least_98pct",
+              "all_11_canonical_sectors_represented",
+              "exact_spy_qqq_smh",
+              "no_future_rows",
+              "safe_to_review",
+          }
+          gates = health.get("gates") or {}
+          if (
+              health.get("status") != "READY"
+              or health.get("challenger_status")
+              != "READY_SECTOR_LEADERSHIP_RESEARCH_ONLY"
+              or health.get("research_only") is not True
+              or health.get("review_only") is not True
+              or any(health.get(field) is not False for field in required_false)
+              or health.get("contract_failures") != []
+              or set(gates) != expected_gates
+              or any(gates.get(name) is not True for name in expected_gates)
+          ):
+              raise SystemExit("prior READY operation health invalid")
+          print(summary_path)
+          print(hashlib.sha256(summary_path.read_bytes()).hexdigest())
+          print(session)
+          PY
+            )
+            if [ "${#PRIOR_SUMMARY_FIELDS[@]}" -eq 0 ]; then
+              echo "[sector-leadership] prior run ${PRIOR_RUN_ID} is not READY; continue"
+              continue
+            fi
+            if [ "${#PRIOR_SUMMARY_FIELDS[@]}" -ne 3 ]; then
+              echo "[sector-leadership] BLOCKED: prior READY summary metadata incomplete"
+              exit 2
+            fi
+            echo "available=yes" >> "$GITHUB_OUTPUT"
+            echo "summary=${PRIOR_SUMMARY_FIELDS[0]}" >> "$GITHUB_OUTPUT"
+            echo "summary_sha256=${PRIOR_SUMMARY_FIELDS[1]}" >> "$GITHUB_OUTPUT"
+            echo "source_session_date=${PRIOR_SUMMARY_FIELDS[2]}" >> "$GITHUB_OUTPUT"
+            echo "artifact_name=${PRIOR_FIELDS[2]}" >> "$GITHUB_OUTPUT"
+            echo "workflow_run_id=${PRIOR_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "workflow_head_sha=${PRIOR_FIELDS[4]}" >> "$GITHUB_OUTPUT"
+            PRIOR_FOUND=yes
+            break
+          done
+          if [ "$PRIOR_FOUND" != "yes" ]; then
+            echo "available=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run research-only sector and subsector challenger
+        if: steps.artifacts.outputs.eligible == 'yes'
+        env:
+          PRIOR_AVAILABLE: ${{ steps.prior.outputs.available }}
+          PRIOR_SUMMARY: ${{ steps.prior.outputs.summary }}
+          PRIOR_SUMMARY_SHA256: ${{ steps.prior.outputs.summary_sha256 }}
+        run: |
+          set -euo pipefail
+          PRIOR_ARGS=()
+          if [ "${PRIOR_AVAILABLE:-no}" = "yes" ]; then
+            PRIOR_ARGS=(
+              --prior-challenger-artifact "$PRIOR_SUMMARY"
+              --expected-prior-challenger-sha256 "$PRIOR_SUMMARY_SHA256"
+            )
+          fi
+          rm -rf outputs/run287_sector_leadership_research
+          python tools/run_run287_sector_leadership_challenger.py \
+            --accepted-publication-manifest "${{ steps.inputs.outputs.accepted_publication_manifest }}" \
+            --expected-accepted-publication-sha256 "${{ steps.inputs.outputs.accepted_publication_sha256 }}" \
+            --scored-latest-manifest "${{ steps.inputs.outputs.scored_latest_manifest }}" \
+            --expected-scored-latest-manifest-sha256 "${{ steps.inputs.outputs.scored_latest_manifest_sha256 }}" \
+            --scored-latest-csv "${{ steps.inputs.outputs.scored_latest_csv }}" \
+            --expected-scored-latest-csv-sha256 "${{ steps.inputs.outputs.scored_latest_csv_sha256 }}" \
+            --provider-price-overlap "${{ steps.inputs.outputs.provider_price_overlap }}" \
+            --expected-provider-price-overlap-sha256 "${{ steps.inputs.outputs.provider_price_overlap_sha256 }}" \
+            --ticker-refresh-audit "${{ steps.inputs.outputs.ticker_refresh_audit }}" \
+            --expected-ticker-refresh-audit-sha256 "${{ steps.inputs.outputs.ticker_refresh_audit_sha256 }}" \
+            --benchmark-cache-dir cache_prices \
+            --benchmark-cache-manifest "${{ steps.inputs.outputs.benchmark_cache_manifest }}" \
+            --expected-benchmark-cache-manifest-sha256 "${{ steps.inputs.outputs.benchmark_cache_manifest_sha256 }}" \
+            --source-run-id "${{ steps.source.outputs.run_id }}" \
+            --source-run-attempt "${{ steps.source.outputs.run_attempt }}" \
+            --source-commit-sha "${{ steps.source.outputs.head_sha }}" \
+            --source-session-date "${{ steps.inputs.outputs.source_session_date }}" \
+            --source-workflow "${{ steps.inputs.outputs.source_workflow }}" \
+            "${PRIOR_ARGS[@]}" \
+            --output-dir outputs/run287_sector_leadership_research
+
+      - name: Verify research output contract
+        if: steps.artifacts.outputs.eligible == 'yes'
+        env:
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.source.outputs.run_attempt }}
+          SOURCE_COMMIT_SHA: ${{ steps.source.outputs.head_sha }}
+          SOURCE_SESSION_DATE: ${{ steps.inputs.outputs.source_session_date }}
+          SOURCE_WORKFLOW: ${{ steps.inputs.outputs.source_workflow }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path("outputs/run287_sector_leadership_research")
+          required = {
+              "source_manifest.json",
+              "feature_manifest.json",
+              "experiment_ledger.json",
+              "sector_leadership.csv",
+              "subsector_leadership.csv",
+              "leadership_transitions.csv",
+              "candidate_ranking.csv",
+              "operation_health.json",
+              "summary.json",
+              "report.md",
+          }
+          entries = list(root.iterdir())
+          observed = {path.name for path in entries}
+          if observed != required or any(not path.is_file() for path in entries):
+              raise SystemExit(
+                  f"research output file contract mismatch: {sorted(observed)}"
+              )
+          if any(path.is_symlink() for path in root.rglob("*")):
+              raise SystemExit("research output may not contain symlinks")
+          summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+          source = summary.get("source") or summary.get("source_identity") or {}
+          required_false = (
+              "production_activation_allowed",
+              "live_trading_enabled",
+              "target_books_mutated",
+              "orders_generated",
+              "automatic_promotion_allowed",
+              "automatic_champion_replacement_allowed",
+              "production_mutation_allowed",
+              "portfolio_weights_written",
+              "weights_mutated",
+              "cash_allocator_written",
+              "accounts_written",
+              "account_state_mutated",
+              "operating_ledgers_written",
+              "operating_ledger_mutated",
+              "backtest_executed",
+              "fullrun_executed",
+          )
+          if (
+              summary.get("schema_version")
+              != "run287-sector-leadership-summary-v1"
+              or summary.get("status")
+              != "READY_SECTOR_LEADERSHIP_RESEARCH_ONLY"
+              or summary.get("research_only") is not True
+              or summary.get("review_only") is not True
+              or any(summary.get(field) is not False for field in required_false)
+              or summary.get("contract_failures") != []
+              or str(source.get("run_id") or source.get("source_run_id") or "")
+              != os.environ["SOURCE_RUN_ID"]
+              or str(
+                  source.get("run_attempt")
+                  or source.get("source_run_attempt")
+                  or ""
+              )
+              != os.environ["SOURCE_RUN_ATTEMPT"]
+              or str(
+                  source.get("commit_sha")
+                  or source.get("source_commit_sha")
+                  or ""
+              )
+              != os.environ["SOURCE_COMMIT_SHA"]
+              or str(
+                  source.get("session_date")
+                  or source.get("source_session_date")
+                  or summary.get("source_session_date")
+                  or ""
+              )
+              != os.environ["SOURCE_SESSION_DATE"]
+              or str(source.get("workflow") or "")
+              != os.environ["SOURCE_WORKFLOW"]
+          ):
+              raise SystemExit("research output safety or source identity mismatch")
+          artifact_hashes = summary.get("artifact_hashes") or {}
+          expected_hashed = required.difference({"summary.json"})
+          if set(artifact_hashes) != expected_hashed:
+              raise SystemExit("research summary artifact hash set mismatch")
+          for name in sorted(expected_hashed):
+              record = artifact_hashes.get(name) or {}
+              path = root / name
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if (
+                  re.fullmatch(
+                      r"[0-9a-f]{64}",
+                      str(record.get("sha256") or ""),
+                  )
+                  is None
+                  or record.get("sha256") != digest
+                  or record.get("bytes") != path.stat().st_size
+              ):
+                  raise SystemExit(f"research output hash mismatch: {name}")
+          health = json.loads(
+              (root / "operation_health.json").read_text(encoding="utf-8")
+          )
+          expected_gates = {
+              "accepted_publication_bound",
+              "source_identity_bound",
+              "scored_outputs_hash_bound",
+              "benchmark_cache_hash_bound",
+              "full_source_exact_close_coverage_100pct",
+              "eligible_exact_close_coverage_100pct",
+              "exact_stock_close_coverage_100pct",
+              "taxonomy_coverage_at_least_98pct",
+              "all_11_canonical_sectors_represented",
+              "exact_spy_qqq_smh",
+              "no_future_rows",
+              "safe_to_review",
+          }
+          gates = health.get("gates") or {}
+          if (
+              health.get("status") != "READY"
+              or health.get("challenger_status")
+              != "READY_SECTOR_LEADERSHIP_RESEARCH_ONLY"
+              or health.get("research_only") is not True
+              or health.get("review_only") is not True
+              or any(health.get(field) is not False for field in required_false)
+              or health.get("contract_failures") != []
+              or set(gates) != expected_gates
+              or any(gates.get(name) is not True for name in expected_gates)
+          ):
+              raise SystemExit("research operation health is not publishable")
+          PY
+
+      - name: Upload sector leadership research artifact
+        if: >-
+          success() &&
+          (steps.artifacts.outputs.eligible == 'yes' ||
+           steps.artifacts.outputs.catchup == 'yes')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: run287-sector-leadership-research-${{ steps.source.outputs.run_id }}
+          path: outputs/run287_sector_leadership_research
+          if-no-files-found: error
+          retention-days: 45
