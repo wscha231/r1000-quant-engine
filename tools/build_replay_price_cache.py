@@ -484,9 +484,46 @@ def merge_price_history(
     columns.extend(
         column for column in provider_normalized.columns if column not in columns
     )
-    merged = existing_normalized.reindex(columns=columns).combine_first(
-        provider_normalized.reindex(columns=columns)
+    existing_for_merge = existing_normalized.reindex(columns=columns).copy()
+    provider_for_merge = provider_normalized.reindex(columns=columns).copy()
+    provider_close_column = (
+        "Adj Close"
+        if "Adj Close" in provider_normalized.columns
+        else "Close"
     )
+    provider_effective_close = pd.to_numeric(
+        provider_normalized[provider_close_column],
+        errors="coerce",
+    )
+    provider_effective_close = provider_effective_close.where(
+        provider_effective_close.map(
+            lambda value: math.isfinite(float(value))
+        )
+        & (provider_effective_close > 0.0)
+    )
+    for close_column in ("Close", "Adj Close"):
+        if close_column not in existing_for_merge.columns:
+            continue
+        close_values = pd.to_numeric(
+            existing_for_merge[close_column],
+            errors="coerce",
+        )
+        invalid = close_values.map(
+            lambda value: not math.isfinite(float(value))
+        ) | (close_values <= 0.0)
+        existing_for_merge.loc[invalid, close_column] = float("nan")
+        provider_close_values = pd.to_numeric(
+            provider_for_merge[close_column],
+            errors="coerce",
+        )
+        provider_valid = provider_close_values.map(
+            lambda value: math.isfinite(float(value))
+        ) & (provider_close_values > 0.0)
+        provider_for_merge[close_column] = provider_close_values.where(
+            provider_valid,
+            provider_effective_close,
+        )
+    merged = existing_for_merge.combine_first(provider_for_merge)
     merged = merged.sort_index().reindex(columns=columns)
     merged.index.name = (
         existing_normalized.index.name
@@ -1255,10 +1292,11 @@ def download_prices(
             if existing_path.exists():
                 try:
                     existing = pd.read_parquet(existing_path)
-                except Exception as exc:
-                    raise ValueError(
-                        f"existing_price_cache_unreadable:{ticker}"
-                    ) from exc
+                except Exception:
+                    # A validated provider frame can repair a cache file that
+                    # cannot contribute any accepted history. The transaction
+                    # still backs up and restores the original bytes on failure.
+                    existing = pd.DataFrame()
             else:
                 existing = pd.DataFrame()
             merged = merge_price_history(existing, provider)
