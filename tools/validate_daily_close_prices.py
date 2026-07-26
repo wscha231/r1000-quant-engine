@@ -50,6 +50,8 @@ def latest_target_tickers(path: Path, session_date: pd.Timestamp) -> set[str]:
         if eligible.any():
             latest = dates[eligible].max()
             frame = frame[dates.eq(latest)].copy()
+        else:
+            frame = frame.iloc[0:0].copy()
         break
     return {ticker for ticker in frame["ticker"].map(clean_ticker) if ticker}
 

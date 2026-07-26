@@ -1657,6 +1657,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs
+          PRICE_REFRESH_MANIFEST="cache_prices/replay_price_cache_manifest.json"
+          PRICE_REFRESH_PRIOR_MANIFEST="outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json"
+          PRICE_REFRESH_ATTEMPT="outputs/full_rebuild_logs/daily_operating_price_cache_refresh_attempt.json"
+          rm -f "$PRICE_REFRESH_ATTEMPT" "$PRICE_REFRESH_PRIOR_MANIFEST"
+          if [ -s "$PRICE_REFRESH_MANIFEST" ]; then
+            cp "$PRICE_REFRESH_MANIFEST" "$PRICE_REFRESH_PRIOR_MANIFEST"
+          fi
           BOOKS=()
           [ -s outputs/portfolio_latest.csv ] && BOOKS+=(outputs/portfolio_latest.csv)
           [ -s outputs/concentrated_portfolio_latest.csv ] && BOOKS+=(outputs/concentrated_portfolio_latest.csv)
@@ -1664,20 +1671,42 @@ jobs:
             [ -s outputs/reports/main_monthly_weights.csv ] && BOOKS+=(outputs/reports/main_monthly_weights.csv)
             [ -s outputs/reports/concentrated_strategy_holdings.csv ] && BOOKS+=(outputs/reports/concentrated_strategy_holdings.csv)
           fi
+          PRICE_REFRESH_EXIT=3
+          PRICE_REFRESH_STATUS="failed_missing_books"
           if [ "${#BOOKS[@]}" -gt 0 ]; then
             printf '[daily-operating] price refresh books:\n' | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
             printf '  %s\n' "${BOOKS[@]}" | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+            set +e
             timeout 8m python tools/build_replay_price_cache.py \
               --books "${BOOKS[@]}" \
               --output-dir cache_prices \
               --required-tickers SPY QQQ SMH SOXX \
               --refresh-through-date "$LAST_NYSE_SESSION_DATE" \
               --refresh-stale-days 2 \
+              --exact-operating-universe \
               --max-scored 0 \
-              2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log || \
-              echo "[daily-operating] price cache refresh failed or timed out; continuing to freshness contract" | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+            PRICE_REFRESH_EXIT=$?
+            set -e
+            if [ "$PRICE_REFRESH_EXIT" -eq 0 ]; then
+              PRICE_REFRESH_STATUS="completed"
+            else
+              PRICE_REFRESH_STATUS="failed"
+            fi
           else
-            echo "[daily-operating] missing monthly books; price refresh skipped" | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+            echo "[daily-operating] missing monthly books; exact-session price refresh blocked" | tee outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+          fi
+          python tools/write_run287_price_refresh_attempt.py \
+            --exit-code "$PRICE_REFRESH_EXIT" \
+            --status "$PRICE_REFRESH_STATUS" \
+            --phase initial_current_books \
+            --output "$PRICE_REFRESH_ATTEMPT" \
+            --manifest "$PRICE_REFRESH_MANIFEST" \
+            --prior-manifest "$PRICE_REFRESH_PRIOR_MANIFEST" \
+            --required-through-date "$LAST_NYSE_SESSION_DATE"
+          if [ "$PRICE_REFRESH_EXIT" -ne 0 ]; then
+            echo "[daily-operating] exact-session price refresh failed with exit ${PRICE_REFRESH_EXIT}" | tee -a outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+            exit "$PRICE_REFRESH_EXIT"
           fi
 
       - name: Build daily market snapshot
@@ -1786,6 +1815,50 @@ jobs:
             --cost-bps 25 \
             --max-fill-lag-days 7 \
             2>&1 | tee outputs/full_rebuild_logs/daily_paper_bootstrap.log
+
+      - name: Complete exact close cache for final operating universe
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
+        run: |
+          set -euo pipefail
+          PRICE_REFRESH_MANIFEST="cache_prices/replay_price_cache_manifest.json"
+          PRICE_REFRESH_PRIOR_MANIFEST="outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json"
+          PRICE_REFRESH_ATTEMPT="outputs/full_rebuild_logs/daily_operating_price_cache_refresh_attempt.json"
+          INITIAL_PRICE_REFRESH_ATTEMPT="outputs/full_rebuild_logs/daily_operating_initial_price_cache_refresh_attempt.json"
+          rm -f "$INITIAL_PRICE_REFRESH_ATTEMPT"
+          cp "$PRICE_REFRESH_ATTEMPT" "$INITIAL_PRICE_REFRESH_ATTEMPT"
+          set +e
+          timeout 8m python tools/build_replay_price_cache.py \
+            --books \
+              outputs/reports/operating_main_target_book.csv \
+              outputs/reports/operating_concentrated_target_book.csv \
+            --account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
+            --account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
+            --state-dir outputs/daily_simulated_fill_ledger \
+            --exact-operating-universe \
+            --output-dir cache_prices \
+            --required-tickers SPY QQQ SMH SOXX \
+            --refresh-through-date "$LAST_NYSE_SESSION_DATE" \
+            --refresh-stale-days -1 \
+            --max-scored 0 \
+            2>&1 | tee outputs/full_rebuild_logs/daily_operating_final_price_cache_refresh.log
+          PRICE_REFRESH_EXIT=$?
+          set -e
+          if [ "$PRICE_REFRESH_EXIT" -eq 0 ]; then
+            PRICE_REFRESH_STATUS="completed"
+          else
+            PRICE_REFRESH_STATUS="failed"
+          fi
+          python tools/write_run287_price_refresh_attempt.py \
+            --exit-code "$PRICE_REFRESH_EXIT" \
+            --status "$PRICE_REFRESH_STATUS" \
+            --phase final_operating_universe \
+            --output "$PRICE_REFRESH_ATTEMPT" \
+            --manifest "$PRICE_REFRESH_MANIFEST" \
+            --prior-manifest "$PRICE_REFRESH_PRIOR_MANIFEST" \
+            --required-through-date "$LAST_NYSE_SESSION_DATE"
+          if [ "$PRICE_REFRESH_EXIT" -ne 0 ]; then
+            exit "$PRICE_REFRESH_EXIT"
+          fi
 
       - name: Require exact completed-session close prices
         if: steps.market.outputs.ready == 'yes'
@@ -2914,6 +2987,11 @@ jobs:
             data_pit/macro/latest.json
             data_raw/free/macro/daily_snapshot/latest.json
             outputs/full_rebuild_logs/daily_*.log
+            outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+            outputs/full_rebuild_logs/daily_operating_price_cache_refresh_attempt.json
+            outputs/full_rebuild_logs/daily_operating_initial_price_cache_refresh_attempt.json
+            outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json
+            cache_prices/replay_price_cache_transaction.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
             data_pit/free/market_snapshot/
             data_raw/free/market_snapshot/
@@ -2952,6 +3030,7 @@ jobs:
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          RUN_JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
           if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
@@ -2970,8 +3049,22 @@ jobs:
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
           done
-          if [ -s cache_prices/replay_price_cache_manifest.json ]; then
+          for f in \
+            outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log \
+            outputs/full_rebuild_logs/daily_operating_final_price_cache_refresh.log \
+            outputs/full_rebuild_logs/daily_operating_price_cache_refresh_attempt.json \
+            outputs/full_rebuild_logs/daily_operating_initial_price_cache_refresh_attempt.json \
+            outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json \
+            cache_prices/replay_price_cache_transaction.json; do
+            if [ -s "$f" ]; then
+              rclone copyto "$f" "$DEST/$f" || true
+            fi
+          done
+          if [ "${RUN_JOB_STATUS:-failure}" = "success" ] && \
+            python -c 'import hashlib,json,os,sys; mp,ap,s=sys.argv[1:]; raw=open(mp,"rb").read(); p=json.loads(raw); a=json.load(open(ap,encoding="utf-8")); ok=a.get("phase")=="final_operating_universe" and a.get("status")=="completed" and a.get("exit_code")==0 and a.get("manifest_current_attempt") is True and a.get("manifest_sha256")==hashlib.sha256(raw).hexdigest() and a.get("required_through_date")==s and a.get("source_commit_sha")==os.environ.get("GITHUB_SHA","") and a.get("run_id")==os.environ.get("GITHUB_RUN_ID","") and p.get("schema_version")=="run287-replay-price-cache-manifest-v2" and p.get("status") in {"already_cached","completed"} and p.get("refresh_through_date")==s and p.get("common_coverage_end")==s and p.get("refresh_through_exact_coverage") is True and p.get("refresh_through_missing_tickers")==[] and p.get("refresh_through_exact_ticker_count")==p.get("refresh_through_ticker_count") and int(p.get("refresh_through_ticker_count") or 0)>0; raise SystemExit(0 if ok else 1)' cache_prices/replay_price_cache_manifest.json outputs/full_rebuild_logs/daily_operating_price_cache_refresh_attempt.json "$LAST_NYSE_SESSION_DATE"; then
             rclone copyto cache_prices/replay_price_cache_manifest.json "$DEST/cache_prices/replay_price_cache_manifest.json" || true
+          else
+            echo "[gdrive] current price manifest not published: job or exact-session contract failed"
           fi
 
       - name: Reverify one-time scope attestation before durable persistence

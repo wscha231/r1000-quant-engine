@@ -157,10 +157,35 @@ def test_exact_close_coverage_includes_targets_accounts_pending_and_benchmarks()
         assert passed["missing_ticker_count"] == 0
 
 
+def test_exact_close_universe_excludes_future_only_target() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        target = root / "future_target.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-07-14",
+                    "ticker": "FUT",
+                    "weight": 1.0,
+                }
+            ]
+        ).to_csv(target, index=False)
+        tickers, sources = collect_required_tickers(
+            targets=[target],
+            accounts=[],
+            state_dir=root / "state",
+            required_tickers=["SPY"],
+            session_date=pd.Timestamp("2026-07-13"),
+        )
+        assert tickers == {"SPY"}
+        assert "target:future_target.csv" not in sources
+
+
 def main() -> int:
     test_session_gate_handles_regular_holiday_weekend_and_early_close()
     test_session_gate_selects_only_explicit_completed_catchup_sessions()
     test_exact_close_coverage_includes_targets_accounts_pending_and_benchmarks()
+    test_exact_close_universe_excludes_future_only_target()
     print("daily_market_close_gate_smoke: PASS")
     return 0
 

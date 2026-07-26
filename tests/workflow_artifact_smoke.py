@@ -2,6 +2,8 @@
 """Static checks for full rebuild artifact/export hygiene."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -36,6 +38,54 @@ MONTHLY_BOOK_TOKENS = [
     "outputs/reports/leader_drop_diagnostics_report.md",
     "outputs/reports/dataset_coverage_audit.*",
 ]
+
+
+def extract_yaml_literal_run(text: str, step_name: str) -> str:
+    lines = text.splitlines()
+    marker = f"- name: {step_name}"
+    step_index = next(
+        index
+        for index, line in enumerate(lines)
+        if line.lstrip() == marker
+    )
+    step_indent = len(lines[step_index]) - len(lines[step_index].lstrip())
+    run_index = next(
+        index
+        for index in range(step_index + 1, len(lines))
+        if (
+            len(lines[index]) - len(lines[index].lstrip()) > step_indent
+            and lines[index].lstrip() == "run: |"
+        )
+    )
+    run_indent = len(lines[run_index]) - len(lines[run_index].lstrip())
+    raw_block: list[str] = []
+    for line in lines[run_index + 1 :]:
+        indent = len(line) - len(line.lstrip())
+        if line.strip() and indent <= run_indent:
+            break
+        raw_block.append(line)
+    content_indent = min(
+        len(line) - len(line.lstrip())
+        for line in raw_block
+        if line.strip()
+    )
+    return "\n".join(
+        line[content_indent:] if line.strip() else ""
+        for line in raw_block
+    )
+
+
+def bash_executable() -> str:
+    discovered = shutil.which("bash")
+    if discovered:
+        return discovered
+    for candidate in (
+        Path("C:/Program Files/Git/bin/bash.exe"),
+        Path("C:/Program Files/Git/usr/bin/bash.exe"),
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    raise AssertionError("bash executable is required for workflow syntax smoke")
 
 
 def test_workflow_yaml_files_parse() -> None:
@@ -913,7 +963,6 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "data_pit/free/market_snapshot/",
         "data_raw/free/market_snapshot/",
         "outputs/full_rebuild_logs/daily_market_snapshot.log",
-        "price cache refresh failed or timed out",
         "daily market snapshot failed or timed out",
         "tools/build_operating_target_books.py",
         "timeout 3m python tools/build_operating_target_books.py",
@@ -1193,6 +1242,97 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ]:
         assert token in text, token
     assert "--minimum-core-candidate-coverage 0.98" not in text
+    price_refresh_step = text[
+        text.index("- name: Refresh current price cache"):
+        text.index("- name: Build daily market snapshot")
+    ]
+    assert "price cache refresh failed or timed out" not in price_refresh_step
+    assert "||" not in price_refresh_step
+    for token in (
+        "set -euo pipefail",
+        'rm -f "$PRICE_REFRESH_ATTEMPT" "$PRICE_REFRESH_PRIOR_MANIFEST"',
+        "set +e",
+        "PRICE_REFRESH_EXIT=$?",
+        'PRICE_REFRESH_STATUS="failed_missing_books"',
+        'PRICE_REFRESH_STATUS="failed"',
+        "tools/write_run287_price_refresh_attempt.py",
+        "--phase initial_current_books",
+        "--exact-operating-universe",
+        'exit "$PRICE_REFRESH_EXIT"',
+    ):
+        assert token in price_refresh_step, token
+    assert 'rm -f "$PRICE_REFRESH_MANIFEST"' not in price_refresh_step
+    parsed_price_refresh = extract_yaml_literal_run(
+        text,
+        "Refresh current price cache",
+    )
+    assert parsed_price_refresh.startswith("set -euo pipefail")
+    assert parsed_price_refresh.index("set +e") < parsed_price_refresh.index(
+        "PRICE_REFRESH_EXIT=$?"
+    )
+    assert parsed_price_refresh.index("PRICE_REFRESH_EXIT=$?") < (
+        parsed_price_refresh.index("set -e", 1)
+    )
+    bash_syntax = subprocess.run(
+        [bash_executable(), "-n"],
+        input=parsed_price_refresh + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert bash_syntax.returncode == 0, bash_syntax.stderr
+    evidence_upload_step = text[
+        text.index("- name: Upload daily operating evidence artifact"):
+        text.index("- name: Reverify accepted publication before GitHub publication")
+    ]
+    for token in (
+        "if: always()",
+        "outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log",
+        "outputs/full_rebuild_logs/daily_operating_price_cache_refresh_attempt.json",
+        "outputs/full_rebuild_logs/daily_operating_initial_price_cache_refresh_attempt.json",
+        "outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json",
+        "cache_prices/replay_price_cache_manifest.json",
+        "cache_prices/replay_price_cache_transaction.json",
+    ):
+        assert token in evidence_upload_step, token
+    final_price_refresh_step = text[
+        text.index(
+            "- name: Complete exact close cache for final operating universe"
+        ):
+        text.index("- name: Require exact completed-session close prices")
+    ]
+    for token in (
+        "set -euo pipefail",
+        "tools/build_replay_price_cache.py",
+        "outputs/reports/operating_main_target_book.csv",
+        "outputs/reports/operating_concentrated_target_book.csv",
+        "--account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json",
+        "--account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json",
+        "--state-dir outputs/daily_simulated_fill_ledger",
+        "--exact-operating-universe",
+        "--required-tickers SPY QQQ SMH SOXX",
+        '--refresh-through-date "$LAST_NYSE_SESSION_DATE"',
+        "daily_operating_final_price_cache_refresh.log",
+        "daily_operating_initial_price_cache_refresh_attempt.json",
+        "tools/write_run287_price_refresh_attempt.py",
+        "--phase final_operating_universe",
+        "PRICE_REFRESH_EXIT=$?",
+        'exit "$PRICE_REFRESH_EXIT"',
+    ):
+        assert token in final_price_refresh_step, token
+    assert "||" not in final_price_refresh_step
+    final_refresh_syntax = subprocess.run(
+        [bash_executable(), "-n"],
+        input=extract_yaml_literal_run(
+            text,
+            "Complete exact close cache for final operating universe",
+        )
+        + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert final_refresh_syntax.returncode == 0, final_refresh_syntax.stderr
     exact_close_step = text[
         text.index("- name: Require exact completed-session close prices"):
         text.index("- name: Refresh daily macro snapshot")
@@ -1219,6 +1359,40 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     ):
         assert token in exact_close_step, token
     assert "--price-cache cache_prices" not in exact_close_step
+    drive_sync_step = text[
+        text.index("- name: Sync daily operating artifact to Google Drive"):
+        text.index(
+            "- name: Reverify one-time scope attestation before durable persistence"
+        )
+    ]
+    for token in (
+        "RUN_JOB_STATUS: ${{ job.status }}",
+        'if [ "${RUN_JOB_STATUS:-failure}" = "success" ]',
+        "daily_operating_price_cache_refresh_attempt.json",
+        "daily_operating_initial_price_cache_refresh_attempt.json",
+        "daily_operating_price_cache_refresh_prior_manifest.json",
+        "daily_operating_final_price_cache_refresh.log",
+        "cache_prices/replay_price_cache_transaction.json",
+        'p.get("refresh_through_date")==s',
+        'p.get("common_coverage_end")==s',
+        'p.get("refresh_through_exact_coverage") is True',
+        'a.get("phase")=="final_operating_universe"',
+        'a.get("manifest_sha256")==hashlib.sha256(raw).hexdigest()',
+        "current price manifest not published",
+    ):
+        assert token in drive_sync_step, token
+    drive_sync_syntax = subprocess.run(
+        [bash_executable(), "-n"],
+        input=extract_yaml_literal_run(
+            text,
+            "Sync daily operating artifact to Google Drive",
+        )
+        + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert drive_sync_syntax.returncode == 0, drive_sync_syntax.stderr
     paper_step = text[
         text.index("- name: Run transactional paper ledger and same-close selector"):
         text.index("- name: Verify transactional forward paper snapshot")
@@ -1264,6 +1438,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     exact_close_gate_idx = text.index(
         "- name: Require exact completed-session close prices"
     )
+    final_price_refresh_idx = text.index(
+        "- name: Complete exact close cache for final operating universe"
+    )
     durable_catchup_drive_idx = text.index(
         "- name: Enforce durable Drive for chronological catch-up"
     )
@@ -1305,6 +1482,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert (
         persistent_restore_idx
         < catchup_target_evidence_idx
+        < final_price_refresh_idx
         < exact_close_gate_idx
         < paper_idx
     ), (
