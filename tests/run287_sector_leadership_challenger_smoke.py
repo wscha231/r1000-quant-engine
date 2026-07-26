@@ -686,12 +686,64 @@ def test_distinct_session_confirmation_reentry_and_same_date_idempotency() -> No
                 "Semiconductors"
             ),
         )["state"] == "BREAKDOWN"
+        semi_entity_key = (
+            "subindustry|Information Technology|Semiconductors|"
+            "Semiconductors"
+        )
+        first_transitions = pd.read_csv(
+            first["output"] / "leadership_transitions.csv"
+        )
+        first_semi_transition = first_transitions.loc[
+            (first_transitions["entity_type"] == "subindustry")
+            & (first_transitions["entity_key"] == semi_entity_key)
+        ].iloc[0]
+        assert bool(first_semi_transition["state_changed"]) is True
+        assert (
+            bool(first_semi_transition["immediate_negative_transition"])
+            is True
+        )
         utility_first = _state_row(
             first_summary, "sector", "sector|Utilities"
         )
         assert utility_first["state"] == "EMERGING_WATCH"
         assert utility_first["pending_confirmation"] == "EMERGING"
         assert int(utility_first["pending_streak"]) == 1
+
+        persistent_breakdown = _build_fixture(
+            root / "persistent_breakdown",
+            "2026-07-24",
+            semiconductor_mode="breakdown",
+            utility_mode="emerging",
+            run_id="88015",
+        )
+        persistent_proc = _run(
+            persistent_breakdown,
+            prior=first["output"] / "summary.json",
+        )
+        assert persistent_proc.returncode == 0, (
+            persistent_proc.stdout + persistent_proc.stderr
+        )
+        _assert_completed_contract(
+            persistent_breakdown["output"],
+            persistent_breakdown["session"],
+        )
+        persistent_transitions = pd.read_csv(
+            persistent_breakdown["output"] / "leadership_transitions.csv"
+        )
+        persistent_semi_transition = persistent_transitions.loc[
+            (persistent_transitions["entity_type"] == "subindustry")
+            & (persistent_transitions["entity_key"] == semi_entity_key)
+        ].iloc[0]
+        assert persistent_semi_transition["current_state"] == "BREAKDOWN"
+        assert bool(persistent_semi_transition["state_changed"]) is False
+        assert (
+            bool(
+                persistent_semi_transition[
+                    "immediate_negative_transition"
+                ]
+            )
+            is False
+        )
 
         gap = _build_fixture(
             root / "stale_prior_gap",
@@ -735,10 +787,7 @@ def test_distinct_session_confirmation_reentry_and_same_date_idempotency() -> No
         semi_second = _state_row(
             second_summary,
             "subindustry",
-            (
-                "subindustry|Information Technology|Semiconductors|"
-                "Semiconductors"
-            ),
+            semi_entity_key,
         )
         assert semi_second["state"] == "EMERGING_WATCH"
         assert semi_second["pending_confirmation"] == "REENTRY"
@@ -767,10 +816,7 @@ def test_distinct_session_confirmation_reentry_and_same_date_idempotency() -> No
         semi_third = _state_row(
             third_summary,
             "subindustry",
-            (
-                "subindustry|Information Technology|Semiconductors|"
-                "Semiconductors"
-            ),
+            semi_entity_key,
         )
         assert semi_third["state"] == "REENTRY"
         assert int(semi_third["pending_streak"]) == 0
@@ -789,10 +835,7 @@ def test_distinct_session_confirmation_reentry_and_same_date_idempotency() -> No
         assert _state_row(
             idem_summary,
             "subindustry",
-            (
-                "subindustry|Information Technology|Semiconductors|"
-                "Semiconductors"
-            ),
+            semi_entity_key,
         ) == semi_third
 
         changed = _build_fixture(

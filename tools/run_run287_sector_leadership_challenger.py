@@ -2045,6 +2045,7 @@ def advance_state(
         "last_evidence_session": last_evidence_session,
         "last_session": session_date,
     }
+    state_changed = state != previous_state
     transition = {
         "session_date": session_date,
         "entity_type": entity_type,
@@ -2052,11 +2053,13 @@ def advance_state(
         "previous_state": previous_state,
         "raw_signal": signal,
         "current_state": state,
-        "state_changed": state != previous_state,
+        "state_changed": state_changed,
         "pending_confirmation": pending,
         "pending_streak": int(streak),
         "confirmation_distinct_sessions_required": 2,
-        "immediate_negative_transition": immediate_negative,
+        "immediate_negative_transition": bool(
+            immediate_negative and state_changed
+        ),
         "same_date_idempotent": False,
     }
     return memory, transition

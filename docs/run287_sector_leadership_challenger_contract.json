@@ -214,6 +214,7 @@
       "BREAKDOWN",
       "WEAKENING"
     ],
+    "immediate_negative_transition_policy": "True only when a BREAKDOWN or WEAKENING signal causes an actual state change; a persistent negative state is reported without a new-transition flag.",
     "two_distinct_session_confirmation": [
       "EMERGING_CONFIRMED",
       "REENTRY"
