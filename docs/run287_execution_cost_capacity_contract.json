@@ -54,7 +54,8 @@
       "plain_date_policy": "A literal YYYY-MM-DD is already a trade date and remains unchanged",
       "combination_policy": "max(observed_paper_slippage, estimated_half_spread_plus_market_impact)",
       "double_counting_allowed": false,
-      "upper_bound_policy": "BLOCK_BEFORE_STATE_MUTATION when observed_slippage_bps + base_cost_bps >= 10000"
+      "upper_bound_policy": "BLOCK_BEFORE_STATE_MUTATION when observed_slippage_bps + base_cost_bps >= 10000",
+      "shared_ledger_scope": "Only replay-required ticker, actual-fill-date, and possible-side keys are validated; unrelated symbols, dates, excluded variants, and pending post-cutoff transitions remain unused"
     },
     "target_fill_coverage": {
       "required": "Every non-cash target transition, including removed-name liquidation, must have its configured fill within max_fill_lag_days",
@@ -63,8 +64,8 @@
       "asynchronous_transition_policy": "BLOCK_BEFORE_STATE_MUTATION",
       "portfolio_signal_requires_one_actual_fill_date": true,
       "removed_target_liquidation_fill_required": true,
-      "evidence_cutoff_policy": "A transition whose actual fill, or earliest possible fill when no actual fill exists, is after evidence_end_date is audited as pending and is not required for the clamped replay",
-      "operating_book_cutoff_inference": "When no explicit cutoff is supplied, accept only build_operating_target_books metadata where operating_appended is true, the signal date equals operating_latest_price_date, and no later target row exists",
+      "evidence_cutoff_policy": "A transition whose actual fill, or earliest NYSE-calendar-eligible fill when no actual fill exists, is after evidence_end_date is audited as pending and is not required for the clamped replay",
+      "operating_book_cutoff_inference": "When no explicit cutoff is supplied, accept only build_operating_target_books metadata where the row is operating_appended or operating_evidence_end_eligible, the signal date equals operating_latest_price_date, and no later target row exists",
       "pre_cutoff_missing_fill_policy": "Any transition that could have filled on or before evidence_end_date remains required and blocks when its fill is missing or asynchronous",
       "pending_only_non_cash_policy": "A non-cash book with no replayable transition at or before the evidence cutoff remains incomplete",
       "cash_only_policy": "A cash-only book has zero non-cash transition requirements and is vacuously complete; its cash calendar is validated separately when carry is enabled",
@@ -74,6 +75,7 @@
       "method": "monotone binary search against the original desired quantity",
       "undersized_fixed_point_lock_allowed": false
     },
+    "maximum_modeled_total_cost_policy": "base_cost_bps + maximum_half_spread_bps + maximum_market_impact_bps must remain strictly below 10000 before state mutation",
     "missing_liquidity_cost_ceiling_bps": 625.0,
     "missing_liquidity_paper_slippage_policy": "base cost plus max(600bps variable ceiling, observed paper slippage)",
     "missing_liquidity_evidence_status": "DO_NOT_USE",

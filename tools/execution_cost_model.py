@@ -380,14 +380,49 @@ class ExecutionCostModel:
         self,
         *,
         fixed_cost_bps: float,
+        relevant_trade_keys: set[tuple[str, str, str]] | None = None,
     ) -> list[dict[str, Any]]:
-        """Return paper rows whose fee would consume all sale proceeds."""
+        """Return relevant paper rows whose fee would consume sale proceeds.
+
+        A paper file may be a shared implementation ledger.  Only evidence
+        whose ``(date, ticker, side)`` can be used by this replay is allowed to
+        block it; unrelated symbols, dates, and sides remain unused evidence.
+        """
 
         if self.paper_slippage.empty:
             return []
         maximum_observed = max(0.0, 10000.0 - max(float(fixed_cost_bps), 0.0))
-        invalid = self.paper_slippage[
-            self.paper_slippage["observed_slippage_bps"].ge(maximum_observed)
+        candidates = self.paper_slippage
+        if relevant_trade_keys is not None:
+            normalized_keys = {
+                (
+                    pd.Timestamp(raw_date).normalize().date().isoformat(),
+                    str(ticker).upper().strip(),
+                    str(side).upper().strip(),
+                )
+                for raw_date, ticker, side in relevant_trade_keys
+            }
+            candidate_keys = pd.Series(
+                list(
+                    zip(
+                        candidates["date"].map(
+                            lambda value: pd.Timestamp(value)
+                            .normalize()
+                            .date()
+                            .isoformat()
+                        ),
+                        candidates["ticker"].astype(str).str.upper().str.strip(),
+                        candidates["side"].astype(str).str.upper().str.strip(),
+                    )
+                ),
+                index=candidates.index,
+                dtype=object,
+            )
+            candidates = candidates.loc[
+                candidate_keys.map(normalized_keys.__contains__)
+            ]
+        invalid = candidates[
+            candidates["observed_slippage_bps"].ge(maximum_observed)
         ]
         return [
             {

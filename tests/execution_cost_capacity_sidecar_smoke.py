@@ -669,6 +669,115 @@ def test_implausible_paper_slippage_fails_closed_without_state_artifacts() -> No
         )
 
 
+def test_unrelated_implausible_paper_rows_do_not_block_replay() -> None:
+    """A shared paper ledger is validated only on replay-usable trade keys."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        output = root / "execution"
+        cache.mkdir()
+        _write_ohlcv(cache, "AAA", initial_close=100.0)
+        _write_ohlcv(cache, "BBB", initial_close=50.0)
+        targets = root / "targets.csv"
+        _write_targets(targets)
+        paper = root / "shared_paper.csv"
+        pd.DataFrame(
+            [
+                {
+                    "date": "2024-01-03",
+                    "ticker": "UNRELATED",
+                    "side": "BUY",
+                    "observed_slippage_bps": 9_975.0,
+                },
+                {
+                    "date": "2025-01-03",
+                    "ticker": "AAA",
+                    "side": "BUY",
+                    "observed_slippage_bps": 9_975.0,
+                },
+                {
+                    "date": "2024-01-03",
+                    "ticker": "AAA",
+                    "side": "SELL",
+                    "observed_slippage_bps": 9_975.0,
+                },
+                {
+                    "date": "2024-01-03",
+                    "ticker": "AAA",
+                    "side": "BUY",
+                    "observed_slippage_bps": 125.0,
+                },
+            ]
+        ).to_csv(paper, index=False)
+
+        payload = run(
+            target_book=targets,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=100_000.0,
+            fill_mode="next_close",
+            base_cost_bps=25.0,
+            max_fill_lag_days=7,
+            execution_cost_config=ExecutionCostConfig(
+                mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+                paper_slippage_path=paper,
+            ),
+        )
+
+        assert payload["status"] == "completed", payload
+        trades = pd.read_csv(output / "spread_adv_impact" / "trades.csv")
+        matched = trades[
+            trades["ticker"].eq("AAA")
+            & trades["side"].eq("BUY")
+            & trades["date"].eq("2024-01-03")
+        ].iloc[0]
+        assert matched["observed_slippage_bps"] == 125.0
+
+
+def test_modeled_total_cost_reaching_100_percent_fails_preflight() -> None:
+    """Cost bounds that can consume an order must block before mutation."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        output = root / "execution"
+        cache.mkdir()
+        _write_ohlcv(cache, "AAA", initial_close=100.0)
+        _write_ohlcv(cache, "BBB", initial_close=50.0)
+        targets = root / "targets.csv"
+        _write_targets(targets)
+
+        payload = run(
+            target_book=targets,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=100_000.0,
+            fill_mode="next_close",
+            base_cost_bps=25.0,
+            max_fill_lag_days=7,
+            execution_cost_config=ExecutionCostConfig(
+                mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+                maximum_half_spread_bps=6_000.0,
+                maximum_market_impact_bps=3_975.0,
+            ),
+        )
+
+        assert payload["status"] == "blocked"
+        assert payload["reason"] == "execution_cost_configuration_out_of_bounds"
+        nested = json.loads(
+            (output / "spread_adv_impact" / "metrics.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert nested["maximum_modeled_total_cost_bps"] == 10_000.0
+        assert nested["performance_fields_redacted"] is True
+        assert not (output / "spread_adv_impact" / "trades.csv").exists()
+        assert not (output / "spread_adv_impact" / "equity_curve.csv").exists()
+
+
 def test_sidecar_pins_cash_carry_off_even_when_environment_enables_it() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1080,6 +1189,16 @@ def test_research_sidecar_is_wired_without_replacing_champion_metrics() -> None:
         contract["research_cost_contract"]["paper_slippage"]["side_policy"]
         == "Only explicit BUY or SELL rows are accepted; missing, blank, or unknown sides cannot act as wildcard evidence"
     )
+    assert (
+        contract["research_cost_contract"]["maximum_modeled_total_cost_policy"]
+        == "base_cost_bps + maximum_half_spread_bps + maximum_market_impact_bps must remain strictly below 10000 before state mutation"
+    )
+    assert "replay-required ticker" in contract[
+        "research_cost_contract"
+    ]["paper_slippage"]["shared_ledger_scope"]
+    assert "NYSE-calendar-eligible" in contract[
+        "research_cost_contract"
+    ]["target_fill_coverage"]["evidence_cutoff_policy"]
 
 
 def main() -> int:
@@ -1093,6 +1212,8 @@ def main() -> int:
     test_missing_ohlcv_blocks_dynamic_cost_evidence()
     test_missing_liquidity_uses_larger_observed_paper_slippage()
     test_implausible_paper_slippage_fails_closed_without_state_artifacts()
+    test_unrelated_implausible_paper_rows_do_not_block_replay()
+    test_modeled_total_cost_reaching_100_percent_fails_preflight()
     test_sidecar_pins_cash_carry_off_even_when_environment_enables_it()
     test_concentrated_manifest_uses_replay_filtered_champion_tickers()
     test_blocked_replay_report_never_fabricates_zero_performance()

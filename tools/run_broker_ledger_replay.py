@@ -20,11 +20,13 @@ import math
 import os
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -84,6 +86,7 @@ REPLAY_GENERATED_ARTIFACTS = (
 )
 CONCENTRATED_CHAMPION_FILTERS = DEFAULT_CONCENTRATED_CHAMPION_FILTERS
 DISABLE_CONCENTRATED_CHAMPION_FILTERS = {"__disable_concentrated_champion_filter__": "true"}
+NYSE_CALENDAR = mcal.get_calendar("NYSE")
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -435,8 +438,9 @@ def resolve_evidence_end(
 
     An explicit argument is authoritative.  Otherwise, only the operating-book
     metadata emitted by ``build_operating_target_books.py`` is accepted, and
-    only when an appended row is dated to that same observable close and no
-    later target row exists.
+    only when a builder-authorized row is dated to that same observable close
+    and no later target row exists.  Older books remain compatible through
+    their ``operating_appended`` marker.
     """
 
     explicit = pd.to_datetime(explicit_evidence_end, errors="coerce")
@@ -464,7 +468,21 @@ def resolve_evidence_end(
         .str.lower()
         .isin({"true", "1", "yes"})
     )
-    valid = appended & signal_dates.notna() & evidence_dates.notna()
+    evidence_end_eligible = (
+        raw_targets.get(
+            "operating_evidence_end_eligible",
+            pd.Series(False, index=raw_targets.index),
+        )
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1", "yes"})
+    )
+    valid = (
+        (appended | evidence_end_eligible)
+        & signal_dates.notna()
+        & evidence_dates.notna()
+    )
     valid &= signal_dates.eq(evidence_dates)
     candidates = evidence_dates.loc[valid]
     if candidates.empty:
@@ -591,6 +609,36 @@ def fill_price(
     return actual_dt, px
 
 
+@lru_cache(maxsize=4096)
+def earliest_nyse_fill_date(
+    signal_date_text: str,
+    fill_mode: str,
+) -> pd.Timestamp:
+    """Return the first exchange session eligible for the configured fill."""
+
+    signal_date = pd.Timestamp(signal_date_text).normalize()
+    if fill_mode not in {"same_close", "next_close", "next_open"}:
+        raise ValueError(f"unsupported fill_mode={fill_mode}")
+    start = (
+        signal_date
+        if fill_mode == "same_close"
+        else signal_date + pd.Timedelta(days=1)
+    )
+    schedule = NYSE_CALENDAR.schedule(
+        start_date=start.date(),
+        end_date=(start + pd.Timedelta(days=31)).date(),
+    )
+    sessions = pd.DatetimeIndex(schedule.index).tz_localize(None).normalize()
+    sessions = (
+        sessions[sessions >= signal_date]
+        if fill_mode == "same_close"
+        else sessions[sessions > signal_date]
+    )
+    if sessions.empty:
+        raise ValueError("next_nyse_fill_session_unavailable")
+    return pd.Timestamp(sessions[0]).normalize()
+
+
 def build_target_fill_coverage(
     targets: pd.DataFrame,
     prices: dict[str, pd.DataFrame],
@@ -644,9 +692,10 @@ def build_target_fill_coverage(
                 if actual_dt is not None
                 else None
             )
-            earliest_possible_fill = signal_date
-            if fill_mode in {"next_close", "next_open"}:
-                earliest_possible_fill += pd.Timedelta(days=1)
+            earliest_possible_fill = earliest_nyse_fill_date(
+                signal_date.date().isoformat(),
+                fill_mode,
+            )
             pending_after_evidence = bool(
                 normalized_evidence_end is not None
                 and (
@@ -686,6 +735,9 @@ def build_target_fill_coverage(
                         normalized_fill.date().isoformat()
                         if normalized_fill is not None
                         else ""
+                    ),
+                    "earliest_possible_fill_date": (
+                        earliest_possible_fill.date().isoformat()
                     ),
                     "fill_mode": fill_mode,
                     "max_fill_lag_days": int(max_fill_lag_days),
@@ -736,6 +788,7 @@ def build_target_fill_coverage(
             "ticker",
             "transition_action",
             "actual_fill_date",
+            "earliest_possible_fill_date",
             "fill_mode",
             "max_fill_lag_days",
             "required_for_replay",
@@ -1122,6 +1175,7 @@ def redact_execution_performance(
         "execution_cost_mode",
         "execution_cost_schema_version",
         "execution_cost_config",
+        "maximum_modeled_total_cost_bps",
         "execution_cost_summary",
         "capacity_scenarios",
         "execution_cost_coverage_complete",
@@ -1698,8 +1752,74 @@ def replay(
         )
         return payload
     if execution_cost_model is not None:
+        maximum_modeled_total_cost_bps = (
+            max(float(cost_bps), 0.0)
+            + float(execution_cost_config.maximum_half_spread_bps)
+            + float(execution_cost_config.maximum_market_impact_bps)
+        )
+        if (
+            not math.isfinite(maximum_modeled_total_cost_bps)
+            or maximum_modeled_total_cost_bps >= 10000.0
+        ):
+            payload = {
+                "status": "blocked",
+                "reason": "execution_cost_configuration_out_of_bounds",
+                "metric_mode": "DO_NOT_USE",
+                "portfolio_kind": portfolio_kind,
+                "target_book": str(target_book),
+                "target_book_filter": champion_filters,
+                "target_book_filter_source": champion_filter_source,
+                "target_book_filter_warning": champion_filter_warning,
+                "price_cache": str(price_cache),
+                "fill_mode": fill_mode,
+                "max_fill_lag_days": int(max_fill_lag_days),
+                "execution_cost_mode": execution_cost_config.mode,
+                "execution_cost_config": execution_cost_config.audit(),
+                "maximum_modeled_total_cost_bps": (
+                    maximum_modeled_total_cost_bps
+                ),
+                "stock_evidence_end_date": (
+                    evidence_end.date().isoformat()
+                    if evidence_end is not None
+                    else ""
+                ),
+                "stock_evidence_end_source": evidence_end_source,
+                "target_fill_coverage": target_fill_coverage,
+                "performance_fields_redacted": True,
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": False,
+            }
+            (output_dir / "metrics.json").write_text(
+                json.dumps(payload, indent=2, default=str),
+                encoding="utf-8",
+            )
+            (output_dir / "replay_report.md").write_text(
+                render_report(payload),
+                encoding="utf-8",
+            )
+            return payload
+
+        relevant_trade_keys: set[tuple[str, str, str]] = set()
+        for row in target_fill_frame.itertuples(index=False):
+            if not bool(row.required_for_replay) or not bool(row.fillable):
+                continue
+            sides = (
+                ("BUY",)
+                if row.transition_action == "target_entry"
+                else (
+                    ("SELL",)
+                    if row.transition_action == "target_exit"
+                    else ("BUY", "SELL")
+                )
+            )
+            for side in sides:
+                relevant_trade_keys.add(
+                    (str(row.actual_fill_date), str(row.ticker), side)
+                )
         invalid_paper_slippage = execution_cost_model.paper_slippage_issues(
             fixed_cost_bps=cost_bps,
+            relevant_trade_keys=relevant_trade_keys,
         )
         if invalid_paper_slippage:
             payload = {
