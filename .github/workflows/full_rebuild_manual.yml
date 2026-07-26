@@ -986,6 +986,7 @@ jobs:
             outputs/weekly_leader_snapshots/
             outputs/weekly_leader_broker_replay/
             outputs/cost_sensitivity/
+            outputs/execution_cost_capacity/
             outputs/trade_attribution/
             outputs/churn_filter/
             outputs/churn_filtered_broker_replay/
@@ -1575,6 +1576,7 @@ jobs:
           copy_dir_clean outputs/weekly_leader_snapshots "$DEST/weekly_leader_snapshots"
           copy_dir_clean outputs/weekly_leader_broker_replay "$DEST/weekly_leader_broker_replay"
           copy_dir_clean outputs/cost_sensitivity "$DEST/cost_sensitivity"
+          copy_dir_clean outputs/execution_cost_capacity "$DEST/execution_cost_capacity"
           copy_dir_clean outputs/concentrated_policy_replay "$DEST/concentrated_policy_replay"
           copy_dir_clean outputs/concentrated_position_risk_replay "$DEST/concentrated_position_risk_replay"
           copy_dir_clean outputs/alpha_sprint_backtest "$DEST/alpha_sprint_backtest"

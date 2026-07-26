@@ -505,6 +505,12 @@ if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
   python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log || true
 fi
 if [ -s outputs/reports/operating_main_target_book.csv ]; then
+  python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/execution_cost_capacity/main --base-cost-bps 25 --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_main.log || true
+fi
+if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+  python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/execution_cost_capacity/concentrated --base-cost-bps 25 --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_concentrated.log || true
+fi
+if [ -s outputs/reports/operating_main_target_book.csv ]; then
   python tools/run_neutral_regime_churn_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_churn_filtered.csv --diagnostics outputs/churn_filter/main/diagnostics.json --swap-threshold 2 --window-months 6 --target-regimes neutral 2>&1 | tee outputs/full_rebuild_logs/churn_filter_main.log || true
 fi
 if [ -s outputs/reports/operating_main_target_book_churn_filtered.csv ]; then

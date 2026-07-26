@@ -62,7 +62,12 @@ def _json_default(value: Any) -> Any:
     return value
 
 
-def load_price_series(price_cache: Path, ticker: str) -> pd.DataFrame:
+def load_price_series(
+    price_cache: Path,
+    ticker: str,
+    *,
+    include_liquidity: bool = False,
+) -> pd.DataFrame:
     path = price_cache / px_cache_name(ticker)
     if not path.exists():
         return pd.DataFrame()
@@ -82,14 +87,30 @@ def load_price_series(price_cache: Path, ticker: str) -> pd.DataFrame:
         return pd.DataFrame()
     out = pd.DataFrame(index=px.index)
     out["close"] = pd.to_numeric(px[close_col], errors="coerce")
-    if "Open" in px.columns:
-        open_ = pd.to_numeric(px["Open"], errors="coerce")
-        if "Adj Close" in px.columns and "Close" in px.columns:
-            raw_close = pd.to_numeric(px["Close"], errors="coerce").replace(0, np.nan)
-            open_ = open_ * (pd.to_numeric(px["Adj Close"], errors="coerce") / raw_close)
-        out["open"] = open_
-    else:
+    raw_close = pd.to_numeric(
+        px["Close"] if "Close" in px.columns else px[close_col],
+        errors="coerce",
+    )
+    adjustment = pd.Series(1.0, index=px.index, dtype=float)
+    if "Adj Close" in px.columns and "Close" in px.columns:
+        adjustment = pd.to_numeric(px["Adj Close"], errors="coerce") / raw_close.replace(
+            0, np.nan
+        )
+    price_fields = [("Open", "open")]
+    if include_liquidity:
+        price_fields.extend([("High", "high"), ("Low", "low")])
+    for source, target in price_fields:
+        if source in px.columns:
+            out[target] = pd.to_numeric(px[source], errors="coerce") * adjustment
+    if "open" not in out.columns:
         out["open"] = out["close"]
+    if include_liquidity and "Volume" in px.columns:
+        volume = pd.to_numeric(px["Volume"], errors="coerce")
+        out["volume"] = volume
+        # Dollar ADV must stay on the contemporaneous price scale. Multiplying
+        # split/dividend-adjusted close by raw volume can distort historical
+        # liquidity, so preserve raw close * raw shares explicitly.
+        out["dollar_volume"] = raw_close * volume
     return out.dropna(how="all")
 
 

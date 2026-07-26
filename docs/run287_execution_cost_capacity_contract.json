@@ -1,0 +1,102 @@
+{
+  "schema_version": "run287-execution-cost-capacity-contract-v1",
+  "created_at": "2026-07-27",
+  "status": "RESEARCH_ONLY_FAIL_CLOSED",
+  "performance_claim": {
+    "cagr_improved": false,
+    "mdd_improved": false,
+    "reason": "No corrected fullrun was authorized or executed. This layer changes cost measurement, not strategy alpha."
+  },
+  "control_contract": {
+    "metric_mode": "broker_ledger_next_close",
+    "base_cost_bps_per_side": 25.0,
+    "unchanged_by_default": true
+  },
+  "research_cost_contract": {
+    "mode": "spread_adv_impact_v1",
+    "schema_version": "run287-execution-cost-capacity-v1",
+    "base_cost_bps_per_side": 25.0,
+    "lookback_sessions": 20,
+    "minimum_history_sessions": 12,
+    "inputs_must_precede_fill_date": true,
+    "adv20_usd": {
+      "formula": "mean(raw_close * raw_volume) over prior sessions",
+      "corporate_action_rule": "Do not multiply adjusted close by unadjusted volume"
+    },
+    "half_spread": {
+      "estimator": "Corwin-Schultz two-day high-low full spread divided by two",
+      "minimum_bps": 1.0,
+      "maximum_bps": 100.0,
+      "missing_ohlcv_policy": "BLOCK"
+    },
+    "market_impact": {
+      "formula": "impact = Y * daily_volatility20 * sqrt(order_gross_usd / adv20_usd)",
+      "impact_coefficient_Y": 0.5,
+      "maximum_bps": 500.0,
+      "calibration_status": "DEFAULT_REQUIRES_FORWARD_PAPER_CALIBRATION"
+    },
+    "paper_slippage": {
+      "accepted_columns": [
+        "date",
+        "ticker",
+        "side",
+        "observed_slippage_bps"
+      ],
+      "combination_policy": "max(observed_paper_slippage, estimated_half_spread_plus_market_impact)",
+      "double_counting_allowed": false
+    },
+    "missing_liquidity_cost_ceiling_bps": 625.0,
+    "missing_liquidity_evidence_status": "DO_NOT_USE"
+  },
+  "capacity_contract": {
+    "adv_participation_rates": [
+      0.001,
+      0.005,
+      0.01
+    ],
+    "strict_capacity_formula": "starting_capital_usd * participation_limit / maximum_trade_participation",
+    "additional_statistics": [
+      "p05_capacity_usd",
+      "median_capacity_usd",
+      "breach_trade_count_at_starting_capital"
+    ]
+  },
+  "workflow_contract": {
+    "full_rebuild_sidecar": true,
+    "alphaops_replay_sidecar": true,
+    "headline_champion_metric_replaced": false,
+    "sidecar_failure_blocks_full_rebuild": false,
+    "sidecar_failure_blocks_promotion_use": true,
+    "artifact_path": "outputs/execution_cost_capacity/{main,concentrated}"
+  },
+  "governance": {
+    "promotion_allowed": false,
+    "production_activation_allowed": false,
+    "target_mutation_allowed": false,
+    "paper_ledger_mutation_allowed": false,
+    "live_trading_allowed": false,
+    "fullrun_executed": false
+  },
+  "promotion_prerequisites": [
+    "100% execution-cost coverage for all trades used by the metric",
+    "Every non-cash target ticker has a hashed, loadable OHLCV price-cache source",
+    "paper slippage does not structurally exceed the modeled assumption",
+    "economic meaning remains at 0.1%, 0.5%, and 1.0% ADV scenarios",
+    "corrected champion and challenger use the same target-book hash and cost configuration",
+    "separate human approval after OOS and multiple-testing gates"
+  ],
+  "references": [
+    {
+      "title": "Corwin and Schultz (2012), A Simple Way to Estimate Bid-Ask Spreads from Daily High and Low Prices",
+      "url": "https://doi.org/10.1111/j.1540-6261.2012.01729.x"
+    },
+    {
+      "title": "Market impact and trading profile of large trading orders in stock markets",
+      "url": "https://arxiv.org/abs/0908.0202"
+    },
+    {
+      "title": "SEC Rule 605 amendments on execution quality",
+      "url": "https://www.sec.gov/newsroom/press-releases/2024-32"
+    }
+  ]
+}

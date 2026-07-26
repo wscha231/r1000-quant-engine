@@ -31,6 +31,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series, px_cache_name, price_on_or_after, price_on_or_before
+from tools.execution_cost_model import (
+    EXECUTION_COST_MODE_FIXED,
+    EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+    ExecutionCostConfig,
+    ExecutionCostModel,
+    summarize_execution_costs,
+)
 from tools.reserve_asset_policy import (
     BLOCKED_SHORT_HISTORY,
     BROKER_CASH_OR_MMF,
@@ -638,18 +645,65 @@ def execute_order(
     price: float,
     cost_bps: float,
     integer_shares: bool,
+    fill_date: Any = None,
+    execution_cost_model: ExecutionCostModel | None = None,
 ) -> dict[str, Any] | None:
     if price <= 0 or desired_qty <= 1e-12:
         return None
     qty = math.floor(desired_qty) if integer_shares else desired_qty
     if qty <= 1e-12:
         return None
-    fee_rate = float(cost_bps) / 10000.0
+
+    cost_audit: dict[str, Any] = {}
+    if execution_cost_model is None:
+        fee_rate = float(cost_bps) / 10000.0
+    else:
+        quote = execution_cost_model.quote(
+            ticker=ticker,
+            side=side,
+            fill_date=fill_date,
+            gross_value=float(qty * price),
+            fixed_cost_bps=cost_bps,
+        )
+        fee_rate = float(quote.total_cost_bps) / 10000.0
+
     if side == "BUY":
-        max_affordable = state.cash / (price * (1.0 + fee_rate))
-        qty = min(qty, math.floor(max_affordable) if integer_shares else max_affordable)
+        if execution_cost_model is None:
+            max_affordable = state.cash / (price * (1.0 + fee_rate))
+            qty = min(qty, math.floor(max_affordable) if integer_shares else max_affordable)
+        else:
+            # Impact depends on order size. Iterate the affordability cap to a
+            # stable quantity while keeping the fixed-bps path byte-for-byte
+            # compatible with the historical replay.
+            for _ in range(3):
+                quote = execution_cost_model.quote(
+                    ticker=ticker,
+                    side=side,
+                    fill_date=fill_date,
+                    gross_value=float(qty * price),
+                    fixed_cost_bps=cost_bps,
+                )
+                fee_rate = float(quote.total_cost_bps) / 10000.0
+                max_affordable = state.cash / (price * (1.0 + fee_rate))
+                capped_qty = min(
+                    qty,
+                    math.floor(max_affordable) if integer_shares else max_affordable,
+                )
+                if abs(capped_qty - qty) <= 1e-12:
+                    break
+                qty = capped_qty
         if qty <= 1e-12:
             return None
+        if execution_cost_model is not None:
+            quote = execution_cost_model.quote(
+                ticker=ticker,
+                side=side,
+                fill_date=fill_date,
+                gross_value=float(qty * price),
+                fixed_cost_bps=cost_bps,
+            )
+            fee_rate = float(quote.total_cost_bps) / 10000.0
+            cost_audit = quote.audit()
         gross = qty * price
         fee = gross * fee_rate
         state.cash -= gross + fee
@@ -664,6 +718,16 @@ def execute_order(
         qty = min(qty, held)
         if qty <= 1e-12:
             return None
+        if execution_cost_model is not None:
+            quote = execution_cost_model.quote(
+                ticker=ticker,
+                side=side,
+                fill_date=fill_date,
+                gross_value=float(qty * price),
+                fixed_cost_bps=cost_bps,
+            )
+            fee_rate = float(quote.total_cost_bps) / 10000.0
+            cost_audit = quote.audit()
         gross = qty * price
         fee = gross * fee_rate
         basis = float(state.cost_basis.get(ticker, price))
@@ -674,7 +738,7 @@ def execute_order(
             state.shares.pop(ticker, None)
             state.cost_basis.pop(ticker, None)
         cash_delta = gross - fee
-    return {
+    order = {
         "ticker": ticker,
         "side": side,
         "quantity": float(qty),
@@ -685,6 +749,19 @@ def execute_order(
         "cash_after": float(state.cash),
         "shares_after": float(state.shares.get(ticker, 0.0)),
     }
+    if execution_cost_model is not None:
+        order.update(
+            {
+                "execution_cost_mode": execution_cost_model.config.mode,
+                "cost_data_status": cost_audit.get("status", "blocked"),
+                **{
+                    key: value
+                    for key, value in cost_audit.items()
+                    if key != "status"
+                },
+            }
+        )
+    return order
 
 
 def calc_metrics(
@@ -984,6 +1061,19 @@ def latest_account_state(
                 "cash_carry_research_only": True,
             }
         )
+    if metrics.get("execution_cost_mode"):
+        account.update(
+            {
+                "execution_cost_mode": metrics.get("execution_cost_mode"),
+                "execution_cost_schema_version": metrics.get(
+                    "execution_cost_schema_version"
+                ),
+                "execution_cost_coverage_complete": metrics.get(
+                    "execution_cost_coverage_complete"
+                ),
+                "execution_cost_research_only": True,
+            }
+        )
     return account, positions
 
 
@@ -1010,8 +1100,10 @@ def replay(
     reserve_mode: str | None = None,
     partial_resize_two_signal_confirmation: bool = False,
     evidence_end_date: Any = None,
+    execution_cost_config: ExecutionCostConfig | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    execution_cost_config = execution_cost_config or ExecutionCostConfig()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
@@ -1114,8 +1206,23 @@ def replay(
     )
 
     tickers = sorted({str(x).upper() for x in targets["ticker"].unique() if str(x).upper() not in CASH_TICKERS})
-    prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
+    if execution_cost_config.enabled:
+        prices = {
+            ticker: load_price_series(
+                price_cache,
+                ticker,
+                include_liquidity=True,
+            )
+            for ticker in tickers
+        }
+    else:
+        prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
+    execution_cost_model = (
+        ExecutionCostModel(prices, execution_cost_config)
+        if execution_cost_config.enabled
+        else None
+    )
     if reserve_asset_policy.tradeable:
         stock_prices = [
             px
@@ -1256,6 +1363,8 @@ def replay(
                 price=px,
                 cost_bps=cost_bps,
                 integer_shares=integer_shares,
+                fill_date=fill_dt,
+                execution_cost_model=execution_cost_model,
             )
             if order:
                 order.update({"date": fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": "target_exit", "fill_mode": fill_mode})
@@ -1393,6 +1502,8 @@ def replay(
                 price=px,
                 cost_bps=cost_bps,
                 integer_shares=integer_shares,
+                fill_date=fill_dt,
+                execution_cost_model=execution_cost_model,
             )
             if order:
                 order.update({"date": fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": reason, "target_weight": target_weight, "fill_mode": fill_mode})
@@ -1601,6 +1712,7 @@ def replay(
                 and not carry_enabled
                 and not partial_resize_two_signal_confirmation
                 and not reserve_explicit
+                and not execution_cost_config.enabled
             ),
             "stock_evidence_end_date": (
                 evidence_end.date().isoformat() if evidence_end is not None else ""
@@ -1609,6 +1721,52 @@ def replay(
             **weight_diag,
         }
     )
+    if execution_cost_config.enabled:
+        execution_summary = summarize_execution_costs(
+            trades_df,
+            starting_capital=starting_capital,
+            config=execution_cost_config,
+        )
+        coverage_complete = bool(execution_summary.get("coverage_complete"))
+        metrics.update(
+            {
+                "execution_cost_mode": execution_cost_config.mode,
+                "execution_cost_schema_version": execution_summary.get("schema_version"),
+                "execution_cost_config": execution_cost_config.audit(),
+                "execution_cost_summary": execution_summary,
+                "capacity_scenarios": execution_summary.get("capacity_scenarios", []),
+                "execution_cost_coverage_complete": coverage_complete,
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": False,
+            }
+        )
+        if (
+            execution_cost_config.require_complete_liquidity_coverage
+            and not coverage_complete
+        ):
+            metrics.update(
+                {
+                    "status": "blocked",
+                    "reason": "execution_cost_liquidity_coverage_incomplete",
+                    "metric_mode": "DO_NOT_USE",
+                }
+            )
+        else:
+            metrics["metric_mode"] = (
+                str(metrics.get("metric_mode") or "broker_ledger")
+                + "_execution_cost_capacity"
+            )
+        for window in (metrics.get("windows") or {}).values():
+            if not isinstance(window, dict) or "metric_mode" not in window:
+                continue
+            window["execution_cost_mode"] = execution_cost_config.mode
+            window["metric_mode"] = (
+                str(window.get("metric_mode") or "broker_ledger")
+                + "_execution_cost_capacity"
+                if coverage_complete
+                else "DO_NOT_USE"
+            )
     if reserve_explicit:
         reserve_trades = (
             trades_df.loc[trades_df.get("ticker", pd.Series(dtype=str)).astype(str).eq(reserve_asset_policy.asset_ticker)]
@@ -1757,6 +1915,17 @@ def render_report(metrics: dict[str, Any]) -> str:
                 "Cash-carry metrics are research-only accounting adjustments and are not production promotion evidence.",
             ]
         )
+    if metrics.get("execution_cost_mode"):
+        execution_summary = metrics.get("execution_cost_summary") or {}
+        lines.extend(
+            [
+                f"- Execution cost mode: `{metrics.get('execution_cost_mode')}`",
+                f"- Liquidity coverage: {safe_float(execution_summary.get('coverage_rate')):.2%}",
+                f"- P95 ADV participation: {safe_float(execution_summary.get('p95_participation_rate')):.4%}",
+                "",
+                "Spread/ADV/impact metrics are research-only and cannot replace champion evidence automatically.",
+            ]
+        )
     lines.extend(
         [
             "",
@@ -1776,6 +1945,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--starting-capital", type=float, default=100000.0)
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
+    parser.add_argument(
+        "--execution-cost-mode",
+        choices=[EXECUTION_COST_MODE_FIXED, EXECUTION_COST_MODE_SPREAD_ADV_IMPACT],
+        default=EXECUTION_COST_MODE_FIXED,
+        help="Opt-in research cost model. The fixed_bps default preserves champion replay parity.",
+    )
+    parser.add_argument("--execution-cost-lookback-sessions", type=int, default=20)
+    parser.add_argument("--execution-cost-min-history-sessions", type=int, default=12)
+    parser.add_argument("--execution-impact-coefficient", type=float, default=0.50)
+    parser.add_argument("--execution-min-half-spread-bps", type=float, default=1.0)
+    parser.add_argument("--execution-max-half-spread-bps", type=float, default=100.0)
+    parser.add_argument("--execution-max-impact-bps", type=float, default=500.0)
+    parser.add_argument(
+        "--execution-capacity-participation-rates",
+        nargs="+",
+        type=float,
+        default=list((0.001, 0.005, 0.010)),
+        help="ADV participation ceilings used for capacity reporting.",
+    )
+    parser.add_argument(
+        "--paper-slippage-path",
+        default="",
+        help="Optional CSV/parquet with date, ticker, side, and observed_slippage_bps.",
+    )
+    parser.add_argument(
+        "--allow-incomplete-execution-cost-coverage",
+        action="store_true",
+        help="Research diagnostics only; default dynamic-cost replay fails closed on any uncovered trade.",
+    )
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--max-reasonable-weight-sum", type=float, default=1.05)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
@@ -1879,6 +2077,26 @@ def main() -> int:
         ),
         reserve_mode=args.reserve_mode or None,
         partial_resize_two_signal_confirmation=bool(args.partial_resize_two_signal_confirmation),
+        execution_cost_config=ExecutionCostConfig(
+            mode=args.execution_cost_mode,
+            lookback_sessions=int(args.execution_cost_lookback_sessions),
+            min_history_sessions=int(args.execution_cost_min_history_sessions),
+            impact_coefficient=float(args.execution_impact_coefficient),
+            minimum_half_spread_bps=float(args.execution_min_half_spread_bps),
+            maximum_half_spread_bps=float(args.execution_max_half_spread_bps),
+            maximum_market_impact_bps=float(args.execution_max_impact_bps),
+            capacity_participation_rates=tuple(
+                float(value) for value in args.execution_capacity_participation_rates
+            ),
+            paper_slippage_path=(
+                repo_path(args.paper_slippage_path)
+                if str(args.paper_slippage_path or "").strip()
+                else None
+            ),
+            require_complete_liquidity_coverage=not bool(
+                args.allow_incomplete_execution_cost_coverage
+            ),
+        ),
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2
