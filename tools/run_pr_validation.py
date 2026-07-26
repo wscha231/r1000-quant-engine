@@ -220,6 +220,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/free_data_forward_paper_ledger_smoke.py", []),
     ("tests/forward_paper_price_universe_smoke.py", []),
     ("tests/cost_sensitivity_sidecar_smoke.py", []),
+    ("tests/execution_cost_capacity_sidecar_smoke.py", []),
     ("tests/trade_attribution_analysis_smoke.py", []),
     ("tests/concentrated_cap_replacement_audit_smoke.py", []),
     ("tests/neutral_regime_churn_filter_smoke.py", []),

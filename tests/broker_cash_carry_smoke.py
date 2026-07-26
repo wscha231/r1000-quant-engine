@@ -46,7 +46,11 @@ def test_default_off_preserves_metric_mode_and_schema() -> None:
         cache = root / "cache_prices"
         out = root / "broker"
         cache.mkdir()
-        _write_px(cache, "AAA", [100.0, 101.0, 102.0, 103.0, 104.0])
+        _write_px(
+            cache,
+            "AAA",
+            [100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0],
+        )
         target = root / "targets.csv"
         pd.DataFrame(
             [

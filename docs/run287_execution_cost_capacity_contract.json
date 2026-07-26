@@ -1,0 +1,142 @@
+{
+  "schema_version": "run287-execution-cost-capacity-contract-v1",
+  "created_at": "2026-07-27",
+  "status": "RESEARCH_ONLY_FAIL_CLOSED",
+  "performance_claim": {
+    "cagr_improved": false,
+    "mdd_improved": false,
+    "reason": "No corrected fullrun was authorized or executed. This layer changes cost measurement, not strategy alpha."
+  },
+  "control_contract": {
+    "metric_mode": "broker_ledger_next_close",
+    "base_cost_bps_per_side": 25.0,
+    "cash_carry_mode": "none",
+    "cash_carry_environment_override_allowed": false,
+    "transition_fill_preflight": "BLOCK_BEFORE_STATE_MUTATION",
+    "unchanged_by_default": true
+  },
+  "research_cost_contract": {
+    "mode": "spread_adv_impact_v1",
+    "schema_version": "run287-execution-cost-capacity-v1",
+    "base_cost_bps_per_side": 25.0,
+    "lookback_sessions": 20,
+    "minimum_history_sessions": 12,
+    "inputs_must_precede_fill_date": true,
+    "adv20_usd": {
+      "formula": "mean(raw_close * raw_volume) over prior sessions",
+      "corporate_action_rule": "Do not multiply adjusted close by unadjusted volume"
+    },
+    "half_spread": {
+      "estimator": "Corwin-Schultz two-day high-low full spread divided by two",
+      "minimum_bps": 1.0,
+      "maximum_bps": 100.0,
+      "missing_ohlcv_policy": "BLOCK"
+    },
+    "market_impact": {
+      "formula": "impact = Y * daily_volatility20 * sqrt(order_gross_usd / adv20_usd)",
+      "impact_coefficient_Y": 0.5,
+      "maximum_bps": 500.0,
+      "calibration_status": "DEFAULT_REQUIRES_FORWARD_PAPER_CALIBRATION"
+    },
+    "paper_slippage": {
+      "accepted_date_columns": [
+        "date",
+        "fill_date",
+        "executed_at"
+      ],
+      "required_columns": [
+        "ticker",
+        "side",
+        "observed_slippage_bps"
+      ],
+      "side_policy": "Only explicit BUY or SELL rows are accepted; missing, blank, or unknown sides cannot act as wildcard evidence",
+      "timestamp_normalization": "Every timestamp-bearing date alias is converted to America/New_York before its trade date is derived",
+      "plain_date_policy": "A literal YYYY-MM-DD is already a trade date and remains unchanged",
+      "combination_policy": "max(observed_paper_slippage, estimated_half_spread_plus_market_impact)",
+      "double_counting_allowed": false,
+      "upper_bound_policy": "BLOCK_BEFORE_STATE_MUTATION when observed_slippage_bps + base_cost_bps >= 10000",
+      "shared_ledger_scope": "Only replay-required ticker, actual-fill-date, and possible-side keys are validated; unrelated symbols, dates, excluded variants, and pending post-cutoff transitions remain unused"
+    },
+    "target_fill_coverage": {
+      "required": "Every non-cash target transition, including removed-name liquidation, must have its configured fill within max_fill_lag_days",
+      "applies_to": "fixed-bps control and dynamic-cost research replay",
+      "ticker_specific_fill_date_required": true,
+      "asynchronous_transition_policy": "BLOCK_BEFORE_STATE_MUTATION",
+      "portfolio_signal_requires_one_actual_fill_date": true,
+      "removed_target_liquidation_fill_required": true,
+      "evidence_cutoff_policy": "A transition whose actual fill, or earliest NYSE-calendar-eligible fill when no actual fill exists, is after evidence_end_date is audited as pending and is not required for the clamped replay",
+      "operating_book_cutoff_inference": "When no explicit cutoff is supplied, accept only build_operating_target_books metadata where the row is operating_appended or operating_evidence_end_eligible, the signal date equals operating_latest_price_date, and no later target row exists",
+      "pre_cutoff_missing_fill_policy": "Any transition that could have filled on or before evidence_end_date remains required and blocks when its fill is missing or asynchronous",
+      "pending_only_non_cash_policy": "A non-cash book with no replayable transition at or before the evidence cutoff remains incomplete",
+      "cash_only_policy": "A cash-only book has zero non-cash transition requirements and is vacuously complete; its cash calendar is validated separately when carry is enabled",
+      "incomplete_policy": "BLOCK_AND_REDACT_PERFORMANCE"
+    },
+    "dynamic_cost_affordability": {
+      "method": "monotone binary search against the original desired quantity",
+      "undersized_fixed_point_lock_allowed": false
+    },
+    "maximum_modeled_total_cost_policy": "base_cost_bps + maximum_half_spread_bps + maximum_market_impact_bps must remain strictly below 10000 before state mutation",
+    "missing_liquidity_cost_ceiling_bps": 625.0,
+    "missing_liquidity_paper_slippage_policy": "base cost plus max(600bps variable ceiling, observed paper slippage)",
+    "missing_liquidity_evidence_status": "DO_NOT_USE",
+    "source_manifest_target_policy": "Price-source requirements use replay-filtered target_fill_coverage rows whose required_for_replay flag is true; raw excluded target variants and post-evidence pending transitions remain separately audited",
+    "blocked_nested_artifact_policy": "Remove equity, holdings, cash, position, and account-state artifacts; retain redacted metrics and trade-level cost audit except out-of-bounds paper slippage removes trades too"
+  },
+  "capacity_contract": {
+    "adv_participation_rates": [
+      0.001,
+      0.005,
+      0.01
+    ],
+    "strict_capacity_formula": "starting_capital_usd * participation_limit / maximum_trade_participation",
+    "additional_statistics": [
+      "p05_capacity_usd",
+      "median_capacity_usd",
+      "breach_trade_count_at_starting_capital"
+    ]
+  },
+  "workflow_contract": {
+    "full_rebuild_sidecar": true,
+    "operating_minimal_execution_cost_sidecar": true,
+    "alphaops_replay_sidecar": true,
+    "headline_champion_metric_replaced": false,
+    "sidecar_failure_blocks_full_rebuild": false,
+    "sidecar_failure_blocks_promotion_use": true,
+    "restored_destination_cleared_before_optional_run": true,
+    "configured_max_fill_lag_forwarded": true,
+    "artifact_path": "outputs/execution_cost_capacity/{main,concentrated}"
+  },
+  "governance": {
+    "promotion_allowed": false,
+    "production_activation_allowed": false,
+    "target_mutation_allowed": false,
+    "paper_ledger_mutation_allowed": false,
+    "live_trading_allowed": false,
+    "fullrun_executed": false
+  },
+  "promotion_prerequisites": [
+    "100% execution-cost coverage for all trades used by the metric",
+    "100% configured fill coverage for every replay-required non-cash target transition including liquidation",
+    "one chronology-safe actual fill date per synchronous portfolio transition",
+    "Every non-cash target ticker has a hashed, loadable OHLCV price-cache source",
+    "paper slippage plus base cost remains strictly below 10000bps",
+    "paper slippage does not structurally exceed the modeled assumption",
+    "economic meaning remains at 0.1%, 0.5%, and 1.0% ADV scenarios",
+    "corrected champion and challenger use the same target-book hash and cost configuration",
+    "separate human approval after OOS and multiple-testing gates"
+  ],
+  "references": [
+    {
+      "title": "Corwin and Schultz (2012), A Simple Way to Estimate Bid-Ask Spreads from Daily High and Low Prices",
+      "url": "https://doi.org/10.1111/j.1540-6261.2012.01729.x"
+    },
+    {
+      "title": "Market impact and trading profile of large trading orders in stock markets",
+      "url": "https://arxiv.org/abs/0908.0202"
+    },
+    {
+      "title": "SEC Rule 605 amendments on execution quality",
+      "url": "https://www.sec.gov/newsroom/press-releases/2024-32"
+    }
+  ]
+}

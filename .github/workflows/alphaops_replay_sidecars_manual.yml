@@ -107,7 +107,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_alphaops_vnext_policy_replay.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_dataset_coverage_audit.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/validate_target_book_cash_contract.py tools/run_fast_full_drift_audit.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_concentrated_policy_replay.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_metric_hygiene_report.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
+          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_alphaops_vnext_policy_replay.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_dataset_coverage_audit.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/execution_cost_model.py tools/run_execution_cost_capacity_sidecar.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/validate_target_book_cash_contract.py tools/run_fast_full_drift_audit.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_concentrated_policy_replay.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_metric_hygiene_report.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
             if [ ! -f "$tool" ]; then
               echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
               exit 4
@@ -374,6 +374,14 @@ jobs:
           if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
             python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log || true
           fi
+          rm -rf outputs/execution_cost_capacity/main
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/execution_cost_capacity/main --base-cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_main.log || true
+          fi
+          rm -rf outputs/execution_cost_capacity/concentrated
+          if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/execution_cost_capacity/concentrated --base-cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_concentrated.log || true
+          fi
           if [ -s outputs/reports/operating_main_target_book.csv ]; then
             python tools/run_neutral_regime_churn_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_churn_filtered.csv --diagnostics outputs/churn_filter/main/diagnostics.json --swap-threshold 2 --window-months 6 --target-regimes neutral 2>&1 | tee outputs/full_rebuild_logs/churn_filter_main.log || true
           fi
@@ -512,6 +520,7 @@ jobs:
             outputs/weekly_leader_snapshots/
             outputs/weekly_leader_broker_replay/
             outputs/cost_sensitivity/
+            outputs/execution_cost_capacity/
             outputs/trade_attribution/
             outputs/churn_filter/
             outputs/churn_filtered_broker_replay/

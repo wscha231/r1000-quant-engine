@@ -20,17 +20,26 @@ import math
 import os
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series, px_cache_name, price_on_or_after, price_on_or_before
+from tools.execution_cost_model import (
+    EXECUTION_COST_MODE_FIXED,
+    EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+    ExecutionCostConfig,
+    ExecutionCostModel,
+    summarize_execution_costs,
+)
 from tools.reserve_asset_policy import (
     BLOCKED_SHORT_HISTORY,
     BROKER_CASH_OR_MMF,
@@ -61,8 +70,23 @@ DEFAULT_CONCENTRATED_CHAMPION_FILTERS = {
     "weighting_mode": "score_power",
     "active_rebalance_interval_months": "1",
 }
+REPLAY_GENERATED_ARTIFACTS = (
+    "equity_curve.csv",
+    "trades.csv",
+    "holdings_daily.csv",
+    "holdings_weekly.csv",
+    "cash_ledger.csv",
+    "target_vs_actual_weights.csv",
+    "partial_resize_decisions.csv",
+    "positions_latest.csv",
+    "account_state_latest.json",
+    "metrics.json",
+    "replay_report.md",
+    "target_fill_coverage.csv",
+)
 CONCENTRATED_CHAMPION_FILTERS = DEFAULT_CONCENTRATED_CHAMPION_FILTERS
 DISABLE_CONCENTRATED_CHAMPION_FILTERS = {"__disable_concentrated_champion_filter__": "true"}
+NYSE_CALENDAR = mcal.get_calendar("NYSE")
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -406,6 +430,70 @@ def normalize_targets(
     return d.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
 
 
+def resolve_evidence_end(
+    raw_targets: pd.DataFrame,
+    explicit_evidence_end: Any = None,
+) -> tuple[pd.Timestamp | None, str]:
+    """Resolve the last observable close without hiding arbitrary target rows.
+
+    An explicit argument is authoritative.  Otherwise, only the operating-book
+    metadata emitted by ``build_operating_target_books.py`` is accepted, and
+    only when a builder-authorized row is dated to that same observable close
+    and no later target row exists.  Older books remain compatible through
+    their ``operating_appended`` marker.
+    """
+
+    explicit = pd.to_datetime(explicit_evidence_end, errors="coerce")
+    if not pd.isna(explicit):
+        return pd.Timestamp(explicit).normalize(), "explicit_argument"
+    required_columns = {
+        "rebalance_date",
+        "operating_latest_price_date",
+        "operating_appended",
+    }
+    if raw_targets.empty or not required_columns.issubset(raw_targets.columns):
+        return None, ""
+    signal_dates = pd.to_datetime(
+        raw_targets["rebalance_date"],
+        errors="coerce",
+    ).dt.normalize()
+    evidence_dates = pd.to_datetime(
+        raw_targets["operating_latest_price_date"],
+        errors="coerce",
+    ).dt.normalize()
+    appended = (
+        raw_targets["operating_appended"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1", "yes"})
+    )
+    evidence_end_eligible = (
+        raw_targets.get(
+            "operating_evidence_end_eligible",
+            pd.Series(False, index=raw_targets.index),
+        )
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1", "yes"})
+    )
+    valid = (
+        (appended | evidence_end_eligible)
+        & signal_dates.notna()
+        & evidence_dates.notna()
+    )
+    valid &= signal_dates.eq(evidence_dates)
+    candidates = evidence_dates.loc[valid]
+    if candidates.empty:
+        return None, ""
+    inferred = pd.Timestamp(candidates.max()).normalize()
+    latest_signal = signal_dates.max()
+    if pd.isna(latest_signal) or pd.Timestamp(latest_signal).normalize() > inferred:
+        return None, ""
+    return inferred, "target_book_operating_latest_price_date"
+
+
 def weight_book_diagnostics(targets: pd.DataFrame, max_reasonable_weight_sum: float) -> dict[str, Any]:
     if targets.empty:
         return {"max_total_weight": None, "invalid_weight_date_count": 0, "invalid_weight_dates": []}
@@ -519,6 +607,283 @@ def fill_price(
     if (pd.Timestamp(actual_dt).normalize() - pd.Timestamp(target_date).normalize()).days > int(max_fill_lag_days):
         return None, None
     return actual_dt, px
+
+
+@lru_cache(maxsize=4096)
+def earliest_nyse_fill_date(
+    signal_date_text: str,
+    fill_mode: str,
+) -> pd.Timestamp:
+    """Return the first exchange session eligible for the configured fill."""
+
+    signal_date = pd.Timestamp(signal_date_text).normalize()
+    if fill_mode not in {"same_close", "next_close", "next_open"}:
+        raise ValueError(f"unsupported fill_mode={fill_mode}")
+    start = (
+        signal_date
+        if fill_mode == "same_close"
+        else signal_date + pd.Timedelta(days=1)
+    )
+    schedule = NYSE_CALENDAR.schedule(
+        start_date=start.date(),
+        end_date=(start + pd.Timedelta(days=31)).date(),
+    )
+    sessions = pd.DatetimeIndex(schedule.index).tz_localize(None).normalize()
+    sessions = (
+        sessions[sessions >= signal_date]
+        if fill_mode == "same_close"
+        else sessions[sessions > signal_date]
+    )
+    if sessions.empty:
+        raise ValueError("next_nyse_fill_session_unavailable")
+    return pd.Timestamp(sessions[0]).normalize()
+
+
+def build_target_fill_coverage(
+    targets: pd.DataFrame,
+    prices: dict[str, pd.DataFrame],
+    *,
+    fill_mode: str,
+    max_fill_lag_days: int,
+    evidence_end_date: pd.Timestamp | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Audit every transition fill against its actual execution calendar.
+
+    The replay mutates a portfolio synchronously at each signal.  A ticker that
+    fills later than the rest of that transition would therefore introduce a
+    future price into an earlier account state.  Every replay mode fails closed
+    instead of publishing such an asynchronously executed portfolio.  Removed
+    target names are included because they require liquidation fills.
+    """
+
+    rows: list[dict[str, Any]] = []
+    previous_tickers: set[str] = set()
+    normalized_evidence_end = (
+        pd.Timestamp(evidence_end_date).normalize()
+        if evidence_end_date is not None
+        else None
+    )
+    normalized_targets = targets.copy()
+    normalized_targets["ticker"] = (
+        normalized_targets["ticker"].astype(str).str.upper().str.strip()
+    )
+    for raw_signal_date in sorted(normalized_targets["rebalance_date"].unique()):
+        signal_date = pd.Timestamp(raw_signal_date).normalize()
+        current_tickers = {
+            str(value).upper()
+            for value in normalized_targets.loc[
+                normalized_targets["rebalance_date"].eq(raw_signal_date),
+                "ticker",
+            ]
+            if str(value).upper() not in CASH_TICKERS
+        }
+        transition_tickers = sorted(current_tickers | previous_tickers)
+        signal_rows: list[dict[str, Any]] = []
+        for ticker in transition_tickers:
+            actual_dt, price = fill_price(
+                prices,
+                ticker,
+                signal_date,
+                fill_mode,
+                max_fill_lag_days,
+            )
+            normalized_fill = (
+                pd.Timestamp(actual_dt).normalize()
+                if actual_dt is not None
+                else None
+            )
+            earliest_possible_fill = earliest_nyse_fill_date(
+                signal_date.date().isoformat(),
+                fill_mode,
+            )
+            pending_after_evidence = bool(
+                normalized_evidence_end is not None
+                and (
+                    normalized_fill > normalized_evidence_end
+                    if normalized_fill is not None
+                    else earliest_possible_fill > normalized_evidence_end
+                )
+            )
+            required_for_replay = not pending_after_evidence
+            within_evidence = bool(
+                normalized_fill is not None
+                and (
+                    normalized_evidence_end is None
+                    or normalized_fill <= normalized_evidence_end
+                )
+            )
+            fillable = bool(
+                within_evidence
+                and price is not None
+                and math.isfinite(float(price))
+                and float(price) > 0.0
+            )
+            signal_rows.append(
+                {
+                    "signal_date": signal_date.date().isoformat(),
+                    "ticker": ticker,
+                    "transition_action": (
+                        "target_exit"
+                        if ticker not in current_tickers
+                        else (
+                            "target_entry"
+                            if ticker not in previous_tickers
+                            else "target_rebalance_or_hold"
+                        )
+                    ),
+                    "actual_fill_date": (
+                        normalized_fill.date().isoformat()
+                        if normalized_fill is not None
+                        else ""
+                    ),
+                    "earliest_possible_fill_date": (
+                        earliest_possible_fill.date().isoformat()
+                    ),
+                    "fill_mode": fill_mode,
+                    "max_fill_lag_days": int(max_fill_lag_days),
+                    "required_for_replay": required_for_replay,
+                    "fillable": fillable,
+                    "reason": (
+                        ""
+                        if fillable
+                        else (
+                            "fill_after_evidence_end"
+                            if pending_after_evidence
+                            else "no_fill_within_lag"
+                        )
+                    ),
+                }
+            )
+        required_signal_rows = [
+            row for row in signal_rows if bool(row["required_for_replay"])
+        ]
+        distinct_fill_dates = {
+            str(row["actual_fill_date"])
+            for row in required_signal_rows
+            if row["fillable"] and row["actual_fill_date"]
+        }
+        chronology_safe = bool(
+            not required_signal_rows
+            or (
+                all(bool(row["fillable"]) for row in required_signal_rows)
+                and len(distinct_fill_dates) == 1
+            )
+        )
+        for row in signal_rows:
+            row["signal_fill_date_count"] = len(distinct_fill_dates)
+            row["chronology_safe"] = chronology_safe
+            if (
+                row["required_for_replay"]
+                and row["fillable"]
+                and len(distinct_fill_dates) > 1
+                and not row["reason"]
+            ):
+                row["reason"] = "asynchronous_transition_fill"
+        rows.extend(signal_rows)
+        previous_tickers = current_tickers
+    frame = pd.DataFrame(
+        rows,
+        columns=[
+            "signal_date",
+            "ticker",
+            "transition_action",
+            "actual_fill_date",
+            "earliest_possible_fill_date",
+            "fill_mode",
+            "max_fill_lag_days",
+            "required_for_replay",
+            "fillable",
+            "signal_fill_date_count",
+            "chronology_safe",
+            "reason",
+        ],
+    )
+    required = (
+        frame.loc[frame["required_for_replay"].astype(bool)].copy()
+        if not frame.empty
+        else frame.copy()
+    )
+    pending = (
+        frame.loc[~frame["required_for_replay"].astype(bool)].copy()
+        if not frame.empty
+        else frame.copy()
+    )
+    missing = (
+        required.loc[
+            ~required["fillable"].astype(bool),
+            ["signal_date", "ticker", "transition_action", "reason"],
+        ]
+        .to_dict("records")
+        if not required.empty
+        else []
+    )
+    asynchronous = (
+        required.loc[
+            required["signal_fill_date_count"].gt(1),
+            ["signal_date", "ticker", "transition_action", "actual_fill_date"],
+        ]
+        .to_dict("records")
+        if not required.empty
+        else []
+    )
+    pending_fills = (
+        pending.loc[
+            :,
+            [
+                "signal_date",
+                "ticker",
+                "transition_action",
+                "actual_fill_date",
+                "reason",
+            ],
+        ].to_dict("records")
+        if not pending.empty
+        else []
+    )
+    asynchronous_signals = sorted(
+        {str(row["signal_date"]) for row in asynchronous}
+    )
+    audited_count = int(len(frame))
+    required_count = int(len(required))
+    pending_count = int(len(pending))
+    has_replayable_transition = bool(required_count > 0)
+    is_cash_only_book = bool(audited_count == 0)
+    summary = {
+        "audited_target_fill_count": audited_count,
+        "audited_transition_fill_count": audited_count,
+        "required_target_fill_count": required_count,
+        "required_transition_fill_count": required_count,
+        "pending_target_fill_count": pending_count,
+        "pending_transition_fill_count": pending_count,
+        "fillable_target_count": int(required["fillable"].astype(bool).sum())
+        if not required.empty
+        else 0,
+        "missing_target_fill_count": int(len(missing)),
+        "missing_transition_fill_count": int(len(missing)),
+        "chronology_safe": bool(
+            is_cash_only_book
+            or (
+                has_replayable_transition
+                and required["chronology_safe"].astype(bool).all()
+            )
+        ),
+        "asynchronous_signal_count": int(len(asynchronous_signals)),
+        "asynchronous_signals": asynchronous_signals[:100],
+        "asynchronous_transition_fills": asynchronous[:100],
+        "coverage_complete": bool(
+            is_cash_only_book
+            or (
+                has_replayable_transition
+                and not missing
+                and not asynchronous_signals
+            )
+        ),
+        "pending_target_fills": pending_fills[:100],
+        "pending_transition_fills": pending_fills[:100],
+        "missing_target_fills": missing[:100],
+        "missing_transition_fills": missing[:100],
+    }
+    return frame, summary
 
 
 def calendar_fill_date(
@@ -638,17 +1003,91 @@ def execute_order(
     price: float,
     cost_bps: float,
     integer_shares: bool,
+    fill_date: Any = None,
+    execution_cost_model: ExecutionCostModel | None = None,
 ) -> dict[str, Any] | None:
     if price <= 0 or desired_qty <= 1e-12:
         return None
     qty = math.floor(desired_qty) if integer_shares else desired_qty
     if qty <= 1e-12:
         return None
-    fee_rate = float(cost_bps) / 10000.0
+
+    cost_audit: dict[str, Any] = {}
+    if execution_cost_model is None:
+        fee_rate = float(cost_bps) / 10000.0
+    else:
+        quote = execution_cost_model.quote(
+            ticker=ticker,
+            side=side,
+            fill_date=fill_date,
+            gross_value=float(qty * price),
+            fixed_cost_bps=cost_bps,
+        )
+        fee_rate = float(quote.total_cost_bps) / 10000.0
+
     if side == "BUY":
-        max_affordable = state.cash / (price * (1.0 + fee_rate))
-        qty = min(qty, math.floor(max_affordable) if integer_shares else max_affordable)
+        if execution_cost_model is None:
+            max_affordable = state.cash / (price * (1.0 + fee_rate))
+            qty = min(qty, math.floor(max_affordable) if integer_shares else max_affordable)
+        else:
+            # Impact is monotone in order size. Solve against the original
+            # desired upper bound so a high first quote cannot permanently
+            # lock the order at an unnecessarily small quantity.
+            desired_cap = float(qty)
+
+            def affordable(candidate_qty: float) -> bool:
+                if candidate_qty <= 0.0:
+                    return True
+                candidate_quote = execution_cost_model.quote(
+                    ticker=ticker,
+                    side=side,
+                    fill_date=fill_date,
+                    gross_value=float(candidate_qty * price),
+                    fixed_cost_bps=cost_bps,
+                )
+                candidate_fee_rate = (
+                    float(candidate_quote.total_cost_bps) / 10000.0
+                )
+                required_cash = (
+                    float(candidate_qty)
+                    * float(price)
+                    * (1.0 + candidate_fee_rate)
+                )
+                return required_cash <= float(state.cash) + 1e-9
+
+            if integer_shares:
+                low = 0
+                high = max(0, int(math.floor(desired_cap)))
+                while low < high:
+                    middle = (low + high + 1) // 2
+                    if affordable(float(middle)):
+                        low = middle
+                    else:
+                        high = middle - 1
+                qty = float(low)
+            else:
+                low = 0.0
+                high = desired_cap
+                for _ in range(60):
+                    middle = (low + high) / 2.0
+                    if affordable(middle):
+                        low = middle
+                    else:
+                        high = middle
+                qty = low
         if qty <= 1e-12:
+            return None
+        if execution_cost_model is not None:
+            quote = execution_cost_model.quote(
+                ticker=ticker,
+                side=side,
+                fill_date=fill_date,
+                gross_value=float(qty * price),
+                fixed_cost_bps=cost_bps,
+            )
+            fee_rate = float(quote.total_cost_bps) / 10000.0
+            cost_audit = quote.audit()
+        if not math.isfinite(fee_rate) or fee_rate >= 1.0:
             return None
         gross = qty * price
         fee = gross * fee_rate
@@ -664,6 +1103,18 @@ def execute_order(
         qty = min(qty, held)
         if qty <= 1e-12:
             return None
+        if execution_cost_model is not None:
+            quote = execution_cost_model.quote(
+                ticker=ticker,
+                side=side,
+                fill_date=fill_date,
+                gross_value=float(qty * price),
+                fixed_cost_bps=cost_bps,
+            )
+            fee_rate = float(quote.total_cost_bps) / 10000.0
+            cost_audit = quote.audit()
+        if not math.isfinite(fee_rate) or fee_rate >= 1.0:
+            return None
         gross = qty * price
         fee = gross * fee_rate
         basis = float(state.cost_basis.get(ticker, price))
@@ -674,7 +1125,7 @@ def execute_order(
             state.shares.pop(ticker, None)
             state.cost_basis.pop(ticker, None)
         cash_delta = gross - fee
-    return {
+    order = {
         "ticker": ticker,
         "side": side,
         "quantity": float(qty),
@@ -685,6 +1136,72 @@ def execute_order(
         "cash_after": float(state.cash),
         "shares_after": float(state.shares.get(ticker, 0.0)),
     }
+    if execution_cost_model is not None:
+        order.update(
+            {
+                "execution_cost_mode": execution_cost_model.config.mode,
+                "cost_data_status": cost_audit.get("status", "blocked"),
+                **{
+                    key: value
+                    for key, value in cost_audit.items()
+                    if key != "status"
+                },
+            }
+        )
+    return order
+
+
+def redact_execution_performance(
+    metrics: dict[str, Any],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    """Keep cost/coverage audit evidence while removing blocked performance."""
+
+    audit_fields = (
+        "portfolio_kind",
+        "fill_mode",
+        "price_mode",
+        "integer_shares",
+        "cost_bps_per_side",
+        "target_book",
+        "target_book_filter",
+        "target_book_filter_source",
+        "target_book_filter_warning",
+        "price_cache",
+        "stock_evidence_end_date",
+        "stock_evidence_end_source",
+        "max_fill_lag_days",
+        "execution_cost_mode",
+        "execution_cost_schema_version",
+        "execution_cost_config",
+        "maximum_modeled_total_cost_bps",
+        "execution_cost_summary",
+        "capacity_scenarios",
+        "execution_cost_coverage_complete",
+        "target_fill_coverage",
+        "paper_slippage_issues",
+        "trade_count",
+        "total_fees_usd",
+        "gross_traded_usd",
+    )
+    payload = {
+        key: metrics[key]
+        for key in audit_fields
+        if key in metrics
+    }
+    payload.update(
+        {
+            "status": "blocked",
+            "reason": reason,
+            "metric_mode": "DO_NOT_USE",
+            "performance_fields_redacted": True,
+            "research_only": True,
+            "production_activation_allowed": False,
+            "valid_for_production": False,
+        }
+    )
+    return payload
 
 
 def calc_metrics(
@@ -984,6 +1501,19 @@ def latest_account_state(
                 "cash_carry_research_only": True,
             }
         )
+    if metrics.get("execution_cost_mode"):
+        account.update(
+            {
+                "execution_cost_mode": metrics.get("execution_cost_mode"),
+                "execution_cost_schema_version": metrics.get(
+                    "execution_cost_schema_version"
+                ),
+                "execution_cost_coverage_complete": metrics.get(
+                    "execution_cost_coverage_complete"
+                ),
+                "execution_cost_research_only": True,
+            }
+        )
     return account, positions
 
 
@@ -1010,8 +1540,16 @@ def replay(
     reserve_mode: str | None = None,
     partial_resize_two_signal_confirmation: bool = False,
     evidence_end_date: Any = None,
+    execution_cost_config: ExecutionCostConfig | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    execution_cost_config = execution_cost_config or ExecutionCostConfig()
+    # A blocked rerun must never inherit performance-bearing files from any
+    # prior successful replay, including the fixed-bps control.
+    for artifact_name in REPLAY_GENERATED_ARTIFACTS:
+        artifact_path = output_dir / artifact_name
+        if artifact_path.is_file():
+            artifact_path.unlink()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
@@ -1067,15 +1605,15 @@ def replay(
             portfolio_kind=portfolio_kind,
             explicit_filters=concentrated_champion_filters,
         )
+    evidence_end, evidence_end_source = resolve_evidence_end(
+        raw,
+        evidence_end_date,
+    )
     targets = normalize_targets(
         raw,
         portfolio_kind,
         champion_filters,
         disable_champion_filter=disable_concentrated_champion_filter,
-    )
-    evidence_end = pd.to_datetime(evidence_end_date, errors="coerce")
-    evidence_end = (
-        pd.Timestamp(evidence_end).normalize() if not pd.isna(evidence_end) else None
     )
     if evidence_end is not None and not targets.empty:
         targets = targets.loc[targets["rebalance_date"] <= evidence_end].copy()
@@ -1114,8 +1652,23 @@ def replay(
     )
 
     tickers = sorted({str(x).upper() for x in targets["ticker"].unique() if str(x).upper() not in CASH_TICKERS})
-    prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
+    if execution_cost_config.enabled:
+        prices = {
+            ticker: load_price_series(
+                price_cache,
+                ticker,
+                include_liquidity=True,
+            )
+            for ticker in tickers
+        }
+    else:
+        prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
+    execution_cost_model = (
+        ExecutionCostModel(prices, execution_cost_config)
+        if execution_cost_config.enabled
+        else None
+    )
     if reserve_asset_policy.tradeable:
         stock_prices = [
             px
@@ -1148,7 +1701,162 @@ def replay(
                 "valid_for_production": False,
                 "research_only": True,
             }
-            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            (output_dir / "metrics.json").write_text(
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
+            )
+            return payload
+    target_fill_frame, target_fill_coverage = build_target_fill_coverage(
+        targets,
+        prices,
+        fill_mode=fill_mode,
+        max_fill_lag_days=max_fill_lag_days,
+        evidence_end_date=evidence_end,
+    )
+    target_fill_frame.to_csv(
+        output_dir / "target_fill_coverage.csv",
+        index=False,
+    )
+    if target_fill_coverage.get("coverage_complete") is not True:
+        payload = {
+            "status": "blocked",
+            "reason": "target_fill_coverage_incomplete",
+            "metric_mode": "DO_NOT_USE",
+            "portfolio_kind": portfolio_kind,
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+            "price_cache": str(price_cache),
+            "fill_mode": fill_mode,
+            "max_fill_lag_days": int(max_fill_lag_days),
+            "execution_cost_mode": execution_cost_config.mode,
+            "execution_cost_config": execution_cost_config.audit(),
+            "stock_evidence_end_date": (
+                evidence_end.date().isoformat() if evidence_end is not None else ""
+            ),
+            "stock_evidence_end_source": evidence_end_source,
+            "target_fill_coverage": target_fill_coverage,
+            "performance_fields_redacted": True,
+            "research_only": True,
+            "production_activation_allowed": False,
+            "valid_for_production": False,
+        }
+        (output_dir / "metrics.json").write_text(
+            json.dumps(payload, indent=2, default=str),
+            encoding="utf-8",
+        )
+        (output_dir / "replay_report.md").write_text(
+            render_report(payload),
+            encoding="utf-8",
+        )
+        return payload
+    if execution_cost_model is not None:
+        maximum_modeled_total_cost_bps = (
+            max(float(cost_bps), 0.0)
+            + float(execution_cost_config.maximum_half_spread_bps)
+            + float(execution_cost_config.maximum_market_impact_bps)
+        )
+        if (
+            not math.isfinite(maximum_modeled_total_cost_bps)
+            or maximum_modeled_total_cost_bps >= 10000.0
+        ):
+            payload = {
+                "status": "blocked",
+                "reason": "execution_cost_configuration_out_of_bounds",
+                "metric_mode": "DO_NOT_USE",
+                "portfolio_kind": portfolio_kind,
+                "target_book": str(target_book),
+                "target_book_filter": champion_filters,
+                "target_book_filter_source": champion_filter_source,
+                "target_book_filter_warning": champion_filter_warning,
+                "price_cache": str(price_cache),
+                "fill_mode": fill_mode,
+                "max_fill_lag_days": int(max_fill_lag_days),
+                "execution_cost_mode": execution_cost_config.mode,
+                "execution_cost_config": execution_cost_config.audit(),
+                "maximum_modeled_total_cost_bps": (
+                    maximum_modeled_total_cost_bps
+                ),
+                "stock_evidence_end_date": (
+                    evidence_end.date().isoformat()
+                    if evidence_end is not None
+                    else ""
+                ),
+                "stock_evidence_end_source": evidence_end_source,
+                "target_fill_coverage": target_fill_coverage,
+                "performance_fields_redacted": True,
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": False,
+            }
+            (output_dir / "metrics.json").write_text(
+                json.dumps(payload, indent=2, default=str),
+                encoding="utf-8",
+            )
+            (output_dir / "replay_report.md").write_text(
+                render_report(payload),
+                encoding="utf-8",
+            )
+            return payload
+
+        relevant_trade_keys: set[tuple[str, str, str]] = set()
+        for row in target_fill_frame.itertuples(index=False):
+            if not bool(row.required_for_replay) or not bool(row.fillable):
+                continue
+            sides = (
+                ("BUY",)
+                if row.transition_action == "target_entry"
+                else (
+                    ("SELL",)
+                    if row.transition_action == "target_exit"
+                    else ("BUY", "SELL")
+                )
+            )
+            for side in sides:
+                relevant_trade_keys.add(
+                    (str(row.actual_fill_date), str(row.ticker), side)
+                )
+        invalid_paper_slippage = execution_cost_model.paper_slippage_issues(
+            fixed_cost_bps=cost_bps,
+            relevant_trade_keys=relevant_trade_keys,
+        )
+        if invalid_paper_slippage:
+            payload = {
+                "status": "blocked",
+                "reason": "paper_slippage_out_of_bounds",
+                "metric_mode": "DO_NOT_USE",
+                "portfolio_kind": portfolio_kind,
+                "target_book": str(target_book),
+                "target_book_filter": champion_filters,
+                "target_book_filter_source": champion_filter_source,
+                "target_book_filter_warning": champion_filter_warning,
+                "price_cache": str(price_cache),
+                "fill_mode": fill_mode,
+                "max_fill_lag_days": int(max_fill_lag_days),
+                "execution_cost_mode": execution_cost_config.mode,
+                "execution_cost_config": execution_cost_config.audit(),
+                "stock_evidence_end_date": (
+                    evidence_end.date().isoformat()
+                    if evidence_end is not None
+                    else ""
+                ),
+                "stock_evidence_end_source": evidence_end_source,
+                "target_fill_coverage": target_fill_coverage,
+                "paper_slippage_issues": invalid_paper_slippage[:100],
+                "performance_fields_redacted": True,
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": False,
+            }
+            (output_dir / "metrics.json").write_text(
+                json.dumps(payload, indent=2, default=str),
+                encoding="utf-8",
+            )
+            (output_dir / "replay_report.md").write_text(
+                render_report(payload),
+                encoding="utf-8",
+            )
             return payload
     calendar_prices: dict[str, pd.DataFrame] = {}
     if carry_enabled:
@@ -1247,6 +1955,7 @@ def replay(
             px = fill_px_by_ticker.get(ticker)
             if px is None:
                 continue
+            ticker_fill_dt = fill_dt_by_ticker.get(ticker, fill_dt)
             pending_partial_resizes.pop(ticker, None)
             order = execute_order(
                 state=state,
@@ -1256,14 +1965,16 @@ def replay(
                 price=px,
                 cost_bps=cost_bps,
                 integer_shares=integer_shares,
+                fill_date=ticker_fill_dt,
+                execution_cost_model=execution_cost_model,
             )
             if order:
-                order.update({"date": fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": "target_exit", "fill_mode": fill_mode})
+                order.update({"date": ticker_fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": "target_exit", "fill_mode": fill_mode})
                 trade_rows.append(order)
                 if partial_resize_two_signal_confirmation:
                     partial_resize_rows.append(
                         {
-                            "date": fill_dt.date().isoformat(),
+                            "date": ticker_fill_dt.date().isoformat(),
                             "signal_date": signal_dt.date().isoformat(),
                             "ticker": ticker,
                             "action": "execute",
@@ -1276,12 +1987,15 @@ def replay(
                         }
                     )
         current_equity, current_values = account_equity(state, prices, fill_dt)
-        adjustments: list[tuple[str, float, float, float, float, str]] = []
+        adjustments: list[
+            tuple[str, float, float, float, float, str, pd.Timestamp]
+        ] = []
         observed_partial_resize_tickers: set[str] = set()
         for ticker, target_weight in target_weights.items():
             px = fill_px_by_ticker.get(ticker)
             if px is None:
                 continue
+            ticker_fill_dt = fill_dt_by_ticker.get(ticker, fill_dt)
             current_qty = float(state.shares.get(ticker, 0.0))
             current_value = current_qty * px
             target_value = max(0.0, float(target_weight) * current_equity)
@@ -1297,7 +2011,7 @@ def replay(
                     reason = "target_entry_immediate"
                     partial_resize_rows.append(
                         {
-                            "date": fill_dt.date().isoformat(),
+                            "date": ticker_fill_dt.date().isoformat(),
                             "signal_date": signal_dt.date().isoformat(),
                             "ticker": ticker,
                             "action": "execute",
@@ -1314,7 +2028,7 @@ def replay(
                     reason = "partial_resize_risk_cut_immediate"
                     partial_resize_rows.append(
                         {
-                            "date": fill_dt.date().isoformat(),
+                            "date": ticker_fill_dt.date().isoformat(),
                             "signal_date": signal_dt.date().isoformat(),
                             "ticker": ticker,
                             "action": "execute",
@@ -1342,7 +2056,7 @@ def replay(
                         }
                         partial_resize_rows.append(
                             {
-                                "date": fill_dt.date().isoformat(),
+                                "date": ticker_fill_dt.date().isoformat(),
                                 "signal_date": signal_dt.date().isoformat(),
                                 "ticker": ticker,
                                 "action": "defer",
@@ -1359,7 +2073,7 @@ def replay(
                     reason = "partial_resize_second_signal_confirmed"
                     partial_resize_rows.append(
                         {
-                            "date": fill_dt.date().isoformat(),
+                            "date": ticker_fill_dt.date().isoformat(),
                             "signal_date": signal_dt.date().isoformat(),
                             "ticker": ticker,
                             "action": "execute",
@@ -1371,7 +2085,17 @@ def replay(
                             "risk_gross_reduction": risk_gross_reduction,
                         }
                     )
-            adjustments.append((ticker, float(target_weight), float(diff_value), float(px), float(current_value), reason))
+            adjustments.append(
+                (
+                    ticker,
+                    float(target_weight),
+                    float(diff_value),
+                    float(px),
+                    float(current_value),
+                    reason,
+                    ticker_fill_dt,
+                )
+            )
         if partial_resize_two_signal_confirmation:
             stale_pending = [
                 ticker
@@ -1382,7 +2106,15 @@ def replay(
             for ticker in stale_pending:
                 pending_partial_resizes.pop(ticker, None)
         adjustments = sorted(adjustments, key=lambda row: (row[2] > 0, abs(row[2])))
-        for ticker, target_weight, diff_value, px, _current_value, reason in adjustments:
+        for (
+            ticker,
+            target_weight,
+            diff_value,
+            px,
+            _current_value,
+            reason,
+            ticker_fill_dt,
+        ) in adjustments:
             side = "BUY" if diff_value > 0 else "SELL"
             qty = abs(diff_value) / px
             order = execute_order(
@@ -1393,9 +2125,11 @@ def replay(
                 price=px,
                 cost_bps=cost_bps,
                 integer_shares=integer_shares,
+                fill_date=ticker_fill_dt,
+                execution_cost_model=execution_cost_model,
             )
             if order:
-                order.update({"date": fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": reason, "target_weight": target_weight, "fill_mode": fill_mode})
+                order.update({"date": ticker_fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": reason, "target_weight": target_weight, "fill_mode": fill_mode})
                 trade_rows.append(order)
         equity_after, values_after = account_equity(state, prices, fill_dt)
         for ticker, target_weight in target_weights.items():
@@ -1601,14 +2335,64 @@ def replay(
                 and not carry_enabled
                 and not partial_resize_two_signal_confirmation
                 and not reserve_explicit
+                and not execution_cost_config.enabled
             ),
             "stock_evidence_end_date": (
                 evidence_end.date().isoformat() if evidence_end is not None else ""
             ),
+            "stock_evidence_end_source": evidence_end_source,
             "max_fill_lag_days": int(max_fill_lag_days),
+            "target_fill_coverage": target_fill_coverage,
             **weight_diag,
         }
     )
+    if execution_cost_config.enabled:
+        execution_summary = summarize_execution_costs(
+            trades_df,
+            starting_capital=starting_capital,
+            config=execution_cost_config,
+        )
+        coverage_complete = bool(execution_summary.get("coverage_complete"))
+        metrics.update(
+            {
+                "execution_cost_mode": execution_cost_config.mode,
+                "execution_cost_schema_version": execution_summary.get("schema_version"),
+                "execution_cost_config": execution_cost_config.audit(),
+                "execution_cost_summary": execution_summary,
+                "capacity_scenarios": execution_summary.get("capacity_scenarios", []),
+                "execution_cost_coverage_complete": coverage_complete,
+                "target_fill_coverage": target_fill_coverage,
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": False,
+            }
+        )
+        if (
+            execution_cost_config.require_complete_liquidity_coverage
+            and not coverage_complete
+        ):
+            metrics.update(
+                {
+                    "status": "blocked",
+                    "reason": "execution_cost_liquidity_coverage_incomplete",
+                    "metric_mode": "DO_NOT_USE",
+                }
+            )
+        else:
+            metrics["metric_mode"] = (
+                str(metrics.get("metric_mode") or "broker_ledger")
+                + "_execution_cost_capacity"
+            )
+        for window in (metrics.get("windows") or {}).values():
+            if not isinstance(window, dict) or "metric_mode" not in window:
+                continue
+            window["execution_cost_mode"] = execution_cost_config.mode
+            window["metric_mode"] = (
+                str(window.get("metric_mode") or "broker_ledger")
+                + "_execution_cost_capacity"
+                if coverage_complete
+                else "DO_NOT_USE"
+            )
     if reserve_explicit:
         reserve_trades = (
             trades_df.loc[trades_df.get("ticker", pd.Series(dtype=str)).astype(str).eq(reserve_asset_policy.asset_ticker)]
@@ -1683,6 +2467,44 @@ def replay(
             }
         )
 
+    redact_dynamic_performance = bool(
+        execution_cost_config.enabled
+        and execution_cost_config.require_complete_liquidity_coverage
+        and metrics.get("status") != "completed"
+    )
+    if redact_dynamic_performance:
+        blocked_reason = str(
+            metrics.get("reason")
+            or "execution_cost_liquidity_coverage_incomplete"
+        )
+        redacted_metrics = redact_execution_performance(
+            metrics,
+            reason=blocked_reason,
+        )
+        trades_df.to_csv(output_dir / "trades.csv", index=False)
+        for artifact_name in (
+            "equity_curve.csv",
+            "holdings_daily.csv",
+            "holdings_weekly.csv",
+            "cash_ledger.csv",
+            "target_vs_actual_weights.csv",
+            "partial_resize_decisions.csv",
+            "positions_latest.csv",
+            "account_state_latest.json",
+        ):
+            artifact_path = output_dir / artifact_name
+            if artifact_path.is_file():
+                artifact_path.unlink()
+        (output_dir / "metrics.json").write_text(
+            json.dumps(redacted_metrics, indent=2, default=str),
+            encoding="utf-8",
+        )
+        (output_dir / "replay_report.md").write_text(
+            render_report(redacted_metrics),
+            encoding="utf-8",
+        )
+        return redacted_metrics
+
     if reserve_explicit:
         reserve_reason_audit.to_json(
             output_dir / "reserve_reason_audit.json",
@@ -1731,7 +2553,12 @@ def replay(
 
 def render_report(metrics: dict[str, Any]) -> str:
     if metrics.get("status") != "completed":
-        return "# Broker Ledger Replay\n\nStatus: blocked\n\nReason: " + str(metrics.get("reason", "unknown")) + "\n"
+        return (
+            "# Broker Ledger Replay\n\n"
+            "Status: blocked\n\n"
+            f"Reason: {metrics.get('reason', 'unknown')}\n\n"
+            "Performance metrics: unavailable because this replay failed closed.\n"
+        )
     lines = [
             "# Broker Ledger Replay",
             "",
@@ -1757,6 +2584,17 @@ def render_report(metrics: dict[str, Any]) -> str:
                 "Cash-carry metrics are research-only accounting adjustments and are not production promotion evidence.",
             ]
         )
+    if metrics.get("execution_cost_mode"):
+        execution_summary = metrics.get("execution_cost_summary") or {}
+        lines.extend(
+            [
+                f"- Execution cost mode: `{metrics.get('execution_cost_mode')}`",
+                f"- Liquidity coverage: {safe_float(execution_summary.get('coverage_rate')):.2%}",
+                f"- P95 ADV participation: {safe_float(execution_summary.get('p95_participation_rate')):.4%}",
+                "",
+                "Spread/ADV/impact metrics are research-only and cannot replace champion evidence automatically.",
+            ]
+        )
     lines.extend(
         [
             "",
@@ -1776,9 +2614,46 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--starting-capital", type=float, default=100000.0)
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
+    parser.add_argument(
+        "--execution-cost-mode",
+        choices=[EXECUTION_COST_MODE_FIXED, EXECUTION_COST_MODE_SPREAD_ADV_IMPACT],
+        default=EXECUTION_COST_MODE_FIXED,
+        help="Opt-in research cost model. The fixed_bps default preserves champion replay parity.",
+    )
+    parser.add_argument("--execution-cost-lookback-sessions", type=int, default=20)
+    parser.add_argument("--execution-cost-min-history-sessions", type=int, default=12)
+    parser.add_argument("--execution-impact-coefficient", type=float, default=0.50)
+    parser.add_argument("--execution-min-half-spread-bps", type=float, default=1.0)
+    parser.add_argument("--execution-max-half-spread-bps", type=float, default=100.0)
+    parser.add_argument("--execution-max-impact-bps", type=float, default=500.0)
+    parser.add_argument(
+        "--execution-capacity-participation-rates",
+        nargs="+",
+        type=float,
+        default=list((0.001, 0.005, 0.010)),
+        help="ADV participation ceilings used for capacity reporting.",
+    )
+    parser.add_argument(
+        "--paper-slippage-path",
+        default="",
+        help="Optional CSV/parquet with date, ticker, side, and observed_slippage_bps.",
+    )
+    parser.add_argument(
+        "--allow-incomplete-execution-cost-coverage",
+        action="store_true",
+        help="Research diagnostics only; default dynamic-cost replay fails closed on any uncovered trade.",
+    )
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--max-reasonable-weight-sum", type=float, default=1.05)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument(
+        "--evidence-end-date",
+        default="",
+        help=(
+            "Optional last observable close date. When omitted, a valid "
+            "operating target book may supply its audited latest-price metadata."
+        ),
+    )
     parser.add_argument("--concentrated-target-stock-n", type=int, default=0)
     parser.add_argument("--concentrated-weighting-mode", default="")
     parser.add_argument("--concentrated-rebalance-interval-months", type=int, default=0)
@@ -1863,6 +2738,7 @@ def main() -> int:
         integer_shares=not bool(args.fractional_shares),
         max_reasonable_weight_sum=args.max_reasonable_weight_sum,
         max_fill_lag_days=args.max_fill_lag_days,
+        evidence_end_date=args.evidence_end_date or None,
         disable_concentrated_champion_filter=bool(args.disable_concentrated_champion_filter),
         concentrated_champion_filters=explicit_filters if explicit_filters else None,
         oos_start=oos_start,
@@ -1879,6 +2755,26 @@ def main() -> int:
         ),
         reserve_mode=args.reserve_mode or None,
         partial_resize_two_signal_confirmation=bool(args.partial_resize_two_signal_confirmation),
+        execution_cost_config=ExecutionCostConfig(
+            mode=args.execution_cost_mode,
+            lookback_sessions=int(args.execution_cost_lookback_sessions),
+            min_history_sessions=int(args.execution_cost_min_history_sessions),
+            impact_coefficient=float(args.execution_impact_coefficient),
+            minimum_half_spread_bps=float(args.execution_min_half_spread_bps),
+            maximum_half_spread_bps=float(args.execution_max_half_spread_bps),
+            maximum_market_impact_bps=float(args.execution_max_impact_bps),
+            capacity_participation_rates=tuple(
+                float(value) for value in args.execution_capacity_participation_rates
+            ),
+            paper_slippage_path=(
+                repo_path(args.paper_slippage_path)
+                if str(args.paper_slippage_path or "").strip()
+                else None
+            ),
+            require_complete_liquidity_coverage=not bool(
+                args.allow_incomplete_execution_cost_coverage
+            ),
+        ),
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2

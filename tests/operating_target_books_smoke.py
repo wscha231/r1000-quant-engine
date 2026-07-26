@@ -14,7 +14,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 import tools.build_operating_target_books as operating_books  # noqa: E402
-from tools.build_operating_target_books import build, clean_filter_value  # noqa: E402
+from tools.build_operating_target_books import (  # noqa: E402
+    build,
+    build_book,
+    clean_filter_value,
+)
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -206,7 +210,62 @@ def test_operating_books_do_not_use_future_recommended_next_run_date() -> None:
         assert len(required_payload["blocked_books"]) == 2
 
 
+def test_existing_latest_close_row_is_marked_evidence_end_eligible() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        history_path = root / "reports" / "main_monthly_weights.csv"
+        latest_target_path = root / "portfolio_latest.csv"
+        write_csv(
+            history_path,
+            [
+                {
+                    "rebalance_date": "2026-05-08",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                }
+            ],
+        )
+        write_csv(
+            latest_target_path,
+            [
+                {
+                    "rebalance_date": "2026-05-08",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                }
+            ],
+        )
+        original_latest_price_close_date = (
+            operating_books.latest_price_close_date
+        )
+        operating_books.latest_price_close_date = (
+            lambda price_cache, tickers: pd.Timestamp("2026-05-08")
+        )
+        try:
+            book, summary = build_book(
+                portfolio="main",
+                history_path=history_path,
+                latest_target_path=latest_target_path,
+                price_cache=root / "cache_prices",
+            )
+        finally:
+            operating_books.latest_price_close_date = (
+                original_latest_price_close_date
+            )
+
+        assert summary["latest_target_appended"] is False
+        latest = book.loc[book["rebalance_date"].eq("2026-05-08")]
+        assert latest["operating_appended"].astype(bool).eq(False).all()
+        assert (
+            latest["operating_evidence_end_eligible"].astype(bool).eq(True).all()
+        )
+        assert set(latest["operating_latest_price_date"].astype(str)) == {
+            "2026-05-08"
+        }
+
+
 if __name__ == "__main__":
     test_operating_books_append_latest_close_targets()
     test_operating_books_do_not_use_future_recommended_next_run_date()
+    test_existing_latest_close_row_is_marked_evidence_end_eligible()
     print("operating_target_books_smoke: ok")

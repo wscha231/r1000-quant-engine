@@ -366,6 +366,14 @@ def build_book(
         history["operating_target_source"] = history.get("operating_target_source", "historical_target_book")
         history["decision_frequency"] = history.get("decision_frequency", "historical_research_schedule")
         history["operating_decision_semantics"] = history.get("operating_decision_semantics", "historical_research_target_book")
+    if "operating_appended" not in history.columns:
+        history["operating_appended"] = False
+    if "operating_signal_source_date" not in history.columns:
+        history["operating_signal_source_date"] = ""
+    if "operating_latest_price_date" not in history.columns:
+        history["operating_latest_price_date"] = ""
+    if "operating_evidence_end_eligible" not in history.columns:
+        history["operating_evidence_end_eligible"] = False
 
     history_max = latest_date_from_columns(history, ["rebalance_date"])
     # Do not use recommended_next_run_date here. It is a future scheduling hint,
@@ -383,6 +391,11 @@ def build_book(
             latest_rows["operating_signal_source_date"] = date_text(latest_target_date)
             latest_rows["operating_latest_price_date"] = date_text(price_close)
             latest_rows["operating_appended"] = True
+            latest_rows["operating_evidence_end_eligible"] = bool(
+                price_close is not None
+                and pd.Timestamp(signal_date).normalize()
+                == pd.Timestamp(price_close).normalize()
+            )
             latest_rows["same_close_selector_recomputed"] = False
             latest_rows = fill_latest_concentrated_filter_metadata(
                 latest_rows,
@@ -394,13 +407,21 @@ def build_book(
             append_reason = "latest target appended as operating decision"
         else:
             append_reason = "latest signal date is not newer than historical target book"
-
-    if "operating_appended" not in history.columns:
-        history["operating_appended"] = False
-    if "operating_signal_source_date" not in history.columns:
-        history["operating_signal_source_date"] = ""
-    if "operating_latest_price_date" not in history.columns:
-        history["operating_latest_price_date"] = ""
+            if (
+                price_close is not None
+                and history_max is not None
+                and pd.Timestamp(history_max).normalize()
+                == pd.Timestamp(price_close).normalize()
+            ):
+                current_mask = history["rebalance_date"].eq(
+                    pd.Timestamp(price_close).normalize()
+                )
+                history.loc[
+                    current_mask, "operating_latest_price_date"
+                ] = date_text(price_close)
+                history.loc[
+                    current_mask, "operating_evidence_end_eligible"
+                ] = True
 
     all_cols = list(dict.fromkeys(list(history.columns) + list(latest_rows.columns)))
     parts = [add_missing_columns(part, all_cols) for part in (history, latest_rows) if not part.empty]

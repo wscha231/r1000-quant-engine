@@ -1,23 +1,11 @@
 #!/usr/bin/env python3
 """Broker-ledger replay correctness smoke tests.
 
-This suite captures broker-ledger replay invariants and documents two
-known biases that should be eliminated in a future commit. The tests
-currently assert the OBSERVED behavior so the suite stays green; when
-the underlying bug is fixed, the assertion in the corresponding test
-must be flipped per the TODO comment.
-
-Known biases documented here:
-    1. Delisted positions whose price data ends mid-replay get marked
-       at cost basis in account_equity (run_broker_ledger_replay.py:313).
-       This understates max drawdown for bankrupt names.
-    2. When a single signal date fans out into per-ticker fill dates
-       that span multiple trading days, every trade is stamped with
-       min(fill_dt_by_ticker.values()) rather than each ticker's own
-       actual_dt (run_broker_ledger_replay.py:552-611). Cash can be
-       debited earlier than the trade could have happened in reality.
-
 Correctness invariants verified here:
+    1. A transition with a missing liquidation fill fails closed before
+       any account state or performance artifact is produced.
+    2. A synchronous target transition that would fill on multiple dates
+       fails closed before any account state is mutated.
     3. With fill_mode="next_close" every trade's actual fill date is
        strictly after the signal date.
     4. Long-horizon (1-year synthetic) equity curves are continuous:
@@ -54,19 +42,13 @@ def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2
     df.to_parquet(cache_dir / px_cache_name(ticker))
 
 
-def test_delisted_position_currently_marks_at_cost_basis() -> None:
-    """Documents bug B1: delisted-to-no-data stock is marked at cost basis.
+def test_missing_liquidation_fill_fails_closed_before_state_mutation() -> None:
+    """A missing target-exit fill must block the complete replay.
 
     Setup: BUY ZOMBIE on 2026-01-02 at $100. Its price data ends 2026-01-08.
     On 2026-02-02 the target book drops ZOMBIE (target_exit). The replay
-    cannot fill the sell because ZOMBIE has no price on or after 2026-02-03.
-    The position therefore remains in state.shares, and account_equity
-    falls back to cost_basis (line 313-315) for marking.
-
-    TODO: when the cost-basis fallback is replaced by zero-marking or
-    explicit zombie handling, flip the assertion to expect that
-    ending_capital_usd is lower (because the dead position is no longer
-    contributing $100/share to equity).
+    cannot fill the sell because ZOMBIE has no price on or after 2026-02-03,
+    so the preflight must reject the replay without publishing performance.
     """
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -97,35 +79,34 @@ def test_delisted_position_currently_marks_at_cost_basis() -> None:
             max_fill_lag_days=7,
         )
 
-        assert metrics["status"] == "completed", metrics
-        positions = pd.read_csv(out / "positions_latest.csv")
-        zombie_rows = positions[positions["ticker"].astype(str).eq("ZOMBIE")]
-        # Bug B1 observed: ZOMBIE remains as a position, marked at cost_basis ($100).
-        # If the fix lands, ZOMBIE should be cleared from positions OR market_value_usd ~= 0.
-        assert not zombie_rows.empty, "ZOMBIE should still be present under current cost-basis fallback bug"
-        market_value = float(zombie_rows.iloc[0]["market_value_usd"])
-        assert market_value > 100.0, (
-            "current bug: dead ZOMBIE marked at >=100 (cost basis). "
-            "When fixed, expect market_value_usd to be ~0 or row to be absent."
-        )
+        assert metrics["status"] == "blocked", metrics
+        assert metrics["reason"] == "target_fill_coverage_incomplete"
+        coverage = pd.read_csv(out / "target_fill_coverage.csv")
+        exit_row = coverage[
+            coverage["ticker"].eq("ZOMBIE")
+            & coverage["transition_action"].eq("target_exit")
+        ].iloc[0]
+        assert exit_row["fillable"] in {False, 0, "False", "false"}
+        assert exit_row["reason"] == "no_fill_within_lag"
+        for artifact in (
+            "trades.csv",
+            "equity_curve.csv",
+            "positions_latest.csv",
+            "account_state_latest.json",
+        ):
+            assert not (out / artifact).exists()
 
 
-def test_multi_day_fill_uses_min_fill_date_for_stamp() -> None:
-    """Documents bug B2: trade.date uses min(fill_dt_by_ticker) for all trades.
+def test_multi_day_transition_fails_closed_before_state_mutation() -> None:
+    """A synchronous transition cannot use multiple observable fill dates.
 
     Setup: AAA trades from 2026-01-02 onward; LATE only starts trading
     on 2026-01-12. Both are in the same signal date 2026-01-02. AAA's
     fill_dt = 2026-01-05 (within max_fill_lag_days). LATE's fill_dt
     would be 2026-01-12, which is outside max_fill_lag_days=7.
 
-    With max_fill_lag_days=15 to let LATE fill, both AAA and LATE
-    trades are stamped at min(fill_dt) = AAA's earlier fill date,
-    even though LATE could not have executed on that day in reality.
-
-    TODO: when run_broker_ledger_replay.py:582+611 is changed to
-    stamp each trade with its own ticker's actual_dt, flip this test
-    to assert that LATE's trade date == LATE's actual fill date
-    (NOT min).
+    With max_fill_lag_days=15 both names are individually fillable, but their
+    different actual dates make the synchronous portfolio transition invalid.
     """
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -154,22 +135,18 @@ def test_multi_day_fill_uses_min_fill_date_for_stamp() -> None:
             max_fill_lag_days=15,
         )
 
-        assert metrics["status"] == "completed", metrics
-        trades = pd.read_csv(out / "trades.csv")
-        late_trades = trades[trades["ticker"].astype(str).eq("LATE")]
-        aaa_trades = trades[trades["ticker"].astype(str).eq("AAA")]
-        if late_trades.empty:
-            # If max_fill_lag_days was insufficient, LATE never filled — test trivially passes.
-            assert not aaa_trades.empty
-            return
-        # Bug B2 observed: LATE trade date == AAA trade date (the minimum fill date).
-        # When fixed, LATE trade date should be its own actual fill date (2026-01-12 or later).
-        late_date = str(late_trades.iloc[0]["date"])
-        aaa_date = str(aaa_trades.iloc[0]["date"])
-        assert late_date == aaa_date, (
-            "current bug: LATE trade stamped with AAA's earlier fill date. "
-            "When fixed, late_date should be >= 2026-01-12."
-        )
+        assert metrics["status"] == "blocked", metrics
+        assert metrics["reason"] == "target_fill_coverage_incomplete"
+        assert metrics["target_fill_coverage"]["chronology_safe"] is False
+        coverage = pd.read_csv(out / "target_fill_coverage.csv")
+        first_signal = coverage[coverage["signal_date"].eq("2026-01-02")]
+        assert set(first_signal["actual_fill_date"]) == {
+            "2026-01-05",
+            "2026-01-12",
+        }
+        assert not first_signal["chronology_safe"].astype(bool).all()
+        assert not (out / "trades.csv").exists()
+        assert not (out / "equity_curve.csv").exists()
 
 
 def test_no_look_ahead_in_next_close_fills() -> None:
@@ -217,6 +194,207 @@ def test_no_look_ahead_in_next_close_fills() -> None:
             )
 
 
+def test_latest_operating_close_is_audited_as_pending_next_close() -> None:
+    """An appended close-date decision cannot require an unobserved next bar."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "broker"
+        cache.mkdir()
+        _write_px(
+            cache,
+            "AAA",
+            [100.0, 101.0, 102.0, 103.0, 104.0],
+            start="2026-01-02",
+        )
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                    "operating_latest_price_date": "",
+                    "operating_appended": False,
+                },
+                {
+                    "rebalance_date": "2026-01-08",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                    "operating_latest_price_date": "2026-01-08",
+                    "operating_appended": True,
+                },
+            ]
+        ).to_csv(target, index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            integer_shares=True,
+        )
+
+        assert metrics["status"] == "completed", metrics
+        assert metrics["stock_evidence_end_date"] == "2026-01-08"
+        assert (
+            metrics["stock_evidence_end_source"]
+            == "target_book_operating_latest_price_date"
+        )
+        summary = metrics["target_fill_coverage"]
+        assert summary["required_transition_fill_count"] == 1
+        assert summary["pending_transition_fill_count"] == 1
+        assert summary["coverage_complete"] is True
+        coverage = pd.read_csv(out / "target_fill_coverage.csv")
+        latest = coverage.loc[coverage["signal_date"].eq("2026-01-08")].iloc[0]
+        assert latest["required_for_replay"] in {False, 0, "False", "false"}
+        assert latest["reason"] == "fill_after_evidence_end"
+        assert pd.to_datetime(
+            pd.read_csv(out / "equity_curve.csv")["date"]
+        ).max() <= pd.Timestamp("2026-01-08")
+
+
+def test_non_appended_current_operating_close_is_pending() -> None:
+    """A builder-authorized current historical row also supplies the cutoff."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "broker"
+        cache.mkdir()
+        _write_px(
+            cache,
+            "AAA",
+            [100.0, 101.0, 102.0, 103.0, 104.0],
+            start="2026-01-02",
+        )
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                    "operating_latest_price_date": "",
+                    "operating_appended": False,
+                    "operating_evidence_end_eligible": False,
+                },
+                {
+                    "rebalance_date": "2026-01-08",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                    "operating_latest_price_date": "2026-01-08",
+                    "operating_appended": False,
+                    "operating_evidence_end_eligible": True,
+                },
+            ]
+        ).to_csv(target, index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            integer_shares=True,
+        )
+
+        assert metrics["status"] == "completed", metrics
+        assert metrics["stock_evidence_end_date"] == "2026-01-08"
+        assert (
+            metrics["target_fill_coverage"]["pending_transition_fill_count"]
+            == 1
+        )
+
+
+def test_weekend_evidence_cutoff_uses_next_nyse_session() -> None:
+    """Friday next-close is pending through Sunday with or without Monday data."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2025-12-30",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                },
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                },
+            ]
+        ).to_csv(target, index=False)
+        summaries = []
+        for label, include_monday in (
+            ("without_monday", False),
+            ("with_monday", True),
+        ):
+            cache = root / f"cache_{label}"
+            out = root / f"broker_{label}"
+            cache.mkdir()
+            dates = [
+                "2025-12-29",
+                "2025-12-30",
+                "2025-12-31",
+                "2026-01-02",
+            ]
+            if include_monday:
+                dates.append("2026-01-05")
+            closes = [100.0 + index for index in range(len(dates))]
+            pd.DataFrame(
+                {
+                    "Open": closes,
+                    "Close": closes,
+                    "Adj Close": closes,
+                    "Volume": [1_000_000] * len(dates),
+                },
+                index=pd.to_datetime(dates),
+            ).to_parquet(cache / px_cache_name("AAA"))
+
+            metrics = replay(
+                target_book=target,
+                price_cache=cache,
+                output_dir=out,
+                portfolio_kind="main",
+                starting_capital=10_000.0,
+                fill_mode="next_close",
+                cost_bps=0.0,
+                integer_shares=True,
+                evidence_end_date="2026-01-04",
+            )
+            assert metrics["status"] == "completed", metrics
+            summaries.append(metrics["target_fill_coverage"])
+            coverage = pd.read_csv(out / "target_fill_coverage.csv")
+            friday = coverage.loc[
+                coverage["signal_date"].eq("2026-01-02")
+            ].iloc[0]
+            assert friday["earliest_possible_fill_date"] == "2026-01-05"
+            assert friday["required_for_replay"] in {
+                False,
+                0,
+                "False",
+                "false",
+            }
+            assert friday["reason"] == "fill_after_evidence_end"
+
+        assert {
+            (
+                summary["required_transition_fill_count"],
+                summary["pending_transition_fill_count"],
+            )
+            for summary in summaries
+        } == {(1, 1)}
+
+
 def test_long_horizon_equity_curve_continuous() -> None:
     """Correctness invariant: 1-year synthetic replay produces a
     continuous equity curve — no duplicate dates, monotonic
@@ -234,7 +412,13 @@ def test_long_horizon_equity_curve_continuous() -> None:
         _write_px(cache, "AAA", closes, start="2025-05-12")
         _write_px(cache, "BBB", [50.0 + i * 0.05 for i in range(252)], start="2025-05-12")
         target = root / "targets.csv"
-        rebalance_dates = ["2025-05-12", "2025-08-01", "2025-11-03", "2026-02-02", "2026-04-30"]
+        rebalance_dates = [
+            "2025-05-12",
+            "2025-08-01",
+            "2025-11-03",
+            "2026-02-02",
+            "2026-04-27",
+        ]
         rows = []
         for dt in rebalance_dates:
             rows.append({"rebalance_date": dt, "ticker": "AAA", "weight": 0.55})
@@ -270,9 +454,12 @@ def test_long_horizon_equity_curve_continuous() -> None:
 
 
 def main() -> int:
-    test_delisted_position_currently_marks_at_cost_basis()
-    test_multi_day_fill_uses_min_fill_date_for_stamp()
+    test_missing_liquidation_fill_fails_closed_before_state_mutation()
+    test_multi_day_transition_fails_closed_before_state_mutation()
     test_no_look_ahead_in_next_close_fills()
+    test_latest_operating_close_is_audited_as_pending_next_close()
+    test_non_appended_current_operating_close_is_pending()
+    test_weekend_evidence_cutoff_uses_next_nyse_session()
     test_long_horizon_equity_curve_continuous()
     print("broker_ledger_correctness_smoke: PASS")
     return 0
