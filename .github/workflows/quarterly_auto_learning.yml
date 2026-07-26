@@ -1,7 +1,7 @@
 name: Quarterly Auto-Learning Review
 
-# Scheduled runs are diagnostic by default. Manual dispatch can open a proposal
-# PR or promote gated rules once evidence thresholds are satisfied.
+# Scheduled and manual runs are proposal-only. A reviewed PR is required to
+# change active champion rules.
 
 on:
   schedule:
@@ -22,10 +22,6 @@ on:
         default: true
       open_proposal_pr:
         description: 'open a PR when feature-gate YAML changes'
-        type: boolean
-        default: false
-      promote_live:
-        description: 'promote candidate gates to active when thresholds pass'
         type: boolean
         default: false
       ic_disable:
@@ -137,14 +133,9 @@ jobs:
           fi
           python tools/feature_gate_proposal.py $ARGS | tee proposal_output.txt
 
-      - name: Run auto-learning promotion gate
+      - name: Evaluate auto-learning review eligibility
         run: |
-          PROMOTE_LIVE="${{ github.event.inputs.promote_live }}"
-          if [ "$PROMOTE_LIVE" = "true" ]; then
-            python tools/auto_learning_promote.py | tee auto_learning_promote_output.txt
-          else
-            python tools/auto_learning_promote.py --dry-run | tee auto_learning_promote_output.txt
-          fi
+          python tools/auto_learning_promote.py --dry-run | tee auto_learning_promote_output.txt
 
       - name: Open feature-gate proposal PR
         if: github.event.inputs.open_proposal_pr == 'true'

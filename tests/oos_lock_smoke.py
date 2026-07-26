@@ -93,8 +93,39 @@ def test_oos2_independent_window() -> None:
     )
     assert out["oos"]["label"] == "oos"
     assert out["oos2"]["label"] == "oos2"
-    # oos2 starts earlier than oos and overlaps it by design.
     assert out["oos2"]["start_date"] < out["oos"]["start_date"]
+    assert out["oos2"]["end_date"] < out["oos"]["start_date"]
+    assert out["oos2_end"] == "2024-06-30"
+
+
+def test_overlapping_oos_windows_are_rejected() -> None:
+    eq = _synthetic_equity_curve("2022-01-03", 800, 0.0003)
+    try:
+        calc_metrics_with_oos(
+            eq,
+            _empty_trades(),
+            100000.0,
+            oos_start="2024-07-01",
+            oos2_start="2023-01-01",
+            oos2_end="2024-07-15",
+        )
+    except ValueError as exc:
+        assert "must be disjoint" in str(exc)
+    else:
+        raise AssertionError("overlapping OOS windows must fail closed")
+
+
+def test_oos2_end_tracks_custom_primary_start() -> None:
+    eq = _synthetic_equity_curve("2022-01-03", 1000, 0.0003)
+    out = calc_metrics_with_oos(
+        eq,
+        _empty_trades(),
+        100000.0,
+        oos_start="2024-01-01",
+        oos2_start="2023-01-01",
+    )
+    assert out["oos2_end"] == "2023-12-31"
+    assert out["oos2"]["end_date"] < out["oos"]["start_date"]
 
 
 def test_empty_window_returns_blocked() -> None:
@@ -118,6 +149,8 @@ def test_disabled_with_empty_string() -> None:
 def test_default_constants() -> None:
     assert DEFAULT_OOS_START == "2024-07-01"
     assert DEFAULT_OOS2_START == "2023-01-01"
+    source = (REPO_ROOT / "tools" / "run_broker_ledger_replay.py").read_text(encoding="utf-8")
+    assert '_resolve_oos(args.oos2_end, "R1000_OOS2_END", "")' in source
 
 
 if __name__ == "__main__":
@@ -125,6 +158,8 @@ if __name__ == "__main__":
     test_date_range_slices_and_reanchors_capital()
     test_is_oos_split_via_calc_metrics_with_oos()
     test_oos2_independent_window()
+    test_overlapping_oos_windows_are_rejected()
+    test_oos2_end_tracks_custom_primary_start()
     test_empty_window_returns_blocked()
     test_disabled_with_empty_string()
     test_default_constants()

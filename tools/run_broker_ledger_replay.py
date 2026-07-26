@@ -803,13 +803,30 @@ def calc_metrics_with_oos(
     """Compute metrics over the full window plus IS/OOS slices.
 
     IS ends one day before oos_start; OOS runs oos_start..oos_end (or to the
-    final equity_curve date). A second OOS window (oos2) is computed when
-    oos2_start is given; it overlaps OOS by design (longer-horizon sanity).
+    final equity_curve date). A second, earlier OOS window (oos2) is computed
+    when oos2_start is given. The two OOS windows must not overlap.
     """
     full = calc_metrics(equity_curve, trades, starting_capital, label="full", cash_carry_mode=cash_carry_mode)
     splits: dict[str, dict[str, Any]] = {"full": full}
+    oos_lo = pd.to_datetime(oos_start, errors="coerce") if oos_start else pd.NaT
+    oos2_lo = pd.to_datetime(oos2_start, errors="coerce") if oos2_start else pd.NaT
+    effective_oos2_end = oos2_end
+    if pd.notna(oos_lo) and pd.notna(oos2_lo):
+        if effective_oos2_end is None:
+            effective_oos2_end = (oos_lo - pd.Timedelta(days=1)).date().isoformat()
+        oos2_hi = pd.to_datetime(effective_oos2_end, errors="coerce")
+        if pd.isna(oos2_hi):
+            raise ValueError(f"Invalid oos2_end: {effective_oos2_end!r}")
+        if oos2_lo > oos2_hi:
+            raise ValueError(
+                f"Invalid OOS2 window: start {oos2_start} is after end {effective_oos2_end}"
+            )
+        if oos2_hi >= oos_lo:
+            raise ValueError(
+                "OOS windows must be disjoint: "
+                f"oos2={oos2_start}..{effective_oos2_end}, oos={oos_start}..{oos_end or 'latest'}"
+            )
     if oos_start:
-        oos_lo = pd.to_datetime(oos_start, errors="coerce")
         if pd.notna(oos_lo):
             is_hi = (oos_lo - pd.Timedelta(days=1)).date().isoformat()
             splits["is"] = calc_metrics(
@@ -823,7 +840,7 @@ def calc_metrics_with_oos(
     if oos2_start:
         splits["oos2"] = calc_metrics(
             equity_curve, trades, starting_capital,
-            date_range=(oos2_start, oos2_end), label="oos2", cash_carry_mode=cash_carry_mode,
+            date_range=(oos2_start, effective_oos2_end), label="oos2", cash_carry_mode=cash_carry_mode,
         )
     return {
         "full": splits.get("full", {}),
@@ -833,7 +850,7 @@ def calc_metrics_with_oos(
         "oos_start": oos_start,
         "oos_end": oos_end,
         "oos2_start": oos2_start,
-        "oos2_end": oos2_end,
+        "oos2_end": effective_oos2_end,
     }
 
 
@@ -1783,7 +1800,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="ISO date; secondary OOS window start (longer-horizon sanity). Empty string disables. Env R1000_OOS2_START supplies the default.",
     )
-    parser.add_argument("--oos2-end", default=None, help="ISO date; secondary OOS window end (optional).")
+    parser.add_argument(
+        "--oos2-end",
+        default=None,
+        help="ISO date; secondary OOS window end. Defaults to the day before the selected primary OOS start.",
+    )
     parser.add_argument(
         "--cash-carry-mode",
         choices=[CASH_CARRY_MODE_NONE, CASH_CARRY_MODE_RISK_FREE],
@@ -1830,6 +1851,7 @@ def main() -> int:
         explicit_filters = DISABLE_CONCENTRATED_CHAMPION_FILTERS.copy()
     oos_start = _resolve_oos(args.oos_start, "R1000_OOS_START", DEFAULT_OOS_START)
     oos2_start = _resolve_oos(args.oos2_start, "R1000_OOS2_START", DEFAULT_OOS2_START)
+    oos2_end = _resolve_oos(args.oos2_end, "R1000_OOS2_END", "") if oos2_start else None
     payload = replay(
         target_book=repo_path(args.target_book),
         price_cache=repo_path(args.price_cache),
@@ -1846,7 +1868,7 @@ def main() -> int:
         oos_start=oos_start,
         oos_end=args.oos_end or None,
         oos2_start=oos2_start,
-        oos2_end=args.oos2_end or None,
+        oos2_end=oos2_end,
         cash_carry_config=resolve_cash_carry_config(
             mode=args.cash_carry_mode,
             rate_source=args.cash_rate_source,

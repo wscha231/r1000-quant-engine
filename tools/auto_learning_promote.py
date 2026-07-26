@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
-"""auto_learning_promote - guarded champion/challenger promotion check.
+"""auto_learning_promote - proposal-only champion/challenger eligibility check.
 
-This is the non-human approval layer for AlphaTrade-style learning.
+This is the non-mutating evidence layer for AlphaTrade-style learning.
 
 Expected use in a challenger workflow:
   1. Generate a candidate gate file from trade insights.
   2. Run a rebuild with that candidate active.
   3. Run this tool against the rebuild metrics.
-  4. If the hard gates pass, promote the candidate gate file to the active
-     production gate path for the next run.
+  4. If the hard gates pass, emit an eligible-for-review decision.
 
 The tool is intentionally conservative. It never invents weights and it never
-touches model code. It only promotes an already-tested candidate artifact when
-metrics and trade-journal evidence clear explicit gates.
+touches model code or the active champion artifact. Human review and a separate,
+explicitly approved change are required to alter the active gate file.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -89,13 +87,18 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "concentrated_cagr_floor": conc_cagr >= float(args.concentrated_cagr_floor),
         "trade_count_floor": trade_count >= int(args.min_trades),
     }
-    approved = all(checks.values())
+    eligible_for_review = all(checks.values())
     reasons = [name for name, ok in checks.items() if not ok]
 
     decision = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "approved": bool(approved),
-        "dry_run": bool(args.dry_run),
+        # Legacy consumers treat approved as permission to promote. Keep it
+        # fail-closed and expose positive evidence only via eligible_for_review.
+        "approved": False,
+        "eligible_for_review": bool(eligible_for_review),
+        "automatic_promotion_allowed": False,
+        "proposal_only": True,
+        "dry_run": True,
         "reasons": reasons,
         "checks": checks,
         "metrics": {
@@ -117,14 +120,8 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         },
         "candidate_gates": str(candidate),
         "active_gates": str(active),
+        "promoted": False,
     }
-
-    if approved and not args.dry_run:
-        active.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(candidate, active)
-        decision["promoted"] = True
-    else:
-        decision["promoted"] = False
 
     return decision
 
@@ -145,7 +142,11 @@ def main() -> int:
     p.add_argument("--max-dd-worsening-pp", type=float, default=1.0)
     p.add_argument("--concentrated-cagr-floor", type=float, default=0.30)
     p.add_argument("--min-trades", type=int, default=250)
-    p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Deprecated compatibility flag; this command is always proposal-only.",
+    )
     args = p.parse_args()
 
     decision = evaluate(args)
@@ -153,13 +154,12 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(decision, indent=2, sort_keys=True), encoding="utf-8")
 
-    status = "APPROVED" if decision["approved"] else "BLOCKED"
+    status = "ELIGIBLE_FOR_REVIEW" if decision["eligible_for_review"] else "BLOCKED"
     print(f"[auto-learning] {status}: {out_path}")
     if decision["reasons"]:
         print("[auto-learning] reasons: " + ", ".join(decision["reasons"]))
-    if decision.get("promoted"):
-        print(f"[auto-learning] promoted {args.candidate_gates} -> {args.active_gates}")
-    return 0 if decision["approved"] else 1
+    print("[auto-learning] proposal-only: active gates were not modified")
+    return 0 if decision["eligible_for_review"] else 1
 
 
 if __name__ == "__main__":

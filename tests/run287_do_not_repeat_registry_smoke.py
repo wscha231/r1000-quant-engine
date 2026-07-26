@@ -114,6 +114,21 @@ def test_rejected_sector_rs_materialization_is_blocked() -> None:
     ]
 
 
+def test_rejected_hierarchical_leadership_reconstruction_is_blocked() -> None:
+    result = evaluate_candidate(
+        load_registry(),
+        signal="hierarchical_sector_industry_subsector_theme_stock_leadership",
+        mechanism="market_leader_challenger_portfolio_reconstruction",
+        book="generated_main_and_concentrated",
+        window="2019-05-31_2026-04-30",
+    )
+    assert result["status"] == "BLOCKED_DO_NOT_REPEAT"
+    assert result["allowed"] is False
+    assert result["matched_entry_ids"] == [
+        "hierarchical_sector_leadership_portfolio_reconstruction"
+    ]
+
+
 def main() -> int:
     test_exact_rejected_candidate_is_blocked()
     test_coverage_or_real_semantic_change_can_reopen()
@@ -122,6 +137,7 @@ def main() -> int:
     test_rejected_sec_guidance_keyword_scout_is_blocked()
     test_rejected_strict_leadership_persistence_is_blocked()
     test_rejected_sector_rs_materialization_is_blocked()
+    test_rejected_hierarchical_leadership_reconstruction_is_blocked()
     print("run287_do_not_repeat_registry_smoke: PASS")
     return 0
 
