@@ -787,7 +787,6 @@ def calc_metrics(
 # overrides apply when the CLI flag is omitted.
 DEFAULT_OOS_START = "2024-07-01"
 DEFAULT_OOS2_START = "2023-01-01"
-DEFAULT_OOS2_END = "2024-06-30"
 
 
 def calc_metrics_with_oos(
@@ -1804,7 +1803,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--oos2-end",
         default=None,
-        help="ISO date; secondary OOS window end. Defaults to 2024-06-30 and must precede primary OOS.",
+        help="ISO date; secondary OOS window end. Defaults to the day before the selected primary OOS start.",
     )
     parser.add_argument(
         "--cash-carry-mode",
@@ -1852,7 +1851,7 @@ def main() -> int:
         explicit_filters = DISABLE_CONCENTRATED_CHAMPION_FILTERS.copy()
     oos_start = _resolve_oos(args.oos_start, "R1000_OOS_START", DEFAULT_OOS_START)
     oos2_start = _resolve_oos(args.oos2_start, "R1000_OOS2_START", DEFAULT_OOS2_START)
-    oos2_end = _resolve_oos(args.oos2_end, "R1000_OOS2_END", DEFAULT_OOS2_END) if oos2_start else None
+    oos2_end = _resolve_oos(args.oos2_end, "R1000_OOS2_END", "") if oos2_start else None
     payload = replay(
         target_book=repo_path(args.target_book),
         price_cache=repo_path(args.price_cache),

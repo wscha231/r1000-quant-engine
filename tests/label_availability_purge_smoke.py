@@ -100,9 +100,10 @@ def test_training_source_is_fail_closed() -> None:
         not in source
     )
     assert 'label_ready_before(d, "short", anchor_dt)' in source
-    assert 'label_ready_before(fit_df, "future", anchor_dt)' in source
+    assert 'label_ready_before(fit_df, "future", model_decision_cutoff)' in source
     assert 'label_ready_before(hist, "short", latest_dt)' in source
     assert 'label_ready_before(train_df, "future", latest_dt)' in source
+    assert "phase4_artifact_matches_decision_cutoff(reuse_meta, latest_dt)" in source
     assert ENGINE_REUSE_VERSION == "2026-07-27-exact-label-availability-v1"
 
 
@@ -120,12 +121,23 @@ def test_label_provenance_is_not_orderable_output() -> None:
     assert list(clean.columns) == ["ticker", "score"]
 
 
+def test_phase4_reuse_requires_exact_live_cutoff() -> None:
+    meta = {
+        "label_availability_policy": pipeline.LABEL_AVAILABILITY_POLICY,
+        "training_decision_cutoff": "2026-01-31",
+    }
+    assert pipeline.phase4_artifact_matches_decision_cutoff(meta, "2026-01-31")
+    assert not pipeline.phase4_artifact_matches_decision_cutoff(meta, "2026-07-31")
+    assert not pipeline.phase4_artifact_matches_decision_cutoff({}, "2026-01-31")
+
+
 def main() -> None:
     test_stock_forward_end_dates()
     test_exact_blended_target_maturity()
     test_benchmark_columns_are_canonical()
     test_training_source_is_fail_closed()
     test_label_provenance_is_not_orderable_output()
+    test_phase4_reuse_requires_exact_live_cutoff()
     print("label_availability_purge_smoke: ok")
 
 

@@ -14,7 +14,6 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.run_broker_ledger_replay import (  # noqa: E402
     DEFAULT_OOS_START,
     DEFAULT_OOS2_START,
-    DEFAULT_OOS2_END,
     calc_metrics,
     calc_metrics_with_oos,
 )
@@ -116,6 +115,19 @@ def test_overlapping_oos_windows_are_rejected() -> None:
         raise AssertionError("overlapping OOS windows must fail closed")
 
 
+def test_oos2_end_tracks_custom_primary_start() -> None:
+    eq = _synthetic_equity_curve("2022-01-03", 1000, 0.0003)
+    out = calc_metrics_with_oos(
+        eq,
+        _empty_trades(),
+        100000.0,
+        oos_start="2024-01-01",
+        oos2_start="2023-01-01",
+    )
+    assert out["oos2_end"] == "2023-12-31"
+    assert out["oos2"]["end_date"] < out["oos"]["start_date"]
+
+
 def test_empty_window_returns_blocked() -> None:
     """A date range outside the equity curve must produce blocked metrics, not crash."""
     eq = _synthetic_equity_curve("2020-01-02", 100, 0.0005)
@@ -137,7 +149,8 @@ def test_disabled_with_empty_string() -> None:
 def test_default_constants() -> None:
     assert DEFAULT_OOS_START == "2024-07-01"
     assert DEFAULT_OOS2_START == "2023-01-01"
-    assert DEFAULT_OOS2_END == "2024-06-30"
+    source = (REPO_ROOT / "tools" / "run_broker_ledger_replay.py").read_text(encoding="utf-8")
+    assert '_resolve_oos(args.oos2_end, "R1000_OOS2_END", "")' in source
 
 
 if __name__ == "__main__":
@@ -146,6 +159,7 @@ if __name__ == "__main__":
     test_is_oos_split_via_calc_metrics_with_oos()
     test_oos2_independent_window()
     test_overlapping_oos_windows_are_rejected()
+    test_oos2_end_tracks_custom_primary_start()
     test_empty_window_returns_blocked()
     test_disabled_with_empty_string()
     test_default_constants()

@@ -9078,6 +9078,7 @@ def save_phase4_latest_scoring_artifacts(
     cbc: Any,
     cbrk: Any,
     ranking_enabled: bool,
+    training_decision_cutoff: Optional[Any],
 ) -> None:
     if scaler is None or reg is None:
         return
@@ -9087,6 +9088,11 @@ def save_phase4_latest_scoring_artifacts(
         "scaler": scaler,
         "ranking_enabled": bool(ranking_enabled),
         "label_availability_policy": LABEL_AVAILABILITY_POLICY,
+        "training_decision_cutoff": (
+            pd.Timestamp(training_decision_cutoff).date().isoformat()
+            if training_decision_cutoff is not None and pd.notna(training_decision_cutoff)
+            else None
+        ),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "ridge": {
             "coef": [float(x) for x in np.asarray(getattr(reg, "coef_", []), dtype=float).tolist()],
@@ -9142,6 +9148,19 @@ def load_phase4_latest_scoring_artifacts(
     if meta.get("label_availability_policy") != LABEL_AVAILABILITY_POLICY:
         return None
     return meta if isinstance(meta, dict) else None
+
+
+def phase4_artifact_matches_decision_cutoff(meta: dict[str, Any], decision_date: Any) -> bool:
+    """Only reuse a phase-4 artifact fitted for the exact live decision cutoff."""
+    if not isinstance(meta, dict):
+        return False
+    if meta.get("label_availability_policy") != LABEL_AVAILABILITY_POLICY:
+        return False
+    artifact_cutoff = pd.to_datetime(meta.get("training_decision_cutoff"), errors="coerce")
+    live_cutoff = pd.to_datetime(decision_date, errors="coerce")
+    if pd.isna(artifact_cutoff) or pd.isna(live_cutoff):
+        return False
+    return pd.Timestamp(artifact_cutoff).normalize() == pd.Timestamp(live_cutoff).normalize()
 
 
 def ridge_predict_from_meta(X: np.ndarray, meta: dict[str, Any], key: str = "ridge") -> np.ndarray:
@@ -10098,6 +10117,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     current_cbc: Optional[Any] = None
     current_cbrk: Optional[Any] = None
     current_rank_enabled = bool(cfg.ranking_enabled and catboost_available)
+    current_model_decision_cutoff: Optional[pd.Timestamp] = None
     skip_stats = {
         "completed": 0,
         "empty_test": 0,
@@ -10119,6 +10139,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         need_retrain = current_scaler is None or current_anchor_idx != anchor_idx
         if need_retrain:
             anchor_dt = pd.Timestamp(dates[anchor_idx])
+            model_decision_cutoff = anchor_dt
             anchor_train_start = anchor_dt - pd.DateOffset(years=cfg.train_lookback_years)
             anchor_train_mask = (
                 (d["feature_date"] >= anchor_train_start)
@@ -10128,6 +10149,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             anchor_train_df = d[anchor_train_mask].copy()
 
             if len(anchor_train_df) < effective_min_train_samples:
+                model_decision_cutoff = pd.Timestamp(test_dt)
                 current_train_start = test_dt - pd.DateOffset(years=cfg.train_lookback_years)
                 current_train_mask = (
                     (d["feature_date"] >= current_train_start)
@@ -10166,7 +10188,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
 
             future_fit_df = fit_df[
                 fit_df["future_winner_available"].fillna(False).astype(bool)
-                & label_ready_before(fit_df, "future", anchor_dt)
+                & label_ready_before(fit_df, "future", model_decision_cutoff)
             ].copy()
             current_future_reg = None
             current_future_clf = None
@@ -10194,6 +10216,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             current_cbc = None
             current_cbrk = None
             current_rank_enabled = bool(cfg.ranking_enabled and catboost_available)
+            current_model_decision_cutoff = model_decision_cutoff
 
             if catboost_available:
                 try:
@@ -10445,6 +10468,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         current_cbc,
         current_cbrk,
         current_rank_enabled,
+        current_model_decision_cutoff,
     )
     return bundle
 
@@ -12631,6 +12655,12 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
     reuse_meta = None
     if bool(getattr(cfg, "reuse_phase4_models_for_latest_recommendations", True)):
         reuse_meta = load_phase4_latest_scoring_artifacts(paths, model_features)
+        if reuse_meta is not None and not phase4_artifact_matches_decision_cutoff(reuse_meta, latest_dt):
+            log(
+                "Phase 5b: phase4 artifact cutoff does not match the live decision date; "
+                "refitting on the exact live purged training frame."
+            )
+            reuse_meta = None
     if reuse_meta is not None:
         log("Phase 5b: reusing freshest phase4 models for latest scoring ...")
         X_latest = apply_scaler(latest_df, reuse_meta["scaler"], model_features)
