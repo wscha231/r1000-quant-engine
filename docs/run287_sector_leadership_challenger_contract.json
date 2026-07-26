@@ -219,6 +219,7 @@
       "REENTRY"
     ],
     "prior_artifact_session_policy": "The prior artifact is used only from the immediately preceding NYSE session or an identical-input same-date rerun. An older artifact is hash-audited, recorded as ignored, and state safely restarts at its first observation; a future prior or same-date input drift blocks.",
+    "prior_source_identity_policy": "Prior run id and attempt must be positive integers, commit and input-set identities must be valid SHA values, and the prior source workflow must exactly match the current accepted source workflow.",
     "prior_state_memory_policy": "Every state-memory row must be bound to the prior summary session and have coherent entity key, raw signal, state, pending confirmation, streak, and evidence-session fields; contradictions fail closed.",
     "same_date_policy": "The primary input_set_sha256 and raw signal must match; state and streak are copied without increment, otherwise fail closed."
   },

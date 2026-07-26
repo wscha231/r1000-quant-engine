@@ -2183,7 +2183,7 @@ def validate_accepted_manifest(
 def load_prior(
     args: argparse.Namespace,
     *,
-    session_date: str,
+    current_identity: SourceIdentity,
     current_input_set_sha256: str,
     audits: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
@@ -2219,10 +2219,24 @@ def load_prior(
     identity = payload.get("source_identity")
     if not isinstance(identity, dict):
         raise ChallengerError("prior_source_identity_missing")
+    prior_run_id = str(identity.get("run_id") or "").strip()
+    prior_run_attempt = str(identity.get("run_attempt") or "").strip()
+    prior_commit = str(identity.get("commit_sha") or "").lower()
+    prior_workflow = str(identity.get("workflow") or "").strip()
+    if (
+        re.fullmatch(r"[1-9][0-9]*", prior_run_id) is None
+        or re.fullmatch(r"[1-9][0-9]*", prior_run_attempt) is None
+        or not valid_commit(prior_commit)
+        or not prior_workflow
+        or not valid_sha256(str(payload.get("input_set_sha256") or ""))
+    ):
+        raise ChallengerError("prior_source_identity_invalid")
+    if prior_workflow != current_identity.workflow:
+        raise ChallengerError("prior_source_workflow_mismatch")
     prior_session = parse_iso_date(
         identity.get("session_date"), "prior_session_date"
     )
-    if prior_session > session_date:
+    if prior_session > current_identity.session_date:
         raise ChallengerError("prior_session_is_future")
     # Validate every state record even when an old prior will be ignored for
     # hysteresis.  A hash-bound summary may not carry internally contradictory
@@ -2232,8 +2246,9 @@ def load_prior(
         expected_prior_session=prior_session,
     )
     if (
-        prior_session < session_date
-        and prior_session != previous_nyse_session(session_date)
+        prior_session < current_identity.session_date
+        and prior_session
+        != previous_nyse_session(current_identity.session_date)
     ):
         return None, {
             "path": str(path),
@@ -2245,7 +2260,7 @@ def load_prior(
             "state_restart": "fresh_first_observation",
         }
     if (
-        prior_session == session_date
+        prior_session == current_identity.session_date
         and payload.get("input_set_sha256") != current_input_set_sha256
     ):
         raise ChallengerError("same_date_input_drift")
@@ -2253,7 +2268,7 @@ def load_prior(
         "path": str(path),
         "sha256": audits["prior_challenger_artifact"]["sha256"],
         "session_date": prior_session,
-        "same_date": prior_session == session_date,
+        "same_date": prior_session == current_identity.session_date,
     }
 
 
@@ -2263,7 +2278,10 @@ def requested_identity(args: argparse.Namespace) -> SourceIdentity:
         raise ChallengerError("source_commit_sha_invalid")
     run_id = str(args.source_run_id or "").strip()
     run_attempt = str(args.source_run_attempt or "").strip()
-    if not run_id or not run_attempt:
+    if (
+        re.fullmatch(r"[1-9][0-9]*", run_id) is None
+        or re.fullmatch(r"[1-9][0-9]*", run_attempt) is None
+    ):
         raise ChallengerError("source_run_identity_invalid")
     return SourceIdentity(
         run_id=run_id,
@@ -2537,7 +2555,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     current_input_hash = input_set_sha256(audits, identity)
     prior_payload, prior_record = load_prior(
         args,
-        session_date=identity.session_date,
+        current_identity=identity,
         current_input_set_sha256=current_input_hash,
         audits=audits,
     )

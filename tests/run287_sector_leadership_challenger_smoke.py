@@ -896,6 +896,96 @@ def test_prior_state_memory_is_bound_and_coherent() -> None:
             _assert_safety(summary)
 
 
+def test_prior_source_identity_is_strict_and_workflow_bound() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        prior_fixture = _build_fixture(
+            root / "prior_identity",
+            "2026-07-23",
+            run_id="88120",
+        )
+        prior_proc = _run(prior_fixture)
+        assert prior_proc.returncode == 0, (
+            prior_proc.stdout + prior_proc.stderr
+        )
+        prior_payload = _json(
+            prior_fixture["output"] / "summary.json"
+        )
+        cases = (
+            (
+                "foreign_workflow",
+                "source_identity",
+                "workflow",
+                (
+                    "other/repository/.github/workflows/"
+                    "foreign.yml@refs/heads/master"
+                ),
+                "prior_source_workflow_mismatch",
+            ),
+            (
+                "invalid_run_id",
+                "source_identity",
+                "run_id",
+                "0",
+                "prior_source_identity_invalid",
+            ),
+            (
+                "invalid_run_attempt",
+                "source_identity",
+                "run_attempt",
+                "attempt-one",
+                "prior_source_identity_invalid",
+            ),
+            (
+                "invalid_commit",
+                "source_identity",
+                "commit_sha",
+                "not-a-commit",
+                "prior_source_identity_invalid",
+            ),
+            (
+                "invalid_input_hash",
+                "",
+                "input_set_sha256",
+                "not-a-sha256",
+                "prior_source_identity_invalid",
+            ),
+        )
+        for index, (
+            name,
+            parent,
+            field,
+            value,
+            expected,
+        ) in enumerate(cases):
+            payload = json.loads(json.dumps(prior_payload))
+            target = payload[parent] if parent else payload
+            target[field] = value
+            forged_prior = root / f"forged_identity_{name}.json"
+            _write_json(forged_prior, payload)
+            current = _build_fixture(
+                root / f"current_identity_{name}",
+                "2026-07-24",
+                run_id=str(88121 + index),
+            )
+            proc = _run(current, prior=forged_prior)
+            assert proc.returncode == 2, (
+                name,
+                proc.stdout,
+                proc.stderr,
+            )
+            summary = _json(current["output"] / "summary.json")
+            assert (
+                summary["status"]
+                == "BLOCKED_SECTOR_LEADERSHIP_CHALLENGER"
+            )
+            failures = " ".join(
+                summary["contract_failures"]
+            ).lower()
+            assert expected in failures, (name, failures)
+            _assert_safety(summary)
+
+
 def test_taxonomy_exact_close_future_and_stale_rows_fail_closed() -> None:
     cases = (
         ("bad_taxonomy", {"bad_taxonomy": True}, "taxonomy"),
@@ -1041,6 +1131,7 @@ def main() -> int:
     test_rotation_breakdown_rs_determinism_and_contract()
     test_distinct_session_confirmation_reentry_and_same_date_idempotency()
     test_prior_state_memory_is_bound_and_coherent()
+    test_prior_source_identity_is_strict_and_workflow_bound()
     test_taxonomy_exact_close_future_and_stale_rows_fail_closed()
     test_sub_two_percent_unknown_taxonomy_is_excluded()
     test_observable_catchup_skip_contract()
