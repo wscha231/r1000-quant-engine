@@ -58,7 +58,7 @@ def main() -> None:
         assert result.returncode == 0, result.stdout + result.stderr
         payload = json.loads(decision.read_text(encoding="utf-8"))
         assert payload["eligible_for_review"] is True
-        assert payload["approved"] is True
+        assert payload["approved"] is False
         assert payload["automatic_promotion_allowed"] is False
         assert payload["proposal_only"] is True
         assert payload["promoted"] is False

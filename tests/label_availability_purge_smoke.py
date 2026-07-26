@@ -69,6 +69,24 @@ def test_exact_blended_target_maturity() -> None:
     assert not bool(blocked.loc[0, "future_label_complete"])
     assert pd.isna(blocked.loc[0, "future_label_available_at"])
 
+    zero_weight_cfg = EngineConfig()
+    zero_weight_cfg.future_target_blend_12m = 0.40
+    zero_weight_cfg.future_target_blend_24m = 0.60
+    zero_weight_cfg.future_target_blend_36m = 0.0
+    zero_weight_cfg.future_target_excess_weight = 0.0
+
+    missing_zero_weight_stock = _complete_label_frame()
+    missing_zero_weight_stock["feature_date"] = pd.Timestamp("2020-01-31")
+    missing_zero_weight_stock.loc[0, "r_36m"] = np.nan
+    blocked_stock = pipeline.derive_label_availability(missing_zero_weight_stock, zero_weight_cfg)
+    assert not bool(blocked_stock.loc[0, "future_label_complete"])
+
+    missing_bonus_benchmark = _complete_label_frame()
+    missing_bonus_benchmark["feature_date"] = pd.Timestamp("2020-01-31")
+    missing_bonus_benchmark.loc[0, "bench_r_36m"] = np.nan
+    blocked_benchmark = pipeline.derive_label_availability(missing_bonus_benchmark, zero_weight_cfg)
+    assert not bool(blocked_benchmark.loc[0, "future_label_complete"])
+
     staggered = pd.concat([frame, frame], ignore_index=True)
     staggered.loc[1, "r_6m_label_end_date"] = "2020-07-02"
     staggered.loc[1, "bench_r_6m_label_end_date"] = "2020-07-02"
@@ -104,7 +122,7 @@ def test_training_source_is_fail_closed() -> None:
     assert 'label_ready_before(hist, "short", latest_dt)' in source
     assert 'label_ready_before(train_df, "future", latest_dt)' in source
     assert "phase4_artifact_matches_decision_cutoff(reuse_meta, latest_dt)" in source
-    assert ENGINE_REUSE_VERSION == "2026-07-27-exact-label-availability-v1"
+    assert ENGINE_REUSE_VERSION == "2026-07-27-exact-label-availability-v2"
 
 
 def test_label_provenance_is_not_orderable_output() -> None:

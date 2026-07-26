@@ -92,9 +92,9 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
 
     decision = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        # Keep approved for compatibility with existing report consumers. It
-        # means evidence-eligible, never permission to mutate the champion.
-        "approved": bool(eligible_for_review),
+        # Legacy consumers treat approved as permission to promote. Keep it
+        # fail-closed and expose positive evidence only via eligible_for_review.
+        "approved": False,
         "eligible_for_review": bool(eligible_for_review),
         "automatic_promotion_allowed": False,
         "proposal_only": True,

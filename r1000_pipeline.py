@@ -9185,7 +9185,7 @@ def logreg_predict_proba_from_meta(X: np.ndarray, meta: dict[str, Any], key: str
     return 1.0 / (1.0 + np.exp(-z))
 
 
-LABEL_AVAILABILITY_POLICY = "exact_forward_observation_v1"
+LABEL_AVAILABILITY_POLICY = "exact_forward_observation_v2"
 _SHORT_LABEL_WEIGHTS = (
     ("1m", "target_blend_1m"),
     ("3m", "target_blend_3m"),
@@ -9196,6 +9196,8 @@ _FUTURE_LABEL_WEIGHTS = (
     ("24m", "future_target_blend_24m"),
     ("36m", "future_target_blend_36m"),
 )
+_FUTURE_BREAKOUT_STOCK_HORIZONS = ("12m", "24m", "36m")
+_FUTURE_BREAKOUT_BENCHMARK_HORIZONS = ("24m", "36m")
 
 
 def derive_label_availability(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
@@ -9203,8 +9205,10 @@ def derive_label_availability(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFra
 
     A blended target is complete only when every positively weighted stock
     horizon is observed. When excess return contributes to the target, the
-    matching benchmark horizon must also be observed. This prevents a row from
-    entering training before its latest constituent label existed.
+    matching benchmark horizon must also be observed. The future-winner target
+    additionally requires every stock and benchmark input used unconditionally
+    by its breakout bonus, even when a blend weight is zero. This prevents a
+    row from entering training before its latest constituent label existed.
     """
     d = df.copy()
     groups = (
@@ -9243,6 +9247,35 @@ def derive_label_availability(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFra
                         & bench_end.notna()
                     )
                     maturity_columns.append(bench_end.rename(bench_end_col))
+
+        if prefix == "future":
+            # make_future_winner_targets uses these horizons in breakout_bonus
+            # and hard-hit classification regardless of configured blend
+            # weights, so their provenance must always participate in the
+            # availability cutoff.
+            for label in _FUTURE_BREAKOUT_STOCK_HORIZONS:
+                value_col = f"r_{label}"
+                end_col = f"r_{label}_label_end_date"
+                for col in (value_col, end_col):
+                    if col not in d.columns:
+                        missing.append(col)
+                if value_col in d.columns and end_col in d.columns:
+                    end = pd.to_datetime(d[end_col], errors="coerce")
+                    d[end_col] = end
+                    complete &= pd.to_numeric(d[value_col], errors="coerce").notna() & end.notna()
+                    maturity_columns.append(end.rename(end_col))
+
+            for label in _FUTURE_BREAKOUT_BENCHMARK_HORIZONS:
+                value_col = f"bench_r_{label}"
+                end_col = f"bench_r_{label}_label_end_date"
+                for col in (value_col, end_col):
+                    if col not in d.columns:
+                        missing.append(col)
+                if value_col in d.columns and end_col in d.columns:
+                    end = pd.to_datetime(d[end_col], errors="coerce")
+                    d[end_col] = end
+                    complete &= pd.to_numeric(d[value_col], errors="coerce").notna() & end.notna()
+                    maturity_columns.append(end.rename(end_col))
 
         if missing:
             raise RuntimeError(

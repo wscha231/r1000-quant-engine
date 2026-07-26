@@ -599,6 +599,9 @@ def run_e1(matrix: dict[str, Any], exp: dict[str, Any], baseline_run: Path, outp
         "proposal_count": (candidate or {}).get("n_proposals", len(gate_rows)) if isinstance(candidate, dict) else 0,
         "candidate_gates": gate_rows,
         "promotion_approved": promotion.get("approved") if isinstance(promotion, dict) else None,
+        "promotion_eligible_for_review": (
+            promotion.get("eligible_for_review") if isinstance(promotion, dict) else None
+        ),
         "promotion_promoted": promotion.get("promoted") if isinstance(promotion, dict) else None,
         "promotion_dry_run": promotion.get("dry_run") if isinstance(promotion, dict) else None,
         "promotion_checks": promotion.get("checks", {}) if isinstance(promotion, dict) else {},
