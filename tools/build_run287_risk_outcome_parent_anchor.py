@@ -65,6 +65,27 @@ ALLOWED_EVENT_TYPES = {
     "risk_signal_observed",
     "forward_outcome_observed",
 }
+LEGACY_SAFETY_MIGRATION_SCHEMA_VERSION = (
+    "run287-known-legacy-safety-migration-v1"
+)
+KNOWN_LEGACY_SAFETY_MIGRATIONS: dict[str, dict[str, Any]] = {
+    # Restored in workflow run 30146363501.  The byte hash is intentionally
+    # the primary allowlist key: a semantically similar or reformatted
+    # summary must remain fail-closed.
+    "5a57e4becef19668dce45803eb77185bc6c60bcf9b58522df939e9a48a56654c": {
+        "evidence_workflow_run_id": "30146363501",
+        "as_of_date": "2026-07-17",
+        "status": "SKIPPED_NO_DECISION_OBSERVATIONS",
+        "missing_false_fields": (
+            "mechanism_promotion_allowed",
+            "threshold_tuning_allowed",
+            "stop_or_exit_rule_created",
+            "selector_weights_changed",
+            "cash_policy_changed",
+            "backtest_executed",
+        ),
+    },
+}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -152,12 +173,60 @@ def _integer(value: Any, label: str) -> int:
     return value
 
 
-def _require_safe(payload: Mapping[str, Any], label: str) -> None:
+def _require_safe(
+    payload: dict[str, Any],
+    label: str,
+    *,
+    raw_summary_sha256: str,
+    allow_quarantined_legacy_parent: bool,
+) -> dict[str, Any] | None:
     if payload.get("review_only") is not True:
         raise ValueError(f"{label}_not_review_only")
     for field in FALSE_SAFETY_FLAGS:
-        if payload.get(field) is not False:
+        if field in payload and payload[field] is not False:
             raise ValueError(f"{label}_{field}_not_false")
+
+    missing_fields = tuple(
+        field for field in FALSE_SAFETY_FLAGS if field not in payload
+    )
+    if not missing_fields:
+        return None
+
+    migration = KNOWN_LEGACY_SAFETY_MIGRATIONS.get(
+        raw_summary_sha256.lower()
+    )
+    expected_missing = (
+        tuple(migration["missing_false_fields"])
+        if migration is not None
+        else ()
+    )
+    migration_matches = bool(
+        allow_quarantined_legacy_parent
+        and migration is not None
+        and missing_fields == expected_missing
+        and payload.get("as_of_date") == migration["as_of_date"]
+        and payload.get("status") == migration["status"]
+    )
+    if not migration_matches:
+        # Preserve the ordinary fail-closed error contract.  The explicit
+        # quarantine flag alone never supplies defaults for an unknown
+        # summary.
+        raise ValueError(f"{label}_{missing_fields[0]}_not_false")
+
+    for field in missing_fields:
+        payload[field] = False
+    return {
+        "schema_version": LEGACY_SAFETY_MIGRATION_SCHEMA_VERSION,
+        "evidence_workflow_run_id": migration[
+            "evidence_workflow_run_id"
+        ],
+        "source_summary_sha256": raw_summary_sha256.lower(),
+        "source_as_of_date": migration["as_of_date"],
+        "source_status": migration["status"],
+        "materialized_false_fields": list(missing_fields),
+        "explicit_legacy_quarantine_authorization_required": True,
+        "raw_parent_summary_bytes_preserved": True,
+    }
 
 
 def _validate_as_of(value: Any, label: str) -> str:
@@ -490,6 +559,7 @@ def build_anchor(
         status = "GENESIS_EMPTY"
         summary_payload: dict[str, Any] = {}
         summary_bytes = b""
+        legacy_safety_migration: dict[str, Any] | None = None
         event_bytes = b""
         event_sha256, event_size, event_count = EMPTY_SHA256, 0, 0
         parent_as_of_date = ""
@@ -504,13 +574,21 @@ def build_anchor(
             )
     else:
         summary_bytes = summary_file.read_bytes()
+        summary_sha256 = sha256_bytes(summary_bytes)
         summary_payload = read_json_object(summary_file)
         if (
             summary_payload.get("schema_version")
             != OUTCOME_ARCHIVE_SCHEMA_VERSION
         ):
             raise ValueError("risk_outcome_parent_summary_schema_invalid")
-        _require_safe(summary_payload, "risk_outcome_parent_summary")
+        legacy_safety_migration = _require_safe(
+            summary_payload,
+            "risk_outcome_parent_summary",
+            raw_summary_sha256=summary_sha256,
+            allow_quarantined_legacy_parent=(
+                allow_quarantined_legacy_parent
+            ),
+        )
         parent_as_of_date = _validate_as_of(
             summary_payload.get("as_of_date"),
             "risk_outcome_parent_as_of_date",
@@ -549,7 +627,6 @@ def build_anchor(
                     "risk_outcome_empty_parent_event_log_sha256_mismatch"
                 )
             status = "VERIFIED_EMPTY_PARENT"
-        summary_sha256 = sha256_bytes(summary_bytes)
         if manifest_value:
             if allow_quarantined_legacy_parent:
                 raise ValueError(
@@ -616,6 +693,8 @@ def build_anchor(
         "review_only": True,
     }
     anchor.update({field: False for field in FALSE_SAFETY_FLAGS})
+    if legacy_safety_migration is not None:
+        anchor["legacy_safety_migration"] = legacy_safety_migration
     return anchor
 
 

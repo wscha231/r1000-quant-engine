@@ -46,6 +46,7 @@ from tools.run_run287_scored_latest_refresh import (  # noqa: E402
     PREFLIGHT_INPUT_LABELS as SCORER_PREFLIGHT_INPUT_LABELS,
     build_price_cache_input_audit,
     changed_price_cache_inputs,
+    equity_universe_tickers,
     normalize_ticker,
 )
 from tools.run_data_freshness_contract import (  # noqa: E402
@@ -200,18 +201,19 @@ def preflight_ticker_identity(
         )
         if "ticker" not in universe:
             raise ValueError("universe_ticker_column_missing")
-        universe_tickers = [
-            normalize_ticker(value) for value in universe["ticker"].tolist()
-        ]
-        if (
-            not universe_tickers
-            or not all(universe_tickers)
-            or len(set(universe_tickers)) != len(universe_tickers)
-        ):
-            raise ValueError("universe_ticker_identity_invalid")
+        universe_tickers, universe_contract = equity_universe_tickers(universe)
         identity["universe_count"] = len(universe_tickers)
         identity["universe_ticker_set_sha256"] = (
             core_candidate_ticker_set_sha256(universe_tickers)
+        )
+        identity["universe_source_row_count"] = universe_contract[
+            "source_row_count"
+        ]
+        identity["universe_non_equity_placeholder_count"] = (
+            universe_contract["non_equity_placeholder_count"]
+        )
+        identity["universe_non_equity_placeholder_ticker"] = (
+            universe_contract["non_equity_placeholder_ticker"]
         )
     except Exception as exc:
         failures.append(f"ticker_identity:universe:{type(exc).__name__}:{exc}")

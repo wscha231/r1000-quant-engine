@@ -79,6 +79,7 @@ DEFAULT_CANONICAL = (
 )
 DownloadFn = Callable[[list[str], str, str], tuple[dict[str, pd.DataFrame], dict[str, Any]]]
 PROVIDER_SYMBOL_OVERRIDES: dict[str, str] = {}
+CASH_PLACEHOLDER_TICKERS = {"CASH", "__CASH__"}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -93,6 +94,70 @@ def utc_now() -> str:
 def normalize_ticker(value: Any) -> str:
     ticker = str(value or "").strip().upper()
     return "" if ticker in {"", "NAN", "NONE", "CASH", "__CASH__"} else ticker
+
+
+def equity_universe_tickers(
+    universe: pd.DataFrame,
+) -> tuple[list[str], dict[str, Any]]:
+    """Split the one declared CASH placeholder from strict equity identity."""
+
+    required = {"ticker", "is_equity_issuer"}
+    missing = sorted(required.difference(universe.columns))
+    if missing:
+        raise ValueError(
+            "universe_identity_column_missing:" + ",".join(missing)
+        )
+    if universe.empty:
+        raise ValueError("universe_identity_empty")
+
+    raw_tickers = universe["ticker"].map(
+        lambda value: str(value or "").strip().upper()
+    )
+    if raw_tickers.isin({"", "NAN", "NONE"}).any():
+        raise ValueError("universe_blank_ticker_invalid")
+
+    def explicit_equity_flag(value: Any) -> bool:
+        if isinstance(value, (bool, np.bool_)):
+            return bool(value)
+        text = str(value or "").strip().lower()
+        if text in {"1", "true", "yes", "y"}:
+            return True
+        if text in {"0", "false", "no", "n"}:
+            return False
+        raise ValueError("universe_equity_flag_invalid")
+
+    flags = universe["is_equity_issuer"].map(explicit_equity_flag)
+    non_equity_rows = universe.index[~flags].tolist()
+    if len(non_equity_rows) != 1:
+        raise ValueError(
+            f"universe_non_equity_placeholder_count_invalid:{len(non_equity_rows)}"
+        )
+    placeholder_ticker = raw_tickers.loc[non_equity_rows[0]]
+    if placeholder_ticker not in CASH_PLACEHOLDER_TICKERS:
+        raise ValueError("universe_non_equity_placeholder_ticker_invalid")
+    cash_rows = raw_tickers.isin(CASH_PLACEHOLDER_TICKERS)
+    if int(cash_rows.sum()) != 1:
+        raise ValueError(
+            f"universe_cash_placeholder_count_invalid:{int(cash_rows.sum())}"
+        )
+
+    equity_tickers = [
+        normalize_ticker(value)
+        for value in raw_tickers.loc[flags & ~cash_rows].tolist()
+    ]
+    if (
+        not equity_tickers
+        or not all(equity_tickers)
+        or len(set(equity_tickers)) != len(equity_tickers)
+        or len(equity_tickers) + 1 != len(universe)
+    ):
+        raise ValueError("universe_ticker_identity_invalid")
+    return equity_tickers, {
+        "source_row_count": len(universe),
+        "equity_row_count": len(equity_tickers),
+        "non_equity_placeholder_count": 1,
+        "non_equity_placeholder_ticker": placeholder_ticker,
+    }
 
 
 def parse_provider_symbol_overrides(values: list[str]) -> dict[str, str]:
@@ -713,15 +778,14 @@ def build(
     base["ticker"] = base["ticker"].map(normalize_ticker)
     prior_stack = pd.read_csv(prior_stack_path, low_memory=False)
     prior_stack["ticker"] = prior_stack["ticker"].map(normalize_ticker)
-    universe_ticker_list = [
-        normalize_ticker(value) for value in universe["ticker"].tolist()
-    ]
+    universe_ticker_list, universe_contract = equity_universe_tickers(universe)
     universe_ticker_identity = validate_ticker_identity(
         label="universe",
         tickers=universe_ticker_list,
         expected_count=int(args.expected_universe_count),
         expected_ticker_set_sha256=args.expected_universe_ticker_set_sha256,
     )
+    universe_ticker_identity.update(universe_contract)
     base_ticker_list = base["ticker"].tolist()
     if base.empty or base["ticker"].duplicated().any() or not all(base_ticker_list):
         raise ValueError("base_context_dynamic_unique_ticker_contract_failed")
@@ -1085,7 +1149,8 @@ def build(
             "contract_failures": sorted(set(core_coverage_failures)),
             "core_candidate_coverage": core_candidate_coverage,
             "coverage": {
-                "universe_count": len(universe),
+                "universe_count": len(universe_ticker_list),
+                "universe_source_row_count": len(universe),
                 "pre_lifecycle_context_count": pre_lifecycle_context_count,
                 "lifecycle_excluded_count": len(lifecycle_excluded_tickers),
                 "post_lifecycle_context_count": post_lifecycle_context_count,
@@ -1171,7 +1236,8 @@ def build(
         "core_candidate_coverage": core_candidate_coverage,
         "ticker_identity": ticker_identity,
         "coverage": {
-            "universe_count": len(universe),
+            "universe_count": len(universe_ticker_list),
+            "universe_source_row_count": len(universe),
             "base_context_count": pre_lifecycle_context_count,
             "expected_pre_lifecycle_context_count": expected_pre_lifecycle_context_count,
             "pre_lifecycle_context_count": pre_lifecycle_context_count,

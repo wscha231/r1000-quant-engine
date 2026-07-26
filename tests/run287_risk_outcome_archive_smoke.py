@@ -32,6 +32,8 @@ from tools.resolve_run287_risk_outcomes import (  # noqa: E402
 from tools.build_run287_risk_outcome_parent_anchor import (  # noqa: E402
     ANCHOR_SCHEMA_VERSION,
     EMPTY_SHA256,
+    KNOWN_LEGACY_SAFETY_MIGRATIONS,
+    LEGACY_SAFETY_MIGRATION_SCHEMA_VERSION,
     OUTCOME_CHAIN_SCHEMA_VERSION,
     build_anchor,
     write_anchor,
@@ -40,11 +42,54 @@ from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
 DECISION = "2026-01-05"
+KNOWN_LEGACY_SUMMARY_SHA256 = (
+    "5a57e4becef19668dce45803eb77185bc"
+    "6c60bcf9b58522df939e9a48a56654c"
+)
+KNOWN_LEGACY_MISSING_FALSE_FIELDS = (
+    "mechanism_promotion_allowed",
+    "threshold_tuning_allowed",
+    "stop_or_exit_rule_created",
+    "selector_weights_changed",
+    "cash_policy_changed",
+    "backtest_executed",
+)
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+
+
+def write_known_legacy_summary(path: Path) -> None:
+    payload = {
+        "as_of_date": "2026-07-17",
+        "blockers": [],
+        "distinct_decision_week_count": 0,
+        "fullrun_executed": False,
+        "historical_cagr_mdd_evidence_changed": False,
+        "live_trading_enabled": False,
+        "mechanism_review_gate": {
+            "normal_63d_count": 0,
+            "warning_63d_count": 0,
+        },
+        "mechanism_review_ready": False,
+        "orders_generated": False,
+        "portfolio_transition_allowed": False,
+        "price_universe_unique_ticker_count": 1,
+        "production_activation_allowed": False,
+        "review_only": True,
+        "schema_version": "run287-risk-outcome-archive-v1",
+        "signal_observation_count": 0,
+        "status": "SKIPPED_NO_DECISION_OBSERVATIONS",
+        "target_books_mutated": False,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
+    )
 
 
 def base_flags() -> dict:
@@ -570,6 +615,100 @@ def test_parent_anchor_genesis_empty_parent_and_partial_fail_closed() -> None:
             raise AssertionError("partial risk outcome parent was accepted")
 
 
+def test_known_legacy_parent_safety_migration_is_exact_and_one_time() -> None:
+    assert set(KNOWN_LEGACY_SAFETY_MIGRATIONS) == {
+        KNOWN_LEGACY_SUMMARY_SHA256
+    }
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        output = root / "out"
+        summary_path = output / "summary.json"
+        event_log_path = output / EVENT_LOG_NAME
+        anchor_path = root / "anchor" / "anchor.json"
+        write_known_legacy_summary(summary_path)
+        legacy_bytes = summary_path.read_bytes()
+        assert sha256_file(summary_path) == KNOWN_LEGACY_SUMMARY_SHA256
+
+        try:
+            build_anchor(summary_path, event_log_path)
+        except ValueError as exc:
+            assert (
+                "risk_outcome_parent_summary_"
+                "mechanism_promotion_allowed_not_false"
+            ) in str(exc)
+        else:
+            raise AssertionError(
+                "known legacy defaults were supplied without authorization"
+            )
+
+        # The allowlist is byte-exact, not semantic: removing the canonical
+        # final newline changes the hash and must remain fail-closed.
+        summary_path.write_bytes(legacy_bytes.rstrip(b"\n"))
+        try:
+            build_anchor(
+                summary_path,
+                event_log_path,
+                allow_quarantined_legacy_parent=True,
+            )
+        except ValueError as exc:
+            assert (
+                "risk_outcome_parent_summary_"
+                "mechanism_promotion_allowed_not_false"
+            ) in str(exc)
+        else:
+            raise AssertionError(
+                "reformatted unknown legacy summary received defaults"
+            )
+
+        summary_path.write_bytes(legacy_bytes)
+        anchor = build_anchor(
+            summary_path,
+            event_log_path,
+            allow_quarantined_legacy_parent=True,
+            now_utc="2026-07-25T00:00:00Z",
+        )
+        assert summary_path.read_bytes() == legacy_bytes
+        assert anchor["parent_summary_sha256"] == (
+            KNOWN_LEGACY_SUMMARY_SHA256
+        )
+        assert anchor["parent_acceptance_status"] == "QUARANTINED_LEGACY"
+        migration = anchor["legacy_safety_migration"]
+        assert (
+            migration["schema_version"]
+            == LEGACY_SAFETY_MIGRATION_SCHEMA_VERSION
+        )
+        assert migration["evidence_workflow_run_id"] == "30146363501"
+        assert migration["source_as_of_date"] == "2026-07-17"
+        assert migration["source_summary_sha256"] == (
+            KNOWN_LEGACY_SUMMARY_SHA256
+        )
+        assert tuple(migration["materialized_false_fields"]) == (
+            KNOWN_LEGACY_MISSING_FALSE_FIELDS
+        )
+        write_anchor(anchor_path, anchor)
+
+        migrated = run(
+            args(
+                root / "missing-source",
+                root / "cache",
+                output,
+                "2026-07-24",
+                parent_anchor=anchor_path,
+            ),
+            now_utc="2026-07-25T01:00:00Z",
+        )
+        assert migrated["status"] == SKIPPED_STATUS
+        assert migrated["outcome_chain"]["status"] == (
+            "VERIFIED_APPEND_ONLY"
+        )
+        assert migrated["outcome_chain"][
+            "parent_summary_sha256"
+        ] == KNOWN_LEGACY_SUMMARY_SHA256
+        for field in KNOWN_LEGACY_MISSING_FALSE_FIELDS:
+            assert field in migrated
+            assert migrated[field] is False
+
+
 def test_verified_parent_anchor_and_missing_anchor_are_fail_closed() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -988,6 +1127,7 @@ def main() -> int:
     test_missing_path_stays_pending_and_never_zero_filled()
     test_changed_or_unsafe_source_fails_closed()
     test_parent_anchor_genesis_empty_parent_and_partial_fail_closed()
+    test_known_legacy_parent_safety_migration_is_exact_and_one_time()
     test_verified_parent_anchor_and_missing_anchor_are_fail_closed()
     test_parent_prefix_rewrite_is_rejected_without_event_append()
     test_accepted_head_binding_rejects_coordinated_reseal()
