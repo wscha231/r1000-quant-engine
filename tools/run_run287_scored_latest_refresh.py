@@ -981,6 +981,7 @@ def build(
                 {
                     "ticker": ticker,
                     "status": "PASS",
+                    "session_date": session.date().isoformat(),
                     "source_cache_date": source_dates[ticker],
                     "exact_session_close": True,
                     **audit,
@@ -992,6 +993,7 @@ def build(
                 {
                     "ticker": ticker,
                     "status": "BLOCKED_TECHNICAL_REFRESH",
+                    "session_date": session.date().isoformat(),
                     "source_cache_date": source_dates[ticker],
                     "exact_session_close": True,
                     "error": f"{type(exc).__name__}:{exc}",

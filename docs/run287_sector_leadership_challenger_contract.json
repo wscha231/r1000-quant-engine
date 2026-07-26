@@ -1,0 +1,288 @@
+{
+  "schema_version": "run287-sector-leadership-challenger-contract-v1",
+  "purpose": "Accepted-current-decision-snapshot-bound research challenger for eligible-candidate sector, industry-group, subindustry, and stock leadership rotation",
+  "cli": {
+    "normal_mode_required": [
+      "--accepted-publication-manifest",
+      "--expected-accepted-publication-sha256",
+      "--scored-latest-manifest",
+      "--expected-scored-latest-manifest-sha256",
+      "--scored-latest-csv",
+      "--expected-scored-latest-csv-sha256",
+      "--provider-price-overlap",
+      "--expected-provider-price-overlap-sha256",
+      "--ticker-refresh-audit",
+      "--expected-ticker-refresh-audit-sha256",
+      "--benchmark-cache-dir",
+      "--benchmark-cache-manifest",
+      "--expected-benchmark-cache-manifest-sha256",
+      "--source-run-id",
+      "--source-run-attempt",
+      "--source-commit-sha",
+      "--source-session-date",
+      "--output-dir"
+    ],
+    "catchup_skip_mode": {
+      "flag": "--emit-catchup-skip",
+      "required": [
+        "--source-run-id",
+        "--source-run-attempt",
+        "--source-commit-sha",
+        "--source-session-date",
+        "--source-workflow",
+        "--output-dir"
+      ],
+      "current_scored_or_price_inputs_read": false,
+      "summary_status": "SKIPPED_CATCHUP_NO_PIT_SCORE_SNAPSHOT",
+      "operation_health_status": "SKIPPED",
+      "exit_code": 0
+    },
+    "optional": [
+      "--source-workflow",
+      "--prior-challenger-artifact",
+      "--expected-prior-challenger-sha256"
+    ],
+    "paired_arguments": [
+      [
+        "--prior-challenger-artifact",
+        "--expected-prior-challenger-sha256"
+      ]
+    ]
+  },
+  "source_contract": {
+    "accepted_publication": {
+      "schema_version": "run287-accepted-publication-manifest-v1",
+      "status": "READY_ACCEPTED_PUBLICATION_REVIEW_ONLY",
+      "must_match": [
+        "source_run_id",
+        "source_run_attempt",
+        "source_commit_sha",
+        "source_session_date",
+        "source_workflow_when_supplied"
+      ],
+      "catch_up_policy": "If an accepted normal publication for the requested historical session is unavailable, publish safe SKIPPED artifacts before opening current scored or price inputs.",
+      "current_data_backfill_allowed": false
+    },
+    "scored_latest": {
+      "manifest_schema_version": "run287-scored-latest-refresh-v4",
+      "manifest_status": "READY_RESEARCH_SCORED_LATEST",
+      "required_hash_bound_outputs": [
+        "scored_latest.csv",
+        "provider_price_overlap.parquet",
+        "ticker_refresh_audit.csv"
+      ],
+      "session_must_match_accepted_publication": true,
+      "row_date_column_required": true,
+      "research_eligibility_field": "research_eligible_after_quarantine",
+      "research_eligibility_values": [
+        true,
+        false,
+        1,
+        0,
+        "true",
+        "false",
+        "1",
+        "0"
+      ],
+      "research_eligibility_missing_or_invalid_policy": "fail_closed",
+      "ticker_audit_session_date_must_match": true,
+      "ineligible_rows_in_leadership_calculation": false
+    },
+    "benchmark_cache": {
+      "manifest_schema_version": "run287-replay-price-cache-manifest-v2",
+      "allowed_statuses": [
+        "already_cached",
+        "completed"
+      ],
+      "required_exact_tickers": [
+        "SPY",
+        "QQQ",
+        "SMH"
+      ],
+      "minimum_rows_per_ticker": 253,
+      "future_rows_allowed": false
+    },
+    "hash_policy": {
+      "algorithm": "sha256",
+      "explicit_expected_hash_required_for_every_top_level_input": true,
+      "manifest_output_path_hash_and_size_reverified": true,
+      "inputs_reverified_before_publish": true
+    },
+    "artifact_relocation": {
+      "policy": "A restored scored output may relocate only when the complete path suffix beginning at the final outputs component is identical.",
+      "hash_and_bytes_remain_authoritative": true,
+      "basename_only_matching_allowed": false
+    }
+  },
+  "taxonomy": {
+    "snapshot_scope": "accepted_current_decision_snapshot_bound",
+    "taxonomy_bitemporal_vintage_complete": false,
+    "historical_taxonomy_backfill_allowed": false,
+    "effective_dated_taxonomy_is_future_prerequisite": true,
+    "canonical_sectors": [
+      "Communication Services",
+      "Consumer Discretionary",
+      "Consumer Staples",
+      "Energy",
+      "Financials",
+      "Health Care",
+      "Industrials",
+      "Information Technology",
+      "Materials",
+      "Real Estate",
+      "Utilities"
+    ],
+    "hierarchy": [
+      "sector",
+      "industry_group",
+      "subindustry",
+      "stock"
+    ],
+    "minimum_coverage_ratio": 0.98,
+    "coverage_denominator": "strict_research_eligible_after_quarantine",
+    "unresolved_eligible_policy": "After the full scored universe passes exact-close and ticker-audit checks, unresolved eligible taxonomy rows are explicitly excluded from leadership calculations and recorded by count, ticker list, and ticker-set SHA-256.",
+    "all_canonical_sectors_required": true,
+    "legacy_sector_aliases": {
+      "Auto": "Consumer Discretionary",
+      "Communication": "Communication Services",
+      "Financial": "Financials",
+      "Internet": "Communication Services",
+      "Pharma": "Health Care",
+      "Semiconductors": "Information Technology",
+      "Software": "Information Technology"
+    },
+    "industry_only_fallback": "The accepted current-snapshot industry label is used as both industry_group and subindustry, with reduced confidence and explicit taxonomy_resolution; this is not a bitemporal taxonomy claim.",
+    "semiconductor_special_weighting": false
+  },
+  "features": {
+    "leadership_scope": "eligible_candidate_leadership",
+    "breadth_scope": "eligible_candidate_breadth",
+    "full_universe_market_breadth_claimed": false,
+    "full_universe_canonical_taxonomy_complete": false,
+    "full_universe_canonical_taxonomy_enrichment_required": true,
+    "relative_strength_benchmarks": [
+      "SPY",
+      "QQQ",
+      "SMH"
+    ],
+    "horizons": {
+      "1d": 1,
+      "5d": 5,
+      "1m": 21,
+      "3m": 63,
+      "6m": 126,
+      "12m": 252
+    },
+    "stock_sources": {
+      "1d_5d": "provider_price_overlap",
+      "1m_3m_6m_12m": "scored_latest_point_in_time_momentum_with_same_input_provider_history_fallback_only"
+    },
+    "benchmark_source": "exact_hash_bound_benchmark_cache",
+    "relative_strength_definition": "stock_return_minus_benchmark_return",
+    "aggregates": [
+      "breadth_1d",
+      "breadth_5d",
+      "breadth_1m",
+      "breadth_composite",
+      "volume_confirmation",
+      "rs_acceleration_score"
+    ],
+    "confidence_separate_from_alpha": true
+  },
+  "state_machine": {
+    "states": [
+      "EMERGING_WATCH",
+      "EMERGING_CONFIRMED",
+      "LEADING",
+      "WEAKENING",
+      "BREAKDOWN",
+      "REENTRY"
+    ],
+    "thresholds": {
+      "breakdown_alpha_max": -0.75,
+      "breakdown_breadth_5d_max": 0.2,
+      "weakening_alpha_max": -0.2,
+      "weakening_breadth_5d_max": 0.4,
+      "leading_alpha_min": 0.65,
+      "leading_breadth_5d_min": 0.6,
+      "leading_breadth_composite_min": 0.55,
+      "emerging_alpha_min": 0.0,
+      "emerging_breadth_5d_min": 0.5,
+      "emerging_breadth_composite_min": 0.5
+    },
+    "immediate_states": [
+      "BREAKDOWN",
+      "WEAKENING"
+    ],
+    "immediate_negative_transition_policy": "True only when a BREAKDOWN or WEAKENING signal causes an actual state change; a persistent negative state is reported without a new-transition flag.",
+    "two_distinct_session_confirmation": [
+      "EMERGING_CONFIRMED",
+      "REENTRY"
+    ],
+    "prior_artifact_session_policy": "The prior artifact is used only from the immediately preceding NYSE session or an identical-input same-date rerun. An older artifact is hash-audited, recorded as ignored, and state safely restarts at its first observation; a future prior or same-date input drift blocks.",
+    "prior_source_identity_policy": "Prior run id and attempt must be positive integers, commit and input-set identities must be valid SHA values, and the prior source workflow must exactly match the current accepted source workflow.",
+    "prior_state_memory_policy": "Every state-memory row must be bound to the prior summary session and have coherent entity key, raw signal, state, pending confirmation, streak, and evidence-session fields; contradictions fail closed.",
+    "same_date_policy": "The primary input_set_sha256 and raw signal must match; state and streak are copied without increment, otherwise fail closed."
+  },
+  "gates": {
+    "full_scored_provider_and_ticker_audit_exact_set_match": true,
+    "full_scored_rows_no_future_valid_exact_close": true,
+    "full_scored_ticker_audit_pass_and_exact": true,
+    "full_scored_ticker_audit_session_date_exact": true,
+    "full_source_exact_close_ratio": 1.0,
+    "eligible_exact_close_ratio": 1.0,
+    "analyzed_exact_close_ratio": 1.0,
+    "exact_stock_close_ratio": 1.0,
+    "exact_stock_close_ratio_scope": "analyzed_leadership_candidates_only",
+    "minimum_eligible_taxonomy_coverage_ratio": 0.98,
+    "canonical_sector_count": 11,
+    "exact_benchmarks": [
+      "SPY",
+      "QQQ",
+      "SMH"
+    ],
+    "minimum_complete_stock_feature_ratio": 0.98,
+    "future_rows_allowed": false
+  },
+  "outputs": [
+    "source_manifest.json",
+    "feature_manifest.json",
+    "experiment_ledger.json",
+    "sector_leadership.csv",
+    "subsector_leadership.csv",
+    "leadership_transitions.csv",
+    "candidate_ranking.csv",
+    "operation_health.json",
+    "summary.json",
+    "report.md"
+  ],
+  "determinism": {
+    "stable_sort_keys": true,
+    "canonical_json_sort_keys": true,
+    "wall_clock_fields_allowed": false,
+    "hash_provenance_required": true,
+    "publication": "Build all ten files in a validated non-symlink sibling stage directory, then publish an absent output directory with one directory rename. A complete byte-identical existing bundle is idempotent; a different or undeclared existing bundle is rejected.",
+    "orphan_stage_cleanup": "Only producer-shaped sibling stage directories with regular files drawn exclusively from the declared output set may be removed on retry."
+  },
+  "safety": {
+    "research_only": true,
+    "production_activation_allowed": false,
+    "target_books_mutated": false,
+    "orders_generated": false,
+    "automatic_promotion_allowed": false,
+    "automatic_champion_replacement_allowed": false,
+    "production_mutation_allowed": false,
+    "portfolio_weights_written": false,
+    "cash_allocator_written": false,
+    "accounts_written": false,
+    "operating_ledgers_written": false,
+    "fullrun_allowed": false,
+    "fullrun_executed": false,
+    "backtest_executed": false,
+    "live_trading_enabled": false,
+    "taxonomy_snapshot_scope": "accepted_current_decision_snapshot_bound",
+    "taxonomy_bitemporal_vintage_complete": false,
+    "historical_taxonomy_backfill_allowed": false,
+    "output_scope": "specified_output_dir_only"
+  }
+}
