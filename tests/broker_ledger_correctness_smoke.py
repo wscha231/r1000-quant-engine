@@ -194,6 +194,70 @@ def test_no_look_ahead_in_next_close_fills() -> None:
             )
 
 
+def test_latest_operating_close_is_audited_as_pending_next_close() -> None:
+    """An appended close-date decision cannot require an unobserved next bar."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "broker"
+        cache.mkdir()
+        _write_px(
+            cache,
+            "AAA",
+            [100.0, 101.0, 102.0, 103.0, 104.0],
+            start="2026-01-02",
+        )
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                    "operating_latest_price_date": "",
+                    "operating_appended": False,
+                },
+                {
+                    "rebalance_date": "2026-01-08",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                    "operating_latest_price_date": "2026-01-08",
+                    "operating_appended": True,
+                },
+            ]
+        ).to_csv(target, index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            integer_shares=True,
+        )
+
+        assert metrics["status"] == "completed", metrics
+        assert metrics["stock_evidence_end_date"] == "2026-01-08"
+        assert (
+            metrics["stock_evidence_end_source"]
+            == "target_book_operating_latest_price_date"
+        )
+        summary = metrics["target_fill_coverage"]
+        assert summary["required_transition_fill_count"] == 1
+        assert summary["pending_transition_fill_count"] == 1
+        assert summary["coverage_complete"] is True
+        coverage = pd.read_csv(out / "target_fill_coverage.csv")
+        latest = coverage.loc[coverage["signal_date"].eq("2026-01-08")].iloc[0]
+        assert latest["required_for_replay"] in {False, 0, "False", "false"}
+        assert latest["reason"] == "fill_after_evidence_end"
+        assert pd.to_datetime(
+            pd.read_csv(out / "equity_curve.csv")["date"]
+        ).max() <= pd.Timestamp("2026-01-08")
+
+
 def test_long_horizon_equity_curve_continuous() -> None:
     """Correctness invariant: 1-year synthetic replay produces a
     continuous equity curve — no duplicate dates, monotonic
@@ -256,6 +320,7 @@ def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
     test_no_look_ahead_in_next_close_fills()
+    test_latest_operating_close_is_audited_as_pending_next_close()
     test_long_horizon_equity_curve_continuous()
     print("broker_ledger_correctness_smoke: PASS")
     return 0

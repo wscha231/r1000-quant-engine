@@ -246,6 +246,17 @@ run_cash_contract_validator() {
   python tools/validate_target_book_cash_contract.py --latest-run outputs --output-dir outputs/cash_contract 2>&1 | tee outputs/full_rebuild_logs/cash_contract.log || true
 }
 
+run_execution_cost_capacity_sidecars() {
+  rm -rf outputs/execution_cost_capacity/main
+  if [ -s outputs/reports/operating_main_target_book.csv ]; then
+    python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/execution_cost_capacity/main --base-cost-bps 25 --max-fill-lag-days 7 --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_main.log || true
+  fi
+  rm -rf outputs/execution_cost_capacity/concentrated
+  if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+    python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/execution_cost_capacity/concentrated --base-cost-bps 25 --max-fill-lag-days 7 --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_concentrated.log || true
+  fi
+}
+
 if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
   echo "[sidecar] phase_g_only is handled by phase_g_crisis_evidence_liquidity_replay.yml; skipping full rebuild sidecars."
   mkdir -p outputs/full_rebuild_logs
@@ -276,6 +287,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   run_sidecar_promotion_hook
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+  run_execution_cost_capacity_sidecars
   if [ -s outputs/reports/main_monthly_weights.csv ]; then
     python tools/run_broker_ledger_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/legacy_monthly_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/legacy_monthly_broker_replay_main.log || true
   fi
@@ -504,14 +516,7 @@ fi
 if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
   python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log || true
 fi
-rm -rf outputs/execution_cost_capacity/main
-if [ -s outputs/reports/operating_main_target_book.csv ]; then
-  python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/execution_cost_capacity/main --base-cost-bps 25 --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_main.log || true
-fi
-rm -rf outputs/execution_cost_capacity/concentrated
-if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
-  python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/execution_cost_capacity/concentrated --base-cost-bps 25 --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_concentrated.log || true
-fi
+run_execution_cost_capacity_sidecars
 if [ -s outputs/reports/operating_main_target_book.csv ]; then
   python tools/run_neutral_regime_churn_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_churn_filtered.csv --diagnostics outputs/churn_filter/main/diagnostics.json --swap-threshold 2 --window-months 6 --target-regimes neutral 2>&1 | tee outputs/full_rebuild_logs/churn_filter_main.log || true
 fi

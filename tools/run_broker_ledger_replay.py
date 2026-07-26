@@ -427,6 +427,55 @@ def normalize_targets(
     return d.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
 
 
+def resolve_evidence_end(
+    raw_targets: pd.DataFrame,
+    explicit_evidence_end: Any = None,
+) -> tuple[pd.Timestamp | None, str]:
+    """Resolve the last observable close without hiding arbitrary target rows.
+
+    An explicit argument is authoritative.  Otherwise, only the operating-book
+    metadata emitted by ``build_operating_target_books.py`` is accepted, and
+    only when an appended row is dated to that same observable close and no
+    later target row exists.
+    """
+
+    explicit = pd.to_datetime(explicit_evidence_end, errors="coerce")
+    if not pd.isna(explicit):
+        return pd.Timestamp(explicit).normalize(), "explicit_argument"
+    required_columns = {
+        "rebalance_date",
+        "operating_latest_price_date",
+        "operating_appended",
+    }
+    if raw_targets.empty or not required_columns.issubset(raw_targets.columns):
+        return None, ""
+    signal_dates = pd.to_datetime(
+        raw_targets["rebalance_date"],
+        errors="coerce",
+    ).dt.normalize()
+    evidence_dates = pd.to_datetime(
+        raw_targets["operating_latest_price_date"],
+        errors="coerce",
+    ).dt.normalize()
+    appended = (
+        raw_targets["operating_appended"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1", "yes"})
+    )
+    valid = appended & signal_dates.notna() & evidence_dates.notna()
+    valid &= signal_dates.eq(evidence_dates)
+    candidates = evidence_dates.loc[valid]
+    if candidates.empty:
+        return None, ""
+    inferred = pd.Timestamp(candidates.max()).normalize()
+    latest_signal = signal_dates.max()
+    if pd.isna(latest_signal) or pd.Timestamp(latest_signal).normalize() > inferred:
+        return None, ""
+    return inferred, "target_book_operating_latest_price_date"
+
+
 def weight_book_diagnostics(targets: pd.DataFrame, max_reasonable_weight_sum: float) -> dict[str, Any]:
     if targets.empty:
         return {"max_total_weight": None, "invalid_weight_date_count": 0, "invalid_weight_dates": []}
@@ -1068,6 +1117,7 @@ def redact_execution_performance(
         "target_book_filter_warning",
         "price_cache",
         "stock_evidence_end_date",
+        "stock_evidence_end_source",
         "max_fill_lag_days",
         "execution_cost_mode",
         "execution_cost_schema_version",
@@ -1501,15 +1551,15 @@ def replay(
             portfolio_kind=portfolio_kind,
             explicit_filters=concentrated_champion_filters,
         )
+    evidence_end, evidence_end_source = resolve_evidence_end(
+        raw,
+        evidence_end_date,
+    )
     targets = normalize_targets(
         raw,
         portfolio_kind,
         champion_filters,
         disable_champion_filter=disable_concentrated_champion_filter,
-    )
-    evidence_end = pd.to_datetime(evidence_end_date, errors="coerce")
-    evidence_end = (
-        pd.Timestamp(evidence_end).normalize() if not pd.isna(evidence_end) else None
     )
     if evidence_end is not None and not targets.empty:
         targets = targets.loc[targets["rebalance_date"] <= evidence_end].copy()
@@ -1628,6 +1678,10 @@ def replay(
             "max_fill_lag_days": int(max_fill_lag_days),
             "execution_cost_mode": execution_cost_config.mode,
             "execution_cost_config": execution_cost_config.audit(),
+            "stock_evidence_end_date": (
+                evidence_end.date().isoformat() if evidence_end is not None else ""
+            ),
+            "stock_evidence_end_source": evidence_end_source,
             "target_fill_coverage": target_fill_coverage,
             "performance_fields_redacted": True,
             "research_only": True,
@@ -1662,6 +1716,12 @@ def replay(
                 "max_fill_lag_days": int(max_fill_lag_days),
                 "execution_cost_mode": execution_cost_config.mode,
                 "execution_cost_config": execution_cost_config.audit(),
+                "stock_evidence_end_date": (
+                    evidence_end.date().isoformat()
+                    if evidence_end is not None
+                    else ""
+                ),
+                "stock_evidence_end_source": evidence_end_source,
                 "target_fill_coverage": target_fill_coverage,
                 "paper_slippage_issues": invalid_paper_slippage[:100],
                 "performance_fields_redacted": True,
@@ -2160,6 +2220,7 @@ def replay(
             "stock_evidence_end_date": (
                 evidence_end.date().isoformat() if evidence_end is not None else ""
             ),
+            "stock_evidence_end_source": evidence_end_source,
             "max_fill_lag_days": int(max_fill_lag_days),
             "target_fill_coverage": target_fill_coverage,
             **weight_diag,
@@ -2465,6 +2526,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--max-reasonable-weight-sum", type=float, default=1.05)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument(
+        "--evidence-end-date",
+        default="",
+        help=(
+            "Optional last observable close date. When omitted, a valid "
+            "operating target book may supply its audited latest-price metadata."
+        ),
+    )
     parser.add_argument("--concentrated-target-stock-n", type=int, default=0)
     parser.add_argument("--concentrated-weighting-mode", default="")
     parser.add_argument("--concentrated-rebalance-interval-months", type=int, default=0)
@@ -2549,6 +2618,7 @@ def main() -> int:
         integer_shares=not bool(args.fractional_shares),
         max_reasonable_weight_sum=args.max_reasonable_weight_sum,
         max_fill_lag_days=args.max_fill_lag_days,
+        evidence_end_date=args.evidence_end_date or None,
         disable_concentrated_champion_filter=bool(args.disable_concentrated_champion_filter),
         concentrated_champion_filters=explicit_filters if explicit_filters else None,
         oos_start=oos_start,

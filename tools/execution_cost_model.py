@@ -298,7 +298,12 @@ def load_paper_slippage(path: Path | None) -> pd.DataFrame:
         ),
         "",
     )
-    if not date_col or "ticker" not in raw.columns or not value_col:
+    if (
+        not date_col
+        or "ticker" not in raw.columns
+        or "side" not in raw.columns
+        or not value_col
+    ):
         return pd.DataFrame(columns=columns)
 
     def normalize_trade_date(value: Any) -> pd.Timestamp:
@@ -326,15 +331,14 @@ def load_paper_slippage(path: Path | None) -> pd.DataFrame:
         {
             "date": normalized_dates,
             "ticker": raw["ticker"].astype(str).str.upper().str.strip(),
-            "side": (
-                raw["side"].astype(str).str.upper().str.strip()
-                if "side" in raw.columns
-                else ""
-            ),
+            "side": raw["side"].astype(str).str.upper().str.strip(),
             "observed_slippage_bps": pd.to_numeric(raw[value_col], errors="coerce"),
         }
     ).dropna(subset=["date", "observed_slippage_bps"])
-    out = out[out["ticker"].ne("")].copy()
+    out = out[
+        out["ticker"].ne("")
+        & out["side"].isin({"BUY", "SELL"})
+    ].copy()
     return out.sort_values(["date", "ticker", "side"]).reset_index(drop=True)
 
 
@@ -365,10 +369,8 @@ class ExecutionCostModel:
         rows = self.paper_slippage[
             self.paper_slippage["date"].eq(date)
             & self.paper_slippage["ticker"].eq(str(ticker).upper())
+            & self.paper_slippage["side"].eq(str(side).upper())
         ]
-        side_text = str(side).upper()
-        if not rows.empty and rows["side"].ne("").any():
-            rows = rows[rows["side"].isin(["", side_text])]
         if rows.empty:
             return None
         value = _finite_float(rows["observed_slippage_bps"].median())

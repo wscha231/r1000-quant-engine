@@ -49,6 +49,7 @@
         "side",
         "observed_slippage_bps"
       ],
+      "side_policy": "Only explicit BUY or SELL rows are accepted; missing, blank, or unknown sides cannot act as wildcard evidence",
       "timestamp_normalization": "Every timestamp-bearing date alias is converted to America/New_York before its trade date is derived",
       "plain_date_policy": "A literal YYYY-MM-DD is already a trade date and remains unchanged",
       "combination_policy": "max(observed_paper_slippage, estimated_half_spread_plus_market_impact)",
@@ -63,6 +64,7 @@
       "portfolio_signal_requires_one_actual_fill_date": true,
       "removed_target_liquidation_fill_required": true,
       "evidence_cutoff_policy": "A transition whose actual fill, or earliest possible fill when no actual fill exists, is after evidence_end_date is audited as pending and is not required for the clamped replay",
+      "operating_book_cutoff_inference": "When no explicit cutoff is supplied, accept only build_operating_target_books metadata where operating_appended is true, the signal date equals operating_latest_price_date, and no later target row exists",
       "pre_cutoff_missing_fill_policy": "Any transition that could have filled on or before evidence_end_date remains required and blocks when its fill is missing or asynchronous",
       "pending_only_non_cash_policy": "A non-cash book with no replayable transition at or before the evidence cutoff remains incomplete",
       "cash_only_policy": "A cash-only book has zero non-cash transition requirements and is vacuously complete; its cash calendar is validated separately when carry is enabled",
@@ -93,6 +95,7 @@
   },
   "workflow_contract": {
     "full_rebuild_sidecar": true,
+    "operating_minimal_execution_cost_sidecar": true,
     "alphaops_replay_sidecar": true,
     "headline_champion_metric_replaced": false,
     "sidecar_failure_blocks_full_rebuild": false,
