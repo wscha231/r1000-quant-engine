@@ -31,6 +31,8 @@ from tools.execution_cost_model import (  # noqa: E402
 )
 from tools.run_broker_ledger_replay import (  # noqa: E402
     CASH_TICKERS,
+    CASH_CARRY_MODE_NONE,
+    CashCarryConfig,
     redact_execution_performance,
     replay,
 )
@@ -72,13 +74,13 @@ def build_source_manifest(
     realistic_trades_path: Path,
     target_fill_coverage_path: Path,
 ) -> dict[str, Any]:
-    target_tickers: set[str] = set()
+    raw_target_tickers: set[str] = set()
     try:
         targets = pd.read_csv(target_book)
     except Exception:
         targets = pd.DataFrame()
     if not targets.empty and "ticker" in targets.columns:
-        target_tickers = {
+        raw_target_tickers = {
             str(value).upper().strip()
             for value in targets["ticker"]
             if pd.notna(value)
@@ -96,36 +98,68 @@ def build_source_manifest(
             for value in trades["ticker"]
             if pd.notna(value) and str(value).strip()
         }
-    tickers = sorted(target_tickers | traded_tickers)
     try:
         target_fill_rows = pd.read_csv(target_fill_coverage_path)
     except Exception:
         target_fill_rows = pd.DataFrame()
-    fillable_values = (
-        target_fill_rows["fillable"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .isin({"true", "1"})
-        if not target_fill_rows.empty and "fillable" in target_fill_rows.columns
-        else pd.Series(dtype=bool)
-    )
-    chronology_values = (
-        target_fill_rows["chronology_safe"]
+    required_values = (
+        target_fill_rows["required_for_replay"]
         .astype(str)
         .str.strip()
         .str.lower()
         .isin({"true", "1"})
         if not target_fill_rows.empty
-        and "chronology_safe" in target_fill_rows.columns
+        and "required_for_replay" in target_fill_rows.columns
+        else pd.Series(True, index=target_fill_rows.index, dtype=bool)
+    )
+    required_target_fill_rows = target_fill_rows.loc[required_values].copy()
+    target_tickers = (
+        {
+            str(value).upper().strip()
+            for value in required_target_fill_rows["ticker"]
+            if pd.notna(value)
+            and str(value).upper().strip()
+            and str(value).upper().strip() not in CASH_TICKERS
+        }
+        if not required_target_fill_rows.empty
+        and "ticker" in required_target_fill_rows.columns
+        else set()
+    )
+    tickers = sorted(target_tickers | traded_tickers)
+    fillable_values = (
+        required_target_fill_rows["fillable"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1"})
+        if not required_target_fill_rows.empty
+        and "fillable" in required_target_fill_rows.columns
         else pd.Series(dtype=bool)
     )
+    chronology_values = (
+        required_target_fill_rows["chronology_safe"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"true", "1"})
+        if not required_target_fill_rows.empty
+        and "chronology_safe" in required_target_fill_rows.columns
+        else pd.Series(dtype=bool)
+    )
+    audited_target_fill_count = int(len(target_fill_rows))
+    required_target_fill_count = int(len(required_target_fill_rows))
+    pending_target_fill_count = (
+        audited_target_fill_count - required_target_fill_count
+    )
     target_fill_coverage_complete = bool(
-        not target_fill_rows.empty
-        and len(fillable_values) == len(target_fill_rows)
-        and fillable_values.all()
-        and len(chronology_values) == len(target_fill_rows)
-        and chronology_values.all()
+        audited_target_fill_count == 0
+        or (
+            required_target_fill_count > 0
+            and len(fillable_values) == required_target_fill_count
+            and fillable_values.all()
+            and len(chronology_values) == required_target_fill_count
+            and chronology_values.all()
+        )
     )
     price_sources: list[dict[str, Any]] = []
     for ticker in tickers:
@@ -170,19 +204,31 @@ def build_source_manifest(
         "price_sources": price_sources,
         "price_source_count": len(price_sources),
         "target_ticker_count": len(target_tickers),
+        "raw_target_ticker_count": len(raw_target_tickers),
+        "replay_filtered_target_tickers": sorted(target_tickers),
+        "excluded_raw_target_tickers": sorted(
+            raw_target_tickers - target_tickers
+        ),
         "traded_ticker_count": len(traded_tickers),
         "untraded_target_tickers": sorted(target_tickers - traded_tickers),
         "target_fill_coverage_path": str(target_fill_coverage_path),
         "target_fill_coverage_sha256": file_sha256(target_fill_coverage_path),
-        "required_target_fill_count": int(len(target_fill_rows)),
-        "required_transition_fill_count": int(len(target_fill_rows)),
+        "audited_target_fill_count": audited_target_fill_count,
+        "audited_transition_fill_count": audited_target_fill_count,
+        "required_target_fill_count": required_target_fill_count,
+        "required_transition_fill_count": required_target_fill_count,
+        "pending_target_fill_count": pending_target_fill_count,
+        "pending_transition_fill_count": pending_target_fill_count,
         "fillable_target_count": int(fillable_values.sum())
         if len(fillable_values)
         else 0,
         "transition_fill_chronology_safe": bool(
-            len(chronology_values) == len(target_fill_rows)
-            and len(chronology_values) > 0
-            and chronology_values.all()
+            audited_target_fill_count == 0
+            or (
+                required_target_fill_count > 0
+                and len(chronology_values) == required_target_fill_count
+                and chronology_values.all()
+            )
         ),
         "target_fill_coverage_complete": target_fill_coverage_complete,
         "price_source_coverage_complete": bool(
@@ -218,7 +264,7 @@ def redact_nested_replay(
     reason: str,
 ) -> None:
     redacted = redact_execution_performance(metrics, reason=reason)
-    for artifact_name in (
+    artifact_names = [
         "equity_curve.csv",
         "holdings_daily.csv",
         "holdings_weekly.csv",
@@ -227,7 +273,10 @@ def redact_nested_replay(
         "partial_resize_decisions.csv",
         "positions_latest.csv",
         "account_state_latest.json",
-    ):
+    ]
+    if reason == "paper_slippage_out_of_bounds":
+        artifact_names.append("trades.csv")
+    for artifact_name in artifact_names:
         artifact_path = directory / artifact_name
         if artifact_path.is_file():
             artifact_path.unlink()
@@ -417,6 +466,7 @@ def run(
         integer_shares=True,
         max_fill_lag_days=max_fill_lag_days,
         disable_concentrated_champion_filter=disable_concentrated_champion_filter,
+        cash_carry_config=CashCarryConfig(mode=CASH_CARRY_MODE_NONE),
     )
     realistic_metrics = replay(
         target_book=target_book,
@@ -430,6 +480,7 @@ def run(
         max_fill_lag_days=max_fill_lag_days,
         disable_concentrated_champion_filter=disable_concentrated_champion_filter,
         execution_cost_config=execution_cost_config,
+        cash_carry_config=CashCarryConfig(mode=CASH_CARRY_MODE_NONE),
     )
     source_manifest = build_source_manifest(
         target_book=target_book,
@@ -455,7 +506,12 @@ def run(
         promotion_blockers.append("price_source_manifest_incomplete")
     if source_manifest.get("target_fill_coverage_complete") is not True:
         promotion_blockers.append("target_fill_coverage_incomplete")
-    if int(execution_summary.get("paper_slippage_trade_count") or 0) == 0:
+    paper_slippage_blocked = bool(
+        realistic_metrics.get("reason") == "paper_slippage_out_of_bounds"
+    )
+    if paper_slippage_blocked:
+        promotion_blockers.append("paper_slippage_out_of_bounds")
+    elif int(execution_summary.get("paper_slippage_trade_count") or 0) == 0:
         promotion_blockers.append("paper_slippage_calibration_unavailable")
     if int(execution_summary.get("paper_slippage_exceeds_model_count") or 0) > 0:
         promotion_blockers.append("paper_slippage_exceeds_model_assumption")

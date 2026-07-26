@@ -554,13 +554,18 @@ def build_target_fill_coverage(
 
     The replay mutates a portfolio synchronously at each signal.  A ticker that
     fills later than the rest of that transition would therefore introduce a
-    future price into an earlier account state.  Dynamic-cost evidence fails
-    closed instead of publishing such an asynchronously executed portfolio.
-    Removed target names are included because they require liquidation fills.
+    future price into an earlier account state.  Every replay mode fails closed
+    instead of publishing such an asynchronously executed portfolio.  Removed
+    target names are included because they require liquidation fills.
     """
 
     rows: list[dict[str, Any]] = []
     previous_tickers: set[str] = set()
+    normalized_evidence_end = (
+        pd.Timestamp(evidence_end_date).normalize()
+        if evidence_end_date is not None
+        else None
+    )
     normalized_targets = targets.copy()
     normalized_targets["ticker"] = (
         normalized_targets["ticker"].astype(str).str.upper().str.strip()
@@ -590,12 +595,23 @@ def build_target_fill_coverage(
                 if actual_dt is not None
                 else None
             )
+            earliest_possible_fill = signal_date
+            if fill_mode in {"next_close", "next_open"}:
+                earliest_possible_fill += pd.Timedelta(days=1)
+            pending_after_evidence = bool(
+                normalized_evidence_end is not None
+                and (
+                    normalized_fill > normalized_evidence_end
+                    if normalized_fill is not None
+                    else earliest_possible_fill > normalized_evidence_end
+                )
+            )
+            required_for_replay = not pending_after_evidence
             within_evidence = bool(
                 normalized_fill is not None
                 and (
-                    evidence_end_date is None
-                    or normalized_fill
-                    <= pd.Timestamp(evidence_end_date).normalize()
+                    normalized_evidence_end is None
+                    or normalized_fill <= normalized_evidence_end
                 )
             )
             fillable = bool(
@@ -624,34 +640,40 @@ def build_target_fill_coverage(
                     ),
                     "fill_mode": fill_mode,
                     "max_fill_lag_days": int(max_fill_lag_days),
+                    "required_for_replay": required_for_replay,
                     "fillable": fillable,
                     "reason": (
                         ""
                         if fillable
                         else (
                             "fill_after_evidence_end"
-                            if normalized_fill is not None
-                            and not within_evidence
+                            if pending_after_evidence
                             else "no_fill_within_lag"
                         )
                     ),
                 }
             )
+        required_signal_rows = [
+            row for row in signal_rows if bool(row["required_for_replay"])
+        ]
         distinct_fill_dates = {
             str(row["actual_fill_date"])
-            for row in signal_rows
+            for row in required_signal_rows
             if row["fillable"] and row["actual_fill_date"]
         }
         chronology_safe = bool(
-            signal_rows
-            and all(bool(row["fillable"]) for row in signal_rows)
-            and len(distinct_fill_dates) == 1
+            not required_signal_rows
+            or (
+                all(bool(row["fillable"]) for row in required_signal_rows)
+                and len(distinct_fill_dates) == 1
+            )
         )
         for row in signal_rows:
             row["signal_fill_date_count"] = len(distinct_fill_dates)
             row["chronology_safe"] = chronology_safe
             if (
-                row["fillable"]
+                row["required_for_replay"]
+                and row["fillable"]
                 and len(distinct_fill_dates) > 1
                 and not row["reason"]
             ):
@@ -667,50 +689,95 @@ def build_target_fill_coverage(
             "actual_fill_date",
             "fill_mode",
             "max_fill_lag_days",
+            "required_for_replay",
             "fillable",
             "signal_fill_date_count",
             "chronology_safe",
             "reason",
         ],
     )
+    required = (
+        frame.loc[frame["required_for_replay"].astype(bool)].copy()
+        if not frame.empty
+        else frame.copy()
+    )
+    pending = (
+        frame.loc[~frame["required_for_replay"].astype(bool)].copy()
+        if not frame.empty
+        else frame.copy()
+    )
     missing = (
-        frame.loc[
-            ~frame["fillable"].astype(bool),
+        required.loc[
+            ~required["fillable"].astype(bool),
             ["signal_date", "ticker", "transition_action", "reason"],
         ]
         .to_dict("records")
-        if not frame.empty
+        if not required.empty
         else []
     )
     asynchronous = (
-        frame.loc[
-            frame["signal_fill_date_count"].gt(1),
+        required.loc[
+            required["signal_fill_date_count"].gt(1),
             ["signal_date", "ticker", "transition_action", "actual_fill_date"],
         ]
         .to_dict("records")
-        if not frame.empty
+        if not required.empty
+        else []
+    )
+    pending_fills = (
+        pending.loc[
+            :,
+            [
+                "signal_date",
+                "ticker",
+                "transition_action",
+                "actual_fill_date",
+                "reason",
+            ],
+        ].to_dict("records")
+        if not pending.empty
         else []
     )
     asynchronous_signals = sorted(
         {str(row["signal_date"]) for row in asynchronous}
     )
+    audited_count = int(len(frame))
+    required_count = int(len(required))
+    pending_count = int(len(pending))
+    has_replayable_transition = bool(required_count > 0)
+    is_cash_only_book = bool(audited_count == 0)
     summary = {
-        "required_target_fill_count": int(len(frame)),
-        "required_transition_fill_count": int(len(frame)),
-        "fillable_target_count": int(frame["fillable"].astype(bool).sum())
-        if not frame.empty
+        "audited_target_fill_count": audited_count,
+        "audited_transition_fill_count": audited_count,
+        "required_target_fill_count": required_count,
+        "required_transition_fill_count": required_count,
+        "pending_target_fill_count": pending_count,
+        "pending_transition_fill_count": pending_count,
+        "fillable_target_count": int(required["fillable"].astype(bool).sum())
+        if not required.empty
         else 0,
         "missing_target_fill_count": int(len(missing)),
         "missing_transition_fill_count": int(len(missing)),
         "chronology_safe": bool(
-            not frame.empty and frame["chronology_safe"].astype(bool).all()
+            is_cash_only_book
+            or (
+                has_replayable_transition
+                and required["chronology_safe"].astype(bool).all()
+            )
         ),
         "asynchronous_signal_count": int(len(asynchronous_signals)),
         "asynchronous_signals": asynchronous_signals[:100],
         "asynchronous_transition_fills": asynchronous[:100],
         "coverage_complete": bool(
-            not frame.empty and not missing and not asynchronous_signals
+            is_cash_only_book
+            or (
+                has_replayable_transition
+                and not missing
+                and not asynchronous_signals
+            )
         ),
+        "pending_target_fills": pending_fills[:100],
+        "pending_transition_fills": pending_fills[:100],
         "missing_target_fills": missing[:100],
         "missing_transition_fills": missing[:100],
     }
@@ -918,6 +985,8 @@ def execute_order(
             )
             fee_rate = float(quote.total_cost_bps) / 10000.0
             cost_audit = quote.audit()
+        if not math.isfinite(fee_rate) or fee_rate >= 1.0:
+            return None
         gross = qty * price
         fee = gross * fee_rate
         state.cash -= gross + fee
@@ -942,6 +1011,8 @@ def execute_order(
             )
             fee_rate = float(quote.total_cost_bps) / 10000.0
             cost_audit = quote.audit()
+        if not math.isfinite(fee_rate) or fee_rate >= 1.0:
+            return None
         gross = qty * price
         fee = gross * fee_rate
         basis = float(state.cost_basis.get(ticker, price))
@@ -1005,6 +1076,7 @@ def redact_execution_performance(
         "capacity_scenarios",
         "execution_cost_coverage_complete",
         "target_fill_coverage",
+        "paper_slippage_issues",
         "trade_count",
         "total_fees_usd",
         "gross_traded_usd",
@@ -1368,13 +1440,12 @@ def replay(
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     execution_cost_config = execution_cost_config or ExecutionCostConfig()
-    if execution_cost_config.enabled:
-        # A blocked rerun must never inherit performance-bearing files from a
-        # prior successful dynamic-cost replay.
-        for artifact_name in REPLAY_GENERATED_ARTIFACTS:
-            artifact_path = output_dir / artifact_name
-            if artifact_path.is_file():
-                artifact_path.unlink()
+    # A blocked rerun must never inherit performance-bearing files from any
+    # prior successful replay, including the fixed-bps control.
+    for artifact_name in REPLAY_GENERATED_ARTIFACTS:
+        artifact_path = output_dir / artifact_name
+        if artifact_path.is_file():
+            artifact_path.unlink()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
@@ -1494,65 +1565,6 @@ def replay(
         if execution_cost_config.enabled
         else None
     )
-    target_fill_coverage = {
-        "required_target_fill_count": 0,
-        "required_transition_fill_count": 0,
-        "fillable_target_count": 0,
-        "missing_target_fill_count": 0,
-        "missing_transition_fill_count": 0,
-        "chronology_safe": True,
-        "asynchronous_signal_count": 0,
-        "asynchronous_signals": [],
-        "asynchronous_transition_fills": [],
-        "coverage_complete": True,
-        "missing_target_fills": [],
-        "missing_transition_fills": [],
-    }
-    if execution_cost_config.enabled:
-        target_fill_frame, target_fill_coverage = build_target_fill_coverage(
-            targets,
-            prices,
-            fill_mode=fill_mode,
-            max_fill_lag_days=max_fill_lag_days,
-            evidence_end_date=evidence_end,
-        )
-        target_fill_frame.to_csv(
-            output_dir / "target_fill_coverage.csv",
-            index=False,
-        )
-        if (
-            execution_cost_config.require_complete_liquidity_coverage
-            and target_fill_coverage.get("coverage_complete") is not True
-        ):
-            payload = {
-                "status": "blocked",
-                "reason": "target_fill_coverage_incomplete",
-                "metric_mode": "DO_NOT_USE",
-                "portfolio_kind": portfolio_kind,
-                "target_book": str(target_book),
-                "target_book_filter": champion_filters,
-                "target_book_filter_source": champion_filter_source,
-                "target_book_filter_warning": champion_filter_warning,
-                "price_cache": str(price_cache),
-                "fill_mode": fill_mode,
-                "max_fill_lag_days": int(max_fill_lag_days),
-                "execution_cost_mode": execution_cost_config.mode,
-                "execution_cost_config": execution_cost_config.audit(),
-                "target_fill_coverage": target_fill_coverage,
-                "performance_fields_redacted": True,
-                "research_only": True,
-                "production_activation_allowed": False,
-                "valid_for_production": False,
-            }
-            (output_dir / "metrics.json").write_text(
-                json.dumps(payload, indent=2, default=str),
-                encoding="utf-8",
-            )
-            (output_dir / "replay_report.md").write_text(
-                render_report(payload),
-                encoding="utf-8",
-            )
-            return payload
     if reserve_asset_policy.tradeable:
         stock_prices = [
             px
@@ -1585,7 +1597,86 @@ def replay(
                 "valid_for_production": False,
                 "research_only": True,
             }
-            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            (output_dir / "metrics.json").write_text(
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
+            )
+            return payload
+    target_fill_frame, target_fill_coverage = build_target_fill_coverage(
+        targets,
+        prices,
+        fill_mode=fill_mode,
+        max_fill_lag_days=max_fill_lag_days,
+        evidence_end_date=evidence_end,
+    )
+    target_fill_frame.to_csv(
+        output_dir / "target_fill_coverage.csv",
+        index=False,
+    )
+    if target_fill_coverage.get("coverage_complete") is not True:
+        payload = {
+            "status": "blocked",
+            "reason": "target_fill_coverage_incomplete",
+            "metric_mode": "DO_NOT_USE",
+            "portfolio_kind": portfolio_kind,
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+            "price_cache": str(price_cache),
+            "fill_mode": fill_mode,
+            "max_fill_lag_days": int(max_fill_lag_days),
+            "execution_cost_mode": execution_cost_config.mode,
+            "execution_cost_config": execution_cost_config.audit(),
+            "target_fill_coverage": target_fill_coverage,
+            "performance_fields_redacted": True,
+            "research_only": True,
+            "production_activation_allowed": False,
+            "valid_for_production": False,
+        }
+        (output_dir / "metrics.json").write_text(
+            json.dumps(payload, indent=2, default=str),
+            encoding="utf-8",
+        )
+        (output_dir / "replay_report.md").write_text(
+            render_report(payload),
+            encoding="utf-8",
+        )
+        return payload
+    if execution_cost_model is not None:
+        invalid_paper_slippage = execution_cost_model.paper_slippage_issues(
+            fixed_cost_bps=cost_bps,
+        )
+        if invalid_paper_slippage:
+            payload = {
+                "status": "blocked",
+                "reason": "paper_slippage_out_of_bounds",
+                "metric_mode": "DO_NOT_USE",
+                "portfolio_kind": portfolio_kind,
+                "target_book": str(target_book),
+                "target_book_filter": champion_filters,
+                "target_book_filter_source": champion_filter_source,
+                "target_book_filter_warning": champion_filter_warning,
+                "price_cache": str(price_cache),
+                "fill_mode": fill_mode,
+                "max_fill_lag_days": int(max_fill_lag_days),
+                "execution_cost_mode": execution_cost_config.mode,
+                "execution_cost_config": execution_cost_config.audit(),
+                "target_fill_coverage": target_fill_coverage,
+                "paper_slippage_issues": invalid_paper_slippage[:100],
+                "performance_fields_redacted": True,
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": False,
+            }
+            (output_dir / "metrics.json").write_text(
+                json.dumps(payload, indent=2, default=str),
+                encoding="utf-8",
+            )
+            (output_dir / "replay_report.md").write_text(
+                render_report(payload),
+                encoding="utf-8",
+            )
             return payload
     calendar_prices: dict[str, pd.DataFrame] = {}
     if carry_enabled:
@@ -2070,6 +2161,7 @@ def replay(
                 evidence_end.date().isoformat() if evidence_end is not None else ""
             ),
             "max_fill_lag_days": int(max_fill_lag_days),
+            "target_fill_coverage": target_fill_coverage,
             **weight_diag,
         }
     )

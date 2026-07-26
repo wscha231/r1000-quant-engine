@@ -235,6 +235,55 @@ def test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark() -> None:
         assert set(trades["ticker"]) == {"AAA"}
         assert pd.to_datetime(trades["date"]).max() <= pd.Timestamp("2026-01-05")
         assert pd.to_datetime(curve["date"]).max() <= pd.Timestamp("2026-01-05")
+        coverage = pd.read_csv(output / "target_fill_coverage.csv")
+        required = coverage["required_for_replay"].astype(str).str.lower().eq("true")
+        pending = coverage.loc[~required]
+        assert len(pending) == 2
+        assert set(pending["ticker"]) == {"AAA", "BBB"}
+        assert set(pending["reason"]) == {"fill_after_evidence_end"}
+        summary = metrics["target_fill_coverage"]
+        assert summary["audited_transition_fill_count"] == 3
+        assert summary["required_transition_fill_count"] == 1
+        assert summary["pending_transition_fill_count"] == 2
+        assert summary["coverage_complete"] is True
+
+
+def test_evidence_cutoff_does_not_validate_a_pending_only_non_cash_book() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        cache.mkdir()
+        write_prices(cache, "AAA", [100.0] * 8, "2026-01-02")
+        target = root / "target.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-05",
+                    "ticker": "AAA",
+                    "weight": 1.0,
+                }
+            ]
+        ).to_csv(target, index=False)
+        output = root / "broker"
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            evidence_end_date="2026-01-05",
+        )
+        assert metrics["status"] == "blocked", metrics
+        assert metrics["reason"] == "target_fill_coverage_incomplete"
+        summary = metrics["target_fill_coverage"]
+        assert summary["audited_transition_fill_count"] == 1
+        assert summary["required_transition_fill_count"] == 0
+        assert summary["pending_transition_fill_count"] == 1
+        assert summary["coverage_complete"] is False
+        assert not (output / "trades.csv").exists()
+        assert not (output / "equity_curve.csv").exists()
 
 
 def test_tradeable_reserve_history_is_clamped_to_evidence_cutoff() -> None:
@@ -360,6 +409,7 @@ def main() -> int:
     test_stale_reserve_reason_hash_is_rejected()
     test_broker_replay_preserves_and_rejects_stale_target_hash()
     test_evidence_cutoff_blocks_post_cutoff_next_close_fill_and_mark()
+    test_evidence_cutoff_does_not_validate_a_pending_only_non_cash_book()
     test_tradeable_reserve_history_is_clamped_to_evidence_cutoff()
     test_history_and_double_count_gate()
     test_bil_trades_like_a_security_and_sgov_blocks_short_history()

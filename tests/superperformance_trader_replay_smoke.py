@@ -17,7 +17,9 @@ from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
 def write_price(cache: Path, ticker: str, trend: float, start: float = 50.0) -> None:
-    dates = pd.bdate_range("2024-01-02", "2025-04-30")
+    # The last synthetic target is dated 2025-04-30 and the broker contract
+    # fills at the next close, so the fixture must include post-signal prices.
+    dates = pd.bdate_range("2024-01-02", "2025-05-02")
     values = [start * ((1.0 + trend) ** i) for i in range(len(dates))]
     volume = [1_000_000] * len(dates)
     frame = pd.DataFrame(

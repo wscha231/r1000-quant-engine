@@ -229,9 +229,14 @@ def test_broker_replay_does_not_backdate_sparse_history_fill() -> None:
             max_fill_lag_days=7,
         )
 
-        assert metrics["status"] == "completed"
-        trades = pd.read_csv(out / "trades.csv")
-        assert "LATE" not in set(trades["ticker"])
+        assert metrics["status"] == "blocked"
+        assert metrics["reason"] == "target_fill_coverage_incomplete"
+        coverage = pd.read_csv(out / "target_fill_coverage.csv")
+        late = coverage[coverage["ticker"].eq("LATE")].iloc[0]
+        assert late["fillable"] in {False, 0, "False", "false"}
+        assert late["reason"] == "no_fill_within_lag"
+        assert not (out / "trades.csv").exists()
+        assert not (out / "equity_curve.csv").exists()
 
 
 def test_concentrated_replay_uses_comparison_champion_filter() -> None:

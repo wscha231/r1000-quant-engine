@@ -44,9 +44,21 @@ def test_weekly_leader_book_adds_new_entry_and_replays() -> None:
         cache.mkdir(parents=True)
 
         # AAA becomes the weekly leader after the base monthly target bought BBB.
-        write_px(cache, "AAA", [20, 21, 22, 24, 27, 30, 32, 34, 35, 36, 38, 40, 42, 44, 45, 46])
-        write_px(cache, "BBB", [50, 50, 50, 51, 51, 51, 52, 52, 52, 52, 53, 53, 53, 53, 54, 54])
-        write_px(cache, "SPY", [400, 400, 401, 401, 402, 402, 403, 403, 404, 404, 405, 405, 406, 406, 407, 407])
+        write_px(
+            cache,
+            "AAA",
+            [20, 21, 22, 24, 27, 30, 32, 34, 35, 36, 38, 40, 42, 44, 45, 46, 47, 48, 49, 50, 51, 52],
+        )
+        write_px(
+            cache,
+            "BBB",
+            [50, 50, 50, 51, 51, 51, 52, 52, 52, 52, 53, 53, 53, 53, 54, 54, 54, 55, 55, 56, 56, 57],
+        )
+        write_px(
+            cache,
+            "SPY",
+            [400, 400, 401, 401, 402, 402, 403, 403, 404, 404, 405, 405, 406, 406, 407, 407, 408, 408, 409, 409, 410, 410],
+        )
 
         candidate_rows = [
             {

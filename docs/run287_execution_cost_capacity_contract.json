@@ -10,6 +10,9 @@
   "control_contract": {
     "metric_mode": "broker_ledger_next_close",
     "base_cost_bps_per_side": 25.0,
+    "cash_carry_mode": "none",
+    "cash_carry_environment_override_allowed": false,
+    "transition_fill_preflight": "BLOCK_BEFORE_STATE_MUTATION",
     "unchanged_by_default": true
   },
   "research_cost_contract": {
@@ -36,21 +39,33 @@
       "calibration_status": "DEFAULT_REQUIRES_FORWARD_PAPER_CALIBRATION"
     },
     "paper_slippage": {
-      "accepted_columns": [
+      "accepted_date_columns": [
         "date",
+        "fill_date",
+        "executed_at"
+      ],
+      "required_columns": [
         "ticker",
         "side",
         "observed_slippage_bps"
       ],
+      "timestamp_normalization": "Every timestamp-bearing date alias is converted to America/New_York before its trade date is derived",
+      "plain_date_policy": "A literal YYYY-MM-DD is already a trade date and remains unchanged",
       "combination_policy": "max(observed_paper_slippage, estimated_half_spread_plus_market_impact)",
-      "double_counting_allowed": false
+      "double_counting_allowed": false,
+      "upper_bound_policy": "BLOCK_BEFORE_STATE_MUTATION when observed_slippage_bps + base_cost_bps >= 10000"
     },
     "target_fill_coverage": {
       "required": "Every non-cash target transition, including removed-name liquidation, must have its configured fill within max_fill_lag_days",
+      "applies_to": "fixed-bps control and dynamic-cost research replay",
       "ticker_specific_fill_date_required": true,
       "asynchronous_transition_policy": "BLOCK_BEFORE_STATE_MUTATION",
       "portfolio_signal_requires_one_actual_fill_date": true,
       "removed_target_liquidation_fill_required": true,
+      "evidence_cutoff_policy": "A transition whose actual fill, or earliest possible fill when no actual fill exists, is after evidence_end_date is audited as pending and is not required for the clamped replay",
+      "pre_cutoff_missing_fill_policy": "Any transition that could have filled on or before evidence_end_date remains required and blocks when its fill is missing or asynchronous",
+      "pending_only_non_cash_policy": "A non-cash book with no replayable transition at or before the evidence cutoff remains incomplete",
+      "cash_only_policy": "A cash-only book has zero non-cash transition requirements and is vacuously complete; its cash calendar is validated separately when carry is enabled",
       "incomplete_policy": "BLOCK_AND_REDACT_PERFORMANCE"
     },
     "dynamic_cost_affordability": {
@@ -60,7 +75,8 @@
     "missing_liquidity_cost_ceiling_bps": 625.0,
     "missing_liquidity_paper_slippage_policy": "base cost plus max(600bps variable ceiling, observed paper slippage)",
     "missing_liquidity_evidence_status": "DO_NOT_USE",
-    "blocked_nested_artifact_policy": "Remove equity, holdings, cash, position, and account-state artifacts; retain only redacted metrics plus trade-level cost audit"
+    "source_manifest_target_policy": "Price-source requirements use replay-filtered target_fill_coverage rows whose required_for_replay flag is true; raw excluded target variants and post-evidence pending transitions remain separately audited",
+    "blocked_nested_artifact_policy": "Remove equity, holdings, cash, position, and account-state artifacts; retain redacted metrics and trade-level cost audit except out-of-bounds paper slippage removes trades too"
   },
   "capacity_contract": {
     "adv_participation_rates": [
@@ -95,9 +111,10 @@
   },
   "promotion_prerequisites": [
     "100% execution-cost coverage for all trades used by the metric",
-    "100% configured fill coverage for every non-cash target transition including liquidation",
+    "100% configured fill coverage for every replay-required non-cash target transition including liquidation",
     "one chronology-safe actual fill date per synchronous portfolio transition",
     "Every non-cash target ticker has a hashed, loadable OHLCV price-cache source",
+    "paper slippage plus base cost remains strictly below 10000bps",
     "paper slippage does not structurally exceed the modeled assumption",
     "economic meaning remains at 0.1%, 0.5%, and 1.0% ADV scenarios",
     "corrected champion and challenger use the same target-book hash and cost configuration",

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -114,21 +116,29 @@ def test_price_loader_preserves_adjusted_ohlcv_for_liquidity() -> None:
         assert loaded.iloc[1]["dollar_volume"] == 204_000_000.0
 
 
-def test_paper_executed_at_uses_new_york_trade_date() -> None:
+def test_all_paper_date_aliases_use_new_york_trade_date() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "paper.csv"
-        pd.DataFrame(
-            [
-                {
-                    "executed_at": "2024-01-04T01:00:00Z",
-                    "ticker": "AAA",
-                    "side": "BUY",
-                    "observed_slippage_bps": 12.0,
-                }
-            ]
-        ).to_csv(path, index=False)
-        loaded = load_paper_slippage(path)
-        assert loaded.iloc[0]["date"] == pd.Timestamp("2024-01-03")
+        for date_column in ("date", "fill_date", "executed_at"):
+            path = Path(tmp) / f"{date_column}.csv"
+            pd.DataFrame(
+                [
+                    {
+                        date_column: "2024-01-04T01:00:00Z",
+                        "ticker": "TIMESTAMP",
+                        "side": "BUY",
+                        "observed_slippage_bps": 12.0,
+                    },
+                    {
+                        date_column: "2024-01-04",
+                        "ticker": "PLAIN",
+                        "side": "BUY",
+                        "observed_slippage_bps": 13.0,
+                    },
+                ]
+            ).to_csv(path, index=False)
+            loaded = load_paper_slippage(path).set_index("ticker")
+            assert loaded.loc["TIMESTAMP", "date"] == pd.Timestamp("2024-01-03")
+            assert loaded.loc["PLAIN", "date"] == pd.Timestamp("2024-01-04")
 
 
 def test_dynamic_affordability_solves_against_original_desired_quantity() -> None:
@@ -510,6 +520,235 @@ def test_missing_liquidity_uses_larger_observed_paper_slippage() -> None:
         assert quote.observed_exceeds_model is True
 
 
+def test_implausible_paper_slippage_fails_closed_without_state_artifacts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        output = root / "execution"
+        cache.mkdir()
+        _write_ohlcv(cache, "AAA", initial_close=100.0)
+        _write_ohlcv(cache, "BBB", initial_close=50.0)
+        targets = root / "targets.csv"
+        _write_targets(targets)
+        paper = root / "paper.csv"
+        pd.DataFrame(
+            [
+                {
+                    "date": "2024-01-10",
+                    "ticker": "AAA",
+                    "side": "SELL",
+                    "observed_slippage_bps": 9_975.0,
+                }
+            ]
+        ).to_csv(paper, index=False)
+
+        model = ExecutionCostModel(
+            {
+                "AAA": load_price_series(
+                    cache,
+                    "AAA",
+                    include_liquidity=True,
+                )
+            },
+            ExecutionCostConfig(
+                mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+                paper_slippage_path=paper,
+            ),
+        )
+        direct_state = LedgerState(
+            cash=500.0,
+            shares={"AAA": 10.0},
+            cost_basis={"AAA": 100.0},
+        )
+        direct_order = execute_order(
+            state=direct_state,
+            ticker="AAA",
+            side="SELL",
+            desired_qty=10.0,
+            price=100.0,
+            cost_bps=25.0,
+            integer_shares=True,
+            fill_date=pd.Timestamp("2024-01-10"),
+            execution_cost_model=model,
+        )
+        assert direct_order is None
+        assert direct_state.cash == 500.0
+        assert direct_state.shares == {"AAA": 10.0}
+
+        payload = run(
+            target_book=targets,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=100_000.0,
+            fill_mode="next_close",
+            base_cost_bps=25.0,
+            max_fill_lag_days=7,
+            execution_cost_config=ExecutionCostConfig(
+                mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+                paper_slippage_path=paper,
+            ),
+        )
+
+        assert payload["status"] == "blocked"
+        assert payload["reason"] == "paper_slippage_out_of_bounds"
+        assert "paper_slippage_out_of_bounds" in payload["promotion_blockers"]
+        assert (
+            "paper_slippage_calibration_unavailable"
+            not in payload["promotion_blockers"]
+        )
+        assert payload["deltas_vs_fixed_bps"] == {}
+        for arm in ("fixed_bps_control", "spread_adv_impact"):
+            nested = json.loads(
+                (output / arm / "metrics.json").read_text(encoding="utf-8")
+            )
+            assert nested["status"] == "blocked"
+            assert nested["reason"] == "paper_slippage_out_of_bounds"
+            assert nested["performance_fields_redacted"] is True
+            assert "cagr" not in nested
+            assert not (output / arm / "trades.csv").exists()
+            assert not (output / arm / "equity_curve.csv").exists()
+            assert not (output / arm / "account_state_latest.json").exists()
+        realistic_nested = json.loads(
+            (
+                output / "spread_adv_impact" / "metrics.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert len(realistic_nested["paper_slippage_issues"]) == 1
+        assert (
+            realistic_nested["paper_slippage_issues"][0][
+                "observed_slippage_bps"
+            ]
+            == 9_975.0
+        )
+
+
+def test_sidecar_pins_cash_carry_off_even_when_environment_enables_it() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        output = root / "execution"
+        cache.mkdir()
+        _write_ohlcv(cache, "AAA", initial_close=100.0)
+        _write_ohlcv(cache, "BBB", initial_close=50.0)
+        targets = root / "targets.csv"
+        _write_targets(targets)
+
+        with patch.dict(
+            os.environ,
+            {"R1000_BROKER_CASH_CARRY_ENABLED": "1"},
+            clear=False,
+        ):
+            payload = run(
+                target_book=targets,
+                price_cache=cache,
+                output_dir=output,
+                portfolio_kind="main",
+                starting_capital=100_000.0,
+                fill_mode="next_close",
+                base_cost_bps=25.0,
+                max_fill_lag_days=7,
+                execution_cost_config=ExecutionCostConfig(
+                    mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+                ),
+            )
+
+        assert payload["status"] == "completed"
+        for arm in ("fixed_bps_control", "spread_adv_impact"):
+            nested = json.loads(
+                (output / arm / "metrics.json").read_text(encoding="utf-8")
+            )
+            assert "cash_carry_mode" not in nested
+            assert "cash_interest_accrued_usd" not in nested
+            assert "_cash_carry" not in str(nested["metric_mode"])
+
+
+def test_concentrated_manifest_uses_replay_filtered_champion_tickers() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache"
+        reports = root / "reports"
+        output = root / "execution"
+        cache.mkdir()
+        reports.mkdir()
+        for index, ticker in enumerate(("AAA", "BBB", "CCC", "DDD")):
+            _write_ohlcv(
+                cache,
+                ticker,
+                initial_close=100.0 + index * 10.0,
+            )
+        targets = reports / "concentrated_strategy_holdings.csv"
+        rows = [
+            {
+                "rebalance_date": "2024-01-02",
+                "ticker": ticker,
+                "weight": 0.25,
+                "target_stock_names": 4,
+                "weighting_mode": "score_power",
+                "active_rebalance_interval_months": 1,
+            }
+            for ticker in ("AAA", "BBB", "CCC", "DDD")
+        ]
+        rows.append(
+            {
+                "rebalance_date": "2024-01-02",
+                "ticker": "MISSING",
+                "weight": 1.0,
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "active_rebalance_interval_months": 1,
+            }
+        )
+        pd.DataFrame(rows).to_csv(targets, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "portfolio_mode": "concentrated_alpha",
+                    "target_stock_names": 4,
+                    "weighting_mode": "score_power",
+                    "rebalance_interval_months": 1,
+                    "strategy_cagr": 0.40,
+                    "sharpe": 1.2,
+                    "max_dd": -0.15,
+                }
+            ]
+        ).to_csv(
+            reports / "concentrated_strategy_comparison.csv",
+            index=False,
+        )
+
+        payload = run(
+            target_book=targets,
+            price_cache=cache,
+            output_dir=output,
+            portfolio_kind="concentrated",
+            starting_capital=100_000.0,
+            fill_mode="next_close",
+            base_cost_bps=25.0,
+            max_fill_lag_days=7,
+            execution_cost_config=ExecutionCostConfig(
+                mode=EXECUTION_COST_MODE_SPREAD_ADV_IMPACT,
+            ),
+        )
+
+        assert payload["status"] == "completed"
+        manifest = json.loads(
+            (output / "source_manifest.json").read_text(encoding="utf-8")
+        )
+        assert manifest["target_ticker_count"] == 4
+        assert manifest["raw_target_ticker_count"] == 5
+        assert manifest["replay_filtered_target_tickers"] == [
+            "AAA",
+            "BBB",
+            "CCC",
+            "DDD",
+        ]
+        assert manifest["excluded_raw_target_tickers"] == ["MISSING"]
+        assert "MISSING" not in {
+            row["ticker"] for row in manifest["price_sources"]
+        }
+
+
 def test_blocked_replay_report_never_fabricates_zero_performance() -> None:
     report = render_report(
         {
@@ -681,6 +920,11 @@ def test_research_sidecar_is_wired_without_replacing_champion_metrics() -> None:
     )
     assert contract["status"] == "RESEARCH_ONLY_FAIL_CLOSED"
     assert contract["control_contract"]["unchanged_by_default"] is True
+    assert contract["control_contract"]["cash_carry_mode"] == "none"
+    assert (
+        contract["control_contract"]["transition_fill_preflight"]
+        == "BLOCK_BEFORE_STATE_MUTATION"
+    )
     assert contract["governance"]["promotion_allowed"] is False
     assert contract["governance"]["fullrun_executed"] is False
     assert contract["capacity_contract"]["adv_participation_rates"] == [0.001, 0.005, 0.01]
@@ -690,17 +934,26 @@ def test_research_sidecar_is_wired_without_replacing_champion_metrics() -> None:
         ]
         == "BLOCK_AND_REDACT_PERFORMANCE"
     )
+    assert (
+        contract["research_cost_contract"]["paper_slippage"][
+            "upper_bound_policy"
+        ]
+        == "BLOCK_BEFORE_STATE_MUTATION when observed_slippage_bps + base_cost_bps >= 10000"
+    )
 
 
 def main() -> int:
     test_price_loader_preserves_adjusted_ohlcv_for_liquidity()
-    test_paper_executed_at_uses_new_york_trade_date()
+    test_all_paper_date_aliases_use_new_york_trade_date()
     test_dynamic_affordability_solves_against_original_desired_quantity()
     test_asynchronous_transition_fill_dates_fail_closed()
     test_removed_target_requires_liquidation_fill_coverage()
     test_realistic_cost_replay_is_pit_and_more_conservative()
     test_missing_ohlcv_blocks_dynamic_cost_evidence()
     test_missing_liquidity_uses_larger_observed_paper_slippage()
+    test_implausible_paper_slippage_fails_closed_without_state_artifacts()
+    test_sidecar_pins_cash_carry_off_even_when_environment_enables_it()
+    test_concentrated_manifest_uses_replay_filtered_champion_tickers()
     test_blocked_replay_report_never_fabricates_zero_performance()
     test_missing_target_price_source_blocks_manifest_even_without_trade()
     test_stale_but_loadable_price_history_blocks_target_fill_coverage()

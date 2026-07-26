@@ -1,23 +1,11 @@
 #!/usr/bin/env python3
 """Broker-ledger replay correctness smoke tests.
 
-This suite captures broker-ledger replay invariants and documents two
-known biases that should be eliminated in a future commit. The tests
-currently assert the OBSERVED behavior so the suite stays green; when
-the underlying bug is fixed, the assertion in the corresponding test
-must be flipped per the TODO comment.
-
-Known biases documented here:
-    1. Delisted positions whose price data ends mid-replay get marked
-       at cost basis in account_equity (run_broker_ledger_replay.py:313).
-       This understates max drawdown for bankrupt names.
-    2. When a single signal date fans out into per-ticker fill dates
-       that span multiple trading days, every trade is stamped with
-       min(fill_dt_by_ticker.values()) rather than each ticker's own
-       actual_dt (run_broker_ledger_replay.py:552-611). Cash can be
-       debited earlier than the trade could have happened in reality.
-
 Correctness invariants verified here:
+    1. A transition with a missing liquidation fill fails closed before
+       any account state or performance artifact is produced.
+    2. A synchronous target transition that would fill on multiple dates
+       fails closed before any account state is mutated.
     3. With fill_mode="next_close" every trade's actual fill date is
        strictly after the signal date.
     4. Long-horizon (1-year synthetic) equity curves are continuous:
@@ -54,19 +42,13 @@ def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2
     df.to_parquet(cache_dir / px_cache_name(ticker))
 
 
-def test_delisted_position_currently_marks_at_cost_basis() -> None:
-    """Documents bug B1: delisted-to-no-data stock is marked at cost basis.
+def test_missing_liquidation_fill_fails_closed_before_state_mutation() -> None:
+    """A missing target-exit fill must block the complete replay.
 
     Setup: BUY ZOMBIE on 2026-01-02 at $100. Its price data ends 2026-01-08.
     On 2026-02-02 the target book drops ZOMBIE (target_exit). The replay
-    cannot fill the sell because ZOMBIE has no price on or after 2026-02-03.
-    The position therefore remains in state.shares, and account_equity
-    falls back to cost_basis (line 313-315) for marking.
-
-    TODO: when the cost-basis fallback is replaced by zero-marking or
-    explicit zombie handling, flip the assertion to expect that
-    ending_capital_usd is lower (because the dead position is no longer
-    contributing $100/share to equity).
+    cannot fill the sell because ZOMBIE has no price on or after 2026-02-03,
+    so the preflight must reject the replay without publishing performance.
     """
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -97,29 +79,34 @@ def test_delisted_position_currently_marks_at_cost_basis() -> None:
             max_fill_lag_days=7,
         )
 
-        assert metrics["status"] == "completed", metrics
-        positions = pd.read_csv(out / "positions_latest.csv")
-        zombie_rows = positions[positions["ticker"].astype(str).eq("ZOMBIE")]
-        # Bug B1 observed: ZOMBIE remains as a position, marked at cost_basis ($100).
-        # If the fix lands, ZOMBIE should be cleared from positions OR market_value_usd ~= 0.
-        assert not zombie_rows.empty, "ZOMBIE should still be present under current cost-basis fallback bug"
-        market_value = float(zombie_rows.iloc[0]["market_value_usd"])
-        assert market_value > 100.0, (
-            "current bug: dead ZOMBIE marked at >=100 (cost basis). "
-            "When fixed, expect market_value_usd to be ~0 or row to be absent."
-        )
+        assert metrics["status"] == "blocked", metrics
+        assert metrics["reason"] == "target_fill_coverage_incomplete"
+        coverage = pd.read_csv(out / "target_fill_coverage.csv")
+        exit_row = coverage[
+            coverage["ticker"].eq("ZOMBIE")
+            & coverage["transition_action"].eq("target_exit")
+        ].iloc[0]
+        assert exit_row["fillable"] in {False, 0, "False", "false"}
+        assert exit_row["reason"] == "no_fill_within_lag"
+        for artifact in (
+            "trades.csv",
+            "equity_curve.csv",
+            "positions_latest.csv",
+            "account_state_latest.json",
+        ):
+            assert not (out / artifact).exists()
 
 
-def test_multi_day_fill_uses_ticker_specific_fill_date_for_stamp() -> None:
-    """Each trade date must use that ticker's observable actual fill date.
+def test_multi_day_transition_fails_closed_before_state_mutation() -> None:
+    """A synchronous transition cannot use multiple observable fill dates.
 
     Setup: AAA trades from 2026-01-02 onward; LATE only starts trading
     on 2026-01-12. Both are in the same signal date 2026-01-02. AAA's
     fill_dt = 2026-01-05 (within max_fill_lag_days). LATE's fill_dt
     would be 2026-01-12, which is outside max_fill_lag_days=7.
 
-    With max_fill_lag_days=15 to let LATE fill, AAA must retain its
-    earlier date while LATE is stamped on its own later observable date.
+    With max_fill_lag_days=15 both names are individually fillable, but their
+    different actual dates make the synchronous portfolio transition invalid.
     """
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -148,18 +135,18 @@ def test_multi_day_fill_uses_ticker_specific_fill_date_for_stamp() -> None:
             max_fill_lag_days=15,
         )
 
-        assert metrics["status"] == "completed", metrics
-        trades = pd.read_csv(out / "trades.csv")
-        late_trades = trades[trades["ticker"].astype(str).eq("LATE")]
-        aaa_trades = trades[trades["ticker"].astype(str).eq("AAA")]
-        if late_trades.empty:
-            # If max_fill_lag_days was insufficient, LATE never filled — test trivially passes.
-            assert not aaa_trades.empty
-            return
-        late_date = str(late_trades.iloc[0]["date"])
-        aaa_date = str(aaa_trades.iloc[0]["date"])
-        assert aaa_date < late_date
-        assert late_date >= "2026-01-12"
+        assert metrics["status"] == "blocked", metrics
+        assert metrics["reason"] == "target_fill_coverage_incomplete"
+        assert metrics["target_fill_coverage"]["chronology_safe"] is False
+        coverage = pd.read_csv(out / "target_fill_coverage.csv")
+        first_signal = coverage[coverage["signal_date"].eq("2026-01-02")]
+        assert set(first_signal["actual_fill_date"]) == {
+            "2026-01-05",
+            "2026-01-12",
+        }
+        assert not first_signal["chronology_safe"].astype(bool).all()
+        assert not (out / "trades.csv").exists()
+        assert not (out / "equity_curve.csv").exists()
 
 
 def test_no_look_ahead_in_next_close_fills() -> None:
@@ -224,7 +211,13 @@ def test_long_horizon_equity_curve_continuous() -> None:
         _write_px(cache, "AAA", closes, start="2025-05-12")
         _write_px(cache, "BBB", [50.0 + i * 0.05 for i in range(252)], start="2025-05-12")
         target = root / "targets.csv"
-        rebalance_dates = ["2025-05-12", "2025-08-01", "2025-11-03", "2026-02-02", "2026-04-30"]
+        rebalance_dates = [
+            "2025-05-12",
+            "2025-08-01",
+            "2025-11-03",
+            "2026-02-02",
+            "2026-04-27",
+        ]
         rows = []
         for dt in rebalance_dates:
             rows.append({"rebalance_date": dt, "ticker": "AAA", "weight": 0.55})
@@ -260,8 +253,8 @@ def test_long_horizon_equity_curve_continuous() -> None:
 
 
 def main() -> int:
-    test_delisted_position_currently_marks_at_cost_basis()
-    test_multi_day_fill_uses_ticker_specific_fill_date_for_stamp()
+    test_missing_liquidation_fill_fails_closed_before_state_mutation()
+    test_multi_day_transition_fails_closed_before_state_mutation()
     test_no_look_ahead_in_next_close_fills()
     test_long_horizon_equity_curve_continuous()
     print("broker_ledger_correctness_smoke: PASS")

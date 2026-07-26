@@ -17,6 +17,7 @@ impact from being double counted while remaining conservative.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -299,19 +300,28 @@ def load_paper_slippage(path: Path | None) -> pd.DataFrame:
     )
     if not date_col or "ticker" not in raw.columns or not value_col:
         return pd.DataFrame(columns=columns)
-    if date_col == "executed_at":
-        normalized_dates = (
-            pd.to_datetime(raw[date_col], errors="coerce", utc=True)
-            .dt.tz_convert("America/New_York")
-            .dt.tz_localize(None)
-            .dt.normalize()
-        )
-    else:
-        normalized_dates = (
-            pd.to_datetime(raw[date_col], errors="coerce")
-            .dt.tz_localize(None)
-            .dt.normalize()
-        )
+
+    def normalize_trade_date(value: Any) -> pd.Timestamp:
+        text = str(value).strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+            return pd.Timestamp(text).normalize()
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.isna(parsed):
+            return pd.NaT
+        timestamp = pd.Timestamp(parsed)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.tz_localize(
+                "America/New_York",
+                ambiguous="NaT",
+                nonexistent="shift_forward",
+            )
+        else:
+            timestamp = timestamp.tz_convert("America/New_York")
+        if pd.isna(timestamp):
+            return pd.NaT
+        return timestamp.tz_localize(None).normalize()
+
+    normalized_dates = raw[date_col].map(normalize_trade_date)
     out = pd.DataFrame(
         {
             "date": normalized_dates,
@@ -363,6 +373,31 @@ class ExecutionCostModel:
             return None
         value = _finite_float(rows["observed_slippage_bps"].median())
         return max(float(value), 0.0) if value is not None else None
+
+    def paper_slippage_issues(
+        self,
+        *,
+        fixed_cost_bps: float,
+    ) -> list[dict[str, Any]]:
+        """Return paper rows whose fee would consume all sale proceeds."""
+
+        if self.paper_slippage.empty:
+            return []
+        maximum_observed = max(0.0, 10000.0 - max(float(fixed_cost_bps), 0.0))
+        invalid = self.paper_slippage[
+            self.paper_slippage["observed_slippage_bps"].ge(maximum_observed)
+        ]
+        return [
+            {
+                "date": pd.Timestamp(row.date).date().isoformat(),
+                "ticker": str(row.ticker),
+                "side": str(row.side),
+                "observed_slippage_bps": float(row.observed_slippage_bps),
+                "maximum_allowed_observed_slippage_bps": maximum_observed,
+                "reason": "paper_slippage_plus_fixed_cost_reaches_100_percent",
+            }
+            for row in invalid.itertuples(index=False)
+        ]
 
     def quote(
         self,
