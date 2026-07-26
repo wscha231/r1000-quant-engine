@@ -79,7 +79,12 @@ def make_plan(root: Path) -> Path:
         path = root / "inputs" / label
         path.parent.mkdir(parents=True, exist_ok=True)
         if label == "universe":
-            path.write_text("ticker\nAAPL\n", encoding="utf-8")
+            pd.DataFrame(
+                {
+                    "ticker": ["AAPL", "CASH"],
+                    "is_equity_issuer": [True, False],
+                }
+            ).to_csv(path, index=False)
         elif label == "base_selection_context":
             pd.DataFrame({"ticker": ["AAPL"]}).to_parquet(path, index=False)
         elif label == "security_lifecycle_events":
@@ -121,6 +126,14 @@ def make_plan(root: Path) -> Path:
     return plan
 
 
+def replace_universe(plan: Path, frame: pd.DataFrame) -> None:
+    payload = json.loads(plan.read_text(encoding="utf-8"))
+    path = Path(payload["paths"]["universe"]["path"])
+    frame.to_csv(path, index=False)
+    payload["paths"]["universe"]["sha256"] = sha256_file(path)
+    plan.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 class UpstreamSmoke(unittest.TestCase):
     def test_cli_returns_nonzero_for_skipped_prerequisites(self) -> None:
         from tools import run_run287_exact_packet_upstream as upstream
@@ -160,6 +173,21 @@ class UpstreamSmoke(unittest.TestCase):
                 ],
                 1,
             )
+            self.assertEqual(
+                ready["preflight"]["ticker_identity"]["universe_count"], 1
+            )
+            self.assertEqual(
+                ready["preflight"]["ticker_identity"][
+                    "universe_source_row_count"
+                ],
+                2,
+            )
+            self.assertEqual(
+                ready["preflight"]["ticker_identity"][
+                    "universe_non_equity_placeholder_ticker"
+                ],
+                "CASH",
+            )
             self.assertFalse(ready["network_execution_authorized"])
             self.assertEqual(
                 len(ready["preflight"]["code_identity"]["identity_sha256"]),
@@ -171,6 +199,75 @@ class UpstreamSmoke(unittest.TestCase):
             skipped = build(arguments(root, plan, "missing"))
             self.assertEqual(skipped["status"], SKIPPED_STATUS)
             self.assertIn("missing_path:model_meta", skipped["skip_reasons"])
+
+    def test_preflight_rejects_arbitrary_blank_non_equity_ticker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = make_plan(root)
+            replace_universe(
+                plan,
+                pd.DataFrame(
+                    {
+                        "ticker": ["AAPL", ""],
+                        "is_equity_issuer": [True, False],
+                    }
+                ),
+            )
+            skipped = build(arguments(root, plan, "blank-placeholder"))
+            self.assertEqual(skipped["status"], SKIPPED_STATUS)
+            self.assertTrue(
+                any(
+                    "universe_blank_ticker_invalid" in reason
+                    for reason in skipped["skip_reasons"]
+                ),
+                skipped["skip_reasons"],
+            )
+
+    def test_preflight_requires_exactly_one_declared_cash_placeholder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = make_plan(root)
+            replace_universe(
+                plan,
+                pd.DataFrame(
+                    {
+                        "ticker": ["AAPL", "CASH", "__CASH__"],
+                        "is_equity_issuer": [True, False, False],
+                    }
+                ),
+            )
+            skipped = build(arguments(root, plan, "duplicate-placeholder"))
+            self.assertEqual(skipped["status"], SKIPPED_STATUS)
+            self.assertTrue(
+                any(
+                    "universe_non_equity_placeholder_count_invalid:2" in reason
+                    for reason in skipped["skip_reasons"]
+                ),
+                skipped["skip_reasons"],
+            )
+
+    def test_preflight_rejects_false_flag_on_an_equity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = make_plan(root)
+            replace_universe(
+                plan,
+                pd.DataFrame(
+                    {
+                        "ticker": ["AAPL", "MSFT"],
+                        "is_equity_issuer": [True, False],
+                    }
+                ),
+            )
+            skipped = build(arguments(root, plan, "equity-placeholder"))
+            self.assertEqual(skipped["status"], SKIPPED_STATUS)
+            self.assertTrue(
+                any(
+                    "universe_non_equity_placeholder_ticker_invalid" in reason
+                    for reason in skipped["skip_reasons"]
+                ),
+                skipped["skip_reasons"],
+            )
 
     def test_portable_resolution_stays_inside_verified_restore_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
