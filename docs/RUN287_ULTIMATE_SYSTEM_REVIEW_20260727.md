@@ -76,14 +76,15 @@ This change adds the missing U4 statistical barrier:
   evaluation-start snapshot;
 - rejected registry entries must remain append-only from registration through
   evaluation and the current canonical registry, including the fixed
-  signal/mechanism/book/window matching semantics;
+  signal/mechanism/book/window matching semantics and canonical
+  trim/lowercase normalization;
 - every current and prior performance trial across causal families must appear
   in the complete experiment ledger and synchronized after-cost excess-return
   matrix, while only one active causal challenger is allowed;
 - each canonical do-not-repeat entry must first be classified as
   performance-evaluated or non-performance; the gate remains blocked until U0
-  completes that reviewed classification and the prior-family trial counts
-  exactly match the ledger;
+  completes that reviewed classification and each prior family's exact
+  trial-identity manifest matches the ledger;
 - each trial's candidate, causal family, parameter hash, and return column are
   preregistered together;
 - the matrix must exactly match the preregistered first session, last session,
@@ -95,6 +96,9 @@ This change adds the missing U4 statistical barrier:
 - the promotion gate reopens the ledger, returns, contract, promotion-state
   snapshot, preregistration, and registry history, recomputes the full gate,
   and requires a byte-identical five-file bundle;
+- the statistical input hash stops at the evaluation-time registry snapshot;
+  later append-only registry history is revalidated separately so a legitimate
+  new research entry cannot invalidate an already approved daily bundle;
 - every non-research daily evaluation must carry the reviewed immutable bundle
   through the canonical approved-pointer file and match its candidate to the
   canonical state's official challenger before

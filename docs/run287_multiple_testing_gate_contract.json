@@ -15,6 +15,8 @@
     "canonical_do_not_repeat_registry_path": "docs/run287_do_not_repeat_registry.json",
     "canonical_registry_history_preservation_required": true,
     "canonical_registry_multiplicity_classification_required": true,
+    "canonical_registry_exact_prior_trial_manifest_required": true,
+    "current_registry_history_validation_excluded_from_statistical_hash": true,
     "return_matrix_format": "csv",
     "date_column": "date",
     "return_semantics": "daily_arithmetic_excess_return_vs_canonical_champion_after_costs",

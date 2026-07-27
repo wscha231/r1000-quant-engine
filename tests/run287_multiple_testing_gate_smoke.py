@@ -41,7 +41,36 @@ EXPECTED_OUTPUTS = {
 }
 
 
-def default_prior_registry_entry() -> dict[str, Any]:
+def default_prior_registry_entry(
+    ledger: dict[str, Any],
+) -> dict[str, Any]:
+    prior_trials = [
+        trial
+        for trial in ledger["trials"]
+        if (
+            trial["candidate_id"],
+            trial["causal_family_id"],
+        )
+        != (ledger["candidate_id"], ledger["causal_family_id"])
+    ]
+    assert prior_trials
+    candidate_id = prior_trials[0]["candidate_id"]
+    causal_family_id = prior_trials[0]["causal_family_id"]
+    assert all(
+        (
+            trial["candidate_id"],
+            trial["causal_family_id"],
+        )
+        == (candidate_id, causal_family_id)
+        for trial in prior_trials
+    )
+    trial_specifications = MOD.trial_specification_map(prior_trials)
+    manifest = {
+        "schema_version": MOD.PRIOR_TRIAL_MANIFEST_SCHEMA,
+        "candidate_id": candidate_id,
+        "causal_family_id": causal_family_id,
+        "trial_specifications": trial_specifications,
+    }
     return {
         "id": "prior-performance-family",
         "signal": "prior_signal",
@@ -52,10 +81,13 @@ def default_prior_registry_entry() -> dict[str, Any]:
         "blocked_reuse": True,
         "multiplicity": {
             "performance_evaluated": True,
-            "candidate_id": "run287-prior-performance-family",
-            "causal_family_id": "prior_performance_family",
-            "completed_trial_count": 1,
-            "evidence_sha256": "1" * 64,
+            "candidate_id": candidate_id,
+            "causal_family_id": causal_family_id,
+            "completed_trial_count": len(prior_trials),
+            "trial_specifications": trial_specifications,
+            "trial_manifest_sha256": MOD.sha256_bytes(
+                MOD.canonical_json_bytes(manifest)
+            ),
         },
     }
 
@@ -194,7 +226,7 @@ def write_fixture(
     docs = repository / "docs"
     docs.mkdir()
     effective_registry_entries = (
-        [default_prior_registry_entry()]
+        [default_prior_registry_entry(payload)]
         if registry_entries is None
         else registry_entries
     )
@@ -653,18 +685,85 @@ def test_registry_must_be_canonical_and_append_only() -> None:
             "blockers"
         ]
 
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        ledger = ledger_for(strong_matrix())
+        conflicting_entry = {
+            "id": "normalized-conflict",
+            "signal": " PIT_LEADERSHIP_ACCELERATION ",
+            "mechanism": " Confirmation_Veto_Only ",
+            "book": " RUN287_GENERATED_BOOKS ",
+            "window": " PREREGISTERED_U4_WINDOW ",
+            "status": "REJECTED",
+            "blocked_reuse": True,
+            "multiplicity": {"performance_evaluated": False},
+        }
+        paths = write_fixture(
+            root,
+            strong_matrix(),
+            ledger=ledger,
+            registry_entries=[
+                default_prior_registry_entry(ledger),
+                conflicting_entry,
+            ],
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert any(
+            blocker.startswith(
+                "preregistration_do_not_repeat_conflict:"
+            )
+            for blocker in gate["blockers"]
+        )
+
+
+def test_append_only_registry_addition_does_not_reanchor_bundle() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        paths = write_fixture(root, strong_matrix())
+        gate = run(paths)
+        registry = (
+            paths["repository"]
+            / "docs"
+            / "run287_do_not_repeat_registry.json"
+        )
+        payload = json.loads(registry.read_text(encoding="utf-8"))
+        payload["entries"].append(
+            {
+                "id": "later-independent-source-screen",
+                "signal": "later_signal",
+                "mechanism": "later_source_screen",
+                "book": "later_book",
+                "window": "later_window",
+                "status": "REJECT_SOURCE_SCREEN",
+                "blocked_reuse": True,
+                "multiplicity": {"performance_evaluated": False},
+            }
+        )
+        registry.write_text(
+            json.dumps(payload, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        assert run(paths) == gate
+
 
 def test_prior_performance_families_are_in_multiplicity_population() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         matrix = strong_matrix()
         ledger = ledger_for(matrix)
+        prior_registry_entry = default_prior_registry_entry(ledger)
         for trial in ledger["trials"]:
             trial["candidate_id"] = ledger["candidate_id"]
             trial["causal_family_id"] = ledger["causal_family_id"]
         ledger["prior_performance_evaluated_trial_count"] = 0
         ledger["performance_evaluated_family_count"] = 1
-        paths = write_fixture(root, matrix, ledger=ledger)
+        paths = write_fixture(
+            root,
+            matrix,
+            ledger=ledger,
+            registry_entries=[prior_registry_entry],
+        )
         gate = run(paths)
         assert gate["passed"] is False
         assert (
@@ -680,11 +779,13 @@ def test_prior_performance_families_are_in_multiplicity_population() -> None:
 
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        unclassified = default_prior_registry_entry()
+        ledger = ledger_for(strong_matrix())
+        unclassified = default_prior_registry_entry(ledger)
         unclassified.pop("multiplicity")
         paths = write_fixture(
             root,
             strong_matrix(),
+            ledger=ledger,
             registry_entries=[unclassified],
         )
         gate = run(paths)
@@ -692,6 +793,34 @@ def test_prior_performance_families_are_in_multiplicity_population() -> None:
         assert (
             "evaluation_registry_multiplicity_classification_missing:"
             "prior-performance-family"
+            in gate["blockers"]
+        )
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        matrix = strong_matrix()
+        original = ledger_for(matrix)
+        registry_entry = default_prior_registry_entry(original)
+        substituted = json.loads(json.dumps(original))
+        prior = next(
+            trial
+            for trial in substituted["trials"]
+            if trial["candidate_id"] != substituted["candidate_id"]
+        )
+        prior["parameter_set"]["rank_power"] = 9.9
+        prior["parameter_set_sha256"] = MOD.canonical_parameter_hash(
+            prior["parameter_set"]
+        )
+        paths = write_fixture(
+            root,
+            matrix,
+            ledger=substituted,
+            registry_entries=[registry_entry],
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert (
+            "canonical_registry_multiplicity_population_mismatch"
             in gate["blockers"]
         )
 
@@ -940,6 +1069,7 @@ def main() -> int:
     test_canonical_champion_is_not_caller_selected()
     test_preregistration_must_precede_evaluation_head()
     test_registry_must_be_canonical_and_append_only()
+    test_append_only_registry_addition_does_not_reanchor_bundle()
     test_prior_performance_families_are_in_multiplicity_population()
     test_minimum_trials_and_observations_are_fail_closed()
     test_noise_does_not_become_a_promotable_winner()

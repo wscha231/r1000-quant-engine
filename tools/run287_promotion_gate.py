@@ -2858,7 +2858,6 @@ def overlay_multiple_testing_evidence(
         "evaluation_snapshot",
         "registration_registry_snapshot",
         "evaluation_registry_snapshot",
-        "canonical_do_not_repeat_registry",
         "return_matrix",
     }:
         raise ValueError("multiple_testing_source_manifest_inputs_invalid")

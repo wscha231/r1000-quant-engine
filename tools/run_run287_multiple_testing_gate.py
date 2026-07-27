@@ -40,6 +40,7 @@ SOURCE_MANIFEST_SCHEMA = "run287-multiple-testing-source-manifest-v1"
 LEDGER_SCHEMA = "run287-complete-experiment-ledger-v2"
 PREREGISTRATION_SCHEMA = "run287-experiment-preregistration-v2"
 EVALUATION_SNAPSHOT_SCHEMA = "run287-experiment-evaluation-snapshot-v2"
+PRIOR_TRIAL_MANIFEST_SCHEMA = "run287-prior-trial-manifest-v1"
 PROMOTION_STATE_SCHEMA = "run287-promotion-state-v1"
 CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH = (
     "docs/run287_do_not_repeat_registry.json"
@@ -70,6 +71,8 @@ CANONICAL_INPUT_CONTRACT = {
     ),
     "canonical_registry_history_preservation_required": True,
     "canonical_registry_multiplicity_classification_required": True,
+    "canonical_registry_exact_prior_trial_manifest_required": True,
+    "current_registry_history_validation_excluded_from_statistical_hash": True,
     "return_matrix_format": "csv",
     "date_column": "date",
     "return_semantics": (
@@ -250,6 +253,10 @@ def display_float(value: float) -> str:
 
 def unique_sorted(values: Iterable[str]) -> list[str]:
     return sorted({str(value) for value in values if str(value)})
+
+
+def normalize_registry_value(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def validate_contract(contract: dict[str, Any]) -> list[str]:
@@ -962,7 +969,11 @@ def validate_preregistration(
                 + ",".join(sorted(changed))
             )
 
-    required_prior_families: dict[tuple[str, str], int] = {}
+    required_prior_families: dict[
+        tuple[str, str],
+        dict[str, dict[str, str]],
+    ] = {}
+    seen_manifest_trial_ids: set[str] = set()
     for entry_id, entry in evaluation_entries.items():
         multiplicity = entry.get("multiplicity")
         if not isinstance(multiplicity, dict):
@@ -984,8 +995,9 @@ def validate_preregistration(
         candidate = str(multiplicity.get("candidate_id") or "")
         family = str(multiplicity.get("causal_family_id") or "")
         completed_count = multiplicity.get("completed_trial_count")
-        evidence_sha256 = str(
-            multiplicity.get("evidence_sha256") or ""
+        trial_specifications = multiplicity.get("trial_specifications")
+        trial_manifest_sha256 = str(
+            multiplicity.get("trial_manifest_sha256") or ""
         ).lower()
         if (
             performance_evaluated is not True
@@ -995,17 +1007,67 @@ def validate_preregistration(
                 "candidate_id",
                 "causal_family_id",
                 "completed_trial_count",
-                "evidence_sha256",
+                "trial_specifications",
+                "trial_manifest_sha256",
             }
             or not candidate
             or not family
             or isinstance(completed_count, bool)
             or not isinstance(completed_count, int)
             or completed_count <= 0
-            or not re.fullmatch(r"[0-9a-f]{64}", evidence_sha256)
+            or not isinstance(trial_specifications, dict)
+            or len(trial_specifications) != completed_count
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", trial_manifest_sha256
+            )
         ):
             blockers.append(
                 "evaluation_registry_performance_classification_invalid:"
+                + entry_id
+            )
+            continue
+        manifest_valid = True
+        for trial_id, specification in trial_specifications.items():
+            if (
+                not isinstance(trial_id, str)
+                or not trial_id
+                or trial_id in seen_manifest_trial_ids
+                or not isinstance(specification, dict)
+                or set(specification)
+                != {
+                    "candidate_id",
+                    "causal_family_id",
+                    "parameter_set_sha256",
+                    "return_column",
+                }
+                or specification.get("candidate_id") != candidate
+                or specification.get("causal_family_id") != family
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    str(
+                        specification.get("parameter_set_sha256")
+                        or ""
+                    ).lower(),
+                )
+                or not str(specification.get("return_column") or "")
+                or specification.get("return_column") == "date"
+            ):
+                manifest_valid = False
+                break
+            seen_manifest_trial_ids.add(trial_id)
+        manifest_payload = {
+            "schema_version": PRIOR_TRIAL_MANIFEST_SCHEMA,
+            "candidate_id": candidate,
+            "causal_family_id": family,
+            "trial_specifications": trial_specifications,
+        }
+        if (
+            not manifest_valid
+            or sha256_bytes(canonical_json_bytes(manifest_payload))
+            != trial_manifest_sha256
+        ):
+            blockers.append(
+                "evaluation_registry_prior_trial_manifest_invalid:"
                 + entry_id
             )
             continue
@@ -1016,13 +1078,16 @@ def validate_preregistration(
                 + entry_id
             )
             continue
-        required_prior_families[identity] = completed_count
+        required_prior_families[identity] = trial_specifications
 
     active_identity = (
         str(ledger.get("candidate_id") or ""),
         str(ledger.get("causal_family_id") or ""),
     )
-    observed_prior_families: dict[tuple[str, str], int] = {}
+    observed_prior_families: dict[
+        tuple[str, str],
+        dict[str, dict[str, str]],
+    ] = {}
     for trial in trials:
         identity = (
             str(trial["candidate_id"]),
@@ -1030,9 +1095,9 @@ def validate_preregistration(
         )
         if identity == active_identity:
             continue
-        observed_prior_families[identity] = (
-            observed_prior_families.get(identity, 0) + 1
-        )
+        observed_prior_families.setdefault(identity, {})[
+            str(trial["trial_id"])
+        ] = trial_specification_map([trial])[str(trial["trial_id"])]
     if observed_prior_families != required_prior_families:
         blockers.append(
             "canonical_registry_multiplicity_population_mismatch"
@@ -1042,23 +1107,26 @@ def validate_preregistration(
     if (
         preregistration.get("do_not_repeat_conflict_absent") is not True
         or not isinstance(descriptor, dict)
-        or current_registry.get("schema_version")
+        or evaluation_registry.get("schema_version")
         != "run287-do-not-repeat-registry-v1"
     ):
         blockers.append("preregistration_do_not_repeat_evidence_invalid")
     else:
         match_fields = CANONICAL_REGISTRY_MATCH_FIELDS
-        if any(not descriptor.get(field) for field in match_fields):
+        if any(
+            not normalize_registry_value(descriptor.get(field))
+            for field in match_fields
+        ):
             blockers.append("preregistration_do_not_repeat_descriptor_invalid")
         else:
             conflicts = [
                 str(entry.get("id") or "unknown")
-                for entry in current_registry.get("entries", [])
+                for entry in evaluation_registry.get("entries", [])
                 if isinstance(entry, dict)
                 and entry.get("blocked_reuse") is True
                 and all(
-                    str(entry.get(field) or "")
-                    == str(descriptor.get(field) or "")
+                    normalize_registry_value(entry.get(field))
+                    == normalize_registry_value(descriptor.get(field))
                     for field in match_fields
                 )
             ]
@@ -1646,13 +1714,6 @@ def evaluate(
         )
         if evaluation_registry_bytes
         else "",
-        "canonical_do_not_repeat_registry": sha256_file(
-            repository_root / CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
-        )
-        if (
-            repository_root / CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
-        ).is_file()
-        else "",
         "return_matrix": sha256_file(return_matrix_path)
         if return_matrix_path.is_file()
         else "",
@@ -1677,15 +1738,24 @@ def evaluate(
         )
         if evaluation_registry_bytes
         else "",
-        "canonical_do_not_repeat_registry": sha256_bytes(
-            current_registry_bytes
-        )
-        if current_registry_bytes
-        else "",
         "return_matrix": returns_hash,
     }
+    try:
+        current_registry_reread = (
+            repository_root / CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
+        ).read_bytes()
+    except OSError:
+        current_registry_reread = b""
+    current_registry_unchanged = bool(
+        current_registry_bytes
+        and current_registry_reread == current_registry_bytes
+    )
     if current_hashes != consumed_hashes:
         blockers.append("input_changed_during_evaluation")
+    if not current_registry_unchanged:
+        blockers.append(
+            "canonical_registry_changed_during_history_validation"
+        )
 
     statistical_pass = bool(
         dsr_result.get("passed")
@@ -1771,13 +1841,6 @@ def evaluate(
                 ],
                 "bytes": len(evaluation_registry_bytes),
             },
-            "canonical_do_not_repeat_registry": {
-                "path": CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH,
-                "sha256": consumed_hashes[
-                    "canonical_do_not_repeat_registry"
-                ],
-                "bytes": len(current_registry_bytes),
-            },
             "return_matrix": {
                 "path": source_name(return_matrix_path),
                 "sha256": returns_hash,
@@ -1850,6 +1913,7 @@ def evaluate(
         "white_reality_check": bool(white_result.get("passed")),
         "inputs_immutable_during_evaluation": (
             current_hashes == consumed_hashes
+            and current_registry_unchanged
         ),
     }
     gate = {
