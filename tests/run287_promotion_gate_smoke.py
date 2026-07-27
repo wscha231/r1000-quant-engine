@@ -102,6 +102,7 @@ def _write_valid_paper_portfolio(
     portfolio: str,
     *,
     dates_and_cash: list[tuple[str, float]],
+    effective_target_distinct: bool = False,
 ) -> None:
     directory = paper / portfolio
     directory.mkdir(parents=True)
@@ -129,8 +130,17 @@ def _write_valid_paper_portfolio(
     )
     target_path.write_text(target_text, encoding="utf-8")
     source_path.write_text(target_text, encoding="utf-8")
-    directory.joinpath("effective_target_latest.csv").write_text(
-        target_text, encoding="utf-8"
+    effective_target_text = target_text
+    if effective_target_distinct:
+        effective_target_text = (
+            "rebalance_date,ticker,weight,portfolio_kind,target_effective_date,"
+            "order_eligible_close_date\n"
+            f"{as_of_date},AAA,0.5,{portfolio},{as_of_date},{as_of_date}\n"
+            f"{as_of_date},CASH,0.5,{portfolio},{as_of_date},{as_of_date}\n"
+        )
+    effective_target_path = directory / "effective_target_latest.csv"
+    effective_target_path.write_text(
+        effective_target_text, encoding="utf-8"
     )
     bootstrap_path = paper / "bootstrap" / f"{portfolio}_account.json"
     bootstrap_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +161,7 @@ def _write_valid_paper_portfolio(
         encoding="utf-8",
     )
     seed_hash = sha256_file(bootstrap_path)
-    target_sha256 = sha256_file(target_path)
+    target_sha256 = sha256_file(effective_target_path)
     lifecycle_source = ("c" if portfolio == "main" else "d") * 64
     lifecycle_snapshot = ("e" if portfolio == "main" else "f") * 64
     directory.joinpath("account_state_latest.json").write_text(
@@ -1288,6 +1298,40 @@ def test_missed_daily_mark_does_not_invalidate_later_paper_snapshot() -> None:
         assert overlaid["rollback"]["integrity_error"] is False
         assert not any(
             "runtime_paper_missing_or_extra_nyse_session" in value
+            for value in overlaid["runtime_limitations"]
+        )
+
+
+def test_materialized_effective_target_may_differ_from_published_source() -> None:
+    _, _, evidence = _inputs()
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        paper = root / "daily_simulated_fill_ledger"
+        for portfolio in ("main", "concentrated"):
+            _write_valid_paper_portfolio(
+                paper,
+                portfolio,
+                dates_and_cash=[
+                    ("2027-06-29", 100.0),
+                    ("2027-06-30", 100.0),
+                ],
+                effective_target_distinct=True,
+            )
+        _finalize_valid_paper(paper)
+
+        overlaid = overlay_latest_run_evidence(evidence, root)
+        assert overlaid["rollback"]["integrity_error"] is False
+        assert overlaid["forward_paper"]["completed_market_sessions"] == 2
+        availability = overlaid["forward_paper"][
+            "integrity_availability"
+        ]
+        assert all(
+            availability[field] == "VERIFIED"
+            for field in availability
+            if field != "lifecycle_silent_deletion_count"
+        )
+        assert not any(
+            "runtime_paper_manifest_publication_target_mismatch" in value
             for value in overlaid["runtime_limitations"]
         )
 

@@ -2044,9 +2044,11 @@ def _validate_verified_paper_snapshot(
             raise ValueError(
                 f"runtime_paper_source_published_target_mismatch:{portfolio}"
             )
+        effective_target = directory / "effective_target_latest.csv"
         if (
-            manifest.get("target_sha256")
-            != accepted_row.get("published_target_sha256")
+            not effective_target.is_file()
+            or manifest.get("target_sha256")
+            != sha256_file(effective_target)
             or manifest.get("source_target_sha256")
             != accepted_row.get("source_target_sha256")
         ):
