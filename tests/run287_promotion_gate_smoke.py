@@ -272,6 +272,18 @@ def _write_valid_paper_portfolio(
         "resolved_fills_this_run": 0,
         "resolved_rejections_this_run": 0,
         "enqueued_this_run": 0,
+        "forward_metrics": {
+            "eligibility_rule": (
+                "FORWARD_MARK_AND_NOT_DURABLE_REPLAY_SESSION"
+            ),
+            "observations": len(dates_and_cash),
+            "excluded_replay_observations": 0,
+            "start_date": dates_and_cash[0][0],
+            "end_date": dates_and_cash[-1][0],
+            "cagr_status": "UNDERPOWERED",
+            "forward_cagr": None,
+            "historical_metric_replacement_allowed": False,
+        },
         "new_order_generation_suppressed": False,
         "simulated": True,
         "historical_cagr_mdd_replacement_allowed": False,
