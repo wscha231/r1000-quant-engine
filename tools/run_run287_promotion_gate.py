@@ -366,8 +366,18 @@ def main() -> int:
         observation = evidence.get("multiple_testing_gate_observation") or {}
         if (
             advanced_state
-            and approved_pointer.get("applicable_candidate_id")
-            != observation.get("candidate_id")
+            and (
+                approved_pointer.get("applicable_candidate_id")
+                != observation.get("candidate_id")
+                or approved_pointer.get("applicable_causal_family_id")
+                != observation.get("causal_family_id")
+                or approved_pointer.get("applicable_selected_trial_id")
+                != observation.get("selected_trial_id")
+                or (
+                    state.get("official_challenger") or {}
+                ).get("candidate_id")
+                != approved_pointer.get("applicable_candidate_id")
+            )
         ):
             raise ValueError(
                 "advanced_state_multiple_testing_candidate_mismatch"

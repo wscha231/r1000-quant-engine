@@ -2,6 +2,8 @@
   "schema_version": "run287-approved-multiple-testing-pointer-v1",
   "status": "UNAVAILABLE_RESEARCH_ONLY",
   "applicable_candidate_id": null,
+  "applicable_causal_family_id": null,
+  "applicable_selected_trial_id": null,
   "gate_path": null,
   "expected_gate_sha256": null,
   "contract_path": null,

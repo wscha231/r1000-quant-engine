@@ -75,10 +75,19 @@ This change adds the missing U4 statistical barrier:
   must be in a Git-anchored preregistration that strictly predates an exact
   evaluation-start snapshot;
 - rejected registry entries must remain append-only from registration through
-  evaluation and the current canonical registry;
-- every preregistered performance trial must appear in the complete experiment
-  ledger and synchronized after-cost excess-return matrix;
-- the matrix must contain at least 504 exact contiguous NYSE sessions;
+  evaluation and the current canonical registry, including the fixed
+  signal/mechanism/book/window matching semantics;
+- every current and prior performance trial across causal families must appear
+  in the complete experiment ledger and synchronized after-cost excess-return
+  matrix, while only one active causal challenger is allowed;
+- each canonical do-not-repeat entry must first be classified as
+  performance-evaluated or non-performance; the gate remains blocked until U0
+  completes that reviewed classification and the prior-family trial counts
+  exactly match the ledger;
+- each trial's candidate, causal family, parameter hash, and return column are
+  preregistered together;
+- the matrix must exactly match the preregistered first session, last session,
+  and count, and contain at least 504 contiguous NYSE sessions;
 - Deflated Sharpe probability must be at least 95%;
 - CSCV PBO over all 70 four-of-eight block splits must be at most 20%;
 - centered circular-block White Reality Check p-values for 5, 21, and 63
@@ -87,7 +96,8 @@ This change adds the missing U4 statistical barrier:
   snapshot, preregistration, and registry history, recomputes the full gate,
   and requires a byte-identical five-file bundle;
 - every non-research daily evaluation must carry the reviewed immutable bundle
-  through the canonical approved-pointer file before
+  through the canonical approved-pointer file and match its candidate to the
+  canonical state's official challenger before
   `multiple_testing_pass=true` can enter the promotion gate.
 
 Tracked evidence cannot set this bit. The official wrapper resets it to false

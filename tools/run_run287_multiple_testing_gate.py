@@ -37,15 +37,21 @@ DEFAULT_CONTRACT = ROOT / "docs" / "run287_multiple_testing_gate_contract.json"
 DEFAULT_PROMOTION_STATE = ROOT / "data_static" / "run287_promotion_state.json"
 GATE_SCHEMA = "run287-multiple-testing-gate-v1"
 SOURCE_MANIFEST_SCHEMA = "run287-multiple-testing-source-manifest-v1"
-LEDGER_SCHEMA = "run287-complete-experiment-ledger-v1"
-PREREGISTRATION_SCHEMA = "run287-experiment-preregistration-v1"
-EVALUATION_SNAPSHOT_SCHEMA = "run287-experiment-evaluation-snapshot-v1"
+LEDGER_SCHEMA = "run287-complete-experiment-ledger-v2"
+PREREGISTRATION_SCHEMA = "run287-experiment-preregistration-v2"
+EVALUATION_SNAPSHOT_SCHEMA = "run287-experiment-evaluation-snapshot-v2"
 PROMOTION_STATE_SCHEMA = "run287-promotion-state-v1"
 CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH = (
     "docs/run287_do_not_repeat_registry.json"
 )
+CANONICAL_REGISTRY_MATCH_FIELDS = [
+    "signal",
+    "mechanism",
+    "book",
+    "window",
+]
 CONTRACT_SCHEMA = "run287-multiple-testing-gate-contract-v1"
-CONTRACT_VERSION = "2026-07-27.1"
+CONTRACT_VERSION = "2026-07-27.2"
 EULER_MASCHERONI = 0.5772156649015329
 
 CANONICAL_INPUT_CONTRACT = {
@@ -56,11 +62,14 @@ CANONICAL_INPUT_CONTRACT = {
     "preregistration_commit_must_strictly_precede_evaluation_snapshot": True,
     "evaluation_snapshot_must_precede_or_equal_evaluation_head": True,
     "preregistered_trial_set_must_exactly_match_ledger": True,
+    "trial_identity_family_parameter_and_return_column_binding_required": True,
+    "exact_evaluation_window_preregistered": True,
     "canonical_promotion_state_champion_binding_required": True,
     "canonical_do_not_repeat_registry_path": (
         CANONICAL_DO_NOT_REPEAT_REGISTRY_PATH
     ),
     "canonical_registry_history_preservation_required": True,
+    "canonical_registry_multiplicity_classification_required": True,
     "return_matrix_format": "csv",
     "date_column": "date",
     "return_semantics": (
@@ -73,7 +82,9 @@ CANONICAL_INPUT_CONTRACT = {
     "ledger_binds_return_matrix_sha256": True,
     "costs_included_required": True,
     "complete_attempt_history_required": True,
-    "exactly_one_causal_family_required": True,
+    "one_active_causal_challenger_required": True,
+    "all_prior_performance_trials_in_multiplicity_population_required": True,
+    "minimum_prior_performance_evaluated_trials": 1,
     "all_performance_trials_preregistered": True,
     "selection_metric": "daily_sharpe",
     "selected_trial_must_be_reproducible": True,
@@ -95,8 +106,9 @@ CANONICAL_THRESHOLDS = {
 }
 CANONICAL_METHODOLOGY = {
     "preregistration": (
-        "candidate identity, canonical champion, causal family, selection "
-        "rule, complete trial parameter hashes, and canonical do-not-repeat "
+        "candidate identity, canonical champion, active causal family, exact "
+        "evaluation window, complete current and prior trial identities, "
+        "parameter hashes, return columns, and canonical do-not-repeat "
         "registry history must be bound by a preregistration Git blob that "
         "strictly predates an exact evaluation-start snapshot"
     ),
@@ -115,7 +127,9 @@ CANONICAL_METHODOLOGY = {
         "excess return; every configured block length must pass"
     ),
     "multiple_testing_population": (
-        "every completed performance trial in the complete experiment ledger"
+        "every prior and current completed performance trial in the complete "
+        "experiment ledger, across causal families, on one synchronized "
+        "after-cost evaluation window"
     ),
     "missing_evidence_policy": "fail_closed_without_imputation",
 }
@@ -331,6 +345,8 @@ def validate_ledger(
         blockers.append("causal_challenger_count_not_one")
     if ledger.get("complete_attempt_history") is not True:
         blockers.append("complete_attempt_history_not_proven")
+    if ledger.get("multiplicity_population_complete") is not True:
+        blockers.append("multiplicity_population_not_proven_complete")
     if ledger.get("preregistered") is not True:
         blockers.append("experiment_family_not_preregistered")
     if ledger.get("selection_metric") != "daily_sharpe":
@@ -359,12 +375,15 @@ def validate_ledger(
     seen_columns: set[str] = set()
     seen_hashes: set[str] = set()
     return_columns: dict[str, str] = {}
+    selected_trial_identity: tuple[str, str] | None = None
     for index, raw in enumerate(raw_trials):
         label = f"trial_{index:04d}"
         if not isinstance(raw, dict):
             blockers.append(f"{label}:row_not_object")
             continue
         trial_id = str(raw.get("trial_id") or "").strip()
+        trial_candidate_id = str(raw.get("candidate_id") or "").strip()
+        trial_family_id = str(raw.get("causal_family_id") or "").strip()
         return_column = str(raw.get("return_column") or "").strip()
         parameter_set = raw.get("parameter_set")
         parameter_hash = str(raw.get("parameter_set_sha256") or "").lower()
@@ -380,8 +399,10 @@ def validate_ledger(
             blockers.append(f"{label}:return_column_missing_or_duplicate")
         else:
             seen_columns.add(return_column)
-        if str(raw.get("causal_family_id") or "") != family_id:
-            blockers.append(f"{label}:causal_family_mismatch")
+        if not trial_candidate_id:
+            blockers.append(f"{label}:candidate_id_missing")
+        if not trial_family_id:
+            blockers.append(f"{label}:causal_family_id_missing")
         if raw.get("preregistered") is not True:
             blockers.append(f"{label}:not_preregistered")
         if raw.get("performance_evaluated") is not True:
@@ -400,19 +421,98 @@ def validate_ledger(
         trials.append(
             {
                 "trial_id": trial_id,
+                "candidate_id": trial_candidate_id,
+                "causal_family_id": trial_family_id,
                 "return_column": return_column,
                 "parameter_set_sha256": parameter_hash,
             }
         )
+        if trial_id == selected_trial_id:
+            selected_trial_identity = (
+                trial_candidate_id,
+                trial_family_id,
+            )
         if trial_id and return_column:
             return_columns[trial_id] = return_column
 
     if selected_trial_id and selected_trial_id not in seen_ids:
         blockers.append("selected_trial_id_not_in_ledger")
+    if (
+        selected_trial_identity is not None
+        and selected_trial_identity != (candidate_id, family_id)
+    ):
+        blockers.append("selected_trial_not_in_active_causal_challenger")
+    active_trials = [
+        trial
+        for trial in trials
+        if (
+            trial["candidate_id"],
+            trial["causal_family_id"],
+        )
+        == (candidate_id, family_id)
+    ]
+    if not active_trials:
+        blockers.append("active_causal_challenger_trials_missing")
+    prior_trials = [
+        trial
+        for trial in trials
+        if (
+            trial["candidate_id"],
+            trial["causal_family_id"],
+        )
+        != (candidate_id, family_id)
+    ]
+    minimum_prior = int(
+        CANONICAL_INPUT_CONTRACT[
+            "minimum_prior_performance_evaluated_trials"
+        ]
+    )
+    if len(prior_trials) < minimum_prior:
+        blockers.append(
+            "prior_performance_trial_population_missing:"
+            f"{len(prior_trials)}<{minimum_prior}"
+        )
+    if (
+        ledger.get("prior_performance_evaluated_trial_count")
+        != len(prior_trials)
+    ):
+        blockers.append(
+            "prior_performance_evaluated_trial_count_mismatch"
+        )
+    observed_family_count = len(
+        {
+            (
+                str(trial["candidate_id"]),
+                str(trial["causal_family_id"]),
+            )
+            for trial in trials
+        }
+    )
+    if (
+        ledger.get("performance_evaluated_family_count")
+        != observed_family_count
+    ):
+        blockers.append("performance_evaluated_family_count_mismatch")
     minimum = int(CANONICAL_THRESHOLDS["minimum_trials"])
     if len(trials) < minimum:
         blockers.append(f"minimum_trials_not_met:{len(trials)}<{minimum}")
     return unique_sorted(blockers), trials, return_columns
+
+
+def trial_specification_map(
+    trials: list[dict[str, Any]],
+) -> dict[str, dict[str, str]]:
+    return {
+        str(trial["trial_id"]): {
+            "candidate_id": str(trial["candidate_id"]),
+            "causal_family_id": str(trial["causal_family_id"]),
+            "parameter_set_sha256": str(
+                trial["parameter_set_sha256"]
+            ),
+            "return_column": str(trial["return_column"]),
+        }
+        for trial in trials
+    }
 
 
 def git_blob(
@@ -429,6 +529,54 @@ def git_blob(
     if process.returncode != 0:
         return b""
     return process.stdout
+
+
+def validate_evaluation_window(
+    value: Any,
+    label: str,
+) -> tuple[list[str], dict[str, Any]]:
+    blockers: list[str] = []
+    if not isinstance(value, dict) or set(value) != {
+        "calendar",
+        "date_column",
+        "first_session",
+        "last_session",
+        "session_count",
+    }:
+        return [f"{label}_evaluation_window_invalid"], {}
+    if value.get("calendar") != "NYSE":
+        blockers.append(f"{label}_evaluation_window_calendar_invalid")
+    if value.get("date_column") != "date":
+        blockers.append(f"{label}_evaluation_window_date_column_invalid")
+    first = str(value.get("first_session") or "")
+    last = str(value.get("last_session") or "")
+    count = value.get("session_count")
+    if (
+        not re.fullmatch(r"\d{4}-\d{2}-\d{2}", first)
+        or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", last)
+        or isinstance(count, bool)
+        or not isinstance(count, int)
+        or count <= 0
+    ):
+        blockers.append(f"{label}_evaluation_window_boundary_invalid")
+    else:
+        try:
+            expected_sessions = mcal.get_calendar("NYSE").schedule(
+                start_date=first,
+                end_date=last,
+            ).index.strftime("%Y-%m-%d").tolist()
+        except Exception:
+            expected_sessions = []
+        if (
+            not expected_sessions
+            or expected_sessions[0] != first
+            or expected_sessions[-1] != last
+            or len(expected_sessions) != count
+        ):
+            blockers.append(
+                f"{label}_evaluation_window_not_exact_contiguous_nyse"
+            )
+    return unique_sorted(blockers), value
 
 
 def validate_preregistration(
@@ -598,17 +746,33 @@ def validate_preregistration(
     if preregistration.get("canonical_champion") != canonical_champion:
         blockers.append("preregistration_canonical_champion_mismatch")
 
-    expected_trial_hashes = {
-        str(trial["trial_id"]): str(trial["parameter_set_sha256"])
-        for trial in trials
-    }
+    expected_trial_specifications = trial_specification_map(trials)
+    ledger_window_blockers, ledger_window = validate_evaluation_window(
+        ledger.get("evaluation_window"),
+        "ledger",
+    )
+    blockers.extend(ledger_window_blockers)
     if (
-        preregistration.get("trial_parameter_set_sha256")
-        != expected_trial_hashes
+        preregistration.get("trial_specifications")
+        != expected_trial_specifications
         or preregistration.get("preregistered_trial_count")
-        != len(expected_trial_hashes)
+        != len(expected_trial_specifications)
     ):
         blockers.append("preregistered_trial_set_mismatch")
+    if preregistration.get("evaluation_window") != ledger_window:
+        blockers.append("preregistration_evaluation_window_mismatch")
+    for field in (
+        "prior_performance_evaluated_trial_count",
+        "performance_evaluated_family_count",
+    ):
+        if preregistration.get(field) != ledger.get(field):
+            blockers.append(f"preregistration_{field}_mismatch")
+    if (
+        preregistration.get("multiplicity_population_complete") is not True
+    ):
+        blockers.append(
+            "preregistration_multiplicity_population_not_complete"
+        )
 
     registry_path = str(
         preregistration.get("do_not_repeat_registry_path") or ""
@@ -673,12 +837,27 @@ def validate_preregistration(
     if evaluation_snapshot.get("selection_metric") != "daily_sharpe":
         blockers.append("evaluation_snapshot_selection_metric_invalid")
     if (
-        evaluation_snapshot.get("trial_parameter_set_sha256")
-        != expected_trial_hashes
+        evaluation_snapshot.get("trial_specifications")
+        != expected_trial_specifications
         or evaluation_snapshot.get("evaluation_trial_count")
-        != len(expected_trial_hashes)
+        != len(expected_trial_specifications)
     ):
         blockers.append("evaluation_snapshot_trial_set_mismatch")
+    if evaluation_snapshot.get("evaluation_window") != ledger_window:
+        blockers.append("evaluation_snapshot_evaluation_window_mismatch")
+    for field in (
+        "prior_performance_evaluated_trial_count",
+        "performance_evaluated_family_count",
+    ):
+        if evaluation_snapshot.get(field) != ledger.get(field):
+            blockers.append(f"evaluation_snapshot_{field}_mismatch")
+    if (
+        evaluation_snapshot.get("multiplicity_population_complete")
+        is not True
+    ):
+        blockers.append(
+            "evaluation_snapshot_multiplicity_population_not_complete"
+        )
     if evaluation_snapshot.get(
         "preregistration"
     ) != {
@@ -741,6 +920,9 @@ def validate_preregistration(
         if payload.get("schema_version") != "run287-do-not-repeat-registry-v1":
             blockers.append(f"{label}_registry_schema_invalid")
             return {}
+        if payload.get("match_fields") != CANONICAL_REGISTRY_MATCH_FIELDS:
+            blockers.append(f"{label}_registry_match_fields_not_canonical")
+            return {}
         raw_entries = payload.get("entries")
         if not isinstance(raw_entries, list):
             blockers.append(f"{label}_registry_entries_invalid")
@@ -780,6 +962,82 @@ def validate_preregistration(
                 + ",".join(sorted(changed))
             )
 
+    required_prior_families: dict[tuple[str, str], int] = {}
+    for entry_id, entry in evaluation_entries.items():
+        multiplicity = entry.get("multiplicity")
+        if not isinstance(multiplicity, dict):
+            blockers.append(
+                "evaluation_registry_multiplicity_classification_missing:"
+                + entry_id
+            )
+            continue
+        performance_evaluated = multiplicity.get(
+            "performance_evaluated"
+        )
+        if performance_evaluated is False:
+            if set(multiplicity) != {"performance_evaluated"}:
+                blockers.append(
+                    "evaluation_registry_nonperformance_classification_invalid:"
+                    + entry_id
+                )
+            continue
+        candidate = str(multiplicity.get("candidate_id") or "")
+        family = str(multiplicity.get("causal_family_id") or "")
+        completed_count = multiplicity.get("completed_trial_count")
+        evidence_sha256 = str(
+            multiplicity.get("evidence_sha256") or ""
+        ).lower()
+        if (
+            performance_evaluated is not True
+            or set(multiplicity)
+            != {
+                "performance_evaluated",
+                "candidate_id",
+                "causal_family_id",
+                "completed_trial_count",
+                "evidence_sha256",
+            }
+            or not candidate
+            or not family
+            or isinstance(completed_count, bool)
+            or not isinstance(completed_count, int)
+            or completed_count <= 0
+            or not re.fullmatch(r"[0-9a-f]{64}", evidence_sha256)
+        ):
+            blockers.append(
+                "evaluation_registry_performance_classification_invalid:"
+                + entry_id
+            )
+            continue
+        identity = (candidate, family)
+        if identity in required_prior_families:
+            blockers.append(
+                "evaluation_registry_duplicate_performance_family:"
+                + entry_id
+            )
+            continue
+        required_prior_families[identity] = completed_count
+
+    active_identity = (
+        str(ledger.get("candidate_id") or ""),
+        str(ledger.get("causal_family_id") or ""),
+    )
+    observed_prior_families: dict[tuple[str, str], int] = {}
+    for trial in trials:
+        identity = (
+            str(trial["candidate_id"]),
+            str(trial["causal_family_id"]),
+        )
+        if identity == active_identity:
+            continue
+        observed_prior_families[identity] = (
+            observed_prior_families.get(identity, 0) + 1
+        )
+    if observed_prior_families != required_prior_families:
+        blockers.append(
+            "canonical_registry_multiplicity_population_mismatch"
+        )
+
     descriptor = preregistration.get("do_not_repeat_descriptor")
     if (
         preregistration.get("do_not_repeat_conflict_absent") is not True
@@ -789,13 +1047,8 @@ def validate_preregistration(
     ):
         blockers.append("preregistration_do_not_repeat_evidence_invalid")
     else:
-        match_fields = current_registry.get(
-            "match_fields",
-            ["signal", "mechanism", "book", "window"],
-        )
-        if not isinstance(match_fields, list) or any(
-            not descriptor.get(str(field)) for field in match_fields
-        ):
+        match_fields = CANONICAL_REGISTRY_MATCH_FIELDS
+        if any(not descriptor.get(field) for field in match_fields):
             blockers.append("preregistration_do_not_repeat_descriptor_invalid")
         else:
             conflicts = [
@@ -804,8 +1057,8 @@ def validate_preregistration(
                 if isinstance(entry, dict)
                 and entry.get("blocked_reuse") is True
                 and all(
-                    str(entry.get(str(field)) or "")
-                    == str(descriptor.get(str(field)) or "")
+                    str(entry.get(field) or "")
+                    == str(descriptor.get(field) or "")
                     for field in match_fields
                 )
             ]
@@ -1304,6 +1557,16 @@ def evaluate(
         returns_bytes, trials
     )
     blockers.extend(matrix_blockers)
+    if dates is not None and len(dates):
+        observed_window = {
+            "calendar": "NYSE",
+            "date_column": "date",
+            "first_session": dates[0].date().isoformat(),
+            "last_session": dates[-1].date().isoformat(),
+            "session_count": len(dates),
+        }
+        if observed_window != ledger.get("evaluation_window"):
+            blockers.append("return_matrix_evaluation_window_mismatch")
     trial_ids = [str(trial["trial_id"]) for trial in trials]
     selected_id = str(ledger.get("selected_trial_id") or "")
     candidate_id = str(ledger.get("candidate_id") or "")
@@ -1534,8 +1797,26 @@ def evaluate(
         "contract_valid": not contract_blockers,
         "complete_experiment_ledger": not ledger_blockers,
         "canonical_champion_binding": not champion_blockers,
-        "single_preregistered_causal_family": not any(
-            "causal_" in blocker or "preregister" in blocker
+        "one_active_causal_challenger": not any(
+            blocker
+            in {
+                "causal_challenger_count_not_one",
+                "active_causal_challenger_trials_missing",
+                "selected_trial_not_in_active_causal_challenger",
+            }
+            or "preregistration_candidate_id" in blocker
+            or "preregistration_causal_family_id" in blocker
+            for blocker in ledger_blockers + preregistration_blockers
+        ),
+        "complete_cross_family_multiplicity_population": not any(
+            "multiplicity_population" in blocker
+            or "registry_multiplicity" in blocker
+            or "registry_performance_classification" in blocker
+            or "registry_nonperformance_classification" in blocker
+            or "prior_performance" in blocker
+            or "performance_evaluated_family_count" in blocker
+            or blocker.endswith(":candidate_id_missing")
+            or blocker.endswith(":causal_family_id_missing")
             for blocker in ledger_blockers + preregistration_blockers
         ),
         "git_anchored_preregistration": not preregistration_blockers,
@@ -1626,6 +1907,23 @@ def evaluate(
         },
         "sample": {
             "trial_count": len(trials),
+            "active_trial_count": sum(
+                (
+                    trial["candidate_id"],
+                    trial["causal_family_id"],
+                )
+                == (
+                    str(ledger.get("candidate_id") or ""),
+                    str(ledger.get("causal_family_id") or ""),
+                )
+                for trial in trials
+            ),
+            "prior_performance_evaluated_trial_count": (
+                ledger.get("prior_performance_evaluated_trial_count")
+            ),
+            "performance_evaluated_family_count": ledger.get(
+                "performance_evaluated_family_count"
+            ),
             "observation_count": int(matrix.shape[0])
             if matrix is not None
             else 0,

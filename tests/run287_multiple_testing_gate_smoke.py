@@ -41,6 +41,25 @@ EXPECTED_OUTPUTS = {
 }
 
 
+def default_prior_registry_entry() -> dict[str, Any]:
+    return {
+        "id": "prior-performance-family",
+        "signal": "prior_signal",
+        "mechanism": "prior_mechanism",
+        "book": "prior_book",
+        "window": "prior_window",
+        "status": "REJECTED",
+        "blocked_reuse": True,
+        "multiplicity": {
+            "performance_evaluated": True,
+            "candidate_id": "run287-prior-performance-family",
+            "causal_family_id": "prior_performance_family",
+            "completed_trial_count": 1,
+            "evidence_sha256": "1" * 64,
+        },
+    }
+
+
 def strong_matrix(
     observation_count: int = 504,
     trial_count: int = 5,
@@ -75,9 +94,15 @@ def ledger_for(matrix: np.ndarray) -> dict[str, Any]:
     canonical_champion = promotion_state["canonical_champion"]
     trial_ids = [f"trial_{index:02d}" for index in range(matrix.shape[1])]
     sharpes = MOD.sharpe_vector(matrix)
-    selected_id, _ = MOD.selected_trial(trial_ids, sharpes)
+    selected_id, selected_index = MOD.selected_trial(trial_ids, sharpes)
+    prior_index = (
+        len(trial_ids) - 1
+        if selected_index != len(trial_ids) - 1
+        else 0
+    )
     trials = []
     for index, trial_id in enumerate(trial_ids):
+        prior_trial = index == prior_index
         parameter_set = {
             "rank_power": round(1.0 + index * 0.1, 2),
             "no_trade_band_bps": index * 5,
@@ -85,7 +110,16 @@ def ledger_for(matrix: np.ndarray) -> dict[str, Any]:
         trials.append(
             {
                 "trial_id": trial_id,
-                "causal_family_id": "pit_leadership_acceleration_v1",
+                "candidate_id": (
+                    "run287-prior-performance-family"
+                    if prior_trial
+                    else "run287-pit-leadership-acceleration-v1"
+                ),
+                "causal_family_id": (
+                    "prior_performance_family"
+                    if prior_trial
+                    else "pit_leadership_acceleration_v1"
+                ),
                 "preregistered": True,
                 "performance_evaluated": True,
                 "status": "COMPLETED",
@@ -104,6 +138,9 @@ def ledger_for(matrix: np.ndarray) -> dict[str, Any]:
         "causal_family_id": "pit_leadership_acceleration_v1",
         "causal_challenger_count": 1,
         "complete_attempt_history": True,
+        "multiplicity_population_complete": True,
+        "prior_performance_evaluated_trial_count": 1,
+        "performance_evaluated_family_count": 2,
         "preregistered": True,
         "selection_metric": "daily_sharpe",
         "return_semantics": MOD.CANONICAL_INPUT_CONTRACT["return_semantics"],
@@ -126,6 +163,18 @@ def write_fixture(
 ) -> dict[str, Path]:
     root.mkdir(parents=True, exist_ok=True)
     payload = ledger or ledger_for(matrix)
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date="2022-01-03",
+        end_date="2026-12-31",
+    )
+    dates = schedule.index[: matrix.shape[0]]
+    payload["evaluation_window"] = {
+        "calendar": "NYSE",
+        "date_column": "date",
+        "first_session": dates[0].date().isoformat(),
+        "last_session": dates[-1].date().isoformat(),
+        "session_count": len(dates),
+    }
     repository = root / "registration_repository"
     repository.mkdir()
 
@@ -144,13 +193,18 @@ def write_fixture(
     git("config", "core.autocrlf", "false")
     docs = repository / "docs"
     docs.mkdir()
+    effective_registry_entries = (
+        [default_prior_registry_entry()]
+        if registry_entries is None
+        else registry_entries
+    )
     registry_path = docs / "run287_do_not_repeat_registry.json"
     registry_path.write_text(
         json.dumps(
             {
                 "schema_version": "run287-do-not-repeat-registry-v1",
                 "match_fields": ["signal", "mechanism", "book", "window"],
-                "entries": registry_entries or [],
+                "entries": effective_registry_entries,
             },
             sort_keys=True,
         )
@@ -173,10 +227,17 @@ def write_fixture(
                 "selection_metric": "daily_sharpe",
                 "registered_before_evaluation": True,
                 "preregistered_trial_count": len(payload["trials"]),
-                "trial_parameter_set_sha256": {
-                    trial["trial_id"]: trial["parameter_set_sha256"]
-                    for trial in payload["trials"]
-                },
+                "trial_specifications": MOD.trial_specification_map(
+                    payload["trials"]
+                ),
+                "evaluation_window": payload["evaluation_window"],
+                "multiplicity_population_complete": True,
+                "prior_performance_evaluated_trial_count": payload[
+                    "prior_performance_evaluated_trial_count"
+                ],
+                "performance_evaluated_family_count": payload[
+                    "performance_evaluated_family_count"
+                ],
                 "do_not_repeat_registry_path": (
                     preregistration_registry_path
                 ),
@@ -216,10 +277,17 @@ def write_fixture(
                 "causal_family_id": payload["causal_family_id"],
                 "selection_metric": "daily_sharpe",
                 "evaluation_trial_count": len(payload["trials"]),
-                "trial_parameter_set_sha256": {
-                    trial["trial_id"]: trial["parameter_set_sha256"]
-                    for trial in payload["trials"]
-                },
+                "trial_specifications": MOD.trial_specification_map(
+                    payload["trials"]
+                ),
+                "evaluation_window": payload["evaluation_window"],
+                "multiplicity_population_complete": True,
+                "prior_performance_evaluated_trial_count": payload[
+                    "prior_performance_evaluated_trial_count"
+                ],
+                "performance_evaluated_family_count": payload[
+                    "performance_evaluated_family_count"
+                ],
                 "preregistration": {
                     "commit_sha": registration_commit,
                     "path": "docs/challenger_preregistration.json",
@@ -259,11 +327,6 @@ def write_fixture(
         evaluation_snapshot_blob
     )
     ledger_path = root / "experiment_ledger.json"
-    schedule = mcal.get_calendar("NYSE").schedule(
-        start_date="2022-01-03",
-        end_date="2026-12-31",
-    )
-    dates = schedule.index[: matrix.shape[0]]
     frame = pd.DataFrame(
         {
             trial["return_column"]: matrix[:, index]
@@ -371,6 +434,49 @@ def test_matrix_must_match_every_recorded_trial_and_date() -> None:
         assert gate["sample"]["observation_count"] == 0
 
 
+def test_return_columns_and_evaluation_window_are_preregistered() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        paths = write_fixture(root, strong_matrix())
+        ledger = json.loads(paths["ledger"].read_text(encoding="utf-8"))
+        first = ledger["trials"][0]["return_column"]
+        second = ledger["trials"][1]["return_column"]
+        ledger["trials"][0]["return_column"] = second
+        ledger["trials"][1]["return_column"] = first
+        paths["ledger"].write_text(
+            json.dumps(ledger, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert "preregistered_trial_set_mismatch" in gate["blockers"]
+        assert "evaluation_snapshot_trial_set_mismatch" in gate["blockers"]
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        paths = write_fixture(root, strong_matrix())
+        frame = pd.read_csv(paths["returns"])
+        shifted = mcal.get_calendar("NYSE").schedule(
+            start_date="2023-01-03",
+            end_date="2026-12-31",
+        ).index[: len(frame)]
+        frame["date"] = shifted.strftime("%Y-%m-%d")
+        frame.to_csv(
+            paths["returns"],
+            index=False,
+            lineterminator="\n",
+        )
+        ledger = json.loads(paths["ledger"].read_text(encoding="utf-8"))
+        ledger["return_matrix_sha256"] = MOD.sha256_file(paths["returns"])
+        paths["ledger"].write_text(
+            json.dumps(ledger, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert "return_matrix_evaluation_window_mismatch" in gate["blockers"]
+
+
 def test_selected_trial_is_reproduced_not_trusted() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -386,6 +492,24 @@ def test_selected_trial_is_reproduced_not_trusted() -> None:
             in gate["blockers"]
         )
         assert gate["deflated_sharpe"]["status"] == "NOT_EVALUATED"
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        matrix = strong_matrix()
+        ledger = ledger_for(matrix)
+        prior_trial = next(
+            trial
+            for trial in ledger["trials"]
+            if trial["candidate_id"] != ledger["candidate_id"]
+        )
+        ledger["selected_trial_id"] = prior_trial["trial_id"]
+        paths = write_fixture(root, matrix, ledger=ledger)
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert (
+            "selected_trial_not_in_active_causal_challenger"
+            in gate["blockers"]
+        )
 
 
 def test_canonical_champion_is_not_caller_selected() -> None:
@@ -461,6 +585,9 @@ def test_registry_must_be_canonical_and_append_only() -> None:
             "book": "prior_book",
             "window": "prior_window",
             "blocked_reuse": True,
+            "multiplicity": {
+                "performance_evaluated": False,
+            },
         }
         paths = write_fixture(
             root,
@@ -499,6 +626,74 @@ def test_registry_must_be_canonical_and_append_only() -> None:
             for blocker in gate["blockers"]
         )
         assert gate["checks"]["canonical_registry_history"] is False
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        paths = write_fixture(root, strong_matrix())
+        registry = (
+            paths["repository"]
+            / "docs"
+            / "run287_do_not_repeat_registry.json"
+        )
+        payload = json.loads(registry.read_text(encoding="utf-8"))
+        payload["match_fields"] = [
+            "signal",
+            "mechanism",
+            "book",
+            "window",
+            "caller_selected_field",
+        ]
+        registry.write_text(
+            json.dumps(payload, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert "current_registry_match_fields_not_canonical" in gate[
+            "blockers"
+        ]
+
+
+def test_prior_performance_families_are_in_multiplicity_population() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        matrix = strong_matrix()
+        ledger = ledger_for(matrix)
+        for trial in ledger["trials"]:
+            trial["candidate_id"] = ledger["candidate_id"]
+            trial["causal_family_id"] = ledger["causal_family_id"]
+        ledger["prior_performance_evaluated_trial_count"] = 0
+        ledger["performance_evaluated_family_count"] = 1
+        paths = write_fixture(root, matrix, ledger=ledger)
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert (
+            "prior_performance_trial_population_missing:0<1"
+            in gate["blockers"]
+        )
+        assert (
+            gate["checks"][
+                "complete_cross_family_multiplicity_population"
+            ]
+            is False
+        )
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        unclassified = default_prior_registry_entry()
+        unclassified.pop("multiplicity")
+        paths = write_fixture(
+            root,
+            strong_matrix(),
+            registry_entries=[unclassified],
+        )
+        gate = run(paths)
+        assert gate["passed"] is False
+        assert (
+            "evaluation_registry_multiplicity_classification_missing:"
+            "prior-performance-family"
+            in gate["blockers"]
+        )
 
 
 def test_minimum_trials_and_observations_are_fail_closed() -> None:
@@ -651,6 +846,31 @@ def test_promotion_overlay_requires_exact_untampered_bundle() -> None:
         else:
             raise AssertionError("caller-selected champion was accepted")
 
+        advanced_state = read_json(DEFAULT_STATE)
+        advanced_state["promotion_state"] = "SHADOW_OPERATION_READY"
+        advanced_state["official_challenger"] = {
+            "candidate_id": "different-candidate",
+            "causal_family_id": gate["causal_family_id"],
+            "selected_trial_id": gate["selected_trial_id"],
+            "multiple_testing_gate_sha256": MOD.sha256_file(gate_path),
+        }
+        try:
+            overlay_multiple_testing_evidence(
+                base,
+                gate_path,
+                expected_gate_sha256=MOD.sha256_file(gate_path),
+                contract_path=CONTRACT,
+                experiment_ledger_path=paths["ledger"],
+                return_matrix_path=paths["returns"],
+                promotion_state_snapshot_path=paths["promotion_state"],
+                repository_root=paths["repository"],
+                current_promotion_state=advanced_state,
+            )
+        except ValueError as exc:
+            assert "official_challenger_mismatch" in str(exc)
+        else:
+            raise AssertionError("mismatched official challenger was accepted")
+
 
 def test_official_promotion_wrapper_ignores_unattested_true_bit() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -715,10 +935,12 @@ def main() -> int:
     test_strong_complete_family_passes_and_is_deterministic()
     test_incomplete_or_forged_trial_history_fails_without_statistics()
     test_matrix_must_match_every_recorded_trial_and_date()
+    test_return_columns_and_evaluation_window_are_preregistered()
     test_selected_trial_is_reproduced_not_trusted()
     test_canonical_champion_is_not_caller_selected()
     test_preregistration_must_precede_evaluation_head()
     test_registry_must_be_canonical_and_append_only()
+    test_prior_performance_families_are_in_multiplicity_population()
     test_minimum_trials_and_observations_are_fail_closed()
     test_noise_does_not_become_a_promotable_winner()
     test_contract_thresholds_cannot_be_weakened()

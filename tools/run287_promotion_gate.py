@@ -64,12 +64,13 @@ MULTIPLE_TESTING_GATE_SCHEMA = "run287-multiple-testing-gate-v1"
 MULTIPLE_TESTING_SOURCE_MANIFEST_SCHEMA = (
     "run287-multiple-testing-source-manifest-v1"
 )
-MULTIPLE_TESTING_CONTRACT_VERSION = "2026-07-27.1"
+MULTIPLE_TESTING_CONTRACT_VERSION = "2026-07-27.2"
 MULTIPLE_TESTING_REQUIRED_CHECKS = (
     "contract_valid",
     "complete_experiment_ledger",
     "canonical_champion_binding",
-    "single_preregistered_causal_family",
+    "one_active_causal_challenger",
+    "complete_cross_family_multiplicity_population",
     "git_anchored_preregistration",
     "evaluation_snapshot_binding",
     "canonical_registry_history",
@@ -94,6 +95,7 @@ MULTIPLE_TESTING_THRESHOLDS = {
     "bootstrap_random_seed": 28720260727,
     "annualization_sessions": 252,
 }
+MULTIPLE_TESTING_MINIMUM_PRIOR_PERFORMANCE_TRIALS = 1
 MULTIPLE_TESTING_SAFETY = {
     "research_only": True,
     "automatic_promotion_allowed": False,
@@ -2614,6 +2616,35 @@ def overlay_multiple_testing_evidence(
         or gate.get("reproduced_selected_trial_id") != selected_trial_id
     ):
         raise ValueError("multiple_testing_gate_selected_trial_invalid")
+    advanced_state = (
+        current_promotion_state.get("promotion_state") != "RESEARCH_ONLY"
+    )
+    official_challenger = current_promotion_state.get(
+        "official_challenger"
+    )
+    if advanced_state:
+        required_official_identity = {
+            "candidate_id": candidate_id,
+            "causal_family_id": gate.get("causal_family_id"),
+            "selected_trial_id": selected_trial_id,
+            "multiple_testing_gate_sha256": actual_gate_sha256,
+        }
+        if (
+            not isinstance(official_challenger, dict)
+            or any(
+                not isinstance(official_challenger.get(field), str)
+                or not official_challenger[field]
+                for field in required_official_identity
+            )
+            or any(
+                official_challenger.get(field) != expected_value
+                for field, expected_value
+                in required_official_identity.items()
+            )
+        ):
+            raise ValueError(
+                "multiple_testing_gate_official_challenger_mismatch"
+            )
     if gate.get("thresholds") != MULTIPLE_TESTING_THRESHOLDS:
         raise ValueError("multiple_testing_gate_thresholds_invalid")
     checks = gate.get("checks")
@@ -2675,6 +2706,28 @@ def overlay_multiple_testing_evidence(
     )
     if trial_count < MULTIPLE_TESTING_THRESHOLDS["minimum_trials"]:
         raise ValueError("multiple_testing_gate_trial_count_under_threshold")
+    active_trial_count = _integer(
+        sample.get("active_trial_count"),
+        "multiple_testing_active_trial_count",
+    )
+    prior_trial_count = _integer(
+        sample.get("prior_performance_evaluated_trial_count"),
+        "multiple_testing_prior_trial_count",
+    )
+    family_count = _integer(
+        sample.get("performance_evaluated_family_count"),
+        "multiple_testing_family_count",
+    )
+    if (
+        active_trial_count <= 0
+        or prior_trial_count
+        < MULTIPLE_TESTING_MINIMUM_PRIOR_PERFORMANCE_TRIALS
+        or active_trial_count + prior_trial_count != trial_count
+        or family_count < 2
+    ):
+        raise ValueError(
+            "multiple_testing_gate_cross_family_population_invalid"
+        )
     if (
         observation_count
         < MULTIPLE_TESTING_THRESHOLDS["minimum_synchronous_observations"]
