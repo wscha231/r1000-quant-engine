@@ -562,6 +562,11 @@ def metrics_by_portfolio(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 if isinstance(item, dict)
                 else None
             )
+            historical = (
+                item.get("historical_locked")
+                if isinstance(item, dict)
+                else None
+            )
             if not isinstance(chain, dict):
                 continue
             latest_view = metric_view(
@@ -600,9 +605,20 @@ def metrics_by_portfolio(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
             historical_view = result.get(portfolio, {})
             result[portfolio] = {
                 **historical_view,
-                "historical_cagr": historical_view.get("cagr"),
-                "historical_max_drawdown": historical_view.get(
-                    "max_drawdown"
+                "historical_cagr": (
+                    historical.get("cagr")
+                    if isinstance(historical, dict)
+                    else None
+                ),
+                "historical_max_drawdown": (
+                    historical.get("max_drawdown")
+                    if isinstance(historical, dict)
+                    else None
+                ),
+                "historical_end_date": (
+                    historical.get("end_date")
+                    if isinstance(historical, dict)
+                    else None
                 ),
                 **overlay_fields,
                 "cagr_is_latest_close_diagnostic": True,
@@ -656,10 +672,33 @@ def latest_close_payload_is_safe(
             if isinstance(item, dict)
             else None
         )
-        if not isinstance(chain, dict) or not isinstance(operating, dict):
+        historical = (
+            item.get("historical_locked")
+            if isinstance(item, dict)
+            else None
+        )
+        if (
+            not isinstance(chain, dict)
+            or not isinstance(operating, dict)
+            or not isinstance(historical, dict)
+        ):
             return False
         if (
-            chain.get("status") != "LATEST_CLOSE_DIAGNOSTIC"
+            historical.get("status")
+            != "LOCKED_HISTORICAL_BASELINE"
+            or historical.get(
+                "historical_metric_replacement_allowed"
+            )
+            is not False
+            or not clean_text(
+                historical.get("start_date"),
+                max_length=16,
+            )
+            or not clean_text(
+                historical.get("end_date"),
+                max_length=16,
+            )
+            or chain.get("status") != "LATEST_CLOSE_DIAGNOSTIC"
             or clean_text(chain.get("end_date"), max_length=16)
             != expected_session_date
             or chain.get("cagr_endpoint_chain_exact") is not True
@@ -683,6 +722,8 @@ def latest_close_payload_is_safe(
         ):
             return False
         for value in (
+            historical.get("cagr"),
+            historical.get("max_drawdown"),
             chain.get("cagr"),
             chain.get("max_drawdown"),
             operating.get("total_return"),

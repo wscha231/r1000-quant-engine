@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 from tools.build_public_portfolio_dashboard import (  # noqa: E402
     build_dashboard,
     latest_close_payload_is_safe,
+    metrics_by_portfolio,
     validate_public_payload,
 )
 from tests.run287_paper_ledger_transaction_smoke import (  # noqa: E402
@@ -74,6 +75,14 @@ def write_latest_close_metrics(
         ("concentrated", concentrated_cagr, -0.23),
     ):
         portfolios[portfolio] = {
+            "historical_locked": {
+                "status": "LOCKED_HISTORICAL_BASELINE",
+                "cagr": 0.35 if portfolio == "main" else 0.51,
+                "max_drawdown": -0.24 if portfolio == "main" else -0.22,
+                "start_date": "2019-06-03",
+                "end_date": "2026-07-10",
+                "historical_metric_replacement_allowed": False,
+            },
             "latest_close_chain_linked": {
                 "status": "LATEST_CLOSE_DIAGNOSTIC",
                 "cagr": cagr,
@@ -559,6 +568,13 @@ def test_latest_close_safety_contract_rejects_incomplete_payloads() -> None:
             safe,
             expected_session_date="2026-07-24",
         )
+        latest_only_metrics = metrics_by_portfolio(
+            {"latest_close_performance": safe}
+        )
+        assert latest_only_metrics["main"]["historical_cagr"] == 0.35
+        assert latest_only_metrics["main"]["historical_max_drawdown"] == (
+            -0.24
+        )
 
         mutations = [
             lambda payload: payload.update(
@@ -573,6 +589,9 @@ def test_latest_close_safety_contract_rejects_incomplete_payloads() -> None:
             lambda payload: payload["portfolios"].pop("concentrated"),
             lambda payload: payload["portfolios"]["main"].pop(
                 "operating_since_seed"
+            ),
+            lambda payload: payload["portfolios"]["main"].pop(
+                "historical_locked"
             ),
             lambda payload: payload["portfolios"]["main"][
                 "latest_close_chain_linked"
