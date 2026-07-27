@@ -1,0 +1,88 @@
+{
+  "schema_version": "run287-multiple-testing-gate-contract-v1",
+  "contract_version": "2026-07-27.2",
+  "input_contract": {
+    "experiment_ledger_schema_version": "run287-complete-experiment-ledger-v2",
+    "preregistration_schema_version": "run287-experiment-preregistration-v2",
+    "evaluation_snapshot_schema_version": "run287-experiment-evaluation-snapshot-v2",
+    "git_anchored_preregistration_required": true,
+    "preregistration_commit_must_strictly_precede_evaluation_snapshot": true,
+    "evaluation_snapshot_must_precede_or_equal_evaluation_head": true,
+    "preregistered_trial_set_must_exactly_match_ledger": true,
+    "trial_identity_family_parameter_and_return_column_binding_required": true,
+    "exact_evaluation_window_preregistered": true,
+    "canonical_promotion_state_champion_binding_required": true,
+    "canonical_do_not_repeat_registry_path": "docs/run287_do_not_repeat_registry.json",
+    "canonical_registry_history_preservation_required": true,
+    "canonical_registry_multiplicity_classification_required": true,
+    "canonical_registry_exact_prior_trial_manifest_required": true,
+    "current_registry_history_validation_excluded_from_statistical_hash": true,
+    "return_matrix_format": "csv",
+    "date_column": "date",
+    "return_semantics": "daily_arithmetic_excess_return_vs_canonical_champion_after_costs",
+    "exact_return_column_set_required": true,
+    "strictly_increasing_unique_dates_required": true,
+    "exact_contiguous_nyse_sessions_required": true,
+    "finite_complete_matrix_required": true,
+    "ledger_binds_return_matrix_sha256": true,
+    "costs_included_required": true,
+    "complete_attempt_history_required": true,
+    "one_active_causal_challenger_required": true,
+    "all_prior_performance_trials_in_multiplicity_population_required": true,
+    "minimum_prior_performance_evaluated_trials": 1,
+    "all_performance_trials_preregistered": true,
+    "selection_metric": "daily_sharpe",
+    "selected_trial_must_be_reproducible": true,
+    "equal_size_cscv_blocks_required": true,
+    "parameter_set_hash": "sha256_of_canonical_json",
+    "duplicate_parameter_sets_allowed": false
+  },
+  "thresholds": {
+    "minimum_trials": 5,
+    "minimum_synchronous_observations": 504,
+    "cscv_contiguous_blocks": 8,
+    "deflated_sharpe_probability_minimum": 0.95,
+    "probability_of_backtest_overfitting_maximum": 0.2,
+    "white_reality_check_p_value_maximum": 0.1,
+    "bootstrap_repetitions": 2000,
+    "bootstrap_block_lengths": [
+      5,
+      21,
+      63
+    ],
+    "bootstrap_random_seed": 28720260727,
+    "annualization_sessions": 252
+  },
+  "methodology": {
+    "preregistration": "candidate identity, canonical champion, active causal family, exact evaluation window, complete current and prior trial identities, parameter hashes, return columns, and canonical do-not-repeat registry history must be bound by a preregistration Git blob that strictly predates an exact evaluation-start snapshot",
+    "deflated_sharpe": "probabilistic Sharpe ratio against the expected maximum Sharpe across every recorded trial, adjusted for observed skewness and Pearson kurtosis",
+    "pbo": "combinatorially symmetric cross-validation over every 4-of-8 contiguous in-sample block combination; PBO is the fraction whose selected strategy has out-of-sample logit rank at or below zero",
+    "white_reality_check": "centered circular fixed-block bootstrap of the maximum mean daily excess return; every configured block length must pass",
+    "multiple_testing_population": "every prior and current completed performance trial in the complete experiment ledger, across causal families, on one synchronized after-cost evaluation window",
+    "missing_evidence_policy": "fail_closed_without_imputation"
+  },
+  "references": {
+    "deflated_sharpe": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551",
+    "probability_of_backtest_overfitting": "https://escholarship.org/uc/item/4w1110bb",
+    "white_reality_check": "https://doi.org/10.1111/1468-0262.00152"
+  },
+  "outputs": [
+    "source_manifest.json",
+    "multiple_testing_gate.json",
+    "cscv_splits.csv",
+    "white_reality_check.json",
+    "report.md"
+  ],
+  "safety": {
+    "research_only": true,
+    "automatic_promotion_allowed": false,
+    "champion_change_allowed": false,
+    "portfolio_mutation_allowed": false,
+    "target_books_mutated": false,
+    "operating_ledger_mutated": false,
+    "orders_generated": false,
+    "fullrun_executed_by_gate": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}

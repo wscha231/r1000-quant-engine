@@ -7,6 +7,7 @@ import json
 import math
 import csv
 import copy
+import tempfile
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -59,6 +60,54 @@ SCORECARD_SOURCE_REGISTRY = ROOT / "docs" / "run287_operating_scorecard_sources.
 SCORECARD_SOURCE_REGISTRY_SHA256 = (
     "07b76f7980904ad7c3609176ff35369708bd636f5ce70d0776bd50e389da1801"
 )
+MULTIPLE_TESTING_GATE_SCHEMA = "run287-multiple-testing-gate-v1"
+MULTIPLE_TESTING_SOURCE_MANIFEST_SCHEMA = (
+    "run287-multiple-testing-source-manifest-v1"
+)
+MULTIPLE_TESTING_CONTRACT_VERSION = "2026-07-27.2"
+MULTIPLE_TESTING_REQUIRED_CHECKS = (
+    "contract_valid",
+    "complete_experiment_ledger",
+    "canonical_champion_binding",
+    "one_active_causal_challenger",
+    "complete_cross_family_multiplicity_population",
+    "git_anchored_preregistration",
+    "evaluation_snapshot_binding",
+    "canonical_registry_history",
+    "minimum_trials",
+    "synchronized_return_matrix",
+    "minimum_synchronous_observations",
+    "selected_trial_reproducible",
+    "deflated_sharpe",
+    "probability_of_backtest_overfitting",
+    "white_reality_check",
+    "inputs_immutable_during_evaluation",
+)
+MULTIPLE_TESTING_THRESHOLDS = {
+    "minimum_trials": 5,
+    "minimum_synchronous_observations": 504,
+    "cscv_contiguous_blocks": 8,
+    "deflated_sharpe_probability_minimum": 0.95,
+    "probability_of_backtest_overfitting_maximum": 0.20,
+    "white_reality_check_p_value_maximum": 0.10,
+    "bootstrap_repetitions": 2000,
+    "bootstrap_block_lengths": [5, 21, 63],
+    "bootstrap_random_seed": 28720260727,
+    "annualization_sessions": 252,
+}
+MULTIPLE_TESTING_MINIMUM_PRIOR_PERFORMANCE_TRIALS = 1
+MULTIPLE_TESTING_SAFETY = {
+    "research_only": True,
+    "automatic_promotion_allowed": False,
+    "champion_change_allowed": False,
+    "portfolio_mutation_allowed": False,
+    "target_books_mutated": False,
+    "operating_ledger_mutated": False,
+    "orders_generated": False,
+    "fullrun_executed_by_gate": False,
+    "production_activation_allowed": False,
+    "live_trading_enabled": False,
+}
 RUNTIME_COUNT_FIELDS = (
     "completed_market_sessions",
     "distinct_decision_weeks",
@@ -117,6 +166,7 @@ CANONICAL_HISTORICAL_CHECKS = (
     "cost_100bps_pass",
     "stress_episodes_pass",
     "ticker_sector_era_concentration_pass",
+    "multiple_testing_pass",
     "scorecard_trusted",
     "lifecycle_delisted_handling_pass",
     "do_not_repeat_conflict_absent",
@@ -206,7 +256,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if contract.get("schema_version") != "run287-promotion-gate-contract-v1":
         errors.append("contract_schema_invalid")
-    if contract.get("contract_version") != "2026-07-20.1":
+    if contract.get("contract_version") != "2026-07-27.1":
         errors.append("contract_version_invalid")
     states = contract.get("states")
     if states != list(CANONICAL_STATES):
@@ -328,6 +378,13 @@ def _valid_sha256(value: Any) -> bool:
     return len(text) == 64 and all(char in "0123456789abcdef" for char in text.lower())
 
 
+def _valid_commit_sha(value: Any) -> bool:
+    text = str(value or "")
+    return len(text) == 40 and all(
+        char in "0123456789abcdef" for char in text.lower()
+    )
+
+
 def _verify_attested_file(
     *,
     path: Path,
@@ -357,6 +414,29 @@ def _require_false_flags(
     for field in fields:
         if payload.get(field) is not False:
             raise ValueError(f"{label}_unsafe_flag:{field}")
+
+
+def _canonical_json_bytes_with_newline(payload: Any) -> bytes:
+    return (
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _finite_float(value: Any, label: str) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label}_not_numeric") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{label}_not_finite")
+    return result
 
 
 def _verify_fingerprint_record(
@@ -2458,6 +2538,543 @@ def _validate_runtime_scorecard(
         raise ValueError("runtime_scorecard_rebuild_mismatch")
     if sha256_file(scorecard_path) != scorecard_sha256:
         raise ValueError("runtime_scorecard_changed_during_validation")
+
+
+def overlay_multiple_testing_evidence(
+    base: dict[str, Any],
+    gate_path: Path,
+    *,
+    expected_gate_sha256: str,
+    contract_path: Path,
+    experiment_ledger_path: Path,
+    return_matrix_path: Path,
+    promotion_state_snapshot_path: Path,
+    repository_root: Path,
+    current_promotion_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay one exact, reviewed, fail-closed multiple-testing result.
+
+    The tracked evidence bit is never trusted directly.  The caller must pin the
+    exact gate SHA, and the complete five-file bundle is revalidated before the
+    runtime-owned ``multiple_testing_pass`` check can become true.
+    """
+    evidence = copy.deepcopy(base)
+    historical = evidence.setdefault("historical", {})
+    historical["multiple_testing_pass"] = False
+    expected = str(expected_gate_sha256 or "").strip().lower()
+    if not _valid_sha256(expected):
+        raise ValueError("multiple_testing_gate_expected_sha256_invalid")
+    gate_path = gate_path.resolve()
+    if not gate_path.is_file() or gate_path.is_symlink():
+        raise ValueError("multiple_testing_gate_missing_or_not_plain_file")
+    actual_gate_sha256 = sha256_file(gate_path)
+    if actual_gate_sha256 != expected:
+        raise ValueError("multiple_testing_gate_sha256_mismatch")
+
+    bundle = gate_path.parent
+    expected_files = {
+        "source_manifest.json",
+        "multiple_testing_gate.json",
+        "cscv_splits.csv",
+        "white_reality_check.json",
+        "report.md",
+    }
+    if bundle.is_symlink() or {
+        path.name for path in bundle.iterdir()
+    } != expected_files:
+        raise ValueError("multiple_testing_bundle_file_set_invalid")
+    for name in expected_files:
+        path = bundle / name
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"multiple_testing_bundle_file_invalid:{name}")
+
+    gate = read_json(gate_path)
+    if gate.get("schema_version") != MULTIPLE_TESTING_GATE_SCHEMA:
+        raise ValueError("multiple_testing_gate_schema_invalid")
+    if gate.get("contract_version") != MULTIPLE_TESTING_CONTRACT_VERSION:
+        raise ValueError("multiple_testing_gate_contract_version_invalid")
+    if gate.get("status") != "PASS" or gate.get("passed") is not True:
+        raise ValueError("multiple_testing_gate_not_passed")
+    candidate_id = str(gate.get("candidate_id") or "")
+    if not candidate_id or candidate_id != str(evidence.get("candidate_id") or ""):
+        raise ValueError("multiple_testing_gate_candidate_mismatch")
+    if current_promotion_state.get("schema_version") != STATE_SCHEMA:
+        raise ValueError("multiple_testing_current_promotion_state_invalid")
+    current_canonical_champion = current_promotion_state.get(
+        "canonical_champion"
+    )
+    if (
+        not isinstance(current_canonical_champion, dict)
+        or gate.get("canonical_champion") != current_canonical_champion
+        or gate.get("champion_id")
+        != current_canonical_champion.get("policy_id")
+    ):
+        raise ValueError("multiple_testing_gate_canonical_champion_mismatch")
+    selected_trial_id = str(gate.get("selected_trial_id") or "")
+    if (
+        not selected_trial_id
+        or gate.get("reproduced_selected_trial_id") != selected_trial_id
+    ):
+        raise ValueError("multiple_testing_gate_selected_trial_invalid")
+    advanced_state = (
+        current_promotion_state.get("promotion_state") != "RESEARCH_ONLY"
+    )
+    official_challenger = current_promotion_state.get(
+        "official_challenger"
+    )
+    if advanced_state:
+        required_official_identity = {
+            "candidate_id": candidate_id,
+            "causal_family_id": gate.get("causal_family_id"),
+            "selected_trial_id": selected_trial_id,
+            "multiple_testing_gate_sha256": actual_gate_sha256,
+        }
+        if (
+            not isinstance(official_challenger, dict)
+            or any(
+                not isinstance(official_challenger.get(field), str)
+                or not official_challenger[field]
+                for field in required_official_identity
+            )
+            or any(
+                official_challenger.get(field) != expected_value
+                for field, expected_value
+                in required_official_identity.items()
+            )
+        ):
+            raise ValueError(
+                "multiple_testing_gate_official_challenger_mismatch"
+            )
+    if gate.get("thresholds") != MULTIPLE_TESTING_THRESHOLDS:
+        raise ValueError("multiple_testing_gate_thresholds_invalid")
+    checks = gate.get("checks")
+    if (
+        not isinstance(checks, dict)
+        or set(checks) != set(MULTIPLE_TESTING_REQUIRED_CHECKS)
+        or any(checks.get(field) is not True for field in MULTIPLE_TESTING_REQUIRED_CHECKS)
+    ):
+        raise ValueError("multiple_testing_gate_checks_invalid")
+    if gate.get("blockers") != []:
+        raise ValueError("multiple_testing_gate_blockers_not_empty")
+    if gate.get("safety") != MULTIPLE_TESTING_SAFETY:
+        raise ValueError("multiple_testing_gate_safety_invalid")
+    _require_false_flags(
+        gate,
+        (
+            "automatic_promotion_performed",
+            "champion_changed",
+            "fullrun_executed",
+        ),
+        "multiple_testing_gate",
+    )
+    preregistration = gate.get("preregistration")
+    if (
+        not isinstance(preregistration, dict)
+        or not _valid_commit_sha(
+            preregistration.get("registration_commit_sha")
+        )
+        or not str(preregistration.get("path") or "").endswith(".json")
+        or not _valid_sha256(preregistration.get("sha256"))
+        or preregistration.get("registered_before_evaluation") is not True
+        or preregistration.get("do_not_repeat_conflict_absent") is not True
+    ):
+        raise ValueError("multiple_testing_gate_preregistration_invalid")
+    evaluation_snapshot = gate.get("evaluation_snapshot")
+    if (
+        not isinstance(evaluation_snapshot, dict)
+        or not _valid_commit_sha(
+            evaluation_snapshot.get("evaluation_commit_sha")
+        )
+        or not str(evaluation_snapshot.get("path") or "").endswith(".json")
+        or not _valid_sha256(evaluation_snapshot.get("sha256"))
+        or evaluation_snapshot.get("registration_commit_sha")
+        != preregistration.get("registration_commit_sha")
+        or not _valid_sha256(
+            evaluation_snapshot.get("promotion_state_sha256")
+        )
+        or evaluation_snapshot.get("results_present") is not False
+    ):
+        raise ValueError("multiple_testing_gate_evaluation_snapshot_invalid")
+
+    sample = gate.get("sample")
+    if not isinstance(sample, dict):
+        raise ValueError("multiple_testing_gate_sample_missing")
+    trial_count = _integer(sample.get("trial_count"), "multiple_testing_trial_count")
+    observation_count = _integer(
+        sample.get("observation_count"),
+        "multiple_testing_observation_count",
+    )
+    if trial_count < MULTIPLE_TESTING_THRESHOLDS["minimum_trials"]:
+        raise ValueError("multiple_testing_gate_trial_count_under_threshold")
+    active_trial_count = _integer(
+        sample.get("active_trial_count"),
+        "multiple_testing_active_trial_count",
+    )
+    prior_trial_count = _integer(
+        sample.get("prior_performance_evaluated_trial_count"),
+        "multiple_testing_prior_trial_count",
+    )
+    family_count = _integer(
+        sample.get("performance_evaluated_family_count"),
+        "multiple_testing_family_count",
+    )
+    if (
+        active_trial_count <= 0
+        or prior_trial_count
+        < MULTIPLE_TESTING_MINIMUM_PRIOR_PERFORMANCE_TRIALS
+        or active_trial_count + prior_trial_count != trial_count
+        or family_count < 2
+    ):
+        raise ValueError(
+            "multiple_testing_gate_cross_family_population_invalid"
+        )
+    if (
+        observation_count
+        < MULTIPLE_TESTING_THRESHOLDS["minimum_synchronous_observations"]
+        or observation_count
+        % MULTIPLE_TESTING_THRESHOLDS["cscv_contiguous_blocks"]
+    ):
+        raise ValueError("multiple_testing_gate_observation_count_invalid")
+    if not sample.get("first_date") or not sample.get("last_date"):
+        raise ValueError("multiple_testing_gate_date_range_missing")
+
+    deflated = gate.get("deflated_sharpe")
+    if (
+        not isinstance(deflated, dict)
+        or deflated.get("status") != "PASS"
+        or deflated.get("passed") is not True
+        or deflated.get("minimum_probability")
+        != MULTIPLE_TESTING_THRESHOLDS[
+            "deflated_sharpe_probability_minimum"
+        ]
+    ):
+        raise ValueError("multiple_testing_gate_dsr_not_passed")
+    if deflated.get("selected_trial_id") != selected_trial_id:
+        raise ValueError("multiple_testing_gate_dsr_trial_mismatch")
+    dsr_probability = _finite_float(
+        deflated.get("probability"),
+        "multiple_testing_gate_dsr_probability",
+    )
+    if not (
+        MULTIPLE_TESTING_THRESHOLDS[
+            "deflated_sharpe_probability_minimum"
+        ]
+        <= dsr_probability
+        <= 1.0
+    ):
+        raise ValueError("multiple_testing_gate_dsr_probability_invalid")
+
+    pbo = gate.get("probability_of_backtest_overfitting")
+    if (
+        not isinstance(pbo, dict)
+        or pbo.get("status") != "PASS"
+        or pbo.get("passed") is not True
+        or pbo.get("maximum_probability")
+        != MULTIPLE_TESTING_THRESHOLDS[
+            "probability_of_backtest_overfitting_maximum"
+        ]
+    ):
+        raise ValueError("multiple_testing_gate_pbo_not_passed")
+    pbo_probability = _finite_float(
+        pbo.get("probability"),
+        "multiple_testing_gate_pbo_probability",
+    )
+    if not (
+        0.0
+        <= pbo_probability
+        <= MULTIPLE_TESTING_THRESHOLDS[
+            "probability_of_backtest_overfitting_maximum"
+        ]
+    ):
+        raise ValueError("multiple_testing_gate_pbo_probability_invalid")
+    if _integer(pbo.get("split_count"), "multiple_testing_pbo_split_count") != 70:
+        raise ValueError("multiple_testing_gate_pbo_split_count_invalid")
+    block_sizes = pbo.get("block_sizes")
+    if (
+        not isinstance(block_sizes, list)
+        or len(block_sizes)
+        != MULTIPLE_TESTING_THRESHOLDS["cscv_contiguous_blocks"]
+        or any(
+            _integer(value, "multiple_testing_cscv_block_size")
+            != observation_count
+            // MULTIPLE_TESTING_THRESHOLDS["cscv_contiguous_blocks"]
+            for value in block_sizes
+        )
+    ):
+        raise ValueError("multiple_testing_gate_cscv_block_sizes_invalid")
+
+    artifact_hashes = gate.get("artifact_hashes")
+    if (
+        not isinstance(artifact_hashes, dict)
+        or set(artifact_hashes)
+        != {
+            "source_manifest.json",
+            "cscv_splits.csv",
+            "white_reality_check.json",
+            "report.md",
+        }
+    ):
+        raise ValueError("multiple_testing_gate_artifact_hashes_invalid")
+    observed_hashes: dict[str, str] = {
+        "multiple_testing_gate.json": actual_gate_sha256
+    }
+    for name, expected_artifact_sha256 in artifact_hashes.items():
+        if not _valid_sha256(expected_artifact_sha256):
+            raise ValueError(f"multiple_testing_artifact_sha256_invalid:{name}")
+        observed = sha256_file(bundle / name)
+        if observed != str(expected_artifact_sha256).lower():
+            raise ValueError(f"multiple_testing_artifact_sha256_mismatch:{name}")
+        observed_hashes[name] = observed
+    if gate.get("source_manifest_sha256") != observed_hashes["source_manifest.json"]:
+        raise ValueError("multiple_testing_source_manifest_anchor_mismatch")
+
+    source_manifest = read_json(bundle / "source_manifest.json")
+    if (
+        source_manifest.get("schema_version")
+        != MULTIPLE_TESTING_SOURCE_MANIFEST_SCHEMA
+        or source_manifest.get("contract_version")
+        != MULTIPLE_TESTING_CONTRACT_VERSION
+    ):
+        raise ValueError("multiple_testing_source_manifest_schema_invalid")
+    if (
+        source_manifest.get("candidate_id") != candidate_id
+        or source_manifest.get("champion_id") != gate.get("champion_id")
+        or source_manifest.get("selected_trial_id") != selected_trial_id
+        or source_manifest.get("causal_family_id") != gate.get("causal_family_id")
+    ):
+        raise ValueError("multiple_testing_source_manifest_identity_mismatch")
+    if source_manifest.get("return_semantics") != (
+        "daily_arithmetic_excess_return_vs_canonical_champion_after_costs"
+    ):
+        raise ValueError("multiple_testing_source_manifest_return_semantics_invalid")
+    if source_manifest.get("wall_clock_fields_present") is not False:
+        raise ValueError("multiple_testing_source_manifest_wall_clock_invalid")
+    inputs = source_manifest.get("inputs")
+    if not isinstance(inputs, dict) or set(inputs) != {
+        "contract",
+        "experiment_ledger",
+        "promotion_state",
+        "preregistration",
+        "evaluation_snapshot",
+        "registration_registry_snapshot",
+        "evaluation_registry_snapshot",
+        "return_matrix",
+    }:
+        raise ValueError("multiple_testing_source_manifest_inputs_invalid")
+    input_hashes: dict[str, str] = {}
+    for input_id, record in inputs.items():
+        if (
+            not isinstance(record, dict)
+            or not record.get("path")
+            or not _valid_sha256(record.get("sha256"))
+            or _integer(record.get("bytes"), f"multiple_testing_input_bytes:{input_id}")
+            <= 0
+        ):
+            raise ValueError(f"multiple_testing_source_input_invalid:{input_id}")
+        input_hashes[input_id] = str(record["sha256"]).lower()
+    computed_input_set_sha256 = hashlib.sha256(
+        _canonical_json_bytes_with_newline(input_hashes)
+    ).hexdigest()
+    if (
+        source_manifest.get("input_set_sha256") != computed_input_set_sha256
+        or gate.get("input_set_sha256") != computed_input_set_sha256
+    ):
+        raise ValueError("multiple_testing_input_set_sha256_mismatch")
+
+    supplied_inputs = {
+        "contract": contract_path.resolve(),
+        "experiment_ledger": experiment_ledger_path.resolve(),
+        "promotion_state": promotion_state_snapshot_path.resolve(),
+        "return_matrix": return_matrix_path.resolve(),
+    }
+    for input_id, path in supplied_inputs.items():
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(
+                f"multiple_testing_recompute_input_invalid:{input_id}"
+            )
+        if sha256_file(path) != input_hashes[input_id]:
+            raise ValueError(
+                f"multiple_testing_recompute_input_sha256_mismatch:{input_id}"
+            )
+
+    try:
+        from run_run287_multiple_testing_gate import (
+            evaluate as recompute_multiple_testing_gate,
+        )
+    except ModuleNotFoundError as exc:
+        raise ValueError(
+            "multiple_testing_recompute_module_unavailable"
+        ) from exc
+    with tempfile.TemporaryDirectory() as temporary:
+        recomputed_output = (
+            Path(temporary) / "run287_multiple_testing_gate"
+        )
+        recomputed = recompute_multiple_testing_gate(
+            contract_path=supplied_inputs["contract"],
+            experiment_ledger_path=supplied_inputs["experiment_ledger"],
+            return_matrix_path=supplied_inputs["return_matrix"],
+            promotion_state_path=supplied_inputs["promotion_state"],
+            repository_root=repository_root.resolve(),
+            output_dir=recomputed_output,
+        )
+        if recomputed.get("passed") is not True:
+            raise ValueError("multiple_testing_recompute_not_passed")
+        for name in expected_files:
+            if (recomputed_output / name).read_bytes() != (
+                bundle / name
+            ).read_bytes():
+                raise ValueError(
+                    f"multiple_testing_recompute_bundle_mismatch:{name}"
+                )
+
+    cscv_path = bundle / "cscv_splits.csv"
+    with cscv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        expected_cscv_columns = {
+            "split_id",
+            "in_sample_blocks",
+            "out_of_sample_blocks",
+            "selected_trial_id",
+            "in_sample_sharpe",
+            "selected_out_of_sample_sharpe",
+            "selected_out_of_sample_rank",
+            "rank_fraction",
+            "logit",
+            "overfit",
+        }
+        if set(reader.fieldnames or []) != expected_cscv_columns:
+            raise ValueError("multiple_testing_cscv_columns_invalid")
+        cscv_rows = list(reader)
+    if (
+        len(cscv_rows) != 70
+        or {
+            _integer(row.get("split_id"), "multiple_testing_cscv_split_id")
+            for row in cscv_rows
+        }
+        != set(range(1, 71))
+        or any(row.get("overfit") not in {"true", "false"} for row in cscv_rows)
+    ):
+        raise ValueError("multiple_testing_cscv_rows_invalid")
+    observed_overfit_count = sum(
+        row.get("overfit") == "true" for row in cscv_rows
+    )
+    if (
+        _integer(
+            pbo.get("overfit_split_count"),
+            "multiple_testing_pbo_overfit_split_count",
+        )
+        != observed_overfit_count
+        or not math.isclose(
+            pbo_probability,
+            observed_overfit_count / 70.0,
+            rel_tol=0.0,
+            abs_tol=1e-15,
+        )
+    ):
+        raise ValueError("multiple_testing_pbo_split_summary_mismatch")
+
+    white_summary = gate.get("white_reality_check")
+    white = read_json(bundle / "white_reality_check.json")
+    if (
+        not isinstance(white_summary, dict)
+        or white_summary.get("status") != "PASS"
+        or white_summary.get("passed") is not True
+        or white_summary.get("artifact") != "white_reality_check.json"
+        or white.get("schema_version") != "run287-white-reality-check-v1"
+        or white.get("status") != "PASS"
+        or white.get("passed") is not True
+        or white.get("all_block_lengths_must_pass") is not True
+    ):
+        raise ValueError("multiple_testing_white_reality_check_invalid")
+    white_results = white.get("results")
+    expected_block_lengths = MULTIPLE_TESTING_THRESHOLDS[
+        "bootstrap_block_lengths"
+    ]
+    if not isinstance(white_results, list) or [
+        row.get("block_length") if isinstance(row, dict) else None
+        for row in white_results
+    ] != expected_block_lengths:
+        raise ValueError("multiple_testing_white_block_lengths_invalid")
+    for row in white_results:
+        block_length = _integer(
+            row.get("block_length"),
+            "multiple_testing_white_block_length",
+        )
+        p_value = _finite_float(
+            row.get("p_value"),
+            "multiple_testing_white_p_value",
+        )
+        exceedance_count = _integer(
+            row.get("exceedance_count"),
+            "multiple_testing_white_exceedance_count",
+        )
+        if (
+            row.get("passed") is not True
+            or _integer(
+                row.get("bootstrap_repetitions"),
+                "multiple_testing_white_repetitions",
+            )
+            != MULTIPLE_TESTING_THRESHOLDS["bootstrap_repetitions"]
+            or _integer(
+                row.get("random_seed"),
+                "multiple_testing_white_random_seed",
+            )
+            != MULTIPLE_TESTING_THRESHOLDS["bootstrap_random_seed"]
+            + block_length
+            or exceedance_count
+            > MULTIPLE_TESTING_THRESHOLDS["bootstrap_repetitions"]
+            or not math.isclose(
+                p_value,
+                (exceedance_count + 1.0)
+                / (
+                    MULTIPLE_TESTING_THRESHOLDS[
+                        "bootstrap_repetitions"
+                    ]
+                    + 1.0
+                ),
+                rel_tol=0.0,
+                abs_tol=1e-15,
+            )
+            or not (
+                0.0
+                <= p_value
+                <= MULTIPLE_TESTING_THRESHOLDS[
+                    "white_reality_check_p_value_maximum"
+                ]
+            )
+        ):
+            raise ValueError("multiple_testing_white_result_invalid")
+
+    for name, observed in observed_hashes.items():
+        if sha256_file(bundle / name) != observed:
+            raise ValueError(f"multiple_testing_artifact_changed_during_validation:{name}")
+    if sha256_file(gate_path) != expected:
+        raise ValueError("multiple_testing_gate_changed_during_validation")
+
+    historical["multiple_testing_pass"] = True
+    limitation = (
+        "No runtime-verified multiple-testing gate evidence is available."
+    )
+    limitations = [
+        str(value)
+        for value in historical.get("limitations") or []
+        if str(value) != limitation
+    ]
+    historical["limitations"] = limitations
+    evidence["multiple_testing_gate_observation"] = {
+        "candidate_id": candidate_id,
+        "selected_trial_id": selected_trial_id,
+        "causal_family_id": gate.get("causal_family_id"),
+        "gate_sha256": actual_gate_sha256,
+        "artifact_hashes": {
+            key: observed_hashes[key] for key in sorted(observed_hashes)
+        },
+        "input_set_sha256": computed_input_set_sha256,
+        "automatic_promotion_performed": False,
+        "champion_changed": False,
+        "fullrun_executed": False,
+    }
+    return evidence
 
 
 def overlay_latest_run_evidence(

@@ -14,6 +14,7 @@
     "cost_100bps_pass": false,
     "stress_episodes_pass": false,
     "ticker_sector_era_concentration_pass": false,
+    "multiple_testing_pass": false,
     "scorecard_trusted": false,
     "lifecycle_delisted_handling_pass": false,
     "do_not_repeat_conflict_absent": true,
@@ -24,6 +25,7 @@
     "limitations": [
       "No accepted challenger exists.",
       "PIT universe membership and delisted coverage remain incomplete.",
+      "No runtime-verified multiple-testing gate evidence is available.",
       "scorecard_trusted is fail-closed in tracked evidence and may only be overlaid from a runtime-verified operating scorecard manifest."
     ]
   },

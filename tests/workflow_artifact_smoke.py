@@ -2,6 +2,7 @@
 """Static checks for full rebuild artifact/export hygiene."""
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -1120,6 +1121,17 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/run287_operating_scorecard/",
         "daily_run287_operating_scorecard.log",
         "Evaluate single promotion and rollback gate",
+        "data_static/run287_multiple_testing_approved_pointer.json",
+        "READY_REVIEWED_IMMUTABLE_BUNDLE",
+        "advanced promotion state lacks an approved multiple-testing bundle",
+        "--multiple-testing-gate",
+        "--expected-multiple-testing-gate-sha256",
+        "--multiple-testing-contract",
+        "--multiple-testing-experiment-ledger",
+        "--multiple-testing-return-matrix",
+        "--multiple-testing-promotion-state-snapshot",
+        "--multiple-testing-repository-root",
+        '"${MULTIPLE_TESTING_ARGS[@]}"',
         "Build post-gate operating reports",
         "Verify accepted publication manifest",
         "tools/build_run287_accepted_publication_manifest.py",
@@ -1241,6 +1253,21 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]:
         assert token in text, token
+    approved_pointer = json.loads(
+        (
+            ROOT
+            / "data_static"
+            / "run287_multiple_testing_approved_pointer.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert (
+        approved_pointer["schema_version"]
+        == "run287-approved-multiple-testing-pointer-v1"
+    )
+    assert approved_pointer["status"] == "UNAVAILABLE_RESEARCH_ONLY"
+    assert approved_pointer["automatic_promotion_allowed"] is False
+    assert approved_pointer["production_activation_allowed"] is False
+    assert approved_pointer["live_trading_enabled"] is False
     assert "--minimum-core-candidate-coverage 0.98" not in text
     price_refresh_step = text[
         text.index("- name: Refresh current price cache"):

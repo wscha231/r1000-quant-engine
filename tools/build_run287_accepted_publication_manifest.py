@@ -77,6 +77,8 @@ PROMOTION_SOURCE_FILES = {
     "contract_sha256": "data_static/run287_promotion_gate_contract.json",
     "state_sha256": "data_static/run287_promotion_state.json",
     "base_evidence_sha256": "data_static/run287_promotion_evidence_current.json",
+    "approved_multiple_testing_pointer_sha256":
+        "data_static/run287_multiple_testing_approved_pointer.json",
 }
 REQUIRED_GATE_OBSERVED_FILES = {
     "daily_simulated_fill_ledger/snapshot_integrity.json":
