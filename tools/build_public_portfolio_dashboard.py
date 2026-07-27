@@ -597,9 +597,17 @@ def metrics_by_portfolio(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     "valid_for_production",
                 )
             }
+            historical_view = result.get(portfolio, {})
             result[portfolio] = {
-                **result.get(portfolio, {}),
+                **historical_view,
+                "historical_cagr": historical_view.get("cagr"),
+                "historical_max_drawdown": historical_view.get(
+                    "max_drawdown"
+                ),
                 **overlay_fields,
+                "cagr_is_latest_close_diagnostic": True,
+                "latest_close_diagnostic_as_of": chain.get("end_date"),
+                "historical_metric_replacement_allowed": False,
             }
     return result
 

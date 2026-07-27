@@ -340,6 +340,16 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
         assert payload["portfolios"]["main"]["target_cash_weight"] == 0.25
         assert payload["portfolios"]["main"]["trades"][0]["ticker"] == "AAA"
         assert payload["portfolios"]["main"]["metrics"]["cagr"] == 0.341
+        assert (
+            payload["portfolios"]["main"]["metrics"][
+                "cagr_is_latest_close_diagnostic"
+            ]
+            is True
+        )
+        assert (
+            payload["portfolios"]["main"]["metrics"]["historical_cagr"]
+            == 0.35
+        )
         assert payload["portfolios"]["main"]["metrics"]["sharpe"] == 1.7
         assert payload["portfolios"]["main"]["metrics"]["oos_cagr"] == 0.31
         assert payload["portfolios"]["main"]["metrics"]["trade_count"] == 43
@@ -590,6 +600,9 @@ def test_static_site_references_only_public_assets() -> None:
     assert "conic-gradient" in javascript
     assert "openTradeLedger" in javascript and "closeTradeLedger" in javascript
     assert "FORWARD_PAPER" in javascript and "Forward 모의" in javascript
+    assert "LATEST-CLOSE CAGR (DIAGNOSTIC)" in javascript
+    assert "LATEST-CLOSE MDD (OPTIMISTIC BOUND)" in javascript
+    assert "역사적 성과의 대체값이나 승격 근거가 아닙니다" in html
     assert ".donut-chart" in stylesheet and ".ledger-open" in stylesheet and ".record-forward" in stylesheet
     assert "CODEX_" not in html
     assert "AGENT_SHARED" not in html
