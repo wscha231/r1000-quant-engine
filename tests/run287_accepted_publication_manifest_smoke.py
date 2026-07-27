@@ -392,6 +392,17 @@ def build_fixture(root: Path) -> Path:
         user / "08_rebalance_decision.json",
         {"status": "REVIEW_ONLY", "as_of_date": "2026-07-22"},
     )
+    write_json(
+        user / "10_latest_close_performance.json",
+        {
+            "schema_version": "run287-latest-close-performance-v1",
+            "status": "READY_LATEST_CLOSE_REVIEW_ONLY",
+            "as_of_date": "2026-07-22",
+            "review_only": True,
+            "live_trading_enabled": False,
+            "production_activation_allowed": False,
+        },
+    )
     return latest
 
 
@@ -516,6 +527,7 @@ def test_manifest_binds_all_accepted_files_and_identity() -> None:
             "user_target_weights",
             "user_order_preview",
             "user_rebalance_decision",
+            "user_latest_close_performance",
             "main_source_target",
             "main_published_target",
             "main_account_state",
@@ -664,6 +676,47 @@ def test_tampered_contract_file_blocks_manifest() -> None:
         assert_manifest_blocked(
             latest, "accepted_publication_file_missing:user_target_weights"
         )
+
+
+def test_latest_close_performance_is_required_and_reverified() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = build_fixture(Path(tmp))
+        latest_close = latest / "user_current/10_latest_close_performance.json"
+        latest_close.unlink()
+        assert_manifest_blocked(
+            latest,
+            "accepted_publication_file_missing:"
+            "user_latest_close_performance",
+        )
+
+    with TemporaryDirectory() as tmp:
+        latest = build_fixture(Path(tmp))
+        manifest = accepted_manifest(latest)
+        manifest_path = (
+            latest / "run287_accepted_publication" / "manifest.json"
+        )
+        write_json(manifest_path, manifest)
+        sealed_manifest_sha256 = sha256_file(manifest_path)
+        latest_close = latest / "user_current/10_latest_close_performance.json"
+        latest_close.write_text(
+            latest_close.read_text(encoding="utf-8") + "\n",
+            encoding="utf-8",
+        )
+        try:
+            verify_manifest(
+                latest_run=latest,
+                manifest_path=manifest_path,
+                expected_manifest_sha256=sealed_manifest_sha256,
+            )
+        except ValueError as exc:
+            assert (
+                "accepted_publication_file_reverify_failed:"
+                "user_latest_close_performance"
+            ) in str(exc)
+        else:
+            raise AssertionError(
+                "mutated latest-close publication was accepted"
+            )
 
 
 def test_gate_observed_hash_must_bind_the_exact_runtime_scorecard() -> None:

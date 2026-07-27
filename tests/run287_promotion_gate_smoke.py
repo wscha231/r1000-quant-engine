@@ -2206,6 +2206,32 @@ def test_runtime_overlay_binds_scorecard_and_all_forward_horizons() -> None:
         )
         scorecard_path.write_text(original_scorecard, encoding="utf-8")
 
+        forged_provenance = json.loads(original_scorecard)
+        latest_metric = next(
+            row
+            for row in forged_provenance["metrics"]
+            if row["metric_id"] == "latest_close_operating_return"
+        )
+        latest_metric["provenance"]["source_sha256"] = "0" * 64
+        scorecard_path.write_text(
+            json.dumps(forged_provenance),
+            encoding="utf-8",
+        )
+        provenance_blocked = overlay_latest_run_evidence(
+            evidence,
+            root,
+        )
+        assert provenance_blocked["historical"][
+            "scorecard_trusted"
+        ] is False
+        assert any(
+            "runtime_scorecard_metric_provenance_invalid:"
+            "latest_close_operating_return"
+            in value
+            for value in provenance_blocked["runtime_limitations"]
+        )
+        scorecard_path.write_text(original_scorecard, encoding="utf-8")
+
         forged_outcome = json.loads(
             outcome_dir.joinpath("summary.json").read_text(encoding="utf-8")
         )

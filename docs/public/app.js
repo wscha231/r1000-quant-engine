@@ -94,7 +94,7 @@ function metricCard(portfolio, item) {
       </div>
       <div class="metric-main">
         <div><span>CAGR</span><strong class="positive">${percent(metrics.cagr)}</strong></div>
-        <div><span>${metrics.max_drawdown_exact === false ? "MAX DRAWDOWN (BOUND)" : "MAX DRAWDOWN"}</span><strong class="drawdown">${percent(metrics.max_drawdown)}</strong></div>
+        <div><span>${metrics.max_drawdown_exact === false ? "MAX DRAWDOWN (OPTIMISTIC BOUND)" : "MAX DRAWDOWN"}</span><strong class="drawdown">${percent(metrics.max_drawdown)}</strong></div>
         <div><span>LATEST CASH</span><strong>${percent(item.cash_weight)}</strong></div>
       </div>
       <dl class="metric-minor">

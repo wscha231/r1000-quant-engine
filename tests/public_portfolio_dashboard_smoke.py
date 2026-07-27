@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 from tools.build_public_portfolio_dashboard import (  # noqa: E402
     build_dashboard,
+    latest_close_payload_is_safe,
     validate_public_payload,
 )
 from tests.run287_paper_ledger_transaction_smoke import (  # noqa: E402
@@ -74,35 +75,74 @@ def write_latest_close_metrics(
     ):
         portfolios[portfolio] = {
             "latest_close_chain_linked": {
+                "status": "LATEST_CLOSE_DIAGNOSTIC",
                 "cagr": cagr,
                 "max_drawdown": max_dd,
                 "max_drawdown_exact": False,
+                "max_drawdown_bound_direction": (
+                    "optimistic_lower_bound_on_loss_magnitude;"
+                    "exact_chain_mdd_can_be_more_negative"
+                ),
                 "max_drawdown_method": (
                     "minimum_of_locked_historical_mdd_and_"
                     "paper_operating_mdd"
                 ),
+                "cagr_endpoint_chain_exact": True,
                 "start_date": "2019-06-03",
                 "end_date": session_date,
                 "metric_mode": (
                     "locked_historical_endpoint_chain_linked_to_"
                     "accepted_paper_marks"
                 ),
+                "historical_metric_replacement_allowed": False,
+                "promotion_evidence_allowed": False,
+            },
+            "operating_since_seed": {
+                "end_date": session_date,
+                "total_return": -0.01,
+                "max_drawdown": -0.02,
+                "durable_catchup_marks_included": True,
+                "historical_metric_replacement_allowed": False,
             }
         }
     write_json(
         current / "04_official_metrics.json",
         {
+            "main": {
+                "cagr": 0.35,
+                "max_dd": -0.24,
+                "sharpe": 1.7,
+                "avg_cash_weight": 0.18,
+                "trade_count": 43,
+                "windows": {
+                    "oos": {"cagr": 0.31, "max_dd": -0.21},
+                    "oos2": {"cagr": 0.29, "max_dd": -0.20},
+                },
+            },
+            "concentrated": {
+                "cagr": 0.51,
+                "max_dd": -0.22,
+                "sharpe": 1.6,
+                "avg_cash_weight": 0.22,
+                "trade_count": 27,
+                "windows": {
+                    "oos": {"cagr": 0.46, "max_dd": -0.23},
+                    "oos2": {"cagr": 0.44, "max_dd": -0.22},
+                },
+            },
             "latest_close_performance": {
                 "schema_version": "run287-latest-close-performance-v1",
                 "status": "READY_LATEST_CLOSE_REVIEW_ONLY",
                 "as_of_date": session_date,
                 "latest_close_exact": True,
+                "accepted_close_marks_include_durable_catchup": True,
                 "portfolios": portfolios,
                 "review_only": True,
                 "live_trading_enabled": False,
                 "production_activation_allowed": False,
                 "historical_cagr_mdd_replacement_allowed": False,
                 "promotion_evidence_allowed": False,
+                "fullrun_executed": False,
             }
         },
     )
@@ -300,6 +340,9 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
         assert payload["portfolios"]["main"]["target_cash_weight"] == 0.25
         assert payload["portfolios"]["main"]["trades"][0]["ticker"] == "AAA"
         assert payload["portfolios"]["main"]["metrics"]["cagr"] == 0.341
+        assert payload["portfolios"]["main"]["metrics"]["sharpe"] == 1.7
+        assert payload["portfolios"]["main"]["metrics"]["oos_cagr"] == 0.31
+        assert payload["portfolios"]["main"]["metrics"]["trade_count"] == 43
         assert (
             payload["portfolios"]["main"]["metrics"][
                 "max_drawdown_exact"
@@ -492,6 +535,48 @@ def test_daily_artifact_rejects_stale_or_missing_close_gate() -> None:
             raise AssertionError("stale market gate must block public refresh")
 
 
+def test_latest_close_safety_contract_rejects_incomplete_payloads() -> None:
+    with TemporaryDirectory() as tmp:
+        current = Path(tmp)
+        write_latest_close_metrics(current, "2026-07-24")
+        official = json.loads(
+            (current / "04_official_metrics.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        safe = official["latest_close_performance"]
+        assert latest_close_payload_is_safe(
+            safe,
+            expected_session_date="2026-07-24",
+        )
+
+        mutations = [
+            lambda payload: payload.update(
+                {"latest_close_exact": False}
+            ),
+            lambda payload: payload.update(
+                {"as_of_date": "2026-07-23"}
+            ),
+            lambda payload: payload.update(
+                {"fullrun_executed": True}
+            ),
+            lambda payload: payload["portfolios"].pop("concentrated"),
+            lambda payload: payload["portfolios"]["main"].pop(
+                "operating_since_seed"
+            ),
+            lambda payload: payload["portfolios"]["main"][
+                "latest_close_chain_linked"
+            ].pop("max_drawdown_bound_direction"),
+        ]
+        for mutate in mutations:
+            candidate = json.loads(json.dumps(safe))
+            mutate(candidate)
+            assert not latest_close_payload_is_safe(
+                candidate,
+                expected_session_date="2026-07-24",
+            )
+
+
 def test_static_site_references_only_public_assets() -> None:
     html = (ROOT / "docs" / "public" / "index.html").read_text(encoding="utf-8")
     javascript = (ROOT / "docs" / "public" / "app.js").read_text(encoding="utf-8")
@@ -516,6 +601,7 @@ def main() -> int:
     test_daily_artifact_refreshes_holdings_but_not_fake_trades()
     test_daily_artifact_merges_only_safe_forward_paper_fills()
     test_daily_artifact_rejects_stale_or_missing_close_gate()
+    test_latest_close_safety_contract_rejects_incomplete_payloads()
     test_static_site_references_only_public_assets()
     print("public_portfolio_dashboard_smoke: PASS")
     return 0

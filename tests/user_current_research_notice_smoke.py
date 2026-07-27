@@ -132,6 +132,23 @@ def test_user_current_explains_research_sidecars_do_not_alter_holdings() -> None
         (latest / "integrated_theme_leader_crisis_replay" / "promotion_gate_status.json").write_text('{"status":"rejected","production_activation_allowed":false}\n', encoding="utf-8")
 
         payload = build_report(Namespace(latest_run=str(latest), price_cache=str(root / "cache_prices"), output_dir=str(root / "user_current"), strict=False))
+        assert (
+            "10_latest_close_performance.json"
+            not in payload["missing_required_files"]
+        )
+        daily_payload = build_report(
+            Namespace(
+                latest_run=str(latest),
+                price_cache=str(root / "cache_prices"),
+                output_dir=str(root / "user_current_daily"),
+                strict=False,
+                require_latest_close=True,
+            )
+        )
+        assert (
+            "10_latest_close_performance.json"
+            in daily_payload["missing_required_files"]
+        )
         out = root / "user_current"
         context = json.loads((out / "07_research_sidecar_context.json").read_text(encoding="utf-8"))
         broker_rule = json.loads((out / "08_broker_rule_backtest.json").read_text(encoding="utf-8"))

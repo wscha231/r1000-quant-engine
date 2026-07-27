@@ -126,13 +126,18 @@ def accepted_close_curve_metrics(
     dates = pd.to_datetime(frame["date"], format="%Y-%m-%d", errors="coerce")
     equity = pd.to_numeric(frame["equity_usd"], errors="coerce")
     record_types = frame["record_type"].fillna("").astype(str)
+    valid_record_types = record_types.eq("FORWARD_MARK").all() or (
+        len(record_types) > 1
+        and record_types.iloc[0] == "SEED_ACCOUNT"
+        and record_types.iloc[1:].eq("FORWARD_MARK").all()
+    )
     if (
         dates.isna().any()
         or equity.isna().any()
         or not (equity > 0).all()
         or dates.duplicated().any()
         or not dates.is_monotonic_increasing
-        or not record_types.eq("FORWARD_MARK").all()
+        or not valid_record_types
     ):
         raise ValueError(f"accepted_close_curve_rows_invalid:{path}")
     start_date = pd.Timestamp(dates.iloc[0]).date().isoformat()
@@ -245,13 +250,19 @@ def chain_link_latest_close(
         "historical_max_drawdown": historical_mdd,
         "operating_since_seed_max_drawdown": operating_mdd,
         "max_drawdown_exact": False,
+        "max_drawdown_bound_direction": (
+            "optimistic_lower_bound_on_loss_magnitude;"
+            "exact_chain_mdd_can_be_more_negative"
+        ),
         "max_drawdown_method": (
             "minimum_of_locked_historical_mdd_and_paper_operating_mdd"
         ),
         "max_drawdown_limitation": (
-            "Exact cross-boundary MDD requires the complete historical equity "
-            "curve; the locked historical MDD and accepted paper path are "
-            "preserved separately."
+            "This is an optimistic lower bound on drawdown loss magnitude. "
+            "The exact chain MDD can be more negative when the historical "
+            "endpoint was already below its prior peak. Exact cross-boundary "
+            "MDD requires the complete historical equity curve; the locked "
+            "historical MDD and accepted paper path are preserved separately."
         ),
         "cagr_endpoint_chain_exact": True,
         "historical_metric_replacement_allowed": False,
@@ -718,9 +729,19 @@ def build_scorecard(
         portfolio: str | None = None,
         unit: str = "value",
         note: str = "",
+        provenance_override: dict[str, Any] | None = None,
     ) -> None:
         source = records_by_id.get(source_id, {})
         resolved_status = status or ("AVAILABLE" if value is not None else "UNAVAILABLE")
+        provenance = {
+            "source_id": source_id,
+            "source_path": source.get("path"),
+            "source_sha256": source.get("sha256"),
+            "as_of_date": source.get("as_of_date"),
+            "metric_mode": source.get("metric_mode"),
+        }
+        if provenance_override:
+            provenance.update(provenance_override)
         metrics.append({
             "section": section,
             "metric_id": metric_id,
@@ -730,13 +751,7 @@ def build_scorecard(
             "value": clean_scalar(value),
             "unit": unit,
             "note": note,
-            "provenance": {
-                "source_id": source_id,
-                "source_path": source.get("path"),
-                "source_sha256": source.get("sha256"),
-                "as_of_date": source.get("as_of_date"),
-                "metric_mode": source.get("metric_mode"),
-            },
+            "provenance": provenance,
         })
 
     p6 = loaded.get("p6_selection_summary")
@@ -920,6 +935,7 @@ def build_scorecard(
         "trusted_boolean_fields_ignored": True,
     }
     verified_paper_payload: dict[str, Any] | None = None
+    verified_paper_file_hashes: dict[str, str] = {}
     paper_ledger_root: Path | None = None
     manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
     summary_path = repo_path(records_by_id["current_paper_summary"]["path"])
@@ -962,6 +978,11 @@ def build_scorecard(
                 raise ValueError(paper_summary_binding_error)
             bound_manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
             verified_files = rebound_manifest.get("files") or {}
+            if not isinstance(verified_files, dict):
+                paper_summary_binding_error = (
+                    "paper integrity manifest files are invalid"
+                )
+                raise ValueError(paper_summary_binding_error)
             summary_bytes = summary_path.read_bytes()
             bound_summary_sha256 = hashlib.sha256(summary_bytes).hexdigest()
             if (
@@ -976,6 +997,26 @@ def build_scorecard(
             if not isinstance(rebound_paper, dict):
                 paper_summary_binding_error = "paper summary is not a JSON object"
                 raise ValueError(paper_summary_binding_error)
+            for portfolio in ("main", "concentrated"):
+                curve_relative = f"{portfolio}/equity_curve.csv"
+                expected_curve_sha256 = str(
+                    verified_files.get(curve_relative) or ""
+                ).lower()
+                curve_path = ledger_root / curve_relative
+                if (
+                    len(expected_curve_sha256) != 64
+                    or not curve_path.is_file()
+                    or sha256_file(curve_path)
+                    != expected_curve_sha256
+                ):
+                    paper_summary_binding_error = (
+                        "paper equity curve is not hash-bound by the "
+                        f"verified snapshot manifest:{portfolio}"
+                    )
+                    raise ValueError(paper_summary_binding_error)
+                verified_paper_file_hashes[curve_relative] = (
+                    expected_curve_sha256
+                )
             verified_paper_payload = rebound_paper
             records_by_id["current_paper_summary"]["sha256"] = (
                 bound_summary_sha256
@@ -1058,6 +1099,27 @@ def build_scorecard(
             if latest_close_performance.get("status") == "INTEGRITY_ERROR"
             else "UNAVAILABLE"
         )
+        curve_path = (
+            paper_ledger_root / portfolio / "equity_curve.csv"
+            if paper_ledger_root is not None
+            else None
+        )
+        curve_provenance = {
+            "source_id": f"current_paper_{portfolio}_equity_curve",
+            "source_path": str(curve_path) if curve_path else None,
+            "source_sha256": verified_paper_file_hashes.get(
+                f"{portfolio}/equity_curve.csv"
+            ),
+            "as_of_date": latest_close_performance.get("as_of_date"),
+            "metric_mode": operating.get("metric_mode"),
+            "snapshot_manifest_path": str(manifest_path),
+            "snapshot_manifest_sha256": records_by_id.get(
+                "current_paper_integrity", {}
+            ).get("sha256"),
+            "snapshot_tree_sha256": paper_runtime_manifest.get(
+                "snapshot_hash"
+            ),
+        }
         for metric_id, value, unit in (
             (
                 "latest_close_operating_return",
@@ -1099,6 +1161,22 @@ def build_scorecard(
                     "catch-up marks are included. This cannot replace the "
                     "locked historical acceptance result."
                 ),
+                provenance_override={
+                    **curve_provenance,
+                    **(
+                        {
+                            "historical_source_sha256": (
+                                latest_close_performance.get(
+                                    "historical_source_sha256"
+                                )
+                            )
+                        }
+                        if metric_id.startswith(
+                            "latest_close_chain_linked_"
+                        )
+                        else {}
+                    ),
+                },
             )
     if isinstance(verified_paper, dict):
         for field in PAPER_INTEGRITY_FIELDS:
@@ -1335,10 +1413,10 @@ def render_report(scorecard: dict[str, Any]) -> str:
             f"- status: `{latest.get('status') or 'UNAVAILABLE'}`",
             f"- as_of_date: `{latest.get('as_of_date') or 'UNAVAILABLE'}`",
             "- Durable chronological catch-up marks are included in the operating path.",
-            "- Chain-linked CAGR is exact at the endpoints; its MDD value is only a bound because the complete historical curve is unavailable.",
+            "- Chain-linked CAGR is exact at the endpoints; its MDD value is an optimistic lower bound on loss magnitude and the exact MDD can be more negative.",
             "- Neither latest-close diagnostic replaces the locked historical acceptance result.",
             "",
-            "| Portfolio | Historical CAGR/MDD | Operating return/MDD since seed | Latest-close chain CAGR/MDD bound |",
+            "| Portfolio | Historical CAGR/MDD | Operating return/MDD since seed | Latest-close chain CAGR/optimistic MDD bound |",
             "| --- | ---: | ---: | ---: |",
         ]
     )

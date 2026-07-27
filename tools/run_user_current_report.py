@@ -59,8 +59,8 @@ REQUIRED_USER_FILES = [
     "07_research_sidecar_context.json",
     "08_rebalance_decision.json",
     "08_broker_rule_backtest.json",
-    "10_latest_close_performance.json",
 ]
+LATEST_CLOSE_PERFORMANCE_FILE = "10_latest_close_performance.json"
 
 
 def repo_path(value: str | Path) -> Path:
@@ -1220,10 +1220,10 @@ def render_action_summary(
             f"- status: `{latest_close.get('status') or 'UNAVAILABLE'}`",
             f"- as_of_date: `{latest_close.get('as_of_date') or 'UNAVAILABLE'}`",
             "- Operating return/MDD includes accepted durable catch-up marks.",
-            "- Chain-linked CAGR is exact at the endpoints; its MDD value is only a bound because the complete historical curve is unavailable.",
+            "- Chain-linked CAGR is exact at the endpoints; its MDD value is an optimistic lower bound on loss magnitude and the exact MDD can be more negative.",
             "- The historical baseline remains separately locked.",
             "",
-            "| Portfolio | Locked historical CAGR/MDD | Operating return/MDD since $100k seed | Latest-close chain CAGR/MDD bound |",
+            "| Portfolio | Locked historical CAGR/MDD | Operating return/MDD since $100k seed | Latest-close chain CAGR/optimistic MDD bound |",
             "| --- | ---: | ---: | ---: |",
         ]
     )
@@ -1318,8 +1318,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     price_cache = repo_path(args.price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "10_latest_close_performance.json").unlink(
+    (output_dir / LATEST_CLOSE_PERFORMANCE_FILE).unlink(
         missing_ok=True
+    )
+    require_latest_close = bool(
+        getattr(args, "require_latest_close", False)
     )
     explicit_promotion = getattr(args, "promotion_state", "")
     promotion = gate_for_consumer(
@@ -1353,7 +1356,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "04_official_metrics.json", metrics_for_output)
     if latest_close:
         write_json(
-            output_dir / "10_latest_close_performance.json",
+            output_dir / LATEST_CLOSE_PERFORMANCE_FILE,
             latest_close,
         )
     research = research_sidecar_context(latest_run)
@@ -1455,8 +1458,27 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             if latest_close
             else ""
         ),
-        "required_files": REQUIRED_USER_FILES,
-        "missing_required_files": [name for name in REQUIRED_USER_FILES if not (output_dir / name).exists()],
+        "latest_close_performance_required": require_latest_close,
+        "required_files": [
+            *REQUIRED_USER_FILES,
+            *(
+                [LATEST_CLOSE_PERFORMANCE_FILE]
+                if require_latest_close
+                else []
+            ),
+        ],
+        "missing_required_files": [
+            name
+            for name in [
+                *REQUIRED_USER_FILES,
+                *(
+                    [LATEST_CLOSE_PERFORMANCE_FILE]
+                    if require_latest_close
+                    else []
+                ),
+            ]
+            if not (output_dir / name).exists()
+        ],
     }
     write_json(output_dir / "summary.json", payload)
     return payload
@@ -1468,6 +1490,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default="outputs/user_current")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument(
+        "--require-latest-close",
+        action="store_true",
+        help=(
+            "Require the accepted exact-close performance artifact. "
+            "Use only in the daily accepted-close workflow."
+        ),
+    )
     parser.add_argument("--promotion-state", default="")
     return parser.parse_args()
 

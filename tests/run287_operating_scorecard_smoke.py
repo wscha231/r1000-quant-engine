@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.build_run287_operating_scorecard import (  # noqa: E402
+    accepted_close_curve_metrics,
     build_scorecard,
     load_registry,
     render_report,
@@ -43,6 +44,7 @@ def make_fixture(
     paper: bool = True,
     reset_count: int = 0,
     forged_verified_boolean: bool = False,
+    seed_account: bool = False,
 ) -> Path:
     p6 = root / "p6.json"
     write_json(p6, {
@@ -141,7 +143,11 @@ def make_fixture(
                     {
                         "date": "2026-07-13",
                         "equity_usd": 100000.0,
-                        "record_type": "FORWARD_MARK",
+                        "record_type": (
+                            "SEED_ACCOUNT"
+                            if seed_account
+                            else "FORWARD_MARK"
+                        ),
                     },
                     {
                         "date": "2026-07-20",
@@ -250,11 +256,78 @@ def test_scorecard_keeps_evidence_lanes_and_provenance_separate() -> None:
             ]["max_drawdown_exact"]
             is False
         )
+        assert (
+            scorecard["latest_close_performance"]["portfolios"]["main"][
+                "latest_close_chain_linked"
+            ]["max_drawdown_bound_direction"]
+            == (
+                "optimistic_lower_bound_on_loss_magnitude;"
+                "exact_chain_mdd_can_be_more_negative"
+            )
+        )
+        main_curve = Path(td) / "paper/main/equity_curve.csv"
+        snapshot_manifest = Path(td) / "paper/snapshot_integrity.json"
+        latest_metric = next(
+            row
+            for row in scorecard["metrics"]
+            if row["portfolio"] == "main"
+            and row["metric_id"] == "latest_close_chain_linked_cagr"
+        )
+        provenance = latest_metric["provenance"]
+        assert provenance["source_path"] == str(main_curve)
+        assert provenance["source_sha256"] == digest(main_curve)
+        assert provenance["snapshot_manifest_path"] == str(
+            snapshot_manifest
+        )
+        assert provenance["snapshot_manifest_sha256"] == digest(
+            snapshot_manifest
+        )
+        assert provenance["historical_source_sha256"] == digest(
+            Path(td) / "p5.json"
+        )
         assert "MDD bound" in render_report(scorecard)
         assert scorecard["source_artifacts_copied"] is False
         assert len(scorecard["sources"]) == 12
         assert all(row["provenance"]["source_sha256"] for row in scorecard["metrics"] if row["status"] == "AVAILABLE")
         assert "UNAVAILABLE" in render_report(scorecard)
+
+
+def test_equity_curve_accepts_only_one_leading_seed_account() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        registry_path = make_fixture(root, seed_account=True)
+        scorecard = build_scorecard(
+            load_registry(registry_path),
+            source_registry_path=registry_path,
+        )
+        assert scorecard["latest_close_performance"]["status"] == (
+            "READY_LATEST_CLOSE_REVIEW_ONLY"
+        )
+
+        curve = root / "invalid_curve.csv"
+        pd.DataFrame(
+            [
+                {
+                    "date": "2026-07-13",
+                    "equity_usd": 100000.0,
+                    "record_type": "FORWARD_MARK",
+                },
+                {
+                    "date": "2026-07-20",
+                    "equity_usd": 99000.0,
+                    "record_type": "SEED_ACCOUNT",
+                },
+            ]
+        ).to_csv(curve, index=False)
+        try:
+            accepted_close_curve_metrics(
+                curve,
+                expected_session_date="2026-07-20",
+            )
+        except ValueError as exc:
+            assert "accepted_close_curve_rows_invalid" in str(exc)
+        else:
+            raise AssertionError("non-leading seed account was accepted")
 
 
 def test_missing_optional_paper_is_unavailable_not_zero() -> None:
@@ -779,6 +852,7 @@ def test_metric_definition_change_requires_migration_note() -> None:
 
 def main() -> int:
     test_scorecard_keeps_evidence_lanes_and_provenance_separate()
+    test_equity_curve_accepts_only_one_leading_seed_account()
     test_missing_optional_paper_is_unavailable_not_zero()
     test_current_paper_error_does_not_poison_historical_headline()
     test_latest_close_performance_fails_closed_when_paper_is_stale()

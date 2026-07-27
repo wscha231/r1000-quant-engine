@@ -1137,6 +1137,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         '"${MULTIPLE_TESTING_ARGS[@]}"',
         "Build post-gate operating reports",
         "outputs/user_current/10_latest_close_performance.json",
+        "--require-latest-close",
         "tools/build_daily_user_current_contract.py",
         "Verify accepted publication manifest",
         "tools/build_run287_accepted_publication_manifest.py",

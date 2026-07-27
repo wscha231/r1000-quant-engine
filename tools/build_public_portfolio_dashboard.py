@@ -146,6 +146,10 @@ def metric_view(raw: dict[str, Any]) -> dict[str, Any]:
             raw.get("max_drawdown_method"),
             max_length=120,
         ),
+        "max_drawdown_bound_direction": clean_text(
+            raw.get("max_drawdown_bound_direction"),
+            max_length=160,
+        ),
         "sharpe": safe_float(raw.get("sharpe")),
         "average_cash_weight": safe_float(raw.get("avg_cash_weight")),
         "trade_count": int(safe_float(raw.get("trade_count"), 0) or 0),
@@ -507,6 +511,34 @@ def current_holdings_by_portfolio(
 
 
 def metrics_by_portfolio(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    candidates: dict[str, Any] = (
+        raw.get("portfolios")
+        if isinstance(raw.get("portfolios"), dict)
+        else raw
+    )
+    result: dict[str, dict[str, Any]] = {}
+    for portfolio in PORTFOLIOS:
+        item = (
+            candidates.get(portfolio)
+            if isinstance(candidates, dict)
+            else None
+        )
+        if isinstance(item, dict):
+            result[portfolio] = metric_view(item)
+    if (
+        not result
+        and clean_text(
+            raw.get("portfolio_kind"),
+            max_length=24,
+        ).lower()
+        in PORTFOLIOS
+    ):
+        portfolio = clean_text(
+            raw.get("portfolio_kind"),
+            max_length=24,
+        ).lower()
+        result[portfolio] = metric_view(raw)
+
     latest = raw.get("latest_close_performance")
     if (
         isinstance(latest, dict)
@@ -518,7 +550,6 @@ def metrics_by_portfolio(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
         and latest.get("historical_cagr_mdd_replacement_allowed") is False
         and latest.get("promotion_evidence_allowed") is False
     ):
-        latest_result: dict[str, dict[str, Any]] = {}
         latest_portfolios = latest.get("portfolios")
         for portfolio in PORTFOLIOS:
             item = (
@@ -533,7 +564,7 @@ def metrics_by_portfolio(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
             )
             if not isinstance(chain, dict):
                 continue
-            latest_result[portfolio] = metric_view(
+            latest_view = metric_view(
                 {
                     "cagr": chain.get("cagr"),
                     "max_dd": chain.get("max_drawdown"),
@@ -543,24 +574,115 @@ def metrics_by_portfolio(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     "max_drawdown_method": chain.get(
                         "max_drawdown_method"
                     ),
+                    "max_drawdown_bound_direction": chain.get(
+                        "max_drawdown_bound_direction"
+                    ),
                     "start_date": chain.get("start_date"),
                     "end_date": chain.get("end_date"),
                     "metric_mode": chain.get("metric_mode"),
                     "valid_for_production": False,
                 }
             )
-        if latest_result:
-            return latest_result
-    candidates: dict[str, Any] = raw.get("portfolios") if isinstance(raw.get("portfolios"), dict) else raw
-    result: dict[str, dict[str, Any]] = {}
-    for portfolio in PORTFOLIOS:
-        item = candidates.get(portfolio) if isinstance(candidates, dict) else None
-        if isinstance(item, dict):
-            result[portfolio] = metric_view(item)
-    if not result and clean_text(raw.get("portfolio_kind"), max_length=24).lower() in PORTFOLIOS:
-        portfolio = clean_text(raw.get("portfolio_kind"), max_length=24).lower()
-        result[portfolio] = metric_view(raw)
+            overlay_fields = {
+                key: latest_view[key]
+                for key in (
+                    "cagr",
+                    "max_drawdown",
+                    "max_drawdown_exact",
+                    "max_drawdown_method",
+                    "max_drawdown_bound_direction",
+                    "start_date",
+                    "end_date",
+                    "metric_mode",
+                    "valid_for_production",
+                )
+            }
+            result[portfolio] = {
+                **result.get(portfolio, {}),
+                **overlay_fields,
+            }
     return result
+
+
+def latest_close_payload_is_safe(
+    payload: Any,
+    *,
+    expected_session_date: str,
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if (
+        payload.get("schema_version")
+        != "run287-latest-close-performance-v1"
+        or payload.get("status") != "READY_LATEST_CLOSE_REVIEW_ONLY"
+        or clean_text(payload.get("as_of_date"), max_length=16)
+        != expected_session_date
+        or payload.get("latest_close_exact") is not True
+        or payload.get(
+            "accepted_close_marks_include_durable_catchup"
+        )
+        is not True
+        or payload.get("review_only") is not True
+        or payload.get("live_trading_enabled") is not False
+        or payload.get("production_activation_allowed") is not False
+        or payload.get(
+            "historical_cagr_mdd_replacement_allowed"
+        )
+        is not False
+        or payload.get("promotion_evidence_allowed") is not False
+        or payload.get("fullrun_executed") is not False
+    ):
+        return False
+    portfolios = payload.get("portfolios")
+    if not isinstance(portfolios, dict):
+        return False
+    for portfolio in PORTFOLIOS:
+        item = portfolios.get(portfolio)
+        chain = (
+            item.get("latest_close_chain_linked")
+            if isinstance(item, dict)
+            else None
+        )
+        operating = (
+            item.get("operating_since_seed")
+            if isinstance(item, dict)
+            else None
+        )
+        if not isinstance(chain, dict) or not isinstance(operating, dict):
+            return False
+        if (
+            chain.get("status") != "LATEST_CLOSE_DIAGNOSTIC"
+            or clean_text(chain.get("end_date"), max_length=16)
+            != expected_session_date
+            or chain.get("cagr_endpoint_chain_exact") is not True
+            or chain.get("max_drawdown_exact") is not False
+            or clean_text(
+                chain.get("max_drawdown_bound_direction"),
+                max_length=160,
+            )
+            != (
+                "optimistic_lower_bound_on_loss_magnitude;"
+                "exact_chain_mdd_can_be_more_negative"
+            )
+            or chain.get("historical_metric_replacement_allowed")
+            is not False
+            or chain.get("promotion_evidence_allowed") is not False
+            or clean_text(operating.get("end_date"), max_length=16)
+            != expected_session_date
+            or operating.get("durable_catchup_marks_included") is not True
+            or operating.get("historical_metric_replacement_allowed")
+            is not False
+        ):
+            return False
+        for value in (
+            chain.get("cagr"),
+            chain.get("max_drawdown"),
+            operating.get("total_return"),
+            operating.get("max_drawdown"),
+        ):
+            if safe_float(value) is None:
+                return False
+    return True
 
 
 def public_order_previews(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -608,18 +730,19 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
         current_dir / "04_official_metrics.json"
     )
     latest_close = official_metric_payload.get("latest_close_performance")
-    if (
-        not isinstance(latest_close, dict)
-        or latest_close.get("status") != "READY_LATEST_CLOSE_REVIEW_ONLY"
-        or clean_text(
-            latest_close.get("as_of_date"), max_length=16
-        )
-        != completed_session_date
+    if not latest_close_payload_is_safe(
+        latest_close,
+        expected_session_date=completed_session_date,
     ):
         raise ValueError(
-            "daily artifact latest-close performance is missing or stale"
+            "daily artifact latest-close performance is missing, stale, "
+            "incomplete, or unsafe"
         )
     official_metrics = metrics_by_portfolio(official_metric_payload)
+    if set(official_metrics) != set(PORTFOLIOS):
+        raise ValueError(
+            "daily artifact latest-close portfolio metrics are incomplete"
+        )
 
     forward_fill_count = 0
     replay_paper_fill_count = 0
@@ -639,7 +762,10 @@ def overlay_user_current(source: Path, base: dict[str, Any]) -> dict[str, Any]:
         )
         dashboard.setdefault("portfolios", {})[portfolio] = {
             "label": PORTFOLIO_LABELS[portfolio],
-            "metrics": official_metrics.get(portfolio, prior.get("metrics", {})),
+            "metrics": {
+                **prior.get("metrics", {}),
+                **official_metrics.get(portfolio, {}),
+            },
             "holdings": holdings or prior.get("holdings", []),
             "holding_count": len(holdings or prior.get("holdings", [])),
             "cash_weight": round(float(cash), 10) if holdings else prior.get("cash_weight"),

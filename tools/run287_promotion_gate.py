@@ -2487,6 +2487,11 @@ def _validate_runtime_scorecard(
     if not isinstance(metrics, list) or not metrics:
         raise ValueError("runtime_scorecard_metrics_missing")
     metric_keys: list[tuple[str, str, str]] = []
+    paper_manifest_files = verified_paper_manifest.get("files") or {}
+    if not isinstance(paper_manifest_files, dict):
+        raise ValueError("runtime_scorecard_paper_manifest_files_invalid")
+    paper_manifest_sha256 = sha256_file(integrity_path)
+    paper_snapshot_hash = verified_paper_manifest.get("snapshot_hash")
     for metric in metrics:
         if not isinstance(metric, dict):
             raise ValueError("runtime_scorecard_metric_invalid")
@@ -2501,12 +2506,90 @@ def _validate_runtime_scorecard(
         provenance = metric.get("provenance") or {}
         source_id = str(provenance.get("source_id") or "")
         record = by_id.get(source_id)
+        derived_curve_source_id = (
+            f"current_paper_{key[2]}_equity_curve"
+            if key[2] in {"main", "concentrated"}
+            else ""
+        )
+        derived_curve_provenance_valid = False
         if (
-            not record
-            or provenance.get("source_sha256") != record.get("sha256")
-            or provenance.get("source_path") != record.get("path")
-            or provenance.get("as_of_date") != record.get("as_of_date")
-            or provenance.get("metric_mode") != record.get("metric_mode")
+            source_id == derived_curve_source_id
+            and key[0] == "forward_evidence"
+            and key[1].startswith("latest_close_")
+        ):
+            curve_relative = f"{key[2]}/equity_curve.csv"
+            curve_path = (integrity_path.parent / curve_relative).resolve()
+            expected_curve_sha256 = str(
+                paper_manifest_files.get(curve_relative) or ""
+            ).lower()
+            actual_curve_sha256 = (
+                sha256_file(curve_path)
+                if curve_path.is_file()
+                else None
+            )
+            historical_hash_valid = (
+                not key[1].startswith("latest_close_chain_linked_")
+                or provenance.get("historical_source_sha256")
+                == (by_id.get("p5_hold_exit") or {}).get("sha256")
+            )
+            try:
+                provenance_curve_path = Path(
+                    str(provenance.get("source_path") or "")
+                ).resolve()
+                provenance_manifest_path = Path(
+                    str(
+                        provenance.get(
+                            "snapshot_manifest_path"
+                        )
+                        or ""
+                    )
+                ).resolve()
+            except (OSError, RuntimeError, ValueError):
+                provenance_curve_path = Path()
+                provenance_manifest_path = Path()
+            derived_curve_provenance_valid = (
+                len(expected_curve_sha256) == 64
+                and actual_curve_sha256 == expected_curve_sha256
+                and provenance_curve_path == curve_path
+                and provenance.get("source_sha256")
+                == expected_curve_sha256
+                and provenance.get("as_of_date")
+                == verified_paper_manifest.get("as_of_date")
+                and provenance.get("metric_mode")
+                == (
+                    "accepted_exact_close_paper_marks_"
+                    "including_durable_catchup"
+                )
+                and provenance_manifest_path
+                == integrity_path.resolve()
+                and provenance.get("snapshot_manifest_sha256")
+                == paper_manifest_sha256
+                and provenance.get("snapshot_tree_sha256")
+                == paper_snapshot_hash
+                and historical_hash_valid
+            )
+            if derived_curve_provenance_valid:
+                try:
+                    observed_key = curve_path.relative_to(
+                        latest_run
+                    ).as_posix()
+                except ValueError:
+                    observed_key = (
+                        f"repo:{curve_path.relative_to(ROOT).as_posix()}"
+                    )
+                observed_files[observed_key] = expected_curve_sha256
+        registry_provenance_valid = (
+            bool(record)
+            and provenance.get("source_sha256") == record.get("sha256")
+            and provenance.get("source_path") == record.get("path")
+            and provenance.get("as_of_date") == record.get("as_of_date")
+            and provenance.get("metric_mode") == record.get("metric_mode")
+        )
+        if (
+            not (
+                registry_provenance_valid
+                or derived_curve_provenance_valid
+            )
             or metric.get("status") == "INTEGRITY_ERROR"
         ):
             raise ValueError(

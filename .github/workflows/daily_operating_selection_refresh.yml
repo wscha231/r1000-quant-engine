@@ -3004,7 +3004,7 @@ jobs:
           set -euo pipefail
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/daily_operating_snapshot.log
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/daily_user_portfolio_reports.log
-          python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log
+          python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict --require-latest-close 2>&1 | tee outputs/full_rebuild_logs/daily_user_current_report.log
           mkdir -p outputs/user_current
           cat > outputs/user_current/DAILY_REVIEW_ONLY.md <<'EOF'
           # Daily Review-Only Current Output

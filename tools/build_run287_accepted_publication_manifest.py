@@ -40,6 +40,8 @@ REQUIRED_FILES = {
     "user_target_weights": "user_current/02_target_weights.csv",
     "user_order_preview": "user_current/03_order_preview.csv",
     "user_rebalance_decision": "user_current/08_rebalance_decision.json",
+    "user_latest_close_performance":
+        "user_current/10_latest_close_performance.json",
 }
 TARGET_FILES = {
     "main": REQUIRED_FILES["main_target"],
