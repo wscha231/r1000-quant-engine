@@ -76,6 +76,12 @@ jobs:
       - name: Fetch U0 historical PR evidence refs
         shell: bash
         run: |
+          base_refspec="$(
+            python tools/audit_run287_u0_experiment_inventory.py \
+              --print-base-refspec
+          )"
+          test -n "$base_refspec"
+          git fetch --no-tags --depth=500 origin "$base_refspec"
           mapfile -t refspecs < <(
             python tools/audit_run287_u0_experiment_inventory.py \
               --print-fetch-refspecs

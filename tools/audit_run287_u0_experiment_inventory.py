@@ -38,6 +38,8 @@ INVENTORY_SCHEMA = "run287-u0-experiment-inventory-v1"
 REGISTRY_SCHEMA = "run287-do-not-repeat-registry-v1"
 AUDIT_STATUS = "VALID_INVENTORY_PROMOTION_BLOCKED"
 PR_REF_PREFIX = "refs/run287-u0/pr"
+BASE_REF = "refs/run287-u0/base"
+KNOWN_OUT_OF_REGISTRY_PR_NUMBERS = {229, 230, 237}
 
 HEX_40 = re.compile(r"[0-9a-f]{40}")
 HEX_64 = re.compile(r"[0-9a-f]{64}")
@@ -123,6 +125,13 @@ def required_pr_refspecs(inventory: dict[str, Any]) -> list[str]:
     ]
 
 
+def required_base_refspec(inventory: dict[str, Any]) -> str:
+    base_commit = str(inventory.get("base_commit") or "").lower()
+    if not HEX_40.fullmatch(base_commit):
+        raise ValueError("inventory base_commit must be a 40-character SHA")
+    return f"+{base_commit}:{BASE_REF}"
+
+
 def canonical_text_bytes(path: Path) -> bytes:
     text = path.read_text(encoding="utf-8")
     return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
@@ -148,6 +157,30 @@ def git_output(repository_root: Path, *args: str) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout.strip()
+
+
+@lru_cache(maxsize=None)
+def git_is_ancestor(
+    repository_root: Path, ancestor: str, descendant: str
+) -> bool | None:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository_root),
+            "merge-base",
+            "--is-ancestor",
+            ancestor,
+            descendant,
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode == 0:
+        return True
+    if completed.returncode == 1:
+        return False
+    return None
 
 
 @lru_cache(maxsize=None)
@@ -269,6 +302,17 @@ def validate_github_pr_evidence(
             errors.append(f"{prefix}:github_pr_ref_missing")
         elif observed_head.lower() != head_commit:
             errors.append(f"{prefix}:github_pr_ref_head_mismatch")
+        ancestry_observed = git_is_ancestor(
+            repository_root, pr_ref, BASE_REF
+        )
+        if ancestry_observed is None:
+            errors.append(f"{prefix}:github_pr_ancestry_unverifiable")
+        else:
+            expected_in_base = (
+                evidence.get("ancestry") == "CURRENT_MASTER"
+            )
+            if ancestry_observed is not expected_in_base:
+                errors.append(f"{prefix}:github_pr_ancestry_mismatch")
     if evidence.get("ancestry") not in allowed_ancestry:
         errors.append(f"{prefix}:github_pr_ancestry_invalid")
     artifacts = evidence.get("artifacts")
@@ -404,6 +448,17 @@ def audit_inventory(
         errors.append("registry_schema_invalid")
     if contract.get("rules") != REQUIRED_RULES:
         errors.append("contract_rules_invalid")
+    base_commit = str(inventory.get("base_commit") or "").lower()
+    if not HEX_40.fullmatch(base_commit):
+        errors.append("base_commit_invalid")
+    else:
+        observed_base = git_output(
+            repository_root, "rev-parse", f"{BASE_REF}^{{commit}}"
+        )
+        if observed_base is None:
+            errors.append("base_ref_missing")
+        elif observed_base.lower() != base_commit:
+            errors.append("base_ref_commit_mismatch")
 
     classes = set(contract.get("evaluation_classes") or [])
     evidence_states = set(contract.get("evidence_states") or [])
@@ -427,6 +482,7 @@ def audit_inventory(
     coverage_scope = ""
     historical_census_complete: bool | None = None
     coverage_backlog: list[Any] = []
+    backlog_pr_numbers: set[int] = set()
     if not isinstance(coverage, dict) or set(coverage) != {
         "scope",
         "historical_experiment_census_complete",
@@ -453,7 +509,6 @@ def audit_inventory(
             errors.append("known_out_of_registry_backlog_invalid")
         else:
             coverage_backlog = raw_backlog
-            backlog_pr_numbers: set[int] = set()
             for backlog_index, backlog_item in enumerate(coverage_backlog):
                 prefix = f"coverage_backlog[{backlog_index}]"
                 if (
@@ -481,6 +536,19 @@ def audit_inventory(
                     if pr_number in backlog_pr_numbers:
                         errors.append(f"{prefix}:duplicate_pr_number")
                     backlog_pr_numbers.add(pr_number)
+    contract_backlog_numbers = contract.get(
+        "known_out_of_registry_pr_numbers"
+    )
+    if (
+        not isinstance(contract_backlog_numbers, list)
+        or set(contract_backlog_numbers)
+        != KNOWN_OUT_OF_REGISTRY_PR_NUMBERS
+        or len(contract_backlog_numbers)
+        != len(KNOWN_OUT_OF_REGISTRY_PR_NUMBERS)
+    ):
+        errors.append("contract_known_backlog_pr_numbers_invalid")
+    if backlog_pr_numbers != KNOWN_OUT_OF_REGISTRY_PR_NUMBERS:
+        errors.append("known_out_of_registry_pr_numbers_mismatch")
 
     source = inventory.get("source_registry")
     source_registry_blob = committed_blob_bytes(
@@ -794,11 +862,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print the exact GitHub PR refspecs required by the audit.",
     )
+    parser.add_argument(
+        "--print-base-refspec",
+        action="store_true",
+        help="Print the exact historical audit base refspec.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.print_base_refspec:
+        print(required_base_refspec(read_json(args.inventory)))
+        return 0
     if args.print_fetch_refspecs:
         for refspec in required_pr_refspecs(read_json(args.inventory)):
             print(refspec)

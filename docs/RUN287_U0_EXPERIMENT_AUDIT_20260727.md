@@ -10,6 +10,7 @@ canonical do-not-repeat registry의 21/21건은 모두 분류됐지만, 이는
 - 분류 완료: 21건
 - 전체 branch/PR 실험 census: 미완료
 - 이미 확인한 registry 밖 backlog: PR #229, #230, #237
+  (contract가 이 정확한 집합을 강제)
 - 승격 차단: 21건
 - 현재 master 계보에서 빠진 PR 증거 참조: 21개
 - 동일 trial을 중복 계산할 수 있는 개념 중첩군: 4개
@@ -36,7 +37,9 @@ review를 거쳐야 한다.
    orphaned commit에만 남아 있다.
    inventory에 기록한 Git blob OID는 해당 파일을 다시 찾기 위한 불변
    locator이며, CI가 `refs/pull/<number>/head`를 별도 fetch해 PR head,
-   path, blob OID, byte size를 실제 Git object와 대조한다. 이 검증도
+   path, blob OID, byte size를 실제 Git object와 대조한다. 각 PR head의
+   `CURRENT_MASTER`/`ORPHANED_FROM_CURRENT_MASTER` 분류도 고정된 audit
+   base commit에 대해 실제 ancestry를 계산한다. 이 검증도
    그 파일을 일별 수익률 또는 승격 증거로 바꾸지는 않는다.
 3. PR 본문과 요약 메트릭은 남아 있어도 synchronized daily after-cost
    return은 대부분 보존되지 않았다.

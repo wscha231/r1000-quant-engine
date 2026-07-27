@@ -40,6 +40,11 @@
     "ORPHANED_FROM_CURRENT_MASTER"
   ],
   "coverage_scope": "CANONICAL_DO_NOT_REPEAT_REGISTRY_ONLY",
+  "known_out_of_registry_pr_numbers": [
+    229,
+    230,
+    237
+  ],
   "rules": {
     "all_do_not_repeat_entries_classified_exactly_once": true,
     "canonical_registry_is_not_a_complete_historical_experiment_census": true,

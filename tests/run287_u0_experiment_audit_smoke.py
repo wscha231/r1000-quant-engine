@@ -134,6 +134,31 @@ def test_known_out_of_registry_backlog_cannot_be_hidden() -> None:
     assert "known_out_of_registry_backlog_invalid" in result["errors"]
     assert "inventory_summary_mismatch" in result["errors"]
 
+    inventory = read(INVENTORY_PATH)
+    inventory["coverage"]["known_out_of_registry_backlog"].pop()
+    inventory["summary"]["known_out_of_registry_backlog_count"] = 2
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert (
+        "known_out_of_registry_pr_numbers_mismatch"
+        in result["errors"]
+    )
+    contract = read(CONTRACT_PATH)
+    contract["known_out_of_registry_pr_numbers"] = [229, 230]
+    result = MOD.audit_inventory(
+        contract=contract,
+        registry=read(REGISTRY_PATH),
+        inventory=read(INVENTORY_PATH),
+        repository_root=ROOT,
+        registry_path=REGISTRY_PATH,
+        inventory_path=INVENTORY_PATH,
+    )
+    assert result["valid"] is False
+    assert (
+        "contract_known_backlog_pr_numbers_invalid"
+        in result["errors"]
+    )
+
 
 def test_summary_cannot_be_relabelled_as_ready_return_evidence() -> None:
     inventory = read(INVENTORY_PATH)
@@ -250,8 +275,27 @@ def test_pr_ref_and_blob_bindings_are_verified() -> None:
     )
 
 
+def test_pr_ancestry_label_is_verified_against_audit_base() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "static_actual_profitability")
+    pr_evidence = next(
+        evidence
+        for evidence in target["evidence"]
+        if evidence["kind"] == "github_pr"
+    )
+    assert pr_evidence["ancestry"] == "ORPHANED_FROM_CURRENT_MASTER"
+    pr_evidence["ancestry"] = "CURRENT_MASTER"
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert any(
+        error.endswith(":github_pr_ancestry_mismatch")
+        for error in result["errors"]
+    )
+
+
 def test_required_pr_refspecs_are_exact_and_unique() -> None:
-    refspecs = MOD.required_pr_refspecs(read(INVENTORY_PATH))
+    inventory = read(INVENTORY_PATH)
+    refspecs = MOD.required_pr_refspecs(inventory)
     assert len(refspecs) == 22
     assert len(refspecs) == len(set(refspecs))
     assert (
@@ -261,6 +305,10 @@ def test_required_pr_refspecs_are_exact_and_unique() -> None:
     assert (
         "+refs/pull/336/head:refs/run287-u0/pr/336"
         in refspecs
+    )
+    assert MOD.required_base_refspec(inventory) == (
+        "+f29ac1f93a61076a08bedca83a4df5539926aab1:"
+        "refs/run287-u0/base"
     )
 
 
@@ -325,6 +373,7 @@ def main() -> int:
     test_contract_rules_are_exact_and_fail_closed()
     test_hash_bindings_are_newline_canonical()
     test_pr_ref_and_blob_bindings_are_verified()
+    test_pr_ancestry_label_is_verified_against_audit_base()
     test_required_pr_refspecs_are_exact_and_unique()
     test_overlap_deduplication_cannot_be_claimed_in_v1()
     test_tracked_evidence_is_hash_bound()

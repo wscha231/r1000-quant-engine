@@ -89,7 +89,10 @@ This is an intentionally fail-closed result:
 - invalid or unverified legacy claims cannot be silently classified as
   non-performance;
 - tracked evidence binds committed LF Git blobs, while historical PR locators
-  are verified against fetched `refs/pull/*/head`, path, blob OID, and size;
+  are verified against fetched `refs/pull/*/head`, path, blob OID, size, and
+  ancestry relative to the fixed audit base;
+- the known out-of-registry backlog is the exact contract-bound set
+  `{229, 230, 237}`, not just an editable count;
 - all four overlap groups remain explicitly unresolved;
 - exact trial manifests and return columns must be recovered before a new
   challenger can use the historical multiplicity population.
