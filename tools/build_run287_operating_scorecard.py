@@ -246,7 +246,7 @@ def chain_link_latest_close(
         "operating_since_seed_max_drawdown": operating_mdd,
         "max_drawdown_exact": False,
         "max_drawdown_method": (
-            "minimum_of_locked_historical_mdd_and_paper_terminal_chain_mdd"
+            "minimum_of_locked_historical_mdd_and_paper_operating_mdd"
         ),
         "max_drawdown_limitation": (
             "Exact cross-boundary MDD requires the complete historical equity "
@@ -1335,9 +1335,10 @@ def render_report(scorecard: dict[str, Any]) -> str:
             f"- status: `{latest.get('status') or 'UNAVAILABLE'}`",
             f"- as_of_date: `{latest.get('as_of_date') or 'UNAVAILABLE'}`",
             "- Durable chronological catch-up marks are included in the operating path.",
-            "- Chain-linked CAGR is a latest-close diagnostic and does not replace the locked historical acceptance result.",
+            "- Chain-linked CAGR is exact at the endpoints; its MDD value is only a bound because the complete historical curve is unavailable.",
+            "- Neither latest-close diagnostic replaces the locked historical acceptance result.",
             "",
-            "| Portfolio | Historical CAGR/MDD | Operating return/MDD since seed | Latest-close chain CAGR/MDD |",
+            "| Portfolio | Historical CAGR/MDD | Operating return/MDD since seed | Latest-close chain CAGR/MDD bound |",
             "| --- | ---: | ---: | ---: |",
         ]
     )

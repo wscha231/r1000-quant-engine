@@ -79,7 +79,7 @@ def write_latest_close_metrics(
                 "max_drawdown_exact": False,
                 "max_drawdown_method": (
                     "minimum_of_locked_historical_mdd_and_"
-                    "paper_terminal_chain_mdd"
+                    "paper_operating_mdd"
                 ),
                 "start_date": "2019-06-03",
                 "end_date": session_date,

@@ -1220,9 +1220,10 @@ def render_action_summary(
             f"- status: `{latest_close.get('status') or 'UNAVAILABLE'}`",
             f"- as_of_date: `{latest_close.get('as_of_date') or 'UNAVAILABLE'}`",
             "- Operating return/MDD includes accepted durable catch-up marks.",
-            "- Chain-linked CAGR/MDD is a latest-close diagnostic; the historical baseline remains separately locked.",
+            "- Chain-linked CAGR is exact at the endpoints; its MDD value is only a bound because the complete historical curve is unavailable.",
+            "- The historical baseline remains separately locked.",
             "",
-            "| Portfolio | Locked historical CAGR/MDD | Operating return/MDD since $100k seed | Latest-close chain CAGR/MDD |",
+            "| Portfolio | Locked historical CAGR/MDD | Operating return/MDD since $100k seed | Latest-close chain CAGR/MDD bound |",
             "| --- | ---: | ---: | ---: |",
         ]
     )

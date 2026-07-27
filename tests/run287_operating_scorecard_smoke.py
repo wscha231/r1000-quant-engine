@@ -244,6 +244,13 @@ def test_scorecard_keeps_evidence_lanes_and_provenance_separate() -> None:
             ]["operating_since_seed"]["max_drawdown"]
             + 0.05
         ) < 1e-12
+        assert (
+            scorecard["latest_close_performance"]["portfolios"]["main"][
+                "latest_close_chain_linked"
+            ]["max_drawdown_exact"]
+            is False
+        )
+        assert "MDD bound" in render_report(scorecard)
         assert scorecard["source_artifacts_copied"] is False
         assert len(scorecard["sources"]) == 12
         assert all(row["provenance"]["source_sha256"] for row in scorecard["metrics"] if row["status"] == "AVAILABLE")
