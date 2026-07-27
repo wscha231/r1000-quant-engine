@@ -19,6 +19,12 @@ canonical do-not-repeat registry의 21/21건은 모두 분류됐지만, 이는
 여기서 `VALID`는 감사 목록의 구조와 차단 사유가 정확하다는 뜻이다.
 성과가 유효하거나 개선됐다는 뜻이 아니다.
 
+v1 contract에는 `READY` 상태 자체가 없다. trial/return/selection-penalty
+manifest를 붙이거나 disposition 이름만 바꿔 현재 차단을 해제할 수 없다.
+실제 복구는 exact attempt count, trial-to-return-column mapping, cost model,
+no-op champion parity, overlap canonical trial ID를 함께 검증하는 다음 schema
+review를 거쳐야 한다.
+
 ## 처음부터 다시 본 결과
 
 기존 do-not-repeat registry는 실패 아이디어를 반복하지 않는 데는
@@ -29,7 +35,9 @@ canonical do-not-repeat registry의 21/21건은 모두 분류됐지만, 이는
    현재 master의 조상 계보에는 없다. 그 PR들의 요약 JSON과 arm CSV는
    orphaned commit에만 남아 있다.
    inventory에 기록한 Git blob OID는 해당 파일을 다시 찾기 위한 불변
-   locator일 뿐이며, 그 자체를 일별 수익률 또는 승격 증거로 인정하지 않는다.
+   locator이며, CI가 `refs/pull/<number>/head`를 별도 fetch해 PR head,
+   path, blob OID, byte size를 실제 Git object와 대조한다. 이 검증도
+   그 파일을 일별 수익률 또는 승격 증거로 바꾸지는 않는다.
 3. PR 본문과 요약 메트릭은 남아 있어도 synchronized daily after-cost
    return은 대부분 보존되지 않았다.
 4. 하나의 실제 trial이 여러 registry 이름에 겹쳐 있다.
@@ -70,7 +78,13 @@ canonical do-not-repeat registry의 21/21건은 모두 분류됐지만, 이는
   `sec_filing_quality_event`
 
 이 관계는 같은 원 trial 또는 같은 source-screen 계보를 이름만 달리해
-두 번 세는 것을 막는다.
+두 번 세는 것을 막는다. 네 그룹 모두 `UNRESOLVED`이며 canonical trial
+ID가 비어 있으므로, 향후 두 entry에 별도 이름의 manifest를 붙여
+중복 trial을 각각 세는 경로도 v1에서는 열리지 않는다.
+
+tracked 문서와 registry hash는 작업 폴더의 CRLF 바이트가 아니라 현재
+commit의 LF Git blob 바이트에 묶인다. 따라서 Windows와 Linux checkout의
+줄바꿈 차이로 감사 결과가 달라지지 않는다.
 
 ## 현재 CAGR/MDD 해석
 

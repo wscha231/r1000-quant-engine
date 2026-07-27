@@ -10,8 +10,8 @@
   "source_registry": {
     "path": "docs/run287_do_not_repeat_registry.json",
     "schema_version": "run287-do-not-repeat-registry-v1",
-    "sha256": "32794a677474810421abd99b61d48b353014453d0b354ca7140b0e4c47561355",
-    "bytes": 10609,
+    "sha256": "a292059a3ed9de1fd1150a827be66173f3e0da0f43062b3484b831d26daef925",
+    "bytes": 10348,
     "entry_count": 21
   },
   "coverage": {
@@ -99,6 +99,8 @@
   "overlap_groups": [
     {
       "id": "growth_confirmation_shared_trials",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
       "member_registry_entry_ids": [
         "weak_source_fusion",
         "direct_growth_tilt"
@@ -107,6 +109,8 @@
     },
     {
       "id": "financial_proxy_shared_trials",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
       "member_registry_entry_ids": [
         "static_actual_profitability",
         "technical_macro_risk_financial_proxy"
@@ -115,6 +119,8 @@
     },
     {
       "id": "ownership_w4_shared_trials",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
       "member_registry_entry_ids": [
         "ownership_13f_form4",
         "w4_sec_percentile_tilt"
@@ -123,6 +129,8 @@
     },
     {
       "id": "sec_filing_quality_shared_screen",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
       "member_registry_entry_ids": [
         "sec_market_confirmed_fundamental_event",
         "sec_filing_quality_event"
@@ -171,8 +179,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/FAMILY_A_VERDICT_20260621.md",
-          "sha256": "11d6a275f7d7acf01ae324e36fd54610da9db7e8c4d53e6df50a423d521dc653",
-          "bytes": 3429
+          "sha256": "dec8b2744a8156281457a9fa1db7371a97bea06cf29d622c1c1d3a02121efae9",
+          "bytes": 3385
         },
         {
           "kind": "github_actions_run",
@@ -328,8 +336,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md",
-          "sha256": "137e5381f8f06b68e8176f015ec311560293dd8e5c097025f1d80e21cdbb9281",
-          "bytes": 15310
+          "sha256": "c14437d3f9514d76d04027c6cee998b098c3e00d246f88f165ce0a6599f79f51",
+          "bytes": 14850
         }
       ],
       "finding": "The canonical registry calls this family rejected, but its cited roadmap is a plan rather than an immutable result and no exact evaluated arm was located.",
@@ -745,8 +753,8 @@
         {
           "kind": "tracked_file",
           "path": "CHANGELOG.md",
-          "sha256": "25fbba1aad2326ae57cb42ae8f44b67edac7dac9ae9de499df2861c8e5d83b44",
-          "bytes": 1399144
+          "sha256": "783c58e2c5689f33c00a72a189179ec68d6f43dac5d8036a4da1d4bf84098d24",
+          "bytes": 1384483
         }
       ],
       "finding": "The tracked changelog proves implementation and says a later replay was still required; no immutable rejection result was found even though the registry marks the family rejected.",
@@ -767,8 +775,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md",
-          "sha256": "93544599d6df1edf56b2f3dc0bb3bf511ead50e2cad7bb3dc5b4e066b5d53bca",
-          "bytes": 6647
+          "sha256": "26b5c3f3c85c71940fcae7eeb83b16848d1a47ed53ee6b7f38ce6ad841965550",
+          "bytes": 6512
         }
       ],
       "published_results": {
@@ -798,8 +806,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md",
-          "sha256": "93544599d6df1edf56b2f3dc0bb3bf511ead50e2cad7bb3dc5b4e066b5d53bca",
-          "bytes": 6647
+          "sha256": "26b5c3f3c85c71940fcae7eeb83b16848d1a47ed53ee6b7f38ce6ad841965550",
+          "bytes": 6512
         }
       ],
       "finding": "This source screen failed OOS/OOS2 bootstrap lower bounds and never opened a portfolio arm; it overlaps the later exact filing-quality closure.",
@@ -822,8 +830,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md",
-          "sha256": "9a9376f68d9bbe45b63712df1c856b0792a0b95f8d94eb19517b049dd305ab4c",
-          "bytes": 3317
+          "sha256": "cf0fd2474edcc05c0c75b60fa80a1730123815292303358123f1173f4ee14269",
+          "bytes": 3243
         },
         {
           "kind": "github_pr",
@@ -857,8 +865,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_REVIEW_GATE_RESULT_20260714.md",
-          "sha256": "65c8818ce8765d5cbacb4554bf35baa8bca0b94163fb00478707425189ffbedd",
-          "bytes": 4562
+          "sha256": "339d34f042b3a1ce9f4263c0582841ea8355595f14073fe0cbee0f4ebe067310",
+          "bytes": 4461
         },
         {
           "kind": "missing_local_artifact",
@@ -884,8 +892,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md",
-          "sha256": "97ad1aa47e7e4e27eec0bfc25fc9f88fff39267928fbff1a1a10679e2ea84699",
-          "bytes": 4453
+          "sha256": "255db76caccfbaeae241b030492c35e3b34fd9dbfbd7c798512beeb918851d37",
+          "bytes": 4350
         },
         {
           "kind": "github_pr",
@@ -924,8 +932,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/CODEX_RUN287_P5_HOLD_EXIT_REPLACEMENT_RESULT_20260720.md",
-          "sha256": "1bdd43dde50da53c34670e19b301c3eb817088c3a781553175a37974ef6412f9",
-          "bytes": 4972
+          "sha256": "a5a3509d60b2225a2da8cd7f24dd72fab8f3900cb1341a55a95fde3b3dcc3778",
+          "bytes": 4873
         },
         {
           "kind": "github_pr",
@@ -959,8 +967,8 @@
         {
           "kind": "tracked_file",
           "path": "docs/CODEX_RUN287_P6_CANDIDATE_GATE_STABILITY_RESULT_20260720.md",
-          "sha256": "03a5a68a1e30dda5110b8cdccef270331372ae1674a621cdd04eb00ccce41a1d",
-          "bytes": 6650
+          "sha256": "38d89035c9080c2345c3725ea4c94fc75249ebb2ef82bd16b1ceb43c870c0770",
+          "bytes": 6526
         },
         {
           "kind": "github_pr",

@@ -5,6 +5,9 @@ The audit distinguishes a structurally valid inventory from promotion
 readiness.  Legacy evidence debt is an expected, explicit blocking state; it
 must never be converted into a passing multiple-testing population by treating
 summary metrics as daily after-cost return series.
+
+Version 1 is an audit snapshot, not a recovery-schema validator: it has no
+READY state and cannot remove a historical entry from the blocker set.
 """
 from __future__ import annotations
 
@@ -12,7 +15,9 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -32,6 +37,7 @@ CONTRACT_SCHEMA = "run287-u0-experiment-audit-contract-v1"
 INVENTORY_SCHEMA = "run287-u0-experiment-inventory-v1"
 REGISTRY_SCHEMA = "run287-do-not-repeat-registry-v1"
 AUDIT_STATUS = "VALID_INVENTORY_PROMOTION_BLOCKED"
+PR_REF_PREFIX = "refs/run287-u0/pr"
 
 HEX_40 = re.compile(r"[0-9a-f]{40}")
 HEX_64 = re.compile(r"[0-9a-f]{64}")
@@ -50,10 +56,23 @@ REQUIRED_ENTRY_FIELDS = {
     "finding",
     "recovery_action",
 }
-OPTIONAL_ENTRY_FIELDS = {
-    "published_results",
-    "trial_manifest",
-    "daily_return_series_manifest",
+OPTIONAL_ENTRY_FIELDS = {"published_results"}
+REQUIRED_RULES = {
+    "all_do_not_repeat_entries_classified_exactly_once": True,
+    "canonical_registry_is_not_a_complete_historical_experiment_census": True,
+    "known_out_of_registry_trials_must_be_explicit": True,
+    "recovery_manifests_are_not_accepted_by_v1": True,
+    "summary_metrics_are_not_daily_return_series": True,
+    "portfolio_trials_require_exact_parameter_and_return_column_manifests": True,
+    "portfolio_trials_require_synchronized_daily_after_cost_return_series": True,
+    "source_screens_that_informed_selection_require_a_multiplicity_penalty": True,
+    "overlap_resolution_requires_a_future_schema_migration": True,
+    "orphaned_pull_request_evidence_must_bind_pr_ref_head_commit_and_git_blob": True,
+    "missing_local_artifacts_must_be_explicit": True,
+    "legacy_evidence_debt_blocks_preregistration_and_promotion": True,
+    "audit_validity_does_not_imply_promotion_readiness": True,
+    "automatic_champion_change_allowed": False,
+    "fullrun_allowed_by_this_contract": False,
 }
 
 
@@ -64,12 +83,91 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def required_pr_numbers(inventory: dict[str, Any]) -> list[int]:
+    numbers: set[int] = set()
+    coverage = inventory.get("coverage")
+    if isinstance(coverage, dict):
+        for item in coverage.get("known_out_of_registry_backlog") or []:
+            if isinstance(item, dict):
+                evidence = item.get("evidence")
+                if isinstance(evidence, dict):
+                    number = evidence.get("pr_number")
+                    if (
+                        isinstance(number, int)
+                        and not isinstance(number, bool)
+                        and number > 0
+                    ):
+                        numbers.add(number)
+    for entry in inventory.get("entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        for evidence in entry.get("evidence") or []:
+            if not isinstance(evidence, dict):
+                continue
+            if evidence.get("kind") != "github_pr":
+                continue
+            number = evidence.get("pr_number")
+            if (
+                isinstance(number, int)
+                and not isinstance(number, bool)
+                and number > 0
+            ):
+                numbers.add(number)
+    return sorted(numbers)
+
+
+def required_pr_refspecs(inventory: dict[str, Any]) -> list[str]:
+    return [
+        f"+refs/pull/{number}/head:{PR_REF_PREFIX}/{number}"
+        for number in required_pr_numbers(inventory)
+    ]
+
+
+def canonical_text_bytes(path: Path) -> bytes:
+    text = path.read_text(encoding="utf-8")
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashlib.sha256(canonical_text_bytes(path)).hexdigest()
+
+
+def canonical_file_size(path: Path) -> int:
+    return len(canonical_text_bytes(path))
+
+
+@lru_cache(maxsize=None)
+def git_output(repository_root: Path, *args: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(repository_root), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+@lru_cache(maxsize=None)
+def committed_blob_bytes(
+    repository_root: Path, repository_relative_path: str
+) -> bytes | None:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository_root),
+            "show",
+            f"HEAD:{repository_relative_path}",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
 
 
 def repository_path(root: Path, value: Any) -> Path | None:
@@ -103,14 +201,16 @@ def validate_tracked_file_evidence(
     if path is None:
         errors.append(f"{prefix}:tracked_file_path_invalid")
         return
-    if not path.is_file():
-        errors.append(f"{prefix}:tracked_file_missing")
+    path_text = str(evidence.get("path") or "")
+    blob = committed_blob_bytes(repository_root, path_text)
+    if blob is None:
+        errors.append(f"{prefix}:tracked_file_blob_missing")
         return
     expected_sha = str(evidence.get("sha256") or "").lower()
     expected_bytes = evidence.get("bytes")
     if not HEX_64.fullmatch(expected_sha):
         errors.append(f"{prefix}:tracked_file_sha256_invalid")
-    elif sha256_file(path) != expected_sha:
+    elif hashlib.sha256(blob).hexdigest() != expected_sha:
         errors.append(f"{prefix}:tracked_file_sha256_mismatch")
     if (
         isinstance(expected_bytes, bool)
@@ -118,13 +218,14 @@ def validate_tracked_file_evidence(
         or expected_bytes <= 0
     ):
         errors.append(f"{prefix}:tracked_file_bytes_invalid")
-    elif path.stat().st_size != expected_bytes:
+    elif len(blob) != expected_bytes:
         errors.append(f"{prefix}:tracked_file_bytes_mismatch")
 
 
 def validate_github_pr_evidence(
     evidence: dict[str, Any],
     *,
+    repository_root: Path,
     errors: list[str],
     entry_id: str,
     evidence_index: int,
@@ -142,7 +243,12 @@ def validate_github_pr_evidence(
         errors.append(f"{prefix}:github_pr_fields_invalid")
         return
     number = evidence.get("pr_number")
-    if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
+    valid_number = (
+        isinstance(number, int)
+        and not isinstance(number, bool)
+        and number > 0
+    )
+    if not valid_number:
         errors.append(f"{prefix}:github_pr_number_invalid")
     expected_url = (
         "https://github.com/wscha231/r1000-quant-engine/pull/"
@@ -150,10 +256,19 @@ def validate_github_pr_evidence(
     )
     if evidence.get("url") != expected_url:
         errors.append(f"{prefix}:github_pr_url_invalid")
-    if not HEX_40.fullmatch(
-        str(evidence.get("head_commit") or "").lower()
-    ):
+    head_commit = str(evidence.get("head_commit") or "").lower()
+    valid_head = bool(HEX_40.fullmatch(head_commit))
+    if not valid_head:
         errors.append(f"{prefix}:github_pr_head_commit_invalid")
+    if valid_number and valid_head:
+        pr_ref = f"{PR_REF_PREFIX}/{number}"
+        observed_head = git_output(
+            repository_root, "rev-parse", f"{pr_ref}^{{commit}}"
+        )
+        if observed_head is None:
+            errors.append(f"{prefix}:github_pr_ref_missing")
+        elif observed_head.lower() != head_commit:
+            errors.append(f"{prefix}:github_pr_ref_head_mismatch")
     if evidence.get("ancestry") not in allowed_ancestry:
         errors.append(f"{prefix}:github_pr_ancestry_invalid")
     artifacts = evidence.get("artifacts")
@@ -181,9 +296,31 @@ def validate_github_pr_evidence(
             str(artifact.get("git_blob_oid") or "").lower()
         ):
             errors.append(f"{artifact_prefix}:git_blob_oid_invalid")
+        elif valid_number and valid_head:
+            pr_ref = f"{PR_REF_PREFIX}/{number}"
+            observed_oid = git_output(
+                repository_root,
+                "rev-parse",
+                f"{pr_ref}:{path_text}",
+            )
+            if observed_oid is None:
+                errors.append(f"{artifact_prefix}:git_blob_missing")
+            elif observed_oid.lower() != str(
+                artifact.get("git_blob_oid")
+            ).lower():
+                errors.append(f"{artifact_prefix}:git_blob_oid_mismatch")
         size = artifact.get("bytes")
         if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
             errors.append(f"{artifact_prefix}:bytes_invalid")
+        elif valid_number and valid_head:
+            observed_size = git_output(
+                repository_root,
+                "cat-file",
+                "-s",
+                str(artifact.get("git_blob_oid") or ""),
+            )
+            if observed_size is None or observed_size != str(size):
+                errors.append(f"{artifact_prefix}:bytes_mismatch")
 
 
 def validate_actions_evidence(
@@ -265,6 +402,8 @@ def audit_inventory(
         errors.append("inventory_schema_invalid")
     if registry.get("schema_version") != REGISTRY_SCHEMA:
         errors.append("registry_schema_invalid")
+    if contract.get("rules") != REQUIRED_RULES:
+        errors.append("contract_rules_invalid")
 
     classes = set(contract.get("evaluation_classes") or [])
     evidence_states = set(contract.get("evidence_states") or [])
@@ -328,6 +467,7 @@ def audit_inventory(
                 evidence = backlog_item["evidence"]
                 validate_github_pr_evidence(
                     evidence,
+                    repository_root=repository_root,
                     errors=errors,
                     entry_id=prefix,
                     evidence_index=0,
@@ -343,6 +483,9 @@ def audit_inventory(
                     backlog_pr_numbers.add(pr_number)
 
     source = inventory.get("source_registry")
+    source_registry_blob = committed_blob_bytes(
+        repository_root, "docs/run287_do_not_repeat_registry.json"
+    )
     if not isinstance(source, dict) or set(source) != {
         "path",
         "schema_version",
@@ -356,9 +499,16 @@ def audit_inventory(
             errors.append("source_registry_path_invalid")
         if source.get("schema_version") != REGISTRY_SCHEMA:
             errors.append("source_registry_schema_invalid")
-        if source.get("sha256") != sha256_file(registry_path):
+        if source_registry_blob is None:
+            errors.append("source_registry_blob_missing")
+        elif source.get("sha256") != hashlib.sha256(
+            source_registry_blob
+        ).hexdigest():
             errors.append("source_registry_sha256_mismatch")
-        if source.get("bytes") != registry_path.stat().st_size:
+        if (
+            source_registry_blob is not None
+            and source.get("bytes") != len(source_registry_blob)
+        ):
             errors.append("source_registry_bytes_mismatch")
 
     registry_entries = registry.get("entries")
@@ -400,10 +550,13 @@ def audit_inventory(
         overlap_groups = []
         errors.append("overlap_groups_invalid")
     group_members: dict[str, set[str]] = {}
+    unresolved_group_ids: set[str] = set()
     for index, group in enumerate(overlap_groups):
         prefix = f"overlap_group[{index}]"
         if not isinstance(group, dict) or set(group) != {
             "id",
+            "deduplication_status",
+            "canonical_trial_ids",
             "member_registry_entry_ids",
             "reason",
         }:
@@ -411,9 +564,12 @@ def audit_inventory(
             continue
         group_id = str(group.get("id") or "")
         members = group.get("member_registry_entry_ids")
+        canonical_trial_ids = group.get("canonical_trial_ids")
         if (
             not group_id
             or group_id in group_members
+            or group.get("deduplication_status") != "UNRESOLVED"
+            or canonical_trial_ids != []
             or not isinstance(members, list)
             or len(members) < 2
             or len(members) != len(set(members))
@@ -423,6 +579,7 @@ def audit_inventory(
             errors.append(f"{prefix}:definition_invalid")
             continue
         group_members[group_id] = set(members)
+        unresolved_group_ids.add(group_id)
 
     class_counts: Counter[str] = Counter()
     evidence_state_counts: Counter[str] = Counter()
@@ -477,87 +634,6 @@ def audit_inventory(
         if not str(entry.get("recovery_action") or "").strip():
             errors.append(f"{entry_id}:recovery_action_missing")
 
-        trial_manifest = entry.get("trial_manifest")
-        if manifest_status == "READY":
-            if (
-                not isinstance(trial_manifest, dict)
-                or set(trial_manifest)
-                != {
-                    "schema_version",
-                    "sha256",
-                    "trial_count",
-                    "trial_specifications",
-                }
-                or trial_manifest.get("schema_version")
-                != "run287-prior-trial-manifest-v1"
-                or not HEX_64.fullmatch(
-                    str(trial_manifest.get("sha256") or "").lower()
-                )
-                or isinstance(trial_manifest.get("trial_count"), bool)
-                or not isinstance(trial_manifest.get("trial_count"), int)
-                or trial_manifest.get("trial_count") <= 0
-                or not isinstance(
-                    trial_manifest.get("trial_specifications"), dict
-                )
-                or len(trial_manifest.get("trial_specifications"))
-                != trial_manifest.get("trial_count")
-            ):
-                errors.append(f"{entry_id}:ready_trial_manifest_invalid")
-        elif trial_manifest is not None:
-            errors.append(f"{entry_id}:nonready_trial_manifest_present")
-
-        return_manifest = entry.get("daily_return_series_manifest")
-        if return_status == "READY":
-            if (
-                not isinstance(return_manifest, dict)
-                or set(return_manifest)
-                != {
-                    "path",
-                    "sha256",
-                    "date_column",
-                    "first_session",
-                    "last_session",
-                    "session_count",
-                    "return_columns",
-                    "cost_model_sha256",
-                }
-                or repository_path(
-                    repository_root, return_manifest.get("path")
-                )
-                is None
-                or not HEX_64.fullmatch(
-                    str(return_manifest.get("sha256") or "").lower()
-                )
-                or return_manifest.get("date_column") != "date"
-                or not re.fullmatch(
-                    r"\d{4}-\d{2}-\d{2}",
-                    str(return_manifest.get("first_session") or ""),
-                )
-                or not re.fullmatch(
-                    r"\d{4}-\d{2}-\d{2}",
-                    str(return_manifest.get("last_session") or ""),
-                )
-                or isinstance(return_manifest.get("session_count"), bool)
-                or not isinstance(return_manifest.get("session_count"), int)
-                or return_manifest.get("session_count") <= 0
-                or not isinstance(return_manifest.get("return_columns"), list)
-                or not return_manifest.get("return_columns")
-                or len(return_manifest.get("return_columns"))
-                != len(set(return_manifest.get("return_columns")))
-                or not HEX_64.fullmatch(
-                    str(
-                        return_manifest.get("cost_model_sha256") or ""
-                    ).lower()
-                )
-            ):
-                errors.append(
-                    f"{entry_id}:ready_daily_return_manifest_invalid"
-                )
-        elif return_manifest is not None:
-            errors.append(
-                f"{entry_id}:nonready_daily_return_manifest_present"
-            )
-
         cited_groups = entry.get("overlap_group_ids")
         if (
             not isinstance(cited_groups, list)
@@ -596,6 +672,7 @@ def audit_inventory(
                 elif kind == "github_pr":
                     validate_github_pr_evidence(
                         evidence,
+                        repository_root=repository_root,
                         errors=errors,
                         entry_id=entry_id,
                         evidence_index=evidence_index,
@@ -626,35 +703,15 @@ def audit_inventory(
                         f"{entry_id}:evidence[{evidence_index}]:kind_invalid"
                     )
 
-        portfolio_like = evaluation_class in {
-            "PORTFOLIO_RETURN",
-            "MIXED_SOURCE_AND_PORTFOLIO",
-            "NO_OP_PORTFOLIO",
-        }
-        source_like = evaluation_class in {
-            "SOURCE_RETURN_SCREEN",
-            "NO_SIGNAL",
-        }
-        ready = (
-            portfolio_like
-            and manifest_status == "READY"
-            and return_status == "READY"
-            and disposition == "INCLUDE_EXACT_RETURN_TRIALS"
+        if not disposition.startswith("BLOCK_"):
+            errors.append(f"{entry_id}:v1_disposition_must_block")
+        blocked_ids.append(entry_id)
+        promotion_blockers.append(f"{entry_id}:{disposition}")
+
+    for group_id in sorted(unresolved_group_ids):
+        promotion_blockers.append(
+            f"overlap:{group_id}:DEDUPLICATION_UNRESOLVED"
         )
-        if source_like and entry.get("selection_informed") is True:
-            ready = (
-                disposition == "SELECTION_MULTIPLICITY_PENALTY_IMPLEMENTED"
-            )
-        if evaluation_class in {
-            "INVALID_OR_INCOMPLETE",
-            "UNVERIFIED_LEGACY",
-        }:
-            ready = False
-        if not ready:
-            blocked_ids.append(entry_id)
-            promotion_blockers.append(
-                f"{entry_id}:{disposition}"
-            )
 
     summary = inventory.get("summary")
     computed_summary = {
@@ -717,7 +774,11 @@ def audit_inventory(
         "promotion_blockers": promotion_blockers,
         "inventory_path": inventory_path.as_posix(),
         "inventory_sha256": sha256_file(inventory_path),
-        "source_registry_sha256": sha256_file(registry_path),
+        "source_registry_sha256": (
+            hashlib.sha256(source_registry_blob).hexdigest()
+            if source_registry_blob is not None
+            else None
+        ),
     }
 
 
@@ -728,11 +789,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--inventory", type=Path, default=DEFAULT_INVENTORY)
     parser.add_argument("--repository-root", type=Path, default=REPOSITORY_ROOT)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--print-fetch-refspecs",
+        action="store_true",
+        help="Print the exact GitHub PR refspecs required by the audit.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.print_fetch_refspecs:
+        for refspec in required_pr_refspecs(read_json(args.inventory)):
+            print(refspec)
+        return 0
     result = audit_inventory(
         contract=read_json(args.contract),
         registry=read_json(args.registry),

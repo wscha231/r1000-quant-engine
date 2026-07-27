@@ -51,6 +51,13 @@ def entry(
 
 
 def test_current_inventory_is_valid_but_blocks_promotion() -> None:
+    contract = read(CONTRACT_PATH)
+    assert "READY" not in contract["trial_manifest_states"]
+    assert "READY" not in contract["daily_return_series_states"]
+    assert all(
+        value.startswith("BLOCK_")
+        for value in contract["multiplicity_dispositions"]
+    )
     result = audit(read(INVENTORY_PATH))
     assert result["valid"] is True
     assert result["status"] == "VALID_INVENTORY_PROMOTION_BLOCKED"
@@ -138,14 +145,133 @@ def test_summary_cannot_be_relabelled_as_ready_return_evidence() -> None:
     assert result["valid"] is False
     assert (
         "main_growth_downside_beta_neutral:"
-        "ready_trial_manifest_invalid"
+        "trial_manifest_status_invalid"
         in result["errors"]
     )
     assert (
         "main_growth_downside_beta_neutral:"
-        "ready_daily_return_manifest_invalid"
+        "daily_return_series_status_invalid"
         in result["errors"]
     )
+    assert (
+        "main_growth_downside_beta_neutral:"
+        "multiplicity_disposition_invalid"
+        in result["errors"]
+    )
+    assert (
+        "main_growth_downside_beta_neutral:"
+        "v1_disposition_must_block"
+        in result["errors"]
+    )
+    assert (
+        "main_growth_downside_beta_neutral"
+        in result["blocked_registry_entry_ids"]
+    )
+
+
+def test_v1_rejects_recovery_manifests_and_selection_labels() -> None:
+    inventory = read(INVENTORY_PATH)
+    portfolio = entry(inventory, "main_growth_downside_beta_neutral")
+    portfolio["trial_manifest"] = {"invented": True}
+    mixed = entry(inventory, "ownership_13f_form4")
+    mixed["multiplicity_disposition"] = (
+        "SELECTION_MULTIPLICITY_PENALTY_IMPLEMENTED"
+    )
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert (
+        "main_growth_downside_beta_neutral:entry_fields_invalid"
+        in result["errors"]
+    )
+    assert (
+        "ownership_13f_form4:multiplicity_disposition_invalid"
+        in result["errors"]
+    )
+    assert "ownership_13f_form4" in result["blocked_registry_entry_ids"]
+
+
+def test_contract_rules_are_exact_and_fail_closed() -> None:
+    inventory = read(INVENTORY_PATH)
+    contract = read(CONTRACT_PATH)
+    contract["rules"]["summary_metrics_are_not_daily_return_series"] = False
+    result = MOD.audit_inventory(
+        contract=contract,
+        registry=read(REGISTRY_PATH),
+        inventory=inventory,
+        repository_root=ROOT,
+        registry_path=REGISTRY_PATH,
+        inventory_path=INVENTORY_PATH,
+    )
+    assert result["valid"] is False
+    assert "contract_rules_invalid" in result["errors"]
+
+
+def test_hash_bindings_are_newline_canonical() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        lf = root / "lf.txt"
+        crlf = root / "crlf.txt"
+        lf.write_bytes(b"alpha\nbeta\n")
+        crlf.write_bytes(b"alpha\r\nbeta\r\n")
+        assert MOD.sha256_file(lf) == MOD.sha256_file(crlf)
+        assert MOD.canonical_file_size(lf) == MOD.canonical_file_size(crlf)
+    inventory = read(INVENTORY_PATH)
+    assert inventory["source_registry"]["sha256"] == MOD.sha256_file(
+        REGISTRY_PATH
+    )
+    assert inventory["source_registry"]["bytes"] == (
+        MOD.canonical_file_size(REGISTRY_PATH)
+    )
+
+
+def test_pr_ref_and_blob_bindings_are_verified() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "static_actual_profitability")
+    pr_evidence = next(
+        evidence
+        for evidence in target["evidence"]
+        if evidence["kind"] == "github_pr" and evidence["artifacts"]
+    )
+    original_head = pr_evidence["head_commit"]
+    pr_evidence["head_commit"] = "f" * 40
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert any(
+        error.endswith(":github_pr_ref_head_mismatch")
+        for error in result["errors"]
+    )
+    pr_evidence["head_commit"] = original_head
+    pr_evidence["artifacts"][0]["git_blob_oid"] = "f" * 40
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert any(
+        error.endswith(":git_blob_oid_mismatch")
+        for error in result["errors"]
+    )
+
+
+def test_required_pr_refspecs_are_exact_and_unique() -> None:
+    refspecs = MOD.required_pr_refspecs(read(INVENTORY_PATH))
+    assert len(refspecs) == 22
+    assert len(refspecs) == len(set(refspecs))
+    assert (
+        "+refs/pull/229/head:refs/run287-u0/pr/229"
+        in refspecs
+    )
+    assert (
+        "+refs/pull/336/head:refs/run287-u0/pr/336"
+        in refspecs
+    )
+
+
+def test_overlap_deduplication_cannot_be_claimed_in_v1() -> None:
+    inventory = read(INVENTORY_PATH)
+    group = inventory["overlap_groups"][0]
+    group["deduplication_status"] = "READY"
+    group["canonical_trial_ids"] = ["invented-trial"]
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert "overlap_group[0]:definition_invalid" in result["errors"]
 
 
 def test_tracked_evidence_is_hash_bound() -> None:
@@ -195,6 +321,12 @@ def main() -> int:
     test_canonical_registry_cannot_be_claimed_as_full_history()
     test_known_out_of_registry_backlog_cannot_be_hidden()
     test_summary_cannot_be_relabelled_as_ready_return_evidence()
+    test_v1_rejects_recovery_manifests_and_selection_labels()
+    test_contract_rules_are_exact_and_fail_closed()
+    test_hash_bindings_are_newline_canonical()
+    test_pr_ref_and_blob_bindings_are_verified()
+    test_required_pr_refspecs_are_exact_and_unique()
+    test_overlap_deduplication_cannot_be_claimed_in_v1()
     test_tracked_evidence_is_hash_bound()
     test_cli_reports_blocked_state_without_treating_it_as_test_failure()
     print("run287_u0_experiment_audit_smoke: PASS")

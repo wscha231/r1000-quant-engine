@@ -79,6 +79,8 @@ that could otherwise double-count the same trial lineage.
 
 This is an intentionally fail-closed result:
 
+- the v1 contract contains no `READY` state; recovery requires a separately
+  reviewed schema rather than relabelling the current inventory;
 - summary CAGR/MDD is not a substitute for synchronized daily after-cost
   returns;
 - source screens and no-signal attempts must contribute to a separate
@@ -86,6 +88,9 @@ This is an intentionally fail-closed result:
 - no-op trials still count as attempted causal families;
 - invalid or unverified legacy claims cannot be silently classified as
   non-performance;
+- tracked evidence binds committed LF Git blobs, while historical PR locators
+  are verified against fetched `refs/pull/*/head`, path, blob OID, and size;
+- all four overlap groups remain explicitly unresolved;
 - exact trial manifests and return columns must be recovered before a new
   challenger can use the historical multiplicity population.
 

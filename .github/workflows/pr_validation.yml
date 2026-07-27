@@ -73,6 +73,16 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements_github.txt
 
+      - name: Fetch U0 historical PR evidence refs
+        shell: bash
+        run: |
+          mapfile -t refspecs < <(
+            python tools/audit_run287_u0_experiment_inventory.py \
+              --print-fetch-refspecs
+          )
+          test "${#refspecs[@]}" -gt 0
+          git fetch --no-tags --depth=1 origin "${refspecs[@]}"
+
       - name: Install minimal dependencies
         run: |
           python -m pip install --upgrade pip
