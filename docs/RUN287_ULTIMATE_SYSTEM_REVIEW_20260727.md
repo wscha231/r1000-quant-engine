@@ -66,6 +66,30 @@ The do-not-repeat registry already blocks the principal failed lanes:
 Renaming one of these ideas or moving a threshold is not a new causal
 hypothesis.
 
+### U0 experiment audit
+
+The U0 inventory now classifies all 21 do-not-repeat entries, but all 21 remain
+promotion-blocking. The audit found 21 references to PR evidence whose head
+commit is no longer in current master ancestry, five referenced local result
+files that are absent, and four concept-overlap groups that could otherwise
+double-count the same trial lineage.
+
+This is an intentionally fail-closed result:
+
+- summary CAGR/MDD is not a substitute for synchronized daily after-cost
+  returns;
+- source screens and no-signal attempts must contribute to a separate
+  selection-multiplicity penalty;
+- no-op trials still count as attempted causal families;
+- invalid or unverified legacy claims cannot be silently classified as
+  non-performance;
+- exact trial manifests and return columns must be recovered before a new
+  challenger can use the historical multiplicity population.
+
+The machine-readable contract and inventory are
+`docs/run287_u0_experiment_audit_contract.json` and
+`docs/run287_u0_experiment_inventory.json`.
+
 ### Multiple-testing and promotion layer
 
 This change adds the missing U4 statistical barrier:
@@ -135,8 +159,10 @@ coverage gate passes.
 
 ## Remaining system work
 
-- U0: normalize all historical branch/PR experiments into one permanent
-  append-only experiment registry.
+- U0: the 21-entry classification and fail-closed audit contract are complete;
+  recover orphaned exact trial manifests and daily return columns, deduplicate
+  the four overlap groups, and implement source-selection multiplicity before
+  preregistering a challenger.
 - U1: finish bitemporal universe, taxonomy, macro vintage, delisted, and
   estimate/guidance coverage.
 - U2/U3: keep sector leadership research-only until independent OOS evidence;

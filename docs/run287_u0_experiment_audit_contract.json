@@ -1,0 +1,60 @@
+{
+  "schema_version": "run287-u0-experiment-audit-contract-v1",
+  "inventory_schema_version": "run287-u0-experiment-inventory-v1",
+  "source_registry_path": "docs/run287_do_not_repeat_registry.json",
+  "source_registry_schema_version": "run287-do-not-repeat-registry-v1",
+  "evaluation_classes": [
+    "PORTFOLIO_RETURN",
+    "SOURCE_RETURN_SCREEN",
+    "MIXED_SOURCE_AND_PORTFOLIO",
+    "NO_SIGNAL",
+    "NO_OP_PORTFOLIO",
+    "INVALID_OR_INCOMPLETE",
+    "UNVERIFIED_LEGACY"
+  ],
+  "evidence_states": [
+    "SUMMARY_ONLY",
+    "ORPHANED_SUMMARY_RECOVERABLE",
+    "SOURCE_SCREEN_ONLY",
+    "NO_SIGNAL",
+    "NO_OP",
+    "INVALID_RUN",
+    "UNVERIFIED_ASSERTION"
+  ],
+  "trial_manifest_states": [
+    "READY",
+    "MISSING",
+    "NOT_APPLICABLE"
+  ],
+  "daily_return_series_states": [
+    "READY",
+    "MISSING",
+    "NOT_APPLICABLE"
+  ],
+  "multiplicity_dispositions": [
+    "INCLUDE_EXACT_RETURN_TRIALS",
+    "SELECTION_MULTIPLICITY_PENALTY_IMPLEMENTED",
+    "BLOCK_MISSING_EXACT_RETURN_SERIES",
+    "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+    "BLOCK_INVALID_EVIDENCE",
+    "BLOCK_UNVERIFIED_EVIDENCE"
+  ],
+  "github_pr_ancestry_states": [
+    "CURRENT_MASTER",
+    "ORPHANED_FROM_CURRENT_MASTER"
+  ],
+  "rules": {
+    "all_do_not_repeat_entries_classified_exactly_once": true,
+    "summary_metrics_are_not_daily_return_series": true,
+    "portfolio_trials_require_exact_parameter_and_return_column_manifests": true,
+    "portfolio_trials_require_synchronized_daily_after_cost_return_series": true,
+    "source_screens_that_informed_selection_require_a_multiplicity_penalty": true,
+    "overlapping_registry_concepts_must_not_duplicate_trials": true,
+    "orphaned_pull_request_evidence_must_bind_head_commit_and_git_blob": true,
+    "missing_local_artifacts_must_be_explicit": true,
+    "legacy_evidence_debt_blocks_preregistration_and_promotion": true,
+    "audit_validity_does_not_imply_promotion_readiness": true,
+    "automatic_champion_change_allowed": false,
+    "fullrun_allowed_by_this_contract": false
+  }
+}
