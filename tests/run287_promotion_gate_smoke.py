@@ -272,6 +272,18 @@ def _write_valid_paper_portfolio(
         "resolved_fills_this_run": 0,
         "resolved_rejections_this_run": 0,
         "enqueued_this_run": 0,
+        "forward_metrics": {
+            "eligibility_rule": (
+                "FORWARD_MARK_AND_NOT_DURABLE_REPLAY_SESSION"
+            ),
+            "observations": len(dates_and_cash),
+            "excluded_replay_observations": 0,
+            "start_date": dates_and_cash[0][0],
+            "end_date": dates_and_cash[-1][0],
+            "cagr_status": "UNDERPOWERED",
+            "forward_cagr": None,
+            "historical_metric_replacement_allowed": False,
+        },
         "new_order_generation_suppressed": False,
         "simulated": True,
         "historical_cagr_mdd_replacement_allowed": False,
@@ -2191,6 +2203,32 @@ def test_runtime_overlay_binds_scorecard_and_all_forward_horizons() -> None:
         assert any(
             "runtime_scorecard_rebuild_mismatch" in value
             for value in pruned["runtime_limitations"]
+        )
+        scorecard_path.write_text(original_scorecard, encoding="utf-8")
+
+        forged_provenance = json.loads(original_scorecard)
+        latest_metric = next(
+            row
+            for row in forged_provenance["metrics"]
+            if row["metric_id"] == "latest_close_operating_return"
+        )
+        latest_metric["provenance"]["source_sha256"] = "0" * 64
+        scorecard_path.write_text(
+            json.dumps(forged_provenance),
+            encoding="utf-8",
+        )
+        provenance_blocked = overlay_latest_run_evidence(
+            evidence,
+            root,
+        )
+        assert provenance_blocked["historical"][
+            "scorecard_trusted"
+        ] is False
+        assert any(
+            "runtime_scorecard_metric_provenance_invalid:"
+            "latest_close_operating_return"
+            in value
+            for value in provenance_blocked["runtime_limitations"]
         )
         scorecard_path.write_text(original_scorecard, encoding="utf-8")
 

@@ -13,7 +13,54 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_user_current_report import build_report
+from tools.run_user_current_report import (
+    build_report,
+    load_latest_close_performance,
+)
+
+
+def test_latest_close_requires_trusted_scorecard_safety_envelope() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        latest = Path(tmp)
+        scorecard_path = (
+            latest
+            / "run287_operating_scorecard"
+            / "operating_scorecard.json"
+        )
+        scorecard_path.parent.mkdir(parents=True)
+        payload = {
+            "schema_version": "run287-latest-close-performance-v1",
+            "status": "READY_LATEST_CLOSE_REVIEW_ONLY",
+            "as_of_date": "2026-07-24",
+            "latest_close_exact": True,
+            "review_only": True,
+            "live_trading_enabled": False,
+            "production_activation_allowed": False,
+            "historical_cagr_mdd_replacement_allowed": False,
+            "promotion_evidence_allowed": False,
+            "portfolios": {},
+        }
+        scorecard_path.write_text(
+            json.dumps(
+                {
+                    "scorecard_trusted": True,
+                    "latest_close_performance": payload,
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert load_latest_close_performance(latest) == payload
+        payload["promotion_evidence_allowed"] = True
+        scorecard_path.write_text(
+            json.dumps(
+                {
+                    "scorecard_trusted": True,
+                    "latest_close_performance": payload,
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert load_latest_close_performance(latest) == {}
 
 
 def test_user_current_explains_research_sidecars_do_not_alter_holdings() -> None:
@@ -85,6 +132,23 @@ def test_user_current_explains_research_sidecars_do_not_alter_holdings() -> None
         (latest / "integrated_theme_leader_crisis_replay" / "promotion_gate_status.json").write_text('{"status":"rejected","production_activation_allowed":false}\n', encoding="utf-8")
 
         payload = build_report(Namespace(latest_run=str(latest), price_cache=str(root / "cache_prices"), output_dir=str(root / "user_current"), strict=False))
+        assert (
+            "10_latest_close_performance.json"
+            not in payload["missing_required_files"]
+        )
+        daily_payload = build_report(
+            Namespace(
+                latest_run=str(latest),
+                price_cache=str(root / "cache_prices"),
+                output_dir=str(root / "user_current_daily"),
+                strict=False,
+                require_latest_close=True,
+            )
+        )
+        assert (
+            "10_latest_close_performance.json"
+            in daily_payload["missing_required_files"]
+        )
         out = root / "user_current"
         context = json.loads((out / "07_research_sidecar_context.json").read_text(encoding="utf-8"))
         broker_rule = json.loads((out / "08_broker_rule_backtest.json").read_text(encoding="utf-8"))
@@ -629,6 +693,7 @@ def test_user_current_contract_aligns_current_target_rationales_and_cash() -> No
 
 
 if __name__ == "__main__":
+    test_latest_close_requires_trusted_scorecard_safety_envelope()
     test_user_current_explains_research_sidecars_do_not_alter_holdings()
     test_user_current_marks_alphaops_vnext_production_as_applied()
     test_user_current_blocks_nested_invalid_official_metrics()

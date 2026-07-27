@@ -86,6 +86,11 @@ function portfolioData(portfolio = state.portfolio) {
 
 function metricCard(portfolio, item) {
   const metrics = item.metrics || {};
+  const latestCloseDiagnostic = metrics.cagr_is_latest_close_diagnostic === true;
+  const cagrLabel = latestCloseDiagnostic ? "LATEST-CLOSE CAGR (DIAGNOSTIC)" : "CAGR";
+  const drawdownLabel = latestCloseDiagnostic
+    ? "LATEST-CLOSE MDD (OPTIMISTIC BOUND)"
+    : (metrics.max_drawdown_exact === false ? "MAX DRAWDOWN (OPTIMISTIC BOUND)" : "MAX DRAWDOWN");
   return `
     <article class="metric-card" data-portfolio="${portfolio}">
       <div class="metric-card-head">
@@ -93,8 +98,8 @@ function metricCard(portfolio, item) {
         <span class="portfolio-count">${item.holding_count ?? item.holdings?.length ?? 0} holdings</span>
       </div>
       <div class="metric-main">
-        <div><span>CAGR</span><strong class="positive">${percent(metrics.cagr)}</strong></div>
-        <div><span>MAX DRAWDOWN</span><strong class="drawdown">${percent(metrics.max_drawdown)}</strong></div>
+        <div><span>${cagrLabel}</span><strong class="positive">${percent(metrics.cagr)}</strong></div>
+        <div><span>${drawdownLabel}</span><strong class="drawdown">${percent(metrics.max_drawdown)}</strong></div>
         <div><span>LATEST CASH</span><strong>${percent(item.cash_weight)}</strong></div>
       </div>
       <dl class="metric-minor">

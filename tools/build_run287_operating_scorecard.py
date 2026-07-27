@@ -104,6 +104,334 @@ def clean_scalar(value: Any) -> Any:
     return None
 
 
+def strict_session_date(value: Any, *, label: str) -> str:
+    text = str(value or "")
+    parsed = pd.to_datetime(text, format="%Y-%m-%d", errors="coerce")
+    if pd.isna(parsed) or pd.Timestamp(parsed).strftime("%Y-%m-%d") != text:
+        raise ValueError(f"{label}:invalid_session_date")
+    return text
+
+
+def accepted_close_curve_metrics(
+    path: Path,
+    *,
+    expected_session_date: str,
+) -> dict[str, Any]:
+    if not path.is_file():
+        raise ValueError(f"accepted_close_curve_missing:{path}")
+    frame = pd.read_csv(path, low_memory=False)
+    required = {"date", "equity_usd", "record_type"}
+    if frame.empty or not required.issubset(frame.columns):
+        raise ValueError(f"accepted_close_curve_schema_invalid:{path}")
+    dates = pd.to_datetime(frame["date"], format="%Y-%m-%d", errors="coerce")
+    equity = pd.to_numeric(frame["equity_usd"], errors="coerce")
+    record_types = frame["record_type"].fillna("").astype(str)
+    valid_record_types = record_types.eq("FORWARD_MARK").all() or (
+        len(record_types) > 1
+        and record_types.iloc[0] == "SEED_ACCOUNT"
+        and record_types.iloc[1:].eq("FORWARD_MARK").all()
+    )
+    if (
+        dates.isna().any()
+        or equity.isna().any()
+        or not (equity > 0).all()
+        or dates.duplicated().any()
+        or not dates.is_monotonic_increasing
+        or not valid_record_types
+    ):
+        raise ValueError(f"accepted_close_curve_rows_invalid:{path}")
+    start_date = pd.Timestamp(dates.iloc[0]).date().isoformat()
+    end_date = pd.Timestamp(dates.iloc[-1]).date().isoformat()
+    if end_date != expected_session_date:
+        raise ValueError(
+            "accepted_close_curve_stale:"
+            f"{path}:{end_date}!={expected_session_date}"
+        )
+    peak = equity.cummax()
+    drawdown = equity / peak - 1.0
+    elapsed_days = int((dates.iloc[-1] - dates.iloc[0]).days)
+    powered = len(frame) >= 252 and elapsed_days >= 300
+    cagr = None
+    if powered:
+        cagr = float(
+            (float(equity.iloc[-1]) / float(equity.iloc[0]))
+            ** (365.25 / elapsed_days)
+            - 1.0
+        )
+    return {
+        "status": "MEASURED" if powered else "UNDERPOWERED",
+        "metric_mode": (
+            "accepted_exact_close_paper_marks_including_durable_catchup"
+        ),
+        "start_date": start_date,
+        "end_date": end_date,
+        "observations": int(len(frame)),
+        "elapsed_days": elapsed_days,
+        "starting_equity_usd": float(equity.iloc[0]),
+        "ending_equity_usd": float(equity.iloc[-1]),
+        "total_return": float(
+            float(equity.iloc[-1]) / float(equity.iloc[0]) - 1.0
+        ),
+        "max_drawdown": float(drawdown.min()),
+        "cagr": cagr,
+        "cagr_status": "MEASURED" if powered else "UNDERPOWERED",
+        "durable_catchup_marks_included": True,
+        "historical_metric_replacement_allowed": False,
+    }
+
+
+def chain_link_latest_close(
+    *,
+    historical: dict[str, Any],
+    operating: dict[str, Any],
+    expected_session_date: str,
+) -> dict[str, Any]:
+    start_date = strict_session_date(
+        historical.get("start_date"),
+        label="historical_start_date",
+    )
+    historical_end_date = strict_session_date(
+        historical.get("end_date"),
+        label="historical_end_date",
+    )
+    operating_start_date = strict_session_date(
+        operating.get("start_date"),
+        label="operating_start_date",
+    )
+    if historical_end_date >= operating_start_date:
+        raise ValueError(
+            "historical_and_operating_windows_overlap:"
+            f"{historical_end_date}>={operating_start_date}"
+        )
+    start_equity = float(historical.get("starting_capital_usd"))
+    historical_end_equity = float(historical.get("ending_capital_usd"))
+    paper_start_equity = float(operating.get("starting_equity_usd"))
+    paper_end_equity = float(operating.get("ending_equity_usd"))
+    historical_mdd = float(historical.get("max_dd"))
+    for label, value in (
+        ("historical_starting_capital", start_equity),
+        ("historical_ending_capital", historical_end_equity),
+        ("paper_starting_equity", paper_start_equity),
+        ("paper_ending_equity", paper_end_equity),
+    ):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{label}:positive_finite_required")
+    if not math.isfinite(historical_mdd) or not -1.0 < historical_mdd <= 0:
+        raise ValueError("historical_max_drawdown_invalid")
+    chain_end_equity = historical_end_equity * (
+        paper_end_equity / paper_start_equity
+    )
+    elapsed_days = int(
+        (
+            pd.Timestamp(expected_session_date)
+            - pd.Timestamp(start_date)
+        ).days
+    )
+    if elapsed_days <= 0:
+        raise ValueError("chain_link_elapsed_days_invalid")
+    cagr = float(
+        (chain_end_equity / start_equity)
+        ** (365.25 / elapsed_days)
+        - 1.0
+    )
+    operating_mdd = float(operating.get("max_drawdown"))
+    return {
+        "status": "LATEST_CLOSE_DIAGNOSTIC",
+        "metric_mode": (
+            "locked_historical_endpoint_chain_linked_to_accepted_paper_marks"
+        ),
+        "start_date": start_date,
+        "historical_end_date": historical_end_date,
+        "operating_start_date": operating_start_date,
+        "end_date": expected_session_date,
+        "elapsed_days": elapsed_days,
+        "cagr": cagr,
+        "max_drawdown": min(historical_mdd, operating_mdd),
+        "historical_max_drawdown": historical_mdd,
+        "operating_since_seed_max_drawdown": operating_mdd,
+        "max_drawdown_exact": False,
+        "max_drawdown_bound_direction": (
+            "optimistic_lower_bound_on_loss_magnitude;"
+            "exact_chain_mdd_can_be_more_negative"
+        ),
+        "max_drawdown_method": (
+            "minimum_of_locked_historical_mdd_and_paper_operating_mdd"
+        ),
+        "max_drawdown_limitation": (
+            "This is an optimistic lower bound on drawdown loss magnitude. "
+            "The exact chain MDD can be more negative when the historical "
+            "endpoint was already below its prior peak. Exact cross-boundary "
+            "MDD requires the complete historical equity curve; the locked "
+            "historical MDD and accepted paper path are preserved separately."
+        ),
+        "cagr_endpoint_chain_exact": True,
+        "historical_metric_replacement_allowed": False,
+        "promotion_evidence_allowed": False,
+    }
+
+
+def build_latest_close_performance(
+    *,
+    verified_paper: dict[str, Any] | None,
+    paper_root: Path | None,
+    paper_snapshot_hash: str | None,
+    p5: dict[str, Any] | None,
+    p5_source_sha256: str | None,
+    expected_session_date: str | None,
+) -> tuple[dict[str, Any], list[str]]:
+    base = {
+        "schema_version": "run287-latest-close-performance-v1",
+        "status": "UNAVAILABLE",
+        "as_of_date": None,
+        "expected_session_date": expected_session_date,
+        "paper_snapshot_hash": paper_snapshot_hash,
+        "historical_source_sha256": p5_source_sha256,
+        "portfolios": {},
+        "review_only": True,
+        "live_trading_enabled": False,
+        "production_activation_allowed": False,
+        "historical_cagr_mdd_replacement_allowed": False,
+        "promotion_evidence_allowed": False,
+        "fullrun_executed": False,
+    }
+    if not isinstance(verified_paper, dict) or paper_root is None:
+        return base, ["latest_close_paper_snapshot_unavailable"]
+    if not isinstance(p5, dict):
+        return base, ["latest_close_historical_baseline_unavailable"]
+    errors: list[str] = []
+    paper_as_of = str(verified_paper.get("as_of_date") or "")
+    try:
+        paper_as_of = strict_session_date(
+            paper_as_of,
+            label="paper_summary_as_of_date",
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+    expected = str(expected_session_date or paper_as_of)
+    try:
+        expected = strict_session_date(
+            expected,
+            label="expected_session_date",
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+    base["as_of_date"] = paper_as_of or None
+    base["expected_session_date"] = expected or None
+    if paper_as_of and expected and paper_as_of != expected:
+        errors.append(
+            f"latest_close_paper_summary_stale:{paper_as_of}!={expected}"
+        )
+    if (
+        verified_paper.get("status") != "completed"
+        or verified_paper.get("review_only") is not True
+        or verified_paper.get("live_trading_enabled") is not False
+        or verified_paper.get("production_mutation_allowed") is not False
+        or verified_paper.get(
+            "historical_cagr_mdd_replacement_allowed"
+        ) is not False
+    ):
+        errors.append("latest_close_paper_safety_contract_invalid")
+    if p5.get("control_parity_passed") is not True:
+        errors.append("latest_close_historical_control_parity_failed")
+    p5_portfolios = (
+        p5.get("portfolios")
+        if isinstance(p5.get("portfolios"), dict)
+        else {}
+    )
+    paper_portfolios = (
+        verified_paper.get("portfolios")
+        if isinstance(verified_paper.get("portfolios"), dict)
+        else {}
+    )
+    for portfolio in ("main", "concentrated"):
+        try:
+            paper_manifest = paper_portfolios.get(portfolio)
+            if (
+                not isinstance(paper_manifest, dict)
+                or paper_manifest.get("as_of_date") != expected
+                or paper_manifest.get("review_only") is not True
+                or paper_manifest.get("live_trading_enabled") is not False
+                or paper_manifest.get("production_mutation_allowed") is not False
+                or paper_manifest.get(
+                    "historical_cagr_mdd_replacement_allowed"
+                ) is not False
+            ):
+                raise ValueError(
+                    f"latest_close_paper_manifest_invalid:{portfolio}"
+                )
+            historical = (
+                p5_portfolios.get(portfolio, {})
+                .get("windows", {})
+                .get("full", {})
+                .get("control", {})
+            )
+            if (
+                not isinstance(historical, dict)
+                or historical.get("status") != "completed"
+            ):
+                raise ValueError(
+                    f"latest_close_historical_full_window_missing:{portfolio}"
+                )
+            operating = accepted_close_curve_metrics(
+                paper_root / portfolio / "equity_curve.csv",
+                expected_session_date=expected,
+            )
+            declared_forward = paper_manifest.get("forward_metrics")
+            if not isinstance(declared_forward, dict):
+                raise ValueError(
+                    f"latest_close_forward_metrics_missing:{portfolio}"
+                )
+            forward_observations = int(
+                declared_forward.get("observations") or 0
+            )
+            if (
+                forward_observations < 0
+                or forward_observations > operating["observations"]
+            ):
+                raise ValueError(
+                    f"latest_close_forward_observation_count_invalid:{portfolio}"
+                )
+            base["portfolios"][portfolio] = {
+                "historical_locked": {
+                    "status": "LOCKED_HISTORICAL_BASELINE",
+                    "start_date": historical.get("start_date"),
+                    "end_date": historical.get("end_date"),
+                    "cagr": clean_scalar(historical.get("cagr")),
+                    "max_drawdown": clean_scalar(
+                        historical.get("max_dd")
+                    ),
+                    "historical_metric_replacement_allowed": False,
+                },
+                "operating_since_seed": {
+                    **operating,
+                    "forward_only_observations": forward_observations,
+                    "non_forward_or_durable_catchup_observations": (
+                        operating["observations"] - forward_observations
+                    ),
+                },
+                "latest_close_chain_linked": chain_link_latest_close(
+                    historical=historical,
+                    operating=operating,
+                    expected_session_date=expected,
+                ),
+            }
+        except (TypeError, ValueError) as exc:
+            errors.append(str(exc))
+    if errors:
+        return {
+            **base,
+            "status": "INTEGRITY_ERROR",
+            "errors": sorted(set(errors)),
+        }, sorted(set(errors))
+    return {
+        **base,
+        "status": "READY_LATEST_CLOSE_REVIEW_ONLY",
+        "errors": [],
+        "latest_close_exact": True,
+        "accepted_close_marks_include_durable_catchup": True,
+    }, []
+
+
 def load_registry(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema_version") != "run287-operating-scorecard-source-registry-v1":
@@ -314,6 +642,7 @@ def load_sources(registry: dict[str, Any]) -> tuple[dict[str, Any], list[dict[st
 def build_scorecard(
     registry: dict[str, Any], *, source_registry_path: Path,
     promotion_state_path: Path | None = None,
+    expected_session_date: str | None = None,
 ) -> dict[str, Any]:
     loaded, source_records, source_integrity_errors = load_sources(registry)
     records_by_id = {row["source_id"]: row for row in source_records}
@@ -400,9 +729,19 @@ def build_scorecard(
         portfolio: str | None = None,
         unit: str = "value",
         note: str = "",
+        provenance_override: dict[str, Any] | None = None,
     ) -> None:
         source = records_by_id.get(source_id, {})
         resolved_status = status or ("AVAILABLE" if value is not None else "UNAVAILABLE")
+        provenance = {
+            "source_id": source_id,
+            "source_path": source.get("path"),
+            "source_sha256": source.get("sha256"),
+            "as_of_date": source.get("as_of_date"),
+            "metric_mode": source.get("metric_mode"),
+        }
+        if provenance_override:
+            provenance.update(provenance_override)
         metrics.append({
             "section": section,
             "metric_id": metric_id,
@@ -412,13 +751,7 @@ def build_scorecard(
             "value": clean_scalar(value),
             "unit": unit,
             "note": note,
-            "provenance": {
-                "source_id": source_id,
-                "source_path": source.get("path"),
-                "source_sha256": source.get("sha256"),
-                "as_of_date": source.get("as_of_date"),
-                "metric_mode": source.get("metric_mode"),
-            },
+            "provenance": provenance,
         })
 
     p6 = loaded.get("p6_selection_summary")
@@ -602,6 +935,8 @@ def build_scorecard(
         "trusted_boolean_fields_ignored": True,
     }
     verified_paper_payload: dict[str, Any] | None = None
+    verified_paper_file_hashes: dict[str, str] = {}
+    paper_ledger_root: Path | None = None
     manifest_path = repo_path(records_by_id["current_paper_integrity"]["path"])
     summary_path = repo_path(records_by_id["current_paper_summary"]["path"])
     if manifest_path.is_file():
@@ -612,6 +947,7 @@ def build_scorecard(
             except ModuleNotFoundError:
                 from run287_paper_ledger_integrity import verify_integrity_manifest
             ledger_root = manifest_path.parent.resolve()
+            paper_ledger_root = ledger_root
             if manifest_path.resolve() != (
                 ledger_root / "snapshot_integrity.json"
             ).resolve():
@@ -642,6 +978,11 @@ def build_scorecard(
                 raise ValueError(paper_summary_binding_error)
             bound_manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
             verified_files = rebound_manifest.get("files") or {}
+            if not isinstance(verified_files, dict):
+                paper_summary_binding_error = (
+                    "paper integrity manifest files are invalid"
+                )
+                raise ValueError(paper_summary_binding_error)
             summary_bytes = summary_path.read_bytes()
             bound_summary_sha256 = hashlib.sha256(summary_bytes).hexdigest()
             if (
@@ -656,6 +997,26 @@ def build_scorecard(
             if not isinstance(rebound_paper, dict):
                 paper_summary_binding_error = "paper summary is not a JSON object"
                 raise ValueError(paper_summary_binding_error)
+            for portfolio in ("main", "concentrated"):
+                curve_relative = f"{portfolio}/equity_curve.csv"
+                expected_curve_sha256 = str(
+                    verified_files.get(curve_relative) or ""
+                ).lower()
+                curve_path = ledger_root / curve_relative
+                if (
+                    len(expected_curve_sha256) != 64
+                    or not curve_path.is_file()
+                    or sha256_file(curve_path)
+                    != expected_curve_sha256
+                ):
+                    paper_summary_binding_error = (
+                        "paper equity curve is not hash-bound by the "
+                        f"verified snapshot manifest:{portfolio}"
+                    )
+                    raise ValueError(paper_summary_binding_error)
+                verified_paper_file_hashes[curve_relative] = (
+                    expected_curve_sha256
+                )
             verified_paper_payload = rebound_paper
             records_by_id["current_paper_summary"]["sha256"] = (
                 bound_summary_sha256
@@ -698,6 +1059,125 @@ def build_scorecard(
         and paper_runtime_manifest.get("status") == "VERIFIED"
         else None
     )
+    latest_close_performance, latest_close_errors = (
+        build_latest_close_performance(
+            verified_paper=verified_paper,
+            paper_root=paper_ledger_root,
+            paper_snapshot_hash=paper_runtime_manifest.get("snapshot_hash"),
+            p5=p5 if isinstance(p5, dict) else None,
+            p5_source_sha256=records_by_id.get(
+                "p5_hold_exit", {}
+            ).get("sha256"),
+            expected_session_date=expected_session_date,
+        )
+    )
+    if isinstance(verified_paper, dict):
+        for error in latest_close_errors:
+            record_integrity_error(
+                "current_paper_execution",
+                f"latest_close_performance:{error}",
+            )
+    for portfolio in ("main", "concentrated"):
+        current_payload = latest_close_performance.get(
+            "portfolios", {}
+        ).get(portfolio, {})
+        operating = (
+            current_payload.get("operating_since_seed", {})
+            if isinstance(current_payload, dict)
+            else {}
+        )
+        chain_linked = (
+            current_payload.get("latest_close_chain_linked", {})
+            if isinstance(current_payload, dict)
+            else {}
+        )
+        metric_status = (
+            "AVAILABLE"
+            if latest_close_performance.get("status")
+            == "READY_LATEST_CLOSE_REVIEW_ONLY"
+            else "INTEGRITY_ERROR"
+            if latest_close_performance.get("status") == "INTEGRITY_ERROR"
+            else "UNAVAILABLE"
+        )
+        curve_path = (
+            paper_ledger_root / portfolio / "equity_curve.csv"
+            if paper_ledger_root is not None
+            else None
+        )
+        curve_provenance = {
+            "source_id": f"current_paper_{portfolio}_equity_curve",
+            "source_path": str(curve_path) if curve_path else None,
+            "source_sha256": verified_paper_file_hashes.get(
+                f"{portfolio}/equity_curve.csv"
+            ),
+            "as_of_date": latest_close_performance.get("as_of_date"),
+            "metric_mode": operating.get("metric_mode"),
+            "snapshot_manifest_path": str(manifest_path),
+            "snapshot_manifest_sha256": records_by_id.get(
+                "current_paper_integrity", {}
+            ).get("sha256"),
+            "snapshot_tree_sha256": paper_runtime_manifest.get(
+                "snapshot_hash"
+            ),
+        }
+        for metric_id, value, unit in (
+            (
+                "latest_close_operating_return",
+                operating.get("total_return"),
+                "return",
+            ),
+            (
+                "latest_close_operating_max_drawdown",
+                operating.get("max_drawdown"),
+                "return",
+            ),
+            (
+                "latest_close_chain_linked_cagr",
+                chain_linked.get("cagr"),
+                "return",
+            ),
+            (
+                "latest_close_chain_linked_max_drawdown",
+                chain_linked.get("max_drawdown"),
+                "return",
+            ),
+            (
+                "latest_close_accepted_mark_count",
+                operating.get("observations"),
+                "count",
+            ),
+        ):
+            add(
+                "forward_evidence",
+                metric_id,
+                value,
+                "current_paper_summary",
+                evidence_class="current_paper_execution",
+                portfolio=portfolio,
+                status=metric_status,
+                unit=unit,
+                note=(
+                    "Latest accepted exact-close operating evidence; durable "
+                    "catch-up marks are included. This cannot replace the "
+                    "locked historical acceptance result."
+                ),
+                provenance_override={
+                    **curve_provenance,
+                    **(
+                        {
+                            "historical_source_sha256": (
+                                latest_close_performance.get(
+                                    "historical_source_sha256"
+                                )
+                            )
+                        }
+                        if metric_id.startswith(
+                            "latest_close_chain_linked_"
+                        )
+                        else {}
+                    ),
+                },
+            )
     if isinstance(verified_paper, dict):
         for field in PAPER_INTEGRITY_FIELDS:
             value = verified_paper.get("integrity", {}).get(
@@ -864,6 +1344,8 @@ def build_scorecard(
         "migration_note": registry.get("migration_note"),
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "scorecard_as_of_date": registry.get("scorecard_as_of_date"),
+        "latest_close_as_of_date": latest_close_performance.get("as_of_date"),
+        "latest_close_performance": latest_close_performance,
         "source_registry": str(source_registry_path),
         "source_registry_sha256": sha256_file(source_registry_path),
         "private_review_only": True,
@@ -897,6 +1379,13 @@ def build_scorecard(
 
 
 def render_report(scorecard: dict[str, Any]) -> str:
+    def pct(value: Any) -> str:
+        return (
+            "UNAVAILABLE"
+            if value is None
+            else f"{100 * float(value):.4f}%"
+        )
+
     lines = [
         "# Run287 canonical operating scorecard",
         "",
@@ -913,10 +1402,38 @@ def render_report(scorecard: dict[str, Any]) -> str:
         "| --- | ---: | ---: | ---: | --- |",
     ]
     for portfolio, payload in scorecard["headline_performance"].items():
-        def pct(value: Any) -> str:
-            return "UNAVAILABLE" if value is None else f"{100 * float(value):.4f}%"
         sharpe = "UNAVAILABLE" if payload.get("sharpe") is None else f"{float(payload['sharpe']):.4f}"
         lines.append(f"| {portfolio.title()} | {pct(payload.get('cagr'))} | {pct(payload.get('max_drawdown'))} | {sharpe} | {payload['trust']} |")
+    latest = scorecard.get("latest_close_performance") or {}
+    lines.extend(
+        [
+            "",
+            "## Latest accepted close performance",
+            "",
+            f"- status: `{latest.get('status') or 'UNAVAILABLE'}`",
+            f"- as_of_date: `{latest.get('as_of_date') or 'UNAVAILABLE'}`",
+            "- Durable chronological catch-up marks are included in the operating path.",
+            "- Chain-linked CAGR is exact at the endpoints; its MDD value is an optimistic lower bound on loss magnitude and the exact MDD can be more negative.",
+            "- Neither latest-close diagnostic replaces the locked historical acceptance result.",
+            "",
+            "| Portfolio | Historical CAGR/MDD | Operating return/MDD since seed | Latest-close chain CAGR/optimistic MDD bound |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+    )
+    for portfolio in ("main", "concentrated"):
+        payload = latest.get("portfolios", {}).get(portfolio, {})
+        historical = payload.get("historical_locked", {})
+        operating = payload.get("operating_since_seed", {})
+        chain = payload.get("latest_close_chain_linked", {})
+        lines.append(
+            f"| {portfolio.title()} | "
+            f"{pct(historical.get('cagr'))} / "
+            f"{pct(historical.get('max_drawdown'))} | "
+            f"{pct(operating.get('total_return'))} / "
+            f"{pct(operating.get('max_drawdown'))} | "
+            f"{pct(chain.get('cagr'))} / "
+            f"{pct(chain.get('max_drawdown'))} |"
+        )
     lines.extend(["", "## Evidence lanes", "", "| Lane | Status |", "| --- | --- |"])
     for lane, status in scorecard["evidence_status"].items():
         lines.append(f"| {lane} | `{status}` |")
@@ -968,6 +1485,7 @@ def main() -> int:
     parser.add_argument("--output-dir", default="outputs/run287_operating_scorecard")
     parser.add_argument("--previous-scorecard")
     parser.add_argument("--promotion-state")
+    parser.add_argument("--expected-session-date")
     args = parser.parse_args()
     registry_path = repo_path(args.source_registry)
     registry = load_registry(registry_path)
@@ -976,7 +1494,10 @@ def main() -> int:
         validate_metric_migration(previous, registry)
     promotion_path = repo_path(args.promotion_state) if args.promotion_state else None
     scorecard = build_scorecard(
-        registry, source_registry_path=registry_path, promotion_state_path=promotion_path
+        registry,
+        source_registry_path=registry_path,
+        promotion_state_path=promotion_path,
+        expected_session_date=args.expected_session_date,
     )
     output_dir = repo_path(args.output_dir)
     write_json(output_dir / "operating_scorecard.json", scorecard)

@@ -60,6 +60,7 @@ REQUIRED_USER_FILES = [
     "08_rebalance_decision.json",
     "08_broker_rule_backtest.json",
 ]
+LATEST_CLOSE_PERFORMANCE_FILE = "10_latest_close_performance.json"
 
 
 def repo_path(value: str | Path) -> Path:
@@ -346,6 +347,30 @@ def load_official_metrics(latest_run: Path) -> dict[str, Any]:
             "note": "outputs/account_evaluation/official_metrics.json not found",
         }
     return metrics
+
+
+def load_latest_close_performance(latest_run: Path) -> dict[str, Any]:
+    scorecard = read_json(
+        latest_run
+        / "run287_operating_scorecard"
+        / "operating_scorecard.json"
+    )
+    payload = scorecard.get("latest_close_performance")
+    if (
+        scorecard.get("scorecard_trusted") is not True
+        or not isinstance(payload, dict)
+        or payload.get("status") != "READY_LATEST_CLOSE_REVIEW_ONLY"
+        or payload.get("latest_close_exact") is not True
+        or payload.get("review_only") is not True
+        or payload.get("live_trading_enabled") is not False
+        or payload.get("production_activation_allowed") is not False
+        or payload.get(
+            "historical_cagr_mdd_replacement_allowed"
+        ) is not False
+        or payload.get("promotion_evidence_allowed") is not False
+    ):
+        return {}
+    return payload
 
 
 def production_valid(metrics: dict[str, Any]) -> bool:
@@ -1123,6 +1148,7 @@ def render_action_summary(
     cash: dict[str, Any],
     research: dict[str, Any],
     broker_rule: dict[str, Any],
+    latest_close: dict[str, Any],
 ) -> str:
     promotion_allowed = production_valid(metrics)
     production_promotion_allowed = promotion_allowed and status not in {"DO_NOT_USE", "DO_NOT_TRADE"}
@@ -1189,8 +1215,37 @@ def render_action_summary(
             "- Official current-holding performance must be judged by the broker-ledger row, not deprecated weight-level research metrics.",
             "- Daily monitoring results are displayed separately so a risk overlay cannot be mistaken for the monthly production target-book result.",
             "",
+            "## Latest Accepted Close",
+            "",
+            f"- status: `{latest_close.get('status') or 'UNAVAILABLE'}`",
+            f"- as_of_date: `{latest_close.get('as_of_date') or 'UNAVAILABLE'}`",
+            "- Operating return/MDD includes accepted durable catch-up marks.",
+            "- Chain-linked CAGR is exact at the endpoints; its MDD value is an optimistic lower bound on loss magnitude and the exact MDD can be more negative.",
+            "- The historical baseline remains separately locked.",
+            "",
+            "| Portfolio | Locked historical CAGR/MDD | Operating return/MDD since $100k seed | Latest-close chain CAGR/optimistic MDD bound |",
+            "| --- | ---: | ---: | ---: |",
         ]
     )
+    for portfolio in PORTFOLIOS:
+        current = latest_close.get("portfolios", {}).get(portfolio, {})
+        historical = current.get("historical_locked", {})
+        operating = current.get("operating_since_seed", {})
+        chain = current.get("latest_close_chain_linked", {})
+        lines.append(
+            "| {portfolio} | {hist_cagr} / {hist_mdd} | "
+            "{operating_return} / {operating_mdd} | "
+            "{chain_cagr} / {chain_mdd} |".format(
+                portfolio=portfolio,
+                hist_cagr=pct_text(historical.get("cagr")),
+                hist_mdd=pct_text(historical.get("max_drawdown")),
+                operating_return=pct_text(operating.get("total_return")),
+                operating_mdd=pct_text(operating.get("max_drawdown")),
+                chain_cagr=pct_text(chain.get("cagr")),
+                chain_mdd=pct_text(chain.get("max_drawdown")),
+            )
+        )
+    lines.extend([""])
     lines.extend(
         [
             "## Research Sidecar Context",
@@ -1239,6 +1294,8 @@ This folder is the default user-facing operating view.
 - `03_order_preview.csv` is the review-only current-vs-target delta preview; it is not an order ticket.
 - `03_period_returns.csv` uses broker replay equity curves and includes drawdown.
 - `04_official_metrics.json` is the official broker-ledger metric payload.
+- `10_latest_close_performance.json` separates the locked historical baseline,
+  accepted paper return/MDD, and latest-close chain-linked diagnostics.
 - `07_name_rationales.csv` explains whether each visible holding is a new policy selection or replay retention.
 - `07_research_sidecar_context.json` explains whether AlphaOps vNext or research sidecars altered current holdings.
 - `08_rebalance_decision.json` is the review-only rebalance decision contract.
@@ -1261,6 +1318,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     price_cache = repo_path(args.price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / LATEST_CLOSE_PERFORMANCE_FILE).unlink(
+        missing_ok=True
+    )
+    require_latest_close = bool(
+        getattr(args, "require_latest_close", False)
+    )
     explicit_promotion = getattr(args, "promotion_state", "")
     promotion = gate_for_consumer(
         latest_run,
@@ -1269,6 +1332,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     current, current_source_mode, current_source_detail = normalize_current_holdings(latest_run, output_dir)
     metrics = load_official_metrics(latest_run)
+    latest_close = load_latest_close_performance(latest_run)
     broker_rule = build_broker_rule_backtest(latest_run, metrics)
     current = attach_broker_rule_columns(current, broker_rule)
     current.to_csv(output_dir / "01_current_holdings.csv", index=False)
@@ -1284,7 +1348,17 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     benchmarks = period[period["series_type"].astype(str).eq("benchmark")].copy() if not period.empty else pd.DataFrame()
     benchmarks.to_csv(output_dir / "06_benchmark_comparison.csv", index=False)
 
-    write_json(output_dir / "04_official_metrics.json", metrics)
+    metrics_for_output = {
+        **metrics,
+        "historical_baseline_locked": True,
+        "latest_close_performance": latest_close,
+    }
+    write_json(output_dir / "04_official_metrics.json", metrics_for_output)
+    if latest_close:
+        write_json(
+            output_dir / LATEST_CLOSE_PERFORMANCE_FILE,
+            latest_close,
+        )
     research = research_sidecar_context(latest_run)
     research["legacy_promotion_status"] = research.get("promotion_status")
     research["promotion_status"] = promotion["promotion_state"]
@@ -1309,7 +1383,15 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     production_promotion_allowed = False
     recommendation_status = "DO_NOT_USE_REVIEW_REQUIRED" if not legacy_promotion_valid else "REVIEW_REQUIRED"
     (output_dir / "05_action_summary.md").write_text(
-        render_action_summary(status, reasons, metrics, cash, research, broker_rule),
+        render_action_summary(
+            status,
+            reasons,
+            metrics,
+            cash,
+            research,
+            broker_rule,
+            latest_close,
+        ),
         encoding="utf-8",
     )
     write_readme(output_dir / "README_FIRST.md")
@@ -1367,8 +1449,36 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "daily_risk_overlay_validated": bool(broker_rule.get("daily_risk_overlay_validated")),
         "daily_risk_action_evidence_count": int(safe_float(broker_rule.get("daily_risk_action_evidence_count"), 0)),
         "full_nonmonthly_entry_replacement_validated": bool(broker_rule.get("full_nonmonthly_entry_replacement_validated")),
-        "required_files": REQUIRED_USER_FILES,
-        "missing_required_files": [name for name in REQUIRED_USER_FILES if not (output_dir / name).exists()],
+        "latest_close_performance_status": latest_close.get(
+            "status", "UNAVAILABLE"
+        ),
+        "latest_close_as_of_date": latest_close.get("as_of_date"),
+        "latest_close_performance_path": (
+            str(output_dir / "10_latest_close_performance.json")
+            if latest_close
+            else ""
+        ),
+        "latest_close_performance_required": require_latest_close,
+        "required_files": [
+            *REQUIRED_USER_FILES,
+            *(
+                [LATEST_CLOSE_PERFORMANCE_FILE]
+                if require_latest_close
+                else []
+            ),
+        ],
+        "missing_required_files": [
+            name
+            for name in [
+                *REQUIRED_USER_FILES,
+                *(
+                    [LATEST_CLOSE_PERFORMANCE_FILE]
+                    if require_latest_close
+                    else []
+                ),
+            ]
+            if not (output_dir / name).exists()
+        ],
     }
     write_json(output_dir / "summary.json", payload)
     return payload
@@ -1380,6 +1490,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default="outputs/user_current")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument(
+        "--require-latest-close",
+        action="store_true",
+        help=(
+            "Require the accepted exact-close performance artifact. "
+            "Use only in the daily accepted-close workflow."
+        ),
+    )
     parser.add_argument("--promotion-state", default="")
     return parser.parse_args()
 

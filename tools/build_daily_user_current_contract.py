@@ -536,10 +536,52 @@ def append_review_only_notice(path: Path) -> None:
         path.write_text(text.rstrip() + "\n" + notice, encoding="utf-8")
 
 
+def require_latest_close_performance(
+    output_dir: Path,
+    expected_session_date: str,
+) -> dict[str, Any]:
+    payload = read_json(output_dir / "10_latest_close_performance.json")
+    if not expected_session_date:
+        return payload
+    blockers: list[str] = []
+    if payload.get("status") != "READY_LATEST_CLOSE_REVIEW_ONLY":
+        blockers.append("latest-close status is not ready")
+    if payload.get("as_of_date") != expected_session_date:
+        blockers.append(
+            "latest-close as_of_date does not match expected session"
+        )
+    if payload.get("latest_close_exact") is not True:
+        blockers.append("latest-close prices are not exact")
+    if payload.get("accepted_close_marks_include_durable_catchup") is not True:
+        blockers.append("durable catch-up marks are not included")
+    if payload.get("review_only") is not True:
+        blockers.append("latest-close payload is not review-only")
+    if payload.get("live_trading_enabled") is not False:
+        blockers.append("latest-close payload permits live trading")
+    if payload.get("production_activation_allowed") is not False:
+        blockers.append("latest-close payload permits production activation")
+    if payload.get("historical_cagr_mdd_replacement_allowed") is not False:
+        blockers.append("latest-close payload permits historical replacement")
+    if payload.get("promotion_evidence_allowed") is not False:
+        blockers.append("latest-close payload permits promotion evidence")
+    if blockers:
+        raise ValueError(
+            "latest-close user contract failed: " + "; ".join(blockers)
+        )
+    return payload
+
+
 def build_contract(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    expected_session_date = str(
+        getattr(args, "expected_session_date", "") or ""
+    ).strip()
+    latest_close = require_latest_close_performance(
+        output_dir,
+        expected_session_date,
+    )
 
     state = freshness_state(latest_run)
     review_required = True
@@ -580,10 +622,21 @@ def build_contract(args: argparse.Namespace) -> dict[str, Any]:
         "source_commit_sha": args.source_commit_sha,
         "source_branch": args.source_branch,
         "source_artifact_name": args.source_artifact_name,
+        "latest_close_performance_status": latest_close.get(
+            "status", "UNAVAILABLE"
+        ),
+        "latest_close_as_of_date": latest_close.get("as_of_date"),
+        "latest_close_exact": latest_close.get("latest_close_exact"),
+        "expected_session_date": expected_session_date or None,
         "daily_contract_files": {
             "target_weights": str(target_path),
             "order_preview": str(order_path),
             "rebalance_decision": str(decision_path),
+            "latest_close_performance": (
+                str(output_dir / "10_latest_close_performance.json")
+                if latest_close
+                else ""
+            ),
         },
         "current_snapshot_rows": int(len(current_holdings)),
         "current_snapshot_used_for_order_preview": not current_holdings.empty,
@@ -623,6 +676,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-commit-sha", default="")
     parser.add_argument("--source-branch", default="")
     parser.add_argument("--source-artifact-name", default="")
+    parser.add_argument("--expected-session-date", default="")
     return parser.parse_args()
 
 
