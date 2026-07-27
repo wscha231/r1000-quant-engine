@@ -56,6 +56,20 @@ def test_contract_writes_required_review_only_files() -> None:
             },
         )
         write_json(user_current / "summary.json", {"schema_version": "user-current-report-v1", "status": "completed"})
+        write_json(
+            user_current / "10_latest_close_performance.json",
+            {
+                "status": "READY_LATEST_CLOSE_REVIEW_ONLY",
+                "as_of_date": "2026-06-12",
+                "latest_close_exact": True,
+                "accepted_close_marks_include_durable_catchup": True,
+                "review_only": True,
+                "live_trading_enabled": False,
+                "production_activation_allowed": False,
+                "historical_cagr_mdd_replacement_allowed": False,
+                "promotion_evidence_allowed": False,
+            },
+        )
         pd.DataFrame(
             [
                 {
@@ -110,11 +124,14 @@ def test_contract_writes_required_review_only_files() -> None:
                     "source_commit_sha": "abc",
                     "source_branch": "master",
                     "source_artifact_name": "daily-operating-selection-refresh-123",
+                    "expected_session_date": "2026-06-12",
                 },
             )()
         )
 
         assert payload["status"] == "completed"
+        assert payload["latest_close_as_of_date"] == "2026-06-12"
+        assert payload["latest_close_exact"] is True
         for name in [
             "02_target_weights.csv",
             "03_order_preview.csv",
@@ -152,8 +169,50 @@ def test_contract_writes_required_review_only_files() -> None:
         assert "human_approval_required" in notice
 
 
+def test_contract_rejects_stale_latest_close() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        user_current = latest / "user_current"
+        user_current.mkdir(parents=True)
+        write_json(
+            user_current / "10_latest_close_performance.json",
+            {
+                "status": "READY_LATEST_CLOSE_REVIEW_ONLY",
+                "as_of_date": "2026-06-11",
+                "latest_close_exact": True,
+                "accepted_close_marks_include_durable_catchup": True,
+                "review_only": True,
+                "live_trading_enabled": False,
+                "production_activation_allowed": False,
+                "historical_cagr_mdd_replacement_allowed": False,
+                "promotion_evidence_allowed": False,
+            },
+        )
+        args = type(
+            "Args",
+            (),
+            {
+                "latest_run": str(latest),
+                "output_dir": str(user_current),
+                "source_run_id": "123",
+                "source_commit_sha": "abc",
+                "source_branch": "master",
+                "source_artifact_name": "fixture",
+                "expected_session_date": "2026-06-12",
+            },
+        )()
+        try:
+            build_contract(args)
+        except ValueError as exc:
+            assert "does not match expected session" in str(exc)
+        else:
+            raise AssertionError("stale latest close was not rejected")
+
+
 def main() -> int:
     test_contract_writes_required_review_only_files()
+    test_contract_rejects_stale_latest_close()
     print("daily_user_current_contract_smoke: PASS")
     return 0
 

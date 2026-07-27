@@ -60,6 +60,19 @@ def make_fixture(
     portfolio = {
         "control_parity": {"expected": {"cagr": 0.35, "max_dd": -0.25, "sharpe": 1.2,
                                           "trade_count": 5, "total_fees_usd": 10}},
+        "windows": {
+            "full": {
+                "control": {
+                    "status": "completed",
+                    "start_date": "2019-06-03",
+                    "end_date": "2026-07-10",
+                    "starting_capital_usd": 100000.0,
+                    "ending_capital_usd": 800000.0,
+                    "cagr": 0.35,
+                    "max_dd": -0.25,
+                }
+            }
+        },
         "holding_statistics": {"completed_lot_count": 5, "median_holding_days": 30,
                                "pct_held_365d_plus": 0, "exit_reentry_churn_63_sessions": 1},
         "sell_taxonomy_counts": {"RISK_EXIT": 2},
@@ -116,7 +129,52 @@ def make_fixture(
     integrity_path = paper_root / "snapshot_integrity.json"
     if paper:
         paper_root.mkdir()
-        write_json(paper_path, {"integrity": {"account_reset_count": reset_count}, "fill_count": 2})
+        paper_portfolios = {}
+        for portfolio_name, ending_equity in (
+            ("main", 99000.0),
+            ("concentrated", 95000.0),
+        ):
+            portfolio_root = paper_root / portfolio_name
+            portfolio_root.mkdir()
+            pd.DataFrame(
+                [
+                    {
+                        "date": "2026-07-13",
+                        "equity_usd": 100000.0,
+                        "record_type": "FORWARD_MARK",
+                    },
+                    {
+                        "date": "2026-07-20",
+                        "equity_usd": ending_equity,
+                        "record_type": "FORWARD_MARK",
+                    },
+                ]
+            ).to_csv(portfolio_root / "equity_curve.csv", index=False)
+            paper_portfolios[portfolio_name] = {
+                "as_of_date": "2026-07-20",
+                "review_only": True,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+                "historical_cagr_mdd_replacement_allowed": False,
+                "forward_metrics": {
+                    "observations": 1,
+                    "cagr_status": "UNDERPOWERED",
+                },
+            }
+        write_json(
+            paper_path,
+            {
+                "status": "completed",
+                "as_of_date": "2026-07-20",
+                "integrity": {"account_reset_count": reset_count},
+                "fill_count": 2,
+                "portfolios": paper_portfolios,
+                "review_only": True,
+                "live_trading_enabled": False,
+                "production_mutation_allowed": False,
+                "historical_cagr_mdd_replacement_allowed": False,
+            },
+        )
         if forged_verified_boolean:
             write_json(integrity_path, {"verified": True})
         else:
@@ -168,6 +226,24 @@ def test_scorecard_keeps_evidence_lanes_and_provenance_separate() -> None:
             "true_forward": "UNDERPOWERED",
         }
         assert scorecard["historical_acceptance_overwritten_by_forward"] is False
+        assert scorecard["latest_close_performance"]["status"] == (
+            "READY_LATEST_CLOSE_REVIEW_ONLY"
+        )
+        assert scorecard["latest_close_performance"]["as_of_date"] == (
+            "2026-07-20"
+        )
+        assert abs(
+            scorecard["latest_close_performance"]["portfolios"]["main"][
+                "operating_since_seed"
+            ]["total_return"]
+            + 0.01
+        ) < 1e-12
+        assert abs(
+            scorecard["latest_close_performance"]["portfolios"][
+                "concentrated"
+            ]["operating_since_seed"]["max_drawdown"]
+            + 0.05
+        ) < 1e-12
         assert scorecard["source_artifacts_copied"] is False
         assert len(scorecard["sources"]) == 12
         assert all(row["provenance"]["source_sha256"] for row in scorecard["metrics"] if row["status"] == "AVAILABLE")
@@ -197,6 +273,24 @@ def test_current_paper_error_does_not_poison_historical_headline() -> None:
         assert scorecard["evidence_status"]["current_paper_execution"] == "NOT_TRUSTED"
         assert any("account_reset_count" in value for value in scorecard["integrity_errors"])
         assert all(row["trust"] == "TRUSTED" for row in scorecard["headline_performance"].values())
+
+
+def test_latest_close_performance_fails_closed_when_paper_is_stale() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        registry_path = make_fixture(Path(td))
+        scorecard = build_scorecard(
+            load_registry(registry_path),
+            source_registry_path=registry_path,
+            expected_session_date="2026-07-21",
+        )
+        assert scorecard["scorecard_trusted"] is False
+        assert scorecard["latest_close_performance"]["status"] == (
+            "INTEGRITY_ERROR"
+        )
+        assert any(
+            "latest_close_paper_summary_stale" in value
+            for value in scorecard["scorecard_trust_blockers"]
+        )
 
 
 def test_runtime_manifest_ignores_forged_verified_boolean() -> None:
@@ -680,6 +774,7 @@ def main() -> int:
     test_scorecard_keeps_evidence_lanes_and_provenance_separate()
     test_missing_optional_paper_is_unavailable_not_zero()
     test_current_paper_error_does_not_poison_historical_headline()
+    test_latest_close_performance_fails_closed_when_paper_is_stale()
     test_runtime_manifest_ignores_forged_verified_boolean()
     test_committed_source_registry_uses_verified_canonical_bundle()
     test_bundle_verifier_hashes_source_file_bytes()

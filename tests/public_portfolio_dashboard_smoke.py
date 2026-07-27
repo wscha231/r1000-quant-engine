@@ -60,6 +60,54 @@ def write_market_gate(source: Path, session_date: str) -> None:
     )
 
 
+def write_latest_close_metrics(
+    current: Path,
+    session_date: str,
+    *,
+    main_cagr: float = 0.34,
+    concentrated_cagr: float = 0.48,
+) -> None:
+    portfolios = {}
+    for portfolio, cagr, max_dd in (
+        ("main", main_cagr, -0.25),
+        ("concentrated", concentrated_cagr, -0.23),
+    ):
+        portfolios[portfolio] = {
+            "latest_close_chain_linked": {
+                "cagr": cagr,
+                "max_drawdown": max_dd,
+                "max_drawdown_exact": False,
+                "max_drawdown_method": (
+                    "minimum_of_locked_historical_mdd_and_"
+                    "paper_terminal_chain_mdd"
+                ),
+                "start_date": "2019-06-03",
+                "end_date": session_date,
+                "metric_mode": (
+                    "locked_historical_endpoint_chain_linked_to_"
+                    "accepted_paper_marks"
+                ),
+            }
+        }
+    write_json(
+        current / "04_official_metrics.json",
+        {
+            "latest_close_performance": {
+                "schema_version": "run287-latest-close-performance-v1",
+                "status": "READY_LATEST_CLOSE_REVIEW_ONLY",
+                "as_of_date": session_date,
+                "latest_close_exact": True,
+                "portfolios": portfolios,
+                "review_only": True,
+                "live_trading_enabled": False,
+                "production_activation_allowed": False,
+                "historical_cagr_mdd_replacement_allowed": False,
+                "promotion_evidence_allowed": False,
+            }
+        },
+    )
+
+
 def build_replay_fixture(root: Path) -> Path:
     source = root / "replay"
     for portfolio, ticker, cash, cagr, max_dd in [
@@ -236,6 +284,12 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
             current / "08_rebalance_decision.json",
             {"decision": "REVIEW_REQUIRED", "live_trading_enabled": False},
         )
+        write_latest_close_metrics(
+            current,
+            "2026-07-11",
+            main_cagr=0.341,
+            concentrated_cagr=0.481,
+        )
 
         payload = build_dashboard(root / "daily", base_json=base_path)
         validate_public_payload(payload)
@@ -245,6 +299,16 @@ def test_daily_artifact_refreshes_holdings_but_not_fake_trades() -> None:
         assert payload["portfolios"]["main"]["holdings"][0]["ticker"] == "NEW"
         assert payload["portfolios"]["main"]["target_cash_weight"] == 0.25
         assert payload["portfolios"]["main"]["trades"][0]["ticker"] == "AAA"
+        assert payload["portfolios"]["main"]["metrics"]["cagr"] == 0.341
+        assert (
+            payload["portfolios"]["main"]["metrics"][
+                "max_drawdown_exact"
+            ]
+            is False
+        )
+        assert payload["portfolios"]["main"]["metrics"]["end_date"] == (
+            "2026-07-11"
+        )
         assert payload["order_previews"][0]["executed"] is False
         assert '"quantity":' not in json.dumps(payload).lower()
 
@@ -293,6 +357,7 @@ def test_daily_artifact_merges_only_safe_forward_paper_fills() -> None:
         write_csv(current / "02_target_weights.csv", [{"portfolio_kind": "main", "ticker": "NEW", "target_weight": "0.70"}])
         write_csv(current / "03_order_preview.csv", [])
         write_json(current / "08_rebalance_decision.json", {"decision": "HOLD", "live_trading_enabled": False})
+        write_latest_close_metrics(current, "2026-07-14")
 
         ledger = daily / "daily_simulated_fill_ledger"
         write_json(
@@ -409,6 +474,7 @@ def test_daily_artifact_rejects_stale_or_missing_close_gate() -> None:
         write_csv(current / "02_target_weights.csv", [])
         write_csv(current / "03_order_preview.csv", [])
         write_json(current / "08_rebalance_decision.json", {"decision": "HOLD"})
+        write_latest_close_metrics(current, "2026-07-11")
 
         try:
             build_dashboard(daily, base_json=base_path)

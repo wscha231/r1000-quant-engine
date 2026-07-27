@@ -2853,9 +2853,11 @@ jobs:
           python tools/build_run287_operating_scorecard.py \
             --source-registry docs/run287_operating_scorecard_sources.json \
             --output-dir outputs/run287_operating_scorecard \
+            --expected-session-date "$LAST_NYSE_SESSION_DATE" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_operating_scorecard.log
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           path = Path("outputs/run287_operating_scorecard/operating_scorecard.json")
@@ -2864,6 +2866,18 @@ jobs:
               raise SystemExit(
                   "runtime operating scorecard is not trusted: "
                   + ",".join(scorecard.get("scorecard_trust_blockers") or [])
+              )
+          latest = scorecard.get("latest_close_performance") or {}
+          if (
+              latest.get("status") != "READY_LATEST_CLOSE_REVIEW_ONLY"
+              or latest.get("as_of_date")
+              != os.environ.get("LAST_NYSE_SESSION_DATE")
+              or latest.get("latest_close_exact") is not True
+              or latest.get("accepted_close_marks_include_durable_catchup")
+              is not True
+          ):
+              raise SystemExit(
+                  "latest-close performance is missing, stale, or untrusted"
               )
           PY
           echo "scorecard_sha256=$(sha256sum outputs/run287_operating_scorecard/operating_scorecard.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -3011,6 +3025,7 @@ jobs:
           - `outputs/user_current/02_target_weights.csv`
           - `outputs/user_current/03_order_preview.csv`
           - `outputs/user_current/08_rebalance_decision.json`
+          - `outputs/user_current/10_latest_close_performance.json`
           EOF
           python tools/build_daily_user_current_contract.py \
             --latest-run outputs \
@@ -3019,6 +3034,7 @@ jobs:
             --source-commit-sha "${GITHUB_SHA}" \
             --source-branch "${GITHUB_REF_NAME}" \
             --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
+            --expected-session-date "$LAST_NYSE_SESSION_DATE" \
             2>&1 | tee outputs/full_rebuild_logs/daily_user_current_contract.log
 
       - name: Verify accepted publication manifest
