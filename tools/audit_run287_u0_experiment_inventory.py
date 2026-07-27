@@ -284,6 +284,64 @@ def audit_inventory(
     ):
         errors.append("contract_enumerations_incomplete")
 
+    coverage = inventory.get("coverage")
+    coverage_scope = ""
+    historical_census_complete: bool | None = None
+    coverage_backlog: list[Any] = []
+    if not isinstance(coverage, dict) or set(coverage) != {
+        "scope",
+        "historical_experiment_census_complete",
+        "known_out_of_registry_backlog",
+    }:
+        errors.append("coverage_binding_invalid")
+    else:
+        coverage_scope = str(coverage.get("scope") or "")
+        historical_census_complete = coverage.get(
+            "historical_experiment_census_complete"
+        )
+        raw_backlog = coverage.get("known_out_of_registry_backlog")
+        if (
+            coverage_scope != contract.get("coverage_scope")
+            or coverage_scope
+            != "CANONICAL_DO_NOT_REPEAT_REGISTRY_ONLY"
+        ):
+            errors.append("coverage_scope_invalid")
+        if historical_census_complete is not False:
+            errors.append(
+                "historical_experiment_census_must_remain_incomplete"
+            )
+        if not isinstance(raw_backlog, list) or not raw_backlog:
+            errors.append("known_out_of_registry_backlog_invalid")
+        else:
+            coverage_backlog = raw_backlog
+            backlog_pr_numbers: set[int] = set()
+            for backlog_index, backlog_item in enumerate(coverage_backlog):
+                prefix = f"coverage_backlog[{backlog_index}]"
+                if (
+                    not isinstance(backlog_item, dict)
+                    or set(backlog_item) != {"reason", "evidence"}
+                    or not str(backlog_item.get("reason") or "").strip()
+                    or not isinstance(backlog_item.get("evidence"), dict)
+                ):
+                    errors.append(f"{prefix}:fields_invalid")
+                    continue
+                evidence = backlog_item["evidence"]
+                validate_github_pr_evidence(
+                    evidence,
+                    errors=errors,
+                    entry_id=prefix,
+                    evidence_index=0,
+                    allowed_ancestry=allowed_ancestry,
+                )
+                pr_number = evidence.get("pr_number")
+                if (
+                    isinstance(pr_number, int)
+                    and not isinstance(pr_number, bool)
+                ):
+                    if pr_number in backlog_pr_numbers:
+                        errors.append(f"{prefix}:duplicate_pr_number")
+                    backlog_pr_numbers.add(pr_number)
+
     source = inventory.get("source_registry")
     if not isinstance(source, dict) or set(source) != {
         "path",
@@ -604,6 +662,7 @@ def audit_inventory(
         "classified_entry_count": len(inventory_ids),
         "promotion_blocked_entry_count": len(blocked_ids),
         "orphaned_pr_evidence_count": orphaned_pr_evidence_count,
+        "known_out_of_registry_backlog_count": len(coverage_backlog),
         "evaluation_class_counts": dict(sorted(class_counts.items())),
         "evidence_state_counts": dict(
             sorted(evidence_state_counts.items())
@@ -613,7 +672,12 @@ def audit_inventory(
         errors.append("inventory_summary_mismatch")
 
     declared_ready = inventory.get("promotion_ready")
-    computed_ready = not blocked_ids and not errors
+    coverage_blocked = historical_census_complete is not True
+    if coverage_blocked:
+        promotion_blockers.append(
+            "coverage:HISTORICAL_EXPERIMENT_CENSUS_INCOMPLETE"
+        )
+    computed_ready = not blocked_ids and not coverage_blocked and not errors
     if declared_ready is not computed_ready:
         errors.append("promotion_ready_declaration_mismatch")
     if inventory.get("performance_claim_allowed") is not False:
@@ -642,6 +706,11 @@ def audit_inventory(
         "classified_entry_count": len(inventory_ids),
         "promotion_blocked_entry_count": len(blocked_ids),
         "blocked_registry_entry_ids": sorted(blocked_ids),
+        "coverage_scope": coverage_scope,
+        "historical_experiment_census_complete": (
+            historical_census_complete is True
+        ),
+        "known_out_of_registry_backlog_count": len(coverage_backlog),
         "overlap_group_count": len(group_members),
         "orphaned_pr_evidence_count": orphaned_pr_evidence_count,
         "errors": errors,

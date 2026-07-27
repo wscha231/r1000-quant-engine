@@ -43,8 +43,11 @@
     "CURRENT_MASTER",
     "ORPHANED_FROM_CURRENT_MASTER"
   ],
+  "coverage_scope": "CANONICAL_DO_NOT_REPEAT_REGISTRY_ONLY",
   "rules": {
     "all_do_not_repeat_entries_classified_exactly_once": true,
+    "canonical_registry_is_not_a_complete_historical_experiment_census": true,
+    "known_out_of_registry_trials_must_be_explicit": true,
     "summary_metrics_are_not_daily_return_series": true,
     "portfolio_trials_require_exact_parameter_and_return_column_manifests": true,
     "portfolio_trials_require_synchronized_daily_after_cost_return_series": true,

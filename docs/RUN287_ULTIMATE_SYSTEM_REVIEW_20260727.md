@@ -68,11 +68,14 @@ hypothesis.
 
 ### U0 experiment audit
 
-The U0 inventory now classifies all 21 do-not-repeat entries, but all 21 remain
-promotion-blocking. The audit found 21 references to PR evidence whose head
-commit is no longer in current master ancestry, five referenced local result
-files that are absent, and four concept-overlap groups that could otherwise
-double-count the same trial lineage.
+The U0 inventory now classifies all 21 canonical do-not-repeat entries, but it
+explicitly does not claim that those entries are the complete historical
+experiment census. PRs 229, 230, and 237 already expose additional
+out-of-registry rolling-window, tilt, and source-selection attempts. All 21
+canonical entries remain promotion-blocking. The audit found 21 references to
+PR evidence whose head commit is no longer in current master ancestry, five
+referenced local result files that are absent, and four concept-overlap groups
+that could otherwise double-count the same trial lineage.
 
 This is an intentionally fail-closed result:
 
@@ -159,9 +162,10 @@ coverage gate passes.
 
 ## Remaining system work
 
-- U0: the 21-entry classification and fail-closed audit contract are complete;
-  recover orphaned exact trial manifests and daily return columns, deduplicate
-  the four overlap groups, and implement source-selection multiplicity before
+- U0: the 21 canonical entries have a fail-closed baseline; finish the full
+  branch/PR experiment census, absorb the known PR 229/230/237 backlog, recover
+  orphaned exact trial manifests and daily return columns, deduplicate the four
+  overlap groups, and implement source-selection multiplicity before
   preregistering a challenger.
 - U1: finish bitemporal universe, taxonomy, macro vintage, delisted, and
   estimate/guidance coverage.

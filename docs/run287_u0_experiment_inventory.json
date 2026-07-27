@@ -14,6 +14,88 @@
     "bytes": 10609,
     "entry_count": 21
   },
+  "coverage": {
+    "scope": "CANONICAL_DO_NOT_REPEAT_REGISTRY_ONLY",
+    "historical_experiment_census_complete": false,
+    "known_out_of_registry_backlog": [
+      {
+        "reason": "The actual-results rolling-window review contains additional evaluated windows not represented as an exact canonical registry trial manifest.",
+        "evidence": {
+          "kind": "github_pr",
+          "pr_number": 229,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/229",
+          "head_commit": "5d1bf647099d588f14664c3e8052057fbbe17fe7",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_actual_results_rolling_review/summary.json",
+              "git_blob_oid": "45b67380004fa436a80181b97f6605a48c4242ca",
+              "bytes": 133284
+            },
+            {
+              "path": "outputs/run287_actual_results_rolling_review/window_metrics.csv",
+              "git_blob_oid": "406edc5af5402bdca5833753f033353199740e10",
+              "bytes": 42991
+            }
+          ]
+        }
+      },
+      {
+        "reason": "The concentrated actual-results rolling review evaluated two tilt levels that are not enumerated in the canonical registry.",
+        "evidence": {
+          "kind": "github_pr",
+          "pr_number": 230,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/230",
+          "head_commit": "1d82572fa7eee11391637bab0f28d9f6a9022f52",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt05/summary.json",
+              "git_blob_oid": "84e8df06bc6e35349105c0bedb5fc6f7860988cf",
+              "bytes": 133917
+            },
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt05/window_metrics.csv",
+              "git_blob_oid": "370fa114b141db3c3c10cd755d4e745afbbf113c",
+              "bytes": 43417
+            },
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt10/summary.json",
+              "git_blob_oid": "91e6c49c4c73ee99753ac41bc3c1f2e6b7db6d5f",
+              "bytes": 133826
+            },
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt10/window_metrics.csv",
+              "git_blob_oid": "1e5ed27f5d85c6ec664ac6db81606876d60c76c8",
+              "bytes": 43337
+            }
+          ]
+        }
+      },
+      {
+        "reason": "The concentrated alpha source packet influenced later source selection but is not represented as a source-selection attempt in the canonical registry.",
+        "evidence": {
+          "kind": "github_pr",
+          "pr_number": 237,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/237",
+          "head_commit": "3cd35d89a8d1faba773bcea5b8a4b86e7cbe7998",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_conc_alpha_source_packet/source_screen_signal_stats.csv",
+              "git_blob_oid": "2c646d017c2d2a4e56bb5b471d1cd5c753f755b9",
+              "bytes": 1733
+            },
+            {
+              "path": "outputs/run287_conc_alpha_source_packet/summary.json",
+              "git_blob_oid": "3d245bce5d654a70a9c1d30c37adb61333fdc856",
+              "bytes": 3730
+            }
+          ]
+        }
+      }
+    ]
+  },
   "overlap_groups": [
     {
       "id": "growth_confirmation_shared_trials",
@@ -53,6 +135,7 @@
     "classified_entry_count": 21,
     "promotion_blocked_entry_count": 21,
     "orphaned_pr_evidence_count": 21,
+    "known_out_of_registry_backlog_count": 3,
     "evaluation_class_counts": {
       "INVALID_OR_INCOMPLETE": 1,
       "MIXED_SOURCE_AND_PORTFOLIO": 2,

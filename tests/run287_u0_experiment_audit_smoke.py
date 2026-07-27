@@ -62,6 +62,17 @@ def test_current_inventory_is_valid_but_blocks_promotion() -> None:
     assert result["classified_entry_count"] == 21
     assert result["promotion_blocked_entry_count"] == 21
     assert result["orphaned_pr_evidence_count"] == 21
+    assert result["coverage_scope"] == (
+        "CANONICAL_DO_NOT_REPEAT_REGISTRY_ONLY"
+    )
+    assert result["historical_experiment_census_complete"] is False
+    assert result["known_out_of_registry_backlog_count"] == 3
+    assert {
+        item["evidence"]["pr_number"]
+        for item in read(INVENTORY_PATH)["coverage"][
+            "known_out_of_registry_backlog"
+        ]
+    } == {229, 230, 237}
     assert result["overlap_group_count"] == 4
     assert result["errors"] == []
 
@@ -95,6 +106,26 @@ def test_overlap_must_be_acknowledged_to_prevent_double_counting() -> None:
         "direct_growth_tilt:overlap_group_membership_mismatch"
         in result["errors"]
     )
+
+
+def test_canonical_registry_cannot_be_claimed_as_full_history() -> None:
+    inventory = read(INVENTORY_PATH)
+    inventory["coverage"]["historical_experiment_census_complete"] = True
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert (
+        "historical_experiment_census_must_remain_incomplete"
+        in result["errors"]
+    )
+
+
+def test_known_out_of_registry_backlog_cannot_be_hidden() -> None:
+    inventory = read(INVENTORY_PATH)
+    inventory["coverage"]["known_out_of_registry_backlog"] = []
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert "known_out_of_registry_backlog_invalid" in result["errors"]
+    assert "inventory_summary_mismatch" in result["errors"]
 
 
 def test_summary_cannot_be_relabelled_as_ready_return_evidence() -> None:
@@ -161,6 +192,8 @@ def main() -> int:
     test_registry_coverage_is_exact_and_fail_closed()
     test_registry_hash_drift_is_rejected()
     test_overlap_must_be_acknowledged_to_prevent_double_counting()
+    test_canonical_registry_cannot_be_claimed_as_full_history()
+    test_known_out_of_registry_backlog_cannot_be_hidden()
     test_summary_cannot_be_relabelled_as_ready_return_evidence()
     test_tracked_evidence_is_hash_bound()
     test_cli_reports_blocked_state_without_treating_it_as_test_failure()

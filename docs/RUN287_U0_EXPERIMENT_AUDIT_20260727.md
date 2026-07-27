@@ -2,11 +2,14 @@
 
 ## 결론
 
-과거 실험 목록은 이제 21/21건 모두 분류됐지만, 승격에는 사용할 수
-없다. 현재 상태는 `VALID_INVENTORY_PROMOTION_BLOCKED`다.
+canonical do-not-repeat registry의 21/21건은 모두 분류됐지만, 이는
+전체 역사 실험 census가 아니다. 승격에는 사용할 수 없으며 현재 상태는
+`VALID_INVENTORY_PROMOTION_BLOCKED`다.
 
 - registry 누락: 0건
 - 분류 완료: 21건
+- 전체 branch/PR 실험 census: 미완료
+- 이미 확인한 registry 밖 backlog: PR #229, #230, #237
 - 승격 차단: 21건
 - 현재 master 계보에서 빠진 PR 증거 참조: 21개
 - 동일 trial을 중복 계산할 수 있는 개념 중첩군: 4개
@@ -35,6 +38,10 @@
 5. source screen, no-signal, no-op, portfolio A/B가 한 가지
    `REJECTED` 의미로 섞여 있었다.
 6. registry가 가리키는 로컬 결과 5개는 현재 폴더와 Git에 없다.
+7. 별도 PR 대조에서 실제 실적 rolling window(#229), Concentrated
+   tilt 0.5/1.0 rolling review(#230), alpha source packet(#237)이
+   canonical registry 밖에 있음을 확인했다. 따라서 21개 분류를 전체
+   역사 실험 모집단이라고 부를 수 없다.
 
 따라서 요약 CAGR/MDD를 daily return으로 바꾸거나, 결과가 없는 실험을
 `performance_evaluated=false`로 편의상 처리하지 않는다.
@@ -80,16 +87,17 @@ checksum-locked fixture뿐이다.
 
 ## 복구 순서
 
-1. orphaned PR의 summary/arm table을 commit, path, Git blob OID로 복구한다.
-2. 각 family의 모든 파라미터를 분리하고 중복 trial을 하나의 ID로
+1. 모든 branch/PR을 훑어 canonical registry 밖 시도를 먼저 census한다.
+2. orphaned PR의 summary/arm table을 commit, path, Git blob OID로 복구한다.
+3. 각 family의 모든 파라미터를 분리하고 중복 trial을 하나의 ID로
    정규화한다.
-3. 동일 날짜축의 daily after-cost excess return을 복구한다.
-4. source screen과 no-signal 시도에는 별도 selection-multiplicity
+4. 동일 날짜축의 daily after-cost excess return을 복구한다.
+5. source screen과 no-signal 시도에는 별도 selection-multiplicity
    penalty를 구현한다.
-5. 21건 전체가 정확한 모집단으로 고정되기 전에는 새 challenger
+6. 전체 역사 census와 중복 제거가 완료되기 전에는 새 challenger
    백테스트를 시작하지 않는다.
-6. 그 후 materially new한 인과 가설 하나만 사전등록한다.
-7. PIT·비용·유동성·과최적화 preflight가 모두 통과한 경우에만 별도
+7. 그 후 materially new한 인과 가설 하나만 사전등록한다.
+8. PIT·비용·유동성·과최적화 preflight가 모두 통과한 경우에만 별도
    사용자 승인으로 corrected fullrun 한 번을 실행한다.
 
 ## CAGR/MDD 개선 원칙
