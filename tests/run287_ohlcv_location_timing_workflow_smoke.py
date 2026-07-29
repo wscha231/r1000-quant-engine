@@ -20,7 +20,8 @@ def main() -> None:
     timing_block = text[timing : timing + 1800]
     assert "--producer-status outputs/run287_exact_packet_producer/status.json" in timing_block
     assert "--holding-watch outputs/holding_risk_watch/holding_risk_watch.csv" in timing_block
-    assert '--valuation-date "$PAPER_ASOF"' in timing_block
+    assert '--valuation-date "$PAPER_AS_OF"' in timing_block
+    assert "PAPER_ASOF" not in timing_block
     assert "if python tools/build_run287_ohlcv_location_timing_challenger.py" in text
     assert (
         "after the same-close transaction boundary"

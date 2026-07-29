@@ -51,6 +51,9 @@ All entries must be written in English. Entries must be predictable and machine-
   - focused daily-workflow smoke ->PASS.
   - workflow artifact smoke ->PASS.
   - full Tier-1 PR validation ->209/209 PASS in 646.44 seconds.
+  - exact-head Codex review follow-up ->fixed the `PAPER_AS_OF` workflow
+    variable, fail-closed benchmark entry context, malformed OHLCV row
+    rejection, and staged-output cleanup on final provenance failure.
   - fullrun, historical challenger replay, production activation, durable
     catch-up, and live trading ->NOT RUN.
 

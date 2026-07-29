@@ -13,9 +13,11 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -44,6 +46,14 @@ READY_INSUFFICIENT_STATUS = (
     "READY_OHLCV_LOCATION_TIMING_FORWARD_REVIEW_ONLY_WITH_DATA_INSUFFICIENT"
 )
 BLOCKED_STATUS = "BLOCKED_OHLCV_LOCATION_TIMING_CHALLENGER"
+DATA_OUTPUT_NAMES = (
+    "ohlcv_location_timing.csv",
+    "fibonacci_levels.csv",
+    "benchmark_location.csv",
+    "forward_observations.jsonl",
+    "price_source_audit.csv",
+    "report.md",
+)
 PRODUCER_READY_STATUSES = {
     "READY_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY",
     "READY_EXISTING_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY",
@@ -179,12 +189,20 @@ def adjusted_ohlcv(frame: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:
     volume_column = columns.get("volume")
     out["volume"] = pd.to_numeric(raw[volume_column], errors="coerce")
     out["dollar_volume"] = out["raw_close"] * out["volume"]
+    finite_fields = np.isfinite(
+        out[["open", "high", "low", "close", "raw_close", "volume"]]
+        .to_numpy(dtype=float)
+    ).all(axis=1)
     valid = (
-        out["close"].gt(0)
+        pd.Series(finite_fields, index=out.index)
+        & out["close"].gt(0)
+        & out["raw_close"].gt(0)
         & out["open"].gt(0)
+        & out["high"].gt(0)
+        & out["low"].gt(0)
         & out["high"].ge(out[["open", "close"]].max(axis=1))
         & out["low"].le(out[["open", "close", "high"]].min(axis=1))
-        & out["volume"].fillna(0).ge(0)
+        & out["volume"].ge(0)
     )
     return out.loc[valid].sort_index()
 
@@ -721,6 +739,12 @@ def market_context(
 ) -> dict[str, Any]:
     spy = benchmark_features.get("SPY") or {}
     qqq = benchmark_features.get("QQQ") or {}
+    benchmark_context_complete = bool(
+        spy.get("price_exact_asof") is True
+        and qqq.get("price_exact_asof") is True
+        and not str(spy.get("data_reason") or "")
+        and not str(qqq.get("data_reason") or "")
+    )
     both_below_50 = bool(
         spy.get("above_ma50") is False and qqq.get("above_ma50") is False
     )
@@ -755,6 +779,7 @@ def market_context(
         "index_damage_confirmed": index_damage,
         "vix_stress": vix_stress,
         "market_risk_off_confirmed": risk_off,
+        "benchmark_context_complete": benchmark_context_complete,
         "vix_only_signal_allowed": False,
     }
 
@@ -809,6 +834,8 @@ def classify_shadow_action(
             return "TRIM_REVIEW", "|".join(reasons)
         return "HOLD_REVIEW", "|".join(reasons or ["no_confirmed_exit"])
     if row.get("is_proposed_entry"):
+        if market.get("benchmark_context_complete") is not True:
+            return "DATA_INSUFFICIENT_REVIEW", "benchmark_context_incomplete"
         if stock_breakdown and market_risk_off:
             return "BLOCK_ENTRY_REVIEW", "|".join(reasons)
         if support_reversal and not market_risk_off:
@@ -848,6 +875,17 @@ def blocked(
     }
     write_json(output_dir / "summary.json", payload)
     return payload
+
+
+def clear_run_local_outputs(output_dir: Path, *, include_summary: bool) -> None:
+    names = [*DATA_OUTPUT_NAMES]
+    if include_summary:
+        names.append("summary.json")
+    for name in names:
+        (output_dir / name).unlink(missing_ok=True)
+    for temporary in output_dir.glob(".*.tmp"):
+        if temporary.is_file():
+            temporary.unlink(missing_ok=True)
 
 
 def changed_input_failures(
@@ -922,6 +960,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    clear_run_local_outputs(output_dir, include_summary=True)
     producer_path = repo_path(args.producer_status)
     holding_path = repo_path(args.holding_watch)
     contract_path = repo_path(args.contract)
@@ -1223,31 +1262,64 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if failures:
         return blocked(output_dir, failures, audits, started)
 
-    current_path = output_dir / "ohlcv_location_timing.csv"
-    levels_path = output_dir / "fibonacci_levels.csv"
-    benchmark_path = output_dir / "benchmark_location.csv"
-    observation_path = output_dir / "forward_observations.jsonl"
-    price_audit_path = output_dir / "price_source_audit.csv"
-    current.to_csv(current_path, index=False)
-    levels_frame.to_csv(levels_path, index=False)
-    benchmark_frame.to_csv(benchmark_path, index=False)
-    pd.DataFrame(price_audit_rows).to_csv(price_audit_path, index=False)
-    observation_path.write_text(
-        "".join(
-            json.dumps(
-                json_clean(record),
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
-            + "\n"
-            for record in current.to_dict("records")
-        ),
-        encoding="utf-8",
-    )
-    failures.extend(changed_input_failures(audits, price_records, source_hashes))
-    if failures:
+    destination_paths = {
+        "current": output_dir / "ohlcv_location_timing.csv",
+        "levels": output_dir / "fibonacci_levels.csv",
+        "benchmark": output_dir / "benchmark_location.csv",
+        "observations": output_dir / "forward_observations.jsonl",
+        "price_audit": output_dir / "price_source_audit.csv",
+    }
+    token = uuid.uuid4().hex
+    staged_paths = {
+        key: path.with_name(f".{path.name}.{token}.tmp")
+        for key, path in destination_paths.items()
+    }
+    try:
+        current.to_csv(staged_paths["current"], index=False)
+        levels_frame.to_csv(staged_paths["levels"], index=False)
+        benchmark_frame.to_csv(staged_paths["benchmark"], index=False)
+        pd.DataFrame(price_audit_rows).to_csv(
+            staged_paths["price_audit"], index=False
+        )
+        staged_paths["observations"].write_text(
+            "".join(
+                json.dumps(
+                    json_clean(record),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                + "\n"
+                for record in current.to_dict("records")
+            ),
+            encoding="utf-8",
+        )
+        failures.extend(
+            changed_input_failures(audits, price_records, source_hashes)
+        )
+        if failures:
+            clear_run_local_outputs(output_dir, include_summary=False)
+            return blocked(output_dir, sorted(set(failures)), audits, started)
+        for key, destination in destination_paths.items():
+            os.replace(staged_paths[key], destination)
+        failures.extend(
+            changed_input_failures(audits, price_records, source_hashes)
+        )
+        if failures:
+            clear_run_local_outputs(output_dir, include_summary=False)
+            return blocked(output_dir, sorted(set(failures)), audits, started)
+    except Exception as exc:
+        clear_run_local_outputs(output_dir, include_summary=False)
+        failures.append(f"output_publish:{type(exc).__name__}:{exc}")
         return blocked(output_dir, sorted(set(failures)), audits, started)
+    finally:
+        for staged in staged_paths.values():
+            staged.unlink(missing_ok=True)
+    current_path = destination_paths["current"]
+    levels_path = destination_paths["levels"]
+    benchmark_path = destination_paths["benchmark"]
+    observation_path = destination_paths["observations"]
+    price_audit_path = destination_paths["price_audit"]
     insufficient = int(current["data_reason"].fillna("").astype(str).ne("").sum())
     benchmark_insufficient = sum(
         bool(feature.get("data_reason"))

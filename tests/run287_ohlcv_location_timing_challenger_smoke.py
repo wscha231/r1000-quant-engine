@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.build_run287_holding_risk_watch import sha256_file, write_json  # noqa: E402
+from tools import build_run287_ohlcv_location_timing_challenger as challenger  # noqa: E402
 from tools.build_run287_ohlcv_location_timing_challenger import (  # noqa: E402
     READY_STATUS,
     adjusted_ohlcv,
@@ -292,6 +293,11 @@ def main() -> None:
     adjusted = adjusted_ohlcv(full, ASOF)
     assert (adjusted["high"] >= adjusted[["open", "close"]].max(axis=1)).all()
     assert (adjusted["low"] <= adjusted[["open", "close"]].min(axis=1)).all()
+    malformed = full.tail(3).copy()
+    malformed.iloc[0, malformed.columns.get_loc("Low")] = 0.0
+    malformed.iloc[1, malformed.columns.get_loc("Low")] = -1.0
+    malformed.iloc[2, malformed.columns.get_loc("Volume")] = np.nan
+    assert adjusted_ohlcv(malformed, ASOF).empty
 
     feature, levels = fixed_window_features("TEST", adjusted, ASOF, contract)
     assert feature["price_exact_asof"] is True
@@ -337,6 +343,15 @@ def main() -> None:
         candidate,
         {"vix_stress": False, "market_risk_off_confirmed": False},
     )
+    assert action == "DATA_INSUFFICIENT_REVIEW"
+    action, _ = classify_shadow_action(
+        candidate,
+        {
+            "vix_stress": False,
+            "market_risk_off_confirmed": False,
+            "benchmark_context_complete": True,
+        },
+    )
     assert action == "MONITOR_ENTRY_REVIEW"
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -370,6 +385,31 @@ def main() -> None:
         assert {
             json.loads(line)["forward_outcome_status"] for line in observations
         } == {"UNRESOLVED"}
+
+    # A provenance change discovered after staged writes publishes only the
+    # BLOCKED summary; no conflicted observation file remains archivable.
+    with tempfile.TemporaryDirectory() as tmp:
+        args = build_fixture(Path(tmp))
+        original = challenger.changed_input_failures
+        calls = {"count": 0}
+
+        def fail_after_staging(*_args: object, **_kwargs: object) -> list[str]:
+            calls["count"] += 1
+            return (
+                ["source_changed_during_staged_write"]
+                if calls["count"] == 2
+                else []
+            )
+
+        challenger.changed_input_failures = fail_after_staging
+        try:
+            summary = challenger.build(args)
+        finally:
+            challenger.changed_input_failures = original
+        assert summary["status"] == challenger.BLOCKED_STATUS
+        for name in challenger.DATA_OUTPUT_NAMES:
+            assert not (Path(args.output_dir) / name).exists(), name
+        assert (Path(args.output_dir) / "summary.json").is_file()
 
     print("run287 ohlcv location timing challenger smoke: PASS")
 

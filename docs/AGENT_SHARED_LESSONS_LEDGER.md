@@ -3194,6 +3194,18 @@ Expected contract:
   archived for forward resolution but cannot feed same-close target books,
   orders, cash, champion selection, accepted paper state, production, or live
   trading.
+- In a `set -u` workflow, a sidecar added after a paper transaction must reuse
+  the exact defined as-of variable. A spelling-only variable drift can strand
+  an already-mutated session before integrity and durable publication.
+- Missing SPY/QQQ context is not evidence of a benign market. It must suppress
+  entry confirmation and produce a data-insufficient review label.
+- OHLCV validation must require finite positive Open/High/Low/Close and finite
+  nonnegative volume. Filling missing volume solely for validation or allowing
+  a zero low can create invalid Fibonacci endpoints and false READY evidence.
+- Write forward observations to staged files, rehash inputs before and after
+  publication, and remove every run-local data output before a BLOCKED summary.
+  A non-gating workflow still archives its directory, so conflicted files left
+  beside a BLOCKED marker are not harmless.
 - Fullrun executed: false. Historical challenger replay executed: false.
   Production enabled: false. Live trading enabled: false.
 

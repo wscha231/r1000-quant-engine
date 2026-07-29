@@ -2638,12 +2638,12 @@ jobs:
           else
             echo "[daily-operating] same-close selector blocked; prior fills/marks retained and zero new orders generated"
           fi
-          DATE_TOKEN="${PAPER_ASOF//-/}"
+          DATE_TOKEN="${PAPER_AS_OF//-/}"
           OHLCV_TIMING_DIR="outputs/run287_ohlcv_location_timing_exact_close_${DATE_TOKEN}"
           if python tools/build_run287_ohlcv_location_timing_challenger.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
             --holding-watch outputs/holding_risk_watch/holding_risk_watch.csv \
-            --valuation-date "$PAPER_ASOF" \
+            --valuation-date "$PAPER_AS_OF" \
             --output-dir "$OHLCV_TIMING_DIR" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log; then
             echo "[daily-operating] OHLCV location timing forward observation completed after the same-close transaction boundary"
