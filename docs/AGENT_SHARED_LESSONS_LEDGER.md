@@ -3167,6 +3167,36 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-07-29 - OHLCV location timing must remain confirmation-only
+
+- A range low, range high, or Fibonacci retracement is a location coordinate,
+  not an independently validated alpha signal. Freeze every level before
+  forward outcomes exist and publish all levels so a later analyst cannot
+  select only the level that happened to work.
+- VIX is non-directional expected S&P 500 volatility. A high VIX observation
+  alone must never generate a stock exit, entry block, cash floor, or portfolio
+  mutation. Require contemporaneous SPY/QQQ damage and security-specific price
+  damage before an exit-review label can appear.
+- High proximity alone is not a sell rule and low proximity alone is not a buy
+  rule. Entry confirmation needs a support-zone reversal, trend support, and
+  volume confirmation; exit review needs stock breakdown, confirmed market
+  damage, and the independent held-security risk watch.
+- Use adjusted close to place Open/High/Low/Close on one economic scale, but
+  compare overlapping raw closes when verifying immutable and provider
+  snapshots. Provider adjusted closes may legitimately restate after a
+  dividend; rebase only the older frozen adjusted history and preserve provider
+  share volume.
+- Compute thresholds and percentiles from prior rows only, exclude all rows
+  after the valuation close, and require the exact completed close. Store the
+  current event as `UNRESOLVED`; do not backfill future returns into live
+  features or call an unresolved observation learned evidence.
+- The daily OHLCV location artifact is a non-gating research sidecar. It may be
+  archived for forward resolution but cannot feed same-close target books,
+  orders, cash, champion selection, accepted paper state, production, or live
+  trading.
+- Fullrun executed: false. Historical challenger replay executed: false.
+  Production enabled: false. Live trading enabled: false.
+
 ### 2026-07-29 - Repository-wide GitHub agent operating standard
 
 - Agent: Codex.

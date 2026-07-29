@@ -5,6 +5,55 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-07-29
 
+### 19:25 KST - Add exact-close OHLCV location timing forward challenger
+
+- scope:
+  - Analyze active held and proposed securities using PIT-safe adjusted OHLCV,
+    volume, realized volatility, fixed multi-horizon high/low location, fixed
+    Fibonacci coordinates, SPY/QQQ location, and VIX context.
+  - Start daily forward observations without changing selector weights, target
+    books, cash, orders, champion state, production, or live trading.
+  - Keep the family distinct from rejected generic technical tilts and VIX cash
+    floors; historical replay remains blocked until the U0 census is complete.
+- files:
+  - `tools/build_run287_ohlcv_location_timing_challenger.py` ->rehashes exact
+    producer inputs, excludes future rows, joins frozen and exact provider
+    prices, computes preregistered location features, and emits proposal-only
+    shadow actions plus unresolved outcome rows.
+  - `docs/run287_ohlcv_location_timing_challenger_contract.json` ->freezes the
+    single causal family, four lookbacks, seven Fibonacci ratios, thresholds,
+    learning gates, and all mutation prohibitions.
+  - `.github/workflows/daily_operating_selection_refresh.yml` ->runs the
+    challenger as a non-gating sidecar after the same-close transaction
+    boundary, then archives it only under research-run evidence.
+  - `tests/run287_ohlcv_location_timing_challenger_smoke.py` and
+    `tests/run287_ohlcv_location_timing_workflow_smoke.py` ->cover adjusted
+    OHLCV, future-row exclusion, all fixed Fibonacci levels, VIX/high/low
+    standalone-signal prohibitions, shadow exit confirmation, mutation safety,
+    and workflow non-consumption.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the confirmation-only and
+    adjusted-price PIT lessons for future agents.
+- symbols_added:
+  - `tools.build_run287_ohlcv_location_timing_challenger.adjusted_ohlcv`
+  - `tools.build_run287_ohlcv_location_timing_challenger.merge_frozen_and_provider`
+  - `tools.build_run287_ohlcv_location_timing_challenger.fixed_window_features`
+  - `tools.build_run287_ohlcv_location_timing_challenger.classify_shadow_action`
+  - `tools.build_run287_ohlcv_location_timing_challenger.build`
+- safety:
+  - VIX alone cannot change a stock action.
+  - Range-high proximity alone cannot sell and range-low/Fibonacci proximity
+    alone cannot buy.
+  - Daily failure does not gate or mutate same-close targets.
+  - Forward observations begin as `UNRESOLVED`; automatic learning and
+    champion promotion are disabled.
+- validation:
+  - focused challenger smoke ->PASS.
+  - focused daily-workflow smoke ->PASS.
+  - workflow artifact smoke ->PASS.
+  - full Tier-1 PR validation ->209/209 PASS in 646.44 seconds.
+  - fullrun, historical challenger replay, production activation, durable
+    catch-up, and live trading ->NOT RUN.
+
 ### 11:04 KST - Enforce the repository-wide GitHub agent operating standard
 
 - scope:

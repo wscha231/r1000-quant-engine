@@ -1,0 +1,114 @@
+{
+  "schema_version": "run287-ohlcv-location-timing-challenger-v1",
+  "scope": "current_held_and_proposed_security_ohlcv_location_forward_review",
+  "research_basis": {
+    "vix_interpretation": "non_directional_30_day_expected_SP500_volatility_not_next_day_direction",
+    "vix_primary_source": "https://www.cboe.com/insights/posts/what-the-vix-and-vix-1-d-indices-attempt-to-measure-and-how-they-differ/",
+    "objective_pattern_testing_source": "https://www.nber.org/papers/w7613",
+    "fibonacci_status": "exploratory_mixed_evidence_all_levels_preregistered",
+    "fibonacci_research_source": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4212430"
+  },
+  "price_contract": {
+    "historical_source": "hash_verified_selector_price_map",
+    "current_increment": "hash_verified_exact_close_provider_overlap",
+    "benchmarks": [
+      "SPY",
+      "QQQ"
+    ],
+    "index_interpretation": {
+      "SPY": "investable_S&P_500_proxy",
+      "QQQ": "investable_Nasdaq_100_proxy"
+    },
+    "adjustment": "Adj_Close_divided_by_raw_Close_applied_to_OHLC",
+    "require_exact_completed_close": true,
+    "future_rows_allowed": false,
+    "minimum_overlap_rows": 20,
+    "maximum_overlap_relative_error": 0.00001,
+    "minimum_history_rows": 126,
+    "vix_source": "hash_verified_conservatively_available_FRED_VIXCLS_series",
+    "maximum_vix_staleness_calendar_days": 5
+  },
+  "return_horizons_trading_days": [
+    1,
+    5,
+    21,
+    63,
+    126,
+    252
+  ],
+  "location_lookbacks_trading_days": [
+    21,
+    63,
+    126,
+    252
+  ],
+  "fibonacci": {
+    "ratios": [
+      0.0,
+      0.236,
+      0.382,
+      0.5,
+      0.618,
+      0.786,
+      1.0
+    ],
+    "selection_policy": "all_levels_preregistered_no_post_outcome_level_selection",
+    "interpretation": "descriptive_location_coordinate_not_standalone_alpha"
+  },
+  "classification": {
+    "low_position_max": 0.1,
+    "high_position_min": 0.9,
+    "near_range_atr": 1.0,
+    "near_range_pct": 0.02,
+    "fib_zone_atr": 0.75,
+    "fib_zone_pct": 0.01,
+    "market_damage_return_21d": -0.03,
+    "vix_stress_z": 1.0,
+    "vix_stress_level": 28.0,
+    "vix_only_action_allowed": false,
+    "near_high_only_sell_allowed": false,
+    "near_low_or_fibonacci_only_buy_allowed": false
+  },
+  "research_registration": {
+    "family_id": "ohlcv_multihorizon_location_confirmation_v1",
+    "causal_family_count": 1,
+    "signal": "past_only_multihorizon_ohlcv_location",
+    "mechanism": "forward_entry_confirmation_and_exit_review_no_mutation",
+    "book": "active_held_and_proposed_decision_securities",
+    "window": "forward_from_first_accepted_daily_observation",
+    "historical_replay_allowed_before_u0_census": false,
+    "parameter_grid_allowed": false,
+    "semantic_difference_from_rejected_work": "descriptive_location_and_selective_confirmation_not_generic_technical_tilt_not_vix_cash_floor_not_direct_stop"
+  },
+  "forward_learning": {
+    "outcome_horizons_trading_days": [
+      1,
+      5,
+      21,
+      63,
+      126
+    ],
+    "initial_outcome_status": "UNRESOLVED",
+    "historical_and_forward_results_must_be_separate": true,
+    "automatic_model_update_allowed": false,
+    "automatic_champion_promotion_allowed": false,
+    "minimum_completed_sessions_before_proposal": 60,
+    "minimum_decision_weeks_before_proposal": 12
+  },
+  "safety": {
+    "research_only": true,
+    "forward_observation_only": true,
+    "advisory_only": true,
+    "portfolio_transition_allowed": false,
+    "orders_generated": false,
+    "target_books_mutated": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "champion_changed": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}

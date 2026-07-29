@@ -2638,6 +2638,18 @@ jobs:
           else
             echo "[daily-operating] same-close selector blocked; prior fills/marks retained and zero new orders generated"
           fi
+          DATE_TOKEN="${PAPER_ASOF//-/}"
+          OHLCV_TIMING_DIR="outputs/run287_ohlcv_location_timing_exact_close_${DATE_TOKEN}"
+          if python tools/build_run287_ohlcv_location_timing_challenger.py \
+            --producer-status outputs/run287_exact_packet_producer/status.json \
+            --holding-watch outputs/holding_risk_watch/holding_risk_watch.csv \
+            --valuation-date "$PAPER_ASOF" \
+            --output-dir "$OHLCV_TIMING_DIR" \
+            2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log; then
+            echo "[daily-operating] OHLCV location timing forward observation completed after the same-close transaction boundary"
+          else
+            echo "[daily-operating] OHLCV location timing sidecar blocked after the same-close transaction boundary; no target or ledger state was gated or mutated"
+          fi
           else
             echo "[daily-operating] same-close selector skipped because current producer failed"
             python - "$SAME_CLOSE_DIR" "$PAPER_AS_OF" "${CHAIN_BLOCK_REASON:-current_producer_not_ready}" <<'PY'
@@ -3074,6 +3086,7 @@ jobs:
             outputs/run287_same_close_decision/*/status.json
             outputs/run287_current_selector_no_write_exact_close_*/
             outputs/run287_candidate_risk_watch_exact_close_*/
+            outputs/run287_ohlcv_location_timing_exact_close_*/
             outputs/run287_decision_observation_archive/
             outputs/run287_risk_outcome_parent_accepted/
             outputs/run287_risk_outcome_parent_anchor/
@@ -3105,6 +3118,7 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_exact_packet_upstream.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
+            outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
             outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_anchor.log
@@ -3147,7 +3161,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_accepted outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_ohlcv_location_timing_exact_close_* outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_accepted outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
