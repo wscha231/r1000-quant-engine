@@ -109,6 +109,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/agent_board_smoke.py", []),
     ("tests/research_handoff_package_smoke.py", []),
     ("tests/agent_shared_lessons_contract_smoke.py", []),
+    ("tests/run287_agent_github_operating_standard_smoke.py", []),
     ("tests/run287_do_not_repeat_registry_smoke.py", []),
     ("tests/run287_system_foundation_review_smoke.py", []),
     ("tests/replay_price_cache_smoke.py", []),
