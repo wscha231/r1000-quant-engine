@@ -3167,6 +3167,84 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-07-29 - OHLCV location timing must remain confirmation-only
+
+- A range low, range high, or Fibonacci retracement is a location coordinate,
+  not an independently validated alpha signal. Freeze every level before
+  forward outcomes exist and publish all levels so a later analyst cannot
+  select only the level that happened to work.
+- VIX is non-directional expected S&P 500 volatility. A high VIX observation
+  alone must never generate a stock exit, entry block, cash floor, or portfolio
+  mutation. Require contemporaneous SPY/QQQ damage and security-specific price
+  damage before an exit-review label can appear.
+- High proximity alone is not a sell rule and low proximity alone is not a buy
+  rule. Entry confirmation needs a support-zone reversal, trend support, and
+  volume confirmation; exit review needs stock breakdown, confirmed market
+  damage, and the independent held-security risk watch.
+- Use adjusted close to place Open/High/Low/Close on one economic scale, but
+  compare overlapping raw closes when verifying immutable and provider
+  snapshots. Provider adjusted closes may legitimately restate after a
+  dividend; rebase only the older frozen adjusted history and preserve provider
+  share volume.
+- Compute thresholds and percentiles from prior rows only, exclude all rows
+  after the valuation close, and require the exact completed close. Store the
+  current event as `UNRESOLVED`; do not backfill future returns into live
+  features or call an unresolved observation learned evidence.
+- The daily OHLCV location artifact is a non-gating research sidecar. It may be
+  archived for forward resolution but cannot feed same-close target books,
+  orders, cash, champion selection, accepted paper state, production, or live
+  trading.
+- In a `set -u` workflow, a sidecar added after a paper transaction must reuse
+  the exact defined as-of variable. A spelling-only variable drift can strand
+  an already-mutated session before integrity and durable publication.
+- Missing SPY/QQQ context is not evidence of a benign market. It must suppress
+  entry confirmation and produce a data-insufficient review label.
+- OHLCV validation must require finite positive Open/High/Low/Close and finite
+  nonnegative volume. Filling missing volume solely for validation or allowing
+  a zero low can create invalid Fibonacci endpoints and false READY evidence.
+- Write forward observations to staged files, rehash inputs before and after
+  publication, and remove every run-local data output before a BLOCKED summary.
+  A non-gating workflow still archives its directory, so conflicted files left
+  beside a BLOCKED marker are not harmless.
+- Write the human report before the READY summary commit marker. If report
+  finalization fails, remove every run-local data artifact and publish only a
+  BLOCKED summary.
+- Reject a nonfinite or nonpositive latest VIX observation instead of silently
+  treating invalid volatility context as benign. A prior valid row cannot
+  substitute for the audited latest date.
+- A forward event needs a registered launch anchor and a bounded same-close
+  acceptance window. An old hash-valid packet rerun after outcomes are visible
+  is historical replay, not an unresolved forward observation.
+- If one daily outside bar contains both the range high and range low, OHLCV
+  does not reveal their intraday order. Mark the swing ambiguous and exclude
+  directional Fibonacci confirmation.
+- Do not trust a caller-supplied forward acceptance timestamp. Bind it to the
+  observed invocation clock within a small tolerance, and use the official
+  NYSE calendar close so half-day sessions remain valid.
+- Tied extrema are ambiguous even when `idxmin()` and `idxmax()` choose
+  different first occurrences. Directional anchors must be unique and must
+  not share any session.
+- Downstream research sidecars must enforce the producer schema, accepted
+  status, and `exact_packet_ready=true`, not merely one status string.
+- Never rebase a frozen adjusted-price prefix from a single overlap row. Use a
+  minimum stable initial adjustment regime, its median factor, and a bounded
+  dispersion check.
+- A forward acceptance window must match the workflow's actual start and
+  runtime, including early-close sessions. Keep it bounded before the shortest
+  forward outcome can exist; do not register a window the scheduled producer
+  chain can never meet.
+- Do not take the maximum of availability timestamps after silently dropping
+  missing inputs. Every consumed selector, price, macro, VIX, and applicable
+  holding timestamp must parse before READY.
+- A 252-session return needs 253 observations. A fixed feature family must
+  require enough history for every registered return and range rather than
+  changing definitions for younger listings.
+- When the minimum-history contract changes, update feature-specific regression
+  fixtures as well; a 252-row ambiguity fixture correctly became
+  `history_underpowered` after this gate was raised to 253.
+- Fullrun executed: false. Historical challenger replay executed: false.
+  Production enabled: false. Live trading enabled: false.
+
 ### 2026-07-29 - Repository-wide GitHub agent operating standard
 
 - Agent: Codex.
