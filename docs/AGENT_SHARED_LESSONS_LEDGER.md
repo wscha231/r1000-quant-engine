@@ -3167,6 +3167,42 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+### 2026-07-29 - Repository-wide GitHub agent operating standard
+
+- Agent: Codex.
+- Branch/PR/run:
+  `codex/run287-agent-github-operating-standard-20260729`; no workflow
+  dispatched.
+- Context: Connected GitHub capabilities were available to agents, but the
+  repository did not define a shared policy for choosing the connector, local
+  git, `gh`, review actions, CI recovery, or optional collaboration plugins.
+- Attempt: Added root agent instructions, a detailed GitHub operating
+  standard, a PR checklist, and an enforced Tier-1 contract smoke.
+- Result: Every future repository-aware agent now receives the same canonical
+  source map, exact-head review/merge contract, worktree-preservation rules,
+  and Run287 safety boundary.
+- Failure or caveat: GitHub's failed-job rerun restarts the job. It is unsafe
+  as a generic recovery mechanism for workflows that may already have produced
+  targets, orders, fills, ledger mutations, or accepted publications.
+- Root cause: Repository guidance previously described individual workflow
+  contracts but not a tool-level policy shared across agent implementations.
+- Reusable lesson: Tool automation must be classified by side effect. Use
+  selective reruns only for proven side-effect-free checks; recover
+  transactional work through explicit session, accepted-state, idempotency,
+  and durable-publication contracts.
+- Next action: Build the U0-v2 GitHub census exporter and CI incident evidence
+  packet under this standard; add one approved Slack or Teams alert route only
+  after the user identifies the project's actual collaboration system.
+- Do-not-repeat: Do not remotely overwrite local worktree files, blindly rerun
+  transactional jobs, treat notifications as canonical state, enable
+  safety/promotion auto-merge, or merge a head not covered by the exact review.
+- Evidence files: `AGENTS.md`,
+  `docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md`,
+  `.github/PULL_REQUEST_TEMPLATE.md`, and
+  `tests/run287_agent_github_operating_standard_smoke.py`.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.
+
 ## 2026-07-21 - Issue #315 H2 security-lifecycle correctness
 
 - Unified the scorer, exact-packet evidence, paper ledger, and order preview on

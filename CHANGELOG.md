@@ -3,6 +3,43 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-07-29
+
+### 11:04 KST - Enforce the repository-wide GitHub agent operating standard
+
+- scope:
+  - Make GitHub inspection, review, CI diagnosis, expected-head merge, and
+    durable workflow recovery consistent across coding and research agents.
+  - Preserve the existing local worktree as the edit authority and keep
+    GitHub issues or optional collaboration plugins outside canonical research
+    and accepted paper state.
+- files:
+  - `AGENTS.md` ->defines the repository-wide canonical-source, worktree, PR,
+    Actions, Run287 safety, and evidence rules.
+  - `docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md` ->maps GitHub capabilities
+    to U0 census, PR, CI incident, durable recovery, SLO, and improvement
+    workflows and sets boundaries for optional plugins.
+  - `.github/PULL_REQUEST_TEMPLATE.md` ->requires exact-head and transactional
+    workflow safety checks.
+  - `tests/run287_agent_github_operating_standard_smoke.py` and
+    `tools/run_pr_validation.py` ->enforce the contract in Tier-1 validation.
+  - `docs/AGENT_SHARED_LESSONS_LEDGER.md` ->records the no-blind-rerun and
+    canonical-authority lesson for later agents.
+- symbols_added:
+  - `tests.run287_agent_github_operating_standard_smoke.read_required`
+  - `tests.run287_agent_github_operating_standard_smoke.require_terms`
+- breaking_changes:
+  - Agents must not blindly rerun transactional daily jobs or use auto-merge
+    for safety, durable-state, promotion, or trading-policy changes.
+  - PR merge readiness now requires an exact-head review and expected-head SHA.
+- validation:
+  - agent shared-lessons contract smoke ->PASS.
+  - Run287 GitHub agent operating-standard smoke ->PASS.
+  - full Tier-1 PR validation ->207/207 PASS in 672.79 seconds.
+  - Python compile and `git diff --check` ->PASS.
+  - fullrun, production activation, durable catch-up, and live trading ->NOT
+    RUN.
+
 ## 2026-07-24
 
 ### 14:58 KST - Fail closed when chronological catch-up cannot reach durable Drive state
