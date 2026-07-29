@@ -3218,6 +3218,17 @@ Expected contract:
 - If one daily outside bar contains both the range high and range low, OHLCV
   does not reveal their intraday order. Mark the swing ambiguous and exclude
   directional Fibonacci confirmation.
+- Do not trust a caller-supplied forward acceptance timestamp. Bind it to the
+  observed invocation clock within a small tolerance, and use the official
+  NYSE calendar close so half-day sessions remain valid.
+- Tied extrema are ambiguous even when `idxmin()` and `idxmax()` choose
+  different first occurrences. Directional anchors must be unique and must
+  not share any session.
+- Downstream research sidecars must enforce the producer schema, accepted
+  status, and `exact_packet_ready=true`, not merely one status string.
+- Never rebase a frozen adjusted-price prefix from a single overlap row. Use a
+  minimum stable initial adjustment regime, its median factor, and a bounded
+  dispersion check.
 - Fullrun executed: false. Historical challenger replay executed: false.
   Production enabled: false. Live trading enabled: false.
 

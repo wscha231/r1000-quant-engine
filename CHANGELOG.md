@@ -58,6 +58,11 @@ All entries must be written in English. Entries must be predictable and machine-
     the last durable step, rejected invalid latest VIX values, bounded accepted
     observations to the registered three-hour same-close window, and excluded
     same-day ambiguous swing anchors from directional Fibonacci confirmation.
+  - third exact-head Codex review follow-up ->bound acceptance to the observed
+    invocation clock, used the official NYSE close including half-days,
+    required the exact producer type/readiness contract, rejected non-unique
+    swing anchors, and derived adjusted-history rebasing only from a stable
+    multi-row overlap regime.
   - fullrun, historical challenger replay, production activation, durable
     catch-up, and live trading ->NOT RUN.
 

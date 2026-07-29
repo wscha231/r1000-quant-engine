@@ -21,10 +21,10 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
-from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +59,7 @@ PRODUCER_READY_STATUSES = {
     "READY_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY",
     "READY_EXISTING_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY",
 }
+PRODUCER_SCHEMA_VERSION = "run287-exact-packet-producer-v1"
 
 
 def repo_path(value: str | Path) -> Path:
@@ -73,6 +74,10 @@ def git_head() -> str:
         ).strip()
     except Exception:
         return ""
+
+
+def current_utc() -> pd.Timestamp:
+    return pd.Timestamp(datetime.now(timezone.utc))
 
 
 def fingerprint(path: Path) -> dict[str, Any]:
@@ -278,10 +283,49 @@ def merge_frozen_and_provider(
         valid_rebase = (
             provider_adjusted / base_adjusted.replace(0.0, np.nan)
         ).replace([np.inf, -np.inf], np.nan).dropna()
-        if valid_rebase.empty:
-            audit["failure"] = "adjustment_rebase_unavailable"
+        if len(valid_rebase) < 5:
+            audit["failure"] = (
+                f"adjustment_rebase_underpowered:{len(valid_rebase)}<5"
+            )
             return pd.DataFrame(), audit
-        adjustment_rebase_factor = float(valid_rebase.iloc[0])
+        first_ratio = float(valid_rebase.iloc[0])
+        break_positions = np.flatnonzero(
+            (valid_rebase - first_ratio)
+            .abs()
+            .gt(maximum_relative_error)
+            .to_numpy()
+        )
+        initial_end = (
+            int(break_positions[0])
+            if len(break_positions)
+            else len(valid_rebase)
+        )
+        initial_regime = valid_rebase.iloc[:initial_end]
+        if len(initial_regime) < 3:
+            audit["failure"] = (
+                "adjustment_initial_regime_underpowered:"
+                f"{len(initial_regime)}<3"
+            )
+            return pd.DataFrame(), audit
+        adjustment_rebase_factor = float(initial_regime.median())
+        adjustment_rebase_dispersion = float(
+            (initial_regime - adjustment_rebase_factor).abs().max()
+        )
+        if (
+            not math.isfinite(adjustment_rebase_factor)
+            or adjustment_rebase_factor <= 0
+            or not math.isfinite(adjustment_rebase_dispersion)
+            or adjustment_rebase_dispersion > maximum_relative_error
+        ):
+            audit["failure"] = (
+                "adjustment_initial_regime_unstable:"
+                f"{adjustment_rebase_factor}:"
+                f"{adjustment_rebase_dispersion}"
+            )
+            return pd.DataFrame(), audit
+    else:
+        adjustment_rebase_dispersion = 0.0
+        initial_regime = pd.Series(dtype=float)
 
     earliest_provider = provider.index.min()
     older = base.loc[base.index < earliest_provider].copy()
@@ -299,6 +343,10 @@ def merge_frozen_and_provider(
             else 0.0
         ),
         historical_adjustment_rebase_factor=adjustment_rebase_factor,
+        historical_adjustment_rebase_dispersion=(
+            adjustment_rebase_dispersion
+        ),
+        historical_adjustment_initial_regime_rows=int(len(initial_regime)),
         row_count=int(len(adjusted)),
         date_min=(
             adjusted.index.min().date().isoformat() if not adjusted.empty else ""
@@ -461,7 +509,13 @@ def fixed_window_features(
         )
         low_date = pd.Timestamp(sample["low"].idxmin())
         high_date = pd.Timestamp(sample["high"].idxmax())
-        anchors_ambiguous = bool(high_date == low_date)
+        high_anchor_dates = sample.index[sample["high"].eq(range_high)]
+        low_anchor_dates = sample.index[sample["low"].eq(range_low)]
+        anchors_ambiguous = bool(
+            len(high_anchor_dates) != 1
+            or len(low_anchor_dates) != 1
+            or len(high_anchor_dates.intersection(low_anchor_dates)) > 0
+        )
         direction = (
             "AMBIGUOUS"
             if anchors_ambiguous
@@ -765,6 +819,7 @@ def forward_observation_window(
     valuation: pd.Timestamp,
     available_from: str,
     accepted_at_utc: str,
+    invoked_at_utc: pd.Timestamp,
     contract: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
     forward = contract["forward_learning"]
@@ -775,6 +830,7 @@ def forward_observation_window(
     )
     available = pd.to_datetime(available_from, errors="coerce", utc=True)
     accepted = pd.to_datetime(accepted_at_utc, errors="coerce", utc=True)
+    invoked = pd.to_datetime(invoked_at_utc, errors="coerce", utc=True)
     failures: list[str] = []
     if pd.isna(launch):
         failures.append("forward_launch_anchor_invalid")
@@ -782,30 +838,43 @@ def forward_observation_window(
         failures.append("available_from_invalid")
     if pd.isna(accepted):
         failures.append("observation_accepted_at_invalid")
+    if pd.isna(invoked):
+        failures.append("observation_invocation_clock_invalid")
     if failures:
         return {}, failures
 
     valuation_date = valuation.date()
-    nyse_close_local = datetime(
-        valuation_date.year,
-        valuation_date.month,
-        valuation_date.day,
-        16,
-        0,
-        tzinfo=ZoneInfo("America/New_York"),
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=valuation_date,
+        end_date=valuation_date,
     )
-    close = pd.Timestamp(nyse_close_local).tz_convert("UTC")
+    if len(schedule) != 1 or "market_close" not in schedule:
+        return {}, [f"valuation_not_exact_nyse_session:{valuation_date}"]
+    close = pd.Timestamp(schedule.iloc[0]["market_close"])
+    close = (
+        close.tz_localize("UTC")
+        if close.tzinfo is None
+        else close.tz_convert("UTC")
+    )
     launch = pd.Timestamp(launch)
     available = pd.Timestamp(available)
     accepted = pd.Timestamp(accepted)
+    invoked = pd.Timestamp(invoked)
     acceptance_delay_hours = (accepted - close).total_seconds() / 3600.0
     input_delay_hours = (available - close).total_seconds() / 3600.0
     acceptance_lag_hours = (accepted - available).total_seconds() / 3600.0
+    caller_clock_skew_seconds = abs(
+        (accepted - invoked).total_seconds()
+    )
 
     if close < launch:
         failures.append("valuation_before_forward_launch_anchor")
     if accepted < launch:
         failures.append("acceptance_before_forward_launch_anchor")
+    if caller_clock_skew_seconds > float(
+        forward["maximum_caller_clock_skew_seconds"]
+    ):
+        failures.append("observation_acceptance_clock_mismatch")
     if acceptance_delay_hours < 0:
         failures.append("observation_accepted_before_nyse_close")
     if acceptance_delay_hours > float(
@@ -829,6 +898,8 @@ def forward_observation_window(
         "nyse_close_utc": close.isoformat(),
         "latest_input_available_from_utc": available.isoformat(),
         "observation_accepted_at_utc": accepted.isoformat(),
+        "invocation_observed_at_utc": invoked.isoformat(),
+        "caller_clock_skew_seconds": caller_clock_skew_seconds,
         "acceptance_delay_hours_after_nyse_close": acceptance_delay_hours,
         "latest_input_delay_hours_after_nyse_close": input_delay_hours,
         "acceptance_lag_hours_after_latest_input": acceptance_lag_hours,
@@ -1062,9 +1133,10 @@ def render_report(summary: Mapping[str, Any], rows: pd.DataFrame) -> str:
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
+    invoked_at_utc = current_utc()
     accepted_at_utc = str(
         getattr(args, "observation_accepted_at_utc", "")
-        or datetime.now(timezone.utc).isoformat()
+        or invoked_at_utc.isoformat()
     )
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1084,8 +1156,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     producer = read_json(producer_path)
     contract = read_json(contract_path)
+    if producer.get("schema_version") != PRODUCER_SCHEMA_VERSION:
+        failures.append("producer_schema_mismatch")
     if producer.get("status") not in PRODUCER_READY_STATUSES:
         failures.append(f"producer_status:{producer.get('status')}")
+    if producer.get("exact_packet_ready") is not True:
+        failures.append("producer_exact_packet_not_ready")
     if contract.get("schema_version") != SCHEMA_VERSION:
         failures.append("contract_schema")
     if str(producer.get("valuation_price_cutoff_date") or "") != args.valuation_date:
@@ -1270,6 +1346,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         valuation,
         available_from,
         accepted_at_utc,
+        invoked_at_utc,
         contract,
     )
     failures.extend(forward_failures)

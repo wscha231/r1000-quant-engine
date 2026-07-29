@@ -20,7 +20,6 @@ from tools import build_run287_ohlcv_location_timing_challenger as challenger  #
 from tools.build_run287_ohlcv_location_timing_challenger import (  # noqa: E402
     READY_STATUS,
     adjusted_ohlcv,
-    build,
     classify_shadow_action,
     fixed_window_features,
     merge_frozen_and_provider,
@@ -31,6 +30,18 @@ from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 ASOF = pd.Timestamp("2026-07-29")
 ACCEPTED_AT_UTC = "2026-07-29T21:05:00Z"
+
+
+def build_with_clock(
+    args: argparse.Namespace,
+    now_utc: str = "2026-07-29T21:05:30Z",
+) -> dict[str, object]:
+    original = challenger.current_utc
+    challenger.current_utc = lambda: pd.Timestamp(now_utc)
+    try:
+        return challenger.build(args)
+    finally:
+        challenger.current_utc = original
 
 
 def record(path: Path) -> dict[str, object]:
@@ -237,7 +248,9 @@ def build_fixture(root: Path) -> argparse.Namespace:
     write_json(
         producer,
         {
+            "schema_version": "run287-exact-packet-producer-v1",
             "status": "READY_EXACT_SELECTOR_RISK_PACKET_REVIEW_ONLY",
+            "exact_packet_ready": True,
             "valuation_price_cutoff_date": ASOF.date().isoformat(),
             "selector_manifest": record(selector_manifest),
             "outputs": {
@@ -293,6 +306,21 @@ def main() -> None:
     assert audit["provider_future_rows_excluded"] == 1
     assert abs(audit["historical_adjustment_rebase_factor"] - 0.98) < 1e-12
     assert merged.index.max() == ASOF
+    unstable_provider = provider.copy()
+    unstable_provider.iloc[
+        0, unstable_provider.columns.get_loc("Adj Close")
+    ] *= 0.5
+    unstable_merged, unstable_audit = merge_frozen_and_provider(
+        base,
+        unstable_provider,
+        ASOF,
+        minimum_overlap=20,
+        maximum_relative_error=1e-5,
+    )
+    assert unstable_merged.empty
+    assert str(unstable_audit["failure"]).startswith(
+        "adjustment_initial_regime_underpowered:"
+    )
     adjusted = adjusted_ohlcv(full, ASOF)
     assert (adjusted["high"] >= adjusted[["open", "close"]].max(axis=1)).all()
     assert (adjusted["low"] <= adjusted[["open", "close"]].min(axis=1)).all()
@@ -333,6 +361,14 @@ def main() -> None:
         row["swing_direction"] for row in ambiguous_levels
     } == {"AMBIGUOUS"}
     assert all(row["fibonacci_price"] is None for row in ambiguous_levels)
+    tied = ambiguous.copy()
+    tied.iloc[-2, tied.columns.get_loc("high")] = tied["high"].iloc[-1]
+    tied.iloc[-3, tied.columns.get_loc("low")] = tied["low"].iloc[-1]
+    tied_feature, tied_levels = fixed_window_features(
+        "TIED", tied, ASOF, contract
+    )
+    assert tied_feature["near_fibonacci_consensus_count"] == 0
+    assert {row["swing_direction"] for row in tied_levels} == {"AMBIGUOUS"}
 
     invalid_vix = pd.DataFrame(
         {
@@ -346,6 +382,17 @@ def main() -> None:
         invalid_vix_context["vix_data_reason"]
         == "latest_vix_observation_nonfinite_or_nonpositive"
     )
+    half_day_window, half_day_failures = (
+        challenger.forward_observation_window(
+            pd.Timestamp("2026-11-27"),
+            "2026-11-27T18:30:00Z",
+            "2026-11-27T18:35:00Z",
+            pd.Timestamp("2026-11-27T18:35:20Z"),
+            contract,
+        )
+    )
+    assert not half_day_failures, half_day_failures
+    assert half_day_window["nyse_close_utc"] == "2026-11-27T18:00:00+00:00"
 
     # VIX stress alone cannot create a held exit or candidate entry.
     held = {
@@ -390,7 +437,23 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         args = build_fixture(Path(tmp))
-        summary = build(args)
+        producer_path = Path(args.producer_status)
+        malformed_producer = json.loads(
+            producer_path.read_text(encoding="utf-8")
+        )
+        malformed_producer["schema_version"] = "wrong-producer-schema"
+        malformed_producer["exact_packet_ready"] = False
+        write_json(producer_path, malformed_producer)
+        summary = build_with_clock(args)
+        assert summary["status"] == challenger.BLOCKED_STATUS
+        assert {
+            "producer_schema_mismatch",
+            "producer_exact_packet_not_ready",
+        }.issubset(summary["contract_failures"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        args = build_fixture(Path(tmp))
+        summary = build_with_clock(args)
         assert summary["status"] == READY_STATUS, summary
         assert summary["security_count"] == 2
         assert summary["available_from"] == "2026-07-29T21:00:00+00:00"
@@ -443,7 +506,7 @@ def main() -> None:
 
         challenger.changed_input_failures = fail_after_staging
         try:
-            summary = challenger.build(args)
+            summary = build_with_clock(args)
         finally:
             challenger.changed_input_failures = original
         assert summary["status"] == challenger.BLOCKED_STATUS
@@ -456,9 +519,23 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         args = build_fixture(Path(tmp))
         args.observation_accepted_at_utc = "2026-07-31T21:05:00Z"
-        summary = build(args)
+        summary = build_with_clock(args, "2026-07-31T21:05:30Z")
         assert summary["status"] == challenger.BLOCKED_STATUS
         assert "observation_acceptance_delayed" in summary["contract_failures"]
+        assert not (
+            Path(args.output_dir) / "forward_observations.jsonl"
+        ).exists()
+
+    # A caller cannot forge a historical acceptance timestamp that matches the
+    # old close while invoking the builder after outcomes are observable.
+    with tempfile.TemporaryDirectory() as tmp:
+        args = build_fixture(Path(tmp))
+        summary = build_with_clock(args, "2026-07-31T21:05:30Z")
+        assert summary["status"] == challenger.BLOCKED_STATUS
+        assert (
+            "observation_acceptance_clock_mismatch"
+            in summary["contract_failures"]
+        )
         assert not (
             Path(args.output_dir) / "forward_observations.jsonl"
         ).exists()
@@ -478,7 +555,7 @@ def main() -> None:
 
         Path.write_text = fail_report
         try:
-            summary = build(args)
+            summary = build_with_clock(args)
         finally:
             Path.write_text = original_write_text
         assert summary["status"] == challenger.BLOCKED_STATUS
