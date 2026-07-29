@@ -3229,6 +3229,19 @@ Expected contract:
 - Never rebase a frozen adjusted-price prefix from a single overlap row. Use a
   minimum stable initial adjustment regime, its median factor, and a bounded
   dispersion check.
+- A forward acceptance window must match the workflow's actual start and
+  runtime, including early-close sessions. Keep it bounded before the shortest
+  forward outcome can exist; do not register a window the scheduled producer
+  chain can never meet.
+- Do not take the maximum of availability timestamps after silently dropping
+  missing inputs. Every consumed selector, price, macro, VIX, and applicable
+  holding timestamp must parse before READY.
+- A 252-session return needs 253 observations. A fixed feature family must
+  require enough history for every registered return and range rather than
+  changing definitions for younger listings.
+- When the minimum-history contract changes, update feature-specific regression
+  fixtures as well; a 252-row ambiguity fixture correctly became
+  `history_underpowered` after this gate was raised to 253.
 - Fullrun executed: false. Historical challenger replay executed: false.
   Production enabled: false. Live trading enabled: false.
 

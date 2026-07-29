@@ -801,18 +801,23 @@ def role_table(
     return pd.DataFrame(rows).sort_values("ticker").reset_index(drop=True)
 
 
-def latest_available_from(*values: Any) -> str:
-    parsed = pd.to_datetime(
-        pd.Series(
-            [value for value in values if str(value or "").strip()],
-            dtype="object",
-        ),
-        errors="coerce",
-        utc=True,
-    ).dropna()
-    if parsed.empty:
-        return ""
-    return pd.Timestamp(parsed.max()).isoformat()
+def required_latest_available_from(
+    named_values: Mapping[str, Any],
+) -> tuple[str, list[str]]:
+    parsed: list[pd.Timestamp] = []
+    failures: list[str] = []
+    for label, value in named_values.items():
+        if not str(value or "").strip():
+            failures.append(f"available_from_missing:{label}")
+            continue
+        stamp = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(stamp):
+            failures.append(f"available_from_invalid:{label}")
+            continue
+        parsed.append(pd.Timestamp(stamp))
+    if failures or not parsed:
+        return "", failures or ["available_from_missing:all"]
+    return max(parsed).isoformat(), []
 
 
 def forward_observation_window(
@@ -1327,21 +1332,31 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         vix["vix_data_ready"] = False
         vix["vix_data_reason"] = f"vix_stale:{vix_age}"
     market = market_context(benchmark_features, vix, contract)
-    holding_availability = (
-        holding["available_from"].tolist()
-        if "available_from" in holding
-        else []
+    availability_inputs: dict[str, Any] = {
+        "selector_decision_time_utc": selector_manifest.get(
+            "selector_decision_time_utc"
+        ),
+        "score_available_from": price_manifest.get("score_available_from"),
+        "macro_available_from": macro_manifest.get("macro_available_from"),
+        "vix_latest_usable_available_from": vix_record.get(
+            "latest_usable_available_from"
+        ),
+    }
+    if not holding.empty:
+        if "available_from" not in holding:
+            failures.append("available_from_missing:holding_column")
+        else:
+            for index, record in holding.reset_index(drop=True).iterrows():
+                ticker = clean_ticker(record.get("ticker")) or "UNKNOWN"
+                availability_inputs[
+                    f"holding:{index}:{ticker}"
+                ] = record.get("available_from")
+    available_from, availability_failures = (
+        required_latest_available_from(availability_inputs)
     )
-    available_from = latest_available_from(
-        selector_manifest.get("selector_decision_time_utc"),
-        price_manifest.get("score_available_from"),
-        macro_manifest.get("macro_available_from"),
-        vix_record.get("latest_usable_available_from"),
-        *holding_availability,
-    )
-    if not available_from:
-        failures.append("available_from_missing")
-        return blocked(output_dir, failures, audits, started)
+    failures.extend(availability_failures)
+    if failures:
+        return blocked(output_dir, sorted(set(failures)), audits, started)
     forward_window, forward_failures = forward_observation_window(
         valuation,
         available_from,

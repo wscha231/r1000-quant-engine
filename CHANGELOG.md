@@ -56,13 +56,18 @@ All entries must be written in English. Entries must be predictable and machine-
     rejection, and staged-output cleanup on final provenance failure.
   - second exact-head Codex review follow-up ->made READY summary publication
     the last durable step, rejected invalid latest VIX values, bounded accepted
-    observations to the registered three-hour same-close window, and excluded
+    observations to a registered bounded same-session window, and excluded
     same-day ambiguous swing anchors from directional Fibonacci confirmation.
   - third exact-head Codex review follow-up ->bound acceptance to the observed
     invocation clock, used the official NYSE close including half-days,
     required the exact producer type/readiness contract, rejected non-unique
     swing anchors, and derived adjusted-history rebasing only from a stable
     multi-row overlap regime.
+  - fourth exact-head Codex review follow-up ->aligned the preregistered
+    acceptance window with the existing 01:15 UTC operating schedule while
+    remaining before any one-session outcome, required every consumed
+    availability timestamp, and raised minimum history to 253 rows so all
+    registered 252-session features use one definition.
   - fullrun, historical challenger replay, production activation, durable
     catch-up, and live trading ->NOT RUN.
 

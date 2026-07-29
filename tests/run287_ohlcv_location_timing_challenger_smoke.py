@@ -157,6 +157,7 @@ def build_fixture(root: Path) -> argparse.Namespace:
         price_manifest,
         status="READY_RESEARCH_SCORED_LATEST",
         outputs={"provider_price_overlap.parquet": provider_path},
+        extra={"score_available_from": "2026-07-29T20:40:00Z"},
     )
 
     comparison = artifacts / "marked_official_advisory_comparison.csv"
@@ -213,6 +214,7 @@ def build_fixture(root: Path) -> argparse.Namespace:
         macro_manifest,
         status="READY_CONSERVATIVE_MACRO_SIDECAR",
         outputs={"fred_component_audit": fred_audit},
+        extra={"macro_available_from": "2026-07-29T20:50:00Z"},
     )
 
     benchmark_audit = {
@@ -343,10 +345,15 @@ def main() -> None:
         1.0,
     }
     assert all(row["selected_after_outcome"] is False for row in levels)
+    partial_feature, partial_levels = fixed_window_features(
+        "PARTIAL", adjusted.tail(252), ASOF, contract
+    )
+    assert partial_feature["data_reason"] == "history_underpowered:252<253"
+    assert partial_levels == []
 
     # A single daily outside bar cannot reveal whether the high or low came
     # first, so directional Fibonacci confirmation remains unavailable.
-    ambiguous = adjusted.tail(252).copy()
+    ambiguous = adjusted.tail(253).copy()
     ambiguous.iloc[-1, ambiguous.columns.get_loc("high")] = (
         ambiguous["high"].iloc[:-1].max() * 1.10
     )
@@ -385,14 +392,31 @@ def main() -> None:
     half_day_window, half_day_failures = (
         challenger.forward_observation_window(
             pd.Timestamp("2026-11-27"),
-            "2026-11-27T18:30:00Z",
-            "2026-11-27T18:35:00Z",
-            pd.Timestamp("2026-11-27T18:35:20Z"),
+            "2026-11-28T01:30:00Z",
+            "2026-11-28T02:30:00Z",
+            pd.Timestamp("2026-11-28T02:30:20Z"),
             contract,
         )
     )
     assert not half_day_failures, half_day_failures
     assert half_day_window["nyse_close_utc"] == "2026-11-27T18:00:00+00:00"
+    assert (
+        half_day_window["acceptance_delay_hours_after_nyse_close"] == 8.5
+    )
+    missing_available, missing_failures = (
+        challenger.required_latest_available_from(
+            {
+                "selector": "2026-07-29T21:00:00Z",
+                "macro": "",
+                "vix": "not-a-timestamp",
+            }
+        )
+    )
+    assert missing_available == ""
+    assert {
+        "available_from_missing:macro",
+        "available_from_invalid:vix",
+    }.issubset(missing_failures)
 
     # VIX stress alone cannot create a held exit or candidate entry.
     held = {
