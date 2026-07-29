@@ -3190,6 +3190,11 @@ Expected contract:
   selective reruns only for proven side-effect-free checks; recover
   transactional work through explicit session, accepted-state, idempotency,
   and durable-publication contracts.
+- Review follow-up: A keyword-only policy smoke can pass after a prohibition is
+  reversed. Safety enforcement now checks the complete normalized prohibition
+  clauses for fullrun, production/live trading, champion auto-promotion,
+  transactional reruns, auto-merge, worktrees, PIT backfill, and external
+  plugin actions.
 - Next action: Build the U0-v2 GitHub census exporter and CI incident evidence
   packet under this standard; add one approved Slack or Teams alert route only
   after the user identifies the project's actual collaboration system.

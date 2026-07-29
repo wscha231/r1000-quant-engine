@@ -36,6 +36,8 @@ All entries must be written in English. Entries must be predictable and machine-
   - agent shared-lessons contract smoke ->PASS.
   - Run287 GitHub agent operating-standard smoke ->PASS.
   - full Tier-1 PR validation ->207/207 PASS in 672.79 seconds.
+  - exact-head Codex review ->weak bare-keyword safety assertions found and
+    replaced with normalized complete-clause assertions.
   - Python compile and `git diff --check` ->PASS.
   - fullrun, production activation, durable catch-up, and live trading ->NOT
     RUN.

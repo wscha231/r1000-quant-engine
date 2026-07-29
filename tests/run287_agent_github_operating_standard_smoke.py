@@ -23,6 +23,20 @@ def require_terms(name: str, text: str, terms: tuple[str, ...]) -> None:
     assert not missing, f"{name} is missing required terms: {missing}"
 
 
+def normalize_whitespace(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def require_clauses(name: str, text: str, clauses: tuple[str, ...]) -> None:
+    normalized = normalize_whitespace(text)
+    missing = [
+        clause
+        for clause in clauses
+        if normalize_whitespace(clause) not in normalized
+    ]
+    assert not missing, f"{name} is missing required safety clauses: {missing}"
+
+
 def main() -> int:
     agents = read_required("AGENTS.md")
     standard = read_required("docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md")
@@ -43,6 +57,24 @@ def main() -> int:
             "Do not create a new worktree",
         ),
     )
+    require_clauses(
+        "AGENTS.md",
+        agents,
+        (
+            "Do not create a new worktree unless the user explicitly approves it.",
+            "Never blindly rerun a failed transactional daily workflow.",
+            "Do not enable auto-merge for safety, durable-state, promotion, or "
+            "trading-policy changes.",
+            "Keep the system `RESEARCH_ONLY`: automatic paper research and "
+            "manual live decisions only.",
+            "Do not run a fullrun without explicit user approval after all "
+            "preflight gates pass for one named candidate.",
+            "Do not enable production or live trading.",
+            "Do not auto-promote or auto-replace the champion. Automated "
+            "learning may produce challenger proposals only.",
+            "Do not backfill forward-only snapshots into historical PIT evidence.",
+        ),
+    )
     require_terms(
         "operating standard",
         standard,
@@ -57,6 +89,20 @@ def main() -> int:
             "Improvement Roadmap",
         ),
     )
+    require_clauses(
+        "operating standard",
+        standard,
+        (
+            "Do not use a blind failed-job rerun for a workflow that can "
+            "produce targets, orders, fills, account/ledger mutations, "
+            "accepted manifests, cache heads, or durable publications.",
+            "No agent may silently install an optional collaboration plugin "
+            "or begin sending external messages.",
+            "Auto-merge is prohibited for changes affecting durable state, "
+            "accepted publication, safety gates, promotion, portfolio policy, "
+            "or trading behavior.",
+        ),
+    )
     require_terms(
         "pull request template",
         template,
@@ -66,6 +112,15 @@ def main() -> int:
             "exact head SHA",
             "transactional workflow",
             "auto-merge",
+        ),
+    )
+    require_clauses(
+        "pull request template",
+        template,
+        (
+            "I did not blindly rerun a transactional workflow or enable "
+            "auto-merge for a safety, durable-state, promotion, or "
+            "trading-policy change.",
         ),
     )
     require_terms(
