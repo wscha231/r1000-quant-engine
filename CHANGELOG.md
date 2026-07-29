@@ -54,6 +54,10 @@ All entries must be written in English. Entries must be predictable and machine-
   - exact-head Codex review follow-up ->fixed the `PAPER_AS_OF` workflow
     variable, fail-closed benchmark entry context, malformed OHLCV row
     rejection, and staged-output cleanup on final provenance failure.
+  - second exact-head Codex review follow-up ->made READY summary publication
+    the last durable step, rejected invalid latest VIX values, bounded accepted
+    observations to the registered three-hour same-close window, and excluded
+    same-day ambiguous swing anchors from directional Fibonacci confirmation.
   - fullrun, historical challenger replay, production activation, durable
     catch-up, and live trading ->NOT RUN.
 

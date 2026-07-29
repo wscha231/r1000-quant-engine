@@ -21,6 +21,11 @@ def main() -> None:
     assert "--producer-status outputs/run287_exact_packet_producer/status.json" in timing_block
     assert "--holding-watch outputs/holding_risk_watch/holding_risk_watch.csv" in timing_block
     assert '--valuation-date "$PAPER_AS_OF"' in timing_block
+    assert (
+        '--observation-accepted-at-utc "$OBSERVATION_ACCEPTED_AT_UTC"'
+        in timing_block
+    )
+    assert "OBSERVATION_ACCEPTED_AT_UTC=\"$(date -u" in text
     assert "PAPER_ASOF" not in timing_block
     assert "if python tools/build_run287_ohlcv_location_timing_challenger.py" in text
     assert (

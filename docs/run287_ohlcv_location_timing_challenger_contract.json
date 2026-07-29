@@ -81,6 +81,10 @@
     "semantic_difference_from_rejected_work": "descriptive_location_and_selective_confirmation_not_generic_technical_tilt_not_vix_cash_floor_not_direct_stop"
   },
   "forward_learning": {
+    "accepted_forward_launch_anchor_utc": "2026-07-29T20:00:00Z",
+    "maximum_acceptance_delay_hours_after_nyse_close": 3,
+    "maximum_latest_input_delay_hours_after_nyse_close": 3,
+    "maximum_acceptance_lag_hours_after_latest_input": 2,
     "outcome_horizons_trading_days": [
       1,
       5,

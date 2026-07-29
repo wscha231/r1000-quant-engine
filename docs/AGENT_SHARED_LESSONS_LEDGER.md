@@ -3206,6 +3206,18 @@ Expected contract:
   publication, and remove every run-local data output before a BLOCKED summary.
   A non-gating workflow still archives its directory, so conflicted files left
   beside a BLOCKED marker are not harmless.
+- Write the human report before the READY summary commit marker. If report
+  finalization fails, remove every run-local data artifact and publish only a
+  BLOCKED summary.
+- Reject a nonfinite or nonpositive latest VIX observation instead of silently
+  treating invalid volatility context as benign. A prior valid row cannot
+  substitute for the audited latest date.
+- A forward event needs a registered launch anchor and a bounded same-close
+  acceptance window. An old hash-valid packet rerun after outcomes are visible
+  is historical replay, not an unresolved forward observation.
+- If one daily outside bar contains both the range high and range low, OHLCV
+  does not reveal their intraday order. Mark the swing ambiguous and exclude
+  directional Fibonacci confirmation.
 - Fullrun executed: false. Historical challenger replay executed: false.
   Production enabled: false. Live trading enabled: false.
 

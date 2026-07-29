@@ -21,6 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -460,7 +461,14 @@ def fixed_window_features(
         )
         low_date = pd.Timestamp(sample["low"].idxmin())
         high_date = pd.Timestamp(sample["high"].idxmax())
-        direction = "UP_SWING" if high_date > low_date else "DOWN_SWING"
+        anchors_ambiguous = bool(high_date == low_date)
+        direction = (
+            "AMBIGUOUS"
+            if anchors_ambiguous
+            else "UP_SWING"
+            if high_date > low_date
+            else "DOWN_SWING"
+        )
         prior_high = finite(px["high"].iloc[-lookback:-1].max())
         breakout = bool(prior_high is not None and current_close > prior_high)
         distance_low = current_close - range_low
@@ -489,11 +497,15 @@ def fixed_window_features(
         nearest_distance = math.inf
         for ratio in fib_ratios:
             level = (
-                range_high - width * ratio
+                None
+                if anchors_ambiguous
+                else range_high - width * ratio
                 if direction == "UP_SWING"
                 else range_low + width * ratio
             )
-            distance = abs(current_close - level)
+            distance = (
+                math.inf if level is None else abs(current_close - level)
+            )
             level_rows.append(
                 {
                     "schema_version": SCHEMA_VERSION,
@@ -507,11 +519,13 @@ def fixed_window_features(
                     "anchor_high_price": range_high,
                     "fibonacci_ratio": ratio,
                     "fibonacci_price": level,
-                    "close_distance_pct": current_close / level - 1.0,
+                    "close_distance_pct": (
+                        None if level in (None, 0.0) else current_close / level - 1.0
+                    ),
                     "selected_after_outcome": False,
                 }
             )
-            if distance < nearest_distance:
+            if level is not None and distance < nearest_distance:
                 nearest_ratio = ratio
                 nearest_price = level
                 nearest_distance = distance
@@ -519,7 +533,9 @@ def fixed_window_features(
             float(contract["classification"]["fib_zone_atr"]) * atr_scale,
             float(contract["classification"]["fib_zone_pct"]) * current_close,
         )
-        fib_near = bool(nearest_distance <= fib_threshold)
+        fib_near = bool(
+            not anchors_ambiguous and nearest_distance <= fib_threshold
+        )
         row.update(
             {
                 f"range_{lookback}d_low": range_low,
@@ -589,7 +605,19 @@ def vix_context(macro: pd.DataFrame, asof: pd.Timestamp) -> dict[str, Any]:
             "vix_data_ready": False,
             "vix_data_reason": "vix_level_missing",
         }
-    vix = pd.to_numeric(work[value_column], errors="coerce").dropna()
+    numeric = pd.to_numeric(work[value_column], errors="coerce")
+    latest_value = finite(numeric.iloc[-1]) if len(numeric) else None
+    if latest_value is None or latest_value <= 0:
+        return {
+            "vix_data_ready": False,
+            "vix_data_reason": "latest_vix_observation_nonfinite_or_nonpositive",
+            "vix_observation_date": work.index[-1].date().isoformat(),
+            "vix_future_rows_excluded": future_rows,
+        }
+    valid = numeric.map(
+        lambda value: finite(value) is not None and float(value) > 0
+    )
+    vix = numeric.loc[valid]
     if vix.empty:
         return {
             "vix_data_ready": False,
@@ -609,6 +637,7 @@ def vix_context(macro: pd.DataFrame, asof: pd.Timestamp) -> dict[str, Any]:
         "vix_data_reason": "",
         "vix_observation_date": vix.index[-1].date().isoformat(),
         "vix_future_rows_excluded": future_rows,
+        "vix_invalid_observations_excluded": int((~valid).sum()),
         "vix_observation_age_calendar_days": age_days,
         "vix_observation_exact_asof": bool(vix.index[-1] == asof),
         "vix_level": finite(vix.iloc[-1]),
@@ -730,6 +759,81 @@ def latest_available_from(*values: Any) -> str:
     if parsed.empty:
         return ""
     return pd.Timestamp(parsed.max()).isoformat()
+
+
+def forward_observation_window(
+    valuation: pd.Timestamp,
+    available_from: str,
+    accepted_at_utc: str,
+    contract: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    forward = contract["forward_learning"]
+    launch = pd.to_datetime(
+        forward.get("accepted_forward_launch_anchor_utc"),
+        errors="coerce",
+        utc=True,
+    )
+    available = pd.to_datetime(available_from, errors="coerce", utc=True)
+    accepted = pd.to_datetime(accepted_at_utc, errors="coerce", utc=True)
+    failures: list[str] = []
+    if pd.isna(launch):
+        failures.append("forward_launch_anchor_invalid")
+    if pd.isna(available):
+        failures.append("available_from_invalid")
+    if pd.isna(accepted):
+        failures.append("observation_accepted_at_invalid")
+    if failures:
+        return {}, failures
+
+    valuation_date = valuation.date()
+    nyse_close_local = datetime(
+        valuation_date.year,
+        valuation_date.month,
+        valuation_date.day,
+        16,
+        0,
+        tzinfo=ZoneInfo("America/New_York"),
+    )
+    close = pd.Timestamp(nyse_close_local).tz_convert("UTC")
+    launch = pd.Timestamp(launch)
+    available = pd.Timestamp(available)
+    accepted = pd.Timestamp(accepted)
+    acceptance_delay_hours = (accepted - close).total_seconds() / 3600.0
+    input_delay_hours = (available - close).total_seconds() / 3600.0
+    acceptance_lag_hours = (accepted - available).total_seconds() / 3600.0
+
+    if close < launch:
+        failures.append("valuation_before_forward_launch_anchor")
+    if accepted < launch:
+        failures.append("acceptance_before_forward_launch_anchor")
+    if acceptance_delay_hours < 0:
+        failures.append("observation_accepted_before_nyse_close")
+    if acceptance_delay_hours > float(
+        forward["maximum_acceptance_delay_hours_after_nyse_close"]
+    ):
+        failures.append("observation_acceptance_delayed")
+    if input_delay_hours < 0:
+        failures.append("latest_input_available_before_nyse_close")
+    if input_delay_hours > float(
+        forward["maximum_latest_input_delay_hours_after_nyse_close"]
+    ):
+        failures.append("latest_input_availability_delayed")
+    if acceptance_lag_hours < 0:
+        failures.append("available_from_after_observation_acceptance")
+    if acceptance_lag_hours > float(
+        forward["maximum_acceptance_lag_hours_after_latest_input"]
+    ):
+        failures.append("observation_acceptance_stale_after_latest_input")
+    return {
+        "accepted_forward_launch_anchor_utc": launch.isoformat(),
+        "nyse_close_utc": close.isoformat(),
+        "latest_input_available_from_utc": available.isoformat(),
+        "observation_accepted_at_utc": accepted.isoformat(),
+        "acceptance_delay_hours_after_nyse_close": acceptance_delay_hours,
+        "latest_input_delay_hours_after_nyse_close": input_delay_hours,
+        "acceptance_lag_hours_after_latest_input": acceptance_lag_hours,
+        "historical_replay_materialized": False,
+    }, failures
 
 
 def market_context(
@@ -958,6 +1062,10 @@ def render_report(summary: Mapping[str, Any], rows: pd.DataFrame) -> str:
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
+    accepted_at_utc = str(
+        getattr(args, "observation_accepted_at_utc", "")
+        or datetime.now(timezone.utc).isoformat()
+    )
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     clear_run_local_outputs(output_dir, include_summary=True)
@@ -1158,6 +1266,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if not available_from:
         failures.append("available_from_missing")
         return blocked(output_dir, failures, audits, started)
+    forward_window, forward_failures = forward_observation_window(
+        valuation,
+        available_from,
+        accepted_at_utc,
+        contract,
+    )
+    failures.extend(forward_failures)
+    if failures:
+        return blocked(output_dir, sorted(set(failures)), audits, started)
     rows: list[dict[str, Any]] = []
     price_audit_rows: list[dict[str, Any]] = []
     source_hashes: dict[str, str] = {}
@@ -1211,6 +1328,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "schema_version": SCHEMA_VERSION,
             "as_of_date": args.valuation_date,
             "available_from": available_from,
+            "observation_accepted_at_utc": forward_window[
+                "observation_accepted_at_utc"
+            ],
             **role,
             **feature,
             **vix,
@@ -1334,6 +1454,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "contract_failures": [],
         "as_of_date": args.valuation_date,
         "available_from": available_from,
+        "forward_observation_window": forward_window,
         "security_count": int(len(current)),
         "held_security_count": int(current["is_held"].fillna(False).sum()),
         "current_selector_security_count": int(
@@ -1389,10 +1510,32 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "performance": {"elapsed_seconds": time.perf_counter() - started},
         "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__))},
     }
-    write_json(output_dir / "summary.json", payload)
-    (output_dir / "report.md").write_text(
-        render_report(payload, current), encoding="utf-8"
+    report_path = output_dir / "report.md"
+    staged_report = report_path.with_name(
+        f".{report_path.name}.{uuid.uuid4().hex}.tmp"
     )
+    try:
+        staged_report.write_text(
+            render_report(payload, current), encoding="utf-8"
+        )
+        failures.extend(
+            changed_input_failures(audits, price_records, source_hashes)
+        )
+        if failures:
+            clear_run_local_outputs(output_dir, include_summary=True)
+            return blocked(
+                output_dir, sorted(set(failures)), audits, started
+            )
+        os.replace(staged_report, report_path)
+        # summary.json is the READY commit marker and is written last, only
+        # after every data/report artifact is durable.
+        write_json(output_dir / "summary.json", payload)
+    except Exception as exc:
+        clear_run_local_outputs(output_dir, include_summary=True)
+        failures.append(f"ready_finalize:{type(exc).__name__}:{exc}")
+        return blocked(output_dir, sorted(set(failures)), audits, started)
+    finally:
+        staged_report.unlink(missing_ok=True)
     return payload
 
 
@@ -1411,6 +1554,14 @@ def parse_args() -> argparse.Namespace:
         default="docs/run287_ohlcv_location_timing_challenger_contract.json",
     )
     parser.add_argument("--valuation-date", required=True)
+    parser.add_argument(
+        "--observation-accepted-at-utc",
+        default="",
+        help=(
+            "UTC time at which this same-close observation is accepted; "
+            "defaults to current UTC and must satisfy the forward-only window"
+        ),
+    )
     parser.add_argument(
         "--output-dir",
         default="outputs/run287_ohlcv_location_timing_challenger",

@@ -24,11 +24,13 @@ from tools.build_run287_ohlcv_location_timing_challenger import (  # noqa: E402
     classify_shadow_action,
     fixed_window_features,
     merge_frozen_and_provider,
+    vix_context,
 )
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
-ASOF = pd.Timestamp("2026-07-24")
+ASOF = pd.Timestamp("2026-07-29")
+ACCEPTED_AT_UTC = "2026-07-29T21:05:00Z"
 
 
 def record(path: Path) -> dict[str, object]:
@@ -170,7 +172,7 @@ def build_fixture(root: Path) -> argparse.Namespace:
         selector_manifest,
         status="READY_CURRENT_SELECTOR_NO_WRITE_REVIEW_REQUIRED",
         outputs={"marked_official_advisory_comparison": comparison},
-        extra={"selector_decision_time_utc": "2026-07-24T21:00:00Z"},
+        extra={"selector_decision_time_utc": "2026-07-29T21:00:00Z"},
     )
 
     for ticker, close in (("SPY", spy), ("QQQ", qqq)):
@@ -191,7 +193,7 @@ def build_fixture(root: Path) -> argparse.Namespace:
                 "isolated_path": str(vix_source),
                 "isolated_sha256": sha256_file(vix_source),
                 "latest_usable_observation_date": ASOF.date().isoformat(),
-                "latest_usable_available_from": "2026-07-24T20:45:00Z",
+                "latest_usable_available_from": "2026-07-29T20:45:00Z",
             }
         ]
     ).to_csv(fred_audit, index=False)
@@ -226,7 +228,7 @@ def build_fixture(root: Path) -> argparse.Namespace:
                 "ticker": "AAA",
                 "portfolio_kind": "main",
                 "risk_state": "ALERT",
-                "available_from": "2026-07-24T20:30:00Z",
+                "available_from": "2026-07-29T20:30:00Z",
             }
         ]
     ).to_csv(holding, index=False)
@@ -258,6 +260,7 @@ def build_fixture(root: Path) -> argparse.Namespace:
             / "run287_ohlcv_location_timing_challenger_contract.json"
         ),
         valuation_date=ASOF.date().isoformat(),
+        observation_accepted_at_utc=ACCEPTED_AT_UTC,
         output_dir=str(root / "output"),
     )
 
@@ -313,6 +316,37 @@ def main() -> None:
     }
     assert all(row["selected_after_outcome"] is False for row in levels)
 
+    # A single daily outside bar cannot reveal whether the high or low came
+    # first, so directional Fibonacci confirmation remains unavailable.
+    ambiguous = adjusted.tail(252).copy()
+    ambiguous.iloc[-1, ambiguous.columns.get_loc("high")] = (
+        ambiguous["high"].iloc[:-1].max() * 1.10
+    )
+    ambiguous.iloc[-1, ambiguous.columns.get_loc("low")] = (
+        ambiguous["low"].iloc[:-1].min() * 0.90
+    )
+    ambiguous_feature, ambiguous_levels = fixed_window_features(
+        "AMBIGUOUS", ambiguous, ASOF, contract
+    )
+    assert ambiguous_feature["near_fibonacci_consensus_count"] == 0
+    assert {
+        row["swing_direction"] for row in ambiguous_levels
+    } == {"AMBIGUOUS"}
+    assert all(row["fibonacci_price"] is None for row in ambiguous_levels)
+
+    invalid_vix = pd.DataFrame(
+        {
+            "date": pd.bdate_range(end=ASOF, periods=63),
+            "value": [20.0] * 62 + [float("inf")],
+        }
+    )
+    invalid_vix_context = vix_context(invalid_vix, ASOF)
+    assert invalid_vix_context["vix_data_ready"] is False
+    assert (
+        invalid_vix_context["vix_data_reason"]
+        == "latest_vix_observation_nonfinite_or_nonpositive"
+    )
+
     # VIX stress alone cannot create a held exit or candidate entry.
     held = {
         "is_held": True,
@@ -359,7 +393,13 @@ def main() -> None:
         summary = build(args)
         assert summary["status"] == READY_STATUS, summary
         assert summary["security_count"] == 2
-        assert summary["available_from"] == "2026-07-24T21:00:00+00:00"
+        assert summary["available_from"] == "2026-07-29T21:00:00+00:00"
+        assert (
+            summary["forward_observation_window"][
+                "observation_accepted_at_utc"
+            ]
+            == "2026-07-29T21:05:00+00:00"
+        )
         assert summary["market_context"]["market_risk_off_confirmed"] is True
         assert summary["market_context"]["vix_only_signal_allowed"] is False
         assert summary["orders_generated"] is False
@@ -407,6 +447,45 @@ def main() -> None:
         finally:
             challenger.changed_input_failures = original
         assert summary["status"] == challenger.BLOCKED_STATUS
+        for name in challenger.DATA_OUTPUT_NAMES:
+            assert not (Path(args.output_dir) / name).exists(), name
+        assert (Path(args.output_dir) / "summary.json").is_file()
+
+    # A delayed invocation cannot backfill an old session as an unresolved
+    # forward event after its outcomes may already be observable.
+    with tempfile.TemporaryDirectory() as tmp:
+        args = build_fixture(Path(tmp))
+        args.observation_accepted_at_utc = "2026-07-31T21:05:00Z"
+        summary = build(args)
+        assert summary["status"] == challenger.BLOCKED_STATUS
+        assert "observation_acceptance_delayed" in summary["contract_failures"]
+        assert not (
+            Path(args.output_dir) / "forward_observations.jsonl"
+        ).exists()
+
+    # READY is committed only after report.md succeeds. A report I/O failure
+    # removes every data artifact and leaves only a BLOCKED summary.
+    with tempfile.TemporaryDirectory() as tmp:
+        args = build_fixture(Path(tmp))
+        original_write_text = Path.write_text
+
+        def fail_report(
+            self: Path, *_args: object, **_kwargs: object
+        ) -> int:
+            if "report.md" in self.name:
+                raise OSError("simulated report write failure")
+            return original_write_text(self, *_args, **_kwargs)
+
+        Path.write_text = fail_report
+        try:
+            summary = build(args)
+        finally:
+            Path.write_text = original_write_text
+        assert summary["status"] == challenger.BLOCKED_STATUS
+        assert any(
+            str(value).startswith("ready_finalize:OSError:")
+            for value in summary["contract_failures"]
+        )
         for name in challenger.DATA_OUTPUT_NAMES:
             assert not (Path(args.output_dir) / name).exists(), name
         assert (Path(args.output_dir) / "summary.json").is_file()
