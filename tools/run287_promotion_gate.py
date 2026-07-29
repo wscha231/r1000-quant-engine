@@ -3427,20 +3427,33 @@ def overlay_latest_run_evidence(
                 / "run287_risk_outcome_parent_anchor"
                 / "anchor.json"
             )
+            parent_anchor_sha256 = (
+                expected_risk_outcome_parent_anchor_sha256
+                or (
+                    sha256_file(parent_anchor_path)
+                    if parent_anchor_path.is_file()
+                    else ""
+                )
+            )
+            # The parent anchor is a runtime publication input even when there
+            # are no decision observations and the outcome archive is safely
+            # skipped. Bind it before the outcome-status branch so the
+            # accepted-publication verifier can require the same direct
+            # observation in both READY and SKIPPED sessions.
+            _verify_attested_file(
+                path=parent_anchor_path,
+                expected_sha256=parent_anchor_sha256,
+                latest_run=latest_run,
+                observed_files=observed_files,
+                label="runtime_risk_outcome_parent_anchor",
+            )
             outcome_counts = _validated_risk_outcome_counts(
                 outcome=outcome,
                 latest_run=latest_run,
                 paper_as_of_date=str(verified_paper_manifest.get("as_of_date") or ""),
                 observed_files=observed_files,
                 expected_summary_sha256=outcome_summary_sha256,
-                expected_parent_anchor_sha256=(
-                    expected_risk_outcome_parent_anchor_sha256
-                    or (
-                        sha256_file(parent_anchor_path)
-                        if parent_anchor_path.is_file()
-                        else ""
-                    )
-                ),
+                expected_parent_anchor_sha256=parent_anchor_sha256,
             )
             forward.update(outcome_counts)
             quarantined_signal_count = int(

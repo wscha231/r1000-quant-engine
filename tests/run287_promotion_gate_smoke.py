@@ -1336,6 +1336,77 @@ def test_materialized_effective_target_may_differ_from_published_source() -> Non
         )
 
 
+def test_skipped_outcome_still_observes_runtime_parent_anchor() -> None:
+    _, _, evidence = _inputs()
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        paper = root / "daily_simulated_fill_ledger"
+        for portfolio in ("main", "concentrated"):
+            _write_valid_paper_portfolio(
+                paper,
+                portfolio,
+                dates_and_cash=[
+                    ("2027-06-29", 100.0),
+                    ("2027-06-30", 100.0),
+                ],
+            )
+        _finalize_valid_paper(paper)
+
+        anchor_path = (
+            root / "run287_risk_outcome_parent_anchor" / "anchor.json"
+        )
+        anchor_path.parent.mkdir()
+        anchor_path.write_text(
+            json.dumps(
+                {
+                    "schema_version":
+                        "run287-risk-outcome-parent-anchor-v1",
+                    "status": "VERIFIED_EMPTY_PARENT",
+                    "review_only": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        outcome_path = (
+            root / "run287_risk_outcome_archive" / "summary.json"
+        )
+        outcome_path.parent.mkdir()
+        outcome_path.write_text(
+            json.dumps(
+                {
+                    "schema_version":
+                        "run287-risk-outcome-archive-v1",
+                    "status": "SKIPPED_NO_DECISION_OBSERVATIONS",
+                    "as_of_date": "2027-06-30",
+                    "blockers": [],
+                    "review_only": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        anchor_sha256 = sha256_file(anchor_path)
+        overlaid = overlay_latest_run_evidence(
+            evidence,
+            root,
+            expected_risk_outcome_parent_anchor_sha256=anchor_sha256,
+        )
+        observed = overlaid["latest_run_observation"][
+            "observed_file_hashes"
+        ]
+        assert observed[
+            "run287_risk_outcome_parent_anchor/anchor.json"
+        ] == anchor_sha256
+        assert (
+            overlaid["rollback"]["integrity_error"] is False
+        )
+        assert (
+            "runtime_risk_outcome_validation_failed:"
+            "runtime_risk_outcome_summary_not_ready"
+            in overlaid["runtime_limitations"]
+        )
+
+
 def test_durable_replay_marks_never_count_as_forward_sessions() -> None:
     _, _, evidence = _inputs()
     with TemporaryDirectory() as tmp:
