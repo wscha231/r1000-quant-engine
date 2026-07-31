@@ -802,6 +802,49 @@ def validate_observation_session_cohort(
         )
 
 
+def required_unaccepted_retry_session(
+    *,
+    observations: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    durable_head: Mapping[str, Any],
+) -> str:
+    observation_count = int(
+        durable_head.get("observation_event_count") or 0
+    )
+    outcome_count = int(
+        durable_head.get("resolved_outcome_event_count") or 0
+    )
+    if (
+        observation_count > len(observations)
+        or outcome_count > len(outcomes)
+    ):
+        raise ValueError("unaccepted suffix base count exceeds archive")
+    dates = {
+        str(row.get("as_of_date") or "")
+        for row in observations[observation_count:]
+        if row.get("as_of_date")
+    }
+    dates.update(
+        str(
+            row.get("recorded_during_session")
+            or row.get("target_session_date")
+            or ""
+        )
+        for row in outcomes[outcome_count:]
+        if (
+            row.get("recorded_during_session")
+            or row.get("target_session_date")
+        )
+    )
+    dates.discard("")
+    if len(dates) > 1:
+        raise ValueError(
+            "unaccepted pattern suffix spans multiple sessions:"
+            + ",".join(sorted(dates))
+        )
+    return next(iter(dates), "")
+
+
 def proposed_outcomes(
     *,
     observations: Iterable[Mapping[str, Any]],
@@ -1349,6 +1392,19 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             contract_sha256=contract_sha256,
             allow_unaccepted_events=True,
         )
+        required_retry_session = required_unaccepted_retry_session(
+            observations=existing_observations,
+            outcomes=existing_outcomes,
+            durable_head=durable_parent_head,
+        )
+        if (
+            required_retry_session
+            and required_retry_session != args.valuation_date
+        ):
+            raise ValueError(
+                "unaccepted pattern session requires exact retry:"
+                f"{required_retry_session}!={args.valuation_date}"
+            )
         existing_dates = [
             str(row.get("as_of_date") or "")
             for row in existing_observations

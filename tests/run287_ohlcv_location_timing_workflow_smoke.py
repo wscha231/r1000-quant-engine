@@ -56,6 +56,10 @@ def main() -> None:
         in memory_block
     )
     assert "--record-failed-session-reason timing_builder_blocked" in memory_block
+    assert (
+        "--record-failed-session-reason exact_packet_producer_blocked"
+        in text
+    )
     target_block = text[targets:ledger]
     assert "ohlcv_location_timing" not in target_block
     assert "timing_challenger" not in target_block

@@ -2668,6 +2668,11 @@ jobs:
             echo "[daily-operating] OHLCV location timing sidecar blocked after the same-close transaction boundary; no target or ledger state was gated or mutated, and the missing exact session keeps all later pattern statistics/proposals suppressed"
           fi
           else
+            python tools/archive_run287_ohlcv_pattern_memory.py \
+              --record-failed-session-reason exact_packet_producer_blocked \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
             echo "[daily-operating] same-close selector skipped because current producer failed"
             python - "$SAME_CLOSE_DIR" "$PAPER_AS_OF" "${CHAIN_BLOCK_REASON:-current_producer_not_ready}" <<'PY'
           import sys

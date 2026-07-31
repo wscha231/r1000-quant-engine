@@ -3201,6 +3201,10 @@ Expected contract:
   Proposal power must come from a security aggregate, never benchmarks alone,
   and immutable acceptance must occur only after the human-readable report is
   durable so report failure leaves an unaccepted resumable suffix.
+- Never roll an unaccepted session suffix into a later accepted head: require
+  the original exact session to be retried first. Invalidate pattern READY
+  markers not only on sidecar failures but also when the upstream exact-packet
+  producer is unavailable.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

@@ -652,6 +652,31 @@ def main() -> None:
         assert not (archive / "accepted_head.json").exists()
         assert not (archive / "accepted_heads").exists()
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
+        next_summary = write_timing(
+            root,
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=0.06,
+            stock_return=-0.02,
+            spy_close=505.0,
+            spy_prior_return=0.03,
+            spy_return=0.01,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 100.0),
+                "SPY": (500.0, 505.0),
+                "QQQ": (450.0, 454.5),
+            },
+        )
+        advanced = memory.build(
+            args_for(next_summary, archive, "2026-07-30")
+        )
+        assert advanced["status"] == memory.BLOCKED_STATUS
+        assert "requires exact retry:2026-07-29!=2026-07-30" in " ".join(
+            advanced["contract_failures"]
+        )
+        assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
+        assert not (archive / "accepted_head.json").exists()
         resumed = memory.build(args_for(summary, archive, "2026-07-29"))
         assert resumed["status"] == memory.READY_STATUS, resumed
         assert resumed["appended_observation_count"] == 0

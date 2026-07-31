@@ -638,6 +638,17 @@ def main() -> None:
         assert recovery_requests == []
         assert not recovery_failures, recovery_failures
         assert recovery_audits["pattern_memory_unaccepted_recovery"] is True
+        _, _, advanced_recovery_failures = (
+            challenger.load_pattern_outcome_requests(
+                pattern_archive,
+                Path(args.pattern_memory_contract),
+                "2026-07-30",
+            )
+        )
+        assert any(
+            "requires exact retry:2026-07-29!=2026-07-30" in failure
+            for failure in advanced_recovery_failures
+        )
         recovered = pattern_memory.build(
             argparse.Namespace(
                 timing_summary=str(

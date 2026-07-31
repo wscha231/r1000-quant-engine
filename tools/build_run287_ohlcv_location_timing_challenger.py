@@ -949,6 +949,24 @@ def load_pattern_outcome_requests(
             accepted_head.get("pointer_repair_required")
             or ((observations or outcomes) and not accepted_head.get("head_id"))
         )
+        required_retry_session = (
+            memory.required_unaccepted_retry_session(
+                observations=observations,
+                outcomes=outcomes,
+                durable_head=accepted_head,
+            )
+        )
+        audits["pattern_memory_required_retry_session"] = (
+            required_retry_session
+        )
+        if (
+            required_retry_session
+            and required_retry_session != valuation_date
+        ):
+            raise ValueError(
+                "unaccepted pattern session requires exact retry:"
+                f"{required_retry_session}!={valuation_date}"
+            )
         if accepted_head.get("head_id"):
             audits["pattern_memory_accepted_head_manifest"] = fingerprint(
                 memory_dir
