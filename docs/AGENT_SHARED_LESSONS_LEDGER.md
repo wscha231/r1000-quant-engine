@@ -3205,9 +3205,12 @@ Expected contract:
   the original exact session to be retried first. Preserve its source summary
   and resolved outputs as a content-addressed bundle before appending events,
   so a delayed retry can revalidate the first-attempt evidence without creating
-  a new observation timestamp. Invalidate pattern READY before the first
-  fallible same-close or ledger command, not only on sidecar failures or when
-  the upstream exact-packet producer is unavailable.
+  a new observation timestamp. Match the recovery bundle to the unaccepted
+  suffix's stored summary hash; multiple prior attempts are not ambiguity when
+  exactly one has the required provenance. Invalidate pattern READY before the
+  first fallible same-close or ledger command, and keep that BLOCKED marker
+  untouched while recovery advances the durable head. Only the post-ledger
+  call may publish READY.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

@@ -521,6 +521,9 @@ def main() -> None:
             "EXACT_ARCHIVED_NYSE_TARGET_SESSION_ONLY"
         )
         assert stock_outcome["adjustment_basis_as_of"] == "2026-07-30"
+        assert stock_outcome["source_summary_sha256"] == (
+            memory.sha256_file(second_summary)
+        )
 
         accepted_second_payload = json.loads(
             second_summary.read_text(encoding="utf-8")
@@ -683,14 +686,106 @@ def main() -> None:
         )
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
         assert not (archive / "accepted_head.json").exists()
+        decoy_summary = write_timing(
+            root / "decoy",
+            as_of_date="2026-07-29",
+            stock_close=95.0,
+            stock_prior_return=-0.03,
+            stock_return=0.04,
+            spy_close=499.0,
+            spy_prior_return=-0.01,
+            spy_return=0.02,
+        )
+        decoy_payload = memory.read_json(decoy_summary)
+        decoy_observations, decoy_observations_audit = (
+            memory.resolve_output(
+                decoy_summary,
+                decoy_payload,
+                "forward_observations",
+            )
+        )
+        decoy_benchmark, decoy_benchmark_audit = memory.resolve_output(
+            decoy_summary,
+            decoy_payload,
+            "benchmark_location",
+        )
+        decoy_endpoints, decoy_endpoints_audit = memory.resolve_output(
+            decoy_summary,
+            decoy_payload,
+            "forward_outcome_endpoints",
+        )
+        contract_sha256 = memory.sha256_file(
+            ROOT / "docs" / "run287_ohlcv_pattern_memory_contract.json"
+        )
+        memory.persist_recovery_evidence(
+            memory_dir=archive,
+            valuation_date="2026-07-29",
+            contract_sha256=contract_sha256,
+            source_paths={
+                "timing_summary": decoy_summary,
+                "timing_observations": decoy_observations,
+                "timing_benchmark": decoy_benchmark,
+                "timing_outcome_endpoints": decoy_endpoints,
+            },
+            sources={
+                "timing_summary": memory.fingerprint(decoy_summary),
+                "timing_observations": decoy_observations_audit,
+                "timing_benchmark": decoy_benchmark_audit,
+                "timing_outcome_endpoints": decoy_endpoints_audit,
+            },
+        )
+        all_recovery_summaries = list(
+            (
+                archive / "recovery_evidence" / "20260729"
+            ).glob("*/summary.json")
+        )
+        assert len(all_recovery_summaries) == 2
+        suffix_rows = memory.read_jsonl(archive / "observations.jsonl")
+        expected_summary_hashes = {
+            str(row.get("source_summary_sha256") or "")
+            for row in suffix_rows
+            if row.get("as_of_date") == "2026-07-29"
+        }
+        assert len(expected_summary_hashes) == 1
+        selected_recovery_summary = (
+            memory.select_recovery_evidence_summary(
+                memory_dir=archive,
+                session_date="2026-07-29",
+                expected_summary_sha256=next(
+                    iter(expected_summary_hashes)
+                ),
+                contract_sha256=contract_sha256,
+            )
+        )
+        assert selected_recovery_summary == recovery_summaries[0]
         # A delayed runner may no longer have the original timing directory.
         # Recovery must therefore reuse the exact preserved summary bytes and
         # hash-validated sibling outputs without generating a new timestamp.
         for source_file in summary.parent.iterdir():
             source_file.unlink()
         summary.parent.rmdir()
+        blocked_summary_bytes = (archive / "summary.json").read_bytes()
+        deferred_args = args_for(
+            selected_recovery_summary,
+            archive,
+            "2026-07-29",
+        )
+        deferred_args.preserve_blocked_publication = True
+        deferred_args.pending_session_date = "2026-07-30"
+        deferred = memory.build(deferred_args)
+        assert deferred["status"] == memory.READY_STATUS, deferred
+        assert deferred["publication_deferred"] is True
+        assert deferred["appended_observation_count"] == 0
+        assert (archive / "summary.json").read_bytes() == blocked_summary_bytes
+        still_blocked = memory.read_json(archive / "summary.json")
+        assert still_blocked["status"] == memory.BLOCKED_STATUS
+        assert still_blocked["failed_session_date"] == "2026-07-30"
+        assert still_blocked["proposal_eligible"] is False
+        assert (archive / "accepted_head.json").is_file()
+
+        # Only the post-ledger publication call exposes READY.
         resumed = memory.build(
-            args_for(recovery_summaries[0], archive, "2026-07-29")
+            args_for(selected_recovery_summary, archive, "2026-07-29")
         )
         assert resumed["status"] == memory.READY_STATUS, resumed
         assert resumed["appended_observation_count"] == 0
@@ -706,7 +801,7 @@ def main() -> None:
             encoding="utf-8",
         )
         tampered = memory.build(
-            args_for(recovery_summaries[0], archive, "2026-07-29")
+            args_for(selected_recovery_summary, archive, "2026-07-29")
         )
         assert tampered["status"] == memory.BLOCKED_STATUS
         assert "archive event hash mismatch" in " ".join(

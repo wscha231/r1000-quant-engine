@@ -106,6 +106,9 @@ OBSERVATION_RETRY_PROVENANCE_FIELDS = {
     "source_observations_sha256",
     "source_benchmark_sha256",
 }
+OUTCOME_RETRY_PROVENANCE_FIELDS = {
+    "source_summary_sha256",
+}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -306,6 +309,85 @@ def persist_recovery_evidence(
     return bundle_dir / source_paths["timing_summary"].name, manifest_path
 
 
+def select_recovery_evidence_summary(
+    *,
+    memory_dir: Path,
+    session_date: str,
+    expected_summary_sha256: str,
+    contract_sha256: str,
+) -> Path:
+    matches: list[Path] = []
+    session_root = (
+        memory_dir / "recovery_evidence" / session_date.replace("-", "")
+    )
+    for manifest_path in sorted(session_root.glob("*/manifest.json")):
+        payload = read_json(manifest_path)
+        bundle_id = str(payload.get("bundle_id") or "")
+        base = {
+            str(key): value
+            for key, value in payload.items()
+            if key != "bundle_id"
+        }
+        if (
+            payload.get("schema_version")
+            != RECOVERY_EVIDENCE_SCHEMA_VERSION
+            or payload.get("status") != RECOVERY_EVIDENCE_STATUS
+            or payload.get("session_date") != session_date
+            or payload.get("memory_contract_sha256") != contract_sha256
+            or not bundle_id
+            or manifest_path.parent.name != bundle_id
+            or canonical_hash(base) != bundle_id
+        ):
+            raise ValueError(
+                f"immutable recovery evidence manifest invalid:{manifest_path}"
+            )
+        files = payload.get("files") or {}
+        if set(files) != {
+            "timing_summary",
+            "timing_observations",
+            "timing_benchmark",
+            "timing_outcome_endpoints",
+        }:
+            raise ValueError(
+                f"recovery evidence file set invalid:{manifest_path}"
+            )
+        filenames: set[str] = set()
+        for label, raw_record in files.items():
+            record = raw_record or {}
+            filename = str(record.get("filename") or "")
+            path = manifest_path.parent / filename
+            expected_sha = str(record.get("sha256") or "")
+            if (
+                not filename
+                or Path(filename).name != filename
+                or filename in filenames
+                or not expected_sha
+                or not path.is_file()
+                or record.get("bytes") is None
+                or int(record["bytes"]) != path.stat().st_size
+                or sha256_file(path) != expected_sha
+            ):
+                raise ValueError(
+                    f"recovery evidence file invalid:{label}:{path}"
+                )
+            filenames.add(filename)
+        summary_record = files["timing_summary"]
+        if (
+            str(summary_record.get("sha256") or "")
+            == expected_summary_sha256
+        ):
+            matches.append(
+                manifest_path.parent
+                / str(summary_record.get("filename") or "")
+            )
+    if len(matches) != 1:
+        raise ValueError(
+            "recovery evidence summary match count:"
+            f"{session_date}:{expected_summary_sha256}:{len(matches)}"
+        )
+    return matches[0]
+
+
 def resolve_output(
     summary_path: Path,
     summary: Mapping[str, Any],
@@ -374,6 +456,12 @@ def event_comparison_payload(row: Mapping[str, Any]) -> dict[str, Any]:
             key: value
             for key, value in payload.items()
             if key not in OBSERVATION_RETRY_PROVENANCE_FIELDS
+        }
+    elif payload.get("schema_version") == OUTCOME_SCHEMA_VERSION:
+        payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in OUTCOME_RETRY_PROVENANCE_FIELDS
         }
     return payload
 
@@ -955,6 +1043,7 @@ def proposed_outcomes(
     as_of_date: str,
     horizons: Iterable[int],
     contract_sha256: str,
+    source_summary_sha256: str,
 ) -> tuple[list[dict[str, Any]], int]:
     rows = list(observations)
     exact: dict[tuple[str, str, str], Mapping[str, Any]] = {
@@ -1151,6 +1240,7 @@ def proposed_outcomes(
                     "recorded_during_session": as_of_date,
                     "resolution_policy": "EXACT_ARCHIVED_NYSE_TARGET_SESSION_ONLY",
                     "memory_contract_sha256": contract_sha256,
+                    "source_summary_sha256": source_summary_sha256,
                     "research_only": True,
                     "portfolio_transition_allowed": False,
                     "orders_generated": False,
@@ -1401,7 +1491,29 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     sources: dict[str, Any] = {}
+    preserve_blocked_publication = bool(
+        getattr(args, "preserve_blocked_publication", False)
+    )
+    pending_session_date = str(
+        getattr(args, "pending_session_date", "") or ""
+    )
     try:
+        if preserve_blocked_publication:
+            if not pending_session_date:
+                raise ValueError(
+                    "pending session date required for deferred publication"
+                )
+            public_marker = read_json(output_dir / "summary.json")
+            if (
+                public_marker.get("status") != BLOCKED_STATUS
+                or public_marker.get("proposal_eligible") is not False
+                or str(public_marker.get("failed_session_date") or "")
+                != pending_session_date
+            ):
+                raise ValueError(
+                    "deferred recovery requires exact current-session "
+                    "BLOCKED marker"
+                )
         contract_path = repo_path(args.contract)
         contract = read_json(contract_path)
         sources["contract"] = fingerprint(contract_path)
@@ -1540,6 +1652,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "outcome_horizons_nyse_sessions"
             ],
             contract_sha256=contract_sha256,
+            source_summary_sha256=str(
+                sources["timing_summary"]["sha256"]
+            ),
         )
         new_outcomes, outcome_head = merge_new_events(
             existing=existing_outcomes,
@@ -1707,12 +1822,29 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "performance": {"elapsed_seconds": time.perf_counter() - started},
             "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__))},
         }
-        report_path = output_dir / "report.md"
-        atomic_write_text(
-            report_path,
-            render_report(payload),
-        )
-        payload["outputs"]["report"] = fingerprint(report_path)
+        report_text = render_report(payload)
+        if preserve_blocked_publication:
+            report_sha256 = hashlib.sha256(
+                report_text.encode("utf-8")
+            ).hexdigest()
+            report_path = (
+                output_dir
+                / "deferred_reports"
+                / args.valuation_date.replace("-", "")
+                / f"{report_sha256}.md"
+            )
+            if report_path.is_file():
+                if sha256_file(report_path) != report_sha256:
+                    raise ValueError(
+                        f"immutable deferred report mismatch:{report_path}"
+                    )
+            else:
+                atomic_write_text(report_path, report_text)
+            payload["outputs"]["deferred_report"] = fingerprint(report_path)
+        else:
+            report_path = output_dir / "report.md"
+            atomic_write_text(report_path, report_text)
+            payload["outputs"]["report"] = fingerprint(report_path)
         # Report finalization must succeed before the immutable accepted head
         # can advance. A failure leaves only a validated unaccepted suffix for
         # the explicit idempotent recovery path.
@@ -1738,6 +1870,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             / str(accepted_head["head_id"])
             / "manifest.json"
         )
+        if preserve_blocked_publication:
+            # The existing exact-current-session BLOCKED summary and report
+            # remain untouched.  The post-ledger call may publish READY.
+            payload["publication_deferred"] = True
+            payload["pending_publication_session"] = pending_session_date
+            return payload
         # summary.json is the READY marker and is committed only after the
         # append-only chains and human-readable report are durable.
         atomic_write_json(output_dir / "summary.json", payload)
@@ -1757,7 +1895,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             [f"{type(exc).__name__}:{exc}"],
             sources,
             started,
-            failed_session_date=str(args.valuation_date),
+            failed_session_date=(
+                pending_session_date
+                if preserve_blocked_publication and pending_session_date
+                else str(args.valuation_date)
+            ),
         )
 
 
@@ -1768,6 +1910,11 @@ def parse_args() -> argparse.Namespace:
         default="",
     )
     parser.add_argument("--record-failed-session-reason", default="")
+    parser.add_argument(
+        "--preserve-blocked-publication",
+        action="store_true",
+    )
+    parser.add_argument("--pending-session-date", default="")
     parser.add_argument(
         "--contract",
         default="docs/run287_ohlcv_pattern_memory_contract.json",

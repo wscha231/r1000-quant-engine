@@ -2558,7 +2558,7 @@ jobs:
             # A report/publication failure can leave a hash-valid append-only
             # suffix.  Finalize that exact session from its preserved,
             # first-attempt timing evidence before advancing to a later date.
-            REQUIRED_PATTERN_RETRY_SESSION="$(
+            PATTERN_RECOVERY_DESCRIPTOR="$(
               python - <<'PY'
           from pathlib import Path
 
@@ -2589,18 +2589,50 @@ jobs:
               contract_sha256=contract_sha256,
               allow_unaccepted_events=True,
           )
-          print(
-              memory.required_unaccepted_retry_session(
-                  observations=observations,
-                  outcomes=outcomes,
-                  durable_head=durable_head,
-              )
+          retry_session = memory.required_unaccepted_retry_session(
+              observations=observations,
+              outcomes=outcomes,
+              durable_head=durable_head,
           )
+          if retry_session:
+              observation_count = int(
+                  durable_head.get("observation_event_count") or 0
+              )
+              summary_hashes = {
+                  str(row.get("source_summary_sha256") or "")
+                  for row in observations[observation_count:]
+                  if row.get("as_of_date") == retry_session
+              }
+              outcome_count = int(
+                  durable_head.get("resolved_outcome_event_count") or 0
+              )
+              summary_hashes.update(
+                  str(row.get("source_summary_sha256") or "")
+                  for row in outcomes[outcome_count:]
+                  if (
+                      row.get("recorded_during_session")
+                      == retry_session
+                  )
+              )
+              summary_hashes.discard("")
+              if len(summary_hashes) != 1:
+                  raise SystemExit(
+                      "unaccepted pattern suffix source-summary ambiguity:"
+                      f"{retry_session}:{sorted(summary_hashes)}"
+                  )
+              summary_path = memory.select_recovery_evidence_summary(
+                  memory_dir=memory_dir,
+                  session_date=retry_session,
+                  expected_summary_sha256=next(iter(summary_hashes)),
+                  contract_sha256=contract_sha256,
+              )
+              print(f"{retry_session}|{summary_path}")
           PY
             )"
             PATTERN_RECOVERY_SESSION=""
             PATTERN_RECOVERY_SUMMARY=""
-            if [ -n "$REQUIRED_PATTERN_RETRY_SESSION" ]; then
+            if [ -n "$PATTERN_RECOVERY_DESCRIPTOR" ]; then
+              IFS='|' read -r REQUIRED_PATTERN_RETRY_SESSION PATTERN_RECOVERY_SUMMARY <<< "$PATTERN_RECOVERY_DESCRIPTOR"
               python - "$REQUIRED_PATTERN_RETRY_SESSION" "$PAPER_AS_OF" <<'PY'
           import datetime as dt
           import sys
@@ -2613,34 +2645,15 @@ jobs:
                   f"{retry_session}>{current_session}"
               )
           PY
-              RECOVERY_DATE_TOKEN="${REQUIRED_PATTERN_RETRY_SESSION//-/}"
-              mapfile -t PATTERN_RECOVERY_SUMMARIES < <(
-                find \
-                  "outputs/run287_decision_observation_archive/ohlcv_pattern_memory/recovery_evidence/${RECOVERY_DATE_TOKEN}" \
-                  -mindepth 2 -maxdepth 2 -type f -name summary.json \
-                  -print 2>/dev/null | sort
-              )
-              if [ "${#PATTERN_RECOVERY_SUMMARIES[@]}" -ne 1 ]; then
-                echo "::error::Preserved first-attempt timing evidence is missing for unaccepted pattern session ${REQUIRED_PATTERN_RETRY_SESSION}"
-                exit 2
-              fi
-              PATTERN_RECOVERY_SUMMARY="${PATTERN_RECOVERY_SUMMARIES[0]}"
               python tools/archive_run287_ohlcv_pattern_memory.py \
                 --timing-summary "$PATTERN_RECOVERY_SUMMARY" \
                 --valuation-date "$REQUIRED_PATTERN_RETRY_SESSION" \
+                --preserve-blocked-publication \
+                --pending-session-date "$PAPER_AS_OF" \
                 --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
                 2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
               PATTERN_RECOVERY_SESSION="$REQUIRED_PATTERN_RETRY_SESSION"
-              echo "[daily-operating] finalized unaccepted OHLCV pattern session ${PATTERN_RECOVERY_SESSION} from preserved first-attempt exact-close evidence"
-
-              # The recovery command temporarily publishes the recovered
-              # session.  Hide it again until this invocation crosses the
-              # same-close ledger boundary or terminates safely as BLOCKED.
-              python tools/archive_run287_ohlcv_pattern_memory.py \
-                --record-failed-session-reason current_session_pending \
-                --valuation-date "$PAPER_AS_OF" \
-                --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
-                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+              echo "[daily-operating] finalized unaccepted OHLCV pattern session ${PATTERN_RECOVERY_SESSION} from its provenance-matched first-attempt evidence while preserving the current BLOCKED public marker"
             fi
           if python tools/build_run287_same_close_target_books.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \

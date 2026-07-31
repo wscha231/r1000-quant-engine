@@ -30,14 +30,17 @@ def main() -> None:
         )
         < targets
     )
+    assert "PATTERN_RECOVERY_DESCRIPTOR" in text[pending:targets]
     assert "REQUIRED_PATTERN_RETRY_SESSION" in text[pending:targets]
     assert "PATTERN_RECOVERY_SUMMARY" in text[pending:targets]
     assert (
-        "ohlcv_pattern_memory/recovery_evidence/${RECOVERY_DATE_TOKEN}"
+        "select_recovery_evidence_summary"
         in text[pending:targets]
     )
+    assert "--preserve-blocked-publication" in text[pending:targets]
+    assert '--pending-session-date "$PAPER_AS_OF"' in text[pending:targets]
     assert (
-        "finalized unaccepted OHLCV pattern session"
+        "while preserving the current BLOCKED public marker"
         in text[pending:targets]
     )
     assert (
