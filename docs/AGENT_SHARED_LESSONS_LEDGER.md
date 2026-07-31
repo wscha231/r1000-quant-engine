@@ -3214,10 +3214,15 @@ Expected contract:
   Invalidate pattern READY before the first fallible same-close or ledger
   command, and keep that BLOCKED marker untouched while recovery advances the
   durable head or returns a recovery failure; the preservation-mode exception
-  path must not call a public-file writer. Missing rows completed during a
-  partial-suffix retry inherit the suffix's first-attempt source provenance.
-  Only the post-ledger call may publish READY, whose parent provenance must
-  come from the accepted manifest rather than the retry's in-memory head.
+  path must not call a public-file writer. A deferred recovery validates and
+  stages only; it does not advance the accepted head. Missing rows completed
+  during retry retain the bundle that actually supplied their evidence, and
+  subsequent recovery selects one bundle satisfying all suffix summary and
+  endpoint identities. Equivalent legacy endpoint bundles may be
+  deterministically deduplicated only when their complete endpoint signatures
+  match. Only the post-ledger call may publish READY; report, summary, and
+  last-attempt finalization precede the accepted-head commit, whose parent
+  provenance comes from the immutable manifest.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

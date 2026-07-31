@@ -429,6 +429,12 @@ def main() -> None:
         assert first["accepted_head_id"]
         assert (archive / "accepted_head.json").is_file()
         assert len(list((archive / "accepted_heads").glob("*/manifest.json"))) == 1
+        published_first = memory.read_json(archive / "summary.json")
+        for key in ("accepted_head", "accepted_head_manifest"):
+            record = published_first["outputs"][key]
+            actual = memory.fingerprint(Path(record["path"]))
+            assert actual["sha256"] == record["sha256"]
+            assert actual["bytes"] == record["bytes"]
         first_security_observation = next(
             row
             for row in memory.read_jsonl(archive / "observations.jsonl")
@@ -803,6 +809,27 @@ def main() -> None:
             archive,
             "2026-07-30",
         )
+        legacy_equivalent = write_timing(
+            root / "legacy_equivalent",
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=0.06,
+            stock_return=-0.02,
+            spy_close=505.0,
+            spy_prior_return=0.03,
+            spy_return=0.01,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 100.0),
+                "SPY": (500.0, 505.0),
+                "QQQ": (450.0, 454.5),
+            },
+        )
+        legacy_equivalent_summary, _ = persist_timing_evidence(
+            legacy_equivalent,
+            archive,
+            "2026-07-30",
+        )
         next_payload = memory.read_json(next_summary)
         next_endpoint_path, _ = memory.resolve_output(
             next_summary,
@@ -824,7 +851,9 @@ def main() -> None:
                 contract_sha256=contract_sha256,
             )
         )
-        assert selected_legacy_summary == legacy_summary
+        assert selected_legacy_summary == sorted(
+            [legacy_summary, legacy_equivalent_summary]
+        )[0]
         # A delayed runner may no longer have the original timing directory.
         # Recovery must therefore reuse the exact preserved summary bytes and
         # hash-validated sibling outputs without generating a new timestamp.
@@ -843,16 +872,18 @@ def main() -> None:
         )
         deferred_args.preserve_blocked_publication = True
         deferred_args.pending_session_date = "2026-07-30"
-        original_publish_accepted_head = memory.publish_accepted_head
+        original_atomic_write_text = memory.atomic_write_text
 
-        def fail_deferred_head(**_: object) -> dict[str, object]:
-            raise OSError("simulated deferred head failure")
+        def fail_deferred_report(path: Path, text: str) -> None:
+            if "deferred_reports" in path.parts:
+                raise OSError("simulated deferred report failure")
+            original_atomic_write_text(path, text)
 
-        memory.publish_accepted_head = fail_deferred_head
+        memory.atomic_write_text = fail_deferred_report
         try:
             deferred_failure = memory.build(deferred_args)
         finally:
-            memory.publish_accepted_head = original_publish_accepted_head
+            memory.atomic_write_text = original_atomic_write_text
         assert deferred_failure["status"] == memory.BLOCKED_STATUS
         assert deferred_failure["public_blocked_marker_preserved"] is True
         assert (archive / "summary.json").read_bytes() == blocked_summary_bytes
@@ -871,7 +902,37 @@ def main() -> None:
         assert still_blocked["status"] == memory.BLOCKED_STATUS
         assert still_blocked["failed_session_date"] == "2026-07-30"
         assert still_blocked["proposal_eligible"] is False
-        assert (archive / "accepted_head.json").is_file()
+        assert not (archive / "accepted_head.json").exists()
+
+        # A last-attempt failure occurs after summary staging but before the
+        # accepted-head commit. The session must remain an unaccepted suffix.
+        original_atomic_write_json = memory.atomic_write_json
+        failed_last_attempt_once = False
+
+        def fail_last_attempt_once(
+            path: Path,
+            payload: dict[str, object],
+        ) -> None:
+            nonlocal failed_last_attempt_once
+            if path.name == "last_attempt.json" and not failed_last_attempt_once:
+                failed_last_attempt_once = True
+                raise OSError("simulated READY last-attempt failure")
+            original_atomic_write_json(path, payload)
+
+        memory.atomic_write_json = fail_last_attempt_once
+        try:
+            public_commit_failure = memory.build(
+                args_for(
+                    selected_recovery_summary,
+                    archive,
+                    "2026-07-29",
+                )
+            )
+        finally:
+            memory.atomic_write_json = original_atomic_write_json
+        assert public_commit_failure["status"] == memory.BLOCKED_STATUS
+        assert not (archive / "accepted_head.json").exists()
+        assert not (archive / "accepted_heads").exists()
 
         # Only the post-ledger publication call exposes READY.
         resumed = memory.build(
@@ -908,9 +969,10 @@ def main() -> None:
             tampered["contract_failures"]
         )
 
-    # Any outcomes first resolved during an exact-session retry inherit the
-    # unaccepted suffix's first-attempt provenance. A second interruption can
-    # therefore never create two source-summary identities for one suffix.
+    # When retry B supplies an endpoint missing from suffix attempt A, the new
+    # outcome retains B's source identity. A second interruption then selects
+    # B because it is the only bundle satisfying every summary and endpoint
+    # provenance record in the suffix.
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         archive = root / "archive" / "ohlcv_pattern_memory"
@@ -1003,8 +1065,57 @@ def main() -> None:
         assert memory.sha256_file(retry_summary) != (
             first_attempt_summary_sha256
         )
+        memory.atomic_write_text = fail_partial_report
+        try:
+            retry_interrupted = memory.build(
+                args_for(retry_summary, archive, "2026-07-30")
+            )
+        finally:
+            memory.atomic_write_text = original_atomic_write_text
+        assert retry_interrupted["status"] == memory.BLOCKED_STATUS
+        durable_head = memory.validate_accepted_head_state(
+            memory_dir=archive,
+            observations=memory.read_jsonl(archive / "observations.jsonl"),
+            outcomes=memory.read_jsonl(archive / "outcomes.jsonl"),
+            contract_sha256=memory.PINNED_CONTRACT_SHA256,
+            allow_unaccepted_events=True,
+        )
+        observation_count = int(durable_head["observation_event_count"])
+        outcome_count = int(durable_head["resolved_outcome_event_count"])
+        all_observations = memory.read_jsonl(archive / "observations.jsonl")
+        all_outcomes = memory.read_jsonl(archive / "outcomes.jsonl")
+        retry_summary_hashes = {
+            str(row.get("source_summary_sha256") or "")
+            for row in all_observations[observation_count:]
+        }
+        retry_summary_hashes.update(
+            str(row.get("source_summary_sha256") or "")
+            for row in all_outcomes[outcome_count:]
+        )
+        retry_summary_hashes.discard("")
+        retry_endpoint_hashes = {
+            str(row.get(key) or "")
+            for row in all_outcomes[outcome_count:]
+            for key in (
+                "source_endpoint_payload_sha256",
+                "spy_endpoint_payload_sha256",
+            )
+        }
+        retry_endpoint_hashes.discard("")
+        selected_retry_summary = (
+            memory.select_recovery_evidence_summary(
+                memory_dir=archive,
+                session_date="2026-07-30",
+                accepted_summary_sha256s=retry_summary_hashes,
+                required_endpoint_payload_sha256s=retry_endpoint_hashes,
+                contract_sha256=memory.PINNED_CONTRACT_SHA256,
+            )
+        )
+        assert memory.sha256_file(selected_retry_summary) == (
+            memory.sha256_file(retry_summary)
+        )
         recovered = memory.build(
-            args_for(retry_summary, archive, "2026-07-30")
+            args_for(selected_retry_summary, archive, "2026-07-30")
         )
         assert recovered["status"] == memory.READY_STATUS, recovered
         recovered_outcomes = [
@@ -1013,10 +1124,19 @@ def main() -> None:
             if row.get("recorded_during_session") == "2026-07-30"
         ]
         assert len(recovered_outcomes) == 3
+        retry_summary_sha256 = memory.sha256_file(retry_summary)
         assert {
             row.get("source_summary_sha256")
             for row in recovered_outcomes
-        } == {first_attempt_summary_sha256}
+        } == {first_attempt_summary_sha256, retry_summary_sha256}
+        recovered_security = next(
+            row
+            for row in recovered_outcomes
+            if row.get("ticker") == "AAA"
+        )
+        assert recovered_security["source_summary_sha256"] == (
+            retry_summary_sha256
+        )
 
     # A failed or absent launch-session observation can never disappear from
     # the learning denominator. Later sessions may remain research-visible,

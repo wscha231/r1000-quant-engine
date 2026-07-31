@@ -2615,11 +2615,6 @@ jobs:
                   )
               )
               summary_hashes.discard("")
-              if len(summary_hashes) > 1:
-                  raise SystemExit(
-                      "unaccepted pattern suffix source-summary ambiguity:"
-                      f"{retry_session}:{sorted(summary_hashes)}"
-                  )
               legacy_endpoint_hashes = {
                   str(row.get(key) or "")
                   for row in outcomes[outcome_count:]
@@ -2641,16 +2636,8 @@ jobs:
               summary_path = memory.select_recovery_evidence_summary(
                   memory_dir=memory_dir,
                   session_date=retry_session,
-                  expected_summary_sha256=(
-                      next(iter(summary_hashes))
-                      if summary_hashes
-                      else ""
-                  ),
-                  required_endpoint_payload_sha256s=(
-                      legacy_endpoint_hashes
-                      if not summary_hashes
-                      else ()
-                  ),
+                  accepted_summary_sha256s=summary_hashes,
+                  required_endpoint_payload_sha256s=legacy_endpoint_hashes,
                   contract_sha256=contract_sha256,
               )
               print(f"{retry_session}|{summary_path}")

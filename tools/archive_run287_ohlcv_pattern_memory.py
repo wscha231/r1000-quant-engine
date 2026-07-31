@@ -211,17 +211,33 @@ def atomic_write_text(path: Path, text: str) -> None:
         staged.unlink(missing_ok=True)
 
 
-def atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    atomic_write_text(
-        path,
+def json_document_text(payload: Mapping[str, Any]) -> str:
+    return (
         json.dumps(
             json_clean(dict(payload)),
             indent=2,
             sort_keys=True,
             allow_nan=False,
         )
-        + "\n",
+        + "\n"
     )
+
+
+def atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    atomic_write_text(path, json_document_text(payload))
+
+
+def anticipated_json_fingerprint(
+    path: Path,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    encoded = json_document_text(payload).encode("utf-8")
+    return {
+        "path": str(path.resolve()),
+        "exists": True,
+        "bytes": len(encoded),
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+    }
 
 
 def atomic_copy_verified(
@@ -317,16 +333,24 @@ def select_recovery_evidence_summary(
     memory_dir: Path,
     session_date: str,
     expected_summary_sha256: str = "",
+    accepted_summary_sha256s: Iterable[str] = (),
     required_endpoint_payload_sha256s: Iterable[str] = (),
     contract_sha256: str,
 ) -> Path:
-    matches: list[Path] = []
+    matches: list[tuple[Path, str]] = []
+    accepted_summary_hashes = {
+        str(value)
+        for value in accepted_summary_sha256s
+        if value
+    }
+    if expected_summary_sha256:
+        accepted_summary_hashes.add(expected_summary_sha256)
     required_endpoint_hashes = {
         str(value)
         for value in required_endpoint_payload_sha256s
         if value
     }
-    if not expected_summary_sha256 and not required_endpoint_hashes:
+    if not accepted_summary_hashes and not required_endpoint_hashes:
         raise ValueError("recovery evidence provenance required")
     session_root = (
         memory_dir / "recovery_evidence" / session_date.replace("-", "")
@@ -384,35 +408,42 @@ def select_recovery_evidence_summary(
             filenames.add(filename)
         summary_record = files["timing_summary"]
         summary_matches = bool(
-            expected_summary_sha256
-            and str(summary_record.get("sha256") or "")
-            == expected_summary_sha256
+            not accepted_summary_hashes
+            or str(summary_record.get("sha256") or "")
+            in accepted_summary_hashes
         )
-        endpoint_matches = False
-        if not expected_summary_sha256 and required_endpoint_hashes:
-            endpoint_record = files["timing_outcome_endpoints"]
-            endpoint_path = (
-                manifest_path.parent
-                / str(endpoint_record.get("filename") or "")
-            )
-            candidate_endpoint_hashes = {
-                canonical_hash(row)
-                for row in read_jsonl(endpoint_path)
-            }
-            endpoint_matches = required_endpoint_hashes.issubset(
+        endpoint_record = files["timing_outcome_endpoints"]
+        endpoint_path = (
+            manifest_path.parent
+            / str(endpoint_record.get("filename") or "")
+        )
+        candidate_endpoint_hashes = {
+            canonical_hash(row)
+            for row in read_jsonl(endpoint_path)
+        }
+        endpoint_matches = bool(
+            not required_endpoint_hashes
+            or required_endpoint_hashes.issubset(
                 candidate_endpoint_hashes
             )
-        if summary_matches or endpoint_matches:
-            matches.append(
+        )
+        if summary_matches and endpoint_matches:
+            matches.append((
                 manifest_path.parent
-                / str(summary_record.get("filename") or "")
-            )
+                / str(summary_record.get("filename") or ""),
+                canonical_hash(sorted(candidate_endpoint_hashes)),
+            ))
+    if len(matches) > 1:
+        endpoint_signatures = {signature for _, signature in matches}
+        if len(endpoint_signatures) == 1:
+            return sorted(path for path, _ in matches)[0]
     if len(matches) != 1:
         raise ValueError(
             "recovery evidence summary match count:"
-            f"{session_date}:{expected_summary_sha256}:{len(matches)}"
+            f"{session_date}:{sorted(accepted_summary_hashes)}:"
+            f"{len(matches)}"
         )
-    return matches[0]
+    return matches[0][0]
 
 
 def resolve_output(
@@ -686,7 +717,7 @@ def validate_accepted_head_state(
     return {**terminal, "pointer_repair_required": not pointer_valid}
 
 
-def publish_accepted_head(
+def prepare_accepted_head(
     *,
     memory_dir: Path,
     observations: list[dict[str, Any]],
@@ -717,22 +748,11 @@ def publish_accepted_head(
         and prior.get("outcome_chain_head") == outcome_head
         and prior.get("head_id")
     ):
-        manifest_path = (
-            memory_dir
-            / "accepted_heads"
-            / str(prior["head_id"])
-            / "manifest.json"
-        )
-        atomic_write_json(
-            memory_dir / "accepted_head.json",
-            {
-                "schema_version": ACCEPTED_HEAD_SCHEMA_VERSION,
-                "status": ACCEPTED_HEAD_STATUS,
-                "head_id": prior["head_id"],
-                "manifest_sha256": sha256_file(manifest_path),
-            },
-        )
-        return prior
+        return {
+            str(key): value
+            for key, value in prior.items()
+            if key != "pointer_repair_required"
+        }
     observations_path = memory_dir / "observations.jsonl"
     outcomes_path = memory_dir / "outcomes.jsonl"
     observation_fingerprint = fingerprint(observations_path)
@@ -774,23 +794,43 @@ def publish_accepted_head(
     }
     head_id = canonical_hash(base)
     payload = {**base, "head_id": head_id}
-    manifest_path = (
-        memory_dir / "accepted_heads" / head_id / "manifest.json"
-    )
+    return payload
+
+
+def publish_accepted_head(
+    *,
+    memory_dir: Path,
+    accepted_head: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = json_clean(dict(accepted_head))
+    head_id = str(payload.get("head_id") or "")
+    if (
+        not head_id
+        or canonical_hash(accepted_head_payload_without_id(payload))
+        != head_id
+    ):
+        raise ValueError("prepared accepted head invalid")
+    manifest_path = memory_dir / "accepted_heads" / head_id / "manifest.json"
+    created_manifest = False
     if manifest_path.exists():
         if canonical_hash(read_json(manifest_path)) != canonical_hash(payload):
             raise ValueError("immutable accepted head payload changed")
     else:
         atomic_write_json(manifest_path, payload)
-    atomic_write_json(
-        memory_dir / "accepted_head.json",
-        {
-            "schema_version": ACCEPTED_HEAD_SCHEMA_VERSION,
-            "status": ACCEPTED_HEAD_STATUS,
-            "head_id": head_id,
-            "manifest_sha256": sha256_file(manifest_path),
-        },
-    )
+        created_manifest = True
+    pointer = {
+        "schema_version": ACCEPTED_HEAD_SCHEMA_VERSION,
+        "status": ACCEPTED_HEAD_STATUS,
+        "head_id": head_id,
+        "manifest_sha256": sha256_file(manifest_path),
+    }
+    try:
+        atomic_write_json(memory_dir / "accepted_head.json", pointer)
+    except Exception:
+        if created_manifest:
+            manifest_path.unlink(missing_ok=True)
+            manifest_path.parent.rmdir()
+        raise
     return payload
 
 
@@ -1060,62 +1100,6 @@ def required_unaccepted_retry_session(
             + ",".join(sorted(dates))
         )
     return next(iter(dates), "")
-
-
-def unaccepted_retry_provenance(
-    *,
-    observations: list[dict[str, Any]],
-    outcomes: list[dict[str, Any]],
-    durable_head: Mapping[str, Any],
-    retry_session: str,
-) -> dict[str, Any]:
-    if not retry_session:
-        return {}
-    observation_count = int(
-        durable_head.get("observation_event_count") or 0
-    )
-    outcome_count = int(
-        durable_head.get("resolved_outcome_event_count") or 0
-    )
-    suffix_observations = [
-        row
-        for row in observations[observation_count:]
-        if row.get("as_of_date") == retry_session
-    ]
-    suffix_outcomes = [
-        row
-        for row in outcomes[outcome_count:]
-        if row.get("recorded_during_session") == retry_session
-    ]
-    provenance: dict[str, Any] = {}
-    for field in OBSERVATION_RETRY_PROVENANCE_FIELDS:
-        values = {
-            json.dumps(row.get(field), sort_keys=True)
-            for row in suffix_observations
-            if row.get(field) is not None
-        }
-        if len(values) > 1:
-            raise ValueError(
-                f"unaccepted suffix observation provenance ambiguity:"
-                f"{retry_session}:{field}"
-            )
-        if values:
-            provenance[field] = json.loads(next(iter(values)))
-    summary_hashes = {
-        str(row.get("source_summary_sha256") or "")
-        for row in suffix_outcomes
-        if row.get("source_summary_sha256")
-    }
-    if provenance.get("source_summary_sha256"):
-        summary_hashes.add(str(provenance["source_summary_sha256"]))
-    if len(summary_hashes) > 1:
-        raise ValueError(
-            "unaccepted suffix source-summary ambiguity:"
-            f"{retry_session}:{sorted(summary_hashes)}"
-        )
-    if summary_hashes:
-        provenance["source_summary_sha256"] = next(iter(summary_hashes))
-    return provenance
 
 
 def proposed_outcomes(
@@ -1713,12 +1697,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             outcomes=existing_outcomes,
             durable_head=durable_parent_head,
         )
-        retry_provenance = unaccepted_retry_provenance(
-            observations=existing_observations,
-            outcomes=existing_outcomes,
-            durable_head=durable_parent_head,
-            retry_session=required_retry_session,
-        )
         if (
             required_retry_session
             and required_retry_session != args.valuation_date
@@ -1727,10 +1705,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "unaccepted pattern session requires exact retry:"
                 f"{required_retry_session}!={args.valuation_date}"
             )
-        if required_retry_session and retry_provenance:
-            for row in proposed_observations:
-                if row.get("as_of_date") == required_retry_session:
-                    row.update(retry_provenance)
         existing_dates = [
             str(row.get("as_of_date") or "")
             for row in existing_observations
@@ -1765,8 +1739,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             ],
             contract_sha256=contract_sha256,
             source_summary_sha256=str(
-                retry_provenance.get("source_summary_sha256")
-                or sources["timing_summary"]["sha256"]
+                sources["timing_summary"]["sha256"]
             ),
         )
         new_outcomes, outcome_head = merge_new_events(
@@ -1958,10 +1931,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             report_path = output_dir / "report.md"
             atomic_write_text(report_path, report_text)
             payload["outputs"]["report"] = fingerprint(report_path)
-        # Report finalization must succeed before the immutable accepted head
-        # can advance. A failure leaves only a validated unaccepted suffix for
-        # the explicit idempotent recovery path.
-        accepted_head = publish_accepted_head(
+        accepted_head = prepare_accepted_head(
             memory_dir=output_dir,
             observations=all_observations,
             outcomes=all_outcomes,
@@ -1974,26 +1944,44 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             ),
         )
         payload["accepted_head_id"] = accepted_head["head_id"]
-        payload["outputs"]["accepted_head"] = fingerprint(
-            output_dir / "accepted_head.json"
+        payload["durable_parent_head_id"] = str(
+            accepted_head.get("parent_head_id") or ""
         )
-        payload["outputs"]["accepted_head_manifest"] = fingerprint(
+        if preserve_blocked_publication:
+            # The existing exact-current-session BLOCKED summary, report,
+            # last-attempt marker, and accepted head remain untouched. The
+            # post-ledger call performs the one public/head commit.
+            payload["publication_deferred"] = True
+            payload["pending_publication_session"] = pending_session_date
+            payload["prepared_accepted_head_id"] = accepted_head["head_id"]
+            return payload
+
+        manifest_path = (
             output_dir
             / "accepted_heads"
             / str(accepted_head["head_id"])
             / "manifest.json"
         )
-        payload["durable_parent_head_id"] = str(
-            accepted_head.get("parent_head_id") or ""
+        manifest_fingerprint = anticipated_json_fingerprint(
+            manifest_path,
+            accepted_head,
         )
-        if preserve_blocked_publication:
-            # The existing exact-current-session BLOCKED summary and report
-            # remain untouched.  The post-ledger call may publish READY.
-            payload["publication_deferred"] = True
-            payload["pending_publication_session"] = pending_session_date
-            return payload
-        # summary.json is the READY marker and is committed only after the
-        # append-only chains and human-readable report are durable.
+        pointer_payload = {
+            "schema_version": ACCEPTED_HEAD_SCHEMA_VERSION,
+            "status": ACCEPTED_HEAD_STATUS,
+            "head_id": accepted_head["head_id"],
+            "manifest_sha256": manifest_fingerprint["sha256"],
+        }
+        payload["outputs"]["accepted_head"] = (
+            anticipated_json_fingerprint(
+                output_dir / "accepted_head.json",
+                pointer_payload,
+            )
+        )
+        payload["outputs"]["accepted_head_manifest"] = manifest_fingerprint
+        # READY public finalization is committed before the accepted head. If
+        # summary or last_attempt fails, the session remains an unaccepted
+        # suffix and the exception path replaces any partial public marker.
         atomic_write_json(output_dir / "summary.json", payload)
         atomic_write_json(
             output_dir / "last_attempt.json",
@@ -2003,6 +1991,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "accepted_through": payload["accepted_through"],
                 "summary_sha256": sha256_file(output_dir / "summary.json"),
             },
+        )
+        publish_accepted_head(
+            memory_dir=output_dir,
+            accepted_head=accepted_head,
         )
         return payload
     except Exception as exc:
