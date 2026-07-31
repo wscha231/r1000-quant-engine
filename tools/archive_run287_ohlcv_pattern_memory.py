@@ -47,6 +47,9 @@ RECOVERY_EVIDENCE_SCHEMA_VERSION = (
     "run287-ohlcv-pattern-recovery-evidence-v1"
 )
 RECOVERY_EVIDENCE_STATUS = "IMMUTABLE_PATTERN_RECOVERY_EVIDENCE"
+PINNED_CONTRACT_SHA256 = (
+    "30c1e17224d68f5d006ca4da5fd403f31037efb3c1b7871918fed50329c16202"
+)
 
 FEATURE_FIELDS = (
     "prior_return_1d",
@@ -313,10 +316,18 @@ def select_recovery_evidence_summary(
     *,
     memory_dir: Path,
     session_date: str,
-    expected_summary_sha256: str,
+    expected_summary_sha256: str = "",
+    required_endpoint_payload_sha256s: Iterable[str] = (),
     contract_sha256: str,
 ) -> Path:
     matches: list[Path] = []
+    required_endpoint_hashes = {
+        str(value)
+        for value in required_endpoint_payload_sha256s
+        if value
+    }
+    if not expected_summary_sha256 and not required_endpoint_hashes:
+        raise ValueError("recovery evidence provenance required")
     session_root = (
         memory_dir / "recovery_evidence" / session_date.replace("-", "")
     )
@@ -372,10 +383,26 @@ def select_recovery_evidence_summary(
                 )
             filenames.add(filename)
         summary_record = files["timing_summary"]
-        if (
-            str(summary_record.get("sha256") or "")
+        summary_matches = bool(
+            expected_summary_sha256
+            and str(summary_record.get("sha256") or "")
             == expected_summary_sha256
-        ):
+        )
+        endpoint_matches = False
+        if not expected_summary_sha256 and required_endpoint_hashes:
+            endpoint_record = files["timing_outcome_endpoints"]
+            endpoint_path = (
+                manifest_path.parent
+                / str(endpoint_record.get("filename") or "")
+            )
+            candidate_endpoint_hashes = {
+                canonical_hash(row)
+                for row in read_jsonl(endpoint_path)
+            }
+            endpoint_matches = required_endpoint_hashes.issubset(
+                candidate_endpoint_hashes
+            )
+        if summary_matches or endpoint_matches:
             matches.append(
                 manifest_path.parent
                 / str(summary_record.get("filename") or "")
@@ -1520,6 +1547,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         if contract.get("schema_version") != "run287-ohlcv-pattern-memory-contract-v1":
             raise ValueError("memory contract schema")
         contract_sha256 = str(sources["contract"]["sha256"])
+        if contract_sha256 != PINNED_CONTRACT_SHA256:
+            raise ValueError(
+                "pattern memory contract hash changed without explicit "
+                f"immutable-chain migration:{contract_sha256}"
+            )
         expected_sessions = expected_forward_sessions(
             str(
                 contract["forward_learning"][
@@ -1869,6 +1901,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             / "accepted_heads"
             / str(accepted_head["head_id"])
             / "manifest.json"
+        )
+        payload["durable_parent_head_id"] = str(
+            accepted_head.get("parent_head_id") or ""
         )
         if preserve_blocked_publication:
             # The existing exact-current-session BLOCKED summary and report

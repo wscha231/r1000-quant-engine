@@ -217,7 +217,52 @@ def args_for(summary: Path, archive: Path, date: str) -> argparse.Namespace:
     )
 
 
+def persist_timing_evidence(
+    summary: Path,
+    archive: Path,
+    date: str,
+) -> tuple[Path, Path]:
+    payload = memory.read_json(summary)
+    observations, observations_audit = memory.resolve_output(
+        summary,
+        payload,
+        "forward_observations",
+    )
+    benchmark, benchmark_audit = memory.resolve_output(
+        summary,
+        payload,
+        "benchmark_location",
+    )
+    endpoints, endpoints_audit = memory.resolve_output(
+        summary,
+        payload,
+        "forward_outcome_endpoints",
+    )
+    return memory.persist_recovery_evidence(
+        memory_dir=archive,
+        valuation_date=date,
+        contract_sha256=memory.sha256_file(
+            ROOT / "docs" / "run287_ohlcv_pattern_memory_contract.json"
+        ),
+        source_paths={
+            "timing_summary": summary,
+            "timing_observations": observations,
+            "timing_benchmark": benchmark,
+            "timing_outcome_endpoints": endpoints,
+        },
+        sources={
+            "timing_summary": memory.fingerprint(summary),
+            "timing_observations": observations_audit,
+            "timing_benchmark": benchmark_audit,
+            "timing_outcome_endpoints": endpoints_audit,
+        },
+    )
+
+
 def main() -> None:
+    assert memory.sha256_file(
+        ROOT / "docs" / "run287_ohlcv_pattern_memory_contract.json"
+    ) == memory.PINNED_CONTRACT_SHA256
     try:
         memory.expected_forward_sessions("2026-07-29", "2026-07-28")
     except ValueError as exc:
@@ -696,43 +741,13 @@ def main() -> None:
             spy_prior_return=-0.01,
             spy_return=0.02,
         )
-        decoy_payload = memory.read_json(decoy_summary)
-        decoy_observations, decoy_observations_audit = (
-            memory.resolve_output(
-                decoy_summary,
-                decoy_payload,
-                "forward_observations",
-            )
-        )
-        decoy_benchmark, decoy_benchmark_audit = memory.resolve_output(
-            decoy_summary,
-            decoy_payload,
-            "benchmark_location",
-        )
-        decoy_endpoints, decoy_endpoints_audit = memory.resolve_output(
-            decoy_summary,
-            decoy_payload,
-            "forward_outcome_endpoints",
-        )
         contract_sha256 = memory.sha256_file(
             ROOT / "docs" / "run287_ohlcv_pattern_memory_contract.json"
         )
-        memory.persist_recovery_evidence(
-            memory_dir=archive,
-            valuation_date="2026-07-29",
-            contract_sha256=contract_sha256,
-            source_paths={
-                "timing_summary": decoy_summary,
-                "timing_observations": decoy_observations,
-                "timing_benchmark": decoy_benchmark,
-                "timing_outcome_endpoints": decoy_endpoints,
-            },
-            sources={
-                "timing_summary": memory.fingerprint(decoy_summary),
-                "timing_observations": decoy_observations_audit,
-                "timing_benchmark": decoy_benchmark_audit,
-                "timing_outcome_endpoints": decoy_endpoints_audit,
-            },
+        persist_timing_evidence(
+            decoy_summary,
+            archive,
+            "2026-07-29",
         )
         all_recovery_summaries = list(
             (
@@ -758,6 +773,58 @@ def main() -> None:
             )
         )
         assert selected_recovery_summary == recovery_summaries[0]
+
+        # The immediately preceding schema did not put source-summary
+        # provenance on outcome rows. An outcome-only suffix must recover from
+        # its exact endpoint payload hashes, not remain permanently blocked.
+        legacy_summary, _ = persist_timing_evidence(
+            next_summary,
+            archive,
+            "2026-07-30",
+        )
+        legacy_decoy = write_timing(
+            root / "legacy_decoy",
+            as_of_date="2026-07-30",
+            stock_close=101.0,
+            stock_prior_return=0.06,
+            stock_return=-0.01,
+            spy_close=506.0,
+            spy_prior_return=0.03,
+            spy_return=0.012,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 101.0),
+                "SPY": (500.0, 506.0),
+                "QQQ": (450.0, 455.4),
+            },
+        )
+        persist_timing_evidence(
+            legacy_decoy,
+            archive,
+            "2026-07-30",
+        )
+        next_payload = memory.read_json(next_summary)
+        next_endpoint_path, _ = memory.resolve_output(
+            next_summary,
+            next_payload,
+            "forward_outcome_endpoints",
+        )
+        required_legacy_endpoint_hashes = {
+            memory.canonical_hash(row)
+            for row in memory.read_jsonl(next_endpoint_path)
+        }
+        selected_legacy_summary = (
+            memory.select_recovery_evidence_summary(
+                memory_dir=archive,
+                session_date="2026-07-30",
+                expected_summary_sha256="",
+                required_endpoint_payload_sha256s=(
+                    required_legacy_endpoint_hashes
+                ),
+                contract_sha256=contract_sha256,
+            )
+        )
+        assert selected_legacy_summary == legacy_summary
         # A delayed runner may no longer have the original timing directory.
         # Recovery must therefore reuse the exact preserved summary bytes and
         # hash-validated sibling outputs without generating a new timestamp.
@@ -790,6 +857,16 @@ def main() -> None:
         assert resumed["status"] == memory.READY_STATUS, resumed
         assert resumed["appended_observation_count"] == 0
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
+        accepted_manifest = memory.read_json(
+            archive
+            / "accepted_heads"
+            / resumed["accepted_head_id"]
+            / "manifest.json"
+        )
+        assert resumed["durable_parent_head_id"] == (
+            accepted_manifest["parent_head_id"]
+        )
+        assert resumed["durable_parent_head_id"] != resumed["accepted_head_id"]
 
         rows = memory.read_jsonl(archive / "observations.jsonl")
         rows[0]["event_hash"] = "0" * 64

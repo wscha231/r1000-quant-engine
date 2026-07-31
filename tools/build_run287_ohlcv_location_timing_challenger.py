@@ -928,6 +928,11 @@ def load_pattern_outcome_requests(
         ):
             raise ValueError("pattern memory contract schema")
         contract_sha256 = sha256_file(memory_contract_path)
+        if contract_sha256 != memory.PINNED_CONTRACT_SHA256:
+            raise ValueError(
+                "pattern memory contract hash changed without explicit "
+                f"immutable-chain migration:{contract_sha256}"
+            )
         observations, _, _ = memory.validate_chain(
             memory.read_jsonl(observations_path),
             expected_schema=memory.OBSERVATION_SCHEMA_VERSION,

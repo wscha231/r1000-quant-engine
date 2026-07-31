@@ -3207,10 +3207,15 @@ Expected contract:
   so a delayed retry can revalidate the first-attempt evidence without creating
   a new observation timestamp. Match the recovery bundle to the unaccepted
   suffix's stored summary hash; multiple prior attempts are not ambiguity when
-  exactly one has the required provenance. Invalidate pattern READY before the
-  first fallible same-close or ledger command, and keep that BLOCKED marker
-  untouched while recovery advances the durable head. Only the post-ledger
-  call may publish READY.
+  exactly one has the required provenance. A legacy outcome-only suffix can
+  match its stored source/benchmark endpoint-payload hashes instead. Do not
+  change a hash-pinned contract without an explicit chain migration; workflow
+  hardening that does not alter event semantics stays in code and this ledger.
+  Invalidate pattern READY before the first fallible same-close or ledger
+  command, and keep that BLOCKED marker untouched while recovery advances the
+  durable head. Only the post-ledger call may publish READY, whose parent
+  provenance must come from the accepted manifest rather than the retry's
+  in-memory head.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared
