@@ -144,6 +144,67 @@ def args_for(summary: Path, archive: Path, date: str) -> argparse.Namespace:
 
 
 def main() -> None:
+    sessions = [
+        pd.Timestamp(value).date().isoformat()
+        for value in memory.mcal.get_calendar("NYSE")
+        .schedule(start_date="2026-01-02", end_date="2026-03-31")
+        .index[:30]
+    ]
+    synthetic_observations = [
+        {
+            "event_id": f"observation-{index}",
+            "source_kind": "SECURITY",
+            "ticker": f"T{index:02d}",
+            "as_of_date": session,
+            "observed_close": 100.0,
+            "return_transition_signature": "DOWN_TO_UP_REVERSAL",
+        }
+        for index, session in enumerate(sessions)
+    ]
+    synthetic_outcomes = [
+        {
+            "observation_event_id": f"observation-{index}",
+            "source_kind": "SECURITY",
+            "pattern_signature": "DOWN_TO_UP_REVERSAL",
+            "horizon_nyse_sessions": 1,
+            "forward_return": 0.01,
+            "excess_return_vs_spy": 0.0,
+        }
+        for index in range(29)
+    ]
+    censored = memory.aggregate_outcomes(
+        synthetic_observations,
+        synthetic_outcomes,
+        30,
+        1.0,
+        "2026-04-01",
+        [1],
+    )[0]
+    assert censored["matured_observation_count"] == 30
+    assert censored["resolved_observation_count"] == 29
+    assert censored["missing_exact_outcome_count"] == 1
+    assert censored["directional_statistics_published"] is False
+    synthetic_outcomes.append(
+        {
+            "observation_event_id": "observation-29",
+            "source_kind": "SECURITY",
+            "pattern_signature": "DOWN_TO_UP_REVERSAL",
+            "horizon_nyse_sessions": 1,
+            "forward_return": 0.01,
+            "excess_return_vs_spy": 0.0,
+        }
+    )
+    complete = memory.aggregate_outcomes(
+        synthetic_observations,
+        synthetic_outcomes,
+        30,
+        1.0,
+        "2026-04-01",
+        [1],
+    )[0]
+    assert complete["resolution_coverage"] == 1.0
+    assert complete["directional_statistics_published"] is True
+
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         archive = root / "archive" / "ohlcv_pattern_memory"
@@ -191,6 +252,9 @@ def main() -> None:
             and row["horizon_nyse_sessions"] == 1
         )
         assert security_aggregate["resolved_observation_count"] == 1
+        assert security_aggregate["matured_observation_count"] == 1
+        assert security_aggregate["missing_exact_outcome_count"] == 0
+        assert security_aggregate["resolution_coverage"] == 1.0
         assert security_aggregate["underpowered"] is True
         assert security_aggregate["directional_statistics_published"] is False
         assert "directional_statistics" not in security_aggregate

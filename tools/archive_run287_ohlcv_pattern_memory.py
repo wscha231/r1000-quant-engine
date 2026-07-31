@@ -18,6 +18,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -291,6 +292,7 @@ def append_rows(path: Path, rows: Iterable[Mapping[str, Any]]) -> int:
     return len(payloads)
 
 
+@lru_cache(maxsize=None)
 def exact_target_session(origin: str, horizon: int) -> str:
     start = pd.Timestamp(origin)
     schedule = mcal.get_calendar("NYSE").schedule(
@@ -551,12 +553,17 @@ def aggregate_outcomes(
     observations: Iterable[Mapping[str, Any]],
     outcomes: Iterable[Mapping[str, Any]],
     minimum_resolved: int,
+    minimum_resolution_coverage: float,
+    as_of_date: str,
+    horizons: Iterable[int],
 ) -> list[dict[str, Any]]:
+    observation_rows = list(observations)
+    outcome_rows = list(outcomes)
     observation_map = {
-        str(row.get("event_id") or ""): row for row in observations
+        str(row.get("event_id") or ""): row for row in observation_rows
     }
     grouped: dict[tuple[str, str, int], list[Mapping[str, Any]]] = defaultdict(list)
-    for outcome in outcomes:
+    for outcome in outcome_rows:
         observation = observation_map.get(
             str(outcome.get("observation_event_id") or "")
         ) or {}
@@ -570,19 +577,50 @@ def aggregate_outcomes(
             int(outcome.get("horizon_nyse_sessions") or 0),
         )
         grouped[key].append(outcome)
+    matured: dict[tuple[str, str, int], int] = defaultdict(int)
+    for observation in observation_rows:
+        origin = str(observation.get("as_of_date") or "")
+        if not origin or finite(observation.get("observed_close")) in (None, 0.0):
+            continue
+        for horizon_value in horizons:
+            horizon = int(horizon_value)
+            if exact_target_session(origin, horizon) <= as_of_date:
+                key = (
+                    str(observation.get("source_kind") or ""),
+                    str(
+                        observation.get("return_transition_signature")
+                        or "FLAT_OR_INSUFFICIENT"
+                    ),
+                    horizon,
+                )
+                matured[key] += 1
     aggregates: list[dict[str, Any]] = []
-    for (source_kind, pattern, horizon), rows in sorted(grouped.items()):
+    for source_kind, pattern, horizon in sorted(set(grouped) | set(matured)):
+        rows = grouped.get((source_kind, pattern, horizon), [])
         count = len(rows)
+        matured_count = int(matured.get((source_kind, pattern, horizon), 0))
+        missing_count = max(0, matured_count - count)
+        resolution_coverage = (
+            count / matured_count if matured_count > 0 else 0.0
+        )
+        statistics_ready = bool(
+            count >= minimum_resolved
+            and resolution_coverage >= minimum_resolution_coverage
+        )
         result: dict[str, Any] = {
             "source_kind": source_kind,
             "pattern_signature": pattern,
             "horizon_nyse_sessions": horizon,
+            "matured_observation_count": matured_count,
             "resolved_observation_count": count,
+            "missing_exact_outcome_count": missing_count,
+            "resolution_coverage": resolution_coverage,
+            "minimum_resolution_coverage": minimum_resolution_coverage,
             "minimum_required": minimum_resolved,
-            "underpowered": count < minimum_resolved,
-            "directional_statistics_published": count >= minimum_resolved,
+            "underpowered": not statistics_ready,
+            "directional_statistics_published": statistics_ready,
         }
-        if count >= minimum_resolved:
+        if statistics_ready:
             returns = np.asarray(
                 [float(row["forward_return"]) for row in rows],
                 dtype=float,
@@ -619,14 +657,18 @@ def render_report(summary: Mapping[str, Any]) -> str:
         "- append-only forward research only; no target, order, cash, champion, production, or live mutation",
         "- one rebound is a descriptive fingerprint, never automatic evidence of trend repair",
         "",
-        "| Source | Pattern | Horizon | Resolved | Minimum | Underpowered |",
-        "| --- | --- | ---: | ---: | ---: | --- |",
+        "| Source | Pattern | Horizon | Matured | Resolved | Missing | Coverage | Minimum | Underpowered |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for row in summary.get("aggregates") or []:
         lines.append(
             f"| {row.get('source_kind')} | `{row.get('pattern_signature')}` | "
             f"{row.get('horizon_nyse_sessions')} | "
-            f"{row.get('resolved_observation_count')} | {row.get('minimum_required')} | "
+            f"{row.get('matured_observation_count')} | "
+            f"{row.get('resolved_observation_count')} | "
+            f"{row.get('missing_exact_outcome_count')} | "
+            f"{float(row.get('resolution_coverage') or 0.0):.1%} | "
+            f"{row.get('minimum_required')} | "
             f"`{row.get('underpowered')}` |"
         )
     lines.append("")
@@ -787,10 +829,20 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "minimum_resolved_observations_per_pattern_horizon"
             ]
         )
+        minimum_resolution_coverage = float(
+            contract["forward_learning"][
+                "minimum_resolution_coverage_for_directional_statistics"
+            ]
+        )
         aggregates = aggregate_outcomes(
             all_observations,
             all_outcomes,
             minimum,
+            minimum_resolution_coverage,
+            args.valuation_date,
+            contract["forward_learning"][
+                "outcome_horizons_nyse_sessions"
+            ],
         )
         sessions = sorted(
             {
@@ -834,6 +886,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "minimum_completed_sessions_before_proposal": minimum_sessions,
             "minimum_decision_weeks_before_proposal": minimum_weeks,
             "minimum_resolved_per_pattern_horizon": minimum,
+            "minimum_resolution_coverage_for_directional_statistics": (
+                minimum_resolution_coverage
+            ),
             "proposal_eligible": bool(
                 len(sessions) >= minimum_sessions
                 and len(weeks) >= minimum_weeks

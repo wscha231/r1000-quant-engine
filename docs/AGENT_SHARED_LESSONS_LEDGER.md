@@ -3178,9 +3178,11 @@ Expected contract:
   chains. Resolve 1/5/21/63/126-session outcomes only when the exact archived
   NYSE target session exists; never substitute a later price.
 - Publish counts and missingness only until a pattern/horizon has at least 30
-  resolved observations. Forward memory may propose research after the
-  session/week gates, but it cannot automatically update a model, champion,
-  target, order, or cash policy.
+  resolved observations and 100% exact-target resolution coverage for every
+  matured observation in that group. This prevents exited or disappeared
+  names from creating survivorship-biased pattern results. Forward memory may
+  propose research after the session/week gates, but it cannot automatically
+  update a model, champion, target, order, or cash policy.
 - Pattern-memory failure is isolated from the accepted portfolio ledger. Do
   not retry a partial ledger mutation; resume by event identity and chain
   validation on the next run.

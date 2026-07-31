@@ -52,9 +52,11 @@
     ],
     "benchmark": "SPY",
     "minimum_resolved_observations_per_pattern_horizon": 30,
+    "minimum_resolution_coverage_for_directional_statistics": 1.0,
     "minimum_completed_sessions_before_proposal": 60,
     "minimum_decision_weeks_before_proposal": 12,
     "underpowered_policy": "publish_counts_and_missingness_only_no_directional_statistics",
+    "missing_outcome_policy": "suppress_directional_statistics_until_every_matured_observation_in_the_pattern_horizon_has_an_exact_target_session_outcome",
     "automatic_model_update_allowed": false,
     "automatic_champion_promotion_allowed": false,
     "human_approval_required_for_any_policy_proposal": true
