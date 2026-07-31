@@ -2116,28 +2116,31 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__))},
         }
         report_text = render_report(payload)
+        report_sha256 = hashlib.sha256(
+            report_text.encode("utf-8")
+        ).hexdigest()
+        staged_report_path = (
+            output_dir
+            / "deferred_reports"
+            / args.valuation_date.replace("-", "")
+            / f"{report_sha256}.md"
+        )
+        if staged_report_path.is_file():
+            if sha256_file(staged_report_path) != report_sha256:
+                raise ValueError(
+                    f"immutable staged report mismatch:{staged_report_path}"
+                )
+        else:
+            atomic_write_text(staged_report_path, report_text)
         if preserve_public_marker:
-            report_sha256 = hashlib.sha256(
-                report_text.encode("utf-8")
-            ).hexdigest()
-            report_path = (
-                output_dir
-                / "deferred_reports"
-                / args.valuation_date.replace("-", "")
-                / f"{report_sha256}.md"
+            payload["outputs"]["deferred_report"] = fingerprint(
+                staged_report_path
             )
-            if report_path.is_file():
-                if sha256_file(report_path) != report_sha256:
-                    raise ValueError(
-                        f"immutable deferred report mismatch:{report_path}"
-                    )
-            else:
-                atomic_write_text(report_path, report_text)
-            payload["outputs"]["deferred_report"] = fingerprint(report_path)
         else:
             report_path = output_dir / "report.md"
-            atomic_write_text(report_path, report_text)
-            payload["outputs"]["report"] = fingerprint(report_path)
+            payload["outputs"]["staged_report"] = fingerprint(
+                staged_report_path
+            )
         accepted_head = prepare_accepted_head(
             memory_dir=output_dir,
             observations=all_observations,
@@ -2196,9 +2199,52 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             )
         )
         payload["outputs"]["accepted_head_manifest"] = manifest_fingerprint
-        # READY public finalization is committed before the accepted head. If
-        # summary or last_attempt fails, the session remains an unaccepted
-        # suffix and the exception path replaces any partial public marker.
+        # Make the public summary the final visibility commit.  A hard stop at
+        # any earlier point must leave an exact-session BLOCKED marker rather
+        # than a READY summary whose accepted pointer is still the parent.
+        pending_publication = blocked(
+            output_dir,
+            ["session_failure:accepted_head_publication_pending"],
+            sources,
+            started,
+            failed_session_date=str(args.valuation_date),
+        )
+        pending_summary_path = output_dir / "summary.json"
+        pending_report_path = output_dir / "report.md"
+        pending_last_attempt_path = output_dir / "last_attempt.json"
+        pending_summary = read_json(pending_summary_path)
+        pending_last_attempt = read_json(pending_last_attempt_path)
+        pending_report = (
+            (pending_publication.get("outputs") or {}).get("report") or {}
+        )
+        if (
+            pending_summary.get("status") != BLOCKED_STATUS
+            or pending_summary.get("proposal_eligible") is not False
+            or str(pending_summary.get("failed_session_date") or "")
+            != str(args.valuation_date)
+            or pending_last_attempt.get("status") != BLOCKED_STATUS
+            or pending_last_attempt.get("summary_sha256")
+            != sha256_file(pending_summary_path)
+            or pending_report.get("hash_matches") is False
+            or pending_report.get("exists") is not True
+            or not pending_report_path.is_file()
+            or pending_report.get("sha256")
+            != sha256_file(pending_report_path)
+        ):
+            raise ValueError(
+                "accepted-head publication pending marker incomplete"
+            )
+        publish_accepted_head(
+            memory_dir=output_dir,
+            accepted_head=accepted_head,
+        )
+        if sha256_file(staged_report_path) != report_sha256:
+            raise ValueError("staged report changed before public commit")
+        atomic_write_text(
+            report_path,
+            staged_report_path.read_text(encoding="utf-8"),
+        )
+        payload["outputs"]["report"] = fingerprint(report_path)
         atomic_write_json(output_dir / "summary.json", payload)
         atomic_write_json(
             output_dir / "last_attempt.json",
@@ -2208,10 +2254,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "accepted_through": payload["accepted_through"],
                 "summary_sha256": sha256_file(output_dir / "summary.json"),
             },
-        )
-        publish_accepted_head(
-            memory_dir=output_dir,
-            accepted_head=accepted_head,
         )
         return payload
     except Exception as exc:

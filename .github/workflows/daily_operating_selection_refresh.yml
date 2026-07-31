@@ -471,7 +471,7 @@ jobs:
           echo "artifact_metadata=$ARTIFACT_METADATA" >> "$GITHUB_OUTPUT"
 
       - name: Restore Run287 research-static archive cache
-        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
+        if: steps.market.outputs.ready == 'yes'
         id: run287-research-static-cache
         uses: actions/cache/restore@v4
         with:
@@ -1606,7 +1606,7 @@ jobs:
           echo "[risk-outcome] restored verified immutable accepted head=$SELECTED_SHA"
 
       - name: Restore verified Run287 research-static archive
-        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
+        if: steps.market.outputs.ready == 'yes'
         id: run287-research-static
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
@@ -1627,6 +1627,10 @@ jobs:
               --stats 30s --stats-one-line || true
           fi
           if [ ! -s "$ARCHIVE" ]; then
+            if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
+              echo "[run287-static] chronological catch-up requires the hash-pinned frozen price histories" >&2
+              exit 1
+            fi
             echo "[run287-static] verified research archive unavailable; exact upstream will skip"
             echo "ready=no" >> "$GITHUB_OUTPUT"
             exit 0

@@ -3220,14 +3220,19 @@ Expected contract:
   subsequent recovery selects one bundle satisfying all suffix summary and
   endpoint identities. Equivalent legacy endpoint bundles may be
   deterministically deduplicated only when their complete endpoint signatures
-  match. Only the post-ledger call may publish READY; report, summary, and
-  last-attempt finalization precede the accepted-head commit, whose parent
-  provenance comes from the immutable manifest. If the scheduled run is later
-  than the pending session, publish that exact recovered session first after
-  the ledger boundary and suppress current-session pattern construction unless
-  it commits successfully. The atomic accepted pointer is the sole head commit
-  marker: a validated descendant manifest left by process interruption remains
-  an unaccepted exact-session suffix until the pointer is advanced by retry.
+  match. Only the post-ledger call may publish READY. First publish and verify
+  an exact-session BLOCKED summary/report/last-attempt set, durably stage the
+  immutable final report, then commit the accepted pointer, materialize the
+  final public report, and expose READY through `summary.json` only as the last
+  visibility commit. A hard stop anywhere
+  earlier therefore leaves either a resumable unaccepted suffix or a committed
+  head with a BLOCKED public marker; it never exposes an uncommitted READY.
+  If the scheduled run is later than the pending session, publish that exact
+  recovered session first after the ledger boundary and suppress
+  current-session pattern construction unless it commits successfully. The
+  atomic accepted pointer is the sole durable head commit marker: a validated
+  descendant manifest left by process interruption remains an unaccepted
+  exact-session suffix until the pointer is advanced by retry.
   When recovered D is committed during a D+1 run, commit only the immutable
   head and retain D+1's BLOCKED summary, report, and last-attempt bytes until
   D+1 finishes. Never accept D+2 while D+1 is absent: the first observation
@@ -3241,7 +3246,10 @@ Expected contract:
   daily artifact, revalidates its GitHub/workflow/repository/commit lineage,
   rebuilds the pattern sidecar from that exact-session packet, tags the delayed
   materialization, and accepts one immediate NYSE successor per dispatch while
-  paper operation stays replay-only with zero new orders or targets.
+  paper operation stays replay-only with zero new orders or targets. A copied
+  manifest is not a materialized dependency: catch-up must also restore the
+  immutable SHA-pinned research-static archive that owns all 363 frozen price
+  histories, and fail before ledger work when those exact bytes are unavailable.
 - Invalidate restored pattern READY before the first mark-only ledger call,
   stale-output cleanup, or holding-risk build. A producer-success guard is too
   late because any earlier `set -e` exit would otherwise republish stale

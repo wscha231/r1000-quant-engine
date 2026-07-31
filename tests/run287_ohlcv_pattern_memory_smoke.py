@@ -1041,6 +1041,10 @@ def main() -> None:
         )
         deferred_args.preserve_blocked_publication = True
         deferred_args.pending_session_date = "2026-07-30"
+        for staged_report in (
+            archive / "deferred_reports" / "20260729"
+        ).glob("*.md"):
+            staged_report.unlink()
         original_atomic_write_text = memory.atomic_write_text
 
         def fail_deferred_report(path: Path, text: str) -> None:
@@ -1053,7 +1057,9 @@ def main() -> None:
             deferred_failure = memory.build(deferred_args)
         finally:
             memory.atomic_write_text = original_atomic_write_text
-        assert deferred_failure["status"] == memory.BLOCKED_STATUS
+        assert (
+            deferred_failure["status"] == memory.BLOCKED_STATUS
+        ), deferred_failure
         assert deferred_failure["public_blocked_marker_preserved"] is True
         assert (archive / "summary.json").read_bytes() == blocked_summary_bytes
         assert (archive / "report.md").read_bytes() == blocked_report_bytes
@@ -1127,37 +1133,51 @@ def main() -> None:
             "head_id"
         ] == committed_head_id
 
-        # A last-attempt failure occurs after summary staging but before the
-        # accepted-head commit. The session must remain an unaccepted suffix.
+        # A hard stop while publishing the final READY summary occurs only
+        # after the accepted pointer and report are durable. The earlier
+        # publication-pending marker must therefore remain BLOCKED.
         original_atomic_write_json = memory.atomic_write_json
-        failed_last_attempt_once = False
+        interrupted_ready_summary_once = False
 
-        def fail_last_attempt_once(
+        def interrupt_ready_summary_once(
             path: Path,
             payload: dict[str, object],
         ) -> None:
-            nonlocal failed_last_attempt_once
-            if path.name == "last_attempt.json" and not failed_last_attempt_once:
-                failed_last_attempt_once = True
-                raise OSError("simulated READY last-attempt failure")
+            nonlocal interrupted_ready_summary_once
+            if (
+                path.name == "summary.json"
+                and payload.get("status") == memory.READY_STATUS
+                and not interrupted_ready_summary_once
+            ):
+                interrupted_ready_summary_once = True
+                raise KeyboardInterrupt("simulated hard stop before READY")
             original_atomic_write_json(path, payload)
 
-        memory.atomic_write_json = fail_last_attempt_once
+        memory.atomic_write_json = interrupt_ready_summary_once
         try:
-            public_commit_failure = memory.build(
-                args_for(
-                    selected_recovery_summary,
-                    archive,
-                    "2026-07-29",
+            try:
+                memory.build(
+                    args_for(
+                        selected_recovery_summary,
+                        archive,
+                        "2026-07-29",
+                    )
                 )
-            )
+            except KeyboardInterrupt:
+                pass
+            else:
+                raise AssertionError("simulated hard stop did not fire")
         finally:
             memory.atomic_write_json = original_atomic_write_json
-        assert public_commit_failure["status"] == memory.BLOCKED_STATUS
-        assert not (archive / "accepted_head.json").exists()
-        assert not (archive / "accepted_heads").exists()
+        interrupted_public = memory.read_json(archive / "summary.json")
+        assert interrupted_public["status"] == memory.BLOCKED_STATUS
+        assert interrupted_public["proposal_eligible"] is False
+        assert interrupted_public["failed_session_date"] == "2026-07-29"
+        assert (archive / "accepted_head.json").is_file()
+        assert (archive / "accepted_heads").is_dir()
 
-        # Only the post-ledger publication call exposes READY.
+        # The exact-session retry finalizes the already committed head and is
+        # the first point at which the public summary exposes READY.
         resumed = memory.build(
             args_for(selected_recovery_summary, archive, "2026-07-29")
         )

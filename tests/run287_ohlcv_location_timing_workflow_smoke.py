@@ -18,6 +18,12 @@ def main() -> None:
         "python tools/build_run287_ohlcv_location_timing_challenger.py",
         first_ledger,
     )
+    static_cache = text.index(
+        "- name: Restore Run287 research-static archive cache"
+    )
+    static_restore = text.index(
+        "- name: Restore verified Run287 research-static archive"
+    )
     producer = text.index(
         "python tools/run_run287_exact_packet_producer.py",
         catchup_timing,
@@ -33,7 +39,9 @@ def main() -> None:
         timing,
     )
     assert (
-        pending
+        static_cache
+        < static_restore
+        < pending
         < first_ledger
         < catchup_timing
         < producer
@@ -43,6 +51,22 @@ def main() -> None:
         < memory
     )
     catchup_block = text[catchup_timing:producer]
+    static_restore_block = text[static_restore:first_ledger]
+    assert (
+        "if: steps.market.outputs.ready == 'yes'\n"
+        "        id: run287-research-static-cache"
+        in text[static_cache : static_cache + 300]
+    )
+    assert (
+        "if: steps.market.outputs.ready == 'yes'\n"
+        "        id: run287-research-static"
+        in text[static_restore : static_restore + 300]
+    )
+    assert (
+        "chronological catch-up requires the hash-pinned frozen "
+        "price histories" in static_restore_block
+    )
+    assert '--destination-root run287_research_static' in static_restore_block
     assert "CATCHUP_ARTIFACT_ROOT" in text[first_ledger:catchup_timing]
     assert "PATTERN_CATCHUP_SOURCE" in text[first_ledger:catchup_timing]
     assert (
