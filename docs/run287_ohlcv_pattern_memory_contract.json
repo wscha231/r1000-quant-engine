@@ -1,0 +1,78 @@
+{
+  "schema_version": "run287-ohlcv-pattern-memory-contract-v1",
+  "scope": "append_only_exact_close_forward_pattern_memory",
+  "source_contract": {
+    "schema_version": "run287-ohlcv-location-timing-challenger-v1",
+    "ready_statuses": [
+      "READY_OHLCV_LOCATION_TIMING_FORWARD_REVIEW_ONLY",
+      "READY_OHLCV_LOCATION_TIMING_FORWARD_REVIEW_ONLY_WITH_DATA_INSUFFICIENT"
+    ],
+    "required_outputs": [
+      "forward_observations",
+      "benchmark_location"
+    ],
+    "require_output_hash_match": true,
+    "require_exact_same_valuation_date": true
+  },
+  "event_contract": {
+    "observation_schema_version": "run287-ohlcv-pattern-observation-v1",
+    "outcome_schema_version": "run287-ohlcv-pattern-outcome-v1",
+    "append_only": true,
+    "same_identity_payload_change_allowed": false,
+    "out_of_order_observation_allowed": false,
+    "future_observation_allowed": false,
+    "exact_nyse_target_session_only": true,
+    "later_session_substitution_allowed": false,
+    "historical_backfill_allowed": false,
+    "source_kinds": [
+      "SECURITY",
+      "BENCHMARK"
+    ]
+  },
+  "pattern_contract": {
+    "field": "return_transition_signature",
+    "classes": [
+      "DOWN_TO_UP_REVERSAL",
+      "UP_TO_DOWN_REVERSAL",
+      "CONTINUED_DOWN",
+      "CONTINUED_UP",
+      "FLAT_OR_INSUFFICIENT"
+    ],
+    "classification_policy": "strict_observed_prior_and_current_return_signs_only",
+    "threshold_grid_allowed": false,
+    "post_outcome_relabeling_allowed": false
+  },
+  "forward_learning": {
+    "outcome_horizons_nyse_sessions": [
+      1,
+      5,
+      21,
+      63,
+      126
+    ],
+    "benchmark": "SPY",
+    "minimum_resolved_observations_per_pattern_horizon": 30,
+    "minimum_completed_sessions_before_proposal": 60,
+    "minimum_decision_weeks_before_proposal": 12,
+    "underpowered_policy": "publish_counts_and_missingness_only_no_directional_statistics",
+    "automatic_model_update_allowed": false,
+    "automatic_champion_promotion_allowed": false,
+    "human_approval_required_for_any_policy_proposal": true
+  },
+  "safety": {
+    "research_only": true,
+    "forward_observation_only": true,
+    "advisory_only": true,
+    "portfolio_transition_allowed": false,
+    "orders_generated": false,
+    "target_books_mutated": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "champion_changed": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}

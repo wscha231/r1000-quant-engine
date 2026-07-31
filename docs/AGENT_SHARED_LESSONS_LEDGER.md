@@ -3167,6 +3167,30 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-07-31 - exact-close shock/rebound pattern memory
+
+- A violent one-day rebound after a drawdown is an observation, not proof that
+  the damaged trend has repaired. Preserve the prior-day and current-day
+  return signs, two-day compounded return, prior-loss recovery fraction,
+  true-range/ATR, volume, volatility, range, trend, benchmark, and VIX context
+  without tuning a threshold to the observed episode.
+- Persist pattern observations and outcomes as separate append-only hash
+  chains. Resolve 1/5/21/63/126-session outcomes only when the exact archived
+  NYSE target session exists; never substitute a later price.
+- Publish counts and missingness only until a pattern/horizon has at least 30
+  resolved observations. Forward memory may propose research after the
+  session/week gates, but it cannot automatically update a model, champion,
+  target, order, or cash policy.
+- Pattern-memory failure is isolated from the accepted portfolio ledger. Do
+  not retry a partial ledger mutation; resume by event identity and chain
+  validation on the next run.
+- The 2026-07-30 mark remains `RESEARCH_ONLY` while the official durable
+  account head is blocked after 2026-07-23 by the explicit legacy
+  risk-outcome-parent migration gate. Do not silently jump sessions or use
+  stale fallback evidence.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.
+
 ## 2026-07-29 - OHLCV location timing must remain confirmation-only
 
 - A range low, range high, or Fibonacci retracement is a location coordinate,

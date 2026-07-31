@@ -23,6 +23,7 @@ from tools.build_run287_ohlcv_location_timing_challenger import (  # noqa: E402
     classify_shadow_action,
     fixed_window_features,
     merge_frozen_and_provider,
+    return_transition_signature,
     vix_context,
 )
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
@@ -288,6 +289,17 @@ def main() -> None:
             / "run287_ohlcv_location_timing_challenger_contract.json"
         ).read_text(encoding="utf-8")
     )
+    assert (
+        return_transition_signature(-0.04, 0.06)
+        == "DOWN_TO_UP_REVERSAL"
+    )
+    assert (
+        return_transition_signature(0.04, -0.06)
+        == "UP_TO_DOWN_REVERSAL"
+    )
+    assert return_transition_signature(-0.04, -0.01) == "CONTINUED_DOWN"
+    assert return_transition_signature(0.04, 0.01) == "CONTINUED_UP"
+    assert return_transition_signature(0.0, 0.01) == "FLAT_OR_INSUFFICIENT"
     # Future rows are excluded and historical adjusted closes are rebased
     # without accepting a raw-close identity break.
     base_close = np.linspace(80.0, 120.0, 340)
@@ -503,6 +515,12 @@ def main() -> None:
         assert rows.loc["AAA", "shadow_action"] == "EXIT_REVIEW", rows.loc[
             "AAA"
         ].to_dict()
+        assert rows.loc["AAA", "return_transition_signature"] == "CONTINUED_DOWN"
+        assert rows.loc["AAA", "prior_return_1d"] < 0.0
+        assert rows.loc["AAA", "return_2d"] < 0.0
+        assert truth(rows.loc["AAA", "prior_down_current_up"]) is False
+        assert rows.loc["AAA", "true_range_atr14"] > 0.0
+        assert rows.loc["AAA", "prior_true_range_atr14"] > 0.0
         assert rows.loc["BBB", "shadow_action"] != "ENTRY_CONFIRM_REVIEW"
         assert truth(rows.loc["AAA", "vix_is_standalone_stock_action_evidence"]) is False
         observations = (

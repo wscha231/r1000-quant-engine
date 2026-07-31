@@ -191,6 +191,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_holding_risk_watch_smoke.py", []),
     ("tests/run287_candidate_risk_watch_smoke.py", []),
     ("tests/run287_ohlcv_location_timing_challenger_smoke.py", []),
+    ("tests/run287_ohlcv_pattern_memory_smoke.py", []),
     ("tests/run287_ohlcv_location_timing_workflow_smoke.py", []),
     ("tests/run287_exact_packet_input_registry_smoke.py", []),
     ("tests/run287_exact_packet_producer_smoke.py", []),

@@ -369,6 +369,26 @@ def past_percentile(series: pd.Series, minimum: int = 60) -> tuple[float | None,
     return float((clean <= current).mean()), int(len(clean))
 
 
+def return_transition_signature(
+    prior_return_1d: Any,
+    return_1d: Any,
+) -> str:
+    """Classify only the two observed signs; do not tune a shock threshold."""
+    prior = finite(prior_return_1d)
+    current = finite(return_1d)
+    if prior is None or current is None or prior == 0.0 or current == 0.0:
+        return "FLAT_OR_INSUFFICIENT"
+    if prior < 0.0 < current:
+        return "DOWN_TO_UP_REVERSAL"
+    if prior > 0.0 > current:
+        return "UP_TO_DOWN_REVERSAL"
+    if prior < 0.0 and current < 0.0:
+        return "CONTINUED_DOWN"
+    if prior > 0.0 and current > 0.0:
+        return "CONTINUED_UP"
+    return "FLAT_OR_INSUFFICIENT"
+
+
 def fixed_window_features(
     ticker: str,
     px: pd.DataFrame,
@@ -409,6 +429,9 @@ def fixed_window_features(
     atr14 = true_range.rolling(14, min_periods=14).mean()
     current_close = float(close.iloc[-1])
     current_atr = finite(atr14.iloc[-1])
+    current_true_range = finite(true_range.iloc[-1])
+    prior_atr = finite(atr14.iloc[-2]) if len(atr14) >= 2 else None
+    prior_true_range = finite(true_range.iloc[-2]) if len(true_range) >= 2 else None
     prior_volume = volume.shift(1).rolling(20, min_periods=20)
     volume_mean20 = prior_volume.mean()
     volume_std20 = prior_volume.std(ddof=0).replace(0.0, np.nan)
@@ -422,6 +445,28 @@ def fixed_window_features(
     realized63 = returns.rolling(63, min_periods=63).std(ddof=0) * math.sqrt(252)
     realized_ratio = realized20 / realized63.replace(0.0, np.nan)
     vol_percentile, vol_history = past_percentile(realized20, minimum=60)
+    prior_return_1d = finite(returns.iloc[-2]) if len(returns) >= 2 else None
+    current_return_1d = finite(returns.iloc[-1])
+    return_2d = (
+        finite(close.iloc[-1] / close.iloc[-3] - 1.0)
+        if len(close) >= 3
+        else None
+    )
+    prior_loss_recovery_fraction = None
+    if (
+        prior_return_1d is not None
+        and current_return_1d is not None
+        and prior_return_1d < 0.0 < current_return_1d
+        and len(close) >= 3
+    ):
+        prior_loss = float(close.iloc[-3] - close.iloc[-2])
+        current_gain = float(close.iloc[-1] - close.iloc[-2])
+        if prior_loss > 0.0:
+            prior_loss_recovery_fraction = current_gain / prior_loss
+    transition_signature = return_transition_signature(
+        prior_return_1d,
+        current_return_1d,
+    )
 
     row.update(
         close=current_close,
@@ -430,11 +475,26 @@ def fixed_window_features(
         low=finite(low.iloc[-1]),
         volume=finite(volume.iloc[-1]),
         dollar_volume=finite(px["dollar_volume"].iloc[-1]),
-        return_1d=finite(returns.iloc[-1]),
+        prior_return_1d=prior_return_1d,
+        return_1d=current_return_1d,
+        return_2d=return_2d,
+        return_transition_signature=transition_signature,
+        prior_down_current_up=transition_signature == "DOWN_TO_UP_REVERSAL",
+        prior_loss_recovery_fraction=prior_loss_recovery_fraction,
         gap_return=finite(gap.iloc[-1]),
         intraday_return=finite(intraday_return.iloc[-1]),
         close_location_in_bar=finite(close_location.iloc[-1]),
         atr14=finite(atr14.iloc[-1]),
+        true_range_atr14=(
+            None
+            if current_atr in (None, 0.0) or current_true_range is None
+            else current_true_range / float(current_atr)
+        ),
+        prior_true_range_atr14=(
+            None
+            if prior_atr in (None, 0.0) or prior_true_range is None
+            else prior_true_range / float(prior_atr)
+        ),
         atr14_pct=(
             None if current_atr is None else current_atr / current_close
         ),
@@ -1098,8 +1158,8 @@ def render_report(summary: Mapping[str, Any], rows: pd.DataFrame) -> str:
         "- Fibonacci levels are fixed descriptive coordinates, not standalone alpha evidence",
         "- VIX alone cannot produce a stock action",
         "",
-        "| Ticker | Role | Location | 1D | 21D | Vol z | RV pct | Shadow action | Reasons |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Ticker | Role | Pattern | Location | Prior 1D | 1D | 21D | Vol z | RV pct | Shadow action | Reasons |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for row in rows.to_dict("records"):
         def pct(value: Any) -> str:
@@ -1120,8 +1180,10 @@ def render_report(summary: Mapping[str, Any], rows: pd.DataFrame) -> str:
             else "observe"
         )
         lines.append(
-            f"| {row.get('ticker', '')} | {role} | `{row.get('location_state', '')}` | "
-            f"{pct(row.get('return_1d'))} | {pct(row.get('return_21d'))} | "
+            f"| {row.get('ticker', '')} | {role} | `{row.get('return_transition_signature', '')}` | "
+            f"`{row.get('location_state', '')}` | "
+            f"{pct(row.get('prior_return_1d'))} | {pct(row.get('return_1d'))} | "
+            f"{pct(row.get('return_21d'))} | "
             f"{number(row.get('volume_z_20d_past_only'))} | "
             f"{pct(row.get('realized_vol_20d_past_percentile'))} | "
             f"`{row.get('shadow_action', '')}` | {row.get('shadow_reason_codes', '')} |"

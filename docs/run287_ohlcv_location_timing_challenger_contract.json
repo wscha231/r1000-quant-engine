@@ -36,6 +36,30 @@
     126,
     252
   ],
+  "return_transition_fingerprint": {
+    "inputs": [
+      "prior_return_1d",
+      "return_1d"
+    ],
+    "classes": [
+      "DOWN_TO_UP_REVERSAL",
+      "UP_TO_DOWN_REVERSAL",
+      "CONTINUED_DOWN",
+      "CONTINUED_UP",
+      "FLAT_OR_INSUFFICIENT"
+    ],
+    "classification_policy": "strict_observed_signs_only_zero_or_missing_is_flat_or_insufficient",
+    "magnitude_context": [
+      "return_2d",
+      "prior_loss_recovery_fraction",
+      "true_range_atr14",
+      "prior_true_range_atr14",
+      "volume_z_20d_past_only",
+      "realized_vol_20d_past_percentile"
+    ],
+    "threshold_tuning_from_observed_shock_allowed": false,
+    "standalone_trade_authority": false
+  },
   "location_lookbacks_trading_days": [
     21,
     63,

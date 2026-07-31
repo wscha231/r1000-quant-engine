@@ -2649,6 +2649,15 @@ jobs:
             --output-dir "$OHLCV_TIMING_DIR" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log; then
             echo "[daily-operating] OHLCV location timing forward observation completed after the same-close transaction boundary"
+            if python tools/archive_run287_ohlcv_pattern_memory.py \
+              --timing-summary "$OHLCV_TIMING_DIR/summary.json" \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
+              echo "[daily-operating] append-only OHLCV pattern memory accepted the exact-close observation"
+            else
+              echo "[daily-operating] OHLCV pattern memory blocked; no retry; append-only memory resumes by event identity, and targets/ledger were not mutated"
+            fi
           else
             echo "[daily-operating] OHLCV location timing sidecar blocked after the same-close transaction boundary; no target or ledger state was gated or mutated"
           fi
@@ -3121,6 +3130,7 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
             outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
+            outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
             outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_anchor.log
