@@ -54,6 +54,10 @@ def write_timing(
             stock_return,
         ),
         "prior_down_current_up": stock_prior_return < 0.0 < stock_return,
+        "range_21d_position": 0.21,
+        "range_63d_position": 0.36,
+        "range_126d_position": 0.52,
+        "range_252d_position": 0.68,
         "data_reason": "",
         "is_held": True,
         "portfolios": "main",
@@ -273,6 +277,18 @@ def main() -> None:
     )[0]
     assert complete["resolution_coverage"] == 1.0
     assert complete["directional_statistics_published"] is True
+    gap_suppressed = memory.aggregate_outcomes(
+        synthetic_observations,
+        synthetic_outcomes,
+        30,
+        1.0,
+        "2026-04-01",
+        [1],
+        session_coverage_complete=False,
+    )[0]
+    assert gap_suppressed["resolution_coverage"] == 1.0
+    assert gap_suppressed["session_coverage_complete"] is False
+    assert gap_suppressed["directional_statistics_published"] is False
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -292,9 +308,20 @@ def main() -> None:
         assert first["appended_observation_count"] == 3
         assert first["resolved_outcome_event_count"] == 0
         assert first["proposal_eligible"] is False
+        assert first["session_coverage_complete"] is True
+        assert first["missing_session_dates"] == []
         assert first["accepted_head_id"]
         assert (archive / "accepted_head.json").is_file()
         assert len(list((archive / "accepted_heads").glob("*/manifest.json"))) == 1
+        first_security_observation = next(
+            row
+            for row in memory.read_jsonl(archive / "observations.jsonl")
+            if row["source_kind"] == "SECURITY"
+        )
+        assert first_security_observation["range_21d_position"] == 0.21
+        assert first_security_observation["range_63d_position"] == 0.36
+        assert first_security_observation["range_126d_position"] == 0.52
+        assert first_security_observation["range_252d_position"] == 0.68
 
         repeated = memory.build(args_for(first_summary, archive, "2026-07-29"))
         assert repeated["status"] == memory.READY_STATUS, repeated
@@ -333,6 +360,45 @@ def main() -> None:
         assert regenerated["status"] == memory.READY_STATUS, regenerated
         assert regenerated["appended_observation_count"] == 0
         assert regenerated["accepted_head_id"] == first["accepted_head_id"]
+
+        accepted_source_bytes = first_observation_path.read_bytes()
+        accepted_source_payload = json.loads(
+            first_summary.read_text(encoding="utf-8")
+        )
+        extra_security = {
+            **regenerated_rows[0],
+            "ticker": "CCC",
+            "close": 77.0,
+        }
+        first_observation_path.write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+                for row in [*regenerated_rows, extra_security]
+            ),
+            encoding="utf-8",
+        )
+        changed_cohort_payload = {
+            **accepted_source_payload,
+            "outputs": {
+                **accepted_source_payload["outputs"],
+                "forward_observations": fingerprint(
+                    first_observation_path
+                ),
+            },
+        }
+        write_json(first_summary, changed_cohort_payload)
+        changed_cohort = memory.build(
+            args_for(first_summary, archive, "2026-07-29")
+        )
+        assert changed_cohort["status"] == memory.BLOCKED_STATUS
+        assert "accepted observation session cohort changed" in " ".join(
+            changed_cohort["contract_failures"]
+        )
+        first_observation_path.write_bytes(accepted_source_bytes)
+        accepted_source_payload["outputs"][
+            "forward_observations"
+        ] = fingerprint(first_observation_path)
+        write_json(first_summary, accepted_source_payload)
 
         second_summary = write_timing(
             root,
@@ -384,6 +450,49 @@ def main() -> None:
             "EXACT_ARCHIVED_NYSE_TARGET_SESSION_ONLY"
         )
         assert stock_outcome["adjustment_basis_as_of"] == "2026-07-30"
+
+        accepted_second_payload = json.loads(
+            second_summary.read_text(encoding="utf-8")
+        )
+        accepted_endpoint_path = Path(
+            accepted_second_payload["outputs"][
+                "forward_outcome_endpoints"
+            ]["path"]
+        )
+        accepted_endpoint_bytes = accepted_endpoint_path.read_bytes()
+        changed_endpoint_rows = memory.read_jsonl(accepted_endpoint_path)
+        for row in changed_endpoint_rows:
+            if row["source_kind"] == "SECURITY":
+                row["target_close_on_target_adjustment_basis"] = 101.0
+        accepted_endpoint_path.write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+                for row in changed_endpoint_rows
+            ),
+            encoding="utf-8",
+        )
+        changed_endpoint_payload = {
+            **accepted_second_payload,
+            "outputs": {
+                **accepted_second_payload["outputs"],
+                "forward_outcome_endpoints": fingerprint(
+                    accepted_endpoint_path
+                ),
+            },
+        }
+        write_json(second_summary, changed_endpoint_payload)
+        changed_outcome_retry = memory.build(
+            args_for(second_summary, archive, "2026-07-30")
+        )
+        assert changed_outcome_retry["status"] == memory.BLOCKED_STATUS
+        assert "same identity payload changed" in " ".join(
+            changed_outcome_retry["contract_failures"]
+        )
+        accepted_endpoint_path.write_bytes(accepted_endpoint_bytes)
+        accepted_second_payload["outputs"][
+            "forward_outcome_endpoints"
+        ] = fingerprint(accepted_endpoint_path)
+        write_json(second_summary, accepted_second_payload)
 
         frozen_observation_bytes = (
             archive / "observations.jsonl"
@@ -485,6 +594,43 @@ def main() -> None:
         assert "archive event hash mismatch" in " ".join(
             tampered["contract_failures"]
         )
+
+    # A failed or absent launch-session observation can never disappear from
+    # the learning denominator. Later sessions may remain research-visible,
+    # but all directional statistics and proposals stay suppressed.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive = root / "archive" / "ohlcv_pattern_memory"
+        gap_summary = write_timing(
+            root,
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=-0.04,
+            stock_return=0.06,
+            spy_close=505.0,
+            spy_prior_return=-0.02,
+            spy_return=0.03,
+        )
+        gap = memory.build(
+            args_for(gap_summary, archive, "2026-07-30")
+        )
+        assert gap["status"] == memory.READY_STATUS, gap
+        assert gap["session_coverage_complete"] is False
+        assert gap["missing_session_dates"] == ["2026-07-29"]
+        assert gap["proposal_eligible"] is False
+        assert all(
+            row["directional_statistics_published"] is False
+            and row["session_coverage_complete"] is False
+            for row in gap["aggregates"]
+        )
+        accepted_head = memory.read_json(
+            archive
+            / "accepted_heads"
+            / gap["accepted_head_id"]
+            / "manifest.json"
+        )
+        assert accepted_head["missing_session_dates"] == ["2026-07-29"]
+        assert accepted_head["session_coverage_complete"] is False
 
     # A security outcome is unresolved when either exact SPY endpoint is
     # absent, even if the security's own target-basis endpoint is complete.

@@ -951,14 +951,6 @@ def load_pattern_outcome_requests(
                 / str(accepted_head["head_id"])
                 / "manifest.json"
             )
-        resolved = {
-            (
-                str(row.get("observation_event_id") or ""),
-                int(row.get("horizon_nyse_sessions") or 0),
-                str(row.get("target_session_date") or ""),
-            )
-            for row in outcomes
-        }
         requests: list[dict[str, Any]] = []
         for observation in observations:
             origin = str(observation.get("as_of_date") or "")
@@ -972,7 +964,7 @@ def load_pattern_outcome_requests(
                     horizon,
                     target,
                 )
-                if target != valuation_date or identity in resolved:
+                if target != valuation_date:
                     continue
                 requests.append(
                     {

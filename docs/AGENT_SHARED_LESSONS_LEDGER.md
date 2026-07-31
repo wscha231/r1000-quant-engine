@@ -3185,6 +3185,13 @@ Expected contract:
 - Persist immutable parent-linked accepted-head manifests and verify that a
   restored archive is an exact chain and byte-prefix descendant. An internally
   valid older prefix or fork is a rollback blocker, not a fallback.
+- Freeze the full source-kind/ticker cohort after a session head is accepted.
+  Retry-generated outcomes must also be reconstructed and economically
+  compared before an existing event ID is treated as idempotent.
+- Use producer-exact feature names in the archive allowlist; inverse aliases
+  silently discard PIT context. Treat every NYSE session from the immutable
+  forward launch date as required: a missing session remains in accepted-head
+  provenance and suppresses all directional statistics and proposals.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

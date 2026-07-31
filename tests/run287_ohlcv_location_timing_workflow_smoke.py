@@ -50,8 +50,11 @@ def main() -> None:
         in memory_block
     )
     assert "daily_run287_ohlcv_pattern_memory.log" in memory_block
-    assert "no retry; append-only memory resumes by event identity" in memory_block
     assert "targets/ledger were not mutated" in memory_block
+    assert (
+        "missing exact session keeps all later pattern statistics/proposals suppressed"
+        in memory_block
+    )
     target_block = text[targets:ledger]
     assert "ohlcv_location_timing" not in target_block
     assert "timing_challenger" not in target_block

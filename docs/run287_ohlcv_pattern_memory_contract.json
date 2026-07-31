@@ -47,6 +47,7 @@
     "post_outcome_relabeling_allowed": false
   },
   "forward_learning": {
+    "accepted_forward_launch_session": "2026-07-29",
     "outcome_horizons_nyse_sessions": [
       1,
       5,
@@ -60,6 +61,7 @@
     "minimum_resolution_coverage_for_directional_statistics": 1.0,
     "minimum_completed_sessions_before_proposal": 60,
     "minimum_decision_weeks_before_proposal": 12,
+    "session_failure_policy": "every_nyse_session_from_launch_through_as_of_must_be_present_or_directional_statistics_and_proposals_remain_blocked",
     "underpowered_policy": "publish_counts_and_missingness_only_no_directional_statistics",
     "missing_outcome_policy": "suppress_directional_statistics_until_every_matured_observation_in_the_pattern_horizon_has_an_exact_target_session_outcome",
     "automatic_model_update_allowed": false,

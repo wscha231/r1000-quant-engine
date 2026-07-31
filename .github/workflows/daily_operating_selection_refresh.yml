@@ -2657,10 +2657,10 @@ jobs:
               2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
               echo "[daily-operating] append-only OHLCV pattern memory accepted the exact-close observation"
             else
-              echo "[daily-operating] OHLCV pattern memory blocked; no retry; append-only memory resumes by event identity, and targets/ledger were not mutated"
+              echo "[daily-operating] OHLCV pattern memory blocked; targets/ledger were not mutated, and the missing exact session keeps all later pattern statistics/proposals suppressed"
             fi
           else
-            echo "[daily-operating] OHLCV location timing sidecar blocked after the same-close transaction boundary; no target or ledger state was gated or mutated"
+            echo "[daily-operating] OHLCV location timing sidecar blocked after the same-close transaction boundary; no target or ledger state was gated or mutated, and the missing exact session keeps all later pattern statistics/proposals suppressed"
           fi
           else
             echo "[daily-operating] same-close selector skipped because current producer failed"

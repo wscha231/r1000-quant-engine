@@ -75,10 +75,10 @@ FEATURE_FIELDS = (
     "above_ma50",
     "above_ma200",
     "location_state",
-    "range_position_21d",
-    "range_position_63d",
-    "range_position_126d",
-    "range_position_252d",
+    "range_21d_position",
+    "range_63d_position",
+    "range_126d_position",
+    "range_252d_position",
     "vix_level",
     "vix_return_1d",
     "vix_z_63d",
@@ -476,6 +476,8 @@ def publish_accepted_head(
     outcomes: list[dict[str, Any]],
     contract_sha256: str,
     accepted_through: str,
+    expected_session_count: int,
+    missing_session_dates: list[str],
 ) -> dict[str, Any]:
     prior = validate_accepted_head_state(
         memory_dir=memory_dir,
@@ -537,6 +539,9 @@ def publish_accepted_head(
             outcome_fingerprint["sha256"]
             or hashlib.sha256(b"").hexdigest()
         ),
+        "expected_session_count": int(expected_session_count),
+        "missing_session_dates": list(missing_session_dates),
+        "session_coverage_complete": not missing_session_dates,
         "research_only": True,
         "portfolio_transition_allowed": False,
         "orders_generated": False,
@@ -580,6 +585,33 @@ def exact_target_session(origin: str, horizon: int) -> str:
     if len(sessions) < horizon:
         raise ValueError(f"NYSE horizon unavailable:{origin}:{horizon}")
     return sessions[horizon - 1]
+
+
+def expected_forward_sessions(
+    launch_session: str,
+    as_of_date: str,
+) -> list[str]:
+    launch = pd.Timestamp(launch_session).normalize()
+    as_of = pd.Timestamp(as_of_date).normalize()
+    if launch > as_of:
+        return []
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=launch.date().isoformat(),
+        end_date=as_of.date().isoformat(),
+    )
+    sessions = [
+        pd.Timestamp(value).date().isoformat()
+        for value in schedule.index
+    ]
+    if not sessions or sessions[0] != launch.date().isoformat():
+        raise ValueError(
+            f"forward launch session is not an exact NYSE session:{launch_session}"
+        )
+    if sessions[-1] != as_of.date().isoformat():
+        raise ValueError(
+            f"pattern memory as-of is not an exact NYSE session:{as_of_date}"
+        )
+    return sessions
 
 
 def source_observations(
@@ -729,6 +761,37 @@ def merge_new_events(
     return new_rows, chain_head
 
 
+def validate_observation_session_cohort(
+    *,
+    valuation_date: str,
+    existing: Iterable[Mapping[str, Any]],
+    proposed: Iterable[Mapping[str, Any]],
+    durable_accepted_through: str,
+) -> None:
+    existing_ids = {
+        str(row.get("event_id") or "")
+        for row in existing
+        if str(row.get("as_of_date") or "") == valuation_date
+    }
+    proposed_ids = {
+        str(row.get("event_id") or "")
+        for row in proposed
+        if str(row.get("as_of_date") or "") == valuation_date
+    }
+    if durable_accepted_through == valuation_date:
+        if existing_ids != proposed_ids:
+            raise ValueError(
+                "accepted observation session cohort changed:"
+                f"{valuation_date}"
+            )
+        return
+    if not existing_ids.issubset(proposed_ids):
+        raise ValueError(
+            "unaccepted observation recovery cohort lost identities:"
+            f"{valuation_date}"
+        )
+
+
 def proposed_outcomes(
     *,
     observations: Iterable[Mapping[str, Any]],
@@ -814,7 +877,10 @@ def proposed_outcomes(
                     "memory_contract_sha256": contract_sha256,
                 }
             )
-            if identity in existing_outcome_ids:
+            if (
+                identity in existing_outcome_ids
+                and target_date < as_of_date
+            ):
                 continue
             endpoint_key = (
                 str(observation.get("event_id") or ""),
@@ -843,6 +909,11 @@ def proposed_outcomes(
                 or origin_close in (None, 0.0)
                 or target_close is None
             ):
+                if identity in existing_outcome_ids:
+                    raise ValueError(
+                        "accepted outcome retry endpoint incomplete:"
+                        f"{identity}"
+                    )
                 missing_exact += 1
                 continue
             forward_return = target_close / float(origin_close) - 1.0
@@ -875,6 +946,11 @@ def proposed_outcomes(
                     or benchmark_origin_close in (None, 0.0)
                     or benchmark_target_close is None
                 ):
+                    if identity in existing_outcome_ids:
+                        raise ValueError(
+                            "accepted outcome retry SPY endpoint incomplete:"
+                            f"{identity}"
+                        )
                     missing_exact += 1
                     continue
                 benchmark_return = (
@@ -941,6 +1017,7 @@ def aggregate_outcomes(
     minimum_resolution_coverage: float,
     as_of_date: str,
     horizons: Iterable[int],
+    session_coverage_complete: bool = True,
 ) -> list[dict[str, Any]]:
     observation_rows = list(observations)
     outcome_rows = list(outcomes)
@@ -991,6 +1068,7 @@ def aggregate_outcomes(
         statistics_ready = bool(
             count >= minimum_resolved
             and resolution_coverage >= minimum_resolution_coverage
+            and session_coverage_complete
         )
         result: dict[str, Any] = {
             "source_kind": source_kind,
@@ -1002,6 +1080,7 @@ def aggregate_outcomes(
             "resolution_coverage": resolution_coverage,
             "minimum_resolution_coverage": minimum_resolution_coverage,
             "minimum_required": minimum_resolved,
+            "session_coverage_complete": session_coverage_complete,
             "underpowered": not statistics_ready,
             "directional_statistics_published": statistics_ready,
         }
@@ -1038,6 +1117,8 @@ def render_report(summary: Mapping[str, Any]) -> str:
         f"- observation events: `{summary.get('observation_event_count')}`",
         f"- resolved outcome events: `{summary.get('resolved_outcome_event_count')}`",
         f"- completed sessions / decision weeks: `{summary.get('completed_sessions')}` / `{summary.get('decision_weeks')}`",
+        f"- expected / missing sessions: `{summary.get('expected_session_count')}` / `{summary.get('missing_session_count')}`",
+        f"- session coverage complete: `{summary.get('session_coverage_complete')}`",
         f"- proposal eligible: `{summary.get('proposal_eligible')}`",
         "- append-only forward research only; no target, order, cash, champion, production, or live mutation",
         "- one rebound is a descriptive fingerprint, never automatic evidence of trend repair",
@@ -1188,6 +1269,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(
                 f"out-of-order observation:{args.valuation_date}<{max(existing_dates)}"
             )
+        validate_observation_session_cohort(
+            valuation_date=args.valuation_date,
+            existing=existing_observations,
+            proposed=proposed_observations,
+            durable_accepted_through=str(
+                durable_parent_head.get("accepted_through") or ""
+            ),
+        )
         new_observations, observation_head = merge_new_events(
             existing=existing_observations,
             identities=observation_ids,
@@ -1238,6 +1327,25 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "minimum_resolution_coverage_for_directional_statistics"
             ]
         )
+        sessions = sorted(
+            {
+                str(row.get("as_of_date"))
+                for row in all_observations
+                if row.get("as_of_date")
+            }
+        )
+        expected_sessions = expected_forward_sessions(
+            str(
+                contract["forward_learning"][
+                    "accepted_forward_launch_session"
+                ]
+            ),
+            args.valuation_date,
+        )
+        missing_session_dates = sorted(
+            set(expected_sessions) - set(sessions)
+        )
+        session_coverage_complete = not missing_session_dates
         aggregates = aggregate_outcomes(
             all_observations,
             all_outcomes,
@@ -1247,13 +1355,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             contract["forward_learning"][
                 "outcome_horizons_nyse_sessions"
             ],
-        )
-        sessions = sorted(
-            {
-                str(row.get("as_of_date"))
-                for row in all_observations
-                if row.get("as_of_date")
-            }
+            session_coverage_complete=session_coverage_complete,
         )
         weeks = sorted(
             {
@@ -1281,6 +1383,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             outcomes=all_outcomes,
             contract_sha256=contract_sha256,
             accepted_through=max(sessions) if sessions else "",
+            expected_session_count=len(expected_sessions),
+            missing_session_dates=missing_session_dates,
         )
         payload = {
             "schema_version": SCHEMA_VERSION,
@@ -1294,6 +1398,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "exact_target_observation_missing_count": missing_exact,
             "completed_sessions": len(sessions),
             "decision_weeks": len(weeks),
+            "expected_session_count": len(expected_sessions),
+            "missing_session_count": len(missing_session_dates),
+            "missing_session_dates": missing_session_dates,
+            "session_coverage_complete": session_coverage_complete,
             "minimum_completed_sessions_before_proposal": minimum_sessions,
             "minimum_decision_weeks_before_proposal": minimum_weeks,
             "minimum_resolved_per_pattern_horizon": minimum,
@@ -1304,6 +1412,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 len(sessions) >= minimum_sessions
                 and len(weeks) >= minimum_weeks
                 and powered
+                and session_coverage_complete
             ),
             "aggregates": aggregates,
             "observation_chain_head": observation_head,
