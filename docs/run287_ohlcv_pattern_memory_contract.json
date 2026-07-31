@@ -64,6 +64,8 @@
     "session_failure_policy": "every_nyse_session_from_launch_through_as_of_must_be_present_or_directional_statistics_and_proposals_remain_blocked",
     "stale_publication_policy": "any_timing_or_archive_failure_must_atomically_replace_summary_and_report_with_an_exact_session_blocked_marker",
     "missing_origin_close_policy": "every_accepted_close_missing_or_data_not_ready_observation_is_matured_but_unresolved_and_suppresses_all_directional_statistics_and_proposals",
+    "outcome_readiness_policy": "data_ready_must_be_true_before_any_outcome_event_can_be_appended",
+    "proposal_power_policy": "at_least_one_security_not_benchmark_pattern_horizon_must_publish_directional_statistics",
     "underpowered_policy": "publish_counts_and_missingness_only_no_directional_statistics",
     "missing_outcome_policy": "suppress_directional_statistics_until_every_matured_observation_in_the_pattern_horizon_has_an_exact_target_session_outcome",
     "automatic_model_update_allowed": false,

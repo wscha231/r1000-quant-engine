@@ -3197,6 +3197,10 @@ Expected contract:
   suffix to reach the archive recovery path, reject every pre-launch date, and
   replace stale READY summaries/reports with an exact-session BLOCKED marker
   immediately when either sidecar stage fails.
+- A finite close does not make a `data_ready=false` observation resolvable.
+  Proposal power must come from a security aggregate, never benchmarks alone,
+  and immutable acceptance must occur only after the human-readable report is
+  durable so report failure leaves an unaccepted resumable suffix.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

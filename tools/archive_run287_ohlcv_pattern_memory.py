@@ -871,7 +871,11 @@ def proposed_outcomes(
     for observation in rows:
         origin = str(observation.get("as_of_date") or "")
         origin_close = finite(observation.get("observed_close"))
-        if not origin or origin_close in (None, 0.0):
+        if (
+            not origin
+            or origin_close in (None, 0.0)
+            or observation.get("data_ready") is not True
+        ):
             continue
         for horizon_value in horizons:
             horizon = int(horizon_value)
@@ -1121,6 +1125,16 @@ def aggregate_outcomes(
             }
         aggregates.append(result)
     return aggregates
+
+
+def has_powered_security_evidence(
+    aggregates: Iterable[Mapping[str, Any]],
+) -> bool:
+    return any(
+        row.get("source_kind") == "SECURITY"
+        and row.get("directional_statistics_published") is True
+        for row in aggregates
+    )
 
 
 def render_report(summary: Mapping[str, Any]) -> str:
@@ -1452,22 +1466,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "minimum_decision_weeks_before_proposal"
             ]
         )
-        powered = any(
-            row.get("directional_statistics_published") is True
-            for row in aggregates
-        )
-        accepted_head = publish_accepted_head(
-            memory_dir=output_dir,
-            observations=all_observations,
-            outcomes=all_outcomes,
-            contract_sha256=contract_sha256,
-            accepted_through=max(sessions) if sessions else "",
-            expected_session_count=len(expected_sessions),
-            missing_session_dates=missing_session_dates,
-            missing_origin_observation_count=(
-                missing_origin_observation_count
-            ),
-        )
+        powered = has_powered_security_evidence(aggregates)
         payload = {
             "schema_version": SCHEMA_VERSION,
             "status": READY_STATUS,
@@ -1496,6 +1495,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "minimum_resolution_coverage_for_directional_statistics": (
                 minimum_resolution_coverage
             ),
+            "powered_security_evidence": powered,
             "proposal_eligible": bool(
                 len(sessions) >= minimum_sessions
                 and len(weeks) >= minimum_weeks
@@ -1507,7 +1507,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "observation_chain_head": observation_head,
             "outcome_chain_head": outcome_head,
             "durable_parent_head_id": durable_parent_head.get("head_id") or "",
-            "accepted_head_id": accepted_head["head_id"],
             "research_only": True,
             "forward_observation_only": True,
             "advisory_only": True,
@@ -1529,15 +1528,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "outputs": {
                 "observations": fingerprint(observations_archive),
                 "outcomes": fingerprint(outcomes_archive),
-                "accepted_head": fingerprint(
-                    output_dir / "accepted_head.json"
-                ),
-                "accepted_head_manifest": fingerprint(
-                    output_dir
-                    / "accepted_heads"
-                    / str(accepted_head["head_id"])
-                    / "manifest.json"
-                ),
             },
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "performance": {"elapsed_seconds": time.perf_counter() - started},
@@ -1549,6 +1539,31 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             render_report(payload),
         )
         payload["outputs"]["report"] = fingerprint(report_path)
+        # Report finalization must succeed before the immutable accepted head
+        # can advance. A failure leaves only a validated unaccepted suffix for
+        # the explicit idempotent recovery path.
+        accepted_head = publish_accepted_head(
+            memory_dir=output_dir,
+            observations=all_observations,
+            outcomes=all_outcomes,
+            contract_sha256=contract_sha256,
+            accepted_through=max(sessions) if sessions else "",
+            expected_session_count=len(expected_sessions),
+            missing_session_dates=missing_session_dates,
+            missing_origin_observation_count=(
+                missing_origin_observation_count
+            ),
+        )
+        payload["accepted_head_id"] = accepted_head["head_id"]
+        payload["outputs"]["accepted_head"] = fingerprint(
+            output_dir / "accepted_head.json"
+        )
+        payload["outputs"]["accepted_head_manifest"] = fingerprint(
+            output_dir
+            / "accepted_heads"
+            / str(accepted_head["head_id"])
+            / "manifest.json"
+        )
         # summary.json is the READY marker and is committed only after the
         # append-only chains and human-readable report are durable.
         atomic_write_json(output_dir / "summary.json", payload)

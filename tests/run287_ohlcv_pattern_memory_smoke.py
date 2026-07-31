@@ -39,6 +39,7 @@ def write_timing(
     spy_return: float,
     outcome_origin_date: str | None = None,
     outcome_basis_prices: dict[str, tuple[float, float]] | None = None,
+    stock_data_reason: str = "",
 ) -> Path:
     source = root / f"timing_{as_of_date}"
     source.mkdir(parents=True)
@@ -58,7 +59,7 @@ def write_timing(
         "range_63d_position": 0.36,
         "range_126d_position": 0.52,
         "range_252d_position": 0.68,
-        "data_reason": "",
+        "data_reason": stock_data_reason,
         "is_held": True,
         "portfolios": "main",
         "shadow_action": "HOLD_REVIEW",
@@ -319,6 +320,22 @@ def main() -> None:
     assert close_missing["missing_exact_outcome_count"] == 1
     assert close_missing["observation_data_coverage_complete"] is False
     assert close_missing["directional_statistics_published"] is False
+    assert memory.has_powered_security_evidence(
+        [
+            {
+                "source_kind": "BENCHMARK",
+                "directional_statistics_published": True,
+            }
+        ]
+    ) is False
+    assert memory.has_powered_security_evidence(
+        [
+            {
+                "source_kind": "SECURITY",
+                "directional_statistics_published": True,
+            }
+        ]
+    ) is True
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -632,6 +649,8 @@ def main() -> None:
         assert interrupted_marker["status"] == memory.BLOCKED_STATUS
         assert interrupted_marker["proposal_eligible"] is False
         assert not (archive / "report.md").exists()
+        assert not (archive / "accepted_head.json").exists()
+        assert not (archive / "accepted_heads").exists()
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
         resumed = memory.build(args_for(summary, archive, "2026-07-29"))
         assert resumed["status"] == memory.READY_STATUS, resumed
@@ -723,6 +742,61 @@ def main() -> None:
         assert "stale eligible report" not in (
             output_dir / "report.md"
         ).read_text(encoding="utf-8")
+
+    # A valid close does not make an underpowered/data-not-ready observation
+    # resolvable; it remains in the matured missing denominator permanently.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive = root / "archive" / "ohlcv_pattern_memory"
+        first_summary = write_timing(
+            root,
+            as_of_date="2026-07-29",
+            stock_close=96.0,
+            stock_prior_return=-0.04,
+            stock_return=0.06,
+            spy_close=500.0,
+            spy_prior_return=-0.02,
+            spy_return=0.03,
+            stock_data_reason="history_underpowered:20<253",
+        )
+        first = memory.build(
+            args_for(first_summary, archive, "2026-07-29")
+        )
+        assert first["status"] == memory.READY_STATUS, first
+        assert first["observation_data_coverage_complete"] is False
+        second_summary = write_timing(
+            root,
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=0.06,
+            stock_return=-0.02,
+            spy_close=505.0,
+            spy_prior_return=0.03,
+            spy_return=0.01,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 100.0),
+                "SPY": (500.0, 505.0),
+                "QQQ": (450.0, 454.5),
+            },
+        )
+        second = memory.build(
+            args_for(second_summary, archive, "2026-07-30")
+        )
+        assert second["status"] == memory.READY_STATUS, second
+        outcomes = memory.read_jsonl(archive / "outcomes.jsonl")
+        assert not any(
+            row["source_kind"] == "SECURITY" for row in outcomes
+        )
+        security_group = next(
+            row
+            for row in second["aggregates"]
+            if row["source_kind"] == "SECURITY"
+            and row["horizon_nyse_sessions"] == 1
+        )
+        assert security_group["matured_observation_count"] == 1
+        assert security_group["resolved_observation_count"] == 0
+        assert security_group["directional_statistics_published"] is False
 
     # A security outcome is unresolved when either exact SPY endpoint is
     # absent, even if the security's own target-basis endpoint is complete.
