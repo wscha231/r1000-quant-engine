@@ -1062,6 +1062,62 @@ def required_unaccepted_retry_session(
     return next(iter(dates), "")
 
 
+def unaccepted_retry_provenance(
+    *,
+    observations: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    durable_head: Mapping[str, Any],
+    retry_session: str,
+) -> dict[str, Any]:
+    if not retry_session:
+        return {}
+    observation_count = int(
+        durable_head.get("observation_event_count") or 0
+    )
+    outcome_count = int(
+        durable_head.get("resolved_outcome_event_count") or 0
+    )
+    suffix_observations = [
+        row
+        for row in observations[observation_count:]
+        if row.get("as_of_date") == retry_session
+    ]
+    suffix_outcomes = [
+        row
+        for row in outcomes[outcome_count:]
+        if row.get("recorded_during_session") == retry_session
+    ]
+    provenance: dict[str, Any] = {}
+    for field in OBSERVATION_RETRY_PROVENANCE_FIELDS:
+        values = {
+            json.dumps(row.get(field), sort_keys=True)
+            for row in suffix_observations
+            if row.get(field) is not None
+        }
+        if len(values) > 1:
+            raise ValueError(
+                f"unaccepted suffix observation provenance ambiguity:"
+                f"{retry_session}:{field}"
+            )
+        if values:
+            provenance[field] = json.loads(next(iter(values)))
+    summary_hashes = {
+        str(row.get("source_summary_sha256") or "")
+        for row in suffix_outcomes
+        if row.get("source_summary_sha256")
+    }
+    if provenance.get("source_summary_sha256"):
+        summary_hashes.add(str(provenance["source_summary_sha256"]))
+    if len(summary_hashes) > 1:
+        raise ValueError(
+            "unaccepted suffix source-summary ambiguity:"
+            f"{retry_session}:{sorted(summary_hashes)}"
+        )
+    if summary_hashes:
+        provenance["source_summary_sha256"] = next(iter(summary_hashes))
+    return provenance
+
+
 def proposed_outcomes(
     *,
     observations: Iterable[Mapping[str, Any]],
@@ -1434,14 +1490,13 @@ def render_report(summary: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def blocked(
-    output_dir: Path,
+def blocked_payload(
     failures: list[str],
     sources: Mapping[str, Any],
     started: float,
     failed_session_date: str = "",
 ) -> dict[str, Any]:
-    payload = {
+    return {
         "schema_version": SCHEMA_VERSION,
         "status": BLOCKED_STATUS,
         "contract_failures": failures,
@@ -1474,6 +1529,21 @@ def blocked(
         "performance": {"elapsed_seconds": time.perf_counter() - started},
         "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__))},
     }
+
+
+def blocked(
+    output_dir: Path,
+    failures: list[str],
+    sources: Mapping[str, Any],
+    started: float,
+    failed_session_date: str = "",
+) -> dict[str, Any]:
+    payload = blocked_payload(
+        failures,
+        sources,
+        started,
+        failed_session_date,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "report.md"
     payload["outputs"] = {}
@@ -1643,6 +1713,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             outcomes=existing_outcomes,
             durable_head=durable_parent_head,
         )
+        retry_provenance = unaccepted_retry_provenance(
+            observations=existing_observations,
+            outcomes=existing_outcomes,
+            durable_head=durable_parent_head,
+            retry_session=required_retry_session,
+        )
         if (
             required_retry_session
             and required_retry_session != args.valuation_date
@@ -1651,6 +1727,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "unaccepted pattern session requires exact retry:"
                 f"{required_retry_session}!={args.valuation_date}"
             )
+        if required_retry_session and retry_provenance:
+            for row in proposed_observations:
+                if row.get("as_of_date") == required_retry_session:
+                    row.update(retry_provenance)
         existing_dates = [
             str(row.get("as_of_date") or "")
             for row in existing_observations
@@ -1685,7 +1765,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             ],
             contract_sha256=contract_sha256,
             source_summary_sha256=str(
-                sources["timing_summary"]["sha256"]
+                retry_provenance.get("source_summary_sha256")
+                or sources["timing_summary"]["sha256"]
             ),
         )
         new_outcomes, outcome_head = merge_new_events(
@@ -1925,6 +2006,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         )
         return payload
     except Exception as exc:
+        if preserve_blocked_publication:
+            payload = blocked_payload(
+                [f"{type(exc).__name__}:{exc}"],
+                sources,
+                started,
+                pending_session_date or str(args.valuation_date),
+            )
+            payload["public_blocked_marker_preserved"] = True
+            return payload
         return blocked(
             output_dir,
             [f"{type(exc).__name__}:{exc}"],

@@ -3213,9 +3213,11 @@ Expected contract:
   hardening that does not alter event semantics stays in code and this ledger.
   Invalidate pattern READY before the first fallible same-close or ledger
   command, and keep that BLOCKED marker untouched while recovery advances the
-  durable head. Only the post-ledger call may publish READY, whose parent
-  provenance must come from the accepted manifest rather than the retry's
-  in-memory head.
+  durable head or returns a recovery failure; the preservation-mode exception
+  path must not call a public-file writer. Missing rows completed during a
+  partial-suffix retry inherit the suffix's first-attempt source provenance.
+  Only the post-ledger call may publish READY, whose parent provenance must
+  come from the accepted manifest rather than the retry's in-memory head.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

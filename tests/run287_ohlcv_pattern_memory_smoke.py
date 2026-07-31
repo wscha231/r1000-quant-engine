@@ -832,6 +832,10 @@ def main() -> None:
             source_file.unlink()
         summary.parent.rmdir()
         blocked_summary_bytes = (archive / "summary.json").read_bytes()
+        blocked_report_bytes = (archive / "report.md").read_bytes()
+        blocked_last_attempt_bytes = (
+            archive / "last_attempt.json"
+        ).read_bytes()
         deferred_args = args_for(
             selected_recovery_summary,
             archive,
@@ -839,6 +843,25 @@ def main() -> None:
         )
         deferred_args.preserve_blocked_publication = True
         deferred_args.pending_session_date = "2026-07-30"
+        original_publish_accepted_head = memory.publish_accepted_head
+
+        def fail_deferred_head(**_: object) -> dict[str, object]:
+            raise OSError("simulated deferred head failure")
+
+        memory.publish_accepted_head = fail_deferred_head
+        try:
+            deferred_failure = memory.build(deferred_args)
+        finally:
+            memory.publish_accepted_head = original_publish_accepted_head
+        assert deferred_failure["status"] == memory.BLOCKED_STATUS
+        assert deferred_failure["public_blocked_marker_preserved"] is True
+        assert (archive / "summary.json").read_bytes() == blocked_summary_bytes
+        assert (archive / "report.md").read_bytes() == blocked_report_bytes
+        assert (
+            archive / "last_attempt.json"
+        ).read_bytes() == blocked_last_attempt_bytes
+        assert not (archive / "accepted_head.json").exists()
+
         deferred = memory.build(deferred_args)
         assert deferred["status"] == memory.READY_STATUS, deferred
         assert deferred["publication_deferred"] is True
@@ -884,6 +907,116 @@ def main() -> None:
         assert "archive event hash mismatch" in " ".join(
             tampered["contract_failures"]
         )
+
+    # Any outcomes first resolved during an exact-session retry inherit the
+    # unaccepted suffix's first-attempt provenance. A second interruption can
+    # therefore never create two source-summary identities for one suffix.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive = root / "archive" / "ohlcv_pattern_memory"
+        first_summary = write_timing(
+            root,
+            as_of_date="2026-07-29",
+            stock_close=96.0,
+            stock_prior_return=-0.04,
+            stock_return=0.06,
+            spy_close=500.0,
+            spy_prior_return=-0.02,
+            spy_return=0.03,
+        )
+        first = memory.build(
+            args_for(first_summary, archive, "2026-07-29")
+        )
+        assert first["status"] == memory.READY_STATUS, first
+
+        partial_summary = write_timing(
+            root,
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=0.06,
+            stock_return=-0.02,
+            spy_close=505.0,
+            spy_prior_return=0.03,
+            spy_return=0.01,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 100.0),
+                "SPY": (500.0, 505.0),
+                "QQQ": (450.0, 454.5),
+            },
+        )
+        partial_payload = memory.read_json(partial_summary)
+        partial_endpoint_path = Path(
+            partial_payload["outputs"]["forward_outcome_endpoints"]["path"]
+        )
+        partial_endpoint_rows = [
+            row
+            for row in memory.read_jsonl(partial_endpoint_path)
+            if row.get("ticker") != "AAA"
+        ]
+        partial_endpoint_path.write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":"))
+                + "\n"
+                for row in partial_endpoint_rows
+            ),
+            encoding="utf-8",
+        )
+        partial_payload["outputs"]["forward_outcome_endpoints"] = (
+            fingerprint(partial_endpoint_path)
+        )
+        write_json(partial_summary, partial_payload)
+        first_attempt_summary_sha256 = memory.sha256_file(partial_summary)
+        original_atomic_write_text = memory.atomic_write_text
+
+        def fail_partial_report(path: Path, text: str) -> None:
+            if path.name == "report.md":
+                raise OSError("simulated partial outcome report failure")
+            original_atomic_write_text(path, text)
+
+        memory.atomic_write_text = fail_partial_report
+        try:
+            partial = memory.build(
+                args_for(partial_summary, archive, "2026-07-30")
+            )
+        finally:
+            memory.atomic_write_text = original_atomic_write_text
+        assert partial["status"] == memory.BLOCKED_STATUS
+        assert len(memory.read_jsonl(archive / "outcomes.jsonl")) == 2
+
+        retry_summary = write_timing(
+            root / "retry",
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=0.06,
+            stock_return=-0.02,
+            spy_close=505.0,
+            spy_prior_return=0.03,
+            spy_return=0.01,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 100.0),
+                "SPY": (500.0, 505.0),
+                "QQQ": (450.0, 454.5),
+            },
+        )
+        assert memory.sha256_file(retry_summary) != (
+            first_attempt_summary_sha256
+        )
+        recovered = memory.build(
+            args_for(retry_summary, archive, "2026-07-30")
+        )
+        assert recovered["status"] == memory.READY_STATUS, recovered
+        recovered_outcomes = [
+            row
+            for row in memory.read_jsonl(archive / "outcomes.jsonl")
+            if row.get("recorded_during_session") == "2026-07-30"
+        ]
+        assert len(recovered_outcomes) == 3
+        assert {
+            row.get("source_summary_sha256")
+            for row in recovered_outcomes
+        } == {first_attempt_summary_sha256}
 
     # A failed or absent launch-session observation can never disappear from
     # the learning denominator. Later sessions may remain research-visible,
