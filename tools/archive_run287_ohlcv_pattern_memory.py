@@ -664,57 +664,124 @@ def validate_accepted_head_state(
         cursor = str(manifests[cursor].get("parent_head_id") or "")
     if lineage != set(manifests):
         raise ValueError("accepted head disconnected lineage")
-    terminal_path = (
-        heads_root / terminal_id / "manifest.json"
-    )
-    pointer = read_json(pointer_path) if pointer_path.is_file() else {}
+    def validate_manifest_chain(
+        head_id: str,
+        manifest: Mapping[str, Any],
+    ) -> None:
+        observation_count = int(
+            manifest.get("observation_event_count") or 0
+        )
+        outcome_count = int(
+            manifest.get("resolved_outcome_event_count") or 0
+        )
+        if (
+            len(observations) < observation_count
+            or len(outcomes) < outcome_count
+        ):
+            raise ValueError(
+                f"accepted pattern memory rollback detected:{head_id}"
+            )
+        observation_head = (
+            str(observations[observation_count - 1].get("event_hash") or "")
+            if observation_count
+            else ""
+        )
+        outcome_head = (
+            str(outcomes[outcome_count - 1].get("event_hash") or "")
+            if outcome_count
+            else ""
+        )
+        if (
+            observation_head != manifest.get("observation_chain_head")
+            or outcome_head != manifest.get("outcome_chain_head")
+        ):
+            raise ValueError(
+                f"accepted pattern memory prefix chain mismatch:{head_id}"
+            )
+
+    for head_id, manifest in manifests.items():
+        validate_manifest_chain(head_id, manifest)
+
+    for head_id, manifest in manifests.items():
+        for label, path, count_key, hash_key in (
+            (
+                "observation",
+                memory_dir / "observations.jsonl",
+                "observation_bytes",
+                "observation_sha256",
+            ),
+            (
+                "outcome",
+                memory_dir / "outcomes.jsonl",
+                "outcome_bytes",
+                "outcome_sha256",
+            ),
+        ):
+            expected_bytes = int(manifest.get(count_key) or 0)
+            expected_hash = str(manifest.get(hash_key) or "")
+            if sha256_prefix(path, expected_bytes) != expected_hash:
+                raise ValueError(
+                    f"accepted {label} prefix hash mismatch:{head_id}"
+                )
+
+    if not pointer_path.is_file():
+        if not allow_unaccepted_events:
+            raise ValueError("accepted head pointer missing")
+        if len(manifests) != 1 or manifests[terminal_id].get(
+            "parent_head_id"
+        ):
+            raise ValueError(
+                "accepted head pointer missing with ambiguous manifests"
+            )
+        return {
+            "head_id": "",
+            "observation_event_count": 0,
+            "resolved_outcome_event_count": 0,
+            "observation_chain_head": "",
+            "outcome_chain_head": "",
+            "pointer_repair_required": True,
+            "uncommitted_descendant_manifest_count": 1,
+        }
+
+    pointer = read_json(pointer_path)
+    accepted_id = str(pointer.get("head_id") or "")
+    accepted_path = heads_root / accepted_id / "manifest.json"
     pointer_valid = bool(
         pointer.get("schema_version") == ACCEPTED_HEAD_SCHEMA_VERSION
         and pointer.get("status") == ACCEPTED_HEAD_STATUS
-        and pointer.get("head_id") == terminal_id
-        and pointer.get("manifest_sha256") == sha256_file(terminal_path)
+        and accepted_id in manifests
+        and pointer.get("manifest_sha256") == sha256_file(accepted_path)
     )
-    if not pointer_valid and not allow_unaccepted_events:
+    if not pointer_valid:
         raise ValueError("accepted head pointer mismatch")
-    terminal = manifests[terminal_id]
-    observation_count = int(terminal.get("observation_event_count") or 0)
-    outcome_count = int(terminal.get("resolved_outcome_event_count") or 0)
-    if len(observations) < observation_count or len(outcomes) < outcome_count:
-        raise ValueError("accepted pattern memory rollback detected")
-    observation_head = (
-        str(observations[observation_count - 1].get("event_hash") or "")
-        if observation_count
-        else ""
+
+    descendant_count = 0
+    cursor = terminal_id
+    while cursor != accepted_id:
+        descendant_count += 1
+        cursor = str(manifests[cursor].get("parent_head_id") or "")
+        if not cursor:
+            raise ValueError("accepted head pointer is not in terminal lineage")
+
+    accepted = manifests[accepted_id]
+    observation_count = int(accepted.get("observation_event_count") or 0)
+    outcome_count = int(
+        accepted.get("resolved_outcome_event_count") or 0
     )
-    outcome_head = (
-        str(outcomes[outcome_count - 1].get("event_hash") or "")
-        if outcome_count
-        else ""
+    has_unaccepted_events = bool(
+        len(observations) > observation_count
+        or len(outcomes) > outcome_count
     )
     if (
-        observation_head != terminal.get("observation_chain_head")
-        or outcome_head != terminal.get("outcome_chain_head")
+        not allow_unaccepted_events
+        and (descendant_count or has_unaccepted_events)
     ):
-        raise ValueError("accepted pattern memory prefix chain mismatch")
-    for label, path, count_key, hash_key in (
-        (
-            "observation",
-            memory_dir / "observations.jsonl",
-            "observation_bytes",
-            "observation_sha256",
-        ),
-        (
-            "outcome",
-            memory_dir / "outcomes.jsonl",
-            "outcome_bytes",
-            "outcome_sha256",
-        ),
-    ):
-        expected_bytes = int(terminal.get(count_key) or 0)
-        expected_hash = str(terminal.get(hash_key) or "")
-        if sha256_prefix(path, expected_bytes) != expected_hash:
-            raise ValueError(f"accepted {label} prefix hash mismatch")
-    return {**terminal, "pointer_repair_required": not pointer_valid}
+        raise ValueError("unaccepted pattern memory suffix")
+    return {
+        **accepted,
+        "pointer_repair_required": bool(descendant_count),
+        "uncommitted_descendant_manifest_count": descendant_count,
+    }
 
 
 def prepare_accepted_head(
@@ -751,7 +818,11 @@ def prepare_accepted_head(
         return {
             str(key): value
             for key, value in prior.items()
-            if key != "pointer_repair_required"
+            if key
+            not in {
+                "pointer_repair_required",
+                "uncommitted_descendant_manifest_count",
+            }
         }
     observations_path = memory_dir / "observations.jsonl"
     outcomes_path = memory_dir / "outcomes.jsonl"

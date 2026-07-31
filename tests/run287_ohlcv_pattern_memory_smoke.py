@@ -404,6 +404,95 @@ def main() -> None:
         )
         assert not (archive / "observations.jsonl").exists()
 
+    # A hard stop can leave a fully written descendant manifest while the
+    # atomic accepted pointer still names its parent. The pointer remains the
+    # sole commit marker: the descendant events are an exact-session suffix
+    # until a retry publishes that already validated manifest.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive = root / "archive" / "ohlcv_pattern_memory"
+        first_summary = write_timing(
+            root,
+            as_of_date="2026-07-29",
+            stock_close=96.0,
+            stock_prior_return=-0.04,
+            stock_return=0.06,
+            spy_close=500.0,
+            spy_prior_return=-0.02,
+            spy_return=0.03,
+        )
+        first = memory.build(
+            args_for(first_summary, archive, "2026-07-29")
+        )
+        assert first["status"] == memory.READY_STATUS, first
+        committed_head_id = first["accepted_head_id"]
+        second_summary = write_timing(
+            root,
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=0.06,
+            stock_return=-0.02,
+            spy_close=505.0,
+            spy_prior_return=0.03,
+            spy_return=0.01,
+        )
+        original_atomic_write_json = memory.atomic_write_json
+
+        def hard_stop_before_pointer(
+            path: Path,
+            payload: dict[str, object],
+        ) -> None:
+            if path == archive / "accepted_head.json":
+                raise KeyboardInterrupt(
+                    "simulated process stop before accepted pointer commit"
+                )
+            original_atomic_write_json(path, payload)
+
+        memory.atomic_write_json = hard_stop_before_pointer
+        try:
+            try:
+                memory.build(
+                    args_for(second_summary, archive, "2026-07-30")
+                )
+            except KeyboardInterrupt:
+                pass
+            else:
+                raise AssertionError("hard-stop simulation did not interrupt")
+        finally:
+            memory.atomic_write_json = original_atomic_write_json
+
+        assert memory.read_json(archive / "accepted_head.json")[
+            "head_id"
+        ] == committed_head_id
+        assert len(
+            list((archive / "accepted_heads").glob("*/manifest.json"))
+        ) == 2
+        observations = memory.read_jsonl(archive / "observations.jsonl")
+        outcomes = memory.read_jsonl(archive / "outcomes.jsonl")
+        durable = memory.validate_accepted_head_state(
+            memory_dir=archive,
+            observations=observations,
+            outcomes=outcomes,
+            contract_sha256=memory.PINNED_CONTRACT_SHA256,
+            allow_unaccepted_events=True,
+        )
+        assert durable["head_id"] == committed_head_id
+        assert durable["pointer_repair_required"] is True
+        assert durable["uncommitted_descendant_manifest_count"] == 1
+        assert memory.required_unaccepted_retry_session(
+            observations=observations,
+            outcomes=outcomes,
+            durable_head=durable,
+        ) == "2026-07-30"
+        resumed = memory.build(
+            args_for(second_summary, archive, "2026-07-30")
+        )
+        assert resumed["status"] == memory.READY_STATUS, resumed
+        assert resumed["accepted_head_id"] != committed_head_id
+        assert memory.read_json(archive / "accepted_head.json")[
+            "head_id"
+        ] == resumed["accepted_head_id"]
+
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         archive = root / "archive" / "ohlcv_pattern_memory"
@@ -635,7 +724,7 @@ def main() -> None:
         assert rolled_back["status"] == memory.BLOCKED_STATUS
         assert "rollback detected" in " ".join(
             rolled_back["contract_failures"]
-        )
+        ), rolled_back["contract_failures"]
         (archive / "observations.jsonl").write_bytes(
             frozen_observation_bytes
         )

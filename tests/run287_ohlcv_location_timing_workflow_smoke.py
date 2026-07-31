@@ -44,9 +44,26 @@ def main() -> None:
         in text[pending:targets]
     )
     assert (
-        "republished recovered same-session OHLCV pattern evidence "
-        "after the same-close transaction boundary"
-        in text[ledger:timing]
+        "validated and staged unaccepted OHLCV pattern session"
+        in text[pending:targets]
+    )
+    post_ledger = text[ledger:timing]
+    assert 'if [ -n "$PATTERN_RECOVERY_SESSION" ]; then' in post_ledger
+    assert (
+        '--valuation-date "$PATTERN_RECOVERY_SESSION"' in post_ledger
+    )
+    assert (
+        "published recovered OHLCV pattern session "
+        "${PATTERN_RECOVERY_SESSION} after the same-close transaction "
+        "boundary and before current-session pattern construction"
+        in post_ledger
+    )
+    assert (
+        'if [ "$PATTERN_RECOVERY_READY" != yes ]; then' in post_ledger
+    )
+    assert (
+        'elif [ "$PATTERN_RECOVERY_SESSION" = "$PAPER_AS_OF" ]; then'
+        in post_ledger
     )
     timing_block = text[timing : timing + 1800]
     assert "--producer-status outputs/run287_exact_packet_producer/status.json" in timing_block
@@ -62,7 +79,10 @@ def main() -> None:
     )
     assert "OBSERVATION_ACCEPTED_AT_UTC=\"$(date -u" in text
     assert "PAPER_ASOF" not in timing_block
-    assert "if python tools/build_run287_ohlcv_location_timing_challenger.py" in text
+    assert (
+        "elif python tools/build_run287_ohlcv_location_timing_challenger.py"
+        in text
+    )
     assert (
         "after the same-close transaction boundary"
         in timing_block

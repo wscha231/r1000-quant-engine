@@ -3222,7 +3222,12 @@ Expected contract:
   deterministically deduplicated only when their complete endpoint signatures
   match. Only the post-ledger call may publish READY; report, summary, and
   last-attempt finalization precede the accepted-head commit, whose parent
-  provenance comes from the immutable manifest.
+  provenance comes from the immutable manifest. If the scheduled run is later
+  than the pending session, publish that exact recovered session first after
+  the ledger boundary and suppress current-session pattern construction unless
+  it commits successfully. The atomic accepted pointer is the sole head commit
+  marker: a validated descendant manifest left by process interruption remains
+  an unaccepted exact-session suffix until the pointer is advanced by retry.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

@@ -2667,7 +2667,7 @@ jobs:
                 --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
                 2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
               PATTERN_RECOVERY_SESSION="$REQUIRED_PATTERN_RETRY_SESSION"
-              echo "[daily-operating] finalized unaccepted OHLCV pattern session ${PATTERN_RECOVERY_SESSION} from its provenance-matched first-attempt evidence while preserving the current BLOCKED public marker"
+              echo "[daily-operating] validated and staged unaccepted OHLCV pattern session ${PATTERN_RECOVERY_SESSION} from its provenance-matched first-attempt evidence while preserving the current BLOCKED public marker"
             fi
           if python tools/build_run287_same_close_target_books.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
@@ -2764,16 +2764,23 @@ jobs:
           DATE_TOKEN="${PAPER_AS_OF//-/}"
           OHLCV_TIMING_DIR="outputs/run287_ohlcv_location_timing_exact_close_${DATE_TOKEN}"
           OBSERVATION_ACCEPTED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          if [ "$PATTERN_RECOVERY_SESSION" = "$PAPER_AS_OF" ]; then
+          PATTERN_RECOVERY_READY=yes
+          if [ -n "$PATTERN_RECOVERY_SESSION" ]; then
             if python tools/archive_run287_ohlcv_pattern_memory.py \
               --timing-summary "$PATTERN_RECOVERY_SUMMARY" \
-              --valuation-date "$PAPER_AS_OF" \
+              --valuation-date "$PATTERN_RECOVERY_SESSION" \
               --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
-              echo "[daily-operating] republished recovered same-session OHLCV pattern evidence after the same-close transaction boundary"
+              echo "[daily-operating] published recovered OHLCV pattern session ${PATTERN_RECOVERY_SESSION} after the same-close transaction boundary and before current-session pattern construction"
             else
-              echo "[daily-operating] recovered same-session OHLCV pattern evidence failed post-ledger revalidation and remains BLOCKED"
+              PATTERN_RECOVERY_READY=no
+              echo "[daily-operating] recovered OHLCV pattern session ${PATTERN_RECOVERY_SESSION} failed post-ledger revalidation; current-session pattern construction is suppressed and remains BLOCKED"
             fi
+          fi
+          if [ "$PATTERN_RECOVERY_READY" != yes ]; then
+            echo "[daily-operating] OHLCV pattern recovery did not commit; skipping current-session pattern observation"
+          elif [ "$PATTERN_RECOVERY_SESSION" = "$PAPER_AS_OF" ]; then
+            echo "[daily-operating] current OHLCV pattern session was completed by exact-session recovery"
           elif python tools/build_run287_ohlcv_location_timing_challenger.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
             --holding-watch outputs/holding_risk_watch/holding_risk_watch.csv \
