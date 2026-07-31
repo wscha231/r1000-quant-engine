@@ -3167,6 +3167,132 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-07-31 - exact-close shock/rebound pattern memory
+
+- A violent one-day rebound after a drawdown is an observation, not proof that
+  the damaged trend has repaired. Preserve the prior-day and current-day
+  return signs, two-day compounded return, prior-loss recovery fraction,
+  true-range/ATR, volume, volatility, range, trend, benchmark, and VIX context
+  without tuning a threshold to the observed episode.
+- Persist pattern observations and outcomes as separate append-only hash
+  chains. Resolve 1/5/21/63/126-session outcomes only when the exact archived
+  NYSE target session exists; never substitute a later price.
+- Carry every unresolved ticker through its last registered horizon even after
+  it leaves the portfolio or selector. Resolve the origin and target close
+  from one target-session adjusted-history snapshot so later splits and
+  dividends cannot corrupt returns, and require both exact SPY endpoints for
+  every resolved security outcome.
+- Persist immutable parent-linked accepted-head manifests and verify that a
+  restored archive is an exact chain and byte-prefix descendant. An internally
+  valid older prefix or fork is a rollback blocker, not a fallback.
+- Freeze the full source-kind/ticker cohort after a session head is accepted.
+  Retry-generated outcomes must also be reconstructed and economically
+  compared before an existing event ID is treated as idempotent.
+- Use producer-exact feature names in the archive allowlist; inverse aliases
+  silently discard PIT context. Treat every NYSE session from the immutable
+  forward launch date as required: a missing session remains in accepted-head
+  provenance and suppresses all directional statistics and proposals.
+- Count accepted rows with missing origin closes as matured-but-unresolved;
+  never remove them from coverage. Allow a hash-valid unaccepted first-session
+  suffix to reach the archive recovery path, reject every pre-launch date, and
+  replace stale READY summaries/reports with an exact-session BLOCKED marker
+  immediately when either sidecar stage fails.
+- A finite close does not make a `data_ready=false` observation resolvable.
+  Proposal power must come from a security aggregate, never benchmarks alone,
+  and immutable acceptance must occur only after the human-readable report is
+  durable so report failure leaves an unaccepted resumable suffix.
+- Never roll an unaccepted session suffix into a later accepted head: require
+  the original exact session to be retried first. Preserve its source summary
+  and resolved outputs as a content-addressed bundle before appending events,
+  so a delayed retry can revalidate the first-attempt evidence without creating
+  a new observation timestamp. Match the recovery bundle to the unaccepted
+  suffix's stored summary hash; multiple prior attempts are not ambiguity when
+  exactly one has the required provenance. A legacy outcome-only suffix can
+  match its stored source/benchmark endpoint-payload hashes instead. Do not
+  change a hash-pinned contract without an explicit chain migration; workflow
+  hardening that does not alter event semantics stays in code and this ledger.
+  Invalidate pattern READY before the first fallible same-close or ledger
+  command, and keep that BLOCKED marker untouched while recovery advances the
+  durable head or returns a recovery failure; the preservation-mode exception
+  path must not call a public-file writer. A deferred recovery validates and
+  stages only; it does not advance the accepted head. Missing rows completed
+  during retry retain the bundle that actually supplied their evidence, and
+  subsequent recovery selects one bundle satisfying all suffix summary and
+  endpoint identities. Equivalent legacy endpoint bundles may be
+  deterministically deduplicated only when their complete endpoint signatures
+  match. Only the post-ledger call may publish READY. First publish and verify
+  an exact-session BLOCKED summary/report/last-attempt set, durably stage the
+  immutable final report, materialize that report publicly while BLOCKED is
+  still visible, then commit the accepted pointer immediately before exposing
+  READY through `summary.json` as the last visibility commit. A hard stop
+  after pointer commit requires the same accepted session to finalize its
+  public summary; a later session must preserve that blocker rather than
+  advancing the chain, and the pre-ledger record command must return nonzero
+  so the portfolio transaction cannot run past it. READY/publication parity
+  includes the actual public report bytes as well as the accepted pointer.
+  Provenance validation may preserve an existing marker only after proving it
+  is already fail-closed; stale READY is replaced with BLOCKED. A hard stop
+  anywhere
+  earlier therefore leaves either a resumable unaccepted suffix or a committed
+  head with a BLOCKED public marker; it never exposes an uncommitted READY.
+  If the scheduled run is later than the pending session, publish that exact
+  recovered session first after the ledger boundary and suppress
+  current-session pattern construction unless it commits successfully. The
+  atomic accepted pointer is the sole durable head commit marker: a validated
+  descendant manifest left by process interruption remains an unaccepted
+  exact-session suffix until the pointer is advanced by retry.
+  When recovered D is committed during a D+1 run, commit only the immutable
+  head and retain D+1's BLOCKED summary, report, and last-attempt bytes until
+  D+1 finishes. Never accept D+2 while D+1 is absent: the first observation
+  must equal the contract launch session and every later new observation must
+  be the immediate NYSE successor of the accepted head. Validate all historical
+  manifest prefix hashes by streaming each append-only chain once and comparing
+  digests at declared byte boundaries; rehashing from byte zero per manifest is
+  quadratic and eventually becomes an operational availability defect.
+  A chronological guard is incomplete without a reachable catch-up route.
+  Manual older-session dispatch now restores only the operator-pinned prior
+  daily artifact, revalidates its GitHub/workflow/repository/commit lineage,
+  rebuilds the pattern sidecar from that exact-session packet, tags the delayed
+  materialization, and accepts one immediate NYSE successor per dispatch while
+  paper operation stays replay-only with zero new orders or targets. A copied
+  manifest is not a materialized dependency: catch-up must also restore the
+  immutable SHA-pinned research-static archive that owns all 363 frozen price
+  histories, and fail before ledger work when those exact bytes are unavailable.
+  Paper catch-up before the immutable pattern launch session skips both
+  pattern-memory mutation and static evidence while still completing the
+  independent mark-only portfolio replay.
+- Direct JSONL append can tear after a runner power loss. Before parsing,
+  verify the pointer-committed byte prefix and SHA, retain every complete
+  unaccepted JSON object, and atomically discard only a malformed final tail.
+  Never truncate an accepted byte or repair an interior malformed row.
+- Invalidate restored pattern READY before the first mark-only ledger call,
+  stale-output cleanup, or holding-risk build. A producer-success guard is too
+  late because any earlier `set -e` exit would otherwise republish stale
+  proposal eligibility.
+- Recovery-bundle equivalence includes the complete stable observation payload
+  set as well as outcome endpoints. Equal empty endpoint files do not make two
+  launch-session attempts equivalent when only one reproduces every observation
+  already present in the unaccepted suffix.
+- An exact current close is insufficient when the prior/current transition
+  sessions are nonconsecutive. Propagate the transition-specific reason into
+  `data_ready=false`, keep its outcomes unresolved, and activate the global
+  observation-coverage blocker.
+- Publish counts and missingness only until a pattern/horizon has at least 30
+  resolved observations and 100% exact-target resolution coverage for every
+  matured observation in that group. This prevents exited or disappeared
+  names from creating survivorship-biased pattern results. Forward memory may
+  propose research after the session/week gates, but it cannot automatically
+  update a model, champion, target, order, or cash policy.
+- Pattern-memory failure is isolated from the accepted portfolio ledger. Do
+  not retry a partial ledger mutation; resume by event identity and chain
+  validation on the next run.
+- The 2026-07-30 mark remains `RESEARCH_ONLY` while the official durable
+  account head is blocked after 2026-07-23 by the explicit legacy
+  risk-outcome-parent migration gate. Do not silently jump sessions or use
+  stale fallback evidence.
+- Fullrun executed: false. Durable daily catch-up executed: false. Production
+  enabled: false. Live trading enabled: false.
+
 ## 2026-07-29 - OHLCV location timing must remain confirmation-only
 
 - A range low, range high, or Fibonacci retracement is a location coordinate,

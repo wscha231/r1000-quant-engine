@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
       session_date:
-        description: 'Optional completed NYSE session (YYYY-MM-DD); requires force_run and enables mark-only chronological catch-up when older than latest'
+        description: 'Optional completed NYSE session (YYYY-MM-DD); requires force_run and enables mark-only paper plus pinned-artifact pattern-memory catch-up when older than latest'
         type: string
         default: ''
       catchup_price_evidence_run_id:
@@ -471,7 +471,7 @@ jobs:
           echo "artifact_metadata=$ARTIFACT_METADATA" >> "$GITHUB_OUTPUT"
 
       - name: Restore Run287 research-static archive cache
-        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
+        if: steps.market.outputs.ready == 'yes'
         id: run287-research-static-cache
         uses: actions/cache/restore@v4
         with:
@@ -1606,7 +1606,7 @@ jobs:
           echo "[risk-outcome] restored verified immutable accepted head=$SELECTED_SHA"
 
       - name: Restore verified Run287 research-static archive
-        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
+        if: steps.market.outputs.ready == 'yes'
         id: run287-research-static
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
@@ -1615,6 +1615,15 @@ jobs:
           set -euo pipefail
           ARCHIVE="run287_static_archive/run287_exact_static_archive_v1.zip"
           mkdir -p "$(dirname "$ARCHIVE")" outputs/run287_exact_static_restore
+          PATTERN_FORWARD_LAUNCH_SESSION="$(
+            python -c 'import json; print(json.load(open("docs/run287_ohlcv_pattern_memory_contract.json", encoding="utf-8"))["forward_learning"]["accepted_forward_launch_session"])'
+          )"
+          if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ] && \
+             [[ "${LAST_NYSE_SESSION_DATE:?}" < "$PATTERN_FORWARD_LAUNCH_SESSION" ]]; then
+            echo "[run287-static] pre-launch paper catch-up skips pattern/static evidence"
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ ! -s "$ARCHIVE" ] && [ "${GDRIVE_READY:-no}" = "yes" ] && command -v rclone >/dev/null 2>&1; then
             if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
               BASE="gdrive:"
@@ -1627,6 +1636,10 @@ jobs:
               --stats 30s --stats-one-line || true
           fi
           if [ ! -s "$ARCHIVE" ]; then
+            if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
+              echo "[run287-static] chronological catch-up requires the hash-pinned frozen price histories" >&2
+              exit 1
+            fi
             echo "[run287-static] verified research archive unavailable; exact upstream will skip"
             echo "ready=no" >> "$GITHUB_OUTPUT"
             exit 0
@@ -2124,6 +2137,8 @@ jobs:
         env:
           CATCHUP_PRICE_CACHE: ${{ steps.catchup_price_evidence.outputs.price_cache }}
           CATCHUP_PRICE_MANIFEST: ${{ steps.catchup_price_evidence.outputs.manifest }}
+          CATCHUP_ARTIFACT_ROOT: ${{ steps.catchup_price_evidence.outputs.artifact_root }}
+          CATCHUP_ARTIFACT_METADATA: ${{ steps.catchup_price_evidence.outputs.artifact_metadata }}
           CATCHUP_MAIN_TARGET: ${{ steps.catchup_target_evidence.outputs.main_target }}
           CATCHUP_CONCENTRATED_TARGET: ${{ steps.catchup_target_evidence.outputs.concentrated_target }}
           CATCHUP_TARGET_MANIFEST: ${{ steps.catchup_target_evidence.outputs.target_manifest }}
@@ -2135,6 +2150,22 @@ jobs:
           PAPER_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"
           PAPER_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"
           PAPER_REPLAY_ARGS=()
+          PATTERN_FORWARD_LAUNCH_SESSION="$(
+            python -c 'import json; print(json.load(open("docs/run287_ohlcv_pattern_memory_contract.json", encoding="utf-8"))["forward_learning"]["accepted_forward_launch_session"])'
+          )"
+          PATTERN_SESSION_ELIGIBLE=yes
+          if [[ "$PAPER_AS_OF" < "$PATTERN_FORWARD_LAUNCH_SESSION" ]]; then
+            PATTERN_SESSION_ELIGIBLE=no
+            echo "[paper-ledger] pre-launch session ${PAPER_AS_OF} skips pattern-memory mutation"
+          else
+            # Invalidate any restored pattern READY marker before the first
+            # fallible paper transaction, cleanup, or holding-risk command.
+            python tools/archive_run287_ohlcv_pattern_memory.py \
+              --record-failed-session-reason current_session_pending \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+          fi
           if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
             DECISION_CUTOFF_UTC="$(python -c 'import os; import pandas as pd; print((pd.Timestamp(os.environ["LAST_NYSE_CLOSE_UTC"]) + pd.Timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
             GENERATED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -2418,6 +2449,87 @@ jobs:
               encoding="utf-8",
           )
           PY
+            if [ "$PATTERN_SESSION_ELIGIBLE" != yes ]; then
+              echo "[paper-ledger] pre-launch paper mark accepted without pattern observation"
+            else
+            # Pattern-memory catch-up is separate from portfolio replay. It
+            # consumes only the operator-pinned prior daily artifact for this
+            # exact session and never recomputes targets or creates orders.
+            PATTERN_CATCHUP_SOURCE="${CATCHUP_ARTIFACT_ROOT:?missing catch-up artifact root}/outputs"
+            PATTERN_DATE_TOKEN="${PAPER_AS_OF//-/}"
+            PATTERN_EVIDENCE_DIRS=(
+              holding_risk_watch
+              run287_exact_packet_upstream
+              run287_exact_packet_input_sources
+              run287_exact_packet_input_registry
+              run287_exact_packet_producer
+              "run287_current_selector_no_write_exact_close_${PATTERN_DATE_TOKEN}"
+              "run287_candidate_risk_watch_exact_close_${PATTERN_DATE_TOKEN}"
+            )
+            for evidence_dir in "${PATTERN_EVIDENCE_DIRS[@]}"; do
+              test -d "$PATTERN_CATCHUP_SOURCE/$evidence_dir"
+              rm -rf "outputs/$evidence_dir"
+              cp -a \
+                "$PATTERN_CATCHUP_SOURCE/$evidence_dir" \
+                "outputs/$evidence_dir"
+            done
+            PATTERN_CATCHUP_ACCEPTED_AT_UTC="$(
+              python - outputs/run287_catchup_price_evidence/status.json <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path(sys.argv[1]).read_text(encoding="utf-8")
+          )
+          accepted_at = str(
+              evidence.get("artifact_captured_at_utc") or ""
+          )
+          if (
+              evidence.get("status")
+              != "READY_RUN287_CATCHUP_PRICE_EVIDENCE_REPLAY_ONLY"
+              or evidence.get("selected_session_date")
+              != os.environ["LAST_NYSE_SESSION_DATE"]
+              or evidence.get("replay_only") is not True
+              or evidence.get("forward_promotion_eligible") is not False
+              or not accepted_at
+          ):
+              raise SystemExit(
+                  "pattern catch-up artifact provenance is incomplete"
+              )
+          print(accepted_at)
+          PY
+            )"
+            PATTERN_CATCHUP_TIMING_DIR="outputs/run287_ohlcv_location_timing_exact_close_${PATTERN_DATE_TOKEN}"
+            rm -rf "$PATTERN_CATCHUP_TIMING_DIR"
+            if ! python tools/build_run287_ohlcv_location_timing_challenger.py \
+              --producer-status outputs/run287_exact_packet_producer/status.json \
+              --holding-watch outputs/holding_risk_watch/holding_risk_watch.csv \
+              --pattern-memory-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              --valuation-date "$PAPER_AS_OF" \
+              --observation-accepted-at-utc "$PATTERN_CATCHUP_ACCEPTED_AT_UTC" \
+              --historical-catchup-artifact-root "${CATCHUP_ARTIFACT_ROOT:?}" \
+              --historical-catchup-artifact-metadata "${CATCHUP_ARTIFACT_METADATA:?}" \
+              --historical-catchup-price-evidence outputs/run287_catchup_price_evidence/status.json \
+              --output-dir "$PATTERN_CATCHUP_TIMING_DIR" \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log; then
+              python tools/archive_run287_ohlcv_pattern_memory.py \
+                --record-failed-session-reason pattern_catchup_timing_blocked \
+                --valuation-date "$PAPER_AS_OF" \
+                --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+              exit 2
+            fi
+            if ! python tools/archive_run287_ohlcv_pattern_memory.py \
+              --timing-summary "$PATTERN_CATCHUP_TIMING_DIR/summary.json" \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
+              exit 2
+            fi
+            echo "[paper-ledger] chronological pattern-memory catch-up accepted from pinned exact-session artifact; targets and orders remained disabled"
+            fi
             echo "[paper-ledger] chronological catch-up mark accepted; exact-packet recomputation and new orders are disabled"
           else
           python tools/build_run287_holding_risk_watch.py \
@@ -2546,6 +2658,134 @@ jobs:
           PY
           fi
           if [ "$PRODUCER_READY" = "yes" ]; then
+            # A report/publication failure can leave a hash-valid append-only
+            # suffix.  Finalize that exact session from its preserved,
+            # first-attempt timing evidence before advancing to a later date.
+            PATTERN_RECOVERY_DESCRIPTOR="$(
+              python - <<'PY'
+          from pathlib import Path
+
+          from tools import archive_run287_ohlcv_pattern_memory as memory
+
+          memory_dir = Path(
+              "outputs/run287_decision_observation_archive/"
+              "ohlcv_pattern_memory"
+          )
+          contract_path = Path(
+              "docs/run287_ohlcv_pattern_memory_contract.json"
+          )
+          contract_sha256 = memory.sha256_file(contract_path)
+          observations, _, _ = memory.validate_chain(
+              memory.read_jsonl(memory_dir / "observations.jsonl"),
+              expected_schema=memory.OBSERVATION_SCHEMA_VERSION,
+              contract_sha256=contract_sha256,
+          )
+          outcomes, _, _ = memory.validate_chain(
+              memory.read_jsonl(memory_dir / "outcomes.jsonl"),
+              expected_schema=memory.OUTCOME_SCHEMA_VERSION,
+              contract_sha256=contract_sha256,
+          )
+          durable_head = memory.validate_accepted_head_state(
+              memory_dir=memory_dir,
+              observations=observations,
+              outcomes=outcomes,
+              contract_sha256=contract_sha256,
+              allow_unaccepted_events=True,
+          )
+          retry_session = memory.required_unaccepted_retry_session(
+              observations=observations,
+              outcomes=outcomes,
+              durable_head=durable_head,
+          )
+          if retry_session:
+              observation_count = int(
+                  durable_head.get("observation_event_count") or 0
+              )
+              observation_payload_hashes = {
+                  memory.canonical_hash(
+                      memory.event_comparison_payload(row)
+                  )
+                  for row in observations[observation_count:]
+                  if row.get("as_of_date") == retry_session
+              }
+              summary_hashes = {
+                  str(row.get("source_summary_sha256") or "")
+                  for row in observations[observation_count:]
+                  if row.get("as_of_date") == retry_session
+              }
+              outcome_count = int(
+                  durable_head.get("resolved_outcome_event_count") or 0
+              )
+              summary_hashes.update(
+                  str(row.get("source_summary_sha256") or "")
+                  for row in outcomes[outcome_count:]
+                  if (
+                      row.get("recorded_during_session")
+                      == retry_session
+                  )
+              )
+              summary_hashes.discard("")
+              legacy_endpoint_hashes = {
+                  str(row.get(key) or "")
+                  for row in outcomes[outcome_count:]
+                  if (
+                      row.get("recorded_during_session")
+                      == retry_session
+                  )
+                  for key in (
+                      "source_endpoint_payload_sha256",
+                      "spy_endpoint_payload_sha256",
+                  )
+              }
+              legacy_endpoint_hashes.discard("")
+              if (
+                  not summary_hashes
+                  and not legacy_endpoint_hashes
+                  and not observation_payload_hashes
+              ):
+                  raise SystemExit(
+                      "unaccepted pattern suffix has no recoverable "
+                      f"provenance:{retry_session}"
+                  )
+              summary_path = memory.select_recovery_evidence_summary(
+                  memory_dir=memory_dir,
+                  session_date=retry_session,
+                  accepted_summary_sha256s=summary_hashes,
+                  required_endpoint_payload_sha256s=legacy_endpoint_hashes,
+                  required_observation_payload_sha256s=(
+                      observation_payload_hashes
+                  ),
+                  contract_sha256=contract_sha256,
+              )
+              print(f"{retry_session}|{summary_path}")
+          PY
+            )"
+            PATTERN_RECOVERY_SESSION=""
+            PATTERN_RECOVERY_SUMMARY=""
+            if [ -n "$PATTERN_RECOVERY_DESCRIPTOR" ]; then
+              IFS='|' read -r REQUIRED_PATTERN_RETRY_SESSION PATTERN_RECOVERY_SUMMARY <<< "$PATTERN_RECOVERY_DESCRIPTOR"
+              python - "$REQUIRED_PATTERN_RETRY_SESSION" "$PAPER_AS_OF" <<'PY'
+          import datetime as dt
+          import sys
+
+          retry_session = dt.date.fromisoformat(sys.argv[1])
+          current_session = dt.date.fromisoformat(sys.argv[2])
+          if retry_session > current_session:
+              raise SystemExit(
+                  "unaccepted pattern retry is later than current session:"
+                  f"{retry_session}>{current_session}"
+              )
+          PY
+              python tools/archive_run287_ohlcv_pattern_memory.py \
+                --timing-summary "$PATTERN_RECOVERY_SUMMARY" \
+                --valuation-date "$REQUIRED_PATTERN_RETRY_SESSION" \
+                --preserve-blocked-publication \
+                --pending-session-date "$PAPER_AS_OF" \
+                --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+              PATTERN_RECOVERY_SESSION="$REQUIRED_PATTERN_RETRY_SESSION"
+              echo "[daily-operating] validated and staged unaccepted OHLCV pattern session ${PATTERN_RECOVERY_SESSION} from its provenance-matched first-attempt evidence while preserving the current BLOCKED public marker"
+            fi
           if python tools/build_run287_same_close_target_books.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
             --freshness-status outputs/data_freshness_contract/status.json \
@@ -2641,18 +2881,81 @@ jobs:
           DATE_TOKEN="${PAPER_AS_OF//-/}"
           OHLCV_TIMING_DIR="outputs/run287_ohlcv_location_timing_exact_close_${DATE_TOKEN}"
           OBSERVATION_ACCEPTED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          if python tools/build_run287_ohlcv_location_timing_challenger.py \
+          PATTERN_RECOVERY_READY=yes
+          PATTERN_CURRENT_SESSION_CHRONOLOGICAL=yes
+          if [ -n "$PATTERN_RECOVERY_SESSION" ]; then
+            PATTERN_RECOVERY_PUBLICATION_ARGS=()
+            if [ "$PATTERN_RECOVERY_SESSION" != "$PAPER_AS_OF" ]; then
+              PATTERN_RECOVERY_PUBLICATION_ARGS+=(
+                --commit-head-preserve-blocked-publication
+                --pending-session-date "$PAPER_AS_OF"
+              )
+            fi
+            if python tools/archive_run287_ohlcv_pattern_memory.py \
+              --timing-summary "$PATTERN_RECOVERY_SUMMARY" \
+              --valuation-date "$PATTERN_RECOVERY_SESSION" \
+              "${PATTERN_RECOVERY_PUBLICATION_ARGS[@]}" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
+              echo "[daily-operating] published recovered OHLCV pattern session ${PATTERN_RECOVERY_SESSION} after the same-close transaction boundary and before current-session pattern construction"
+              if [ "$PATTERN_RECOVERY_SESSION" != "$PAPER_AS_OF" ]; then
+                REQUIRED_NEXT_PATTERN_SESSION="$(
+                  python - "$PATTERN_RECOVERY_SESSION" <<'PY'
+          import sys
+
+          from tools import archive_run287_ohlcv_pattern_memory as memory
+
+          print(memory.exact_target_session(sys.argv[1], 1))
+          PY
+                )"
+                if [ "$PAPER_AS_OF" != "$REQUIRED_NEXT_PATTERN_SESSION" ]; then
+                  PATTERN_CURRENT_SESSION_CHRONOLOGICAL=no
+                  echo "[daily-operating] current OHLCV pattern session ${PAPER_AS_OF} is not the immediate NYSE successor of recovered ${PATTERN_RECOVERY_SESSION}; required ${REQUIRED_NEXT_PATTERN_SESSION}, so current construction remains BLOCKED"
+                fi
+              fi
+            else
+              PATTERN_RECOVERY_READY=no
+              echo "[daily-operating] recovered OHLCV pattern session ${PATTERN_RECOVERY_SESSION} failed post-ledger revalidation; current-session pattern construction is suppressed and remains BLOCKED"
+            fi
+          fi
+          if [ "$PATTERN_RECOVERY_READY" != yes ]; then
+            echo "[daily-operating] OHLCV pattern recovery did not commit; skipping current-session pattern observation"
+          elif [ "$PATTERN_CURRENT_SESSION_CHRONOLOGICAL" != yes ]; then
+            echo "[daily-operating] intervening OHLCV pattern sessions require explicit chronological catch-up; skipping current-session pattern observation"
+          elif [ "$PATTERN_RECOVERY_SESSION" = "$PAPER_AS_OF" ]; then
+            echo "[daily-operating] current OHLCV pattern session was completed by exact-session recovery"
+          elif python tools/build_run287_ohlcv_location_timing_challenger.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
             --holding-watch outputs/holding_risk_watch/holding_risk_watch.csv \
+            --pattern-memory-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
             --valuation-date "$PAPER_AS_OF" \
             --observation-accepted-at-utc "$OBSERVATION_ACCEPTED_AT_UTC" \
             --output-dir "$OHLCV_TIMING_DIR" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log; then
             echo "[daily-operating] OHLCV location timing forward observation completed after the same-close transaction boundary"
+            if python tools/archive_run287_ohlcv_pattern_memory.py \
+              --timing-summary "$OHLCV_TIMING_DIR/summary.json" \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
+              echo "[daily-operating] append-only OHLCV pattern memory accepted the exact-close observation"
+            else
+              echo "[daily-operating] OHLCV pattern memory blocked; targets/ledger were not mutated, and the missing exact session keeps all later pattern statistics/proposals suppressed"
+            fi
           else
-            echo "[daily-operating] OHLCV location timing sidecar blocked after the same-close transaction boundary; no target or ledger state was gated or mutated"
+            python tools/archive_run287_ohlcv_pattern_memory.py \
+              --record-failed-session-reason timing_builder_blocked \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+            echo "[daily-operating] OHLCV location timing sidecar blocked after the same-close transaction boundary; no target or ledger state was gated or mutated, and the missing exact session keeps all later pattern statistics/proposals suppressed"
           fi
           else
+            python tools/archive_run287_ohlcv_pattern_memory.py \
+              --record-failed-session-reason exact_packet_producer_blocked \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
             echo "[daily-operating] same-close selector skipped because current producer failed"
             python - "$SAME_CLOSE_DIR" "$PAPER_AS_OF" "${CHAIN_BLOCK_REASON:-current_producer_not_ready}" <<'PY'
           import sys
@@ -3121,6 +3424,7 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
             outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
             outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
+            outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
             outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_anchor.log
@@ -3913,7 +4217,10 @@ jobs:
           if [ "${PAPER_CATCHUP_MODE:-no}" != "yes" ]; then
             rclone copy outputs/holding_risk_watch "${BASE}paper_archive/run287_holding_risk_watch/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           fi
-          if [ "${PAPER_CATCHUP_MODE:-no}" != "yes" ] && [ -s outputs/run287_decision_observation_archive/manifest.json ]; then
+          if { [ "${PAPER_CATCHUP_MODE:-no}" != "yes" ] && \
+               [ -s outputs/run287_decision_observation_archive/manifest.json ]; } || \
+             { [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ] && \
+               [ -s outputs/run287_decision_observation_archive/ohlcv_pattern_memory/accepted_head.json ]; }; then
             rclone copy outputs/run287_decision_observation_archive "${BASE}paper_archive/run287_decision_observation_archive/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
           fi
           if [ "${PAPER_CATCHUP_MODE:-no}" != "yes" ] && [ -s outputs/run287_risk_outcome_archive/summary.json ]; then
@@ -3999,6 +4306,8 @@ jobs:
             outputs/run287_catchup_target_evidence_status.json
             outputs/run287_catchup_target_evidence/
             outputs/run287_catchup_target_source/
+            outputs/run287_ohlcv_location_timing_exact_close_*/
+            outputs/run287_decision_observation_archive/
             outputs/daily_simulated_fill_ledger/
             outputs/run287_paper_immutable_head_bundles/
             outputs/account_ledger_preview/
@@ -4013,6 +4322,8 @@ jobs:
             outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
             outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
+            outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
+            outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
           if-no-files-found: error
           retention-days: 45
 
@@ -4039,6 +4350,8 @@ jobs:
             ${{ runner.temp }}/run287_durable_scope_consumption_persist.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
             outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
+            outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
+            outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
             outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
           if-no-files-found: warn
           retention-days: 45

@@ -1,0 +1,94 @@
+{
+  "schema_version": "run287-ohlcv-pattern-memory-contract-v1",
+  "scope": "append_only_exact_close_forward_pattern_memory",
+  "source_contract": {
+    "schema_version": "run287-ohlcv-location-timing-challenger-v1",
+    "ready_statuses": [
+      "READY_OHLCV_LOCATION_TIMING_FORWARD_REVIEW_ONLY",
+      "READY_OHLCV_LOCATION_TIMING_FORWARD_REVIEW_ONLY_WITH_DATA_INSUFFICIENT"
+    ],
+    "required_outputs": [
+      "forward_observations",
+      "benchmark_location",
+      "forward_outcome_endpoints"
+    ],
+    "require_output_hash_match": true,
+    "require_exact_same_valuation_date": true
+  },
+  "event_contract": {
+    "observation_schema_version": "run287-ohlcv-pattern-observation-v1",
+    "outcome_schema_version": "run287-ohlcv-pattern-outcome-v1",
+    "append_only": true,
+    "same_identity_payload_change_allowed": false,
+    "out_of_order_observation_allowed": false,
+    "future_observation_allowed": false,
+    "exact_nyse_target_session_only": true,
+    "later_session_substitution_allowed": false,
+    "endpoint_adjustment_policy": "origin_and_target_close_must_come_from_one_target_session_adjusted_history_snapshot",
+    "historical_backfill_allowed": false,
+    "unresolved_ticker_policy": "carry_every_unresolved_security_to_its_exact_final_horizon_even_after_portfolio_exit",
+    "durable_head_policy": "immutable_parent_linked_accepted_heads_with_prefix_hash_and_chain_descendant_validation",
+    "source_kinds": [
+      "SECURITY",
+      "BENCHMARK"
+    ]
+  },
+  "pattern_contract": {
+    "field": "return_transition_signature",
+    "classes": [
+      "DOWN_TO_UP_REVERSAL",
+      "UP_TO_DOWN_REVERSAL",
+      "CONTINUED_DOWN",
+      "CONTINUED_UP",
+      "FLAT_OR_INSUFFICIENT"
+    ],
+    "classification_policy": "strict_observed_prior_and_current_return_signs_only",
+    "threshold_grid_allowed": false,
+    "post_outcome_relabeling_allowed": false
+  },
+  "forward_learning": {
+    "accepted_forward_launch_session": "2026-07-29",
+    "outcome_horizons_nyse_sessions": [
+      1,
+      5,
+      21,
+      63,
+      126
+    ],
+    "benchmark": "SPY",
+    "security_outcome_requires_exact_benchmark_endpoints": true,
+    "minimum_resolved_observations_per_pattern_horizon": 30,
+    "minimum_resolution_coverage_for_directional_statistics": 1.0,
+    "minimum_completed_sessions_before_proposal": 60,
+    "minimum_decision_weeks_before_proposal": 12,
+    "session_failure_policy": "every_nyse_session_from_launch_through_as_of_must_be_present_or_directional_statistics_and_proposals_remain_blocked",
+    "stale_publication_policy": "any_timing_or_archive_failure_must_atomically_replace_summary_and_report_with_an_exact_session_blocked_marker",
+    "missing_origin_close_policy": "every_accepted_close_missing_or_data_not_ready_observation_is_matured_but_unresolved_and_suppresses_all_directional_statistics_and_proposals",
+    "outcome_readiness_policy": "data_ready_must_be_true_before_any_outcome_event_can_be_appended",
+    "proposal_power_policy": "at_least_one_security_not_benchmark_pattern_horizon_must_publish_directional_statistics",
+    "unaccepted_suffix_policy": "an_unaccepted_suffix_must_be_retried_and_finalized_on_its_original_exact_session_from_preserved_first_attempt_hash_validated_timing_evidence_before_any_later_session_can_advance",
+    "recovery_evidence_policy": "before_any_event_append_copy_the_exact_source_summary_and_resolved_outputs_into_a_content_addressed_bundle_inside_the_durable_memory_directory",
+    "pre_fallible_stage_publication_policy": "invalidate any restored READY summary before same-close target or ledger work; publish READY only after the current invocation crosses the transaction boundary",
+    "underpowered_policy": "publish_counts_and_missingness_only_no_directional_statistics",
+    "missing_outcome_policy": "suppress_directional_statistics_until_every_matured_observation_in_the_pattern_horizon_has_an_exact_target_session_outcome",
+    "automatic_model_update_allowed": false,
+    "automatic_champion_promotion_allowed": false,
+    "human_approval_required_for_any_policy_proposal": true
+  },
+  "safety": {
+    "research_only": true,
+    "forward_observation_only": true,
+    "advisory_only": true,
+    "portfolio_transition_allowed": false,
+    "orders_generated": false,
+    "target_books_mutated": false,
+    "selector_weights_changed": false,
+    "cash_policy_changed": false,
+    "champion_changed": false,
+    "historical_cagr_mdd_evidence_changed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  }
+}

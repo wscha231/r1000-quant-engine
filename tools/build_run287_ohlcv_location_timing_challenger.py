@@ -52,6 +52,7 @@ DATA_OUTPUT_NAMES = (
     "fibonacci_levels.csv",
     "benchmark_location.csv",
     "forward_observations.jsonl",
+    "forward_outcome_endpoints.jsonl",
     "price_source_audit.csv",
     "report.md",
 )
@@ -369,6 +370,37 @@ def past_percentile(series: pd.Series, minimum: int = 60) -> tuple[float | None,
     return float((clean <= current).mean()), int(len(clean))
 
 
+def return_transition_signature(
+    prior_return_1d: Any,
+    return_1d: Any,
+) -> str:
+    """Classify only the two observed signs; do not tune a shock threshold."""
+    prior = finite(prior_return_1d)
+    current = finite(return_1d)
+    if prior is None or current is None or prior == 0.0 or current == 0.0:
+        return "FLAT_OR_INSUFFICIENT"
+    if prior < 0.0 < current:
+        return "DOWN_TO_UP_REVERSAL"
+    if prior > 0.0 > current:
+        return "UP_TO_DOWN_REVERSAL"
+    if prior < 0.0 and current < 0.0:
+        return "CONTINUED_DOWN"
+    if prior > 0.0 and current > 0.0:
+        return "CONTINUED_UP"
+    return "FLAT_OR_INSUFFICIENT"
+
+
+def trailing_nyse_sessions(asof: pd.Timestamp, count: int) -> list[pd.Timestamp]:
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=(asof - pd.Timedelta(days=max(14, count * 4))).date().isoformat(),
+        end_date=asof.date().isoformat(),
+    )
+    return [
+        pd.Timestamp(value).tz_localize(None).normalize()
+        for value in schedule.index[-count:]
+    ]
+
+
 def fixed_window_features(
     ticker: str,
     px: pd.DataFrame,
@@ -409,6 +441,9 @@ def fixed_window_features(
     atr14 = true_range.rolling(14, min_periods=14).mean()
     current_close = float(close.iloc[-1])
     current_atr = finite(atr14.iloc[-1])
+    current_true_range = finite(true_range.iloc[-1])
+    prior_atr = finite(atr14.iloc[-2]) if len(atr14) >= 2 else None
+    prior_true_range = finite(true_range.iloc[-2]) if len(true_range) >= 2 else None
     prior_volume = volume.shift(1).rolling(20, min_periods=20)
     volume_mean20 = prior_volume.mean()
     volume_std20 = prior_volume.std(ddof=0).replace(0.0, np.nan)
@@ -422,6 +457,40 @@ def fixed_window_features(
     realized63 = returns.rolling(63, min_periods=63).std(ddof=0) * math.sqrt(252)
     realized_ratio = realized20 / realized63.replace(0.0, np.nan)
     vol_percentile, vol_history = past_percentile(realized20, minimum=60)
+    expected_transition_sessions = trailing_nyse_sessions(asof, 3)
+    actual_transition_sessions = [
+        pd.Timestamp(value).normalize() for value in px.index[-3:]
+    ]
+    transition_sessions_consecutive = bool(
+        len(expected_transition_sessions) == 3
+        and actual_transition_sessions == expected_transition_sessions
+    )
+    prior_return_1d = (
+        finite(returns.iloc[-2]) if transition_sessions_consecutive else None
+    )
+    current_return_1d = (
+        finite(returns.iloc[-1]) if transition_sessions_consecutive else None
+    )
+    return_2d = (
+        finite(close.iloc[-1] / close.iloc[-3] - 1.0)
+        if transition_sessions_consecutive
+        else None
+    )
+    prior_loss_recovery_fraction = None
+    if (
+        prior_return_1d is not None
+        and current_return_1d is not None
+        and prior_return_1d < 0.0 < current_return_1d
+        and len(close) >= 3
+    ):
+        prior_loss = float(close.iloc[-3] - close.iloc[-2])
+        current_gain = float(close.iloc[-1] - close.iloc[-2])
+        if prior_loss > 0.0:
+            prior_loss_recovery_fraction = current_gain / prior_loss
+    transition_signature = return_transition_signature(
+        prior_return_1d,
+        current_return_1d,
+    )
 
     row.update(
         close=current_close,
@@ -430,11 +499,39 @@ def fixed_window_features(
         low=finite(low.iloc[-1]),
         volume=finite(volume.iloc[-1]),
         dollar_volume=finite(px["dollar_volume"].iloc[-1]),
-        return_1d=finite(returns.iloc[-1]),
+        prior_return_1d=prior_return_1d,
+        return_1d=current_return_1d,
+        return_2d=return_2d,
+        return_transition_signature=transition_signature,
+        return_transition_sessions_consecutive=transition_sessions_consecutive,
+        return_transition_session_dates="|".join(
+            value.date().isoformat() for value in actual_transition_sessions
+        ),
+        return_transition_data_reason=(
+            ""
+            if transition_sessions_consecutive
+            else "nonconsecutive_nyse_sessions"
+        ),
+        prior_down_current_up=transition_signature == "DOWN_TO_UP_REVERSAL",
+        prior_loss_recovery_fraction=prior_loss_recovery_fraction,
         gap_return=finite(gap.iloc[-1]),
         intraday_return=finite(intraday_return.iloc[-1]),
         close_location_in_bar=finite(close_location.iloc[-1]),
         atr14=finite(atr14.iloc[-1]),
+        true_range_atr14=(
+            None
+            if not transition_sessions_consecutive
+            or current_atr in (None, 0.0)
+            or current_true_range is None
+            else current_true_range / float(current_atr)
+        ),
+        prior_true_range_atr14=(
+            None
+            if not transition_sessions_consecutive
+            or prior_atr in (None, 0.0)
+            or prior_true_range is None
+            else prior_true_range / float(prior_atr)
+        ),
         atr14_pct=(
             None if current_atr is None else current_atr / current_close
         ),
@@ -728,6 +825,7 @@ def role_table(
                 "is_held": False,
                 "is_current_selector": False,
                 "is_proposed_entry": False,
+                "is_pattern_outcome_carry": False,
                 "portfolios": set(),
                 "holding_risk_states": set(),
                 "marked_weight_max": 0.0,
@@ -762,6 +860,7 @@ def role_table(
                     "is_held": False,
                     "is_current_selector": False,
                     "is_proposed_entry": False,
+                    "is_pattern_outcome_carry": False,
                     "portfolios": set(),
                     "holding_risk_states": set(),
                     "marked_weight_max": 0.0,
@@ -801,6 +900,239 @@ def role_table(
     return pd.DataFrame(rows).sort_values("ticker").reset_index(drop=True)
 
 
+def load_pattern_outcome_requests(
+    memory_dir: Path,
+    memory_contract_path: Path,
+    valuation_date: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
+    from tools import archive_run287_ohlcv_pattern_memory as memory
+
+    audits: dict[str, Any] = {
+        "pattern_memory_contract": fingerprint(memory_contract_path),
+        "pattern_memory_observations": fingerprint(
+            memory_dir / "observations.jsonl"
+        ),
+        "pattern_memory_outcomes": fingerprint(memory_dir / "outcomes.jsonl"),
+        "pattern_memory_accepted_head": fingerprint(
+            memory_dir / "accepted_head.json"
+        ),
+    }
+    observations_path = memory_dir / "observations.jsonl"
+    try:
+        contract = read_json(memory_contract_path)
+        if (
+            contract.get("schema_version")
+            != "run287-ohlcv-pattern-memory-contract-v1"
+        ):
+            raise ValueError("pattern memory contract schema")
+        contract_sha256 = sha256_file(memory_contract_path)
+        if contract_sha256 != memory.PINNED_CONTRACT_SHA256:
+            raise ValueError(
+                "pattern memory contract hash changed without explicit "
+                f"immutable-chain migration:{contract_sha256}"
+            )
+        observations, _, _ = memory.validate_chain(
+            memory.read_jsonl(observations_path),
+            expected_schema=memory.OBSERVATION_SCHEMA_VERSION,
+            contract_sha256=contract_sha256,
+        )
+        outcomes, _, _ = memory.validate_chain(
+            memory.read_jsonl(memory_dir / "outcomes.jsonl"),
+            expected_schema=memory.OUTCOME_SCHEMA_VERSION,
+            contract_sha256=contract_sha256,
+        )
+        accepted_head = memory.validate_accepted_head_state(
+            memory_dir=memory_dir,
+            observations=observations,
+            outcomes=outcomes,
+            contract_sha256=contract_sha256,
+            allow_unaccepted_events=True,
+        )
+        audits["pattern_memory_unaccepted_recovery"] = bool(
+            accepted_head.get("pointer_repair_required")
+            or ((observations or outcomes) and not accepted_head.get("head_id"))
+        )
+        required_retry_session = (
+            memory.required_unaccepted_retry_session(
+                observations=observations,
+                outcomes=outcomes,
+                durable_head=accepted_head,
+            )
+        )
+        audits["pattern_memory_required_retry_session"] = (
+            required_retry_session
+        )
+        if (
+            required_retry_session
+            and required_retry_session != valuation_date
+        ):
+            raise ValueError(
+                "unaccepted pattern session requires exact retry:"
+                f"{required_retry_session}!={valuation_date}"
+            )
+        required_chronological_session = (
+            memory.validate_chronological_observation_session(
+                valuation_date=valuation_date,
+                durable_head=accepted_head,
+                forward_launch_session=str(
+                    contract["forward_learning"][
+                        "accepted_forward_launch_session"
+                    ]
+                ),
+            )
+        )
+        audits["pattern_memory_required_chronological_session"] = (
+            required_chronological_session
+        )
+        if accepted_head.get("head_id"):
+            audits["pattern_memory_accepted_head_manifest"] = fingerprint(
+                memory_dir
+                / "accepted_heads"
+                / str(accepted_head["head_id"])
+                / "manifest.json"
+            )
+        requests: list[dict[str, Any]] = []
+        for observation in observations:
+            origin = str(observation.get("as_of_date") or "")
+            for horizon_value in contract["forward_learning"][
+                "outcome_horizons_nyse_sessions"
+            ]:
+                horizon = int(horizon_value)
+                target = memory.exact_target_session(origin, horizon)
+                identity = (
+                    str(observation.get("event_id") or ""),
+                    horizon,
+                    target,
+                )
+                if target != valuation_date:
+                    continue
+                requests.append(
+                    {
+                        "observation_event_id": identity[0],
+                        "source_kind": str(
+                            observation.get("source_kind") or ""
+                        ),
+                        "ticker": clean_ticker(observation.get("ticker")),
+                        "origin_session_date": origin,
+                        "target_session_date": target,
+                        "horizon_nyse_sessions": horizon,
+                        "pattern_signature": observation.get(
+                            "return_transition_signature"
+                        ),
+                    }
+                )
+        return sorted(
+            requests,
+            key=lambda row: (
+                str(row["source_kind"]),
+                str(row["ticker"]),
+                str(row["origin_session_date"]),
+                int(row["horizon_nyse_sessions"]),
+            ),
+        ), audits, []
+    except Exception as exc:
+        return [], audits, [
+            f"pattern_memory_request:{type(exc).__name__}:{exc}"
+        ]
+
+
+def add_pattern_carry_roles(
+    roles: pd.DataFrame,
+    requests: list[Mapping[str, Any]],
+) -> pd.DataFrame:
+    security_tickers = sorted(
+        {
+            clean_ticker(row.get("ticker"))
+            for row in requests
+            if row.get("source_kind") == "SECURITY"
+            and clean_ticker(row.get("ticker"))
+        }
+    )
+    rows = roles.to_dict("records") if not roles.empty else []
+    by_ticker = {clean_ticker(row.get("ticker")): row for row in rows}
+    for row in rows:
+        row["is_pattern_outcome_carry"] = (
+            clean_ticker(row.get("ticker")) in security_tickers
+        )
+    for ticker in security_tickers:
+        if ticker in by_ticker:
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "is_held": False,
+                "is_current_selector": False,
+                "is_proposed_entry": False,
+                "is_pattern_outcome_carry": True,
+                "portfolios": "",
+                "holding_risk_states": "",
+                "marked_weight_max": 0.0,
+                "advisory_weight_max": 0.0,
+            }
+        )
+    return pd.DataFrame(rows).sort_values("ticker").reset_index(drop=True)
+
+
+def build_outcome_endpoints(
+    requests: list[Mapping[str, Any]],
+    price_frames: Mapping[tuple[str, str], pd.DataFrame],
+    valuation: pd.Timestamp,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for request in requests:
+        source_kind = str(request.get("source_kind") or "")
+        ticker = clean_ticker(request.get("ticker"))
+        origin = pd.Timestamp(
+            str(request.get("origin_session_date") or "")
+        ).normalize()
+        px = price_frames.get((source_kind, ticker), pd.DataFrame())
+        origin_close = None
+        target_close = None
+        reason = ""
+        if px.empty:
+            reason = "target_basis_price_history_missing"
+        elif origin not in px.index:
+            reason = "target_basis_origin_close_missing"
+        elif valuation not in px.index:
+            reason = "exact_target_close_missing"
+        else:
+            origin_close = finite(px.loc[origin, "close"])
+            target_close = finite(px.loc[valuation, "close"])
+            if origin_close in (None, 0.0) or target_close is None:
+                reason = "target_basis_endpoint_nonfinite"
+        row = {
+            "schema_version": "run287-ohlcv-forward-outcome-endpoint-v1",
+            **dict(request),
+            "ticker": ticker,
+            "origin_close_on_target_adjustment_basis": origin_close,
+            "target_close_on_target_adjustment_basis": target_close,
+            "adjustment_basis_as_of": valuation.date().isoformat(),
+            "adjustment_basis_policy": (
+                "both_endpoints_from_target_session_hash_verified_"
+                "adjusted_history"
+            ),
+            "data_reason": reason,
+            "exact_target_session": bool(
+                not reason and valuation.date().isoformat()
+                == request.get("target_session_date")
+            ),
+            "research_only": True,
+            "portfolio_transition_allowed": False,
+            "orders_generated": False,
+            "target_books_mutated": False,
+        }
+        row["endpoint_id"] = canonical_hash(
+            {
+                "schema_version": row["schema_version"],
+                "observation_event_id": row["observation_event_id"],
+                "horizon_nyse_sessions": row["horizon_nyse_sessions"],
+                "target_session_date": row["target_session_date"],
+            }
+        )
+        rows.append(row)
+    return rows
+
+
 def required_latest_available_from(
     named_values: Mapping[str, Any],
 ) -> tuple[str, list[str]]:
@@ -826,6 +1158,7 @@ def forward_observation_window(
     accepted_at_utc: str,
     invoked_at_utc: pd.Timestamp,
     contract: Mapping[str, Any],
+    historical_replay_materialized: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     forward = contract["forward_learning"]
     launch = pd.to_datetime(
@@ -876,8 +1209,10 @@ def forward_observation_window(
         failures.append("valuation_before_forward_launch_anchor")
     if accepted < launch:
         failures.append("acceptance_before_forward_launch_anchor")
-    if caller_clock_skew_seconds > float(
-        forward["maximum_caller_clock_skew_seconds"]
+    if (
+        not historical_replay_materialized
+        and caller_clock_skew_seconds
+        > float(forward["maximum_caller_clock_skew_seconds"])
     ):
         failures.append("observation_acceptance_clock_mismatch")
     if acceptance_delay_hours < 0:
@@ -908,7 +1243,9 @@ def forward_observation_window(
         "acceptance_delay_hours_after_nyse_close": acceptance_delay_hours,
         "latest_input_delay_hours_after_nyse_close": input_delay_hours,
         "acceptance_lag_hours_after_latest_input": acceptance_lag_hours,
-        "historical_replay_materialized": False,
+        "historical_replay_materialized": (
+            historical_replay_materialized
+        ),
     }, failures
 
 
@@ -1098,8 +1435,8 @@ def render_report(summary: Mapping[str, Any], rows: pd.DataFrame) -> str:
         "- Fibonacci levels are fixed descriptive coordinates, not standalone alpha evidence",
         "- VIX alone cannot produce a stock action",
         "",
-        "| Ticker | Role | Location | 1D | 21D | Vol z | RV pct | Shadow action | Reasons |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Ticker | Role | Pattern | Location | Prior 1D | 1D | 21D | Vol z | RV pct | Shadow action | Reasons |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for row in rows.to_dict("records"):
         def pct(value: Any) -> str:
@@ -1120,8 +1457,10 @@ def render_report(summary: Mapping[str, Any], rows: pd.DataFrame) -> str:
             else "observe"
         )
         lines.append(
-            f"| {row.get('ticker', '')} | {role} | `{row.get('location_state', '')}` | "
-            f"{pct(row.get('return_1d'))} | {pct(row.get('return_21d'))} | "
+            f"| {row.get('ticker', '')} | {role} | `{row.get('return_transition_signature', '')}` | "
+            f"`{row.get('location_state', '')}` | "
+            f"{pct(row.get('prior_return_1d'))} | {pct(row.get('return_1d'))} | "
+            f"{pct(row.get('return_21d'))} | "
             f"{number(row.get('volume_z_20d_past_only'))} | "
             f"{pct(row.get('realized_vol_20d_past_percentile'))} | "
             f"`{row.get('shadow_action', '')}` | {row.get('shadow_reason_codes', '')} |"
@@ -1177,6 +1516,86 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         failures.append("holding_watch_not_producer_input")
     if failures:
         return blocked(output_dir, failures, audits, started)
+
+    historical_replay_materialized = False
+    historical_metadata_raw = str(
+        getattr(args, "historical_catchup_artifact_metadata", "") or ""
+    )
+    historical_root_raw = str(
+        getattr(args, "historical_catchup_artifact_root", "") or ""
+    )
+    historical_evidence_raw = str(
+        getattr(args, "historical_catchup_price_evidence", "") or ""
+    )
+    if any(
+        (
+            historical_metadata_raw,
+            historical_root_raw,
+            historical_evidence_raw,
+        )
+    ):
+        if not all(
+            (
+                historical_metadata_raw,
+                historical_root_raw,
+                historical_evidence_raw,
+            )
+        ):
+            failures.append("historical_catchup_provenance_incomplete")
+            return blocked(output_dir, failures, audits, started)
+        try:
+            from tools.build_run287_catchup_price_evidence import (
+                READY_STATUS as CATCHUP_READY_STATUS,
+                SCHEMA_VERSION as CATCHUP_SCHEMA_VERSION,
+                validate_metadata as validate_catchup_metadata,
+            )
+
+            historical_metadata_path = repo_path(historical_metadata_raw)
+            historical_root = repo_path(historical_root_raw)
+            historical_evidence_path = repo_path(historical_evidence_raw)
+            audits["historical_catchup_artifact_metadata"] = fingerprint(
+                historical_metadata_path
+            )
+            audits["historical_catchup_price_evidence"] = fingerprint(
+                historical_evidence_path
+            )
+            metadata = read_json(historical_metadata_path)
+            artifact_identity, _ = validate_catchup_metadata(
+                metadata,
+                artifact_root=historical_root,
+            )
+            catchup_evidence = read_json(historical_evidence_path)
+            expected_accepted_at = str(
+                catchup_evidence.get("artifact_captured_at_utc") or ""
+            )
+            if (
+                catchup_evidence.get("schema_version")
+                != CATCHUP_SCHEMA_VERSION
+                or catchup_evidence.get("status")
+                != CATCHUP_READY_STATUS
+                or catchup_evidence.get("selected_session_date")
+                != args.valuation_date
+                or catchup_evidence.get("artifact")
+                != artifact_identity
+                or catchup_evidence.get("replay_only") is not True
+                or catchup_evidence.get("forward_promotion_eligible")
+                is not False
+                or catchup_evidence.get("orders_generated") is not False
+                or catchup_evidence.get("target_books_mutated") is not False
+                or not expected_accepted_at
+                or pd.Timestamp(accepted_at_utc)
+                != pd.Timestamp(expected_accepted_at)
+            ):
+                raise ValueError(
+                    "historical catch-up evidence binding mismatch"
+                )
+            historical_replay_materialized = True
+        except Exception as exc:
+            failures.append(
+                "historical_catchup_provenance:"
+                f"{type(exc).__name__}:{exc}"
+            )
+            return blocked(output_dir, failures, audits, started)
 
     try:
         price_map_manifest_path, audits["price_map_manifest"] = resolve_fingerprint(
@@ -1235,6 +1654,33 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     holding = pd.read_csv(holding_path, low_memory=False)
     comparison = pd.read_csv(comparison_path, low_memory=False)
     roles = role_table(holding, comparison)
+    pattern_memory_dir = repo_path(
+        getattr(
+            args,
+            "pattern_memory_dir",
+            "outputs/run287_decision_observation_archive/"
+            "ohlcv_pattern_memory",
+        )
+    )
+    pattern_memory_contract_path = repo_path(
+        getattr(
+            args,
+            "pattern_memory_contract",
+            "docs/run287_ohlcv_pattern_memory_contract.json",
+        )
+    )
+    outcome_requests, memory_audits, memory_failures = (
+        load_pattern_outcome_requests(
+            pattern_memory_dir,
+            pattern_memory_contract_path,
+            args.valuation_date,
+        )
+    )
+    audits.update(memory_audits)
+    failures.extend(memory_failures)
+    if failures:
+        return blocked(output_dir, sorted(set(failures)), audits, started)
+    roles = add_pattern_carry_roles(roles, outcome_requests)
     if roles.empty:
         failures.append("empty_decision_security_set")
         return blocked(output_dir, failures, audits, started)
@@ -1253,6 +1699,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     benchmark_cache = Path(str(macro_cache_audit.get("isolated_cache") or ""))
     benchmark_features: dict[str, dict[str, Any]] = {}
+    outcome_price_frames: dict[tuple[str, str], pd.DataFrame] = {}
     fib_rows: list[dict[str, Any]] = []
     for ticker in ("SPY", "QQQ"):
         entry = (macro_cache_audit.get("tickers") or {}).get(ticker) or {}
@@ -1265,6 +1712,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             continue
         raw = pd.read_parquet(path)
         px = adjusted_ohlcv(raw, valuation)
+        outcome_price_frames[("BENCHMARK", ticker)] = px
         feature, levels = fixed_window_features(
             ticker, px, valuation, contract
         )
@@ -1363,6 +1811,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         accepted_at_utc,
         invoked_at_utc,
         contract,
+        historical_replay_materialized=historical_replay_materialized,
     )
     failures.extend(forward_failures)
     if failures:
@@ -1413,6 +1862,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             feature, levels = fixed_window_features(
                 ticker, px, valuation, contract
             )
+            outcome_price_frames[("SECURITY", ticker)] = px
             if price_audit.get("failure") and not feature.get("data_reason"):
                 feature["data_reason"] = str(price_audit["failure"])
         fib_rows.extend(levels)
@@ -1422,6 +1872,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "available_from": available_from,
             "observation_accepted_at_utc": forward_window[
                 "observation_accepted_at_utc"
+            ],
+            "historical_replay_materialized": forward_window[
+                "historical_replay_materialized"
             ],
             **role,
             **feature,
@@ -1469,6 +1922,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         [{**{"ticker": ticker}, **feature, **vix, **market}
          for ticker, feature in benchmark_features.items()]
     ).sort_values("ticker")
+    endpoint_rows = build_outcome_endpoints(
+        outcome_requests,
+        outcome_price_frames,
+        valuation,
+    )
     # Rehash every source after evaluation. A mutable input invalidates READY.
     failures.extend(changed_input_failures(audits, price_records, source_hashes))
     if failures:
@@ -1479,6 +1937,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "levels": output_dir / "fibonacci_levels.csv",
         "benchmark": output_dir / "benchmark_location.csv",
         "observations": output_dir / "forward_observations.jsonl",
+        "endpoints": output_dir / "forward_outcome_endpoints.jsonl",
         "price_audit": output_dir / "price_source_audit.csv",
     }
     token = uuid.uuid4().hex
@@ -1503,6 +1962,19 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 + "\n"
                 for record in current.to_dict("records")
+            ),
+            encoding="utf-8",
+        )
+        staged_paths["endpoints"].write_text(
+            "".join(
+                json.dumps(
+                    json_clean(record),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                + "\n"
+                for record in endpoint_rows
             ),
             encoding="utf-8",
         )
@@ -1531,6 +2003,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     levels_path = destination_paths["levels"]
     benchmark_path = destination_paths["benchmark"]
     observation_path = destination_paths["observations"]
+    endpoint_path = destination_paths["endpoints"]
     price_audit_path = destination_paths["price_audit"]
     insufficient = int(current["data_reason"].fillna("").astype(str).ne("").sum())
     benchmark_insufficient = sum(
@@ -1554,6 +2027,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "proposed_entry_count": int(
             current["is_proposed_entry"].fillna(False).sum()
+        ),
+        "pattern_outcome_carry_security_count": int(
+            current["is_pattern_outcome_carry"].fillna(False).sum()
+        ),
+        "forward_outcome_endpoint_count": len(endpoint_rows),
+        "forward_outcome_endpoint_ready_count": sum(
+            not str(row.get("data_reason") or "") for row in endpoint_rows
         ),
         "data_insufficient_count": insufficient,
         "benchmark_data_insufficient_count": benchmark_insufficient,
@@ -1596,6 +2076,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "fibonacci_levels": fingerprint(levels_path),
             "benchmark_location": fingerprint(benchmark_path),
             "forward_observations": fingerprint(observation_path),
+            "forward_outcome_endpoints": fingerprint(endpoint_path),
             "price_source_audit": fingerprint(price_audit_path),
         },
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -1645,6 +2126,17 @@ def parse_args() -> argparse.Namespace:
         "--contract",
         default="docs/run287_ohlcv_location_timing_challenger_contract.json",
     )
+    parser.add_argument(
+        "--pattern-memory-dir",
+        default=(
+            "outputs/run287_decision_observation_archive/"
+            "ohlcv_pattern_memory"
+        ),
+    )
+    parser.add_argument(
+        "--pattern-memory-contract",
+        default="docs/run287_ohlcv_pattern_memory_contract.json",
+    )
     parser.add_argument("--valuation-date", required=True)
     parser.add_argument(
         "--observation-accepted-at-utc",
@@ -1653,6 +2145,18 @@ def parse_args() -> argparse.Namespace:
             "UTC time at which this same-close observation is accepted; "
             "defaults to current UTC and must satisfy the forward-only window"
         ),
+    )
+    parser.add_argument(
+        "--historical-catchup-artifact-root",
+        default="",
+    )
+    parser.add_argument(
+        "--historical-catchup-artifact-metadata",
+        default="",
+    )
+    parser.add_argument(
+        "--historical-catchup-price-evidence",
+        default="",
     )
     parser.add_argument(
         "--output-dir",
