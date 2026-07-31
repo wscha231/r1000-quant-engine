@@ -943,6 +943,11 @@ def load_pattern_outcome_requests(
             observations=observations,
             outcomes=outcomes,
             contract_sha256=contract_sha256,
+            allow_unaccepted_events=True,
+        )
+        audits["pattern_memory_unaccepted_recovery"] = bool(
+            accepted_head.get("pointer_repair_required")
+            or ((observations or outcomes) and not accepted_head.get("head_id"))
         )
         if accepted_head.get("head_id"):
             audits["pattern_memory_accepted_head_manifest"] = fingerprint(

@@ -478,6 +478,7 @@ def publish_accepted_head(
     accepted_through: str,
     expected_session_count: int,
     missing_session_dates: list[str],
+    missing_origin_observation_count: int,
 ) -> dict[str, Any]:
     prior = validate_accepted_head_state(
         memory_dir=memory_dir,
@@ -542,6 +543,12 @@ def publish_accepted_head(
         "expected_session_count": int(expected_session_count),
         "missing_session_dates": list(missing_session_dates),
         "session_coverage_complete": not missing_session_dates,
+        "missing_origin_observation_count": int(
+            missing_origin_observation_count
+        ),
+        "observation_data_coverage_complete": (
+            missing_origin_observation_count == 0
+        ),
         "research_only": True,
         "portfolio_transition_allowed": False,
         "orders_generated": False,
@@ -594,7 +601,10 @@ def expected_forward_sessions(
     launch = pd.Timestamp(launch_session).normalize()
     as_of = pd.Timestamp(as_of_date).normalize()
     if launch > as_of:
-        return []
+        raise ValueError(
+            "pattern memory valuation precedes forward launch session:"
+            f"{as_of_date}<{launch_session}"
+        )
     schedule = mcal.get_calendar("NYSE").schedule(
         start_date=launch.date().isoformat(),
         end_date=as_of.date().isoformat(),
@@ -1018,6 +1028,7 @@ def aggregate_outcomes(
     as_of_date: str,
     horizons: Iterable[int],
     session_coverage_complete: bool = True,
+    observation_data_coverage_complete: bool = True,
 ) -> list[dict[str, Any]]:
     observation_rows = list(observations)
     outcome_rows = list(outcomes)
@@ -1042,7 +1053,7 @@ def aggregate_outcomes(
     matured: dict[tuple[str, str, int], int] = defaultdict(int)
     for observation in observation_rows:
         origin = str(observation.get("as_of_date") or "")
-        if not origin or finite(observation.get("observed_close")) in (None, 0.0):
+        if not origin:
             continue
         for horizon_value in horizons:
             horizon = int(horizon_value)
@@ -1069,6 +1080,7 @@ def aggregate_outcomes(
             count >= minimum_resolved
             and resolution_coverage >= minimum_resolution_coverage
             and session_coverage_complete
+            and observation_data_coverage_complete
         )
         result: dict[str, Any] = {
             "source_kind": source_kind,
@@ -1081,6 +1093,9 @@ def aggregate_outcomes(
             "minimum_resolution_coverage": minimum_resolution_coverage,
             "minimum_required": minimum_resolved,
             "session_coverage_complete": session_coverage_complete,
+            "observation_data_coverage_complete": (
+                observation_data_coverage_complete
+            ),
             "underpowered": not statistics_ready,
             "directional_statistics_published": statistics_ready,
         }
@@ -1119,6 +1134,8 @@ def render_report(summary: Mapping[str, Any]) -> str:
         f"- completed sessions / decision weeks: `{summary.get('completed_sessions')}` / `{summary.get('decision_weeks')}`",
         f"- expected / missing sessions: `{summary.get('expected_session_count')}` / `{summary.get('missing_session_count')}`",
         f"- session coverage complete: `{summary.get('session_coverage_complete')}`",
+        f"- missing origin observations: `{summary.get('missing_origin_observation_count')}`",
+        f"- observation data coverage complete: `{summary.get('observation_data_coverage_complete')}`",
         f"- proposal eligible: `{summary.get('proposal_eligible')}`",
         "- append-only forward research only; no target, order, cash, champion, production, or live mutation",
         "- one rebound is a descriptive fingerprint, never automatic evidence of trend repair",
@@ -1146,17 +1163,33 @@ def blocked(
     failures: list[str],
     sources: Mapping[str, Any],
     started: float,
+    failed_session_date: str = "",
 ) -> dict[str, Any]:
     payload = {
         "schema_version": SCHEMA_VERSION,
         "status": BLOCKED_STATUS,
         "contract_failures": failures,
+        "failed_session_date": failed_session_date,
+        "missing_session_dates": (
+            [failed_session_date] if failed_session_date else []
+        ),
+        "session_coverage_complete": False,
+        "observation_data_coverage_complete": False,
+        "proposal_eligible": False,
+        "directional_statistics_published": False,
+        "aggregates": [],
         "research_only": True,
+        "forward_observation_only": True,
+        "advisory_only": True,
+        "automatic_model_update_allowed": False,
+        "automatic_champion_promotion_allowed": False,
         "portfolio_transition_allowed": False,
         "orders_generated": False,
         "target_books_mutated": False,
+        "selector_weights_changed": False,
         "cash_policy_changed": False,
         "champion_changed": False,
+        "historical_cagr_mdd_evidence_changed": False,
         "backtest_executed": False,
         "fullrun_executed": False,
         "production_activation_allowed": False,
@@ -1166,8 +1199,42 @@ def blocked(
         "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__))},
     }
     output_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(output_dir / "last_attempt.json", payload)
+    report_path = output_dir / "report.md"
+    payload["outputs"] = {}
+    atomic_write_json(output_dir / "summary.json", payload)
+    try:
+        atomic_write_text(report_path, render_report(payload))
+        payload["outputs"]["report"] = fingerprint(report_path)
+    except Exception as exc:
+        report_path.unlink(missing_ok=True)
+        payload["report_publication_failure"] = (
+            f"{type(exc).__name__}:{exc}"
+        )
+    atomic_write_json(output_dir / "summary.json", payload)
+    atomic_write_json(
+        output_dir / "last_attempt.json",
+        {
+            "schema_version": SCHEMA_VERSION,
+            "status": BLOCKED_STATUS,
+            "failed_session_date": failed_session_date,
+            "summary_sha256": sha256_file(output_dir / "summary.json"),
+        },
+    )
     return payload
+
+
+def record_failed_session(args: argparse.Namespace) -> dict[str, Any]:
+    output_dir = repo_path(args.output_dir)
+    reason = str(args.record_failed_session_reason or "").strip()
+    if not reason:
+        raise ValueError("failed-session reason required")
+    return blocked(
+        output_dir,
+        [f"session_failure:{reason}"],
+        {},
+        time.perf_counter(),
+        failed_session_date=str(args.valuation_date),
+    )
 
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
@@ -1182,6 +1249,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         if contract.get("schema_version") != "run287-ohlcv-pattern-memory-contract-v1":
             raise ValueError("memory contract schema")
         contract_sha256 = str(sources["contract"]["sha256"])
+        expected_sessions = expected_forward_sessions(
+            str(
+                contract["forward_learning"][
+                    "accepted_forward_launch_session"
+                ]
+            ),
+            args.valuation_date,
+        )
 
         summary_path = repo_path(args.timing_summary)
         summary = read_json(summary_path)
@@ -1334,18 +1409,19 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 if row.get("as_of_date")
             }
         )
-        expected_sessions = expected_forward_sessions(
-            str(
-                contract["forward_learning"][
-                    "accepted_forward_launch_session"
-                ]
-            ),
-            args.valuation_date,
-        )
         missing_session_dates = sorted(
             set(expected_sessions) - set(sessions)
         )
         session_coverage_complete = not missing_session_dates
+        missing_origin_observation_count = sum(
+            1
+            for row in all_observations
+            if row.get("data_ready") is not True
+            or finite(row.get("observed_close")) in (None, 0.0)
+        )
+        observation_data_coverage_complete = (
+            missing_origin_observation_count == 0
+        )
         aggregates = aggregate_outcomes(
             all_observations,
             all_outcomes,
@@ -1356,6 +1432,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "outcome_horizons_nyse_sessions"
             ],
             session_coverage_complete=session_coverage_complete,
+            observation_data_coverage_complete=(
+                observation_data_coverage_complete
+            ),
         )
         weeks = sorted(
             {
@@ -1385,6 +1464,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             accepted_through=max(sessions) if sessions else "",
             expected_session_count=len(expected_sessions),
             missing_session_dates=missing_session_dates,
+            missing_origin_observation_count=(
+                missing_origin_observation_count
+            ),
         )
         payload = {
             "schema_version": SCHEMA_VERSION,
@@ -1402,6 +1484,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "missing_session_count": len(missing_session_dates),
             "missing_session_dates": missing_session_dates,
             "session_coverage_complete": session_coverage_complete,
+            "missing_origin_observation_count": (
+                missing_origin_observation_count
+            ),
+            "observation_data_coverage_complete": (
+                observation_data_coverage_complete
+            ),
             "minimum_completed_sessions_before_proposal": minimum_sessions,
             "minimum_decision_weeks_before_proposal": minimum_weeks,
             "minimum_resolved_per_pattern_horizon": minimum,
@@ -1413,6 +1501,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 and len(weeks) >= minimum_weeks
                 and powered
                 and session_coverage_complete
+                and observation_data_coverage_complete
             ),
             "aggregates": aggregates,
             "observation_chain_head": observation_head,
@@ -1479,6 +1568,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             [f"{type(exc).__name__}:{exc}"],
             sources,
             started,
+            failed_session_date=str(args.valuation_date),
         )
 
 
@@ -1486,8 +1576,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--timing-summary",
-        required=True,
+        default="",
     )
+    parser.add_argument("--record-failed-session-reason", default="")
     parser.add_argument(
         "--contract",
         default="docs/run287_ohlcv_pattern_memory_contract.json",
@@ -1504,9 +1595,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    payload = build(parse_args())
+    args = parse_args()
+    record_mode = bool(str(args.record_failed_session_reason or "").strip())
+    payload = record_failed_session(args) if record_mode else build(args)
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0 if payload.get("status") == READY_STATUS else 2
+    return (
+        0
+        if record_mode or payload.get("status") == READY_STATUS
+        else 2
+    )
 
 
 if __name__ == "__main__":

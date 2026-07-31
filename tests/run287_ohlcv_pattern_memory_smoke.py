@@ -217,6 +217,13 @@ def args_for(summary: Path, archive: Path, date: str) -> argparse.Namespace:
 
 
 def main() -> None:
+    try:
+        memory.expected_forward_sessions("2026-07-29", "2026-07-28")
+    except ValueError as exc:
+        assert "precedes forward launch" in str(exc)
+    else:
+        raise AssertionError("pre-launch pattern session was accepted")
+
     sessions = [
         pd.Timestamp(value).date().isoformat()
         for value in memory.mcal.get_calendar("NYSE")
@@ -289,6 +296,51 @@ def main() -> None:
     assert gap_suppressed["resolution_coverage"] == 1.0
     assert gap_suppressed["session_coverage_complete"] is False
     assert gap_suppressed["directional_statistics_published"] is False
+    close_missing_observation = {
+        "event_id": "observation-close-missing",
+        "source_kind": "SECURITY",
+        "ticker": "MISSING",
+        "as_of_date": "2026-04-01",
+        "observed_close": None,
+        "data_ready": False,
+        "return_transition_signature": "DOWN_TO_UP_REVERSAL",
+    }
+    close_missing = memory.aggregate_outcomes(
+        [*synthetic_observations, close_missing_observation],
+        synthetic_outcomes,
+        30,
+        1.0,
+        "2026-04-02",
+        [1],
+        observation_data_coverage_complete=False,
+    )[0]
+    assert close_missing["matured_observation_count"] == 31
+    assert close_missing["resolved_observation_count"] == 30
+    assert close_missing["missing_exact_outcome_count"] == 1
+    assert close_missing["observation_data_coverage_complete"] is False
+    assert close_missing["directional_statistics_published"] is False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive = root / "archive" / "ohlcv_pattern_memory"
+        prelaunch_summary = write_timing(
+            root,
+            as_of_date="2026-07-28",
+            stock_close=95.0,
+            stock_prior_return=-0.01,
+            stock_return=0.01,
+            spy_close=498.0,
+            spy_prior_return=-0.01,
+            spy_return=0.01,
+        )
+        prelaunch = memory.build(
+            args_for(prelaunch_summary, archive, "2026-07-28")
+        )
+        assert prelaunch["status"] == memory.BLOCKED_STATUS
+        assert "precedes forward launch" in " ".join(
+            prelaunch["contract_failures"]
+        )
+        assert not (archive / "observations.jsonl").exists()
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -310,6 +362,8 @@ def main() -> None:
         assert first["proposal_eligible"] is False
         assert first["session_coverage_complete"] is True
         assert first["missing_session_dates"] == []
+        assert first["observation_data_coverage_complete"] is True
+        assert first["missing_origin_observation_count"] == 0
         assert first["accepted_head_id"]
         assert (archive / "accepted_head.json").is_file()
         assert len(list((archive / "accepted_heads").glob("*/manifest.json"))) == 1
@@ -574,6 +628,10 @@ def main() -> None:
         finally:
             memory.atomic_write_text = original_atomic_write_text
         assert interrupted["status"] == memory.BLOCKED_STATUS
+        interrupted_marker = memory.read_json(archive / "summary.json")
+        assert interrupted_marker["status"] == memory.BLOCKED_STATUS
+        assert interrupted_marker["proposal_eligible"] is False
+        assert not (archive / "report.md").exists()
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
         resumed = memory.build(args_for(summary, archive, "2026-07-29"))
         assert resumed["status"] == memory.READY_STATUS, resumed
@@ -631,6 +689,40 @@ def main() -> None:
         )
         assert accepted_head["missing_session_dates"] == ["2026-07-29"]
         assert accepted_head["session_coverage_complete"] is False
+
+    # A timing-side failure must invalidate a prior public READY marker
+    # immediately, even though immutable chains and portfolio state remain.
+    with tempfile.TemporaryDirectory() as tmp:
+        output_dir = Path(tmp) / "ohlcv_pattern_memory"
+        output_dir.mkdir(parents=True)
+        write_json(
+            output_dir / "summary.json",
+            {
+                "schema_version": memory.SCHEMA_VERSION,
+                "status": memory.READY_STATUS,
+                "proposal_eligible": True,
+            },
+        )
+        (output_dir / "report.md").write_text(
+            "stale eligible report\n",
+            encoding="utf-8",
+        )
+        failed_marker = memory.record_failed_session(
+            argparse.Namespace(
+                output_dir=str(output_dir),
+                valuation_date="2026-07-30",
+                record_failed_session_reason="timing_builder_blocked",
+            )
+        )
+        assert failed_marker["status"] == memory.BLOCKED_STATUS
+        assert failed_marker["proposal_eligible"] is False
+        assert failed_marker["directional_statistics_published"] is False
+        published_marker = memory.read_json(output_dir / "summary.json")
+        assert published_marker["status"] == memory.BLOCKED_STATUS
+        assert published_marker["failed_session_date"] == "2026-07-30"
+        assert "stale eligible report" not in (
+            output_dir / "report.md"
+        ).read_text(encoding="utf-8")
 
     # A security outcome is unresolved when either exact SPY endpoint is
     # absent, even if the security's own target-basis endpoint is complete.

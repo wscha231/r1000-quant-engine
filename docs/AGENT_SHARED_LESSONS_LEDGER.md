@@ -3192,6 +3192,11 @@ Expected contract:
   silently discard PIT context. Treat every NYSE session from the immutable
   forward launch date as required: a missing session remains in accepted-head
   provenance and suppresses all directional statistics and proposals.
+- Count accepted rows with missing origin closes as matured-but-unresolved;
+  never remove them from coverage. Allow a hash-valid unaccepted first-session
+  suffix to reach the archive recovery path, reject every pre-launch date, and
+  replace stale READY summaries/reports with an exact-session BLOCKED marker
+  immediately when either sidecar stage fails.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -624,6 +625,36 @@ def main() -> None:
             )
         )
         assert archived["status"] == pattern_memory.READY_STATUS, archived
+        pattern_archive = Path(args.pattern_memory_dir)
+        (pattern_archive / "accepted_head.json").unlink()
+        shutil.rmtree(pattern_archive / "accepted_heads")
+        recovery_requests, recovery_audits, recovery_failures = (
+            challenger.load_pattern_outcome_requests(
+                pattern_archive,
+                Path(args.pattern_memory_contract),
+                ASOF.date().isoformat(),
+            )
+        )
+        assert recovery_requests == []
+        assert not recovery_failures, recovery_failures
+        assert recovery_audits["pattern_memory_unaccepted_recovery"] is True
+        recovered = pattern_memory.build(
+            argparse.Namespace(
+                timing_summary=str(
+                    Path(args.output_dir) / "summary.json"
+                ),
+                contract=str(
+                    ROOT
+                    / "docs"
+                    / "run287_ohlcv_pattern_memory_contract.json"
+                ),
+                valuation_date=ASOF.date().isoformat(),
+                output_dir=args.pattern_memory_dir,
+            )
+        )
+        assert recovered["status"] == pattern_memory.READY_STATUS, recovered
+        assert recovered["appended_observation_count"] == 0
+        assert recovered["accepted_head_id"]
         requests, _, request_failures = (
             challenger.load_pattern_outcome_requests(
                 Path(args.pattern_memory_dir),
