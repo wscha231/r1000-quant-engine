@@ -162,21 +162,36 @@ def fingerprint(path: Path) -> dict[str, Any]:
     }
 
 
-def sha256_prefix(path: Path, byte_count: int) -> str:
+def sha256_prefixes(
+    path: Path,
+    byte_counts: Iterable[int],
+) -> dict[int, str]:
+    boundaries = sorted({int(value) for value in byte_counts})
+    if any(value < 0 for value in boundaries):
+        raise ValueError(f"accepted head prefix length invalid:{path}")
     digest = hashlib.sha256()
-    remaining = int(byte_count)
-    if remaining == 0:
-        return digest.hexdigest()
-    if not path.is_file():
+    results: dict[int, str] = {}
+    if not boundaries:
+        return results
+    if boundaries[-1] > 0 and not path.is_file():
         raise ValueError(f"accepted head prefix file missing:{path}")
+    position = 0
+    if boundaries[-1] == 0:
+        return {0: digest.hexdigest()}
     with path.open("rb") as handle:
-        while remaining > 0:
-            block = handle.read(min(1024 * 1024, remaining))
-            if not block:
-                raise ValueError(f"accepted head prefix truncated:{path}")
-            digest.update(block)
-            remaining -= len(block)
-    return digest.hexdigest()
+        for boundary in boundaries:
+            remaining = boundary - position
+            while remaining > 0:
+                block = handle.read(min(1024 * 1024, remaining))
+                if not block:
+                    raise ValueError(
+                        f"accepted head prefix truncated:{path}"
+                    )
+                digest.update(block)
+                position += len(block)
+                remaining -= len(block)
+            results[boundary] = digest.hexdigest()
+    return results
 
 
 def git_head() -> str:
@@ -702,24 +717,31 @@ def validate_accepted_head_state(
     for head_id, manifest in manifests.items():
         validate_manifest_chain(head_id, manifest)
 
-    for head_id, manifest in manifests.items():
-        for label, path, count_key, hash_key in (
+    for label, path, count_key, hash_key in (
+        (
+            "observation",
+            memory_dir / "observations.jsonl",
+            "observation_bytes",
+            "observation_sha256",
+        ),
+        (
+            "outcome",
+            memory_dir / "outcomes.jsonl",
+            "outcome_bytes",
+            "outcome_sha256",
+        ),
+    ):
+        prefix_hashes = sha256_prefixes(
+            path,
             (
-                "observation",
-                memory_dir / "observations.jsonl",
-                "observation_bytes",
-                "observation_sha256",
+                int(manifest.get(count_key) or 0)
+                for manifest in manifests.values()
             ),
-            (
-                "outcome",
-                memory_dir / "outcomes.jsonl",
-                "outcome_bytes",
-                "outcome_sha256",
-            ),
-        ):
+        )
+        for head_id, manifest in manifests.items():
             expected_bytes = int(manifest.get(count_key) or 0)
             expected_hash = str(manifest.get(hash_key) or "")
-            if sha256_prefix(path, expected_bytes) != expected_hash:
+            if prefix_hashes[expected_bytes] != expected_hash:
                 raise ValueError(
                     f"accepted {label} prefix hash mismatch:{head_id}"
                 )
@@ -920,6 +942,28 @@ def exact_target_session(origin: str, horizon: int) -> str:
     if len(sessions) < horizon:
         raise ValueError(f"NYSE horizon unavailable:{origin}:{horizon}")
     return sessions[horizon - 1]
+
+
+def validate_chronological_observation_session(
+    *,
+    valuation_date: str,
+    durable_head: Mapping[str, Any],
+    forward_launch_session: str,
+) -> str:
+    accepted_through = str(durable_head.get("accepted_through") or "")
+    if accepted_through and valuation_date == accepted_through:
+        return accepted_through
+    required_session = (
+        exact_target_session(accepted_through, 1)
+        if accepted_through
+        else forward_launch_session
+    )
+    if valuation_date != required_session:
+        raise ValueError(
+            "pattern memory requires chronological session:"
+            f"{required_session}!={valuation_date}"
+        )
+    return required_session
 
 
 def expected_forward_sessions(
@@ -1646,14 +1690,30 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     preserve_blocked_publication = bool(
         getattr(args, "preserve_blocked_publication", False)
     )
+    commit_head_preserve_blocked_publication = bool(
+        getattr(
+            args,
+            "commit_head_preserve_blocked_publication",
+            False,
+        )
+    )
+    preserve_public_marker = bool(
+        preserve_blocked_publication
+        or commit_head_preserve_blocked_publication
+    )
     pending_session_date = str(
         getattr(args, "pending_session_date", "") or ""
     )
     try:
-        if preserve_blocked_publication:
+        if (
+            preserve_blocked_publication
+            and commit_head_preserve_blocked_publication
+        ):
+            raise ValueError("pattern publication modes are mutually exclusive")
+        if preserve_public_marker:
             if not pending_session_date:
                 raise ValueError(
-                    "pending session date required for deferred publication"
+                    "pending session date required for preserved publication"
                 )
             public_marker = read_json(output_dir / "summary.json")
             if (
@@ -1663,7 +1723,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 != pending_session_date
             ):
                 raise ValueError(
-                    "deferred recovery requires exact current-session "
+                    "preserved recovery requires exact current-session "
                     "BLOCKED marker"
                 )
         contract_path = repo_path(args.contract)
@@ -1785,6 +1845,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(
                 f"out-of-order observation:{args.valuation_date}<{max(existing_dates)}"
             )
+        validate_chronological_observation_session(
+            valuation_date=args.valuation_date,
+            durable_head=durable_parent_head,
+            forward_launch_session=str(
+                contract["forward_learning"][
+                    "accepted_forward_launch_session"
+                ]
+            ),
+        )
         validate_observation_session_cohort(
             valuation_date=args.valuation_date,
             existing=existing_observations,
@@ -1980,7 +2049,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__))},
         }
         report_text = render_report(payload)
-        if preserve_blocked_publication:
+        if preserve_public_marker:
             report_sha256 = hashlib.sha256(
                 report_text.encode("utf-8")
             ).hexdigest()
@@ -2026,6 +2095,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             payload["pending_publication_session"] = pending_session_date
             payload["prepared_accepted_head_id"] = accepted_head["head_id"]
             return payload
+        if commit_head_preserve_blocked_publication:
+            publish_accepted_head(
+                memory_dir=output_dir,
+                accepted_head=accepted_head,
+            )
+            payload["publication_deferred"] = True
+            payload["accepted_head_committed"] = True
+            payload["public_blocked_marker_preserved"] = True
+            payload["pending_publication_session"] = pending_session_date
+            return payload
 
         manifest_path = (
             output_dir
@@ -2069,7 +2148,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         )
         return payload
     except Exception as exc:
-        if preserve_blocked_publication:
+        if preserve_public_marker:
             payload = blocked_payload(
                 [f"{type(exc).__name__}:{exc}"],
                 sources,
@@ -2085,7 +2164,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             started,
             failed_session_date=(
                 pending_session_date
-                if preserve_blocked_publication and pending_session_date
+                if preserve_public_marker and pending_session_date
                 else str(args.valuation_date)
             ),
         )
@@ -2100,6 +2179,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--record-failed-session-reason", default="")
     parser.add_argument(
         "--preserve-blocked-publication",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--commit-head-preserve-blocked-publication",
         action="store_true",
     )
     parser.add_argument("--pending-session-date", default="")

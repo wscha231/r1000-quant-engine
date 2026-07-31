@@ -2765,13 +2765,37 @@ jobs:
           OHLCV_TIMING_DIR="outputs/run287_ohlcv_location_timing_exact_close_${DATE_TOKEN}"
           OBSERVATION_ACCEPTED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           PATTERN_RECOVERY_READY=yes
+          PATTERN_CURRENT_SESSION_CHRONOLOGICAL=yes
           if [ -n "$PATTERN_RECOVERY_SESSION" ]; then
+            PATTERN_RECOVERY_PUBLICATION_ARGS=()
+            if [ "$PATTERN_RECOVERY_SESSION" != "$PAPER_AS_OF" ]; then
+              PATTERN_RECOVERY_PUBLICATION_ARGS+=(
+                --commit-head-preserve-blocked-publication
+                --pending-session-date "$PAPER_AS_OF"
+              )
+            fi
             if python tools/archive_run287_ohlcv_pattern_memory.py \
               --timing-summary "$PATTERN_RECOVERY_SUMMARY" \
               --valuation-date "$PATTERN_RECOVERY_SESSION" \
+              "${PATTERN_RECOVERY_PUBLICATION_ARGS[@]}" \
               --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
               2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
               echo "[daily-operating] published recovered OHLCV pattern session ${PATTERN_RECOVERY_SESSION} after the same-close transaction boundary and before current-session pattern construction"
+              if [ "$PATTERN_RECOVERY_SESSION" != "$PAPER_AS_OF" ]; then
+                REQUIRED_NEXT_PATTERN_SESSION="$(
+                  python - "$PATTERN_RECOVERY_SESSION" <<'PY'
+          import sys
+
+          from tools import archive_run287_ohlcv_pattern_memory as memory
+
+          print(memory.exact_target_session(sys.argv[1], 1))
+          PY
+                )"
+                if [ "$PAPER_AS_OF" != "$REQUIRED_NEXT_PATTERN_SESSION" ]; then
+                  PATTERN_CURRENT_SESSION_CHRONOLOGICAL=no
+                  echo "[daily-operating] current OHLCV pattern session ${PAPER_AS_OF} is not the immediate NYSE successor of recovered ${PATTERN_RECOVERY_SESSION}; required ${REQUIRED_NEXT_PATTERN_SESSION}, so current construction remains BLOCKED"
+                fi
+              fi
             else
               PATTERN_RECOVERY_READY=no
               echo "[daily-operating] recovered OHLCV pattern session ${PATTERN_RECOVERY_SESSION} failed post-ledger revalidation; current-session pattern construction is suppressed and remains BLOCKED"
@@ -2779,6 +2803,8 @@ jobs:
           fi
           if [ "$PATTERN_RECOVERY_READY" != yes ]; then
             echo "[daily-operating] OHLCV pattern recovery did not commit; skipping current-session pattern observation"
+          elif [ "$PATTERN_CURRENT_SESSION_CHRONOLOGICAL" != yes ]; then
+            echo "[daily-operating] intervening OHLCV pattern sessions require explicit chronological catch-up; skipping current-session pattern observation"
           elif [ "$PATTERN_RECOVERY_SESSION" = "$PAPER_AS_OF" ]; then
             echo "[daily-operating] current OHLCV pattern session was completed by exact-session recovery"
           elif python tools/build_run287_ohlcv_location_timing_challenger.py \

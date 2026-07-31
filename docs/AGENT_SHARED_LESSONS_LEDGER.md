@@ -3228,6 +3228,14 @@ Expected contract:
   it commits successfully. The atomic accepted pointer is the sole head commit
   marker: a validated descendant manifest left by process interruption remains
   an unaccepted exact-session suffix until the pointer is advanced by retry.
+  When recovered D is committed during a D+1 run, commit only the immutable
+  head and retain D+1's BLOCKED summary, report, and last-attempt bytes until
+  D+1 finishes. Never accept D+2 while D+1 is absent: the first observation
+  must equal the contract launch session and every later new observation must
+  be the immediate NYSE successor of the accepted head. Validate all historical
+  manifest prefix hashes by streaming each append-only chain once and comparing
+  digests at declared byte boundaries; rehashing from byte zero per manifest is
+  quadratic and eventually becomes an operational availability defect.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

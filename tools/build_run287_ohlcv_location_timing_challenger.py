@@ -918,8 +918,6 @@ def load_pattern_outcome_requests(
         ),
     }
     observations_path = memory_dir / "observations.jsonl"
-    if not observations_path.is_file():
-        return [], audits, []
     try:
         contract = read_json(memory_contract_path)
         if (
@@ -972,6 +970,20 @@ def load_pattern_outcome_requests(
                 "unaccepted pattern session requires exact retry:"
                 f"{required_retry_session}!={valuation_date}"
             )
+        required_chronological_session = (
+            memory.validate_chronological_observation_session(
+                valuation_date=valuation_date,
+                durable_head=accepted_head,
+                forward_launch_session=str(
+                    contract["forward_learning"][
+                        "accepted_forward_launch_session"
+                    ]
+                ),
+            )
+        )
+        audits["pattern_memory_required_chronological_session"] = (
+            required_chronological_session
+        )
         if accepted_head.get("head_id"):
             audits["pattern_memory_accepted_head_manifest"] = fingerprint(
                 memory_dir

@@ -53,6 +53,10 @@ def main() -> None:
         '--valuation-date "$PATTERN_RECOVERY_SESSION"' in post_ledger
     )
     assert (
+        "--commit-head-preserve-blocked-publication" in post_ledger
+    )
+    assert '--pending-session-date "$PAPER_AS_OF"' in post_ledger
+    assert (
         "published recovered OHLCV pattern session "
         "${PATTERN_RECOVERY_SESSION} after the same-close transaction "
         "boundary and before current-session pattern construction"
@@ -60,6 +64,12 @@ def main() -> None:
     )
     assert (
         'if [ "$PATTERN_RECOVERY_READY" != yes ]; then' in post_ledger
+    )
+    assert "memory.exact_target_session(sys.argv[1], 1)" in post_ledger
+    assert "PATTERN_CURRENT_SESSION_CHRONOLOGICAL=no" in post_ledger
+    assert (
+        "intervening OHLCV pattern sessions require explicit "
+        "chronological catch-up" in post_ledger
     )
     assert (
         'elif [ "$PATTERN_RECOVERY_SESSION" = "$PAPER_AS_OF" ]; then'

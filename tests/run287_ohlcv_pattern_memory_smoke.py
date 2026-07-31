@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -263,6 +264,18 @@ def main() -> None:
     assert memory.sha256_file(
         ROOT / "docs" / "run287_ohlcv_pattern_memory_contract.json"
     ) == memory.PINNED_CONTRACT_SHA256
+    with tempfile.TemporaryDirectory() as tmp:
+        prefix_path = Path(tmp) / "prefixes.bin"
+        prefix_path.write_bytes(b"abcdef")
+        prefix_hashes = memory.sha256_prefixes(
+            prefix_path,
+            [6, 0, 3, 3],
+        )
+        assert prefix_hashes == {
+            0: memory.hashlib.sha256(b"").hexdigest(),
+            3: memory.hashlib.sha256(b"abc").hexdigest(),
+            6: memory.hashlib.sha256(b"abcdef").hexdigest(),
+        }
     try:
         memory.expected_forward_sessions("2026-07-29", "2026-07-28")
     except ValueError as exc:
@@ -993,6 +1006,60 @@ def main() -> None:
         assert still_blocked["proposal_eligible"] is False
         assert not (archive / "accepted_head.json").exists()
 
+        # The post-ledger D recovery may commit its durable head while D+1's
+        # public BLOCKED marker remains byte-identical. It must then reject a
+        # jump to D+2 instead of making D+1 impossible to backfill.
+        commit_archive = root / "commit_preserving_public_block"
+        shutil.copytree(archive, commit_archive)
+        commit_summary = commit_archive / selected_recovery_summary.relative_to(
+            archive
+        )
+        commit_args = args_for(
+            commit_summary,
+            commit_archive,
+            "2026-07-29",
+        )
+        commit_args.commit_head_preserve_blocked_publication = True
+        commit_args.pending_session_date = "2026-07-30"
+        committed = memory.build(commit_args)
+        assert committed["status"] == memory.READY_STATUS, committed
+        assert committed["accepted_head_committed"] is True
+        assert committed["public_blocked_marker_preserved"] is True
+        assert (commit_archive / "accepted_head.json").is_file()
+        assert (
+            commit_archive / "summary.json"
+        ).read_bytes() == blocked_summary_bytes
+        assert (
+            commit_archive / "report.md"
+        ).read_bytes() == blocked_report_bytes
+        assert (
+            commit_archive / "last_attempt.json"
+        ).read_bytes() == blocked_last_attempt_bytes
+        committed_head_id = memory.read_json(
+            commit_archive / "accepted_head.json"
+        )["head_id"]
+        leap_summary = write_timing(
+            root / "leap",
+            as_of_date="2026-07-31",
+            stock_close=101.0,
+            stock_prior_return=-0.01,
+            stock_return=0.02,
+            spy_close=506.0,
+            spy_prior_return=-0.01,
+            spy_return=0.01,
+        )
+        leap = memory.build(
+            args_for(leap_summary, commit_archive, "2026-07-31")
+        )
+        assert leap["status"] == memory.BLOCKED_STATUS
+        assert (
+            "requires chronological session:2026-07-30!=2026-07-31"
+            in " ".join(leap["contract_failures"])
+        )
+        assert memory.read_json(commit_archive / "accepted_head.json")[
+            "head_id"
+        ] == committed_head_id
+
         # A last-attempt failure occurs after summary staging but before the
         # accepted-head commit. The session must remain an unaccepted suffix.
         original_atomic_write_json = memory.atomic_write_json
@@ -1227,9 +1294,8 @@ def main() -> None:
             retry_summary_sha256
         )
 
-    # A failed or absent launch-session observation can never disappear from
-    # the learning denominator. Later sessions may remain research-visible,
-    # but all directional statistics and proposals stay suppressed.
+    # A failed or absent launch session cannot be skipped. Accepting a later
+    # session would make the gap impossible to backfill under append ordering.
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         archive = root / "archive" / "ohlcv_pattern_memory"
@@ -1246,23 +1312,13 @@ def main() -> None:
         gap = memory.build(
             args_for(gap_summary, archive, "2026-07-30")
         )
-        assert gap["status"] == memory.READY_STATUS, gap
-        assert gap["session_coverage_complete"] is False
-        assert gap["missing_session_dates"] == ["2026-07-29"]
-        assert gap["proposal_eligible"] is False
-        assert all(
-            row["directional_statistics_published"] is False
-            and row["session_coverage_complete"] is False
-            for row in gap["aggregates"]
+        assert gap["status"] == memory.BLOCKED_STATUS, gap
+        assert (
+            "requires chronological session:2026-07-29!=2026-07-30"
+            in " ".join(gap["contract_failures"])
         )
-        accepted_head = memory.read_json(
-            archive
-            / "accepted_heads"
-            / gap["accepted_head_id"]
-            / "manifest.json"
-        )
-        assert accepted_head["missing_session_dates"] == ["2026-07-29"]
-        assert accepted_head["session_coverage_complete"] is False
+        assert not (archive / "observations.jsonl").exists()
+        assert not (archive / "accepted_head.json").exists()
 
     # A timing-side failure must invalidate a prior public READY marker
     # immediately, even though immutable chains and portfolio state remain.
