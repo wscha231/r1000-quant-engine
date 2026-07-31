@@ -579,6 +579,10 @@ def main() -> None:
             actual = memory.fingerprint(Path(record["path"]))
             assert actual["sha256"] == record["sha256"]
             assert actual["bytes"] == record["bytes"]
+        report_record = published_first["outputs"]["report"]
+        actual_report = memory.fingerprint(archive / "report.md")
+        assert actual_report["sha256"] == report_record["sha256"]
+        assert actual_report["bytes"] == report_record["bytes"]
         first_security_observation = next(
             row
             for row in memory.read_jsonl(archive / "observations.jsonl")
@@ -588,6 +592,59 @@ def main() -> None:
         assert first_security_observation["range_63d_position"] == 0.36
         assert first_security_observation["range_126d_position"] == 0.52
         assert first_security_observation["range_252d_position"] == 0.68
+
+        torn_archive = root / "torn_archive" / "ohlcv_pattern_memory"
+        shutil.copytree(archive, torn_archive)
+        torn_observations = torn_archive / "observations.jsonl"
+        accepted_observation_bytes = torn_observations.read_bytes()
+        with torn_observations.open("ab") as handle:
+            handle.write(b'{"schema_version":"torn')
+        repaired_tail = memory.build(
+            args_for(first_summary, torn_archive, "2026-07-29")
+        )
+        assert repaired_tail["status"] == memory.READY_STATUS, repaired_tail
+        assert torn_observations.read_bytes() == accepted_observation_bytes
+        repair_audit = repaired_tail["source_inputs"][
+            "unaccepted_jsonl_tail_repair"
+        ]
+        assert repair_audit["status"] == (
+            "REPAIRED_MALFORMED_UNACCEPTED_TAIL"
+        )
+        assert repair_audit["repairs"][0][
+            "discarded_unaccepted_tail_bytes"
+        ] > 0
+
+        report_loss_archive = (
+            root / "report_loss_archive" / "ohlcv_pattern_memory"
+        )
+        shutil.copytree(archive, report_loss_archive)
+        (report_loss_archive / "report.md").unlink()
+        report_loss = memory.record_failed_session(
+            argparse.Namespace(
+                output_dir=str(report_loss_archive),
+                contract=str(
+                    ROOT
+                    / "docs"
+                    / "run287_ohlcv_pattern_memory_contract.json"
+                ),
+                valuation_date="2026-07-30",
+                record_failed_session_reason="current_session_pending",
+            )
+        )
+        assert report_loss["record_mode_must_stop"] is True
+        assert report_loss["stale_public_marker_replaced"] is True
+        assert report_loss["required_publication_retry_session"] == (
+            "2026-07-29"
+        )
+        assert memory.process_exit_code(
+            report_loss,
+            record_mode=True,
+        ) == 2
+        report_loss_public = memory.read_json(
+            report_loss_archive / "summary.json"
+        )
+        assert report_loss_public["status"] == memory.BLOCKED_STATUS
+        assert report_loss_public["failed_session_date"] == "2026-07-29"
 
         repeated = memory.build(args_for(first_summary, archive, "2026-07-29"))
         assert repeated["status"] == memory.READY_STATUS, repeated
@@ -782,7 +839,7 @@ def main() -> None:
             args_for(second_summary, archive, "2026-07-30")
         )
         assert rolled_back["status"] == memory.BLOCKED_STATUS
-        assert "rollback detected" in " ".join(
+        assert "accepted JSONL prefix truncated" in " ".join(
             rolled_back["contract_failures"]
         ), rolled_back["contract_failures"]
         (archive / "observations.jsonl").write_bytes(
@@ -1204,6 +1261,11 @@ def main() -> None:
             pending_next_session["required_publication_retry_session"]
             == "2026-07-29"
         )
+        assert pending_next_session["record_mode_must_stop"] is True
+        assert memory.process_exit_code(
+            pending_next_session,
+            record_mode=True,
+        ) == 2
         assert memory.read_json(archive / "summary.json") == (
             interrupted_public
         )
@@ -1256,7 +1318,7 @@ def main() -> None:
             args_for(selected_recovery_summary, archive, "2026-07-29")
         )
         assert tampered["status"] == memory.BLOCKED_STATUS
-        assert "archive event hash mismatch" in " ".join(
+        assert "accepted JSONL prefix hash mismatch" in " ".join(
             tampered["contract_failures"]
         )
 
@@ -1488,6 +1550,46 @@ def main() -> None:
         assert "stale eligible report" not in (
             output_dir / "report.md"
         ).read_text(encoding="utf-8")
+        assert memory.process_exit_code(
+            failed_marker,
+            record_mode=True,
+        ) == 0
+
+        write_json(
+            output_dir / "summary.json",
+            {
+                "schema_version": memory.SCHEMA_VERSION,
+                "status": memory.READY_STATUS,
+                "proposal_eligible": True,
+            },
+        )
+        (output_dir / "report.md").write_text(
+            "stale eligible report after provenance failure\n",
+            encoding="utf-8",
+        )
+        write_json(output_dir / "accepted_head.json", {"invalid": True})
+        corrupt_pointer = memory.record_failed_session(
+            argparse.Namespace(
+                output_dir=str(output_dir),
+                contract=str(
+                    ROOT
+                    / "docs"
+                    / "run287_ohlcv_pattern_memory_contract.json"
+                ),
+                valuation_date="2026-07-31",
+                record_failed_session_reason="current_session_pending",
+            )
+        )
+        assert corrupt_pointer["record_mode_must_stop"] is True
+        assert corrupt_pointer["stale_public_marker_replaced"] is True
+        assert memory.process_exit_code(
+            corrupt_pointer,
+            record_mode=True,
+        ) == 2
+        replaced_stale = memory.read_json(output_dir / "summary.json")
+        assert replaced_stale["status"] == memory.BLOCKED_STATUS
+        assert replaced_stale["proposal_eligible"] is False
+        assert replaced_stale["failed_session_date"] == "2026-07-31"
 
     # A valid close does not make an underpowered/data-not-ready observation
     # resolvable; it remains in the matured missing denominator permanently.

@@ -3227,7 +3227,12 @@ Expected contract:
   READY through `summary.json` as the last visibility commit. A hard stop
   after pointer commit requires the same accepted session to finalize its
   public summary; a later session must preserve that blocker rather than
-  advancing the chain. A hard stop anywhere
+  advancing the chain, and the pre-ledger record command must return nonzero
+  so the portfolio transaction cannot run past it. READY/publication parity
+  includes the actual public report bytes as well as the accepted pointer.
+  Provenance validation may preserve an existing marker only after proving it
+  is already fail-closed; stale READY is replaced with BLOCKED. A hard stop
+  anywhere
   earlier therefore leaves either a resumable unaccepted suffix or a committed
   head with a BLOCKED public marker; it never exposes an uncommitted READY.
   If the scheduled run is later than the pending session, publish that exact
@@ -3256,6 +3261,10 @@ Expected contract:
   Paper catch-up before the immutable pattern launch session skips both
   pattern-memory mutation and static evidence while still completing the
   independent mark-only portfolio replay.
+- Direct JSONL append can tear after a runner power loss. Before parsing,
+  verify the pointer-committed byte prefix and SHA, retain every complete
+  unaccepted JSON object, and atomically discard only a malformed final tail.
+  Never truncate an accepted byte or repair an interior malformed row.
 - Invalidate restored pattern READY before the first mark-only ledger call,
   stale-output cleanup, or holding-risk build. A producer-success guard is too
   late because any earlier `set -e` exit would otherwise republish stale

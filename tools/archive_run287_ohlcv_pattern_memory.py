@@ -227,6 +227,21 @@ def atomic_write_text(path: Path, text: str) -> None:
         staged.unlink(missing_ok=True)
 
 
+def atomic_write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(
+        f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp"
+    )
+    try:
+        with staged.open("wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(staged, path)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
 def json_document_text(payload: Mapping[str, Any]) -> str:
     return (
         json.dumps(
@@ -662,6 +677,112 @@ def append_rows(path: Path, rows: Iterable[Mapping[str, Any]]) -> int:
         handle.flush()
         os.fsync(handle.fileno())
     return len(payloads)
+
+
+def repair_malformed_unaccepted_jsonl_tails(
+    *,
+    memory_dir: Path,
+    contract_sha256: str,
+) -> list[dict[str, Any]]:
+    pointer_path = memory_dir / "accepted_head.json"
+    boundaries = {"observations.jsonl": 0, "outcomes.jsonl": 0}
+    prefix_hashes = {
+        "observations.jsonl": hashlib.sha256(b"").hexdigest(),
+        "outcomes.jsonl": hashlib.sha256(b"").hexdigest(),
+    }
+    if pointer_path.is_file():
+        pointer = read_json(pointer_path)
+        head_id = str(pointer.get("head_id") or "")
+        manifest_path = (
+            memory_dir / "accepted_heads" / head_id / "manifest.json"
+        )
+        manifest = read_json(manifest_path)
+        if (
+            pointer.get("schema_version") != ACCEPTED_HEAD_SCHEMA_VERSION
+            or pointer.get("status") != ACCEPTED_HEAD_STATUS
+            or not head_id
+            or manifest.get("head_id") != head_id
+            or manifest.get("schema_version")
+            != ACCEPTED_HEAD_SCHEMA_VERSION
+            or manifest.get("status") != ACCEPTED_HEAD_STATUS
+            or manifest.get("memory_contract_sha256")
+            != contract_sha256
+            or canonical_hash(
+                accepted_head_payload_without_id(manifest)
+            )
+            != head_id
+            or pointer.get("manifest_sha256")
+            != sha256_file(manifest_path)
+        ):
+            raise ValueError(
+                "cannot repair unaccepted tail without valid accepted pointer"
+            )
+        boundaries = {
+            "observations.jsonl": int(
+                manifest.get("observation_bytes") or 0
+            ),
+            "outcomes.jsonl": int(manifest.get("outcome_bytes") or 0),
+        }
+        prefix_hashes = {
+            "observations.jsonl": str(
+                manifest.get("observation_sha256") or ""
+            ),
+            "outcomes.jsonl": str(
+                manifest.get("outcome_sha256") or ""
+            ),
+        }
+
+    repairs: list[dict[str, Any]] = []
+    for name in ("observations.jsonl", "outcomes.jsonl"):
+        path = memory_dir / name
+        raw = path.read_bytes() if path.is_file() else b""
+        accepted_bytes = boundaries[name]
+        if len(raw) < accepted_bytes:
+            raise ValueError(f"accepted JSONL prefix truncated:{name}")
+        accepted_prefix = raw[:accepted_bytes]
+        if hashlib.sha256(accepted_prefix).hexdigest() != prefix_hashes[name]:
+            raise ValueError(f"accepted JSONL prefix hash mismatch:{name}")
+        if accepted_prefix and not accepted_prefix.endswith(b"\n"):
+            raise ValueError(f"accepted JSONL prefix boundary invalid:{name}")
+        tail = raw[accepted_bytes:]
+        cursor = accepted_bytes
+        truncate_at: int | None = None
+        parts = tail.splitlines(keepends=True)
+        for index, line in enumerate(parts):
+            is_final = index == len(parts) - 1
+            if not line.endswith(b"\n"):
+                if not is_final:
+                    raise ValueError(f"malformed JSONL interior tail:{name}")
+                truncate_at = cursor
+                break
+            try:
+                decoded = line.decode("utf-8")
+                value = json.loads(decoded)
+                if not isinstance(value, dict):
+                    raise ValueError("JSONL row is not an object")
+            except Exception as exc:
+                if not is_final:
+                    raise ValueError(
+                        f"malformed JSONL interior tail:{name}"
+                    ) from exc
+                truncate_at = cursor
+                break
+            cursor += len(line)
+        if truncate_at is None:
+            continue
+        repaired = raw[:truncate_at]
+        atomic_write_bytes(path, repaired)
+        repairs.append(
+            {
+                "path": str(path.resolve()),
+                "accepted_prefix_bytes": accepted_bytes,
+                "prior_bytes": len(raw),
+                "repaired_bytes": len(repaired),
+                "discarded_unaccepted_tail_bytes": len(raw) - len(repaired),
+                "accepted_prefix_sha256": prefix_hashes[name],
+            }
+        )
+    return repairs
 
 
 def accepted_head_payload_without_id(
@@ -1298,8 +1419,12 @@ def required_publication_retry_session(
     except Exception:
         return accepted_through
     pointer_fingerprint = fingerprint(memory_dir / "accepted_head.json")
+    report_fingerprint = fingerprint(memory_dir / "report.md")
     public_pointer = (
         (public.get("outputs") or {}).get("accepted_head") or {}
+    )
+    public_report = (
+        (public.get("outputs") or {}).get("report") or {}
     )
     if (
         public.get("status") == READY_STATUS
@@ -1308,6 +1433,12 @@ def required_publication_retry_session(
         and public_pointer.get("exists") is True
         and str(public_pointer.get("sha256") or "")
         == str(pointer_fingerprint.get("sha256") or "")
+        and public_report.get("exists") is True
+        and report_fingerprint.get("exists") is True
+        and str(public_report.get("sha256") or "")
+        == str(report_fingerprint.get("sha256") or "")
+        and int(public_report.get("bytes") or -1)
+        == int(report_fingerprint.get("bytes") or -2)
     ):
         return ""
     failed_session = str(public.get("failed_session_date") or "")
@@ -1773,6 +1904,49 @@ def blocked(
     return payload
 
 
+def publication_retry_block(
+    *,
+    output_dir: Path,
+    required_session: str,
+    attempted_session: str,
+    sources: Mapping[str, Any],
+    started: float,
+) -> dict[str, Any]:
+    failure = (
+        "accepted pattern head requires public finalization:"
+        f"{required_session}!={attempted_session}"
+    )
+    try:
+        current = read_json(output_dir / "summary.json")
+    except Exception:
+        current = {}
+    already_blocked = bool(
+        current.get("status") == BLOCKED_STATUS
+        and current.get("proposal_eligible") is False
+        and str(current.get("failed_session_date") or "")
+        == required_session
+    )
+    if already_blocked:
+        payload = blocked_payload(
+            [failure],
+            sources,
+            started,
+            required_session,
+        )
+        payload["public_blocked_marker_preserved"] = True
+    else:
+        payload = blocked(
+            output_dir,
+            [failure],
+            sources,
+            started,
+            failed_session_date=required_session,
+        )
+        payload["stale_public_marker_replaced"] = True
+    payload["required_publication_retry_session"] = required_session
+    return payload
+
+
 def record_failed_session(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     reason = str(args.record_failed_session_reason or "").strip()
@@ -1792,6 +1966,10 @@ def record_failed_session(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
             contract_sha256 = sha256_file(contract_path)
+            repair_malformed_unaccepted_jsonl_tails(
+                memory_dir=output_dir,
+                contract_sha256=contract_sha256,
+            )
             observations, _, _ = validate_chain(
                 read_jsonl(output_dir / "observations.jsonl"),
                 expected_schema=OBSERVATION_SCHEMA_VERSION,
@@ -1819,32 +1997,49 @@ def record_failed_session(args: argparse.Namespace) -> dict[str, Any]:
                 required_publication_retry
                 and required_publication_retry != str(args.valuation_date)
             ):
-                payload = blocked_payload(
-                    [
-                        "accepted pattern head requires public finalization:"
-                        f"{required_publication_retry}!="
-                        f"{args.valuation_date}"
-                    ],
-                    {},
-                    started,
-                    required_publication_retry,
+                payload = publication_retry_block(
+                    output_dir=output_dir,
+                    required_session=required_publication_retry,
+                    attempted_session=str(args.valuation_date),
+                    sources={},
+                    started=started,
                 )
-                payload["public_blocked_marker_preserved"] = True
-                payload["required_publication_retry_session"] = (
-                    required_publication_retry
-                )
+                payload["record_mode_must_stop"] = True
                 return payload
         except Exception as exc:
-            payload = blocked_payload(
-                [
-                    "pre-invalidation accepted-head validation failed:"
-                    f"{type(exc).__name__}:{exc}"
-                ],
-                {},
-                started,
-                str(args.valuation_date),
+            failure = (
+                "pre-invalidation accepted-head validation failed:"
+                f"{type(exc).__name__}:{exc}"
             )
-            payload["public_blocked_marker_preserved"] = True
+            try:
+                current = read_json(output_dir / "summary.json")
+            except Exception:
+                current = {}
+            if (
+                current.get("status") == BLOCKED_STATUS
+                and current.get("proposal_eligible") is False
+            ):
+                failed_session = str(
+                    current.get("failed_session_date")
+                    or args.valuation_date
+                )
+                payload = blocked_payload(
+                    [failure],
+                    {},
+                    started,
+                    failed_session,
+                )
+                payload["public_blocked_marker_preserved"] = True
+            else:
+                payload = blocked(
+                    output_dir,
+                    [failure],
+                    {},
+                    started,
+                    failed_session_date=str(args.valuation_date),
+                )
+                payload["stale_public_marker_replaced"] = True
+            payload["record_mode_must_stop"] = True
             return payload
     return blocked(
         output_dir,
@@ -1910,6 +2105,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "pattern memory contract hash changed without explicit "
                 f"immutable-chain migration:{contract_sha256}"
             )
+        repairs = repair_malformed_unaccepted_jsonl_tails(
+            memory_dir=output_dir,
+            contract_sha256=contract_sha256,
+        )
+        if repairs:
+            sources["unaccepted_jsonl_tail_repair"] = {
+                "status": "REPAIRED_MALFORMED_UNACCEPTED_TAIL",
+                "repairs": repairs,
+            }
         expected_sessions = expected_forward_sessions(
             str(
                 contract["forward_learning"][
@@ -2004,18 +2208,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             required_publication_retry
             and required_publication_retry != args.valuation_date
         ):
-            payload = blocked_payload(
-                [
-                    "accepted pattern head requires public finalization:"
-                    f"{required_publication_retry}!={args.valuation_date}"
-                ],
-                sources,
-                started,
-                required_publication_retry,
-            )
-            payload["public_blocked_marker_preserved"] = True
-            payload["required_publication_retry_session"] = (
-                required_publication_retry
+            payload = publication_retry_block(
+                output_dir=output_dir,
+                required_session=required_publication_retry,
+                attempted_session=str(args.valuation_date),
+                sources=sources,
+                started=started,
             )
             return payload
         required_retry_session = required_unaccepted_retry_session(
@@ -2438,16 +2636,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def process_exit_code(
+    payload: Mapping[str, Any],
+    *,
+    record_mode: bool,
+) -> int:
+    if (
+        record_mode
+        and payload.get("record_mode_must_stop") is not True
+    ):
+        return 0
+    return 0 if payload.get("status") == READY_STATUS else 2
+
+
 def main() -> int:
     args = parse_args()
     record_mode = bool(str(args.record_failed_session_reason or "").strip())
     payload = record_failed_session(args) if record_mode else build(args)
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return (
-        0
-        if record_mode or payload.get("status") == READY_STATUS
-        else 2
-    )
+    return process_exit_code(payload, record_mode=record_mode)
 
 
 if __name__ == "__main__":
