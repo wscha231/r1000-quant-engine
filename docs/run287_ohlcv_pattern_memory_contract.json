@@ -9,7 +9,8 @@
     ],
     "required_outputs": [
       "forward_observations",
-      "benchmark_location"
+      "benchmark_location",
+      "forward_outcome_endpoints"
     ],
     "require_output_hash_match": true,
     "require_exact_same_valuation_date": true
@@ -23,7 +24,10 @@
     "future_observation_allowed": false,
     "exact_nyse_target_session_only": true,
     "later_session_substitution_allowed": false,
+    "endpoint_adjustment_policy": "origin_and_target_close_must_come_from_one_target_session_adjusted_history_snapshot",
     "historical_backfill_allowed": false,
+    "unresolved_ticker_policy": "carry_every_unresolved_security_to_its_exact_final_horizon_even_after_portfolio_exit",
+    "durable_head_policy": "immutable_parent_linked_accepted_heads_with_prefix_hash_and_chain_descendant_validation",
     "source_kinds": [
       "SECURITY",
       "BENCHMARK"
@@ -51,6 +55,7 @@
       126
     ],
     "benchmark": "SPY",
+    "security_outcome_requires_exact_benchmark_endpoints": true,
     "minimum_resolved_observations_per_pattern_horizon": 30,
     "minimum_resolution_coverage_for_directional_statistics": 1.0,
     "minimum_completed_sessions_before_proposal": 60,

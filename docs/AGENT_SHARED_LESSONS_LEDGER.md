@@ -3177,6 +3177,14 @@ Expected contract:
 - Persist pattern observations and outcomes as separate append-only hash
   chains. Resolve 1/5/21/63/126-session outcomes only when the exact archived
   NYSE target session exists; never substitute a later price.
+- Carry every unresolved ticker through its last registered horizon even after
+  it leaves the portfolio or selector. Resolve the origin and target close
+  from one target-session adjusted-history snapshot so later splits and
+  dividends cannot corrupt returns, and require both exact SPY endpoints for
+  every resolved security outcome.
+- Persist immutable parent-linked accepted-head manifests and verify that a
+  restored archive is an exact chain and byte-prefix descendant. An internally
+  valid older prefix or fork is a rollback blocker, not a fallback.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

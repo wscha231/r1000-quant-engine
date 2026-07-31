@@ -37,6 +37,8 @@ def write_timing(
     spy_close: float,
     spy_prior_return: float,
     spy_return: float,
+    outcome_origin_date: str | None = None,
+    outcome_basis_prices: dict[str, tuple[float, float]] | None = None,
 ) -> Path:
     source = root / f"timing_{as_of_date}"
     source.mkdir(parents=True)
@@ -90,6 +92,72 @@ def write_timing(
             },
         ]
     ).to_csv(benchmark, index=False)
+    endpoint_path = source / "forward_outcome_endpoints.jsonl"
+    endpoint_rows: list[dict[str, object]] = []
+    if outcome_origin_date and outcome_basis_prices:
+        contract_sha256 = sha256_file(
+            ROOT / "docs" / "run287_ohlcv_pattern_memory_contract.json"
+        )
+        for source_kind, ticker in (
+            ("SECURITY", "AAA"),
+            ("BENCHMARK", "SPY"),
+            ("BENCHMARK", "QQQ"),
+        ):
+            origin_close, target_close = outcome_basis_prices[ticker]
+            observation_event_id = memory.canonical_hash(
+                {
+                    "schema_version": memory.OBSERVATION_SCHEMA_VERSION,
+                    "source_kind": source_kind,
+                    "ticker": ticker,
+                    "as_of_date": outcome_origin_date,
+                    "memory_contract_sha256": contract_sha256,
+                }
+            )
+            endpoint = {
+                "schema_version": (
+                    "run287-ohlcv-forward-outcome-endpoint-v1"
+                ),
+                "observation_event_id": observation_event_id,
+                "source_kind": source_kind,
+                "ticker": ticker,
+                "origin_session_date": outcome_origin_date,
+                "target_session_date": as_of_date,
+                "horizon_nyse_sessions": 1,
+                "pattern_signature": (
+                    "DOWN_TO_UP_REVERSAL"
+                    if ticker != "QQQ"
+                    else "CONTINUED_DOWN"
+                ),
+                "origin_close_on_target_adjustment_basis": origin_close,
+                "target_close_on_target_adjustment_basis": target_close,
+                "adjustment_basis_as_of": as_of_date,
+                "adjustment_basis_policy": (
+                    "both_endpoints_from_target_session_hash_verified_"
+                    "adjusted_history"
+                ),
+                "data_reason": "",
+                "exact_target_session": True,
+                "research_only": True,
+                "portfolio_transition_allowed": False,
+                "orders_generated": False,
+                "target_books_mutated": False,
+            }
+            endpoint["endpoint_id"] = memory.canonical_hash(
+                {
+                    "schema_version": endpoint["schema_version"],
+                    "observation_event_id": observation_event_id,
+                    "horizon_nyse_sessions": 1,
+                    "target_session_date": as_of_date,
+                }
+            )
+            endpoint_rows.append(endpoint)
+    endpoint_path.write_text(
+        "".join(
+            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+            for row in endpoint_rows
+        ),
+        encoding="utf-8",
+    )
     summary = source / "summary.json"
     write_json(
         summary,
@@ -114,6 +182,7 @@ def write_timing(
             "outputs": {
                 "forward_observations": fingerprint(observations),
                 "benchmark_location": fingerprint(benchmark),
+                "forward_outcome_endpoints": fingerprint(endpoint_path),
             },
         },
     )
@@ -223,11 +292,47 @@ def main() -> None:
         assert first["appended_observation_count"] == 3
         assert first["resolved_outcome_event_count"] == 0
         assert first["proposal_eligible"] is False
+        assert first["accepted_head_id"]
+        assert (archive / "accepted_head.json").is_file()
+        assert len(list((archive / "accepted_heads").glob("*/manifest.json"))) == 1
 
         repeated = memory.build(args_for(first_summary, archive, "2026-07-29"))
         assert repeated["status"] == memory.READY_STATUS, repeated
         assert repeated["appended_observation_count"] == 0
         assert repeated["appended_outcome_count"] == 0
+        assert repeated["accepted_head_id"] == first["accepted_head_id"]
+
+        first_payload = json.loads(
+            first_summary.read_text(encoding="utf-8")
+        )
+        first_observation_path = Path(
+            first_payload["outputs"]["forward_observations"]["path"]
+        )
+        regenerated_rows = memory.read_jsonl(first_observation_path)
+        for row in regenerated_rows:
+            row["available_from"] = "2026-07-29T20:05:00Z"
+            row["observation_accepted_at_utc"] = "2026-07-29T21:10:00Z"
+        first_observation_path.write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+                for row in regenerated_rows
+            ),
+            encoding="utf-8",
+        )
+        first_payload["available_from"] = "2026-07-29T20:05:00Z"
+        first_payload["forward_observation_window"][
+            "observation_accepted_at_utc"
+        ] = "2026-07-29T21:10:00Z"
+        first_payload["outputs"]["forward_observations"] = fingerprint(
+            first_observation_path
+        )
+        write_json(first_summary, first_payload)
+        regenerated = memory.build(
+            args_for(first_summary, archive, "2026-07-29")
+        )
+        assert regenerated["status"] == memory.READY_STATUS, regenerated
+        assert regenerated["appended_observation_count"] == 0
+        assert regenerated["accepted_head_id"] == first["accepted_head_id"]
 
         second_summary = write_timing(
             root,
@@ -238,12 +343,19 @@ def main() -> None:
             spy_close=505.0,
             spy_prior_return=0.03,
             spy_return=0.01,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 100.0),
+                "SPY": (500.0, 505.0),
+                "QQQ": (450.0, 454.5),
+            },
         )
         second = memory.build(args_for(second_summary, archive, "2026-07-30"))
         assert second["status"] == memory.READY_STATUS, second
         assert second["appended_observation_count"] == 3
         assert second["appended_outcome_count"] == 3
         assert second["resolved_outcome_event_count"] == 3
+        assert len(list((archive / "accepted_heads").glob("*/manifest.json"))) == 2
         security_aggregate = next(
             row
             for row in second["aggregates"]
@@ -270,6 +382,28 @@ def main() -> None:
         assert stock_outcome["target_session_date"] == "2026-07-30"
         assert stock_outcome["resolution_policy"] == (
             "EXACT_ARCHIVED_NYSE_TARGET_SESSION_ONLY"
+        )
+        assert stock_outcome["adjustment_basis_as_of"] == "2026-07-30"
+
+        frozen_observation_bytes = (
+            archive / "observations.jsonl"
+        ).read_bytes()
+        (archive / "observations.jsonl").write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+                for row in observations[:3]
+            ),
+            encoding="utf-8",
+        )
+        rolled_back = memory.build(
+            args_for(second_summary, archive, "2026-07-30")
+        )
+        assert rolled_back["status"] == memory.BLOCKED_STATUS
+        assert "rollback detected" in " ".join(
+            rolled_back["contract_failures"]
+        )
+        (archive / "observations.jsonl").write_bytes(
+            frozen_observation_bytes
         )
 
         out_of_order = memory.build(
@@ -351,6 +485,81 @@ def main() -> None:
         assert "archive event hash mismatch" in " ".join(
             tampered["contract_failures"]
         )
+
+    # A security outcome is unresolved when either exact SPY endpoint is
+    # absent, even if the security's own target-basis endpoint is complete.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive = root / "archive" / "ohlcv_pattern_memory"
+        first_summary = write_timing(
+            root,
+            as_of_date="2026-07-29",
+            stock_close=96.0,
+            stock_prior_return=-0.04,
+            stock_return=0.06,
+            spy_close=500.0,
+            spy_prior_return=-0.02,
+            spy_return=0.03,
+        )
+        assert memory.build(
+            args_for(first_summary, archive, "2026-07-29")
+        )["status"] == memory.READY_STATUS
+        second_summary = write_timing(
+            root,
+            as_of_date="2026-07-30",
+            stock_close=100.0,
+            stock_prior_return=0.06,
+            stock_return=-0.02,
+            spy_close=505.0,
+            spy_prior_return=0.03,
+            spy_return=0.01,
+            outcome_origin_date="2026-07-29",
+            outcome_basis_prices={
+                "AAA": (96.0, 100.0),
+                "SPY": (500.0, 505.0),
+                "QQQ": (450.0, 454.5),
+            },
+        )
+        second_payload = json.loads(
+            second_summary.read_text(encoding="utf-8")
+        )
+        endpoint_path = Path(
+            second_payload["outputs"]["forward_outcome_endpoints"]["path"]
+        )
+        endpoint_rows = [
+            row
+            for row in memory.read_jsonl(endpoint_path)
+            if row["ticker"] != "SPY"
+        ]
+        endpoint_path.write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+                for row in endpoint_rows
+            ),
+            encoding="utf-8",
+        )
+        second_payload["outputs"]["forward_outcome_endpoints"] = fingerprint(
+            endpoint_path
+        )
+        write_json(second_summary, second_payload)
+        incomplete_spy = memory.build(
+            args_for(second_summary, archive, "2026-07-30")
+        )
+        assert incomplete_spy["status"] == memory.READY_STATUS, incomplete_spy
+        resolved = memory.read_jsonl(archive / "outcomes.jsonl")
+        assert not any(
+            row["source_kind"] == "SECURITY" for row in resolved
+        )
+        security_group = next(
+            row
+            for row in incomplete_spy["aggregates"]
+            if row["source_kind"] == "SECURITY"
+            and row["horizon_nyse_sessions"] == 1
+        )
+        assert security_group["matured_observation_count"] == 1
+        assert security_group["resolved_observation_count"] == 0
+        assert security_group["missing_exact_outcome_count"] == 1
+        assert security_group["directional_statistics_published"] is False
 
     print("run287_ohlcv_pattern_memory_smoke: PASS")
 

@@ -21,6 +21,10 @@ def main() -> None:
     timing_block = text[timing : timing + 1800]
     assert "--producer-status outputs/run287_exact_packet_producer/status.json" in timing_block
     assert "--holding-watch outputs/holding_risk_watch/holding_risk_watch.csv" in timing_block
+    assert (
+        "--pattern-memory-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory"
+        in timing_block
+    )
     assert '--valuation-date "$PAPER_AS_OF"' in timing_block
     assert (
         '--observation-accepted-at-utc "$OBSERVATION_ACCEPTED_AT_UTC"'

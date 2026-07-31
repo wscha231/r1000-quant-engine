@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 
 from tools.build_run287_holding_risk_watch import sha256_file, write_json  # noqa: E402
 from tools import build_run287_ohlcv_location_timing_challenger as challenger  # noqa: E402
+from tools import archive_run287_ohlcv_pattern_memory as pattern_memory  # noqa: E402
 from tools.build_run287_ohlcv_location_timing_challenger import (  # noqa: E402
     READY_STATUS,
     adjusted_ohlcv,
@@ -275,6 +276,10 @@ def build_fixture(root: Path) -> argparse.Namespace:
             / "docs"
             / "run287_ohlcv_location_timing_challenger_contract.json"
         ),
+        pattern_memory_dir=str(root / "pattern_memory"),
+        pattern_memory_contract=str(
+            ROOT / "docs" / "run287_ohlcv_pattern_memory_contract.json"
+        ),
         valuation_date=ASOF.date().isoformat(),
         observation_accepted_at_utc=ACCEPTED_AT_UTC,
         output_dir=str(root / "output"),
@@ -300,6 +305,61 @@ def main() -> None:
     assert return_transition_signature(-0.04, -0.01) == "CONTINUED_DOWN"
     assert return_transition_signature(0.04, 0.01) == "CONTINUED_UP"
     assert return_transition_signature(0.0, 0.01) == "FLAT_OR_INSUFFICIENT"
+    endpoint_rows = challenger.build_outcome_endpoints(
+        [
+            {
+                "observation_event_id": "event-one",
+                "source_kind": "SECURITY",
+                "ticker": "AAA",
+                "origin_session_date": "2026-07-28",
+                "target_session_date": "2026-07-29",
+                "horizon_nyse_sessions": 1,
+                "pattern_signature": "DOWN_TO_UP_REVERSAL",
+            }
+        ],
+        {
+            (
+                "SECURITY",
+                "AAA",
+            ): pd.DataFrame(
+                {"close": [50.0, 55.0]},
+                index=pd.DatetimeIndex(["2026-07-28", "2026-07-29"]),
+            )
+        },
+        ASOF,
+    )
+    assert endpoint_rows[0][
+        "origin_close_on_target_adjustment_basis"
+    ] == 50.0
+    assert endpoint_rows[0][
+        "target_close_on_target_adjustment_basis"
+    ] == 55.0
+    assert endpoint_rows[0]["exact_target_session"] is True
+    carry_roles = challenger.add_pattern_carry_roles(
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "AAA",
+                    "is_held": True,
+                    "is_current_selector": True,
+                    "is_proposed_entry": False,
+                    "is_pattern_outcome_carry": False,
+                    "portfolios": "main",
+                    "holding_risk_states": "NORMAL",
+                    "marked_weight_max": 0.1,
+                    "advisory_weight_max": 0.1,
+                }
+            ]
+        ),
+        [
+            {
+                "source_kind": "SECURITY",
+                "ticker": "ZZZ",
+            }
+        ],
+    ).set_index("ticker")
+    assert truth(carry_roles.loc["ZZZ", "is_pattern_outcome_carry"]) is True
+    assert truth(carry_roles.loc["ZZZ", "is_held"]) is False
     # Future rows are excluded and historical adjusted closes are rebased
     # without accepting a raw-close identity break.
     base_close = np.linspace(80.0, 120.0, 340)
@@ -338,6 +398,22 @@ def main() -> None:
     adjusted = adjusted_ohlcv(full, ASOF)
     assert (adjusted["high"] >= adjusted[["open", "close"]].max(axis=1)).all()
     assert (adjusted["low"] <= adjusted[["open", "close"]].min(axis=1)).all()
+    missing_prior = adjusted.drop(index=adjusted.index[-2])
+    missing_features, _ = fixed_window_features(
+        "AAA",
+        missing_prior,
+        ASOF,
+        contract,
+    )
+    assert (
+        missing_features["return_transition_signature"]
+        == "FLAT_OR_INSUFFICIENT"
+    )
+    assert missing_features["return_transition_sessions_consecutive"] is False
+    assert (
+        missing_features["return_transition_data_reason"]
+        == "nonconsecutive_nyse_sessions"
+    )
     malformed = full.tail(3).copy()
     malformed.iloc[0, malformed.columns.get_loc("Low")] = 0.0
     malformed.iloc[1, malformed.columns.get_loc("Low")] = -1.0
@@ -530,6 +606,41 @@ def main() -> None:
         assert {
             json.loads(line)["forward_outcome_status"] for line in observations
         } == {"UNRESOLVED"}
+        assert (
+            Path(args.output_dir) / "forward_outcome_endpoints.jsonl"
+        ).read_text(encoding="utf-8") == ""
+        archived = pattern_memory.build(
+            argparse.Namespace(
+                timing_summary=str(
+                    Path(args.output_dir) / "summary.json"
+                ),
+                contract=str(
+                    ROOT
+                    / "docs"
+                    / "run287_ohlcv_pattern_memory_contract.json"
+                ),
+                valuation_date=ASOF.date().isoformat(),
+                output_dir=args.pattern_memory_dir,
+            )
+        )
+        assert archived["status"] == pattern_memory.READY_STATUS, archived
+        requests, _, request_failures = (
+            challenger.load_pattern_outcome_requests(
+                Path(args.pattern_memory_dir),
+                Path(args.pattern_memory_contract),
+                "2026-07-30",
+            )
+        )
+        assert not request_failures, request_failures
+        assert {
+            (row["source_kind"], row["ticker"], row["horizon_nyse_sessions"])
+            for row in requests
+        } == {
+            ("SECURITY", "AAA", 1),
+            ("SECURITY", "BBB", 1),
+            ("BENCHMARK", "SPY", 1),
+            ("BENCHMARK", "QQQ", 1),
+        }
 
     # A provenance change discovered after staged writes publishes only the
     # BLOCKED summary; no conflicted observation file remains archivable.

@@ -49,6 +49,7 @@
       "FLAT_OR_INSUFFICIENT"
     ],
     "classification_policy": "strict_observed_signs_only_zero_or_missing_is_flat_or_insufficient",
+    "session_policy": "final_three_rows_must_equal_three_consecutive_nyse_sessions_ending_at_as_of",
     "magnitude_context": [
       "return_2d",
       "prior_loss_recovery_fraction",

@@ -41,6 +41,8 @@ READY_STATUS = "READY_OHLCV_PATTERN_MEMORY_RESEARCH_ONLY"
 BLOCKED_STATUS = "BLOCKED_OHLCV_PATTERN_MEMORY"
 OBSERVATION_SCHEMA_VERSION = "run287-ohlcv-pattern-observation-v1"
 OUTCOME_SCHEMA_VERSION = "run287-ohlcv-pattern-outcome-v1"
+ACCEPTED_HEAD_SCHEMA_VERSION = "run287-ohlcv-pattern-accepted-head-v1"
+ACCEPTED_HEAD_STATUS = "ACCEPTED_OHLCV_PATTERN_MEMORY_HEAD"
 
 FEATURE_FIELDS = (
     "prior_return_1d",
@@ -48,6 +50,9 @@ FEATURE_FIELDS = (
     "return_2d",
     "return_transition_signature",
     "prior_down_current_up",
+    "return_transition_sessions_consecutive",
+    "return_transition_session_dates",
+    "return_transition_data_reason",
     "prior_loss_recovery_fraction",
     "gap_return",
     "intraday_return",
@@ -90,6 +95,13 @@ FEATURE_FIELDS = (
     "shadow_reason_codes",
     "data_reason",
 )
+OBSERVATION_RETRY_PROVENANCE_FIELDS = {
+    "available_from",
+    "observation_accepted_at_utc",
+    "source_summary_sha256",
+    "source_observations_sha256",
+    "source_benchmark_sha256",
+}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -138,6 +150,23 @@ def fingerprint(path: Path) -> dict[str, Any]:
         "bytes": int(path.stat().st_size) if path.is_file() else 0,
         "sha256": sha256_file(path) if path.is_file() else "",
     }
+
+
+def sha256_prefix(path: Path, byte_count: int) -> str:
+    digest = hashlib.sha256()
+    remaining = int(byte_count)
+    if remaining == 0:
+        return digest.hexdigest()
+    if not path.is_file():
+        raise ValueError(f"accepted head prefix file missing:{path}")
+    with path.open("rb") as handle:
+        while remaining > 0:
+            block = handle.read(min(1024 * 1024, remaining))
+            if not block:
+                raise ValueError(f"accepted head prefix truncated:{path}")
+            digest.update(block)
+            remaining -= len(block)
+    return digest.hexdigest()
 
 
 def git_head() -> str:
@@ -228,6 +257,25 @@ def event_without_chain(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def stable_source_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        str(key): value
+        for key, value in row.items()
+        if key not in {"available_from", "observation_accepted_at_utc"}
+    }
+
+
+def event_comparison_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    payload = event_without_chain(row)
+    if payload.get("schema_version") == OBSERVATION_SCHEMA_VERSION:
+        payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in OBSERVATION_RETRY_PROVENANCE_FIELDS
+        }
+    return payload
+
+
 def validate_chain(
     rows: Iterable[Mapping[str, Any]],
     *,
@@ -292,6 +340,231 @@ def append_rows(path: Path, rows: Iterable[Mapping[str, Any]]) -> int:
     return len(payloads)
 
 
+def accepted_head_payload_without_id(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        str(key): value
+        for key, value in payload.items()
+        if key != "head_id"
+    }
+
+
+def validate_accepted_head_state(
+    *,
+    memory_dir: Path,
+    observations: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    contract_sha256: str,
+    allow_unaccepted_events: bool = False,
+) -> dict[str, Any]:
+    heads_root = memory_dir / "accepted_heads"
+    pointer_path = memory_dir / "accepted_head.json"
+    manifests: dict[str, dict[str, Any]] = {}
+    if heads_root.is_dir():
+        for path in sorted(heads_root.glob("*/manifest.json")):
+            payload = read_json(path)
+            head_id = str(payload.get("head_id") or "")
+            if (
+                payload.get("schema_version") != ACCEPTED_HEAD_SCHEMA_VERSION
+                or payload.get("status") != ACCEPTED_HEAD_STATUS
+                or payload.get("memory_contract_sha256") != contract_sha256
+                or path.parent.name != head_id
+                or canonical_hash(
+                    accepted_head_payload_without_id(payload)
+                )
+                != head_id
+                or head_id in manifests
+            ):
+                raise ValueError(f"immutable accepted head invalid:{path}")
+            manifests[head_id] = payload
+    if not manifests:
+        if pointer_path.exists():
+            raise ValueError("accepted head pointer exists without manifests")
+        if (observations or outcomes) and not allow_unaccepted_events:
+            raise ValueError("unanchored pattern memory events")
+        return {
+            "head_id": "",
+            "observation_event_count": 0,
+            "resolved_outcome_event_count": 0,
+            "observation_chain_head": "",
+            "outcome_chain_head": "",
+        }
+    parents = {
+        str(payload.get("parent_head_id") or "")
+        for payload in manifests.values()
+        if payload.get("parent_head_id")
+    }
+    for parent in parents:
+        if parent not in manifests:
+            raise ValueError(f"accepted head parent missing:{parent}")
+    terminals = sorted(set(manifests) - parents)
+    roots = [
+        head_id
+        for head_id, payload in manifests.items()
+        if not payload.get("parent_head_id")
+    ]
+    if len(terminals) != 1 or len(roots) != 1:
+        raise ValueError("accepted head fork or root ambiguity")
+    terminal_id = terminals[0]
+    lineage: set[str] = set()
+    cursor = terminal_id
+    while cursor:
+        if cursor in lineage:
+            raise ValueError("accepted head cycle")
+        lineage.add(cursor)
+        cursor = str(manifests[cursor].get("parent_head_id") or "")
+    if lineage != set(manifests):
+        raise ValueError("accepted head disconnected lineage")
+    terminal_path = (
+        heads_root / terminal_id / "manifest.json"
+    )
+    pointer = read_json(pointer_path) if pointer_path.is_file() else {}
+    pointer_valid = bool(
+        pointer.get("schema_version") == ACCEPTED_HEAD_SCHEMA_VERSION
+        and pointer.get("status") == ACCEPTED_HEAD_STATUS
+        and pointer.get("head_id") == terminal_id
+        and pointer.get("manifest_sha256") == sha256_file(terminal_path)
+    )
+    if not pointer_valid and not allow_unaccepted_events:
+        raise ValueError("accepted head pointer mismatch")
+    terminal = manifests[terminal_id]
+    observation_count = int(terminal.get("observation_event_count") or 0)
+    outcome_count = int(terminal.get("resolved_outcome_event_count") or 0)
+    if len(observations) < observation_count or len(outcomes) < outcome_count:
+        raise ValueError("accepted pattern memory rollback detected")
+    observation_head = (
+        str(observations[observation_count - 1].get("event_hash") or "")
+        if observation_count
+        else ""
+    )
+    outcome_head = (
+        str(outcomes[outcome_count - 1].get("event_hash") or "")
+        if outcome_count
+        else ""
+    )
+    if (
+        observation_head != terminal.get("observation_chain_head")
+        or outcome_head != terminal.get("outcome_chain_head")
+    ):
+        raise ValueError("accepted pattern memory prefix chain mismatch")
+    for label, path, count_key, hash_key in (
+        (
+            "observation",
+            memory_dir / "observations.jsonl",
+            "observation_bytes",
+            "observation_sha256",
+        ),
+        (
+            "outcome",
+            memory_dir / "outcomes.jsonl",
+            "outcome_bytes",
+            "outcome_sha256",
+        ),
+    ):
+        expected_bytes = int(terminal.get(count_key) or 0)
+        expected_hash = str(terminal.get(hash_key) or "")
+        if sha256_prefix(path, expected_bytes) != expected_hash:
+            raise ValueError(f"accepted {label} prefix hash mismatch")
+    return {**terminal, "pointer_repair_required": not pointer_valid}
+
+
+def publish_accepted_head(
+    *,
+    memory_dir: Path,
+    observations: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    contract_sha256: str,
+    accepted_through: str,
+) -> dict[str, Any]:
+    prior = validate_accepted_head_state(
+        memory_dir=memory_dir,
+        observations=observations,
+        outcomes=outcomes,
+        contract_sha256=contract_sha256,
+        allow_unaccepted_events=True,
+    )
+    observation_head = (
+        str(observations[-1].get("event_hash") or "") if observations else ""
+    )
+    outcome_head = (
+        str(outcomes[-1].get("event_hash") or "") if outcomes else ""
+    )
+    if (
+        prior.get("observation_event_count") == len(observations)
+        and prior.get("resolved_outcome_event_count") == len(outcomes)
+        and prior.get("observation_chain_head") == observation_head
+        and prior.get("outcome_chain_head") == outcome_head
+        and prior.get("head_id")
+    ):
+        manifest_path = (
+            memory_dir
+            / "accepted_heads"
+            / str(prior["head_id"])
+            / "manifest.json"
+        )
+        atomic_write_json(
+            memory_dir / "accepted_head.json",
+            {
+                "schema_version": ACCEPTED_HEAD_SCHEMA_VERSION,
+                "status": ACCEPTED_HEAD_STATUS,
+                "head_id": prior["head_id"],
+                "manifest_sha256": sha256_file(manifest_path),
+            },
+        )
+        return prior
+    observations_path = memory_dir / "observations.jsonl"
+    outcomes_path = memory_dir / "outcomes.jsonl"
+    observation_fingerprint = fingerprint(observations_path)
+    outcome_fingerprint = fingerprint(outcomes_path)
+    base = {
+        "schema_version": ACCEPTED_HEAD_SCHEMA_VERSION,
+        "status": ACCEPTED_HEAD_STATUS,
+        "parent_head_id": str(prior.get("head_id") or ""),
+        "memory_contract_sha256": contract_sha256,
+        "accepted_through": accepted_through,
+        "observation_event_count": len(observations),
+        "resolved_outcome_event_count": len(outcomes),
+        "observation_chain_head": observation_head,
+        "outcome_chain_head": outcome_head,
+        "observation_bytes": int(observation_fingerprint["bytes"]),
+        "observation_sha256": str(
+            observation_fingerprint["sha256"]
+            or hashlib.sha256(b"").hexdigest()
+        ),
+        "outcome_bytes": int(outcome_fingerprint["bytes"]),
+        "outcome_sha256": str(
+            outcome_fingerprint["sha256"]
+            or hashlib.sha256(b"").hexdigest()
+        ),
+        "research_only": True,
+        "portfolio_transition_allowed": False,
+        "orders_generated": False,
+        "target_books_mutated": False,
+        "champion_changed": False,
+    }
+    head_id = canonical_hash(base)
+    payload = {**base, "head_id": head_id}
+    manifest_path = (
+        memory_dir / "accepted_heads" / head_id / "manifest.json"
+    )
+    if manifest_path.exists():
+        if canonical_hash(read_json(manifest_path)) != canonical_hash(payload):
+            raise ValueError("immutable accepted head payload changed")
+    else:
+        atomic_write_json(manifest_path, payload)
+    atomic_write_json(
+        memory_dir / "accepted_head.json",
+        {
+            "schema_version": ACCEPTED_HEAD_SCHEMA_VERSION,
+            "status": ACCEPTED_HEAD_STATUS,
+            "head_id": head_id,
+            "manifest_sha256": sha256_file(manifest_path),
+        },
+    )
+    return payload
+
+
 @lru_cache(maxsize=None)
 def exact_target_session(origin: str, horizon: int) -> str:
     start = pd.Timestamp(origin)
@@ -354,6 +627,19 @@ def source_observations(
     ):
         for raw in rows:
             clean = json_clean(dict(raw))
+            if (
+                source_kind == "SECURITY"
+                and clean.get("is_pattern_outcome_carry") is True
+                and not any(
+                    clean.get(field) is True
+                    for field in (
+                        "is_held",
+                        "is_current_selector",
+                        "is_proposed_entry",
+                    )
+                )
+            ):
+                continue
             ticker = str(clean.get("ticker") or "").strip().upper()
             if not ticker:
                 raise ValueError(f"source ticker missing:{source_kind}")
@@ -377,7 +663,9 @@ def source_observations(
                 "data_ready": bool(
                     close is not None and not str(clean.get("data_reason") or "")
                 ),
-                "source_payload_sha256": canonical_hash(clean),
+                "source_payload_sha256": canonical_hash(
+                    stable_source_row(clean)
+                ),
                 **{
                     field: clean.get(field)
                     for field in FEATURE_FIELDS
@@ -427,7 +715,9 @@ def merge_new_events(
         identity = str(payload.get("event_id") or "")
         prior = identities.get(identity)
         if prior is not None:
-            if canonical_hash(event_without_chain(prior)) != canonical_hash(payload):
+            if canonical_hash(event_comparison_payload(prior)) != canonical_hash(
+                event_comparison_payload(payload)
+            ):
                 raise ValueError(f"same identity payload changed:{identity}")
             continue
         if not identity or identity in seen:
@@ -442,6 +732,7 @@ def merge_new_events(
 def proposed_outcomes(
     *,
     observations: Iterable[Mapping[str, Any]],
+    endpoints: Iterable[Mapping[str, Any]],
     existing_outcome_ids: set[str],
     as_of_date: str,
     horizons: Iterable[int],
@@ -456,6 +747,52 @@ def proposed_outcomes(
         ): row
         for row in rows
     }
+    endpoint_map: dict[tuple[str, int, str], Mapping[str, Any]] = {}
+    endpoint_ids: set[str] = set()
+    for raw in endpoints:
+        endpoint = json_clean(dict(raw))
+        if (
+            endpoint.get("schema_version")
+            != "run287-ohlcv-forward-outcome-endpoint-v1"
+        ):
+            raise ValueError("outcome endpoint schema")
+        endpoint_id = str(endpoint.get("endpoint_id") or "")
+        expected_endpoint_id = canonical_hash(
+            {
+                "schema_version": endpoint.get("schema_version"),
+                "observation_event_id": endpoint.get(
+                    "observation_event_id"
+                ),
+                "horizon_nyse_sessions": endpoint.get(
+                    "horizon_nyse_sessions"
+                ),
+                "target_session_date": endpoint.get(
+                    "target_session_date"
+                ),
+            }
+        )
+        origin_date = str(endpoint.get("origin_session_date") or "")
+        horizon_value = int(endpoint.get("horizon_nyse_sessions") or 0)
+        target_session = str(endpoint.get("target_session_date") or "")
+        if (
+            not endpoint_id
+            or endpoint_id in endpoint_ids
+            or endpoint_id != expected_endpoint_id
+            or horizon_value <= 0
+            or exact_target_session(origin_date, horizon_value)
+            != target_session
+            or endpoint.get("adjustment_basis_as_of") != target_session
+        ):
+            raise ValueError("outcome endpoint identity")
+        endpoint_ids.add(endpoint_id)
+        key = (
+            str(endpoint.get("observation_event_id") or ""),
+            int(endpoint.get("horizon_nyse_sessions") or 0),
+            str(endpoint.get("target_session_date") or ""),
+        )
+        if key in endpoint_map:
+            raise ValueError("duplicate outcome endpoint key")
+        endpoint_map[key] = endpoint
     proposed: list[dict[str, Any]] = []
     missing_exact = 0
     for observation in rows:
@@ -479,36 +816,71 @@ def proposed_outcomes(
             )
             if identity in existing_outcome_ids:
                 continue
-            key = (
-                str(observation.get("source_kind") or ""),
-                str(observation.get("ticker") or ""),
+            endpoint_key = (
+                str(observation.get("event_id") or ""),
+                horizon,
                 target_date,
             )
-            target = exact.get(key)
-            target_close = finite((target or {}).get("observed_close"))
-            if target_close is None:
+            endpoint = endpoint_map.get(endpoint_key)
+            origin_close = finite(
+                (endpoint or {}).get(
+                    "origin_close_on_target_adjustment_basis"
+                )
+            )
+            target_close = finite(
+                (endpoint or {}).get(
+                    "target_close_on_target_adjustment_basis"
+                )
+            )
+            if (
+                endpoint is None
+                or endpoint.get("exact_target_session") is not True
+                or str(endpoint.get("data_reason") or "")
+                or endpoint.get("source_kind")
+                != observation.get("source_kind")
+                or endpoint.get("ticker") != observation.get("ticker")
+                or endpoint.get("origin_session_date") != origin
+                or origin_close in (None, 0.0)
+                or target_close is None
+            ):
                 missing_exact += 1
                 continue
             forward_return = target_close / float(origin_close) - 1.0
             benchmark_return = None
             excess_spy = None
+            benchmark_endpoint = None
             if str(observation.get("source_kind")) == "SECURITY":
                 benchmark_origin = exact.get(("BENCHMARK", "SPY", origin))
-                benchmark_target = exact.get(("BENCHMARK", "SPY", target_date))
+                benchmark_endpoint = endpoint_map.get(
+                    (
+                        str((benchmark_origin or {}).get("event_id") or ""),
+                        horizon,
+                        target_date,
+                    )
+                )
                 benchmark_origin_close = finite(
-                    (benchmark_origin or {}).get("observed_close")
+                    (benchmark_endpoint or {}).get(
+                        "origin_close_on_target_adjustment_basis"
+                    )
                 )
                 benchmark_target_close = finite(
-                    (benchmark_target or {}).get("observed_close")
+                    (benchmark_endpoint or {}).get(
+                        "target_close_on_target_adjustment_basis"
+                    )
                 )
                 if (
-                    benchmark_origin_close not in (None, 0.0)
-                    and benchmark_target_close is not None
+                    benchmark_endpoint is None
+                    or benchmark_endpoint.get("exact_target_session") is not True
+                    or str(benchmark_endpoint.get("data_reason") or "")
+                    or benchmark_origin_close in (None, 0.0)
+                    or benchmark_target_close is None
                 ):
-                    benchmark_return = (
-                        benchmark_target_close / float(benchmark_origin_close) - 1.0
-                    )
-                    excess_spy = forward_return - benchmark_return
+                    missing_exact += 1
+                    continue
+                benchmark_return = (
+                    benchmark_target_close / float(benchmark_origin_close) - 1.0
+                )
+                excess_spy = forward_return - benchmark_return
             proposed.append(
                 {
                     "schema_version": OUTCOME_SCHEMA_VERSION,
@@ -525,6 +897,19 @@ def proposed_outcomes(
                     "horizon_nyse_sessions": horizon,
                     "origin_close": origin_close,
                     "target_close": target_close,
+                    "source_endpoint_payload_sha256": canonical_hash(
+                        endpoint
+                    ),
+                    "spy_endpoint_payload_sha256": (
+                        canonical_hash(benchmark_endpoint)
+                        if benchmark_endpoint is not None
+                        else None
+                    ),
+                    "adjustment_basis_as_of": target_date,
+                    "adjustment_basis_policy": (
+                        "both_endpoints_from_target_session_hash_verified_"
+                        "adjusted_history"
+                    ),
                     "forward_return": forward_return,
                     "spy_forward_return": benchmark_return,
                     "excess_return_vs_spy": excess_spy,
@@ -752,7 +1137,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             summary,
             "benchmark_location",
         )
+        endpoint_path, sources["timing_outcome_endpoints"] = resolve_output(
+            summary_path,
+            summary,
+            "forward_outcome_endpoints",
+        )
         security_rows = read_jsonl(observations_path)
+        endpoint_rows = read_jsonl(endpoint_path)
         benchmark_rows = pd.read_csv(benchmark_path, low_memory=False).to_dict(
             "records"
         )
@@ -781,6 +1172,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             expected_schema=OUTCOME_SCHEMA_VERSION,
             contract_sha256=contract_sha256,
         )
+        durable_parent_head = validate_accepted_head_state(
+            memory_dir=output_dir,
+            observations=existing_observations,
+            outcomes=existing_outcomes,
+            contract_sha256=contract_sha256,
+            allow_unaccepted_events=True,
+        )
         existing_dates = [
             str(row.get("as_of_date") or "")
             for row in existing_observations
@@ -799,6 +1197,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         all_observations = [*existing_observations, *new_observations]
         proposed_resolutions, missing_exact = proposed_outcomes(
             observations=all_observations,
+            endpoints=endpoint_rows,
             existing_outcome_ids=set(outcome_ids),
             as_of_date=args.valuation_date,
             horizons=contract["forward_learning"][
@@ -813,7 +1212,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             previous_hash=outcome_head,
         )
 
-        for label in ("timing_summary", "timing_observations", "timing_benchmark"):
+        for label in (
+            "timing_summary",
+            "timing_observations",
+            "timing_benchmark",
+            "timing_outcome_endpoints",
+        ):
             path = Path(str(sources[label]["path"]))
             if sha256_file(path) != str(sources[label]["sha256"]):
                 raise ValueError(f"source changed before append:{label}")
@@ -871,6 +1275,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             row.get("directional_statistics_published") is True
             for row in aggregates
         )
+        accepted_head = publish_accepted_head(
+            memory_dir=output_dir,
+            observations=all_observations,
+            outcomes=all_outcomes,
+            contract_sha256=contract_sha256,
+            accepted_through=max(sessions) if sessions else "",
+        )
         payload = {
             "schema_version": SCHEMA_VERSION,
             "status": READY_STATUS,
@@ -897,6 +1308,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "aggregates": aggregates,
             "observation_chain_head": observation_head,
             "outcome_chain_head": outcome_head,
+            "durable_parent_head_id": durable_parent_head.get("head_id") or "",
+            "accepted_head_id": accepted_head["head_id"],
             "research_only": True,
             "forward_observation_only": True,
             "advisory_only": True,
@@ -918,6 +1331,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "outputs": {
                 "observations": fingerprint(observations_archive),
                 "outcomes": fingerprint(outcomes_archive),
+                "accepted_head": fingerprint(
+                    output_dir / "accepted_head.json"
+                ),
+                "accepted_head_manifest": fingerprint(
+                    output_dir
+                    / "accepted_heads"
+                    / str(accepted_head["head_id"])
+                    / "manifest.json"
+                ),
             },
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "performance": {"elapsed_seconds": time.perf_counter() - started},
