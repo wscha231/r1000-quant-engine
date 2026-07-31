@@ -665,6 +665,11 @@ def main() -> None:
             "forward_observations"
         ] = fingerprint(first_observation_path)
         write_json(first_summary, accepted_source_payload)
+        refinalized = memory.build(
+            args_for(first_summary, archive, "2026-07-29")
+        )
+        assert refinalized["status"] == memory.READY_STATUS, refinalized
+        assert refinalized["appended_observation_count"] == 0
 
         second_summary = write_timing(
             root,
@@ -783,6 +788,13 @@ def main() -> None:
         (archive / "observations.jsonl").write_bytes(
             frozen_observation_bytes
         )
+        refinalized_second = memory.build(
+            args_for(second_summary, archive, "2026-07-30")
+        )
+        assert (
+            refinalized_second["status"] == memory.READY_STATUS
+        ), refinalized_second
+        assert refinalized_second["appended_observation_count"] == 0
 
         out_of_order = memory.build(
             args_for(first_summary, archive, "2026-07-29")
@@ -1175,6 +1187,42 @@ def main() -> None:
         assert interrupted_public["failed_session_date"] == "2026-07-29"
         assert (archive / "accepted_head.json").is_file()
         assert (archive / "accepted_heads").is_dir()
+        pending_next_session = memory.record_failed_session(
+            argparse.Namespace(
+                output_dir=str(archive),
+                contract=str(
+                    ROOT
+                    / "docs"
+                    / "run287_ohlcv_pattern_memory_contract.json"
+                ),
+                valuation_date="2026-07-30",
+                record_failed_session_reason="current_session_pending",
+            )
+        )
+        assert pending_next_session["status"] == memory.BLOCKED_STATUS
+        assert (
+            pending_next_session["required_publication_retry_session"]
+            == "2026-07-29"
+        )
+        assert memory.read_json(archive / "summary.json") == (
+            interrupted_public
+        )
+        premature_advance = memory.build(
+            args_for(next_summary, archive, "2026-07-30")
+        )
+        assert premature_advance["status"] == memory.BLOCKED_STATUS
+        assert premature_advance["public_blocked_marker_preserved"] is True
+        assert premature_advance["required_publication_retry_session"] == (
+            "2026-07-29"
+        )
+        assert (
+            "accepted pattern head requires public finalization:"
+            "2026-07-29!=2026-07-30"
+            in " ".join(premature_advance["contract_failures"])
+        )
+        assert memory.read_json(archive / "summary.json") == (
+            interrupted_public
+        )
 
         # The exact-session retry finalizes the already committed head and is
         # the first point at which the public summary exposes READY.

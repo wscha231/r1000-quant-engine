@@ -66,7 +66,23 @@ def main() -> None:
         "chronological catch-up requires the hash-pinned frozen "
         "price histories" in static_restore_block
     )
+    assert (
+        "pre-launch paper catch-up skips pattern/static evidence"
+        in static_restore_block
+    )
     assert '--destination-root run287_research_static' in static_restore_block
+    prelaunch_guard = text.index(
+        'if [[ "$PAPER_AS_OF" < "$PATTERN_FORWARD_LAUNCH_SESSION" ]]'
+    )
+    assert prelaunch_guard < pending < first_ledger
+    assert (
+        'if [ "$PATTERN_SESSION_ELIGIBLE" != yes ]; then'
+        in text[first_ledger:catchup_timing]
+    )
+    assert (
+        "pre-launch paper mark accepted without pattern observation"
+        in text[first_ledger:catchup_timing]
+    )
     assert "CATCHUP_ARTIFACT_ROOT" in text[first_ledger:catchup_timing]
     assert "PATTERN_CATCHUP_SOURCE" in text[first_ledger:catchup_timing]
     assert (

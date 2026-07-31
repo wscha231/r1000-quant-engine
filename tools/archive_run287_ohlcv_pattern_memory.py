@@ -1284,6 +1284,44 @@ def required_unaccepted_retry_session(
     return next(iter(dates), "")
 
 
+def required_publication_retry_session(
+    *,
+    memory_dir: Path,
+    durable_head: Mapping[str, Any],
+) -> str:
+    accepted_head_id = str(durable_head.get("head_id") or "")
+    accepted_through = str(durable_head.get("accepted_through") or "")
+    if not accepted_head_id or not accepted_through:
+        return ""
+    try:
+        public = read_json(memory_dir / "summary.json")
+    except Exception:
+        return accepted_through
+    pointer_fingerprint = fingerprint(memory_dir / "accepted_head.json")
+    public_pointer = (
+        (public.get("outputs") or {}).get("accepted_head") or {}
+    )
+    if (
+        public.get("status") == READY_STATUS
+        and str(public.get("accepted_head_id") or "") == accepted_head_id
+        and str(public.get("accepted_through") or "") == accepted_through
+        and public_pointer.get("exists") is True
+        and str(public_pointer.get("sha256") or "")
+        == str(pointer_fingerprint.get("sha256") or "")
+    ):
+        return ""
+    failed_session = str(public.get("failed_session_date") or "")
+    if (
+        public.get("status") == BLOCKED_STATUS
+        and failed_session
+        and failed_session > accepted_through
+    ):
+        # Delayed D recovery intentionally preserves D+1's exact BLOCKED
+        # marker while committing D's immutable head.
+        return ""
+    return accepted_through
+
+
 def proposed_outcomes(
     *,
     observations: Iterable[Mapping[str, Any]],
@@ -1740,11 +1778,79 @@ def record_failed_session(args: argparse.Namespace) -> dict[str, Any]:
     reason = str(args.record_failed_session_reason or "").strip()
     if not reason:
         raise ValueError("failed-session reason required")
+    started = time.perf_counter()
+    pointer_path = output_dir / "accepted_head.json"
+    if pointer_path.is_file():
+        try:
+            contract_path = repo_path(
+                str(
+                    getattr(
+                        args,
+                        "contract",
+                        "docs/run287_ohlcv_pattern_memory_contract.json",
+                    )
+                )
+            )
+            contract_sha256 = sha256_file(contract_path)
+            observations, _, _ = validate_chain(
+                read_jsonl(output_dir / "observations.jsonl"),
+                expected_schema=OBSERVATION_SCHEMA_VERSION,
+                contract_sha256=contract_sha256,
+            )
+            outcomes, _, _ = validate_chain(
+                read_jsonl(output_dir / "outcomes.jsonl"),
+                expected_schema=OUTCOME_SCHEMA_VERSION,
+                contract_sha256=contract_sha256,
+            )
+            durable_head = validate_accepted_head_state(
+                memory_dir=output_dir,
+                observations=observations,
+                outcomes=outcomes,
+                contract_sha256=contract_sha256,
+                allow_unaccepted_events=True,
+            )
+            required_publication_retry = (
+                required_publication_retry_session(
+                    memory_dir=output_dir,
+                    durable_head=durable_head,
+                )
+            )
+            if (
+                required_publication_retry
+                and required_publication_retry != str(args.valuation_date)
+            ):
+                payload = blocked_payload(
+                    [
+                        "accepted pattern head requires public finalization:"
+                        f"{required_publication_retry}!="
+                        f"{args.valuation_date}"
+                    ],
+                    {},
+                    started,
+                    required_publication_retry,
+                )
+                payload["public_blocked_marker_preserved"] = True
+                payload["required_publication_retry_session"] = (
+                    required_publication_retry
+                )
+                return payload
+        except Exception as exc:
+            payload = blocked_payload(
+                [
+                    "pre-invalidation accepted-head validation failed:"
+                    f"{type(exc).__name__}:{exc}"
+                ],
+                {},
+                started,
+                str(args.valuation_date),
+            )
+            payload["public_blocked_marker_preserved"] = True
+            return payload
     return blocked(
         output_dir,
         [f"session_failure:{reason}"],
         {},
-        time.perf_counter(),
+        started,
         failed_session_date=str(args.valuation_date),
     )
 
@@ -1890,6 +1996,28 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             contract_sha256=contract_sha256,
             allow_unaccepted_events=True,
         )
+        required_publication_retry = required_publication_retry_session(
+            memory_dir=output_dir,
+            durable_head=durable_parent_head,
+        )
+        if (
+            required_publication_retry
+            and required_publication_retry != args.valuation_date
+        ):
+            payload = blocked_payload(
+                [
+                    "accepted pattern head requires public finalization:"
+                    f"{required_publication_retry}!={args.valuation_date}"
+                ],
+                sources,
+                started,
+                required_publication_retry,
+            )
+            payload["public_blocked_marker_preserved"] = True
+            payload["required_publication_retry_session"] = (
+                required_publication_retry
+            )
+            return payload
         required_retry_session = required_unaccepted_retry_session(
             observations=existing_observations,
             outcomes=existing_outcomes,
@@ -2234,10 +2362,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(
                 "accepted-head publication pending marker incomplete"
             )
-        publish_accepted_head(
-            memory_dir=output_dir,
-            accepted_head=accepted_head,
-        )
         if sha256_file(staged_report_path) != report_sha256:
             raise ValueError("staged report changed before public commit")
         atomic_write_text(
@@ -2245,6 +2369,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             staged_report_path.read_text(encoding="utf-8"),
         )
         payload["outputs"]["report"] = fingerprint(report_path)
+        publish_accepted_head(
+            memory_dir=output_dir,
+            accepted_head=accepted_head,
+        )
         atomic_write_json(output_dir / "summary.json", payload)
         atomic_write_json(
             output_dir / "last_attempt.json",

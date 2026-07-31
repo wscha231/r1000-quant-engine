@@ -1615,6 +1615,15 @@ jobs:
           set -euo pipefail
           ARCHIVE="run287_static_archive/run287_exact_static_archive_v1.zip"
           mkdir -p "$(dirname "$ARCHIVE")" outputs/run287_exact_static_restore
+          PATTERN_FORWARD_LAUNCH_SESSION="$(
+            python -c 'import json; print(json.load(open("docs/run287_ohlcv_pattern_memory_contract.json", encoding="utf-8"))["forward_learning"]["accepted_forward_launch_session"])'
+          )"
+          if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ] && \
+             [[ "${LAST_NYSE_SESSION_DATE:?}" < "$PATTERN_FORWARD_LAUNCH_SESSION" ]]; then
+            echo "[run287-static] pre-launch paper catch-up skips pattern/static evidence"
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ ! -s "$ARCHIVE" ] && [ "${GDRIVE_READY:-no}" = "yes" ] && command -v rclone >/dev/null 2>&1; then
             if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
               BASE="gdrive:"
@@ -2141,13 +2150,22 @@ jobs:
           PAPER_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"
           PAPER_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"
           PAPER_REPLAY_ARGS=()
-          # Invalidate any restored pattern READY marker before the first
-          # fallible paper transaction, cleanup, or holding-risk command.
-          python tools/archive_run287_ohlcv_pattern_memory.py \
-            --record-failed-session-reason current_session_pending \
-            --valuation-date "$PAPER_AS_OF" \
-            --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
-            2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+          PATTERN_FORWARD_LAUNCH_SESSION="$(
+            python -c 'import json; print(json.load(open("docs/run287_ohlcv_pattern_memory_contract.json", encoding="utf-8"))["forward_learning"]["accepted_forward_launch_session"])'
+          )"
+          PATTERN_SESSION_ELIGIBLE=yes
+          if [[ "$PAPER_AS_OF" < "$PATTERN_FORWARD_LAUNCH_SESSION" ]]; then
+            PATTERN_SESSION_ELIGIBLE=no
+            echo "[paper-ledger] pre-launch session ${PAPER_AS_OF} skips pattern-memory mutation"
+          else
+            # Invalidate any restored pattern READY marker before the first
+            # fallible paper transaction, cleanup, or holding-risk command.
+            python tools/archive_run287_ohlcv_pattern_memory.py \
+              --record-failed-session-reason current_session_pending \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+          fi
           if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]; then
             DECISION_CUTOFF_UTC="$(python -c 'import os; import pandas as pd; print((pd.Timestamp(os.environ["LAST_NYSE_CLOSE_UTC"]) + pd.Timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
             GENERATED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -2431,6 +2449,9 @@ jobs:
               encoding="utf-8",
           )
           PY
+            if [ "$PATTERN_SESSION_ELIGIBLE" != yes ]; then
+              echo "[paper-ledger] pre-launch paper mark accepted without pattern observation"
+            else
             # Pattern-memory catch-up is separate from portfolio replay. It
             # consumes only the operator-pinned prior daily artifact for this
             # exact session and never recomputes targets or creates orders.
@@ -2508,6 +2529,7 @@ jobs:
               exit 2
             fi
             echo "[paper-ledger] chronological pattern-memory catch-up accepted from pinned exact-session artifact; targets and orders remained disabled"
+            fi
             echo "[paper-ledger] chronological catch-up mark accepted; exact-packet recomputation and new orders are disabled"
           else
           python tools/build_run287_holding_risk_watch.py \
