@@ -3202,9 +3202,12 @@ Expected contract:
   and immutable acceptance must occur only after the human-readable report is
   durable so report failure leaves an unaccepted resumable suffix.
 - Never roll an unaccepted session suffix into a later accepted head: require
-  the original exact session to be retried first. Invalidate pattern READY
-  markers not only on sidecar failures but also when the upstream exact-packet
-  producer is unavailable.
+  the original exact session to be retried first. Preserve its source summary
+  and resolved outputs as a content-addressed bundle before appending events,
+  so a delayed retry can revalidate the first-attempt evidence without creating
+  a new observation timestamp. Invalidate pattern READY before the first
+  fallible same-close or ledger command, not only on sidecar failures or when
+  the upstream exact-packet producer is unavailable.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

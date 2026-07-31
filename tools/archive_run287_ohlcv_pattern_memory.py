@@ -43,6 +43,10 @@ OBSERVATION_SCHEMA_VERSION = "run287-ohlcv-pattern-observation-v1"
 OUTCOME_SCHEMA_VERSION = "run287-ohlcv-pattern-outcome-v1"
 ACCEPTED_HEAD_SCHEMA_VERSION = "run287-ohlcv-pattern-accepted-head-v1"
 ACCEPTED_HEAD_STATUS = "ACCEPTED_OHLCV_PATTERN_MEMORY_HEAD"
+RECOVERY_EVIDENCE_SCHEMA_VERSION = (
+    "run287-ohlcv-pattern-recovery-evidence-v1"
+)
+RECOVERY_EVIDENCE_STATUS = "IMMUTABLE_PATTERN_RECOVERY_EVIDENCE"
 
 FEATURE_FIELDS = (
     "prior_return_1d",
@@ -214,6 +218,94 @@ def atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     )
 
 
+def atomic_copy_verified(
+    source: Path,
+    destination: Path,
+    expected_sha256: str,
+) -> None:
+    if sha256_file(source) != expected_sha256:
+        raise ValueError(f"recovery evidence source changed:{source}")
+    if source.resolve() == destination.resolve():
+        return
+    if destination.is_file():
+        if sha256_file(destination) != expected_sha256:
+            raise ValueError(f"immutable recovery evidence mismatch:{destination}")
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staged = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with source.open("rb") as read_handle, staged.open("wb") as write_handle:
+            for chunk in iter(lambda: read_handle.read(1024 * 1024), b""):
+                write_handle.write(chunk)
+            write_handle.flush()
+            os.fsync(write_handle.fileno())
+        if sha256_file(staged) != expected_sha256:
+            raise ValueError(f"recovery evidence copy mismatch:{destination}")
+        os.replace(staged, destination)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def persist_recovery_evidence(
+    *,
+    memory_dir: Path,
+    valuation_date: str,
+    contract_sha256: str,
+    source_paths: Mapping[str, Path],
+    sources: Mapping[str, Mapping[str, Any]],
+) -> tuple[Path, Path]:
+    records: dict[str, dict[str, Any]] = {}
+    filenames: set[str] = set()
+    for label, source_path in source_paths.items():
+        source_audit = sources.get(label) or {}
+        filename = source_path.name
+        expected_sha256 = str(source_audit.get("sha256") or "")
+        if (
+            not filename
+            or filename in filenames
+            or not expected_sha256
+            or source_path.is_file() is not True
+        ):
+            raise ValueError(f"recovery evidence source invalid:{label}")
+        filenames.add(filename)
+        records[label] = {
+            "filename": filename,
+            "bytes": int(source_path.stat().st_size),
+            "sha256": expected_sha256,
+        }
+    base = {
+        "schema_version": RECOVERY_EVIDENCE_SCHEMA_VERSION,
+        "status": RECOVERY_EVIDENCE_STATUS,
+        "session_date": valuation_date,
+        "memory_contract_sha256": contract_sha256,
+        "files": records,
+    }
+    bundle_id = canonical_hash(base)
+    bundle_dir = (
+        memory_dir
+        / "recovery_evidence"
+        / valuation_date.replace("-", "")
+        / bundle_id
+    )
+    for label, source_path in source_paths.items():
+        record = records[label]
+        atomic_copy_verified(
+            source_path,
+            bundle_dir / str(record["filename"]),
+            str(record["sha256"]),
+        )
+    payload = {**base, "bundle_id": bundle_id}
+    manifest_path = bundle_dir / "manifest.json"
+    if manifest_path.is_file():
+        if read_json(manifest_path) != payload:
+            raise ValueError(
+                f"immutable recovery evidence manifest mismatch:{manifest_path}"
+            )
+    else:
+        atomic_write_json(manifest_path, payload)
+    return bundle_dir / source_paths["timing_summary"].name, manifest_path
+
+
 def resolve_output(
     summary_path: Path,
     summary: Mapping[str, Any],
@@ -224,6 +316,16 @@ def resolve_output(
     path = Path(raw)
     if raw and not path.is_absolute():
         path = summary_path.parent / path
+    elif (
+        raw
+        and path.is_absolute()
+        and "recovery_evidence" in summary_path.parts
+        and (summary_path.parent / path.name).is_file()
+    ):
+        # The original summary bytes (and therefore its source identity) stay
+        # immutable.  A later runner may have a different absolute workspace,
+        # so use the content-addressed sibling copy only after hash validation.
+        path = summary_path.parent / path.name
     audit = fingerprint(path)
     expected = str(record.get("sha256") or "").lower()
     audit.update(expected_sha256=expected, hash_matches=audit["sha256"] == expected)
@@ -1455,6 +1557,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             path = Path(str(sources[label]["path"]))
             if sha256_file(path) != str(sources[label]["sha256"]):
                 raise ValueError(f"source changed before append:{label}")
+
+        _, recovery_manifest_path = persist_recovery_evidence(
+            memory_dir=output_dir,
+            valuation_date=args.valuation_date,
+            contract_sha256=contract_sha256,
+            source_paths={
+                "timing_summary": summary_path,
+                "timing_observations": observations_path,
+                "timing_benchmark": benchmark_path,
+                "timing_outcome_endpoints": endpoint_path,
+            },
+            sources=sources,
+        )
+        sources["recovery_evidence_manifest"] = fingerprint(
+            recovery_manifest_path
+        )
 
         appended_observations = append_rows(
             observations_archive,

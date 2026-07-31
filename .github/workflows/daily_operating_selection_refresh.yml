@@ -2546,6 +2546,102 @@ jobs:
           PY
           fi
           if [ "$PRODUCER_READY" = "yes" ]; then
+            # Invalidate any restored READY marker before the first fallible
+            # same-close/ledger command.  A later abnormal shell exit must
+            # publish this session as BLOCKED rather than leak prior evidence.
+            python tools/archive_run287_ohlcv_pattern_memory.py \
+              --record-failed-session-reason current_session_pending \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+
+            # A report/publication failure can leave a hash-valid append-only
+            # suffix.  Finalize that exact session from its preserved,
+            # first-attempt timing evidence before advancing to a later date.
+            REQUIRED_PATTERN_RETRY_SESSION="$(
+              python - <<'PY'
+          from pathlib import Path
+
+          from tools import archive_run287_ohlcv_pattern_memory as memory
+
+          memory_dir = Path(
+              "outputs/run287_decision_observation_archive/"
+              "ohlcv_pattern_memory"
+          )
+          contract_path = Path(
+              "docs/run287_ohlcv_pattern_memory_contract.json"
+          )
+          contract_sha256 = memory.sha256_file(contract_path)
+          observations, _, _ = memory.validate_chain(
+              memory.read_jsonl(memory_dir / "observations.jsonl"),
+              expected_schema=memory.OBSERVATION_SCHEMA_VERSION,
+              contract_sha256=contract_sha256,
+          )
+          outcomes, _, _ = memory.validate_chain(
+              memory.read_jsonl(memory_dir / "outcomes.jsonl"),
+              expected_schema=memory.OUTCOME_SCHEMA_VERSION,
+              contract_sha256=contract_sha256,
+          )
+          durable_head = memory.validate_accepted_head_state(
+              memory_dir=memory_dir,
+              observations=observations,
+              outcomes=outcomes,
+              contract_sha256=contract_sha256,
+              allow_unaccepted_events=True,
+          )
+          print(
+              memory.required_unaccepted_retry_session(
+                  observations=observations,
+                  outcomes=outcomes,
+                  durable_head=durable_head,
+              )
+          )
+          PY
+            )"
+            PATTERN_RECOVERY_SESSION=""
+            PATTERN_RECOVERY_SUMMARY=""
+            if [ -n "$REQUIRED_PATTERN_RETRY_SESSION" ]; then
+              python - "$REQUIRED_PATTERN_RETRY_SESSION" "$PAPER_AS_OF" <<'PY'
+          import datetime as dt
+          import sys
+
+          retry_session = dt.date.fromisoformat(sys.argv[1])
+          current_session = dt.date.fromisoformat(sys.argv[2])
+          if retry_session > current_session:
+              raise SystemExit(
+                  "unaccepted pattern retry is later than current session:"
+                  f"{retry_session}>{current_session}"
+              )
+          PY
+              RECOVERY_DATE_TOKEN="${REQUIRED_PATTERN_RETRY_SESSION//-/}"
+              mapfile -t PATTERN_RECOVERY_SUMMARIES < <(
+                find \
+                  "outputs/run287_decision_observation_archive/ohlcv_pattern_memory/recovery_evidence/${RECOVERY_DATE_TOKEN}" \
+                  -mindepth 2 -maxdepth 2 -type f -name summary.json \
+                  -print 2>/dev/null | sort
+              )
+              if [ "${#PATTERN_RECOVERY_SUMMARIES[@]}" -ne 1 ]; then
+                echo "::error::Preserved first-attempt timing evidence is missing for unaccepted pattern session ${REQUIRED_PATTERN_RETRY_SESSION}"
+                exit 2
+              fi
+              PATTERN_RECOVERY_SUMMARY="${PATTERN_RECOVERY_SUMMARIES[0]}"
+              python tools/archive_run287_ohlcv_pattern_memory.py \
+                --timing-summary "$PATTERN_RECOVERY_SUMMARY" \
+                --valuation-date "$REQUIRED_PATTERN_RETRY_SESSION" \
+                --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+              PATTERN_RECOVERY_SESSION="$REQUIRED_PATTERN_RETRY_SESSION"
+              echo "[daily-operating] finalized unaccepted OHLCV pattern session ${PATTERN_RECOVERY_SESSION} from preserved first-attempt exact-close evidence"
+
+              # The recovery command temporarily publishes the recovered
+              # session.  Hide it again until this invocation crosses the
+              # same-close ledger boundary or terminates safely as BLOCKED.
+              python tools/archive_run287_ohlcv_pattern_memory.py \
+                --record-failed-session-reason current_session_pending \
+                --valuation-date "$PAPER_AS_OF" \
+                --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+            fi
           if python tools/build_run287_same_close_target_books.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
             --freshness-status outputs/data_freshness_contract/status.json \
@@ -2641,7 +2737,17 @@ jobs:
           DATE_TOKEN="${PAPER_AS_OF//-/}"
           OHLCV_TIMING_DIR="outputs/run287_ohlcv_location_timing_exact_close_${DATE_TOKEN}"
           OBSERVATION_ACCEPTED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          if python tools/build_run287_ohlcv_location_timing_challenger.py \
+          if [ "$PATTERN_RECOVERY_SESSION" = "$PAPER_AS_OF" ]; then
+            if python tools/archive_run287_ohlcv_pattern_memory.py \
+              --timing-summary "$PATTERN_RECOVERY_SUMMARY" \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+              2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log; then
+              echo "[daily-operating] republished recovered same-session OHLCV pattern evidence after the same-close transaction boundary"
+            else
+              echo "[daily-operating] recovered same-session OHLCV pattern evidence failed post-ledger revalidation and remains BLOCKED"
+            fi
+          elif python tools/build_run287_ohlcv_location_timing_challenger.py \
             --producer-status outputs/run287_exact_packet_producer/status.json \
             --holding-watch outputs/holding_risk_watch/holding_risk_watch.csv \
             --pattern-memory-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \

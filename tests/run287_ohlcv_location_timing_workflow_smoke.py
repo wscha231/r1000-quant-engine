@@ -14,10 +14,37 @@ def main() -> None:
     timing = text.index(
         "python tools/build_run287_ohlcv_location_timing_challenger.py"
     )
-    memory = text.index("python tools/archive_run287_ohlcv_pattern_memory.py")
     targets = text.index("python tools/build_run287_same_close_target_books.py")
     ledger = text.index("python tools/run_daily_simulated_fill_ledger.py", targets)
-    assert producer < targets < ledger < timing < memory
+    pending = text.index(
+        "--record-failed-session-reason current_session_pending"
+    )
+    memory = text.index(
+        "python tools/archive_run287_ohlcv_pattern_memory.py",
+        timing,
+    )
+    assert producer < pending < targets < ledger < timing < memory
+    assert (
+        text.index(
+            "from tools import archive_run287_ohlcv_pattern_memory as memory"
+        )
+        < targets
+    )
+    assert "REQUIRED_PATTERN_RETRY_SESSION" in text[pending:targets]
+    assert "PATTERN_RECOVERY_SUMMARY" in text[pending:targets]
+    assert (
+        "ohlcv_pattern_memory/recovery_evidence/${RECOVERY_DATE_TOKEN}"
+        in text[pending:targets]
+    )
+    assert (
+        "finalized unaccepted OHLCV pattern session"
+        in text[pending:targets]
+    )
+    assert (
+        "republished recovered same-session OHLCV pattern evidence "
+        "after the same-close transaction boundary"
+        in text[ledger:timing]
+    )
     timing_block = text[timing : timing + 1800]
     assert "--producer-status outputs/run287_exact_packet_producer/status.json" in timing_block
     assert "--holding-watch outputs/holding_risk_watch/holding_risk_watch.csv" in timing_block

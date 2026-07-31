@@ -652,6 +652,12 @@ def main() -> None:
         assert not (archive / "accepted_head.json").exists()
         assert not (archive / "accepted_heads").exists()
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
+        recovery_summaries = list(
+            (
+                archive / "recovery_evidence" / "20260729"
+            ).glob("*/summary.json")
+        )
+        assert len(recovery_summaries) == 1
         next_summary = write_timing(
             root,
             as_of_date="2026-07-30",
@@ -677,7 +683,15 @@ def main() -> None:
         )
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
         assert not (archive / "accepted_head.json").exists()
-        resumed = memory.build(args_for(summary, archive, "2026-07-29"))
+        # A delayed runner may no longer have the original timing directory.
+        # Recovery must therefore reuse the exact preserved summary bytes and
+        # hash-validated sibling outputs without generating a new timestamp.
+        for source_file in summary.parent.iterdir():
+            source_file.unlink()
+        summary.parent.rmdir()
+        resumed = memory.build(
+            args_for(recovery_summaries[0], archive, "2026-07-29")
+        )
         assert resumed["status"] == memory.READY_STATUS, resumed
         assert resumed["appended_observation_count"] == 0
         assert len(memory.read_jsonl(archive / "observations.jsonl")) == 3
@@ -691,7 +705,9 @@ def main() -> None:
             ),
             encoding="utf-8",
         )
-        tampered = memory.build(args_for(summary, archive, "2026-07-29"))
+        tampered = memory.build(
+            args_for(recovery_summaries[0], archive, "2026-07-29")
+        )
         assert tampered["status"] == memory.BLOCKED_STATUS
         assert "archive event hash mismatch" in " ".join(
             tampered["contract_failures"]
