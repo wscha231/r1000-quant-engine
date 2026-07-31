@@ -492,6 +492,17 @@ def main() -> None:
     assert (
         half_day_window["acceptance_delay_hours_after_nyse_close"] == 8.5
     )
+    replay_window, replay_failures = challenger.forward_observation_window(
+        pd.Timestamp("2026-11-27"),
+        "2026-11-28T01:30:00Z",
+        "2026-11-28T02:30:00Z",
+        pd.Timestamp("2026-12-15T02:30:20Z"),
+        contract,
+        historical_replay_materialized=True,
+    )
+    assert not replay_failures, replay_failures
+    assert replay_window["historical_replay_materialized"] is True
+    assert replay_window["caller_clock_skew_seconds"] > 0
     missing_available, missing_failures = (
         challenger.required_latest_available_from(
             {

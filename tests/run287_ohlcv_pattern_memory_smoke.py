@@ -41,6 +41,7 @@ def write_timing(
     outcome_origin_date: str | None = None,
     outcome_basis_prices: dict[str, tuple[float, float]] | None = None,
     stock_data_reason: str = "",
+    stock_transition_sessions_consecutive: bool = True,
 ) -> Path:
     source = root / f"timing_{as_of_date}"
     source.mkdir(parents=True)
@@ -54,6 +55,14 @@ def write_timing(
         "return_transition_signature": memory_signature(
             stock_prior_return,
             stock_return,
+        ),
+        "return_transition_sessions_consecutive": (
+            stock_transition_sessions_consecutive
+        ),
+        "return_transition_data_reason": (
+            ""
+            if stock_transition_sessions_consecutive
+            else "nonconsecutive_nyse_sessions"
         ),
         "prior_down_current_up": stock_prior_return < 0.0 < stock_return,
         "range_21d_position": 0.21,
@@ -416,6 +425,39 @@ def main() -> None:
             prelaunch["contract_failures"]
         )
         assert not (archive / "observations.jsonl").exists()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive = root / "archive" / "ohlcv_pattern_memory"
+        nonconsecutive_summary = write_timing(
+            root,
+            as_of_date="2026-07-29",
+            stock_close=96.0,
+            stock_prior_return=-0.04,
+            stock_return=0.06,
+            spy_close=500.0,
+            spy_prior_return=-0.02,
+            spy_return=0.03,
+            stock_transition_sessions_consecutive=False,
+        )
+        nonconsecutive = memory.build(
+            args_for(nonconsecutive_summary, archive, "2026-07-29")
+        )
+        assert nonconsecutive["status"] == memory.READY_STATUS, nonconsecutive
+        security_observation = next(
+            row
+            for row in memory.read_jsonl(archive / "observations.jsonl")
+            if row["source_kind"] == "SECURITY"
+        )
+        assert security_observation["data_ready"] is False
+        assert (
+            security_observation[
+                "return_transition_sessions_consecutive"
+            ]
+            is False
+        )
+        assert nonconsecutive["observation_data_coverage_complete"] is False
+        assert nonconsecutive["proposal_eligible"] is False
 
     # A hard stop can leave a fully written descendant manifest while the
     # atomic accepted pointer still names its parent. The pointer remains the
@@ -881,6 +923,31 @@ def main() -> None:
             )
         )
         assert selected_recovery_summary == recovery_summaries[0]
+        required_observation_payload_hashes = {
+            memory.canonical_hash(
+                memory.event_comparison_payload(row)
+            )
+            for row in suffix_rows
+            if row.get("as_of_date") == "2026-07-29"
+        }
+        selected_by_complete_observation_suffix = (
+            memory.select_recovery_evidence_summary(
+                memory_dir=archive,
+                session_date="2026-07-29",
+                accepted_summary_sha256s={
+                    memory.sha256_file(recovery_summaries[0]),
+                    memory.sha256_file(decoy_summary),
+                },
+                required_observation_payload_sha256s=(
+                    required_observation_payload_hashes
+                ),
+                contract_sha256=contract_sha256,
+            )
+        )
+        assert (
+            selected_by_complete_observation_suffix
+            == recovery_summaries[0]
+        )
 
         # The immediately preceding schema did not put source-summary
         # provenance on outcome rows. An outcome-only suffix must recover from

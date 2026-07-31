@@ -10,20 +10,67 @@ WORKFLOW = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.y
 
 def main() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    producer = text.index("python tools/run_run287_exact_packet_producer.py")
-    timing = text.index(
-        "python tools/build_run287_ohlcv_location_timing_challenger.py"
+    pending = text.index(
+        "--record-failed-session-reason current_session_pending"
+    )
+    first_ledger = text.index("python tools/run_daily_simulated_fill_ledger.py")
+    catchup_timing = text.index(
+        "python tools/build_run287_ohlcv_location_timing_challenger.py",
+        first_ledger,
+    )
+    producer = text.index(
+        "python tools/run_run287_exact_packet_producer.py",
+        catchup_timing,
     )
     targets = text.index("python tools/build_run287_same_close_target_books.py")
     ledger = text.index("python tools/run_daily_simulated_fill_ledger.py", targets)
-    pending = text.index(
-        "--record-failed-session-reason current_session_pending"
+    timing = text.index(
+        "python tools/build_run287_ohlcv_location_timing_challenger.py",
+        ledger,
     )
     memory = text.index(
         "python tools/archive_run287_ohlcv_pattern_memory.py",
         timing,
     )
-    assert producer < pending < targets < ledger < timing < memory
+    assert (
+        pending
+        < first_ledger
+        < catchup_timing
+        < producer
+        < targets
+        < ledger
+        < timing
+        < memory
+    )
+    catchup_block = text[catchup_timing:producer]
+    assert "CATCHUP_ARTIFACT_ROOT" in text[first_ledger:catchup_timing]
+    assert "PATTERN_CATCHUP_SOURCE" in text[first_ledger:catchup_timing]
+    assert (
+        '--observation-accepted-at-utc "$PATTERN_CATCHUP_ACCEPTED_AT_UTC"'
+        in catchup_block
+    )
+    assert "--historical-catchup-artifact-root" in catchup_block
+    assert "--historical-catchup-artifact-metadata" in catchup_block
+    assert "--historical-catchup-price-evidence" in catchup_block
+    assert (
+        "--record-failed-session-reason pattern_catchup_timing_blocked"
+        in catchup_block
+    )
+    assert (
+        '--timing-summary "$PATTERN_CATCHUP_TIMING_DIR/summary.json"'
+        in catchup_block
+    )
+    assert (
+        "chronological pattern-memory catch-up accepted from pinned "
+        "exact-session artifact" in catchup_block
+    )
+    assert (
+        'PAPER_CATCHUP_MODE:-no}" = "yes"'
+        in text
+    )
+    assert (
+        "ohlcv_pattern_memory/accepted_head.json" in text
+    )
     assert (
         text.index(
             "from tools import archive_run287_ohlcv_pattern_memory as memory"
@@ -35,6 +82,10 @@ def main() -> None:
     assert "PATTERN_RECOVERY_SUMMARY" in text[pending:targets]
     assert (
         "select_recovery_evidence_summary"
+        in text[pending:targets]
+    )
+    assert (
+        "required_observation_payload_sha256s"
         in text[pending:targets]
     )
     assert "--preserve-blocked-publication" in text[pending:targets]

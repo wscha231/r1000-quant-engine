@@ -3236,6 +3236,24 @@ Expected contract:
   manifest prefix hashes by streaming each append-only chain once and comparing
   digests at declared byte boundaries; rehashing from byte zero per manifest is
   quadratic and eventually becomes an operational availability defect.
+  A chronological guard is incomplete without a reachable catch-up route.
+  Manual older-session dispatch now restores only the operator-pinned prior
+  daily artifact, revalidates its GitHub/workflow/repository/commit lineage,
+  rebuilds the pattern sidecar from that exact-session packet, tags the delayed
+  materialization, and accepts one immediate NYSE successor per dispatch while
+  paper operation stays replay-only with zero new orders or targets.
+- Invalidate restored pattern READY before the first mark-only ledger call,
+  stale-output cleanup, or holding-risk build. A producer-success guard is too
+  late because any earlier `set -e` exit would otherwise republish stale
+  proposal eligibility.
+- Recovery-bundle equivalence includes the complete stable observation payload
+  set as well as outcome endpoints. Equal empty endpoint files do not make two
+  launch-session attempts equivalent when only one reproduces every observation
+  already present in the unaccepted suffix.
+- An exact current close is insufficient when the prior/current transition
+  sessions are nonconsecutive. Propagate the transition-specific reason into
+  `data_ready=false`, keep its outcomes unresolved, and activate the global
+  observation-coverage blocker.
 - Publish counts and missingness only until a pattern/horizon has at least 30
   resolved observations and 100% exact-target resolution coverage for every
   matured observation in that group. This prevents exited or disappeared

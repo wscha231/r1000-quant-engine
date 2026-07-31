@@ -60,6 +60,7 @@ FEATURE_FIELDS = (
     "return_transition_sessions_consecutive",
     "return_transition_session_dates",
     "return_transition_data_reason",
+    "historical_replay_materialized",
     "prior_loss_recovery_fraction",
     "gap_return",
     "intraday_return",
@@ -350,6 +351,7 @@ def select_recovery_evidence_summary(
     expected_summary_sha256: str = "",
     accepted_summary_sha256s: Iterable[str] = (),
     required_endpoint_payload_sha256s: Iterable[str] = (),
+    required_observation_payload_sha256s: Iterable[str] = (),
     contract_sha256: str,
 ) -> Path:
     matches: list[tuple[Path, str]] = []
@@ -365,7 +367,16 @@ def select_recovery_evidence_summary(
         for value in required_endpoint_payload_sha256s
         if value
     }
-    if not accepted_summary_hashes and not required_endpoint_hashes:
+    required_observation_hashes = {
+        str(value)
+        for value in required_observation_payload_sha256s
+        if value
+    }
+    if (
+        not accepted_summary_hashes
+        and not required_endpoint_hashes
+        and not required_observation_hashes
+    ):
         raise ValueError("recovery evidence provenance required")
     session_root = (
         memory_dir / "recovery_evidence" / session_date.replace("-", "")
@@ -436,21 +447,71 @@ def select_recovery_evidence_summary(
             canonical_hash(row)
             for row in read_jsonl(endpoint_path)
         }
+        observations_record = files["timing_observations"]
+        observations_path = (
+            manifest_path.parent
+            / str(observations_record.get("filename") or "")
+        )
+        benchmark_record = files["timing_benchmark"]
+        benchmark_path = (
+            manifest_path.parent
+            / str(benchmark_record.get("filename") or "")
+        )
+        summary_path = (
+            manifest_path.parent
+            / str(summary_record.get("filename") or "")
+        )
+        candidate_observation_hashes = {
+            canonical_hash(event_comparison_payload(row))
+            for row in source_observations(
+                valuation_date=session_date,
+                summary=read_json(summary_path),
+                security_rows=read_jsonl(observations_path),
+                benchmark_rows=pd.read_csv(
+                    benchmark_path,
+                    low_memory=False,
+                ).to_dict("records"),
+                contract_sha256=contract_sha256,
+                source_summary_sha256=str(
+                    summary_record.get("sha256") or ""
+                ),
+                source_observations_sha256=str(
+                    observations_record.get("sha256") or ""
+                ),
+                source_benchmark_sha256=str(
+                    benchmark_record.get("sha256") or ""
+                ),
+            )
+        }
         endpoint_matches = bool(
             not required_endpoint_hashes
             or required_endpoint_hashes.issubset(
                 candidate_endpoint_hashes
             )
         )
-        if summary_matches and endpoint_matches:
+        observation_matches = bool(
+            not required_observation_hashes
+            or required_observation_hashes.issubset(
+                candidate_observation_hashes
+            )
+        )
+        if summary_matches and endpoint_matches and observation_matches:
             matches.append((
-                manifest_path.parent
-                / str(summary_record.get("filename") or ""),
-                canonical_hash(sorted(candidate_endpoint_hashes)),
+                summary_path,
+                canonical_hash(
+                    {
+                        "endpoint_payload_sha256s": sorted(
+                            candidate_endpoint_hashes
+                        ),
+                        "observation_payload_sha256s": sorted(
+                            candidate_observation_hashes
+                        ),
+                    }
+                ),
             ))
     if len(matches) > 1:
-        endpoint_signatures = {signature for _, signature in matches}
-        if len(endpoint_signatures) == 1:
+        recovery_signatures = {signature for _, signature in matches}
+        if len(recovery_signatures) == 1:
             return sorted(path for path, _ in matches)[0]
     if len(matches) != 1:
         raise ValueError(
@@ -1075,7 +1136,13 @@ def source_observations(
                 "ticker": ticker,
                 "observed_close": close,
                 "data_ready": bool(
-                    close is not None and not str(clean.get("data_reason") or "")
+                    close is not None
+                    and not str(clean.get("data_reason") or "")
+                    and clean.get("return_transition_sessions_consecutive")
+                    is not False
+                    and not str(
+                        clean.get("return_transition_data_reason") or ""
+                    )
                 ),
                 "source_payload_sha256": canonical_hash(
                     stable_source_row(clean)

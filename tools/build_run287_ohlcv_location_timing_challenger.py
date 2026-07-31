@@ -1158,6 +1158,7 @@ def forward_observation_window(
     accepted_at_utc: str,
     invoked_at_utc: pd.Timestamp,
     contract: Mapping[str, Any],
+    historical_replay_materialized: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     forward = contract["forward_learning"]
     launch = pd.to_datetime(
@@ -1208,8 +1209,10 @@ def forward_observation_window(
         failures.append("valuation_before_forward_launch_anchor")
     if accepted < launch:
         failures.append("acceptance_before_forward_launch_anchor")
-    if caller_clock_skew_seconds > float(
-        forward["maximum_caller_clock_skew_seconds"]
+    if (
+        not historical_replay_materialized
+        and caller_clock_skew_seconds
+        > float(forward["maximum_caller_clock_skew_seconds"])
     ):
         failures.append("observation_acceptance_clock_mismatch")
     if acceptance_delay_hours < 0:
@@ -1240,7 +1243,9 @@ def forward_observation_window(
         "acceptance_delay_hours_after_nyse_close": acceptance_delay_hours,
         "latest_input_delay_hours_after_nyse_close": input_delay_hours,
         "acceptance_lag_hours_after_latest_input": acceptance_lag_hours,
-        "historical_replay_materialized": False,
+        "historical_replay_materialized": (
+            historical_replay_materialized
+        ),
     }, failures
 
 
@@ -1512,6 +1517,86 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if failures:
         return blocked(output_dir, failures, audits, started)
 
+    historical_replay_materialized = False
+    historical_metadata_raw = str(
+        getattr(args, "historical_catchup_artifact_metadata", "") or ""
+    )
+    historical_root_raw = str(
+        getattr(args, "historical_catchup_artifact_root", "") or ""
+    )
+    historical_evidence_raw = str(
+        getattr(args, "historical_catchup_price_evidence", "") or ""
+    )
+    if any(
+        (
+            historical_metadata_raw,
+            historical_root_raw,
+            historical_evidence_raw,
+        )
+    ):
+        if not all(
+            (
+                historical_metadata_raw,
+                historical_root_raw,
+                historical_evidence_raw,
+            )
+        ):
+            failures.append("historical_catchup_provenance_incomplete")
+            return blocked(output_dir, failures, audits, started)
+        try:
+            from tools.build_run287_catchup_price_evidence import (
+                READY_STATUS as CATCHUP_READY_STATUS,
+                SCHEMA_VERSION as CATCHUP_SCHEMA_VERSION,
+                validate_metadata as validate_catchup_metadata,
+            )
+
+            historical_metadata_path = repo_path(historical_metadata_raw)
+            historical_root = repo_path(historical_root_raw)
+            historical_evidence_path = repo_path(historical_evidence_raw)
+            audits["historical_catchup_artifact_metadata"] = fingerprint(
+                historical_metadata_path
+            )
+            audits["historical_catchup_price_evidence"] = fingerprint(
+                historical_evidence_path
+            )
+            metadata = read_json(historical_metadata_path)
+            artifact_identity, _ = validate_catchup_metadata(
+                metadata,
+                artifact_root=historical_root,
+            )
+            catchup_evidence = read_json(historical_evidence_path)
+            expected_accepted_at = str(
+                catchup_evidence.get("artifact_captured_at_utc") or ""
+            )
+            if (
+                catchup_evidence.get("schema_version")
+                != CATCHUP_SCHEMA_VERSION
+                or catchup_evidence.get("status")
+                != CATCHUP_READY_STATUS
+                or catchup_evidence.get("selected_session_date")
+                != args.valuation_date
+                or catchup_evidence.get("artifact")
+                != artifact_identity
+                or catchup_evidence.get("replay_only") is not True
+                or catchup_evidence.get("forward_promotion_eligible")
+                is not False
+                or catchup_evidence.get("orders_generated") is not False
+                or catchup_evidence.get("target_books_mutated") is not False
+                or not expected_accepted_at
+                or pd.Timestamp(accepted_at_utc)
+                != pd.Timestamp(expected_accepted_at)
+            ):
+                raise ValueError(
+                    "historical catch-up evidence binding mismatch"
+                )
+            historical_replay_materialized = True
+        except Exception as exc:
+            failures.append(
+                "historical_catchup_provenance:"
+                f"{type(exc).__name__}:{exc}"
+            )
+            return blocked(output_dir, failures, audits, started)
+
     try:
         price_map_manifest_path, audits["price_map_manifest"] = resolve_fingerprint(
             source_inputs.get("portable:price_map_manifest") or {},
@@ -1726,6 +1811,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         accepted_at_utc,
         invoked_at_utc,
         contract,
+        historical_replay_materialized=historical_replay_materialized,
     )
     failures.extend(forward_failures)
     if failures:
@@ -1786,6 +1872,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "available_from": available_from,
             "observation_accepted_at_utc": forward_window[
                 "observation_accepted_at_utc"
+            ],
+            "historical_replay_materialized": forward_window[
+                "historical_replay_materialized"
             ],
             **role,
             **feature,
@@ -2056,6 +2145,18 @@ def parse_args() -> argparse.Namespace:
             "UTC time at which this same-close observation is accepted; "
             "defaults to current UTC and must satisfy the forward-only window"
         ),
+    )
+    parser.add_argument(
+        "--historical-catchup-artifact-root",
+        default="",
+    )
+    parser.add_argument(
+        "--historical-catchup-artifact-metadata",
+        default="",
+    )
+    parser.add_argument(
+        "--historical-catchup-price-evidence",
+        default="",
     )
     parser.add_argument(
         "--output-dir",
