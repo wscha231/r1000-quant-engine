@@ -239,7 +239,7 @@ def test_broker_replay_does_not_backdate_sparse_history_fill() -> None:
         assert not (out / "equity_curve.csv").exists()
 
 
-def test_concentrated_replay_uses_comparison_champion_filter() -> None:
+def test_concentrated_replay_ignores_unaccepted_in_run_comparison() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         cache = root / "cache_prices"
@@ -284,9 +284,11 @@ def test_concentrated_replay_uses_comparison_champion_filter() -> None:
         )
 
         assert metrics["status"] == "completed"
-        assert metrics["target_book_filter"]["target_stock_names"] == "4"
+        assert metrics["target_book_filter"]["target_stock_names"] == "3"
+        assert metrics["target_book_filter_source"] == "registered_static_contract"
+        assert "unaccepted in-run comparison ignored" in metrics["target_book_filter_warning"]
         positions = pd.read_csv(out / "positions_latest.csv")
-        assert set(positions["ticker"]) == {"DDD", "EEE", "FFF", "GGG"}
+        assert set(positions["ticker"]) == {"AAA", "BBB", "CCC"}
 
 
 def test_concentrated_filter_disable_preserves_n5_target_book() -> None:
@@ -391,7 +393,7 @@ def main() -> int:
     test_explicitly_disabled_partial_resize_mode_preserves_control_parity()
     test_broker_replay_blocks_contaminated_weight_book()
     test_broker_replay_does_not_backdate_sparse_history_fill()
-    test_concentrated_replay_uses_comparison_champion_filter()
+    test_concentrated_replay_ignores_unaccepted_in_run_comparison()
     test_concentrated_filter_disable_preserves_n5_target_book()
     test_alphaops_vnext_concentrated_book_auto_disables_legacy_filter()
     print("broker_ledger_replay_smoke: PASS")

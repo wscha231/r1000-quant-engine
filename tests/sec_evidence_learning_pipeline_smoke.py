@@ -18,7 +18,7 @@ from tools.run_sec_evidence_learning_pipeline import run  # noqa: E402
 
 def candidate_rows() -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    dates = ["2026-05-12", "2026-05-13", "2026-05-16"]
+    dates = ["2026-05-12", "2026-05-13", "2026-05-15"]
     for dt in dates:
         for i in range(30):
             ticker = "AAPL" if i == 0 else f"T{i:02d}"

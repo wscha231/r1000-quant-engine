@@ -244,53 +244,30 @@ def normalize_latest_target(frame: pd.DataFrame, portfolio: str) -> pd.DataFrame
 
 
 def concentrated_champion_metadata(history_path: Path, latest: pd.DataFrame) -> dict[str, str]:
-    metadata: dict[str, str] = {}
-    comparison_path = history_path.parent / "concentrated_strategy_comparison.csv"
-    comparison = read_csv(comparison_path)
-    if not comparison.empty:
-        d = comparison.copy()
-        if "portfolio_mode" in d.columns:
-            d = d[d["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
-        for col in ["target_stock_names", "strategy_cagr", "sharpe", "max_dd"]:
-            if col not in d.columns:
-                d[col] = pd.NA
-            d[col] = pd.to_numeric(d[col], errors="coerce")
-        d = d[
-            d["target_stock_names"].notna()
-            & d["strategy_cagr"].notna()
-            & d["sharpe"].notna()
-            & d["max_dd"].notna()
-        ].copy()
-        if not d.empty:
-            row = d.iloc[0].to_dict()
-            metadata = {
-                "target_stock_names": clean_filter_value(row.get("target_stock_names")),
-                "weighting_mode": clean_filter_value(row.get("weighting_mode") or "score_power"),
-                "active_rebalance_interval_months": clean_filter_value(
-                    row.get("rebalance_interval_months")
-                    or row.get("active_rebalance_interval_months")
-                    or 1
-                ),
-            }
-    if not metadata:
-        metadata = {
-            "target_stock_names": clean_filter_value(
-                latest["target_stock_names"].dropna().iloc[0]
-                if "target_stock_names" in latest.columns and latest["target_stock_names"].notna().any()
-                else ""
-            ),
-            "weighting_mode": clean_filter_value(
-                latest["weighting_mode"].dropna().iloc[0]
-                if "weighting_mode" in latest.columns and latest["weighting_mode"].notna().any()
-                else "score_power"
-            ),
-            "active_rebalance_interval_months": clean_filter_value(
-                latest["active_rebalance_interval_months"].dropna().iloc[0]
-                if "active_rebalance_interval_months" in latest.columns
-                and latest["active_rebalance_interval_months"].notna().any()
-                else 1
-            ),
-        }
+    # The comparison CSV belongs to the same rebuild's experiment grid. It is
+    # not an accepted champion pointer and must not choose N after observing
+    # the run outcome. Preserve explicit target metadata; otherwise use the
+    # registered legacy concentrated contract (N=3, score-power, monthly).
+    metadata = {
+        "target_stock_names": clean_filter_value(
+            latest["target_stock_names"].dropna().iloc[0]
+            if "target_stock_names" in latest.columns
+            and latest["target_stock_names"].notna().any()
+            else "3"
+        ),
+        "weighting_mode": clean_filter_value(
+            latest["weighting_mode"].dropna().iloc[0]
+            if "weighting_mode" in latest.columns
+            and latest["weighting_mode"].notna().any()
+            else "score_power"
+        ),
+        "active_rebalance_interval_months": clean_filter_value(
+            latest["active_rebalance_interval_months"].dropna().iloc[0]
+            if "active_rebalance_interval_months" in latest.columns
+            and latest["active_rebalance_interval_months"].notna().any()
+            else 1
+        ),
+    }
     return {key: value for key, value in metadata.items() if value}
 
 

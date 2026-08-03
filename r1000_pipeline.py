@@ -9560,6 +9560,75 @@ def monthly_test_dates(df: pd.DataFrame, evaluation_start_date: Any = None) -> l
     return [pd.Timestamp(x) for x in months]
 
 
+DECISION_AVAILABILITY_SOURCE_COLUMNS = (
+    "available_from",
+    "membership_available_from",
+    "universe_available_from",
+    "accepted",
+    "fund_accepted",
+    "fund_effective_accepted",
+    "fund_latest_accepted_overall",
+)
+
+
+def decision_session_close_utc(values: pd.Series) -> pd.Series:
+    """Resolve each decision date to its scheduled NYSE close in UTC.
+
+    Non-session dates remain missing when the exchange calendar is available.
+    The dependency-free fallback is deliberately conservative (23:59:59 UTC),
+    so it cannot make a same-day close appear available before it existed.
+    """
+    dates = pd.to_datetime(values, errors="coerce", utc=True)
+    result = pd.Series(pd.NaT, index=values.index, dtype="datetime64[ns, UTC]")
+    valid = dates.dropna()
+    if valid.empty:
+        return result
+    if mcal is None:
+        return dates.dt.normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=valid.min().date(),
+        end_date=valid.max().date(),
+    )
+    close_by_date = {
+        pd.Timestamp(index).date().isoformat(): pd.Timestamp(close).tz_convert("UTC")
+        for index, close in schedule["market_close"].items()
+    }
+    keys = dates.dt.strftime("%Y-%m-%d")
+    return pd.to_datetime(keys.map(close_by_date), errors="coerce", utc=True)
+
+
+def attach_decision_time_provenance(frame: pd.DataFrame) -> pd.DataFrame:
+    """Materialize valuation cutoff and latest consumed input availability.
+
+    The technical close is a consumed input and therefore establishes the
+    minimum availability time. Filing and membership timestamps may move the
+    row later; they are never clipped, so a future-input defect remains visible
+    to downstream PIT validation.
+    """
+    out = frame.copy()
+    valuation = pd.to_datetime(
+        out.get("rebalance_date", pd.Series(pd.NaT, index=out.index)),
+        errors="coerce",
+        utc=True,
+    )
+    latest_available = decision_session_close_utc(
+        out.get("rebalance_date", pd.Series(pd.NaT, index=out.index))
+    )
+    for column in DECISION_AVAILABILITY_SOURCE_COLUMNS:
+        if column not in out.columns:
+            continue
+        values = pd.to_datetime(out[column], errors="coerce", utc=True)
+        latest_available = pd.concat(
+            [latest_available.rename("current"), values.rename("candidate")],
+            axis=1,
+        ).max(axis=1)
+    out["valuation_price_cutoff_date"] = valuation.dt.strftime("%Y-%m-%d")
+    out["feature_available_from"] = latest_available.dt.strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    return out
+
+
 def month_group_ids(dates: pd.Series) -> np.ndarray:
     keys = pd.to_datetime(dates, errors="coerce").dt.strftime("%Y-%m-%d").fillna("missing")
     return pd.factorize(keys, sort=True)[0].astype(int)
@@ -17594,6 +17663,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
 
         replay_cols = [
             "rebalance_date",
+            "valuation_price_cutoff_date",
+            "feature_available_from",
+            "accepted",
+            "fund_accepted",
+            "fund_effective_accepted",
             "ticker",
             "Name",
             "sector",
@@ -17737,6 +17811,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         if replay_source.empty:
             pd.DataFrame(columns=replay_cols + ["period_forward_return"]).to_csv(candidate_replay_book_path, index=False)
         else:
+            replay_source = attach_decision_time_provenance(replay_source)
             try:
                 if "rebalance_date" in replay_source.columns:
                     replay_source = pd.concat(
@@ -17809,6 +17884,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     # from scored_latest.csv export to keep the file scannable. Audit on the
     # SHIPPED 2026-04-28 file showed 97 / 638 cols all-NaN and 22% empty cells.
     # Full unpruned data remains in outputs/feature_store_*.parquet.
+    scored_latest = attach_decision_time_provenance(scored_latest)
     _prune_export_columns(scored_latest).to_csv(scored_path, index=False)
     if bool(cfg.export_extended_outputs):
         full_rank.to_csv(full_rank_path, index=False)

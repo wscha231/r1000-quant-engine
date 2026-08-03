@@ -1,0 +1,85 @@
+{
+  "schema_version": "run287-fullrun-approved-source-manifest-v1",
+  "status": "APPROVED_FULLRUN_SOURCE_MANIFEST_READY",
+  "approval_scope": {
+    "universe_mode": "global_alpha_universe",
+    "backtest_years": 7,
+    "pit_universe_label_clean": false,
+    "skip_collector": true,
+    "fast_mode": true,
+    "leader_rescue_mode": "latest_only",
+    "sidecar_profile": "operating_minimal",
+    "artifact_profile": "minimal",
+    "gdrive_sync_mode": "minimal",
+    "portfolio_policy": "integrated_shadow",
+    "approved_target_policy_path": "outputs/promotion_review/approved_target_policy.json",
+    "decision_time_utc": "2026-08-03T06:42:17.534519+00:00",
+    "experiment_env": {}
+  },
+  "resolved_session_date": "2026-07-31",
+  "tracked_inputs": {
+    "fullrun_workflow": {
+      "path": ".github/workflows/full_rebuild_manual.yml",
+      "sha256": "eb6189ef8694c5af162d93eac24652bcd151b6e011fc4ae6797c8b9e43e0693f"
+    },
+    "requirements": {
+      "path": "requirements_github.txt",
+      "sha256": "95cb65b17f041574add98946412bd1062f642718fd4aeb1b9458f3597e9c1e41"
+    },
+    "engine_config": {
+      "path": "r1000_config.py",
+      "sha256": "7b983696831d48f7a1c6f62454a49dbf5b9d349d2e1b0136c9cf4e6a84646a77"
+    },
+    "engine_pipeline": {
+      "path": "r1000_pipeline.py",
+      "sha256": "f8f98e39efd5051dceadddb93a826d00d485ca25057ed9f289e6a8c1a302ab68"
+    },
+    "local_orchestrator": {
+      "path": "run_local.py",
+      "sha256": "ecc7bb4a9d74e0d2b57248be8e13cd8ba65287a62213624910d9c51b7637f1b5"
+    },
+    "broker_ledger": {
+      "path": "tools/run_broker_ledger_replay.py",
+      "sha256": "81e727d837a7f3da20686efe725f1c3b7a9ba35791f6e6576e9f71f865375521"
+    },
+    "clean7y_preflight": {
+      "path": "tools/run_clean7y_window_preflight.py",
+      "sha256": "3485d7468d039f7bd0762ee6c4fbee019f035691c7c55b624acc6dfd24af74bb"
+    },
+    "sidecar_orchestrator": {
+      "path": "tools/run_full_rebuild_sidecars.py",
+      "sha256": "90242dbe8a6b549feb92c1bad02be1e77172291931089aef75d73df55580bfd9"
+    },
+    "sec_enrichment": {
+      "path": "tools/run_sec_enriched_candidate_replay.py",
+      "sha256": "312aeb054d54f99eb748086b946ebba6664b3ea06bd6eb68aca99957737a185a"
+    },
+    "policy_readiness": {
+      "path": "tools/audit_data_readiness.py",
+      "sha256": "80f1cd540b7691f76181886193fc4ceaef4f215280183b7f7a98cbc1dbee7eac"
+    },
+    "operating_target_builder": {
+      "path": "tools/build_operating_target_books.py",
+      "sha256": "1d18c204a02c2fd9f2ee80a91afc5241b9321f77afc5809bcc9a28e196248dbb"
+    },
+    "replay_integrity": {
+      "path": "tools/run_replay_integrity_preflight.py",
+      "sha256": "d1e686280f823a9e229b8a401f2f5eae7b6d7ddf0a16363484c5f819aca1d968"
+    },
+    "source_manifest_verifier": {
+      "path": "tools/verify_fullrun_source_manifest.py",
+      "sha256": "441e46e611d25ee69bff5415270d1bef921d152ff18453c87abdc39297cd6547"
+    },
+    "latest_cross_section_preflight": {
+      "path": "tools/run_fullrun_latest_cross_section_preflight.py",
+      "sha256": "302449982a0aeabc4d12b48b821ba2d677833d491d43f8a6198c9b10b123f5ee"
+    },
+    "abcd_cadence_contract": {
+      "path": "docs/run287_abcd_cadence_challenger_contract.json",
+      "sha256": "886026177c6190dd53e4060d591c9377f7d51b41d2a84de7fd3d123ac2c6c556"
+    }
+  },
+  "research_only": true,
+  "production_activation_allowed": false,
+  "live_trading_enabled": false
+}

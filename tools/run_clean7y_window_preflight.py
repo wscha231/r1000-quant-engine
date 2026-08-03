@@ -25,7 +25,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from r1000_pipeline import _estimated_next_close_fill_date, month_end_trading_days, monthly_test_dates
+from r1000_pipeline import (
+    _estimated_next_close_fill_date,
+    decision_session_close_utc,
+    month_end_trading_days,
+    monthly_test_dates,
+)
 
 
 DATE_COLUMNS = (
@@ -36,7 +41,13 @@ DATE_COLUMNS = (
     "membership_available_from",
     "universe_available_from",
     "accepted",
+    "fund_accepted",
     "fund_effective_accepted",
+    "fund_latest_accepted_overall",
+)
+PIT_REQUIRED_COLUMNS = (
+    "valuation_price_cutoff_date",
+    "feature_available_from",
 )
 
 FEATURE_COMPLETENESS_COLUMNS = (
@@ -134,6 +145,8 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         "first_decision_date": first_decision,
         "checked": False,
         "available_from_columns": [],
+        "required_columns": list(PIT_REQUIRED_COLUMNS),
+        "missing_required_columns": [],
         "future_available_from_rows": None,
         "pit_status": "missing_candidate_book",
     }
@@ -141,7 +154,17 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         return status
     try:
         header = pd.read_csv(candidate_book, nrows=0)
-        usecols = [c for c in ["rebalance_date", "ticker", *DATE_COLUMNS, *FEATURE_COMPLETENESS_COLUMNS] if c in header.columns]
+        usecols = [
+            c
+            for c in [
+                "rebalance_date",
+                "ticker",
+                "valuation_price_cutoff_date",
+                *DATE_COLUMNS,
+                *FEATURE_COMPLETENESS_COLUMNS,
+            ]
+            if c in header.columns
+        ]
         df = pd.read_csv(candidate_book, usecols=usecols)
     except Exception as exc:
         status["pit_status"] = "read_error"
@@ -160,17 +183,55 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
     if first_rows.empty:
         status["pit_status"] = "missing_first_decision_rows"
         return status
-    if not available_cols:
-        status["pit_status"] = "review_required_no_available_from_columns"
+    missing_required = [c for c in PIT_REQUIRED_COLUMNS if c not in first_rows.columns]
+    status["missing_required_columns"] = missing_required
+    if missing_required:
+        status["pit_status"] = "fail_missing_required_pit_columns"
         status["future_available_from_rows"] = None
         return status
+    first_utc = first_dt.tz_localize("UTC")
+    decision_close = decision_session_close_utc(
+        pd.Series([first_dt], index=["first_decision"])
+    ).iloc[0]
+    valuation_dates = pd.to_datetime(
+        first_rows["valuation_price_cutoff_date"], errors="coerce", utc=True
+    )
+    valuation_invalid = valuation_dates.isna() | ~valuation_dates.dt.normalize().eq(first_utc)
+    feature_available = pd.to_datetime(
+        first_rows["feature_available_from"], errors="coerce", utc=True
+    )
+    feature_missing = feature_available.isna()
+    feature_close_mismatch = feature_available.notna() & (
+        pd.isna(decision_close) | ~feature_available.eq(decision_close)
+    )
+    feature_future = feature_available.notna() & (
+        pd.isna(decision_close) | feature_available.gt(decision_close)
+    )
     future_mask = pd.Series(False, index=first_rows.index)
     for col in available_cols:
-        values = pd.to_datetime(first_rows[col], errors="coerce")
-        future_mask = future_mask | (values > first_dt)
-    future_rows = first_rows[future_mask]
+        values = pd.to_datetime(first_rows[col], errors="coerce", utc=True)
+        future_mask = future_mask | (
+            values.notna()
+            & (pd.isna(decision_close) | values.gt(decision_close))
+        )
+    invalid_mask = (
+        future_mask
+        | valuation_invalid
+        | feature_missing
+        | feature_close_mismatch
+    )
+    future_rows = first_rows[invalid_mask]
     status["future_available_from_rows"] = int(len(future_rows))
-    status["pit_status"] = "pass" if future_rows.empty else "fail_future_available_from"
+    status["valuation_cutoff_invalid_rows"] = int(valuation_invalid.sum())
+    status["feature_available_from_missing_rows"] = int(feature_missing.sum())
+    status["feature_available_from_close_mismatch_rows"] = int(
+        feature_close_mismatch.sum()
+    )
+    status["feature_available_from_after_close_rows"] = int(feature_future.sum())
+    status["decision_market_close_utc"] = (
+        "" if pd.isna(decision_close) else pd.Timestamp(decision_close).isoformat()
+    )
+    status["pit_status"] = "pass" if future_rows.empty else "fail_pit_provenance"
     if not future_rows.empty and "ticker" in future_rows.columns:
         status["future_available_from_sample"] = future_rows["ticker"].astype(str).head(20).tolist()
     completeness = feature_completeness_status(first_rows)
@@ -224,12 +285,21 @@ def main() -> int:
     parser.add_argument("--output-dir", default="outputs/clean7y_window_preflight")
     parser.add_argument("--feature-start-date", default="2016-01-01")
     parser.add_argument("--evaluation-start-date", default="2019-06-03")
-    parser.add_argument("--end-date", default="2026-06-23")
+    parser.add_argument("--end-date", required=True)
     parser.add_argument("--expected-first-decision", default="2019-05-31")
     parser.add_argument("--cache-start-floor", default=DEFAULT_CACHE_START_FLOOR)
     parser.add_argument("--min-calendar-trading-days", type=int, default=MIN_BROKER_LEDGER_TRADING_DAYS)
     parser.add_argument("--not-before", default=None, help="Earliest allowed actual first decision; defaults to expected first decision.")
     parser.add_argument("--must-be-before", default="2019-06-28")
+    parser.add_argument(
+        "--target-book-scope",
+        choices=("operating", "all"),
+        default="operating",
+        help=(
+            "Validate run_local operating books before sidecars, or include "
+            "AlphaOps official books after their producer has run."
+        ),
+    )
     parser.add_argument(
         "--source-only",
         action="store_true",
@@ -290,12 +360,15 @@ def main() -> int:
         pit_status = first_decision_pit_status(files["candidate_replay_book"], first_candidate)
         actual_candidate_pass = bool(first_candidate and not_before <= pd.Timestamp(first_candidate) < must_before)
         target_pass = True
-        for name in (
+        target_names = [
             "operating_main_target_book",
             "operating_concentrated_target_book",
-            "official_main_target_book",
-            "official_concentrated_target_book",
-        ):
+        ]
+        if args.target_book_scope == "all":
+            target_names.extend(
+                ["official_main_target_book", "official_concentrated_target_book"]
+            )
+        for name in target_names:
             first = file_status[name].get("first_rebalance_date")
             ok = bool(first and not_before <= pd.Timestamp(first) < must_before)
             target_checks[name] = ok
@@ -331,6 +404,7 @@ def main() -> int:
         "production_promotion_allowed": False,
         "purpose": "research_7y_window_preflight",
         "mode": "source_only" if args.source_only else "post_book",
+        "target_book_scope": args.target_book_scope,
         "post_book_validation_required": bool(args.source_only),
         "feature_start_date": args.feature_start_date,
         "evaluation_start_date": args.evaluation_start_date,
@@ -381,6 +455,7 @@ def main() -> int:
         f"- monthly_test_dates first: `{payload['monthly_test_dates_first']}`",
         f"- candidate first: `{first_candidate}`",
         f"- post_book_validation_required: `{payload['post_book_validation_required']}`",
+        f"- target_book_scope: `{payload['target_book_scope']}`",
         f"- production_promotion_allowed: `{payload['production_promotion_allowed']}`",
         "",
         "## Blockers",

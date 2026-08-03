@@ -27,6 +27,10 @@ on:
         description: 'Exact 64-hex SHA-256 of the frozen source/input manifest'
         type: string
         required: true
+      approved_source_manifest_path:
+        description: 'Tracked manifest path under manifests/fullrun/'
+        type: string
+        required: true
       expected_cost_minutes:
         description: 'Reviewed expected GitHub runner minutes (1-350)'
         type: string
@@ -152,6 +156,7 @@ jobs:
           APPROVAL_TOKEN: ${{ inputs.approval_token }}
           APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
           APPROVED_SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
+          APPROVED_SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
           EXPECTED_COST_MINUTES: ${{ inputs.expected_cost_minutes }}
           INPUT_UNIVERSE_MODE: ${{ inputs.universe_mode }}
           INPUT_BACKTEST_YEARS: ${{ inputs.backtest_years }}
@@ -159,6 +164,7 @@ jobs:
           INPUT_ARTIFACT_PROFILE: ${{ inputs.artifact_profile }}
           INPUT_GDRIVE_SYNC_MODE: ${{ inputs.gdrive_sync_mode }}
           INPUT_PORTFOLIO_POLICY: ${{ inputs.portfolio_policy }}
+          INPUT_DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
         run: |
           set -eu
 
@@ -176,6 +182,11 @@ jobs:
           fi
           if ! printf '%s' "$APPROVED_SOURCE_MANIFEST_SHA256" | grep -Eq '^[0-9a-f]{64}$'; then
             echo "::error::approved_source_manifest_sha256 must be an exact lowercase 64-hex SHA-256"
+            exit 2
+          fi
+          if ! printf '%s' "$APPROVED_SOURCE_MANIFEST_PATH" | grep -Eq '^manifests/fullrun/[A-Za-z0-9._/-]+\.json$' \
+             || printf '%s' "$APPROVED_SOURCE_MANIFEST_PATH" | grep -Eq '(^|/)\.\.(/|$)'; then
+            echo "::error::approved_source_manifest_path must be a safe JSON path under manifests/fullrun/"
             exit 2
           fi
           case "$EXPECTED_COST_MINUTES" in
@@ -208,6 +219,26 @@ jobs:
             minimal|official|research|off) ;;
             *) echo "::error::invalid or blank gdrive_sync_mode"; exit 2 ;;
           esac
+          python - <<'PY'
+          import os
+          from datetime import datetime, timedelta, timezone
+
+          raw = os.environ.get("INPUT_DECISION_TIME_UTC", "").strip()
+          try:
+              parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+          except ValueError as exc:
+              raise SystemExit(
+                  "::error::decision_time_utc must be an ISO-8601 timestamp"
+              ) from exc
+          if parsed.tzinfo is None:
+              raise SystemExit(
+                  "::error::decision_time_utc must include an explicit UTC offset"
+              )
+          parsed = parsed.astimezone(timezone.utc)
+          if parsed > datetime.now(timezone.utc) + timedelta(minutes=5):
+              raise SystemExit("::error::decision_time_utc cannot be in the future")
+          print(f"approved_decision_time_utc={parsed.isoformat()}")
+          PY
           if [ "$INPUT_PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
             echo "::error::production portfolio policy is outside the approved research scope"
             exit 2
@@ -218,6 +249,50 @@ jobs:
           esac
 
           echo "manual_fullrun_approval_ok commit=$APPROVED_COMMIT_SHA source_manifest_sha256=$APPROVED_SOURCE_MANIFEST_SHA256 expected_cost_minutes=$EXPECTED_COST_MINUTES"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify approved fullrun source manifest (pre-session)
+        env:
+          SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
+          SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
+          APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
+          UNIVERSE_MODE: ${{ inputs.universe_mode }}
+          BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          PIT_UNIVERSE_LABEL_CLEAN: ${{ inputs.pit_universe_label_clean }}
+          SKIP_COLLECTOR: ${{ inputs.skip_collector }}
+          FAST_MODE: ${{ inputs.fast_mode }}
+          LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
+          SIDECAR_PROFILE: ${{ inputs.sidecar_profile }}
+          ARTIFACT_PROFILE: ${{ inputs.artifact_profile }}
+          GDRIVE_SYNC_MODE: ${{ inputs.gdrive_sync_mode }}
+          PORTFOLIO_POLICY: ${{ inputs.portfolio_policy }}
+          APPROVED_TARGET_POLICY_PATH: ${{ inputs.approved_target_policy_path }}
+          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
+          EXPERIMENT_ENV_JSON: ${{ github.event.inputs.experiment_env_json || '' }}
+        run: |
+          set -eu
+          python tools/verify_fullrun_source_manifest.py \
+            --manifest "$SOURCE_MANIFEST_PATH" \
+            --expected-sha256 "$SOURCE_MANIFEST_SHA256" \
+            --expected-commit-sha "$APPROVED_COMMIT_SHA" \
+            --universe-mode "$UNIVERSE_MODE" \
+            --backtest-years "$BACKTEST_YEARS" \
+            --pit-universe-label-clean "$PIT_UNIVERSE_LABEL_CLEAN" \
+            --skip-collector "$SKIP_COLLECTOR" \
+            --fast-mode "$FAST_MODE" \
+            --leader-rescue-mode "$LEADER_RESCUE_MODE" \
+            --sidecar-profile "$SIDECAR_PROFILE" \
+            --artifact-profile "$ARTIFACT_PROFILE" \
+            --gdrive-sync-mode "$GDRIVE_SYNC_MODE" \
+            --portfolio-policy "$PORTFOLIO_POLICY" \
+            --approved-target-policy-path "$APPROVED_TARGET_POLICY_PATH" \
+            --decision-time-utc "$DECISION_TIME_UTC" \
+            --experiment-env-json "$EXPERIMENT_ENV_JSON" \
+            --output outputs/fullrun_source_manifest_preflight.json
 
       - name: Free disk space on runner
         # Full Rebuild 27426321227 (2026-06-12, cold cache) failed with
@@ -239,11 +314,6 @@ jobs:
           sudo docker image prune --all --force 2>/dev/null || true
           sudo apt-get clean
           echo "=== disk after ==="; df -h /
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -293,6 +363,70 @@ jobs:
                   fh.write(f"{key}={text}\n")
                   print(f"[experiment-env] applied {key}={text}")
           PY
+
+      - name: Resolve approved fullrun market session
+        id: fullrun_session
+        env:
+          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
+        run: |
+          set -eu
+          python tools/run_daily_market_session_gate.py \
+            --output outputs/fullrun_market_session_gate.json \
+            --now-utc "$DECISION_TIME_UTC" \
+            --force
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("outputs/fullrun_market_session_gate.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if payload.get("ready") is not True or not payload.get("session_date"):
+              raise SystemExit("approved fullrun market session is not ready")
+          PY
+
+      - name: Bind approved source manifest to resolved session
+        env:
+          SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
+          SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
+          APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
+          UNIVERSE_MODE: ${{ inputs.universe_mode }}
+          BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          PIT_UNIVERSE_LABEL_CLEAN: ${{ inputs.pit_universe_label_clean }}
+          SKIP_COLLECTOR: ${{ inputs.skip_collector }}
+          FAST_MODE: ${{ inputs.fast_mode }}
+          LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
+          SIDECAR_PROFILE: ${{ inputs.sidecar_profile }}
+          ARTIFACT_PROFILE: ${{ inputs.artifact_profile }}
+          GDRIVE_SYNC_MODE: ${{ inputs.gdrive_sync_mode }}
+          PORTFOLIO_POLICY: ${{ inputs.portfolio_policy }}
+          APPROVED_TARGET_POLICY_PATH: ${{ inputs.approved_target_policy_path }}
+          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
+          EXPERIMENT_ENV_JSON: ${{ github.event.inputs.experiment_env_json || '' }}
+        run: |
+          set -eu
+          python tools/verify_fullrun_source_manifest.py \
+            --manifest "$SOURCE_MANIFEST_PATH" \
+            --expected-sha256 "$SOURCE_MANIFEST_SHA256" \
+            --expected-commit-sha "$APPROVED_COMMIT_SHA" \
+            --universe-mode "$UNIVERSE_MODE" \
+            --backtest-years "$BACKTEST_YEARS" \
+            --pit-universe-label-clean "$PIT_UNIVERSE_LABEL_CLEAN" \
+            --skip-collector "$SKIP_COLLECTOR" \
+            --fast-mode "$FAST_MODE" \
+            --leader-rescue-mode "$LEADER_RESCUE_MODE" \
+            --sidecar-profile "$SIDECAR_PROFILE" \
+            --artifact-profile "$ARTIFACT_PROFILE" \
+            --gdrive-sync-mode "$GDRIVE_SYNC_MODE" \
+            --portfolio-policy "$PORTFOLIO_POLICY" \
+            --approved-target-policy-path "$APPROVED_TARGET_POLICY_PATH" \
+            --decision-time-utc "$DECISION_TIME_UTC" \
+            --experiment-env-json "$EXPERIMENT_ENV_JSON" \
+            --resolved-session-date "$LAST_NYSE_SESSION_DATE" \
+            --output outputs/fullrun_source_manifest_verification.json
+          cp "$SOURCE_MANIFEST_PATH" outputs/fullrun_approved_source_manifest.json
 
       # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
       # These are slow to fetch (rate limits) and rarely change.
@@ -534,6 +668,7 @@ jobs:
           PY
         env:
           BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
+          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
           PIT_UNIVERSE_LABEL_CLEAN: ${{ inputs.pit_universe_label_clean || false }}
 
       - name: Run FULL rebuild
@@ -623,6 +758,7 @@ jobs:
             python tools/run_clean7y_window_preflight.py \
               --latest-run outputs \
               --output-dir outputs/clean7y_window_preflight_source \
+              --end-date "$LAST_NYSE_SESSION_DATE" \
               --source-only \
               --strict \
               $CLEAN7Y_CACHE_DEFER_FLAG \
@@ -635,12 +771,23 @@ jobs:
 
           # Use --base-dir to override Drive path with repo-local outputs/
           # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
-          python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --leader-rescue-mode "$LEADER_RESCUE_MODE" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+          python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+
+          python tools/run_fullrun_latest_cross_section_preflight.py \
+            --latest-run outputs \
+            --price-cache cache_prices \
+            --valuation-date "$LAST_NYSE_SESSION_DATE" \
+            --decision-time-utc "$DECISION_TIME_UTC" \
+            --output-dir outputs/fullrun_latest_cross_section_preflight \
+            --strict \
+            2>&1 | tee outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log
 
           if [ "${BACKTEST_YEARS:-7}" = "7" ]; then
             python tools/run_clean7y_window_preflight.py \
               --latest-run outputs \
               --output-dir outputs/clean7y_window_preflight \
+              --end-date "$LAST_NYSE_SESSION_DATE" \
+              --target-book-scope operating \
               --strict \
               2>&1 | tee outputs/full_rebuild_logs/clean7y_window_preflight.log
             POST_BOOK_PREFLIGHT_STATUS=${PIPESTATUS[0]}
@@ -717,6 +864,13 @@ jobs:
           path: |
             outputs/user_current/
             outputs/patch_application_manifest.json
+            outputs/fullrun_market_session_gate.json
+            outputs/fullrun_approved_source_manifest.json
+            outputs/fullrun_source_manifest_preflight.json
+            outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_latest_cross_section_preflight/
+            outputs/clean7y_window_preflight_source/
+            outputs/clean7y_window_preflight/
             outputs/replay_integrity/patch_application_manifest.json
             outputs/daily_crisis_monitor/
             outputs/crisis_paper_order_bridge/
@@ -804,6 +958,9 @@ jobs:
             outputs/self_correction_queue/
             outputs/ab_result_verifier/
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
+            outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log
+            outputs/full_rebuild_logs/clean7y_window_preflight_source.log
+            outputs/full_rebuild_logs/clean7y_window_preflight.log
             outputs/full_rebuild_logs/data_freshness_contract.log
             outputs/full_rebuild_logs/data_readiness_pre_broker.log
             outputs/full_rebuild_logs/user_current_report.log
@@ -840,6 +997,13 @@ jobs:
           name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
           path: |
             outputs/account_evaluation/
+            outputs/fullrun_market_session_gate.json
+            outputs/fullrun_approved_source_manifest.json
+            outputs/fullrun_source_manifest_preflight.json
+            outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_latest_cross_section_preflight/
+            outputs/clean7y_window_preflight_source/
+            outputs/clean7y_window_preflight/
             outputs/oos_lock/
             outputs/eight_year_backtest_readiness/
             outputs/universe_health/
@@ -910,6 +1074,9 @@ jobs:
             outputs/alpha_beta_attribution/
             outputs/fusion_candidate_review/
             outputs/full_rebuild_logs/universe_health_audit.log
+            outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log
+            outputs/full_rebuild_logs/clean7y_window_preflight_source.log
+            outputs/full_rebuild_logs/clean7y_window_preflight.log
             outputs/full_rebuild_logs/alpha_beta_attribution.log
             outputs/full_rebuild_logs/fusion_candidate_review.log
             outputs/full_rebuild_logs/cagr_walkforward.log
@@ -927,6 +1094,10 @@ jobs:
           # outputs/data_readiness/summary.json
           path: |
             outputs/full_rebuild_logs/
+            outputs/fullrun_approved_source_manifest.json
+            outputs/fullrun_source_manifest_preflight.json
+            outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_latest_cross_section_preflight/
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/decision_cadence/

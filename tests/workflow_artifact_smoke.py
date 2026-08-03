@@ -607,6 +607,50 @@ def test_sidecar_promotion_hook_runs_before_primary_broker_replay() -> None:
     assert "tools/run_long_crisis_dataset_builder.py" in sidecar_tool
 
 
+def test_sec_enrichment_is_strict_hash_bound_and_precedes_policy_replay() -> None:
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    assert "--strict-source-contract" in sidecar_tool
+    assert "STRICT_PIT_SOURCE_CONTRACT_READY" in sidecar_tool
+    assert "source_manifest.json" in sidecar_tool
+    assert "rm -f" in sidecar_tool
+    assert '"$enriched" \\' in sidecar_tool
+    assert "using existing enriched candidate" not in sidecar_tool
+    assert sidecar_tool.count("build_sec_enriched_candidate_book") == 3
+
+    enrichment_call = next(
+        line for line in sidecar_tool.splitlines()
+        if "python tools/run_sec_enriched_candidate_replay.py" in line
+    )
+    assert "|| true" not in enrichment_call
+    readiness_calls = [
+        line for line in sidecar_tool.splitlines()
+        if "data_readiness_pre_broker.log" in line
+    ]
+    assert len(readiness_calls) == 2
+    assert all("--require-policy-replay-ready" in line for line in readiness_calls)
+    assert all("|| true" not in line for line in readiness_calls)
+
+    operating_idx = sidecar_tool.index('if [ "$SIDECAR_PROFILE" = "operating_minimal" ]')
+    operating_enrichment = sidecar_tool.index("build_sec_enriched_candidate_book", operating_idx)
+    operating_targets = sidecar_tool.index("tools/build_operating_target_books.py", operating_enrichment)
+    operating_readiness = sidecar_tool.index("data_readiness_pre_broker.log", operating_targets)
+    operating_broker = sidecar_tool.index(
+        "--target-book outputs/reports/operating_main_target_book.csv",
+        operating_readiness,
+    )
+    assert operating_enrichment < operating_targets < operating_readiness < operating_broker
+
+    research_idx = sidecar_tool.index("refresh_replay_price_cache", operating_broker)
+    research_enrichment = sidecar_tool.index("build_sec_enriched_candidate_book", research_idx)
+    research_targets = sidecar_tool.index("tools/build_operating_target_books.py", research_enrichment)
+    research_readiness = sidecar_tool.index("data_readiness_pre_broker.log", research_targets)
+    research_broker = sidecar_tool.index(
+        "--target-book outputs/reports/operating_main_target_book.csv",
+        research_readiness,
+    )
+    assert research_enrichment < research_targets < research_readiness < research_broker
+
+
 def test_subdaily_wide_trailing_grid_runs_after_primary_broker_replay() -> None:
     sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
     build_idx = sidecar_tool.index("tools/build_operating_target_books.py")
@@ -1652,6 +1696,61 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert text.count("--expected-manifest-sha256") >= 4
 
 
+def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    session_step = extract_yaml_literal_run(
+        text, "Resolve approved fullrun market session"
+    )
+    rebuild_step = extract_yaml_literal_run(text, "Run FULL rebuild")
+    assert "run_daily_market_session_gate.py" in session_step
+    assert '--now-utc "$DECISION_TIME_UTC"' in session_step
+    assert "outputs/fullrun_market_session_gate.json" in session_step
+    assert "approved_source_manifest_path:" in text
+    assert "manifests/fullrun/" in text
+    assert text.index("- name: Checkout") < text.index("Free disk space on runner")
+    assert text.count("tools/verify_fullrun_source_manifest.py") == 2
+    assert "--resolved-session-date \"$LAST_NYSE_SESSION_DATE\"" in text
+    assert "outputs/fullrun_source_manifest_preflight.json" in text
+    assert "outputs/fullrun_source_manifest_verification.json" in text
+    assert "outputs/fullrun_approved_source_manifest.json" in text
+    assert text.index("Resolve approved fullrun market session") < text.index(
+        "Restore collector cache"
+    )
+    assert '--end-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
+    assert rebuild_step.count('--end-date "$LAST_NYSE_SESSION_DATE"') == 3
+    assert "--target-book-scope operating" in rebuild_step
+    assert "tools/run_fullrun_latest_cross_section_preflight.py" in rebuild_step
+    assert '--valuation-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
+    assert '--decision-time-utc "$DECISION_TIME_UTC"' in rebuild_step
+    assert "--strict" in rebuild_step
+    assert rebuild_step.index("run_local.py --full") < rebuild_step.index(
+        "run_fullrun_latest_cross_section_preflight.py"
+    ) < rebuild_step.index("run_clean7y_window_preflight.py", rebuild_step.index("run_local.py --full"))
+
+    minimal = text[
+        text.index("- name: Upload artifact (user operating minimal)") :
+        text.index("- name: Upload artifact (official broker-ledger evidence)")
+    ]
+    official = text[
+        text.index("- name: Upload artifact (official broker-ledger evidence)") :
+        text.index("- name: Upload artifact (research full diagnostics)")
+    ]
+    for block in (minimal, official):
+        for token in (
+            "outputs/fullrun_market_session_gate.json",
+            "outputs/fullrun_approved_source_manifest.json",
+            "outputs/fullrun_source_manifest_preflight.json",
+            "outputs/fullrun_source_manifest_verification.json",
+            "outputs/fullrun_latest_cross_section_preflight/",
+            "outputs/clean7y_window_preflight_source/",
+            "outputs/clean7y_window_preflight/",
+            "outputs/full_rebuild_logs/clean7y_window_preflight_source.log",
+            "outputs/full_rebuild_logs/clean7y_window_preflight.log",
+            "outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log",
+        ):
+            assert token in block, token
+
+
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
     text = PAGES_WORKFLOW.read_text(encoding="utf-8")
     for token in [
@@ -1673,10 +1772,12 @@ def main() -> int:
     test_pr_validation_does_not_duplicate_same_sha_push_and_pr_jobs()
     test_portfolio_guard_requires_checksum_locked_fixture()
     test_workflow_keeps_monthly_books()
+    test_full_rebuild_binds_approved_session_and_preflight_artifacts()
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()
     test_workflow_runs_latest_diagnostics_sidecars()
     test_sidecar_promotion_hook_runs_before_primary_broker_replay()
+    test_sec_enrichment_is_strict_hash_bound_and_precedes_policy_replay()
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()

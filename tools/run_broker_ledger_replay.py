@@ -170,39 +170,15 @@ def resolve_concentrated_champion_filters(
             return filters, "explicit", ""
 
     comparison_path = comparison_path_for_target_book(target_book)
-    comparison = read_csv(comparison_path)
-    if not comparison.empty:
-        d = comparison.copy()
-        if "portfolio_mode" in d.columns:
-            d = d[d["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
-        for col in ["target_stock_names", "strategy_cagr", "sharpe", "max_dd"]:
-            if col not in d.columns:
-                d[col] = np.nan
-            d[col] = pd.to_numeric(d[col], errors="coerce")
-        d = d[
-            d["target_stock_names"].notna()
-            & d["strategy_cagr"].notna()
-            & d["sharpe"].notna()
-            & d["max_dd"].notna()
-        ].copy()
-        if not d.empty:
-            row = d.iloc[0].to_dict()
-            filters = {
-                "target_stock_names": filter_value(row.get("target_stock_names")),
-                "weighting_mode": filter_value(row.get("weighting_mode") or "score_power"),
-                "active_rebalance_interval_months": filter_value(row.get("rebalance_interval_months") or 1),
-            }
-            filters = {k: v for k, v in filters.items() if v}
-            missing_cols = [col for col in filters if col not in raw_targets.columns]
-            if missing_cols:
-                warning = "comparison champion could not be fully applied; missing target-book columns: " + ",".join(missing_cols)
-                return DEFAULT_CONCENTRATED_CHAMPION_FILTERS.copy(), "default_static", warning
-            return filters, str(comparison_path), ""
-
+    comparison_warning = (
+        f"unaccepted in-run comparison ignored: {comparison_path}"
+        if comparison_path.exists()
+        else f"champion comparison artifact missing: {comparison_path}"
+    )
     return (
         DEFAULT_CONCENTRATED_CHAMPION_FILTERS.copy(),
-        "default_static",
-        f"champion comparison artifact missing or invalid: {comparison_path}",
+        "registered_static_contract",
+        comparison_warning,
     )
 
 

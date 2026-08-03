@@ -3167,6 +3167,29 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-08-03 - Fullrun session, producer order, and champion authority
+
+- A latest-close fullrun must start from one explicit approved UTC decision
+  timestamp, resolve one completed NYSE session, and pass that same date to the
+  selector, clean-window preflights, broker evidence, and published artifact.
+  A default date in any one stage creates a mixed-period result.
+- A gate cannot require an output before its producer runs. Give every
+  producer boundary an explicit artifact scope, validate the available scope
+  there, and validate expanded scopes only after their producers complete.
+- Close-derived features become available at the actual scheduled exchange
+  close, including half days, not at calendar-day midnight. Preserve later
+  filing or membership timestamps so future-data defects remain visible.
+- A comparison table generated inside a run is research output, not a champion
+  pointer. It cannot select N, weighting, or cadence for that same run. Use an
+  accepted immutable pointer or an explicitly registered static contract and
+  validate its exact values downstream.
+- Adding parseable provenance fields is not equivalent to completing the
+  bitemporal PIT layer. Missing SEC-enriched evidence and a restored-target-only
+  latest selector remain blockers; they must not be waived by a successful
+  structural smoke test.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false. Automatic promotion enabled: false.
+
 ## 2026-07-31 - exact-close shock/rebound pattern memory
 
 - A violent one-day rebound after a drawdown is an observation, not proof that
@@ -3745,3 +3768,29 @@ Expected contract:
   any restored run-local target bytes before emitting its replay-only marker.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-08-03 - Fullrun source identity and cadence-challenger boundary
+
+- A syntactically valid SHA input is not source approval. The workflow must
+  resolve the approved hash to a safe, regular, Git-tracked manifest and verify
+  its exact dispatch scope, tracked-input hashes, Git head, and resolved market
+  session before expensive or stateful work.
+- An enriched artifact cannot certify its own prerequisites. Policy replay must
+  require each raw PIT store independently, rehash every recorded source, bind
+  the candidate and output bytes, and reject a stale artifact after any source
+  changes.
+- Calendar end-of-day is not market availability. Form4, 13F, ETF, candidate,
+  and price evidence must be filtered at the actual scheduled NYSE close,
+  including half days; after-close evidence belongs to a later decision.
+- Latest-close reporting needs a computation-boundary proof, not a date label.
+  Verify the complete scored cross-section, latest candidate slice, both target
+  proposals, and exact-close price coverage against the single approved
+  session, then publish their hashes.
+- A/B/C/D is one multiple-testing family, not four opportunities to pick a lucky
+  result. Keep A as the accepted monthly reference; decompose weekly cadence and
+  20-session timing in B/C; let D combine only bounded behavior. In D, weekly
+  leadership may update the watchlist or fill an already valid vacancy, but it
+  must not churn a healthy holding before the normal monthly rebalance.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.

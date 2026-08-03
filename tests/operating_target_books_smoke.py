@@ -18,6 +18,7 @@ from tools.build_operating_target_books import (  # noqa: E402
     build,
     build_book,
     clean_filter_value,
+    concentrated_champion_metadata,
 )
 
 
@@ -264,8 +265,38 @@ def test_existing_latest_close_row_is_marked_evidence_end_eligible() -> None:
         }
 
 
+def test_unaccepted_comparison_cannot_select_concentrated_n1() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        reports = root / "reports"
+        write_csv(
+            reports / "concentrated_strategy_comparison.csv",
+            [
+                {
+                    "portfolio_mode": "concentrated_alpha",
+                    "target_stock_names": 1,
+                    "weighting_mode": "conviction_curve",
+                    "rebalance_interval_months": 3,
+                    "strategy_cagr": 0.99,
+                    "sharpe": 3.0,
+                    "max_dd": -0.10,
+                }
+            ],
+        )
+        metadata = concentrated_champion_metadata(
+            reports / "concentrated_strategy_holdings.csv",
+            pd.DataFrame([{"ticker": "AAA", "weight": 1.0}]),
+        )
+        assert metadata == {
+            "target_stock_names": "3",
+            "weighting_mode": "score_power",
+            "active_rebalance_interval_months": "1",
+        }
+
+
 if __name__ == "__main__":
     test_operating_books_append_latest_close_targets()
     test_operating_books_do_not_use_future_recommended_next_run_date()
     test_existing_latest_close_row_is_marked_evidence_end_eligible()
+    test_unaccepted_comparison_cannot_select_concentrated_n1()
     print("operating_target_books_smoke: ok")

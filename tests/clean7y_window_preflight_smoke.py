@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pandas as pd
 
-
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+from r1000_pipeline import attach_decision_time_provenance  # noqa: E402
 
 
 def write_book(path: Path, dates: list[str]) -> None:
@@ -22,6 +24,8 @@ def write_book(path: Path, dates: list[str]) -> None:
                 "ticker": "AAA",
                 "weight": 1.0,
                 "available_from": dt,
+                "feature_available_from": f"{dt}T20:00:00Z",
+                "valuation_price_cutoff_date": dt,
                 "membership_available_from": dt,
                 "mom_1m": 0.05,
                 "mom_3m": 0.10,
@@ -44,6 +48,28 @@ def write_manifest(root: Path, start: str = "2019-05-09") -> None:
 
 
 def main() -> int:
+    provenance = attach_decision_time_provenance(
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2019-05-31",
+                    "accepted": "2019-05-30T18:00:00Z",
+                },
+                {
+                    "rebalance_date": "2019-05-31",
+                    "accepted": "2019-06-01T01:00:00Z",
+                },
+            ]
+        )
+    )
+    assert provenance.loc[0, "valuation_price_cutoff_date"] == "2019-05-31"
+    assert provenance.loc[0, "feature_available_from"] == "2019-05-31T20:00:00Z"
+    assert provenance.loc[1, "feature_available_from"] == "2019-06-01T01:00:00Z"
+    half_day = attach_decision_time_provenance(
+        pd.DataFrame([{"rebalance_date": "2019-11-29"}])
+    )
+    assert half_day.loc[0, "feature_available_from"] == "2019-11-29T18:00:00Z"
+
     base = REPO / "_tmp_tests" / "clean7y_window_preflight"
     if base.exists():
         for p in sorted(base.rglob("*"), reverse=True):
@@ -67,6 +93,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(latest),
             "--output-dir",
@@ -85,8 +113,56 @@ def main() -> int:
     assert status["cache_manifest"]["start_pass"] is True
     assert status["projected_calendar_trading_days"]["pass"] is True
     assert status["target_books_first_pass"] is True
+    assert status["target_book_scope"] == "operating"
     assert status["mode"] == "post_book"
     assert status["post_book_validation_required"] is False
+
+    # Official AlphaOps books are produced by the later sidecar. Their absence
+    # must not fail the pre-sidecar operating-book gate, while the explicit
+    # all-book scope remains fail closed.
+    for rel in (
+        "alphaops_vnext/official_main_target_book.csv",
+        "alphaops_vnext/official_concentrated_target_book.csv",
+    ):
+        (latest / rel).unlink()
+    operating_only_out = base / "operating_only_out"
+    subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
+            "--latest-run",
+            str(latest),
+            "--output-dir",
+            str(operating_only_out),
+            "--target-book-scope",
+            "operating",
+            "--strict",
+        ],
+        cwd=REPO,
+        check=True,
+    )
+    all_books_out = base / "all_books_out"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
+            "--latest-run",
+            str(latest),
+            "--output-dir",
+            str(all_books_out),
+            "--target-book-scope",
+            "all",
+            "--strict",
+        ],
+        cwd=REPO,
+    )
+    assert proc.returncode == 1
+    all_books_status = json.loads((all_books_out / "status.json").read_text(encoding="utf-8"))
+    assert "target_books_not_in_expected_clean7y_decision_window" in all_books_status["blockers"]
 
     source_only = base / "source_only"
     source_only_out = base / "source_only_out"
@@ -95,6 +171,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(source_only),
             "--output-dir",
@@ -127,6 +205,8 @@ def main() -> int:
             [
                 sys.executable,
                 str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+                "--end-date",
+                "2026-07-31",
                 "--latest-run",
                 str(source_only_missing_cache),
                 "--output-dir",
@@ -152,6 +232,8 @@ def main() -> int:
             [
                 sys.executable,
                 str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+                "--end-date",
+                "2026-07-31",
                 "--latest-run",
                 str(source_only_missing_cache_strict),
                 "--output-dir",
@@ -185,6 +267,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(stale),
             "--output-dir",
@@ -213,6 +297,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(too_early),
             "--output-dir",
@@ -242,6 +328,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(short_calendar),
             "--output-dir",
@@ -277,6 +365,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(missing_features),
             "--output-dir",
@@ -288,6 +378,45 @@ def main() -> int:
     assert proc.returncode == 1
     missing_features_status = json.loads((missing_features_out / "status.json").read_text(encoding="utf-8"))
     assert "first_decision_pit_check_failed" in missing_features_status["blockers"]
+
+    missing_provenance = base / "missing_provenance"
+    for rel in (
+        "reports/candidate_replay_book.csv",
+        "reports/operating_main_target_book.csv",
+        "reports/operating_concentrated_target_book.csv",
+    ):
+        write_book(missing_provenance / rel, ["2019-05-31", "2019-06-28"])
+    candidate = pd.read_csv(missing_provenance / "reports" / "candidate_replay_book.csv")
+    candidate = candidate.drop(
+        columns=["feature_available_from", "valuation_price_cutoff_date"]
+    )
+    candidate.to_csv(
+        missing_provenance / "reports" / "candidate_replay_book.csv", index=False
+    )
+    write_manifest(missing_provenance)
+    missing_provenance_out = base / "missing_provenance_out"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
+            "--latest-run",
+            str(missing_provenance),
+            "--output-dir",
+            str(missing_provenance_out),
+            "--strict",
+        ],
+        cwd=REPO,
+    )
+    assert proc.returncode == 1
+    missing_provenance_status = json.loads(
+        (missing_provenance_out / "status.json").read_text(encoding="utf-8")
+    )
+    assert missing_provenance_status["first_decision_pit"]["pit_status"] == (
+        "fail_missing_required_pit_columns"
+    )
+    assert "first_decision_pit_check_failed" in missing_provenance_status["blockers"]
 
     print("clean7y_window_preflight_smoke: PASS")
     return 0

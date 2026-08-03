@@ -2605,7 +2605,11 @@ def test_full_rebuild_workflow() -> None:
             f"full rebuild automatic trigger must stay removed: {forbidden_trigger}"
         )
     approval_inputs = trigger_block.split("universe_mode:", 1)[0]
-    assert approval_inputs.count("required: true") == 4, "all four approval inputs must be required"
+    assert approval_inputs.count("required: true") == 5, "all five pre-universe approval inputs must be required"
+    decision_input = trigger_block.split("decision_time_utc:", 1)[1].split(
+        "backtest_years:", 1
+    )[0]
+    assert "required: true" in decision_input, "decision_time_utc must be required"
     assert wf.index("Validate explicit fullrun approval") < wf.index("Free disk space on runner"), (
         "fullrun approval must be checked before any material runner work"
     )
@@ -2615,8 +2619,15 @@ def test_full_rebuild_workflow() -> None:
         "FULLRUN_APPROVED",
         "approved_commit_sha",
         "approved_source_manifest_sha256",
+        "approved_source_manifest_path",
         "expected_cost_minutes",
+        "INPUT_DECISION_TIME_UTC",
+        "decision_time_utc cannot be in the future",
         "Validate explicit fullrun approval",
+        "Resolve approved fullrun market session",
+        "run_daily_market_session_gate.py",
+        '--end-date "$LAST_NYSE_SESSION_DATE"',
+        "--target-book-scope operating",
         "approved_commit_sha does not match the dispatched GITHUB_SHA",
         "production portfolio policy is outside the approved research scope",
         "github.event_name == 'workflow_dispatch'",
