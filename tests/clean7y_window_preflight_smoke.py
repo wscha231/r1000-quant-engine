@@ -32,6 +32,7 @@ def write_book(path: Path, dates: list[str]) -> None:
                 "valuation_price_cutoff_date": dt,
                 "membership_available_from": dt,
                 "portfolio_candidate_minimum_pass": True,
+                "portfolio_candidate_gate_label": "core_pass",
                 "px": 100.0,
                 "score": 1.5,
                 "mom_1m": 0.05,
@@ -130,7 +131,9 @@ def main() -> int:
     gated_rows = coverage_rows.copy()
     gated_rows["rebalance_date"] = "2019-05-31"
     gated_rows["portfolio_candidate_minimum_pass"] = False
+    gated_rows["portfolio_candidate_gate_label"] = "rejected"
     gated_rows.loc[:9, "portfolio_candidate_minimum_pass"] = True
+    gated_rows.loc[:9, "portfolio_candidate_gate_label"] = "core_pass"
     gated_rows.loc[0, "score"] = float("nan")
     gated_path = base / "gated_candidate_book.csv"
     gated_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +153,32 @@ def main() -> int:
         missing_gate_path, "2019-05-31"
     )
     assert missing_gate_status["pit_status"] == "fail_missing_candidate_gate_column"
+
+    missing_label_path = base / "missing_gate_label_candidate_book.csv"
+    gated_rows.drop(columns=["portfolio_candidate_gate_label"]).to_csv(
+        missing_label_path, index=False
+    )
+    missing_label_status = first_decision_pit_status(
+        missing_label_path, "2019-05-31"
+    )
+    assert missing_label_status["pit_status"] == "fail_missing_candidate_gate_label"
+
+    fallback_path = base / "fallback_candidate_book.csv"
+    fallback_rows = gated_rows.copy()
+    fallback_rows.loc[0, "portfolio_candidate_gate_label"] = "audit_fallback_blocked"
+    fallback_rows.to_csv(fallback_path, index=False)
+    fallback_status = first_decision_pit_status(fallback_path, "2019-05-31")
+    assert fallback_status["pit_status"] == "fail_candidate_gate_fallback"
+    assert fallback_status["candidate_gate_fallback_rows"] == 1
+
+    pipeline_source = (REPO / "r1000_pipeline.py").read_text(encoding="utf-8")
+    fallback_block = pipeline_source[
+        pipeline_source.index(
+            "[candidate_replay_book] WARN candidate gate annotation skipped"
+        ) : pipeline_source.index("for col in replay_cols:")
+    ]
+    assert 'replay_source["portfolio_candidate_minimum_pass"] = False' in fallback_block
+    assert '"audit_fallback_blocked"' in fallback_block
     latest = base / "latest"
     for rel in (
         "reports/candidate_replay_book.csv",

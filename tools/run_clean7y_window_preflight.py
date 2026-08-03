@@ -187,6 +187,7 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
                 "rebalance_date",
                 "ticker",
                 "portfolio_candidate_minimum_pass",
+                "portfolio_candidate_gate_label",
                 "valuation_price_cutoff_date",
                 *DATE_COLUMNS,
                 *FEATURE_COMPLETENESS_COLUMNS,
@@ -223,6 +224,31 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         status["feature_completeness"] = {
             "status": "missing_candidate_gate_column",
             "required_gate_column": "portfolio_candidate_minimum_pass",
+        }
+        return status
+    if "portfolio_candidate_gate_label" not in first_rows.columns:
+        status["pit_status"] = "fail_missing_candidate_gate_label"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "missing_candidate_gate_label",
+            "required_gate_column": "portfolio_candidate_gate_label",
+        }
+        return status
+    gate_labels = (
+        first_rows["portfolio_candidate_gate_label"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+    fallback_mask = gate_labels.str.startswith("audit_fallback")
+    status["candidate_gate_fallback_rows"] = int(fallback_mask.sum())
+    if fallback_mask.any():
+        status["pit_status"] = "fail_candidate_gate_fallback"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "candidate_gate_fallback",
+            "fallback_rows": int(fallback_mask.sum()),
         }
         return status
     raw_gate = first_rows["portfolio_candidate_minimum_pass"]

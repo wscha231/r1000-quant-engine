@@ -17864,10 +17864,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                 replay_source = annotate_portfolio_candidate_gate(replay_source.copy(), cfg)
             except Exception as exc:
                 print(f"[candidate_replay_book] WARN candidate gate annotation skipped: {exc}")
-                if "portfolio_candidate_minimum_pass" not in replay_source.columns:
-                    replay_source["portfolio_candidate_minimum_pass"] = True
-                if "portfolio_candidate_gate_label" not in replay_source.columns:
-                    replay_source["portfolio_candidate_gate_label"] = "audit_fallback"
+                replay_source["portfolio_candidate_minimum_pass"] = False
+                replay_source["portfolio_candidate_gate_label"] = "audit_fallback_blocked"
             for col in replay_cols:
                 if col not in replay_source.columns:
                     replay_source[col] = np.nan

@@ -3852,6 +3852,13 @@ Expected contract:
 - Exact-close coverage means a finite, strictly positive close on the approved
   date. Likewise, a missing ranking-eligibility column is a schema failure, not
   permission to treat the whole scored universe as eligible.
+- A failed candidate-gate computation must never synthesize passing rows. Mark
+  every row blocked, retain an explicit fallback label, and make downstream
+  preflight reject that label even if a Boolean field was later altered.
+- Contracted decision artifacts require `rebalance_date` explicitly; a generic
+  feature or as-of date is not a substitute for the orderable session identity.
+  Exact-close evidence also requires one unambiguous session row because replay
+  row selection can diverge when duplicate dates remain in a cache.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

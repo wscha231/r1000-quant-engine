@@ -26,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
-SCHEMA_VERSION = "run287-fullrun-latest-cross-section-preflight-v3"
+SCHEMA_VERSION = "run287-fullrun-latest-cross-section-preflight-v4"
 CASH_TICKERS = {"CASH", "USD", "__CASH__", "BIL", "SHV", "SGOV"}
 INVALID_TICKERS = {"", "N/A", "NA", "NAN", "NONE", "NULL", "UNKNOWN"}
 
@@ -101,7 +101,12 @@ def provenance_failures(
     decision_time: pd.Timestamp,
 ) -> list[str]:
     failures: list[str] = []
-    required = {"ticker", "valuation_price_cutoff_date", "feature_available_from"}
+    required = {
+        "ticker",
+        "rebalance_date",
+        "valuation_price_cutoff_date",
+        "feature_available_from",
+    }
     missing = sorted(required - set(frame.columns))
     if missing:
         return [f"{label}_missing_columns:{','.join(missing)}"]
@@ -230,17 +235,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         prices = load_price_series(price_cache, ticker)
         exact_date = pd.Timestamp(valuation_date)
         close_value: float | None = None
+        exact_close_row_count = 0
         if (
             not prices.empty
             and "close" in prices.columns
             and exact_date in prices.index
         ):
-            raw_close = prices.loc[exact_date, "close"]
-            raw_values = (
-                raw_close
-                if isinstance(raw_close, pd.Series)
-                else pd.Series([raw_close])
-            )
+            raw_values = prices.loc[prices.index == exact_date, "close"]
+            exact_close_row_count = int(len(raw_values))
             numeric_values = pd.to_numeric(raw_values, errors="coerce")
             valid_values = numeric_values[
                 numeric_values.notna()
@@ -248,7 +250,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     lambda value: math.isfinite(float(value)) and float(value) > 0.0
                 )
             ]
-            if not valid_values.empty:
+            if exact_close_row_count == 1 and len(valid_values) == 1:
                 close_value = float(valid_values.iloc[-1])
         has_close = close_value is not None
         latest_date = prices.index.max().date().isoformat() if not prices.empty else ""
@@ -257,8 +259,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "ticker": ticker,
                 "exact_close_available": bool(has_close),
                 "exact_close_value": close_value,
+                "exact_close_row_count": exact_close_row_count,
                 "latest_cached_date": latest_date,
             }
+        )
+    ambiguous_exact_close = [
+        row["ticker"] for row in price_rows if int(row["exact_close_row_count"]) > 1
+    ]
+    if ambiguous_exact_close:
+        failures.append(
+            f"eligible_ticker_exact_close_ambiguous:{len(ambiguous_exact_close)}"
         )
     missing_exact_close = [row["ticker"] for row in price_rows if not row["exact_close_available"]]
     if missing_exact_close:

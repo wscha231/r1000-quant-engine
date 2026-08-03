@@ -181,6 +181,49 @@ def test_latest_cross_section_is_exact_close_and_hash_recorded() -> None:
             "missing_exact_close_tickers"
         ] == ["AAA"]
 
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        args = fixture(root)
+        pd.DataFrame(
+            {
+                "Close": [0.0, 100.0],
+                "Adj Close": [0.0, 100.0],
+                "Volume": [1_000_000, 1_000_000],
+            },
+            index=pd.DatetimeIndex(["2026-07-31", "2026-07-31"]),
+        ).to_parquet(root / "cache_prices" / px_cache_name("AAA"))
+        blocked = preflight.build(args)
+        assert "eligible_ticker_exact_close_ambiguous:1" in blocked[
+            "contract_failures"
+        ]
+        assert "eligible_ticker_exact_close_missing:1" in blocked[
+            "contract_failures"
+        ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        args = fixture(root)
+        paths = {
+            "scored_latest": root / "outputs" / "scored_latest.csv",
+            "candidate_replay_book_latest": (
+                root / "outputs" / "reports" / "candidate_replay_book.csv"
+            ),
+            "main_target_proposal": root / "outputs" / "portfolio_latest.csv",
+            "concentrated_target_proposal": (
+                root / "outputs" / "concentrated_portfolio_latest.csv"
+            ),
+        }
+        for path in paths.values():
+            frame = pd.read_csv(path)
+            frame["feature_date"] = frame["rebalance_date"]
+            frame = frame.drop(columns=["rebalance_date"])
+            frame.to_csv(path, index=False)
+        blocked = preflight.build(args)
+        for label in paths:
+            assert f"{label}_missing_columns:rebalance_date" in blocked[
+                "contract_failures"
+            ]
+
 
 if __name__ == "__main__":
     test_latest_cross_section_is_exact_close_and_hash_recorded()
