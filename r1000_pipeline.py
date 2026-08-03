@@ -17039,6 +17039,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         cols = [
             "rank",
             "ticker",
+            "rebalance_date",
+            "valuation_price_cutoff_date",
+            "feature_available_from",
             "Name",
             "sector",
             "weight",
@@ -17415,6 +17418,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_latest = _annotate_output_frame(portfolio_latest, research_only_output=False)
     research_only_top30 = _annotate_output_frame(research_only_top30, research_only_output=True)
     research_only_portfolio = _annotate_output_frame(research_only_portfolio, research_only_output=True)
+    # Fullrun target proposals are orderable outputs, so bind their valuation
+    # session and latest consumed-input availability before the operational
+    # allowlist is applied.  The strict latest-cross-section preflight verifies
+    # these producer-supplied fields; it never invents provenance downstream.
+    portfolio_latest = attach_decision_time_provenance(portfolio_latest)
+    research_only_portfolio = attach_decision_time_provenance(
+        research_only_portfolio
+    )
     top30_operational = _build_operational_view(top30, include_selected=True)
     portfolio_operational = _build_operational_view(portfolio_latest, include_selected=False)
     research_top30_operational = _build_operational_view(research_only_top30, include_selected=True)

@@ -54,7 +54,7 @@ PIT_REQUIRED_COLUMNS = (
 FEATURE_COMPLETENESS_COLUMNS = (
     "ticker",
     "px",
-    "score_total",
+    "score",
     "mom_1m",
     "mom_3m",
     "mom_6m",
@@ -65,7 +65,7 @@ FEATURE_COMPLETENESS_COLUMNS = (
 )
 FEATURE_NUMERIC_COLUMNS = {
     "px",
-    "score_total",
+    "score",
     "mom_1m",
     "mom_3m",
     "mom_6m",
@@ -84,7 +84,7 @@ FEATURE_HARD_INTEGRITY_COLUMNS = {
 }
 INVALID_TICKERS = {"", "N/A", "NA", "NAN", "NONE", "NULL", "UNKNOWN"}
 FEATURE_NONZERO_COLUMNS = (
-    "score_total",
+    "score",
     "mom_1m",
     "mom_3m",
     "mom_6m",
@@ -186,6 +186,7 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
             for c in [
                 "rebalance_date",
                 "ticker",
+                "portfolio_candidate_minimum_pass",
                 "valuation_price_cutoff_date",
                 *DATE_COLUMNS,
                 *FEATURE_COMPLETENESS_COLUMNS,
@@ -215,6 +216,31 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
     if missing_required:
         status["pit_status"] = "fail_missing_required_pit_columns"
         status["future_available_from_rows"] = None
+        return status
+    if "portfolio_candidate_minimum_pass" not in first_rows.columns:
+        status["pit_status"] = "fail_missing_candidate_gate_column"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "missing_candidate_gate_column",
+            "required_gate_column": "portfolio_candidate_minimum_pass",
+        }
+        return status
+    raw_gate = first_rows["portfolio_candidate_minimum_pass"]
+    gate_mask = (
+        raw_gate.fillna(False)
+        if raw_gate.dtype == bool
+        else raw_gate.fillna("").astype(str).str.strip().str.lower().isin(
+            {"1", "true", "yes"}
+        )
+    )
+    post_gate_rows = first_rows.loc[gate_mask].copy()
+    status["first_decision_post_gate_rows"] = int(len(post_gate_rows))
+    if post_gate_rows.empty:
+        status["pit_status"] = "fail_missing_post_gate_candidate_rows"
+        status["feature_completeness"] = {
+            "status": "missing_post_gate_candidate_rows",
+            "required_gate_column": "portfolio_candidate_minimum_pass",
+        }
         return status
     first_utc = first_dt.tz_localize("UTC")
     decision_close = decision_session_close_utc(
@@ -261,7 +287,7 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
     status["pit_status"] = "pass" if future_rows.empty else "fail_pit_provenance"
     if not future_rows.empty and "ticker" in future_rows.columns:
         status["future_available_from_sample"] = future_rows["ticker"].astype(str).head(20).tolist()
-    completeness = feature_completeness_status(first_rows)
+    completeness = feature_completeness_status(post_gate_rows)
     status["feature_completeness"] = completeness
     if status["pit_status"] == "pass" and completeness["status"] != "pass":
         status["pit_status"] = "fail_feature_completeness"

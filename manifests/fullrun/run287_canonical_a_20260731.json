@@ -113,7 +113,7 @@
     },
     "engine_pipeline": {
       "path": "r1000_pipeline.py",
-      "sha256": "aeb777006f3d8cafd862e89e333a89894dadffa345362dbd69174f9a445c37eb"
+      "sha256": "20049f5c9543ce3913fc1dc07f04461dea0b6001d28ed0dcdcd1e170f5c18ef3"
     },
     "local_orchestrator": {
       "path": "run_local.py",
@@ -125,7 +125,7 @@
     },
     "clean7y_preflight": {
       "path": "tools/run_clean7y_window_preflight.py",
-      "sha256": "ecf0b77b55582f09ef317a548a305812765b4673f1874b39a7fadf88af471102"
+      "sha256": "6df429c2303260c072f3e0ace44eeaf3995fc72e3d08329360464505c71d997d"
     },
     "sidecar_orchestrator": {
       "path": "tools/run_full_rebuild_sidecars.py",
@@ -169,7 +169,7 @@
     },
     "latest_cross_section_preflight": {
       "path": "tools/run_fullrun_latest_cross_section_preflight.py",
-      "sha256": "173a7558718521c322a06b3aa3126701f966d4be49f3c0029d4655fbbcd56f08"
+      "sha256": "c337fdcdea0ab5ff3f869808d3e8efc2b28bb427030b571124672c4af8ac31f9"
     },
     "abcd_cadence_contract": {
       "path": "docs/run287_abcd_cadence_challenger_contract.json",

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -25,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
-SCHEMA_VERSION = "run287-fullrun-latest-cross-section-preflight-v2"
+SCHEMA_VERSION = "run287-fullrun-latest-cross-section-preflight-v3"
 CASH_TICKERS = {"CASH", "USD", "__CASH__", "BIL", "SHV", "SGOV"}
 INVALID_TICKERS = {"", "N/A", "NA", "NAN", "NONE", "NULL", "UNKNOWN"}
 
@@ -185,8 +186,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             )
 
     eligible = scored.copy()
-    if not eligible.empty and "ranking_eligible" in eligible.columns:
-        eligible = eligible.loc[bool_series(eligible["ranking_eligible"])].copy()
+    if not eligible.empty:
+        if "ranking_eligible" not in eligible.columns:
+            failures.append("scored_latest_missing_columns:ranking_eligible")
+            eligible = eligible.iloc[0:0].copy()
+        else:
+            eligible = eligible.loc[bool_series(eligible["ranking_eligible"])].copy()
     if "ticker" in eligible.columns:
         eligible["ticker"] = ticker_series(eligible["ticker"])
         invalid_eligible = eligible["ticker"].isin(INVALID_TICKERS)
@@ -223,12 +228,35 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     price_rows: list[dict[str, Any]] = []
     for ticker in sorted(eligible_tickers):
         prices = load_price_series(price_cache, ticker)
-        has_close = not prices.empty and pd.Timestamp(valuation_date) in prices.index
+        exact_date = pd.Timestamp(valuation_date)
+        close_value: float | None = None
+        if (
+            not prices.empty
+            and "close" in prices.columns
+            and exact_date in prices.index
+        ):
+            raw_close = prices.loc[exact_date, "close"]
+            raw_values = (
+                raw_close
+                if isinstance(raw_close, pd.Series)
+                else pd.Series([raw_close])
+            )
+            numeric_values = pd.to_numeric(raw_values, errors="coerce")
+            valid_values = numeric_values[
+                numeric_values.notna()
+                & numeric_values.map(
+                    lambda value: math.isfinite(float(value)) and float(value) > 0.0
+                )
+            ]
+            if not valid_values.empty:
+                close_value = float(valid_values.iloc[-1])
+        has_close = close_value is not None
         latest_date = prices.index.max().date().isoformat() if not prices.empty else ""
         price_rows.append(
             {
                 "ticker": ticker,
                 "exact_close_available": bool(has_close),
+                "exact_close_value": close_value,
                 "latest_cached_date": latest_date,
             }
         )

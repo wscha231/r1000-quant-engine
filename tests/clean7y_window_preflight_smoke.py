@@ -12,7 +12,10 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from r1000_pipeline import attach_decision_time_provenance  # noqa: E402
-from tools.run_clean7y_window_preflight import feature_completeness_status  # noqa: E402
+from tools.run_clean7y_window_preflight import (  # noqa: E402
+    feature_completeness_status,
+    first_decision_pit_status,
+)
 
 
 def write_book(path: Path, dates: list[str]) -> None:
@@ -28,8 +31,9 @@ def write_book(path: Path, dates: list[str]) -> None:
                 "feature_available_from": f"{dt}T20:00:00Z",
                 "valuation_price_cutoff_date": dt,
                 "membership_available_from": dt,
+                "portfolio_candidate_minimum_pass": True,
                 "px": 100.0,
-                "score_total": 1.5,
+                "score": 1.5,
                 "mom_1m": 0.05,
                 "mom_3m": 0.10,
                 "mom_6m": 0.20,
@@ -58,7 +62,7 @@ def main() -> int:
                 {
                     "ticker": [f"T{index:03d}"],
                     "px": [100.0],
-                    "score_total": [1.0],
+                    "score": [1.0],
                     "mom_1m": [0.01],
                     "mom_3m": [0.03],
                     "mom_6m": [0.06],
@@ -79,7 +83,7 @@ def main() -> int:
     assert exactly_98_status["coverage_ratio"] == 0.98
 
     below_98 = coverage_rows.copy()
-    below_98.loc[:2, "score_total"] = float("nan")
+    below_98.loc[:2, "score"] = float("nan")
     below_98_status = feature_completeness_status(below_98)
     assert below_98_status["status"] == "fail"
     assert below_98_status["coverage_ratio"] == 0.97
@@ -119,6 +123,33 @@ def main() -> int:
                 p.unlink()
             elif p.is_dir():
                 p.rmdir()
+
+    # Completeness is measured only across admitted candidates.  Ninety
+    # complete rejected rows must not dilute one incomplete row among ten
+    # post-gate candidates.
+    gated_rows = coverage_rows.copy()
+    gated_rows["rebalance_date"] = "2019-05-31"
+    gated_rows["portfolio_candidate_minimum_pass"] = False
+    gated_rows.loc[:9, "portfolio_candidate_minimum_pass"] = True
+    gated_rows.loc[0, "score"] = float("nan")
+    gated_path = base / "gated_candidate_book.csv"
+    gated_path.parent.mkdir(parents=True, exist_ok=True)
+    gated_rows.to_csv(gated_path, index=False)
+    gated_status = first_decision_pit_status(gated_path, "2019-05-31")
+    assert gated_status["first_decision_rows"] == 100
+    assert gated_status["first_decision_post_gate_rows"] == 10
+    assert gated_status["feature_completeness"]["coverage_denominator_count"] == 10
+    assert gated_status["feature_completeness"]["coverage_ratio"] == 0.9
+    assert gated_status["pit_status"] == "fail_feature_completeness"
+
+    missing_gate_path = base / "missing_gate_candidate_book.csv"
+    gated_rows.drop(columns=["portfolio_candidate_minimum_pass"]).to_csv(
+        missing_gate_path, index=False
+    )
+    missing_gate_status = first_decision_pit_status(
+        missing_gate_path, "2019-05-31"
+    )
+    assert missing_gate_status["pit_status"] == "fail_missing_candidate_gate_column"
     latest = base / "latest"
     for rel in (
         "reports/candidate_replay_book.csv",

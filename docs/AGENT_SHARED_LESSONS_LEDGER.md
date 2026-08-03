@@ -3843,6 +3843,15 @@ Expected contract:
 - Tier-1 structural tests must respect the workflow's sparse-checkout contract.
   When an approved tracked file is intentionally outside the checkout cone, read
   the exact `HEAD:<path>` Git blob instead of assuming a worktree file exists.
+- An orderable target proposal must retain decision-session provenance at its
+  producer boundary. A downstream validator must reject missing provenance, not
+  synthesize fields that make an otherwise unverifiable proposal appear valid.
+- Completeness ratios use the post-gate candidate population and the columns
+  actually exported by that contract. Complete rejected rows cannot dilute
+  missing score or momentum among admitted candidates.
+- Exact-close coverage means a finite, strictly positive close on the approved
+  date. Likewise, a missing ranking-eligibility column is a schema failure, not
+  permission to treat the whole scored universe as eligible.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

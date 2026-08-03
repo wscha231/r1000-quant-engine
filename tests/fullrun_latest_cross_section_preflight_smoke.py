@@ -63,6 +63,29 @@ def fixture(root: Path) -> argparse.Namespace:
 
 
 def test_latest_cross_section_is_exact_close_and_hash_recorded() -> None:
+    pipeline_source = (ROOT / "r1000_pipeline.py").read_text(encoding="utf-8")
+    operational_view = pipeline_source[
+        pipeline_source.index("def _build_operational_view(") :
+        pipeline_source.index("def _enrich_with_live_state(")
+    ]
+    for column in (
+        '"rebalance_date"',
+        '"valuation_price_cutoff_date"',
+        '"feature_available_from"',
+    ):
+        assert column in operational_view, column
+    producer_block = pipeline_source[
+        pipeline_source.index(
+            "portfolio_latest = _annotate_output_frame(portfolio_latest"
+        ) : pipeline_source.index(
+            "top30_operational = _build_operational_view(top30"
+        )
+    ]
+    assert (
+        "portfolio_latest = attach_decision_time_provenance(portfolio_latest)"
+        in producer_block
+    )
+
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         args = fixture(root)
@@ -133,6 +156,30 @@ def test_latest_cross_section_is_exact_close_and_hash_recorded() -> None:
         pd.concat([main, main], ignore_index=True).to_csv(main_path, index=False)
         blocked = preflight.build(args)
         assert "main_target_proposal_duplicate_tickers:1" in blocked["contract_failures"]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        args = fixture(root)
+        scored_path = root / "outputs" / "scored_latest.csv"
+        scored = pd.read_csv(scored_path).drop(columns=["ranking_eligible"])
+        scored.to_csv(scored_path, index=False)
+        blocked = preflight.build(args)
+        assert "scored_latest_missing_columns:ranking_eligible" in blocked[
+            "contract_failures"
+        ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        args = fixture(root)
+        pd.DataFrame(
+            {"Close": [0.0], "Adj Close": [0.0], "Volume": [1_000_000]},
+            index=pd.DatetimeIndex(["2026-07-31"]),
+        ).to_parquet(root / "cache_prices" / px_cache_name("AAA"))
+        blocked = preflight.build(args)
+        assert "eligible_ticker_exact_close_missing:1" in blocked["contract_failures"]
+        assert blocked["target_proposal_audits"]["main_target_proposal"][
+            "missing_exact_close_tickers"
+        ] == ["AAA"]
 
 
 if __name__ == "__main__":
