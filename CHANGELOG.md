@@ -45,6 +45,10 @@ All entries must be written in English. Entries must be predictable and machine-
     an unmatched N=3 predicate to pass. After adding explicit contract metadata
     and converting the latter to a fail-closed assertion, the three focused
     tests ->PASS.
+  - Linux CI next reached 213/214; the sole failure was the CRLF portability
+    fixture itself lacking an explicit Git `text` attribute, so Linux correctly
+    treated the forced CRLF worktree as a semantic change. The fixture now
+    declares text normalization before exercising checkout-EOL portability.
 
 ### P1/D0 - Bind fullrun sources, strict SEC policy replay, and preregister A/B/C/D cadence
 

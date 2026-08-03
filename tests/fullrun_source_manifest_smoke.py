@@ -34,6 +34,7 @@ def fixture(root: Path) -> tuple[argparse.Namespace, Path]:
     git(root, "init")
     git(root, "config", "user.email", "run287@example.invalid")
     git(root, "config", "user.name", "Run287 Test")
+    (root / ".gitattributes").write_bytes(b"requirements_github.txt text\n")
     source = root / "requirements_github.txt"
     source.write_text("pandas==2.2.0\n", encoding="utf-8")
     manifest = root / "manifests" / "fullrun" / "approved.json"
