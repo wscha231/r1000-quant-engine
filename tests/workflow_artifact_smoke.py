@@ -41,6 +41,17 @@ MONTHLY_BOOK_TOKENS = [
 ]
 
 
+def read_tracked_text(relative_path: str) -> str:
+    """Read a tracked file even when a Tier-1 sparse checkout omits its cone."""
+    path = ROOT / relative_path
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return subprocess.check_output(
+        ["git", "show", f"HEAD:{relative_path}"],
+        cwd=ROOT,
+    ).decode("utf-8")
+
+
 def extract_yaml_literal_run(text: str, step_name: str) -> str:
     lines = text.splitlines()
     marker = f"- name: {step_name}"
@@ -1825,9 +1836,7 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
         assert token in gdrive_manifest, token
 
     approved = json.loads(
-        (ROOT / "manifests" / "fullrun" / "run287_canonical_a_20260731.json").read_text(
-            encoding="utf-8"
-        )
+        read_tracked_text("manifests/fullrun/run287_canonical_a_20260731.json")
     )
     engine_groups = approved["runtime_source_contract"]["stages"]["engine_pre_run"]["groups"]
     consumed_paths = {

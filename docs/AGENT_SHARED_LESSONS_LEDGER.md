@@ -3840,6 +3840,9 @@ Expected contract:
 - Runtime identity must bind every restored cache that can influence the engine,
   including optional caches when they are present, rather than only the required
   minimum input groups.
+- Tier-1 structural tests must respect the workflow's sparse-checkout contract.
+  When an approved tracked file is intentionally outside the checkout cone, read
+  the exact `HEAD:<path>` Git blob instead of assuming a worktree file exists.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
