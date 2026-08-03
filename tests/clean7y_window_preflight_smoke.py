@@ -12,6 +12,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from r1000_pipeline import attach_decision_time_provenance  # noqa: E402
+from tools.run_clean7y_window_preflight import feature_completeness_status  # noqa: E402
 
 
 def write_book(path: Path, dates: list[str]) -> None:
@@ -27,9 +28,12 @@ def write_book(path: Path, dates: list[str]) -> None:
                 "feature_available_from": f"{dt}T20:00:00Z",
                 "valuation_price_cutoff_date": dt,
                 "membership_available_from": dt,
+                "px": 100.0,
+                "score_total": 1.5,
                 "mom_1m": 0.05,
                 "mom_3m": 0.10,
                 "mom_6m": 0.20,
+                "mom_12m": 0.30,
                 "relative_strength_composite": 1.25,
                 "price_above_ma200": 1.0,
                 "rsi14": 62.0,
@@ -48,6 +52,44 @@ def write_manifest(root: Path, start: str = "2019-05-09") -> None:
 
 
 def main() -> int:
+    coverage_rows = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "ticker": [f"T{index:03d}"],
+                    "px": [100.0],
+                    "score_total": [1.0],
+                    "mom_1m": [0.01],
+                    "mom_3m": [0.03],
+                    "mom_6m": [0.06],
+                    "mom_12m": [0.12],
+                    "relative_strength_composite": [1.1],
+                    "valuation_price_cutoff_date": ["2019-05-31"],
+                    "feature_available_from": ["2019-05-31T20:00:00Z"],
+                }
+            )
+            for index in range(100)
+        ],
+        ignore_index=True,
+    )
+    exactly_98 = coverage_rows.copy()
+    exactly_98.loc[:1, "mom_12m"] = float("nan")
+    exactly_98_status = feature_completeness_status(exactly_98)
+    assert exactly_98_status["status"] == "pass", exactly_98_status
+    assert exactly_98_status["coverage_ratio"] == 0.98
+
+    below_98 = coverage_rows.copy()
+    below_98.loc[:2, "score_total"] = float("nan")
+    below_98_status = feature_completeness_status(below_98)
+    assert below_98_status["status"] == "fail"
+    assert below_98_status["coverage_ratio"] == 0.97
+
+    invalid_price = coverage_rows.copy()
+    invalid_price.loc[0, "px"] = 0.0
+    invalid_price_status = feature_completeness_status(invalid_price)
+    assert invalid_price_status["status"] == "fail"
+    assert invalid_price_status["hard_integrity_invalid_by_column"]["px"] == 1
+
     provenance = attach_decision_time_provenance(
         pd.DataFrame(
             [

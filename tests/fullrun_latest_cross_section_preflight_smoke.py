@@ -74,6 +74,9 @@ def test_latest_cross_section_is_exact_close_and_hash_recorded() -> None:
         assert ready["same_close_daily_selector_recomputed"] is False
         assert ready["coverage"]["exact_close_coverage_ratio"] == 1.0
         assert all(item["sha256"] for item in ready["artifacts"].values())
+        assert all(
+            item["ready"] for item in ready["target_proposal_audits"].values()
+        )
 
         scored_path = root / "outputs" / "scored_latest.csv"
         scored = pd.read_csv(scored_path)
@@ -93,6 +96,43 @@ def test_latest_cross_section_is_exact_close_and_hash_recorded() -> None:
             assert "cannot be blank" in str(exc)
         else:
             raise AssertionError("blank decision_time_utc must fail closed")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        args = fixture(root)
+        main_path = root / "outputs" / "portfolio_latest.csv"
+        main = pd.read_csv(main_path)
+        main.loc[0, "ticker"] = "ZZZ"
+        main.to_csv(main_path, index=False)
+        blocked = preflight.build(args)
+        audit = blocked["target_proposal_audits"]["main_target_proposal"]
+        assert audit["ready"] is False
+        assert audit["ineligible_or_unexpected_tickers"] == ["ZZZ"]
+        assert audit["missing_exact_close_tickers"] == ["ZZZ"]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        args = fixture(root)
+        main_path = root / "outputs" / "portfolio_latest.csv"
+        main = pd.read_csv(main_path)
+        main.loc[0, "feature_available_from"] = "2026-07-31T21:00:00Z"
+        main.to_csv(main_path, index=False)
+        blocked = preflight.build(args)
+        assert any(
+            item.startswith(
+                "main_target_proposal_feature_available_from_close_mismatch_rows"
+            )
+            for item in blocked["contract_failures"]
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        args = fixture(root)
+        main_path = root / "outputs" / "portfolio_latest.csv"
+        main = pd.read_csv(main_path)
+        pd.concat([main, main], ignore_index=True).to_csv(main_path, index=False)
+        blocked = preflight.build(args)
+        assert "main_target_proposal_duplicate_tickers:1" in blocked["contract_failures"]
 
 
 if __name__ == "__main__":

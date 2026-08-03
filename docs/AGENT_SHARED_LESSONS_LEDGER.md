@@ -3819,3 +3819,27 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-03 - Fullrun publication, proposal, and completeness boundary
+
+- A passing-progress Tier-1 run can still be cancelled by an undersized job
+  timeout because checkout and setup consume the same budget as tests. Keep the
+  complete validation set and size the bounded timeout from observed runtime.
+- Mutation-safe sidecars are insufficient when cloud, Drive, or commit-based
+  publication still uses unconditional execution. Canonical mutation and every
+  publication surface must require the full validated path to succeed.
+- Target readiness is more than a matching session label. Validate normalized
+  unique tickers, scored eligibility, PIT availability, and exact-close coverage
+  for every proposed equity position before broker replay.
+- Required 25/50/100 bps cost evidence must be generated and retained on every
+  canonical artifact surface; a report that is omitted during packaging is not
+  durable evidence.
+- A 98% candidate contract applies to complete rows over the registered field
+  set. Invalid tickers, non-positive prices, and invalid PIT timestamps remain
+  zero-tolerance integrity failures even when aggregate coverage exceeds 98%.
+- Runtime identity must bind every restored cache that can influence the engine,
+  including optional caches when they are present, rather than only the required
+  minimum input groups.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.

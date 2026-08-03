@@ -974,6 +974,7 @@ jobs:
             outputs/broker_replay/concentrated/cash_ledger.csv
             outputs/broker_replay/concentrated/equity_curve.csv
             outputs/broker_replay/concentrated/target_vs_actual_weights.csv
+            outputs/cost_sensitivity/
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
             outputs/portfolio_latest.csv
@@ -1061,6 +1062,7 @@ jobs:
             outputs/universe_health/
             outputs/data_freshness_contract/
             outputs/broker_replay/
+            outputs/cost_sensitivity/
             outputs/legacy_monthly_broker_replay/
             outputs/operating_snapshot/
             outputs/account_ledger_preview/
@@ -1284,7 +1286,7 @@ jobs:
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
       - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
-        if: always()
+        if: success()
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
@@ -1577,8 +1579,8 @@ jobs:
             fi
           done
 
-      - name: Commit verdict + portfolio CSVs (always — diagnostics on fail)
-        if: always()    # ← changed from success() to capture fail-state logs
+      - name: Commit verdict + portfolio CSVs (validated publication)
+        if: success()
         env:
           INPUT_UNIVERSE_MODE: ${{ inputs.universe_mode }}
           INPUT_ARTIFACT_PROFILE: ${{ inputs.artifact_profile }}
@@ -1727,6 +1729,7 @@ jobs:
             copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
             copy_dir_clean outputs/universe_health "$DEST/universe_health"
             copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
+            copy_dir_clean outputs/cost_sensitivity "$DEST/cost_sensitivity"
             copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
             mkdir -p "$DEST/manifests"

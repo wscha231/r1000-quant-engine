@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -51,20 +52,46 @@ PIT_REQUIRED_COLUMNS = (
 )
 
 FEATURE_COMPLETENESS_COLUMNS = (
+    "ticker",
+    "px",
+    "score_total",
     "mom_1m",
     "mom_3m",
     "mom_6m",
+    "mom_12m",
     "relative_strength_composite",
-    "price_above_ma200",
-    "rsi14",
+    "valuation_price_cutoff_date",
+    "feature_available_from",
 )
+FEATURE_NUMERIC_COLUMNS = {
+    "px",
+    "score_total",
+    "mom_1m",
+    "mom_3m",
+    "mom_6m",
+    "mom_12m",
+    "relative_strength_composite",
+}
+FEATURE_DATETIME_COLUMNS = {
+    "valuation_price_cutoff_date",
+    "feature_available_from",
+}
+FEATURE_HARD_INTEGRITY_COLUMNS = {
+    "ticker",
+    "px",
+    "valuation_price_cutoff_date",
+    "feature_available_from",
+}
+INVALID_TICKERS = {"", "N/A", "NA", "NAN", "NONE", "NULL", "UNKNOWN"}
 FEATURE_NONZERO_COLUMNS = (
+    "score_total",
     "mom_1m",
     "mom_3m",
     "mom_6m",
+    "mom_12m",
     "relative_strength_composite",
-    "rsi14",
 )
+MIN_FEATURE_COMPLETENESS_RATIO = 0.98
 MIN_BROKER_LEDGER_TRADING_DAYS = int(252 * 7)
 DEFAULT_CACHE_START_FLOOR = "2019-05-09"
 
@@ -247,35 +274,84 @@ def feature_completeness_status(first_rows: pd.DataFrame) -> dict[str, Any]:
         "required_columns": list(FEATURE_COMPLETENESS_COLUMNS),
         "missing_columns": [],
         "column_stats": {},
-        "min_non_placeholder_ratio": 0.80,
+        "minimum_complete_row_ratio": MIN_FEATURE_COMPLETENESS_RATIO,
+        "coverage_denominator_count": int(len(first_rows)),
+        "complete_row_count": 0,
+        "coverage_ratio": 0.0,
+        "hard_integrity_invalid_by_column": {},
     }
     if first_rows.empty:
         status["status"] = "missing_first_decision_rows"
         return status
     blockers: list[str] = []
+    valid_masks: dict[str, pd.Series] = {}
     for col in FEATURE_COMPLETENESS_COLUMNS:
         if col not in first_rows.columns:
             status["missing_columns"].append(col)
             blockers.append(f"missing:{col}")
+            valid_masks[col] = pd.Series(False, index=first_rows.index)
             continue
-        values = pd.to_numeric(first_rows[col], errors="coerce")
-        non_null = values.notna()
-        non_placeholder = non_null & ~values.isin([-999.0, -9999.0])
-        non_zero = non_placeholder & values.ne(0.0)
-        non_placeholder_ratio = float(non_placeholder.mean()) if len(values) else 0.0
+        raw = first_rows[col]
+        if col == "ticker":
+            normalized = raw.fillna("").astype(str).str.upper().str.strip()
+            valid = ~normalized.isin(INVALID_TICKERS)
+            non_zero = valid
+        elif col in FEATURE_NUMERIC_COLUMNS:
+            values = pd.to_numeric(raw, errors="coerce")
+            finite = values.map(lambda value: bool(pd.notna(value) and math.isfinite(float(value))))
+            valid = finite & ~values.isin([-999.0, -9999.0])
+            if col == "px":
+                valid = valid & values.gt(0.0)
+            non_zero = valid & values.ne(0.0)
+        elif col in FEATURE_DATETIME_COLUMNS:
+            values = pd.to_datetime(raw, errors="coerce", utc=True)
+            valid = values.notna()
+            non_zero = valid
+        else:
+            valid = raw.notna()
+            non_zero = valid
+        valid_masks[col] = valid
+        complete_ratio = float(valid.mean()) if len(valid) else 0.0
         stat = {
-            "non_null_ratio": float(non_null.mean()) if len(values) else 0.0,
-            "non_placeholder_ratio": non_placeholder_ratio,
-            "non_zero_ratio": float(non_zero.mean()) if len(values) else 0.0,
+            "valid_count": int(valid.sum()),
+            "invalid_count": int((~valid).sum()),
+            "complete_ratio": complete_ratio,
+            "non_zero_ratio": float(non_zero.mean()) if len(valid) else 0.0,
         }
         status["column_stats"][col] = stat
-        if non_placeholder_ratio < status["min_non_placeholder_ratio"]:
-            blockers.append(f"low_non_placeholder:{col}")
         if col in FEATURE_NONZERO_COLUMNS and float(non_zero.sum()) <= 0.0:
             blockers.append(f"all_zero_or_placeholder:{col}")
+
+    complete_mask = pd.Series(True, index=first_rows.index)
+    for col in FEATURE_COMPLETENESS_COLUMNS:
+        complete_mask &= valid_masks[col]
+    complete_count = int(complete_mask.sum())
+    coverage_ratio = float(complete_count / len(first_rows))
+    status["complete_row_count"] = complete_count
+    status["coverage_ratio"] = coverage_ratio
+    if coverage_ratio < MIN_FEATURE_COMPLETENESS_RATIO:
+        blockers.append(
+            f"complete_row_coverage:{coverage_ratio:.6f}<{MIN_FEATURE_COMPLETENESS_RATIO:.6f}"
+        )
+
+    hard_invalid = {
+        col: int((~valid_masks[col]).sum())
+        for col in FEATURE_HARD_INTEGRITY_COLUMNS
+        if col in valid_masks and int((~valid_masks[col]).sum()) > 0
+    }
+    status["hard_integrity_invalid_by_column"] = hard_invalid
+    for col, count in hard_invalid.items():
+        blockers.append(f"hard_integrity_invalid:{col}:{count}")
+
+    if "ticker" in first_rows.columns:
+        normalized = first_rows["ticker"].fillna("").astype(str).str.upper().str.strip()
+        duplicate_count = int(normalized.duplicated().sum())
+        status["duplicate_ticker_count"] = duplicate_count
+        if duplicate_count:
+            blockers.append(f"duplicate_tickers:{duplicate_count}")
     if blockers:
         status["status"] = "fail"
-        status["blockers"] = blockers
+        status["blockers"] = sorted(set(blockers))
     return status
 
 
@@ -400,7 +476,7 @@ def main() -> int:
         blockers.append("projected_calendar_trading_days_below_7y")
 
     payload = {
-        "schema_version": "clean7y-window-preflight-v2",
+        "schema_version": "clean7y-window-preflight-v3",
         "production_promotion_allowed": False,
         "purpose": "research_7y_window_preflight",
         "mode": "source_only" if args.source_only else "post_book",

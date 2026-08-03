@@ -51,6 +51,14 @@
             ],
             "min_files": 1
           },
+          "restored_engine_caches": {
+            "paths": [
+              "cache_sec_actual",
+              "cache_misc",
+              "cache_live_fund"
+            ],
+            "min_files": 0
+          },
           "restored_sec_evidence": {
             "paths": [
               "outputs/full_rebuild_logs/sec_evidence_restore_manifest.json",
@@ -93,7 +101,7 @@
   "tracked_inputs": {
     "fullrun_workflow": {
       "path": ".github/workflows/full_rebuild_manual.yml",
-      "sha256": "6c636cea194d747d73427dc25db88bcb91cd02e9de587f190bc5b37720b5c04f"
+      "sha256": "d27cb7025b301034cf09713e37b6f95bbc96dc92705175cba01c4a33478813b2"
     },
     "requirements": {
       "path": "requirements_github.txt",
@@ -117,11 +125,23 @@
     },
     "clean7y_preflight": {
       "path": "tools/run_clean7y_window_preflight.py",
-      "sha256": "5a82f30f0fda0934c824668fb2484a86a035e9e9470ec7a7ceb54489247d3a29"
+      "sha256": "ecf0b77b55582f09ef317a548a305812765b4673f1874b39a7fadf88af471102"
     },
     "sidecar_orchestrator": {
       "path": "tools/run_full_rebuild_sidecars.py",
-      "sha256": "73559b50a42e189f33bf17d51e9f2d475a13d3cc0102c4956d756a027dbea175"
+      "sha256": "c252324fcbe984093ec6f4946bb962030370a80e8959aa4d2356df4157e53304"
+    },
+    "data_freshness_contract": {
+      "path": "tools/run_data_freshness_contract.py",
+      "sha256": "9c5ac056211a774913311a60247b025c716dbcd1fe27f27f356ae44597d09c79"
+    },
+    "cost_sensitivity_sidecar": {
+      "path": "tools/run_cost_sensitivity_sidecar.py",
+      "sha256": "cc72dadd8f9577d2c4f628fa3d113ec85acd192ce2f8c8b50f5136683118de29"
+    },
+    "gdrive_sync_manifest_builder": {
+      "path": "tools/build_gdrive_sync_manifest.py",
+      "sha256": "1c4fee3f8d4562d32e0b8f1f647944e01b573589dfa40129647cd9a8c1ec166b"
     },
     "sec_enrichment": {
       "path": "tools/run_sec_enriched_candidate_replay.py",
@@ -149,7 +169,7 @@
     },
     "latest_cross_section_preflight": {
       "path": "tools/run_fullrun_latest_cross_section_preflight.py",
-      "sha256": "b153b70c47386611f9197afb14b5da3c7280ee36460d04cf2351722d7d45bea6"
+      "sha256": "173a7558718521c322a06b3aa3126701f966d4be49f3c0029d4655fbbcd56f08"
     },
     "abcd_cadence_contract": {
       "path": "docs/run287_abcd_cadence_challenger_contract.json",

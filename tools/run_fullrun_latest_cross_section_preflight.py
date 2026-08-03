@@ -25,8 +25,9 @@ if str(REPO_ROOT) not in sys.path:
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
-SCHEMA_VERSION = "run287-fullrun-latest-cross-section-preflight-v1"
-CASH_TICKERS = {"", "CASH", "USD", "__CASH__", "BIL", "SHV", "SGOV"}
+SCHEMA_VERSION = "run287-fullrun-latest-cross-section-preflight-v2"
+CASH_TICKERS = {"CASH", "USD", "__CASH__", "BIL", "SHV", "SGOV"}
+INVALID_TICKERS = {"", "N/A", "NA", "NAN", "NONE", "NULL", "UNKNOWN"}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -57,6 +58,10 @@ def bool_series(values: pd.Series) -> pd.Series:
     if values.dtype == bool:
         return values.fillna(False)
     return values.astype(str).str.strip().str.lower().isin({"1", "true", "yes"})
+
+
+def ticker_series(values: pd.Series) -> pd.Series:
+    return values.fillna("").astype(str).str.upper().str.strip()
 
 
 def date_series(frame: pd.DataFrame) -> pd.Series:
@@ -183,7 +188,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if not eligible.empty and "ranking_eligible" in eligible.columns:
         eligible = eligible.loc[bool_series(eligible["ranking_eligible"])].copy()
     if "ticker" in eligible.columns:
-        eligible["ticker"] = eligible["ticker"].astype(str).str.upper().str.strip()
+        eligible["ticker"] = ticker_series(eligible["ticker"])
+        invalid_eligible = eligible["ticker"].isin(INVALID_TICKERS)
+        if invalid_eligible.any():
+            failures.append(f"invalid_eligible_tickers:{int(invalid_eligible.sum())}")
         eligible = eligible.loc[~eligible["ticker"].isin(CASH_TICKERS)].copy()
         duplicate_count = int(eligible["ticker"].duplicated().sum())
         if duplicate_count:
@@ -191,11 +199,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     else:
         failures.append("scored_latest_missing_columns:ticker")
 
-    candidate_tickers = (
-        set(candidate_latest["ticker"].astype(str).str.upper().str.strip())
-        if "ticker" in candidate_latest.columns
-        else set()
-    )
+    candidate_tickers: set[str] = set()
+    if "ticker" in candidate_latest.columns:
+        candidate_latest["ticker"] = ticker_series(candidate_latest["ticker"])
+        invalid_candidate = candidate_latest["ticker"].isin(INVALID_TICKERS)
+        if invalid_candidate.any():
+            failures.append(
+                f"candidate_replay_book_latest_invalid_tickers:{int(invalid_candidate.sum())}"
+            )
+        duplicate_candidate = int(candidate_latest["ticker"].duplicated().sum())
+        if duplicate_candidate:
+            failures.append(
+                f"candidate_replay_book_latest_duplicate_tickers:{duplicate_candidate}"
+            )
+        candidate_tickers = set(candidate_latest["ticker"])
+    else:
+        failures.append("candidate_replay_book_latest_missing_columns:ticker")
     eligible_tickers = set(eligible.get("ticker", pd.Series(dtype=str)))
     missing_candidate_tickers = sorted(eligible_tickers - candidate_tickers)
     if missing_candidate_tickers:
@@ -216,14 +235,84 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     missing_exact_close = [row["ticker"] for row in price_rows if not row["exact_close_available"]]
     if missing_exact_close:
         failures.append(f"eligible_ticker_exact_close_missing:{len(missing_exact_close)}")
+    exact_close_tickers = {
+        str(row["ticker"])
+        for row in price_rows
+        if bool(row["exact_close_available"])
+    }
 
     proposal_ready: dict[str, bool] = {}
+    proposal_audits: dict[str, dict[str, Any]] = {}
     for label in ("main_target_proposal", "concentrated_target_proposal"):
-        frame = frames[label]
+        frame = frames[label].copy()
+        proposal_failures: list[str] = []
         dates = date_series(frame).dt.strftime("%Y-%m-%d") if not frame.empty else pd.Series(dtype=str)
-        proposal_ready[label] = bool(not frame.empty and dates.eq(valuation_date).all())
-        if not proposal_ready[label]:
-            failures.append(f"{label}_session_mismatch")
+        if frame.empty or not dates.eq(valuation_date).all():
+            proposal_failures.append(f"{label}_session_mismatch")
+        if not frame.empty:
+            proposal_failures.extend(
+                provenance_failures(
+                    frame,
+                    label=label,
+                    valuation_date=valuation_date,
+                    close=close,
+                    decision_time=decision_time,
+                )
+            )
+
+        proposal_tickers: set[str] = set()
+        invalid_tickers: list[str] = []
+        duplicate_tickers: list[str] = []
+        unexpected_tickers: list[str] = []
+        proposal_missing_exact_close: list[str] = []
+        if "ticker" not in frame.columns:
+            proposal_failures.append(f"{label}_missing_columns:ticker")
+        else:
+            frame["ticker"] = ticker_series(frame["ticker"])
+            invalid_tickers = sorted(
+                set(frame.loc[frame["ticker"].isin(INVALID_TICKERS), "ticker"])
+            )
+            if invalid_tickers:
+                proposal_failures.append(
+                    f"{label}_invalid_ticker_rows:{int(frame['ticker'].isin(INVALID_TICKERS).sum())}"
+                )
+            stock_tickers = frame.loc[
+                ~frame["ticker"].isin(CASH_TICKERS | INVALID_TICKERS), "ticker"
+            ]
+            duplicate_tickers = sorted(
+                set(stock_tickers.loc[stock_tickers.duplicated(keep=False)])
+            )
+            if duplicate_tickers:
+                proposal_failures.append(
+                    f"{label}_duplicate_tickers:{len(duplicate_tickers)}"
+                )
+            proposal_tickers = set(stock_tickers)
+            if not proposal_tickers:
+                proposal_failures.append(f"{label}_no_equity_tickers")
+            unexpected_tickers = sorted(proposal_tickers - eligible_tickers)
+            if unexpected_tickers:
+                proposal_failures.append(
+                    f"{label}_ineligible_or_unexpected_tickers:{len(unexpected_tickers)}"
+                )
+            proposal_missing_exact_close = sorted(
+                proposal_tickers - exact_close_tickers
+            )
+            if proposal_missing_exact_close:
+                proposal_failures.append(
+                    f"{label}_exact_close_missing:{len(proposal_missing_exact_close)}"
+                )
+
+        failures.extend(proposal_failures)
+        proposal_ready[label] = not proposal_failures
+        proposal_audits[label] = {
+            "ready": proposal_ready[label],
+            "equity_ticker_count": len(proposal_tickers),
+            "invalid_tickers": invalid_tickers,
+            "duplicate_tickers": duplicate_tickers,
+            "ineligible_or_unexpected_tickers": unexpected_tickers,
+            "missing_exact_close_tickers": proposal_missing_exact_close,
+            "contract_failures": sorted(set(proposal_failures)),
+        }
 
     monthly_due = is_month_end_session(valuation_date)
     payload = {
@@ -263,6 +352,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             }
             for label, path in paths.items()
         },
+        "target_proposal_audits": proposal_audits,
         "missing_candidate_tickers": missing_candidate_tickers,
         "missing_exact_close_tickers": missing_exact_close,
     }

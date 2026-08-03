@@ -384,7 +384,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "run_data_freshness_contract",
         "outputs/data_freshness_contract/",
         "--source-context full_rebuild_sidecar",
-        "--freshness-contract-non-fatal",
+        "--strict-selection",
         "write_alpha_plane_measurement_status",
         "alpha_plane_measurement_status_v1",
         "--source-run-id",
@@ -633,6 +633,13 @@ def test_sec_enrichment_is_strict_hash_bound_and_precedes_policy_replay() -> Non
     assert len(readiness_calls) == 2
     assert all("--require-policy-replay-ready" in line for line in readiness_calls)
     assert all("|| true" not in line for line in readiness_calls)
+    freshness_body = sidecar_tool[
+        sidecar_tool.index("run_data_freshness_contract()") :
+        sidecar_tool.index("run_universe_health_audit()")
+    ]
+    assert "--strict-selection" in freshness_body
+    assert "--freshness-contract-non-fatal" not in freshness_body
+    assert "|| true" not in freshness_body
     assert sidecar_tool.count("run_required_cost_sensitivity_sidecars") == 3
     required_cost_body = sidecar_tool[
         sidecar_tool.index("run_required_cost_sensitivity_sidecars()") :
@@ -1782,6 +1789,7 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
             "outputs/full_rebuild_logs/clean7y_window_preflight_source.log",
             "outputs/full_rebuild_logs/clean7y_window_preflight.log",
             "outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log",
+            "outputs/cost_sensitivity/",
         ):
             assert token in block, token
     for token in (
@@ -1789,6 +1797,47 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
         "outputs/fullrun_runtime_operating_source_manifest.json",
     ):
         assert token in research, token
+
+
+def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    gdrive_step = text[
+        text.index("- name: Sync outputs to user's Google Drive") :
+        text.index("- name: Telegram alert + zip results")
+    ]
+    assert "if: success()" in gdrive_step
+    assert "if: always()" not in gdrive_step
+
+    commit_step = text[text.index("- name: Commit verdict + portfolio CSVs") :]
+    assert "if: success()" in commit_step.split("run: |", 1)[0]
+    assert "copy_dir_clean outputs/cost_sensitivity" in commit_step
+
+    gdrive_manifest = (
+        ROOT / "tools" / "build_gdrive_sync_manifest.py"
+    ).read_text(encoding="utf-8")
+    for token in (
+        "cost_sensitivity/main/summary.json",
+        "cost_sensitivity/main/report.md",
+        "cost_sensitivity/concentrated/summary.json",
+        "cost_sensitivity/concentrated/report.md",
+        "required=name in REQUIRED_COST_SENSITIVITY_FILES",
+    ):
+        assert token in gdrive_manifest, token
+
+    approved = json.loads(
+        (ROOT / "manifests" / "fullrun" / "run287_canonical_a_20260731.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    engine_groups = approved["runtime_source_contract"]["stages"]["engine_pre_run"]["groups"]
+    consumed_paths = {
+        path
+        for group in engine_groups.values()
+        for path in group.get("paths", [])
+    }
+    assert {"cache_sec_actual", "cache_misc", "cache_live_fund"}.issubset(
+        consumed_paths
+    )
 
 
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
@@ -1818,6 +1867,7 @@ def main() -> int:
     test_workflow_runs_latest_diagnostics_sidecars()
     test_sidecar_promotion_hook_runs_before_primary_broker_replay()
     test_sec_enrichment_is_strict_hash_bound_and_precedes_policy_replay()
+    test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence()
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()

@@ -36,6 +36,12 @@ USER_CURRENT_FILES = [
     "09_daily_output_contract_summary.json",
     "summary.json",
 ]
+REQUIRED_COST_SENSITIVITY_FILES = {
+    "cost_sensitivity/main/summary.json",
+    "cost_sensitivity/main/report.md",
+    "cost_sensitivity/concentrated/summary.json",
+    "cost_sensitivity/concentrated/report.md",
+}
 OFFICIAL_FILES = [
     "patch_application_manifest.json",
     "alphaops_vnext/summary.json",
@@ -70,6 +76,7 @@ OFFICIAL_FILES = [
     "broker_replay/concentrated/cash_ledger.csv",
     "broker_replay/concentrated/equity_curve.csv",
     "broker_replay/concentrated/target_vs_actual_weights.csv",
+    *sorted(REQUIRED_COST_SENSITIVITY_FILES),
     "operating_snapshot/current_operating_holdings_latest.csv",
     "operating_snapshot/current_portfolio_snapshot_summary.json",
 ]
@@ -107,6 +114,7 @@ MINIMAL_ANALYSIS_FILES = [
     "broker_replay/concentrated/cash_ledger.csv",
     "broker_replay/concentrated/equity_curve.csv",
     "broker_replay/concentrated/target_vs_actual_weights.csv",
+    *sorted(REQUIRED_COST_SENSITIVITY_FILES),
     "reports/operating_main_target_book.csv",
     "reports/operating_concentrated_target_book.csv",
 ]
@@ -263,7 +271,7 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
                     latest_run=latest_run,
                     rel_source=name,
                     rel_dest=f"official/{args.run_id}/{name}",
-                    required=False,
+                    required=name in REQUIRED_COST_SENSITIVITY_FILES,
                     semantic_type="official",
                     production_valid=True,
                     metric_mode=metric_mode,
@@ -277,7 +285,7 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
                     latest_run=latest_run,
                     rel_source=name,
                     rel_dest=f"official/{args.run_id}/{name}",
-                    required=False,
+                    required=name in REQUIRED_COST_SENSITIVITY_FILES,
                     semantic_type="official",
                     production_valid=True,
                     metric_mode=metric_mode,
