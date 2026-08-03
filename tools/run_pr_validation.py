@@ -122,6 +122,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/seven_year_lock_smoke.py", []),
     ("tests/clean7y_window_preflight_smoke.py", []),
     ("tests/fullrun_source_manifest_smoke.py", []),
+    ("tests/fullrun_runtime_source_manifest_smoke.py", []),
     ("tests/fullrun_latest_cross_section_preflight_smoke.py", []),
     ("tests/data_readiness_smoke.py", []),
     ("tests/broker_gap_attribution_smoke.py", []),

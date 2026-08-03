@@ -101,8 +101,8 @@ def test_weekly_leader_book_adds_new_entry_and_replays() -> None:
         ]
         pd.DataFrame(candidate_rows).to_csv(reports / "candidate_replay_book.csv", index=False)
         base_rows = [
-            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 1.0},
-            {"rebalance_date": "2026-01-30", "ticker": "BBB", "weight": 1.0},
+            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 1.0, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-30", "ticker": "BBB", "weight": 1.0, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
         ]
         pd.DataFrame(base_rows).to_csv(reports / "operating_main_target_book.csv", index=False)
         pd.DataFrame(base_rows).to_csv(reports / "operating_concentrated_target_book.csv", index=False)
@@ -251,8 +251,8 @@ def test_weekly_signal_date_does_not_collide_with_monthly_rebalance() -> None:
         ]
         pd.DataFrame(candidate_rows).to_csv(reports / "candidate_replay_book.csv", index=False)
         base_rows = [
-            {"rebalance_date": "2024-02-29", "ticker": "BBB", "weight": 1.0},
-            {"rebalance_date": "2024-03-28", "ticker": "BBB", "weight": 1.0},
+            {"rebalance_date": "2024-02-29", "ticker": "BBB", "weight": 1.0, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2024-03-28", "ticker": "BBB", "weight": 1.0, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
         ]
         pd.DataFrame(base_rows).to_csv(reports / "operating_main_target_book.csv", index=False)
         pd.DataFrame(base_rows).to_csv(reports / "operating_concentrated_target_book.csv", index=False)

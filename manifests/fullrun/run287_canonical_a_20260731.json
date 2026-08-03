@@ -17,62 +17,139 @@
     "experiment_env": {}
   },
   "resolved_session_date": "2026-07-31",
+  "runtime_source_contract": {
+    "schema_version": "run287-fullrun-runtime-source-contract-v1",
+    "stages": {
+      "engine_pre_run": {
+        "groups": {
+          "companyfacts": {
+            "paths": [
+              "outputs/companyfacts.zip",
+              "data_raw/free/sec/companyfacts.zip"
+            ],
+            "min_files": 2
+          },
+          "engine_cache": {
+            "paths": [
+              "outputs/feature_store_*.parquet",
+              "outputs/scored_*.csv",
+              "outputs/walk_forward"
+            ],
+            "min_files": 0
+          },
+          "fundamental_macro": {
+            "paths": [
+              "cache_fsds",
+              "cache_macro",
+              "outputs/macro"
+            ],
+            "min_files": 1
+          },
+          "market_data": {
+            "paths": [
+              "cache_prices"
+            ],
+            "min_files": 1
+          },
+          "restored_sec_evidence": {
+            "paths": [
+              "outputs/full_rebuild_logs/sec_evidence_restore_manifest.json",
+              "outputs/sec_institutional_signals",
+              "outputs/sec_ownership_signals",
+              "data_pit/sec",
+              "outputs/etf_thematic_signals",
+              "data_pit/etf_holdings"
+            ],
+            "min_files": 1
+          }
+        }
+      },
+      "operating_pre_broker": {
+        "groups": {
+          "final_operating_target_books": {
+            "paths": [
+              "outputs/reports/operating_main_target_book.csv",
+              "outputs/reports/operating_concentrated_target_book.csv"
+            ],
+            "min_files": 2
+          },
+          "market_data": {
+            "paths": [
+              "cache_prices"
+            ],
+            "min_files": 1
+          },
+          "sec_enrichment_contract": {
+            "paths": [
+              "outputs/sec_enriched_candidate_replay/source_manifest.json",
+              "outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+            ],
+            "min_files": 2
+          }
+        }
+      }
+    }
+  },
   "tracked_inputs": {
     "fullrun_workflow": {
       "path": ".github/workflows/full_rebuild_manual.yml",
-      "sha256": "eb6189ef8694c5af162d93eac24652bcd151b6e011fc4ae6797c8b9e43e0693f"
+      "sha256": "6c636cea194d747d73427dc25db88bcb91cd02e9de587f190bc5b37720b5c04f"
     },
     "requirements": {
       "path": "requirements_github.txt",
-      "sha256": "95cb65b17f041574add98946412bd1062f642718fd4aeb1b9458f3597e9c1e41"
+      "sha256": "fb1371124327de07f4f2fba30bcc49367752b3c846ce2057b76c0e4db6211dc5"
     },
     "engine_config": {
       "path": "r1000_config.py",
-      "sha256": "7b983696831d48f7a1c6f62454a49dbf5b9d349d2e1b0136c9cf4e6a84646a77"
+      "sha256": "93893acf400e3330a13fb052b600b1b7f27e0f4217ffa35d3698830b3b1400b7"
     },
     "engine_pipeline": {
       "path": "r1000_pipeline.py",
-      "sha256": "f8f98e39efd5051dceadddb93a826d00d485ca25057ed9f289e6a8c1a302ab68"
+      "sha256": "aeb777006f3d8cafd862e89e333a89894dadffa345362dbd69174f9a445c37eb"
     },
     "local_orchestrator": {
       "path": "run_local.py",
-      "sha256": "ecc7bb4a9d74e0d2b57248be8e13cd8ba65287a62213624910d9c51b7637f1b5"
+      "sha256": "9c34c992760f2f5b2707987179149e04f16377e5ae3ad44e1cb7f359d7a07a9f"
     },
     "broker_ledger": {
       "path": "tools/run_broker_ledger_replay.py",
-      "sha256": "81e727d837a7f3da20686efe725f1c3b7a9ba35791f6e6576e9f71f865375521"
+      "sha256": "f06afe73d6b18737c52e4ec240801d2958c100b54e730c22374f94d0803fbc7f"
     },
     "clean7y_preflight": {
       "path": "tools/run_clean7y_window_preflight.py",
-      "sha256": "3485d7468d039f7bd0762ee6c4fbee019f035691c7c55b624acc6dfd24af74bb"
+      "sha256": "5a82f30f0fda0934c824668fb2484a86a035e9e9470ec7a7ceb54489247d3a29"
     },
     "sidecar_orchestrator": {
       "path": "tools/run_full_rebuild_sidecars.py",
-      "sha256": "90242dbe8a6b549feb92c1bad02be1e77172291931089aef75d73df55580bfd9"
+      "sha256": "73559b50a42e189f33bf17d51e9f2d475a13d3cc0102c4956d756a027dbea175"
     },
     "sec_enrichment": {
       "path": "tools/run_sec_enriched_candidate_replay.py",
-      "sha256": "312aeb054d54f99eb748086b946ebba6664b3ea06bd6eb68aca99957737a185a"
+      "sha256": "c70c579b49269698ecb79f8cb8465e642927e5dc26f90c345751c2ad132a19c6"
     },
     "policy_readiness": {
       "path": "tools/audit_data_readiness.py",
-      "sha256": "80f1cd540b7691f76181886193fc4ceaef4f215280183b7f7a98cbc1dbee7eac"
+      "sha256": "813ebda62379a0a16544225f5f0a304bff5fef91f1a5b1346226b876d168cf79"
     },
     "operating_target_builder": {
       "path": "tools/build_operating_target_books.py",
-      "sha256": "1d18c204a02c2fd9f2ee80a91afc5241b9321f77afc5809bcc9a28e196248dbb"
+      "sha256": "75880b7254b1409d040d3ddf70b870d9870b50504b7241fa5f997504351522d1"
     },
     "replay_integrity": {
       "path": "tools/run_replay_integrity_preflight.py",
-      "sha256": "d1e686280f823a9e229b8a401f2f5eae7b6d7ddf0a16363484c5f819aca1d968"
+      "sha256": "e51a86c52025c067a69b126bceec51c792054eb4efed97ab2b32d77d8533147e"
     },
     "source_manifest_verifier": {
       "path": "tools/verify_fullrun_source_manifest.py",
-      "sha256": "441e46e611d25ee69bff5415270d1bef921d152ff18453c87abdc39297cd6547"
+      "sha256": "497e9f83d8de192a0feb47957e89a61b492e974203ae5f6e55a9f50b79366ab0"
+    },
+    "runtime_source_manifest_builder": {
+      "path": "tools/build_fullrun_runtime_source_manifest.py",
+      "sha256": "b831c815b04d971e39f18a3e06e83227a00d58f2c3d32652170721407ed6ca7d"
     },
     "latest_cross_section_preflight": {
       "path": "tools/run_fullrun_latest_cross_section_preflight.py",
-      "sha256": "302449982a0aeabc4d12b48b821ba2d677833d491d43f8a6198c9b10b123f5ee"
+      "sha256": "b153b70c47386611f9197afb14b5da3c7280ee36460d04cf2351722d7d45bea6"
     },
     "abcd_cadence_contract": {
       "path": "docs/run287_abcd_cadence_challenger_contract.json",

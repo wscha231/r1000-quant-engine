@@ -600,9 +600,13 @@ def test_sidecar_promotion_hook_runs_before_primary_broker_replay() -> None:
     refresh_idx = sidecar_tool.index("refresh_replay_price_cache", operating_idx)
     build_idx = sidecar_tool.index("tools/build_operating_target_books.py")
     hook_idx = sidecar_tool.index("run_sidecar_promotion_hook", build_idx)
+    runtime_bind_idx = sidecar_tool.index(
+        "capture_operating_runtime_source_manifest", hook_idx
+    )
+    readiness_idx = sidecar_tool.index("data_readiness_pre_broker.log", runtime_bind_idx)
     replay_idx = sidecar_tool.index("--target-book outputs/reports/operating_main_target_book.csv", build_idx)
     assert refresh_idx < build_idx
-    assert build_idx < hook_idx < replay_idx
+    assert build_idx < hook_idx < runtime_bind_idx < readiness_idx < replay_idx
     assert "build_long_crisis_inputs" in sidecar_tool
     assert "tools/run_long_crisis_dataset_builder.py" in sidecar_tool
 
@@ -629,6 +633,13 @@ def test_sec_enrichment_is_strict_hash_bound_and_precedes_policy_replay() -> Non
     assert len(readiness_calls) == 2
     assert all("--require-policy-replay-ready" in line for line in readiness_calls)
     assert all("|| true" not in line for line in readiness_calls)
+    assert sidecar_tool.count("run_required_cost_sensitivity_sidecars") == 3
+    required_cost_body = sidecar_tool[
+        sidecar_tool.index("run_required_cost_sensitivity_sidecars()") :
+        sidecar_tool.index("capture_operating_runtime_source_manifest()")
+    ]
+    assert "--cost-bps-list 25 50 100" in required_cost_body
+    assert "|| true" not in required_cost_body
 
     operating_idx = sidecar_tool.index('if [ "$SIDECAR_PROFILE" = "operating_minimal" ]')
     operating_enrichment = sidecar_tool.index("build_sec_enriched_candidate_book", operating_idx)
@@ -1713,6 +1724,25 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     assert "outputs/fullrun_source_manifest_preflight.json" in text
     assert "outputs/fullrun_source_manifest_verification.json" in text
     assert "outputs/fullrun_approved_source_manifest.json" in text
+    runtime_step = extract_yaml_literal_run(
+        text, "Bind restored runtime sources to approved identity"
+    )
+    assert "tools/build_fullrun_runtime_source_manifest.py" in runtime_step
+    assert "--stage engine_pre_run" in runtime_step
+    assert text.index("Restore SEC evidence overlays from Google Drive") < text.index(
+        "Bind restored runtime sources to approved identity"
+    ) < text.index("Run FULL rebuild")
+    run_full_block = text[
+        text.index("- name: Run FULL rebuild") :
+        text.index("- name: Auto-learning diagnostics (sidecar)")
+    ]
+    assert "DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}" in run_full_block
+    sidecar_step = text[
+        text.index("- name: Portfolio target replay + goal search (sidecar)") :
+        text.index("- name: Verdict (post-sidecar Cell E equivalent)")
+    ]
+    assert "if: success()" in sidecar_step
+    assert 'FULLRUN_RUNTIME_BINDING_REQUIRED: "true"' in sidecar_step
     assert text.index("Resolve approved fullrun market session") < text.index(
         "Restore collector cache"
     )
@@ -1724,6 +1754,8 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     assert '--decision-time-utc "$DECISION_TIME_UTC"' in rebuild_step
     assert "--strict" in rebuild_step
     assert rebuild_step.index("run_local.py --full") < rebuild_step.index(
+        "tools/build_operating_target_books.py"
+    ) < rebuild_step.index(
         "run_fullrun_latest_cross_section_preflight.py"
     ) < rebuild_step.index("run_clean7y_window_preflight.py", rebuild_step.index("run_local.py --full"))
 
@@ -1735,12 +1767,15 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
         text.index("- name: Upload artifact (official broker-ledger evidence)") :
         text.index("- name: Upload artifact (research full diagnostics)")
     ]
+    research = text[text.index("- name: Upload artifact (research full diagnostics)") :]
     for block in (minimal, official):
         for token in (
             "outputs/fullrun_market_session_gate.json",
             "outputs/fullrun_approved_source_manifest.json",
             "outputs/fullrun_source_manifest_preflight.json",
             "outputs/fullrun_source_manifest_verification.json",
+            "outputs/fullrun_runtime_source_manifest.json",
+            "outputs/fullrun_runtime_operating_source_manifest.json",
             "outputs/fullrun_latest_cross_section_preflight/",
             "outputs/clean7y_window_preflight_source/",
             "outputs/clean7y_window_preflight/",
@@ -1749,6 +1784,11 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
             "outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log",
         ):
             assert token in block, token
+    for token in (
+        "outputs/fullrun_runtime_source_manifest.json",
+        "outputs/fullrun_runtime_operating_source_manifest.json",
+    ):
+        assert token in research, token
 
 
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:

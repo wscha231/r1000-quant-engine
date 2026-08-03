@@ -46,9 +46,9 @@ def test_event_target_book_injects_daily_exit_and_replays() -> None:
         write_px(cache, "BBB", [50, 50, 50, 51, 51, 52, 52, 53, 53, 54, 54, 55])
         write_px(cache, "SPY", [400, 400, 400, 401, 401, 402, 402, 403, 403, 404, 404, 405])
         rows = [
-            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50, "sector": "Technology", "industry_group": "Semiconductors"},
-            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.50, "sector": "Technology", "industry_group": "Semiconductors"},
-            {"rebalance_date": "2026-01-19", "ticker": "BBB", "weight": 1.00, "sector": "Technology", "industry_group": "Semiconductors"},
+            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.50, "sector": "Technology", "industry_group": "Semiconductors", "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.50, "sector": "Technology", "industry_group": "Semiconductors", "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-19", "ticker": "BBB", "weight": 1.00, "sector": "Technology", "industry_group": "Semiconductors", "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
         ]
         pd.DataFrame(rows).to_csv(reports / "operating_main_target_book.csv", index=False)
         pd.DataFrame(rows).to_csv(reports / "operating_concentrated_target_book.csv", index=False)

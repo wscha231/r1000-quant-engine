@@ -121,7 +121,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     valuation_date = pd.Timestamp(args.valuation_date).date().isoformat()
     close = actual_close(valuation_date)
-    decision_time = pd.to_datetime(args.decision_time_utc, errors="raise", utc=True)
+    raw_decision_time = str(args.decision_time_utc or "").strip()
+    if not raw_decision_time:
+        raise ValueError("decision_time_utc is required and cannot be blank")
+    decision_time = pd.to_datetime(raw_decision_time, errors="raise", utc=True)
+    if pd.isna(decision_time):
+        raise ValueError("decision_time_utc must resolve to a finite timestamp")
+    decision_time = pd.Timestamp(decision_time)
     failures: list[str] = []
     if decision_time < close:
         failures.append("decision_time_precedes_session_close")

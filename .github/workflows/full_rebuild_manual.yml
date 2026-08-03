@@ -651,6 +651,42 @@ jobs:
           PY
           cat "$MANIFEST"
 
+      - name: Bind restored runtime sources to approved identity
+        env:
+          SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
+          SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
+          APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
+          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
+          REQUESTED_SKIP_COLLECTOR: ${{ inputs.skip_collector }}
+        run: |
+          set -euo pipefail
+          python tools/build_fullrun_runtime_source_manifest.py \
+            --approved-manifest "$SOURCE_MANIFEST_PATH" \
+            --expected-manifest-sha256 "$SOURCE_MANIFEST_SHA256" \
+            --expected-commit-sha "$APPROVED_COMMIT_SHA" \
+            --stage engine_pre_run \
+            --resolved-session-date "$LAST_NYSE_SESSION_DATE" \
+            --decision-time-utc "$DECISION_TIME_UTC" \
+            --skip-collector "$REQUESTED_SKIP_COLLECTOR" \
+            --workflow-identity "$GITHUB_WORKFLOW/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" \
+            --output outputs/fullrun_runtime_source_manifest.json \
+            2>&1 | tee outputs/full_rebuild_logs/fullrun_runtime_source_manifest.log
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("outputs/fullrun_runtime_source_manifest.json").read_text(encoding="utf-8")
+          )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(
+                  "FULLRUN_RUNTIME_SOURCE_IDENTITY_SHA256="
+                  + payload["runtime_source_identity_sha256"]
+                  + "\n"
+              )
+          PY
+
       - name: Validate backtest window contract
         run: |
           python - <<'PY'
@@ -681,6 +717,7 @@ jobs:
           # Per Phase 14 wiring + Phase 1 backtest validation
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
           BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
+          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
           LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
           PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
           PHASE_PHASE11_MULTIBAGGER_ENABLED: ${{ inputs.phase11_multibagger_enabled && '1' || '0' }}
@@ -773,6 +810,12 @@ jobs:
           # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
           python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
 
+          python tools/build_operating_target_books.py \
+            --latest-run outputs \
+            --price-cache cache_prices \
+            --output-dir outputs/reports \
+            2>&1 | tee outputs/full_rebuild_logs/operating_target_books_pre_sidecar.log
+
           python tools/run_fullrun_latest_cross_section_preflight.py \
             --latest-run outputs \
             --price-cache cache_prices \
@@ -815,7 +858,7 @@ jobs:
           python tools/auto_policy_promote.py --candidate-policy outputs/auto_learning/auto_learning_policy_candidate.yaml --challenger-decision outputs/auto_learning/challenger/challenger_decision.json --out-dir outputs/auto_learning/promotion 2>&1 | tee outputs/auto_learning/auto_policy_promotion.log || true
 
       - name: Portfolio target replay + goal search (sidecar)
-        if: always()
+        if: success()
         run: |
           python tools/run_full_rebuild_sidecars.py \
             --profile "${SIDECAR_PROFILE:-operating_minimal}" \
@@ -835,6 +878,11 @@ jobs:
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
           BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
           DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
+          APPROVED_SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
+          APPROVED_SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
+          APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
+          REQUESTED_SKIP_COLLECTOR: ${{ inputs.skip_collector }}
+          FULLRUN_RUNTIME_BINDING_REQUIRED: "true"
 
       - name: Verdict (post-sidecar Cell E equivalent)
         if: always()
@@ -868,6 +916,8 @@ jobs:
             outputs/fullrun_approved_source_manifest.json
             outputs/fullrun_source_manifest_preflight.json
             outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_runtime_source_manifest.json
+            outputs/fullrun_runtime_operating_source_manifest.json
             outputs/fullrun_latest_cross_section_preflight/
             outputs/clean7y_window_preflight_source/
             outputs/clean7y_window_preflight/
@@ -1001,6 +1051,8 @@ jobs:
             outputs/fullrun_approved_source_manifest.json
             outputs/fullrun_source_manifest_preflight.json
             outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_runtime_source_manifest.json
+            outputs/fullrun_runtime_operating_source_manifest.json
             outputs/fullrun_latest_cross_section_preflight/
             outputs/clean7y_window_preflight_source/
             outputs/clean7y_window_preflight/
@@ -1097,6 +1149,8 @@ jobs:
             outputs/fullrun_approved_source_manifest.json
             outputs/fullrun_source_manifest_preflight.json
             outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_runtime_source_manifest.json
+            outputs/fullrun_runtime_operating_source_manifest.json
             outputs/fullrun_latest_cross_section_preflight/
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json

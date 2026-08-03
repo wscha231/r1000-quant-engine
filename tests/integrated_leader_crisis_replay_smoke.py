@@ -46,17 +46,23 @@ def test_champion_filter_disable_keeps_book() -> None:
     book = _research_book()
     # Default path: champion filter coerces using target_stock_names=3 -> no row
     # matches -> filter keeps all only because no mask matches... verify both paths.
-    filtered = blr.normalize_targets(
-        book, "concentrated", {"target_stock_names": 3, "weighting_mode": "score_power"}
-    )
+    try:
+        blr.normalize_targets(
+            book,
+            "concentrated",
+            {"target_stock_names": 3, "weighting_mode": "score_power"},
+        )
+    except ValueError as exc:
+        assert "target_stock_names=3" in str(exc)
+    else:
+        raise AssertionError("an unmatched registered N=3 filter must fail closed")
     disabled = blr.normalize_targets(
         book, "concentrated", {"target_stock_names": 3, "weighting_mode": "score_power"},
         disable_champion_filter=True,
     )
     assert len(disabled) == 5, f"disabled path must keep all 5 rows, got {len(disabled)}"
-    # The filtered path must never KEEP MORE than the disabled path; and when a
-    # coercive filter partially matches, it rewrites the book (the bug we bypass).
-    assert len(filtered) <= len(disabled)
+    # Explicit disable is the only supported path for deliberately replaying a
+    # non-champion N=5 research book.
     mixed = pd.concat(
         [book, book.assign(ticker=["FFF", "GGG", "HHH", "III", "JJJ"], target_stock_names=3)],
         ignore_index=True,

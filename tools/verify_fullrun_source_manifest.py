@@ -30,6 +30,26 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def git_blob_bytes(relative: str) -> bytes:
+    """Return the exact committed bytes, independent of checkout EOL rules."""
+    return subprocess.check_output(
+        ["git", "show", f"HEAD:{relative}"], cwd=REPO_ROOT
+    )
+
+
+def git_blob_sha256(relative: str) -> str:
+    return hashlib.sha256(git_blob_bytes(relative)).hexdigest()
+
+
+def worktree_matches_head(relative: str) -> bool:
+    result = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", relative],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def bool_value(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -118,10 +138,14 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         manifest_relative = str(args.manifest)
         failures.append(f"manifest_path_invalid:{exc}")
 
-    actual_manifest_hash = sha256(manifest_path) if manifest_path.is_file() else ""
+    actual_manifest_hash = (
+        git_blob_sha256(manifest_relative) if manifest_path.is_file() else ""
+    )
     expected_manifest_hash = str(args.expected_sha256 or "").strip().lower()
     if actual_manifest_hash != expected_manifest_hash:
         failures.append("manifest_sha256_mismatch")
+    if manifest_path.is_file() and not worktree_matches_head(manifest_relative):
+        failures.append("manifest_worktree_modified")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not isinstance(manifest, dict):
@@ -187,17 +211,25 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             path, relative = safe_repo_file(record.get("path"))
             if relative == manifest_relative:
                 raise ValueError("manifest cannot hash itself")
-            actual_hash = sha256(path)
+            actual_hash = git_blob_sha256(relative)
+            worktree_hash = sha256(path)
             expected_hash = str(record.get("sha256") or "").strip().lower()
             matched = bool(expected_hash and actual_hash == expected_hash)
+            worktree_clean = worktree_matches_head(relative)
             input_audits[str(label)] = {
                 "path": relative,
                 "sha256": actual_hash,
+                "git_blob_sha256": actual_hash,
+                "worktree_sha256": worktree_hash,
+                "hash_basis": "git_blob_bytes",
+                "worktree_matches_head": worktree_clean,
                 "expected_sha256": expected_hash,
                 "hash_matches": matched,
             }
             if not matched:
                 failures.append(f"tracked_input_hash_mismatch:{label}")
+            if not worktree_clean:
+                failures.append(f"tracked_input_worktree_modified:{label}")
         except Exception as exc:
             failures.append(f"tracked_input_invalid:{label}:{exc}")
 
@@ -210,6 +242,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             "path": manifest_relative,
             "sha256": actual_manifest_hash,
             "expected_sha256": expected_manifest_hash,
+            "hash_basis": "git_blob_bytes",
         },
         "code_identity": {
             "git_head": actual_head,

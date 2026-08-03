@@ -76,6 +76,34 @@
       "symptom": "Monthly, weekly, 20-session timing, and hybrid ideas could otherwise be mixed without a stable causal definition.",
       "repair": "Freeze A/B/C/D as one multiple-testing family with identical capital, fills, costs, PIT inputs, cash allocator, and no automatic promotion; D keeps routine replacement monthly and uses weekly signals only for monitoring or an allowed vacancy.",
       "do_not_repeat_key": "UNREGISTERED_CADENCE_ARMS_OR_WEEKLY_HEALTHY_LEADER_CHURN"
+    },
+    {
+      "id": "P1-PORTABLE-GIT-BLOB-APPROVAL-HASH",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "The approved manifest and tracked inputs were hashed from a Windows CRLF worktree, so an exact Linux checkout of the same commit failed verification.",
+      "repair": "Use exact committed Git blob bytes for every approval digest, audit worktree bytes separately, and reject semantic worktree changes.",
+      "do_not_repeat_key": "APPROVAL_HASH_USES_TRANSLATED_WORKTREE_BYTES"
+    },
+    {
+      "id": "P1-MUTABLE-RUNTIME-SOURCE-IDENTITY",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "Prefix-restored caches and refreshed external data could change while the run continued to claim only the same code-manifest identity.",
+      "repair": "Capture stage-specific file hashes after restore/refresh and again after final target mutation, bind them to the approved Git manifest, session, decision time, and workflow identity, and publish both manifests.",
+      "do_not_repeat_key": "FULLRUN_CODE_IDENTITY_WITHOUT_RUNTIME_DATA_IDENTITY"
+    },
+    {
+      "id": "P1-POST-MUTATION-PRE-BROKER-GATES",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "A target override could run after readiness/freshness checks, and the sidecar could run after a failed strict upstream preflight.",
+      "repair": "Require upstream success, run every target mutation before runtime/readiness/freshness validation, and allow broker replay only after those final fail-loud gates.",
+      "do_not_repeat_key": "BROKER_AFTER_STALE_GATE_OR_FAILED_PREREQUISITE"
+    },
+    {
+      "id": "P1-REGISTERED-N-AND-COST-COVERAGE",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "An unmatched Concentrated N=3 predicate could be silently skipped and operating-minimal could omit the registered 25/50/100 bps evaluation.",
+      "repair": "Fail on every missing/unmatched registered filter and require completed Main and Concentrated 25/50/100 bps sweeps in every canonical sidecar profile.",
+      "do_not_repeat_key": "SILENT_CHAMPION_FILTER_OR_MISSING_COST_ARM"
     }
   ],
   "remaining_blockers": [

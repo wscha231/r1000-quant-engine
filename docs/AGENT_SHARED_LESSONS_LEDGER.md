@@ -3794,3 +3794,28 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-03 - Portable fullrun approval and final pre-broker boundary
+
+- Approval digests for tracked files must use exact Git blob bytes. Hashing a
+  translated checkout makes the same commit acquire different identities on
+  Windows CRLF and Linux LF runners. Record the worktree digest separately and
+  use `git diff` semantics to reject real modifications.
+- Code identity does not bind restored data. After every cache/Drive restore and
+  required refresh, publish a deterministic manifest of the actual mutable
+  files, sizes, and SHA-256 values tied to the approved commit, market session,
+  decision time, and workflow run. Capture a second identity when a later stage
+  refreshes prices or replaces target books.
+- Readiness and freshness gates belong after the final mutation-capable target
+  hook. A gate that runs before the selected policy replaces operating books
+  certifies the wrong inputs. A failed strict prerequisite must prevent the
+  sidecar and broker replay rather than merely leave diagnostic artifacts.
+- Registered predicates are conjunctive contracts, not best-effort hints. A
+  missing filter column or absent expected value must block; otherwise an N=5
+  book can be reported under an N=3 champion label.
+- Selecting a sidecar profile in an approval manifest also selects its evidence
+  obligations. If 25/50/100 bps are required, that exact profile must execute
+  both portfolios at all three levels and fail if any replay is incomplete.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.

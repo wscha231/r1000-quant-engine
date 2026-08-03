@@ -5,6 +5,47 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-08-03
 
+### P1 review hardening - portable source identity and post-mutation gates
+
+- scope:
+  - Close all eight exact-head review findings on PR #350 without dispatching a
+    fullrun or changing any accepted/paper/live portfolio state.
+  - Make tracked approval hashes portable across Windows CRLF and Linux LF
+    checkouts by using exact Git blob bytes as the canonical hash basis.
+  - Bind restored mutable price, SEC, macro, fundamentals, companyfacts, and
+    reused engine inputs after restore/refresh and bind the final price/SEC/book
+    inputs again after the target override hook.
+  - Require producer-before-gate ordering, explicit decision time, successful
+    prerequisites, post-hook readiness/freshness, registered Concentrated N=3,
+    and completed 25/50/100 bps evidence before the canonical sidecar exits.
+- files:
+  - `tools/verify_fullrun_source_manifest.py` ->hashes Git blobs, separately
+    audits worktree bytes, and blocks semantic tracked-file modifications.
+  - `tools/build_fullrun_runtime_source_manifest.py` and
+    `manifests/fullrun/run287_canonical_a_20260731.json` ->declare, hash, and
+    publish stage-specific mutable runtime source identities.
+  - `.github/workflows/full_rebuild_manual.yml` ->threads the decision time into
+    the engine step, captures restored inputs before expensive computation,
+    builds operating books before their gate, and prevents the mutation-capable
+    sidecar from running after an upstream failure.
+  - `tools/run_full_rebuild_sidecars.py` ->runs the approved override before the
+    final runtime/readiness/freshness gates and makes both portfolios' required
+    25/50/100 bps sweeps fail-loud in operating-minimal and research profiles.
+  - `tools/run_broker_ledger_replay.py` ->rejects missing or unmatched
+    registered Concentrated filters instead of silently replaying another N.
+- safety:
+  - No fullrun, production/live action, accepted paper mutation, automatic
+    promotion, or new worktree was executed or enabled.
+- validation:
+  - Git-blob/CRLF source identity, mutable runtime identity, blank decision
+    time, Concentrated filter, workflow ordering/publication, broker replay,
+    and latest-cross-section focused smoke tests ->PASS.
+  - Full Tier-1 validation first pass ->211/214; all three failures were stale
+    research fixtures that omitted the newly mandatory N=3 metadata or expected
+    an unmatched N=3 predicate to pass. After adding explicit contract metadata
+    and converting the latter to a fail-closed assertion, the three focused
+    tests ->PASS.
+
 ### P1/D0 - Bind fullrun sources, strict SEC policy replay, and preregister A/B/C/D cadence
 
 - scope:

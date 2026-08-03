@@ -24,6 +24,12 @@ def git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
 
+def git_blob_sha256(root: Path, relative: str) -> str:
+    return hashlib.sha256(
+        subprocess.check_output(["git", "show", f"HEAD:{relative}"], cwd=root)
+    ).hexdigest()
+
+
 def fixture(root: Path) -> tuple[argparse.Namespace, Path]:
     git(root, "init")
     git(root, "config", "user.email", "run287@example.invalid")
@@ -57,7 +63,7 @@ def fixture(root: Path) -> tuple[argparse.Namespace, Path]:
                 "tracked_inputs": {
                     "requirements": {
                         "path": "requirements_github.txt",
-                        "sha256": sha256(source),
+                        "sha256": hashlib.sha256(b"pandas==2.2.0\n").hexdigest(),
                     }
                 },
                 "research_only": True,
@@ -74,7 +80,7 @@ def fixture(root: Path) -> tuple[argparse.Namespace, Path]:
     git(root, "commit", "-m", "fixture")
     args = argparse.Namespace(
         manifest="manifests/fullrun/approved.json",
-        expected_sha256=sha256(manifest),
+        expected_sha256=git_blob_sha256(root, "manifests/fullrun/approved.json"),
         expected_commit_sha=git(root, "rev-parse", "HEAD"),
         universe_mode="global_alpha_universe",
         backtest_years="7",
@@ -105,11 +111,20 @@ def test_manifest_binds_scope_commit_session_and_tracked_inputs() -> None:
             ready = verifier.verify(args)
             assert ready["ready"] is True
             assert ready["contract_failures"] == []
+            assert ready["manifest"]["hash_basis"] == "git_blob_bytes"
+
+            source.write_bytes(b"pandas==2.2.0\r\n")
+            eol_translated = verifier.verify(args)
+            assert eol_translated["ready"] is True
+            assert (
+                eol_translated["tracked_inputs"]["requirements"]["git_blob_sha256"]
+                != eol_translated["tracked_inputs"]["requirements"]["worktree_sha256"]
+            )
 
             source.write_text("pandas==9.9.9\n", encoding="utf-8")
             changed = verifier.verify(args)
             assert changed["ready"] is False
-            assert "tracked_input_hash_mismatch:requirements" in changed["contract_failures"]
+            assert "tracked_input_worktree_modified:requirements" in changed["contract_failures"]
 
             git(root, "checkout", "--", "requirements_github.txt")
             args.resolved_session_date = "2026-07-30"

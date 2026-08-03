@@ -86,6 +86,14 @@ def test_latest_cross_section_is_exact_close_and_hash_recorded() -> None:
             for item in blocked["contract_failures"]
         )
 
+        args.decision_time_utc = ""
+        try:
+            preflight.build(args)
+        except ValueError as exc:
+            assert "cannot be blank" in str(exc)
+        else:
+            raise AssertionError("blank decision_time_utc must fail closed")
+
 
 if __name__ == "__main__":
     test_latest_cross_section_is_exact_close_and_hash_recorded()

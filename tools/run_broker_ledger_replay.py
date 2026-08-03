@@ -326,14 +326,20 @@ def filter_concentrated_champion(
         if str(col).startswith("__"):
             continue
         if col not in out.columns:
-            continue
+            raise ValueError(
+                f"registered concentrated champion filter column is missing: {col}"
+            )
         expected = filter_value(expected_raw)
         if not expected:
             continue
         values = out[col].map(filter_value)
         mask = values.eq(expected)
-        if mask.any():
-            out = out[mask].copy()
+        if not mask.any():
+            raise ValueError(
+                "registered concentrated champion filter has no matching rows: "
+                f"{col}={expected}"
+            )
+        out = out[mask].copy()
     return out
 
 
