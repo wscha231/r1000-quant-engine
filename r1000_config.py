@@ -2203,6 +2203,7 @@ class EngineConfig:
     max_new_yf_info: int = 300
     live_refresh_days: int = 2
     max_live_refresh_tickers: int = 1000
+    mktcap_proxy_max_new_per_run: int = 1200
     # Phase 2: yfinance industry metadata refresh budget
     industry_metadata_max_new_per_run: int = 250
     industry_metadata_refresh_days: int = 60

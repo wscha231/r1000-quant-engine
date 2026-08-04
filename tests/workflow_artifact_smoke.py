@@ -1879,6 +1879,8 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
     assert operating_groups["resolved_dependencies"] == engine_groups["resolved_dependencies"]
     run_local_source = (ROOT / "run_local.py").read_text(encoding="utf-8")
     assert "apply_bound_input_no_refresh_overrides(pipeline_cfg)" in run_local_source
+    collector_source = (ROOT / "r1000_data_collector.py").read_text(encoding="utf-8")
+    assert '"mktcap_proxy_max_new_per_run": 0' in collector_source
     assert run_local_source.index('pipeline_cfg["industry_metadata_refresh_days"] = 60') < run_local_source.index(
         "apply_bound_input_no_refresh_overrides(pipeline_cfg)"
     )

@@ -3827,6 +3827,12 @@ Expected contract:
 - Candidate replay validation must annotate the exact effective construction
   gate, including registered overrides. Re-running only a base gate can erase a
   legitimately selected override and audit the wrong population.
+- No-refresh budgets must include indirect Yahoo repair lanes such as market-cap
+  proxies, even when their call sites pass hard-coded per-call limits. Cap those
+  limits with a shared runtime budget and force it to zero after binding.
+- Latest ranking eligibility must use the same effective gate and prerequisite
+  overlays as historical construction; otherwise an override can be audited as
+  valid yet removed before the current target is built.
 - Candidate-gate Boolean and label form one contract: passing rows use only the
   registered pass labels, rejected rows use `rejected`, and unknown Boolean
   encodings fail closed before completeness is computed.

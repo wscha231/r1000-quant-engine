@@ -904,7 +904,9 @@ def apply_latest_ranking_eligibility(
         return d
     if "portfolio_sleeve_label" not in d.columns:
         d = compute_portfolio_sleeve_columns(d, cfg)
-    d = annotate_portfolio_candidate_gate(d, cfg)
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
+        d = compute_defensive_monster_rotation_overlay(d, cfg)
+    d = annotate_effective_portfolio_candidate_gate(d, cfg)
     d["ranking_eligible"] = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
     # Phase 9 C2 (2026-04-17): when thesis-gate is active, names labeled
     # "unassigned" (no clear archetype thesis) MUST be excluded from
@@ -5760,7 +5762,11 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
     recent_cut = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=14)
     fresh = cache[cache["updated_at"] >= recent_cut] if not cache.empty else pd.DataFrame()
     have = set(fresh["ticker"].tolist()) if not fresh.empty else set()
-    need = [t for t in tickers if t not in have][:max_new]
+    configured_budget = int(getattr(cfg, "mktcap_proxy_max_new_per_run", 1200))
+    if os.environ.get("RUN287_BOUND_INPUTS_ONLY", "").strip() == "1":
+        configured_budget = 0
+    effective_budget = max(0, min(int(max_new), configured_budget))
+    need = [t for t in tickers if t not in have][:effective_budget]
     if need:
         rows = []
         for i, t in enumerate(need, start=1):

@@ -984,6 +984,44 @@ def test_adr_mktcap_proxy_cache_dates_are_normalized() -> None:
     assert is_datetime64_any_dtype(out["updated_at"]), out["updated_at"].dtype
 
 
+@_test("logic.mktcap_proxy_bound_budget_zero")
+def test_mktcap_proxy_bound_budget_zero() -> None:
+    """A bound engine must reuse even stale proxy cache without mutation."""
+    if _args.quick:
+        return
+    import tempfile
+
+    import pandas as pd
+
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp)
+        paths = {"cache_misc": cache_dir}
+        cache_path = cache_dir / "yf_mktcap_proxy.parquet"
+        pd.DataFrame(
+            {
+                "ticker": ["TSM"],
+                "mktcap_proxy": [2.0e12],
+                "updated_at": ["2020-01-01T00:00:00"],
+            }
+        ).to_parquet(cache_path, index=False)
+        before = cache_path.read_bytes()
+        cfg = EngineConfig()
+        cfg.mktcap_proxy_max_new_per_run = 0
+        original = pipe.fetch_mktcap_proxy
+        pipe.fetch_mktcap_proxy = lambda ticker: (_ for _ in ()).throw(
+            AssertionError(f"unexpected bound-input fetch: {ticker}")
+        )
+        try:
+            out = pipe.ensure_mktcap_proxy(cfg, paths, ["TSM", "ASML"], max_new=1200)
+        finally:
+            pipe.fetch_mktcap_proxy = original
+        assert set(out["ticker"].astype(str)) == {"TSM"}
+        assert cache_path.read_bytes() == before
+
+
 @_test("logic.adr_valuation_uses_adr_equivalent_shares")
 def test_adr_valuation_uses_adr_equivalent_shares() -> None:
     """ADR EPS/share math should use mktcap/ADR price, not ordinary local shares."""

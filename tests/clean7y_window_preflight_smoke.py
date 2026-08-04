@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO))
 from r1000_config import EngineConfig  # noqa: E402
 from r1000_pipeline import (  # noqa: E402
     annotate_effective_portfolio_candidate_gate,
+    apply_latest_ranking_eligibility,
     attach_decision_time_provenance,
 )
 from tools.run_clean7y_window_preflight import (  # noqa: E402
@@ -74,6 +75,32 @@ def main() -> int:
     )
     assert bool(effective_override.loc[0, "portfolio_candidate_minimum_pass"])
     assert effective_override.loc[0, "portfolio_candidate_gate_label"] == "monster_early_override"
+    latest_override = apply_latest_ranking_eligibility(
+        pd.DataFrame(
+            [{
+                "ticker": "LATEST_OVERRIDE",
+                "portfolio_sleeve_label": "core_compounder",
+                "portfolio_future_winner_engine_score": 1.0,
+                "price_above_ma50": 1.0,
+                "price_above_ma200": 1.0,
+                "trend_template_full": 1.0,
+                "breakout_fresh_20d": 1.0,
+                "relative_strength_composite": 5.0,
+                "industry_group_strength_score": 3.0,
+                "selection_confirmation_score": 1.0,
+                "near_52w_high_pct": 0.0,
+                "risk_penalty": 0.0,
+                "broken_momentum_penalty": 0.0,
+                "entry_quality_score": 1.0,
+                "breakout_setup_quality_score": 1.25,
+                "rs_acceleration_score": 1.0,
+            }]
+        ),
+        EngineConfig(),
+        context="clean7y smoke latest effective gate",
+    )
+    assert bool(latest_override.loc[0, "ranking_eligible"])
+    assert latest_override.loc[0, "portfolio_candidate_gate_label"] == "monster_early_override"
 
     coverage_rows = pd.concat(
         [

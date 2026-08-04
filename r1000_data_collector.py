@@ -106,6 +106,7 @@ BOUND_INPUT_NO_REFRESH_OVERRIDES: dict[str, Any] = {
     "industry_metadata_refresh_days": 99999,
     "latest_statement_repair_refresh_days": 99999,
     "max_live_refresh_tickers": 0,
+    "mktcap_proxy_max_new_per_run": 0,
     "alpha_vantage_free_refresh_tickers": 0,
     "alpha_vantage_free_statement_repair_tickers": 0,
     "yf_quarterly_max_tickers_per_run": 0,
