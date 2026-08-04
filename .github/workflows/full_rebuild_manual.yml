@@ -802,7 +802,7 @@ jobs:
             echo "FULLRUN_EFFECTIVE_SKIP_COLLECTOR=$FULLRUN_EFFECTIVE_SKIP_COLLECTOR"
           } >> "$GITHUB_ENV"
 
-          python run_local.py --full --no-collector --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+          python run_local.py --full --no-collector --bound-inputs-only --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" --base-dir "$(pwd)" 2>&1 | tee "$LOG"
 
           python tools/build_operating_target_books.py \
             --latest-run outputs \
@@ -854,6 +854,7 @@ jobs:
       - name: Portfolio target replay + goal search (sidecar)
         if: success()
         run: |
+          export REQUESTED_SKIP_COLLECTOR="${FULLRUN_EFFECTIVE_SKIP_COLLECTOR:?effective skip_collector mode is required}"
           python tools/run_full_rebuild_sidecars.py \
             --profile "${SIDECAR_PROFILE:-operating_minimal}" \
             --artifact-profile "${ARTIFACT_PROFILE:-minimal}" \
@@ -875,7 +876,6 @@ jobs:
           APPROVED_SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
           APPROVED_SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
           APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
-          REQUESTED_SKIP_COLLECTOR: ${{ env.FULLRUN_EFFECTIVE_SKIP_COLLECTOR }}
           FULLRUN_RUNTIME_BINDING_REQUIRED: "true"
 
       - name: Verdict (post-sidecar Cell E equivalent)

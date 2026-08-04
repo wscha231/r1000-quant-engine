@@ -32,7 +32,7 @@ def write_book(path: Path, dates: list[str]) -> None:
                 "valuation_price_cutoff_date": dt,
                 "membership_available_from": dt,
                 "portfolio_candidate_minimum_pass": True,
-                "portfolio_candidate_gate_label": "core_pass",
+                "portfolio_candidate_gate_label": "core_strict",
                 "px": 100.0,
                 "score": 1.5,
                 "mom_1m": 0.05,
@@ -133,7 +133,7 @@ def main() -> int:
     gated_rows["portfolio_candidate_minimum_pass"] = False
     gated_rows["portfolio_candidate_gate_label"] = "rejected"
     gated_rows.loc[:9, "portfolio_candidate_minimum_pass"] = True
-    gated_rows.loc[:9, "portfolio_candidate_gate_label"] = "core_pass"
+    gated_rows.loc[:9, "portfolio_candidate_gate_label"] = "core_strict"
     gated_rows.loc[0, "score"] = float("nan")
     gated_path = base / "gated_candidate_book.csv"
     gated_path.parent.mkdir(parents=True, exist_ok=True)
@@ -180,6 +180,19 @@ def main() -> int:
     fallback_status = first_decision_pit_status(fallback_path, "2019-05-31")
     assert fallback_status["pit_status"] == "fail_candidate_gate_fallback"
     assert fallback_status["candidate_gate_fallback_rows"] == 1
+
+    inconsistent_path = base / "inconsistent_gate_label_candidate_book.csv"
+    inconsistent_rows = gated_rows.copy()
+    inconsistent_rows.loc[0, "portfolio_candidate_gate_label"] = "rejected"
+    inconsistent_rows.to_csv(inconsistent_path, index=False)
+    inconsistent_status = first_decision_pit_status(
+        inconsistent_path, "2019-05-31"
+    )
+    assert (
+        inconsistent_status["pit_status"]
+        == "fail_inconsistent_candidate_gate_label"
+    )
+    assert inconsistent_status["candidate_gate_inconsistent_label_rows"] == 1
 
     pipeline_source = (REPO / "r1000_pipeline.py").read_text(encoding="utf-8")
     fallback_block = pipeline_source[

@@ -262,13 +262,46 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         }
         return status
     raw_gate = first_rows["portfolio_candidate_minimum_pass"]
-    gate_mask = (
-        raw_gate.fillna(False)
-        if raw_gate.dtype == bool
-        else raw_gate.fillna("").astype(str).str.strip().str.lower().isin(
-            {"1", "true", "yes"}
-        )
+    if raw_gate.dtype == bool:
+        gate_mask = raw_gate.fillna(False)
+        invalid_gate_value_mask = pd.Series(False, index=first_rows.index)
+    else:
+        normalized_gate = raw_gate.fillna("").astype(str).str.strip().str.lower()
+        true_values = {"1", "true", "yes"}
+        false_values = {"0", "false", "no"}
+        gate_mask = normalized_gate.isin(true_values)
+        invalid_gate_value_mask = ~normalized_gate.isin(true_values | false_values)
+    status["candidate_gate_invalid_boolean_rows"] = int(invalid_gate_value_mask.sum())
+    if invalid_gate_value_mask.any():
+        status["pit_status"] = "fail_invalid_candidate_gate_boolean"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "invalid_candidate_gate_boolean",
+            "invalid_boolean_rows": int(invalid_gate_value_mask.sum()),
+        }
+        return status
+    allowed_pass_labels = {
+        "core_strict",
+        "future_relaxed",
+        "early_relaxed",
+        "adr_global_alpha_fallback",
+    }
+    inconsistent_pass_mask = gate_mask & ~gate_labels.isin(allowed_pass_labels)
+    inconsistent_reject_mask = ~gate_mask & gate_labels.ne("rejected")
+    inconsistent_label_mask = inconsistent_pass_mask | inconsistent_reject_mask
+    status["candidate_gate_inconsistent_label_rows"] = int(
+        inconsistent_label_mask.sum()
     )
+    if inconsistent_label_mask.any():
+        status["pit_status"] = "fail_inconsistent_candidate_gate_label"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "inconsistent_candidate_gate_label",
+            "inconsistent_label_rows": int(inconsistent_label_mask.sum()),
+            "allowed_pass_labels": sorted(allowed_pass_labels),
+            "required_reject_label": "rejected",
+        }
+        return status
     post_gate_rows = first_rows.loc[gate_mask].copy()
     status["first_decision_post_gate_rows"] = int(len(post_gate_rows))
     if post_gate_rows.empty:

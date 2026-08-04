@@ -1753,6 +1753,7 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     assert "--stage engine_pre_run" in runtime_step
     assert "--collector-only" in rebuild_step
     assert "run_local.py --full --no-collector" in rebuild_step
+    assert "--bound-inputs-only" in rebuild_step
     assert rebuild_step.index("--collector-only") < rebuild_step.index(
         "tools/build_fullrun_runtime_source_manifest.py"
     ) < rebuild_step.index("run_local.py --full --no-collector")
@@ -1768,6 +1769,8 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     ]
     assert "if: success()" in sidecar_step
     assert 'FULLRUN_RUNTIME_BINDING_REQUIRED: "true"' in sidecar_step
+    assert 'export REQUESTED_SKIP_COLLECTOR="${FULLRUN_EFFECTIVE_SKIP_COLLECTOR:' in sidecar_step
+    assert "${{ env.FULLRUN_EFFECTIVE_SKIP_COLLECTOR }}" not in sidecar_step
     assert text.index("Resolve approved fullrun market session") < text.index(
         "Restore collector cache"
     )

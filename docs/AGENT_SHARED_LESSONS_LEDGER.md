@@ -3812,6 +3812,15 @@ Expected contract:
 - Universe health is a required completed prerequisite for policy replay. Its
   command must run strictly, and a missing audit artifact is a blocker rather
   than an implicit pass.
+- Values written through `GITHUB_ENV` are runner-process environment on later
+  steps; do not re-declare them through an unavailable expression context and
+  accidentally replace them with an empty string.
+- `--no-collector` alone does not prove a network-free engine. A hash-bound run
+  must install an outbound-network guard and set refresh budgets to zero so a
+  pipeline-side cache repair cannot occur after identity capture.
+- Candidate-gate Boolean and label form one contract: passing rows use only the
+  registered pass labels, rejected rows use `rejected`, and unknown Boolean
+  encodings fail closed before completeness is computed.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
