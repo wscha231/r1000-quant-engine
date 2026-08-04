@@ -329,6 +329,38 @@ jobs:
           # Heavy ML deps for full rebuild (not in requirements_github.txt by default)
           pip install "catboost>=1.2" "lightgbm>=4.0" "xgboost>=2.0" "scikit-learn>=1.4"
 
+      - name: Capture resolved dependency identity
+        run: |
+          mkdir -p outputs
+          python - <<'PY'
+          import importlib.metadata
+          import json
+          import platform
+          import sys
+          from pathlib import Path
+
+          resolved = {}
+          for distribution in importlib.metadata.distributions():
+              name = (distribution.metadata.get("Name") or "").strip().lower()
+              if name:
+                  resolved[name] = distribution.version
+          payload = {
+              "schema_version": "run287-fullrun-resolved-dependencies-v1",
+              "python_implementation": platform.python_implementation(),
+              "python_version": platform.python_version(),
+              "platform": platform.platform(),
+              "packages": [
+                  {"name": name, "version": resolved[name]}
+                  for name in sorted(resolved)
+              ],
+              "executable": sys.executable,
+          }
+          Path("outputs/fullrun_resolved_dependencies.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Apply review-approved experiment env
         env:
           EXPERIMENT_ENV_JSON: ${{ github.event.inputs.experiment_env_json || '' }}
@@ -802,7 +834,13 @@ jobs:
             echo "FULLRUN_EFFECTIVE_SKIP_COLLECTOR=$FULLRUN_EFFECTIVE_SKIP_COLLECTOR"
           } >> "$GITHUB_ENV"
 
-          python run_local.py --full --no-collector --bound-inputs-only --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+          # Isolate the whole engine process in a network namespace.  The
+          # Python socket guard remains defense in depth, while this boundary
+          # also blocks native curl-cffi/libcurl clients after input binding.
+          sudo --preserve-env unshare --net -- \
+            sudo --preserve-env -u "$(id -un)" \
+            python run_local.py --full --no-collector --bound-inputs-only --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" --base-dir "$(pwd)" \
+            2>&1 | tee "$LOG"
 
           python tools/build_operating_target_books.py \
             --latest-run outputs \
@@ -910,6 +948,7 @@ jobs:
             outputs/fullrun_approved_source_manifest.json
             outputs/fullrun_source_manifest_preflight.json
             outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_resolved_dependencies.json
             outputs/fullrun_runtime_source_manifest.json
             outputs/fullrun_runtime_operating_source_manifest.json
             outputs/fullrun_latest_cross_section_preflight/
@@ -1046,6 +1085,7 @@ jobs:
             outputs/fullrun_approved_source_manifest.json
             outputs/fullrun_source_manifest_preflight.json
             outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_resolved_dependencies.json
             outputs/fullrun_runtime_source_manifest.json
             outputs/fullrun_runtime_operating_source_manifest.json
             outputs/fullrun_latest_cross_section_preflight/
@@ -1145,6 +1185,7 @@ jobs:
             outputs/fullrun_approved_source_manifest.json
             outputs/fullrun_source_manifest_preflight.json
             outputs/fullrun_source_manifest_verification.json
+            outputs/fullrun_resolved_dependencies.json
             outputs/fullrun_runtime_source_manifest.json
             outputs/fullrun_runtime_operating_source_manifest.json
             outputs/fullrun_latest_cross_section_preflight/

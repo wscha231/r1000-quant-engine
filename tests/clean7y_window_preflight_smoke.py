@@ -11,7 +11,11 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from r1000_pipeline import attach_decision_time_provenance  # noqa: E402
+from r1000_config import EngineConfig  # noqa: E402
+from r1000_pipeline import (  # noqa: E402
+    annotate_effective_portfolio_candidate_gate,
+    attach_decision_time_provenance,
+)
 from tools.run_clean7y_window_preflight import (  # noqa: E402
     feature_completeness_status,
     first_decision_pit_status,
@@ -57,6 +61,20 @@ def write_manifest(root: Path, start: str = "2019-05-09") -> None:
 
 
 def main() -> int:
+    effective_override = annotate_effective_portfolio_candidate_gate(
+        pd.DataFrame(
+            [{
+                "ticker": "OVERRIDE",
+                "portfolio_sleeve_label": "core_compounder",
+                "portfolio_monster_early_score": 0.99,
+                "portfolio_risk_entry_block_score": 0.0,
+            }]
+        ),
+        EngineConfig(),
+    )
+    assert bool(effective_override.loc[0, "portfolio_candidate_minimum_pass"])
+    assert effective_override.loc[0, "portfolio_candidate_gate_label"] == "monster_early_override"
+
     coverage_rows = pd.concat(
         [
             pd.DataFrame(
@@ -134,6 +152,7 @@ def main() -> int:
     gated_rows["portfolio_candidate_gate_label"] = "rejected"
     gated_rows.loc[:9, "portfolio_candidate_minimum_pass"] = True
     gated_rows.loc[:9, "portfolio_candidate_gate_label"] = "core_strict"
+    gated_rows.loc[1, "portfolio_candidate_gate_label"] = "monster_early_override"
     gated_rows.loc[0, "score"] = float("nan")
     gated_path = base / "gated_candidate_book.csv"
     gated_path.parent.mkdir(parents=True, exist_ok=True)
@@ -202,6 +221,9 @@ def main() -> int:
     ]
     assert 'replay_source["portfolio_candidate_minimum_pass"] = False' in fallback_block
     assert '"audit_fallback_blocked"' in fallback_block
+    assert "annotate_effective_portfolio_candidate_gate(replay_source.copy(), cfg)" in pipeline_source
+    signal_source = (REPO / "r1000_signals.py").read_text(encoding="utf-8")
+    assert "from r1000_pipeline import annotate_effective_portfolio_candidate_gate" in signal_source
     latest = base / "latest"
     for rel in (
         "reports/candidate_replay_book.csv",

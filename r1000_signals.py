@@ -2237,9 +2237,10 @@ def apply_portfolio_candidate_gate_filter(
     context: str,
 ) -> pd.DataFrame:
     # Late import to avoid signals -> pipeline circular import at module load time.
-    # annotate_portfolio_candidate_gate is defined in r1000_pipeline.py.
-    from r1000_pipeline import annotate_portfolio_candidate_gate
-    d = annotate_portfolio_candidate_gate(df, cfg)
+    # The effective annotator is also used by the audit candidate-book export,
+    # so construction and validation cannot silently disagree.
+    from r1000_pipeline import annotate_effective_portfolio_candidate_gate
+    d = annotate_effective_portfolio_candidate_gate(df, cfg)
     if d.empty:
         return d
     sleeve_label = d.get(
@@ -2247,19 +2248,6 @@ def apply_portfolio_candidate_gate_filter(
         d.get("portfolio_sleeve_label_raw", pd.Series("core_compounder", index=d.index, dtype=object)),
     ).fillna("core_compounder").astype(str)
     gate_keep = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
-    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)) and "portfolio_monster_early_score" in d.columns:
-        portfolio_monster_min = float(getattr(cfg, "portfolio_monster_early_min_score", 0.58))
-        monster_keep = (
-            numeric_series_or_default(d, "portfolio_monster_early_score", 0.0)
-            >= portfolio_monster_min
-        ) & (
-            numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0)
-            < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
-        )
-        if bool(monster_keep.any()):
-            d.loc[monster_keep & (~gate_keep), "portfolio_candidate_gate_label"] = "monster_early_override"
-            d.loc[monster_keep & (~gate_keep), "portfolio_candidate_minimum_pass"] = True
-            gate_keep = gate_keep | monster_keep
     removed = int((~gate_keep).sum())
     kept = int(gate_keep.sum())
     if removed > 0:

@@ -958,6 +958,7 @@ def main() -> int:
 
     # Import after env vars are set and sys.path is ready
     from r1000_data_collector import (  # noqa: E402
+        apply_bound_input_no_refresh_overrides,
         collector_lean_full_run_cfg,
         pipeline_quick_rescore_cfg,
         run_data_collection,
@@ -1010,6 +1011,11 @@ def main() -> int:
             0 if args.bound_inputs_only else 1200
         )
         pipeline_cfg["industry_metadata_refresh_days"] = 60
+    if args.bound_inputs_only:
+        # Apply this after every full-run override. COMMON_CFG_OVERRIDES and
+        # the full preset normally permit bounded refresh work, but once the
+        # approved runtime identity is captured every path must reuse cache.
+        apply_bound_input_no_refresh_overrides(pipeline_cfg)
     if args.ab_quick:
         # 2026-04-22: disable 7 comparison grids for fast-iter A/B runs.
         # Main backtest only. Set ab_quick_mode flag so apply_fast_mode honors

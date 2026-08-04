@@ -861,6 +861,33 @@ def annotate_portfolio_candidate_gate(
     return d
 
 
+def annotate_effective_portfolio_candidate_gate(
+    df: pd.DataFrame,
+    cfg: EngineConfig,
+) -> pd.DataFrame:
+    """Annotate the exact gate used by portfolio construction and PIT audits."""
+    d = annotate_portfolio_candidate_gate(df, cfg)
+    if d.empty:
+        return d
+    gate_keep = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)) and "portfolio_monster_early_score" in d.columns:
+        monster_score = pd.to_numeric(d["portfolio_monster_early_score"], errors="coerce").fillna(0.0)
+        risk_score = pd.to_numeric(
+            d.get("portfolio_risk_entry_block_score", pd.Series(0.0, index=d.index)),
+            errors="coerce",
+        ).fillna(0.0)
+        monster_keep = (
+            monster_score >= float(getattr(cfg, "portfolio_monster_early_min_score", 0.58))
+        ) & (
+            risk_score < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
+        )
+        override = monster_keep & (~gate_keep)
+        if bool(override.any()):
+            d.loc[override, "portfolio_candidate_gate_label"] = "monster_early_override"
+            d.loc[override, "portfolio_candidate_minimum_pass"] = True
+    return d
+
+
 # Stage 4b-ii (2026-04-20): apply_portfolio_candidate_gate_filter -> r1000_signals.py.
 
 
@@ -17886,7 +17913,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                     replay_source["source_universe"] = source_values
             try:
                 replay_source = add_core_fundamental_minimum_flags(replay_source.copy(), cfg)
-                replay_source = annotate_portfolio_candidate_gate(replay_source.copy(), cfg)
+                replay_source = annotate_effective_portfolio_candidate_gate(replay_source.copy(), cfg)
             except Exception as exc:
                 print(f"[candidate_replay_book] WARN candidate gate annotation skipped: {exc}")
                 replay_source["portfolio_candidate_minimum_pass"] = False

@@ -3818,6 +3818,15 @@ Expected contract:
 - `--no-collector` alone does not prove a network-free engine. A hash-bound run
   must install an outbound-network guard and set refresh budgets to zero so a
   pipeline-side cache repair cannot occur after identity capture.
+- A Python socket monkeypatch does not stop native curl-cffi/libcurl clients.
+  Put the entire post-binding engine process in an outbound-isolated network
+  namespace and retain the Python guard only as defense in depth.
+- Ranged requirement declarations are not a resolved runtime identity. Capture
+  the installed Python/package versions before binding mutable inputs and retain
+  that file in every official artifact profile.
+- Candidate replay validation must annotate the exact effective construction
+  gate, including registered overrides. Re-running only a base gate can erase a
+  legitimately selected override and audit the wrong population.
 - Candidate-gate Boolean and label form one contract: passing rows use only the
   registered pass labels, rejected rows use `rejected`, and unknown Boolean
   encodings fail closed before completeness is computed.

@@ -97,6 +97,28 @@ def collector_reuse_step2_cfg(base_dir: Optional[str] = None, end_date: Optional
     return _apply_notebook_runtime_defaults(cfg)
 
 
+BOUND_INPUT_NO_REFRESH_OVERRIDES: dict[str, Any] = {
+    "companyfacts_refresh_days": 99999,
+    "live_refresh_days": 99999,
+    "macro_refresh_days": 99999,
+    "alpha_vantage_free_statement_refresh_days": 99999,
+    "yf_quarterly_refresh_days": 99999,
+    "industry_metadata_refresh_days": 99999,
+    "latest_statement_repair_refresh_days": 99999,
+    "max_live_refresh_tickers": 0,
+    "alpha_vantage_free_refresh_tickers": 0,
+    "alpha_vantage_free_statement_repair_tickers": 0,
+    "yf_quarterly_max_tickers_per_run": 0,
+    "industry_metadata_max_new_per_run": 0,
+}
+
+
+def apply_bound_input_no_refresh_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Disable every collector-backed refresh after runtime inputs are bound."""
+    cfg.update(BOUND_INPUT_NO_REFRESH_OVERRIDES)
+    return cfg
+
+
 def pipeline_quick_rescore_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
     """Fastest-iteration preset for tweaking sleeve weights / A/B phase toggles.
 
@@ -135,18 +157,7 @@ def pipeline_quick_rescore_cfg(base_dir: Optional[str] = None, end_date: Optiona
     cfg["reuse_phase4_models_for_latest_recommendations"] = True
     cfg["force_full_fund_panel_rebuild"] = False
     # Zero out every network refresh so no data gets fetched on this run.
-    cfg["companyfacts_refresh_days"] = 99999
-    cfg["live_refresh_days"] = 99999
-    cfg["macro_refresh_days"] = 99999
-    cfg["alpha_vantage_free_statement_refresh_days"] = 99999
-    cfg["yf_quarterly_refresh_days"] = 99999
-    cfg["industry_metadata_refresh_days"] = 99999
-    cfg["latest_statement_repair_refresh_days"] = 99999
-    cfg["max_live_refresh_tickers"] = 0
-    cfg["alpha_vantage_free_refresh_tickers"] = 0
-    cfg["alpha_vantage_free_statement_repair_tickers"] = 0
-    cfg["yf_quarterly_max_tickers_per_run"] = 0
-    cfg["industry_metadata_max_new_per_run"] = 0
+    apply_bound_input_no_refresh_overrides(cfg)
     # Skip every optional comparison suite.  Keep the concentrated comparison
     # ON because that is the measurement we actually care about.
     cfg["run_comparison_backtests"] = False

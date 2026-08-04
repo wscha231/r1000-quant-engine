@@ -356,7 +356,7 @@ def test_pipeline_exports_monthly_books() -> None:
         assert token in text, token
     for token in [
         'replay_source["source_universe"] = source_values',
-        "annotate_portfolio_candidate_gate(replay_source.copy(), cfg)",
+        "annotate_effective_portfolio_candidate_gate(replay_source.copy(), cfg)",
         '"revenues_ttm"',
         '"gross_profit_ttm"',
         '"sales_growth_yoy"',
@@ -1748,12 +1748,24 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     assert "outputs/fullrun_source_manifest_preflight.json" in text
     assert "outputs/fullrun_source_manifest_verification.json" in text
     assert "outputs/fullrun_approved_source_manifest.json" in text
+    dependency_step = extract_yaml_literal_run(
+        text, "Capture resolved dependency identity"
+    )
+    assert "importlib.metadata.distributions()" in dependency_step
+    assert "outputs/fullrun_resolved_dependencies.json" in dependency_step
+    assert text.index("- name: Capture resolved dependency identity") < text.index(
+        "- name: Run FULL rebuild"
+    )
     runtime_step = rebuild_step
     assert "tools/build_fullrun_runtime_source_manifest.py" in runtime_step
     assert "--stage engine_pre_run" in runtime_step
     assert "--collector-only" in rebuild_step
     assert "run_local.py --full --no-collector" in rebuild_step
     assert "--bound-inputs-only" in rebuild_step
+    assert "sudo --preserve-env unshare --net" in rebuild_step
+    assert rebuild_step.index("tools/build_fullrun_runtime_source_manifest.py") < rebuild_step.index(
+        "sudo --preserve-env unshare --net"
+    )
     assert rebuild_step.index("--collector-only") < rebuild_step.index(
         "tools/build_fullrun_runtime_source_manifest.py"
     ) < rebuild_step.index("run_local.py --full --no-collector")
@@ -1802,6 +1814,7 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
             "outputs/fullrun_approved_source_manifest.json",
             "outputs/fullrun_source_manifest_preflight.json",
             "outputs/fullrun_source_manifest_verification.json",
+            "outputs/fullrun_resolved_dependencies.json",
             "outputs/fullrun_runtime_source_manifest.json",
             "outputs/fullrun_runtime_operating_source_manifest.json",
             "outputs/fullrun_latest_cross_section_preflight/",
@@ -1816,6 +1829,7 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     for token in (
         "outputs/fullrun_runtime_source_manifest.json",
         "outputs/fullrun_runtime_operating_source_manifest.json",
+        "outputs/fullrun_resolved_dependencies.json",
     ):
         assert token in research, token
 
@@ -1849,6 +1863,7 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
         read_tracked_text("manifests/fullrun/run287_canonical_a_20260731.json")
     )
     engine_groups = approved["runtime_source_contract"]["stages"]["engine_pre_run"]["groups"]
+    operating_groups = approved["runtime_source_contract"]["stages"]["operating_pre_broker"]["groups"]
     consumed_paths = {
         path
         for group in engine_groups.values()
@@ -1856,6 +1871,16 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
     }
     assert {"cache_sec_actual", "cache_misc", "cache_live_fund"}.issubset(
         consumed_paths
+    )
+    assert engine_groups["resolved_dependencies"] == {
+        "paths": ["outputs/fullrun_resolved_dependencies.json"],
+        "min_files": 1,
+    }
+    assert operating_groups["resolved_dependencies"] == engine_groups["resolved_dependencies"]
+    run_local_source = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    assert "apply_bound_input_no_refresh_overrides(pipeline_cfg)" in run_local_source
+    assert run_local_source.index('pipeline_cfg["industry_metadata_refresh_days"] = 60') < run_local_source.index(
+        "apply_bound_input_no_refresh_overrides(pipeline_cfg)"
     )
 
 

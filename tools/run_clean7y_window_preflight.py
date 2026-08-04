@@ -285,6 +285,7 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         "future_relaxed",
         "early_relaxed",
         "adr_global_alpha_fallback",
+        "monster_early_override",
     }
     inconsistent_pass_mask = gate_mask & ~gate_labels.isin(allowed_pass_labels)
     inconsistent_reject_mask = ~gate_mask & gate_labels.ne("rejected")
