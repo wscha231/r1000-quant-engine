@@ -1847,6 +1847,18 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
     commit_step = text[text.index("- name: Commit verdict + portfolio CSVs") :]
     assert "if: success()" in commit_step.split("run: |", 1)[0]
     assert "copy_dir_clean outputs/cost_sensitivity" in commit_step
+    minimal_publication = commit_step[
+        commit_step.index('if [ "$INPUT_ARTIFACT_PROFILE" != "research_full" ]') :
+        commit_step.index("else", commit_step.index('if [ "$INPUT_ARTIFACT_PROFILE" != "research_full" ]'))
+    ]
+    for token in (
+        "fullrun_source_manifest_verification.json",
+        "fullrun_runtime_source_manifest.json",
+        "fullrun_runtime_operating_source_manifest.json",
+        "fullrun_resolved_dependencies.json",
+        "required minimal publication identity is missing or empty",
+    ):
+        assert token in minimal_publication, token
 
     gdrive_manifest = (
         ROOT / "tools" / "build_gdrive_sync_manifest.py"

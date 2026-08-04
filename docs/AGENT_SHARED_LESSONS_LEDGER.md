@@ -3888,6 +3888,10 @@ Expected contract:
 - Required 25/50/100 bps cost evidence must be generated and retained on every
   canonical artifact surface; a report that is omitted during packaging is not
   durable evidence.
+- Runtime/source identities must accompany broker evidence on every durable
+  surface, including the committed minimal cloud-results bundle as well as
+  Actions and Drive artifacts. An allowlist fix on only one publisher leaves
+  the remaining canonical copy unverifiable.
 - A 98% candidate contract applies to complete rows over the registered field
   set. Invalid tickers, non-positive prices, and invalid PIT timestamps remain
   zero-tolerance integrity failures even when aggregate coverage exceeds 98%.

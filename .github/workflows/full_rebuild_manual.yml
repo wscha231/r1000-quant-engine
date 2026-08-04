@@ -1766,6 +1766,17 @@ jobs:
             copy_dir_clean outputs/universe_health "$DEST/universe_health"
             copy_dir_clean outputs/data_freshness_contract "$DEST/data_freshness_contract"
             copy_dir_clean outputs/cost_sensitivity "$DEST/cost_sensitivity"
+            for file in \
+              fullrun_source_manifest_verification.json \
+              fullrun_runtime_source_manifest.json \
+              fullrun_runtime_operating_source_manifest.json \
+              fullrun_resolved_dependencies.json; do
+              if [ ! -s "outputs/$file" ]; then
+                echo "::error::required minimal publication identity is missing or empty: outputs/$file"
+                exit 2
+              fi
+              cp "outputs/$file" "$DEST/"
+            done
             copy_dir_clean outputs/adr_candidates "$DEST/adr_candidates"
             copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
             mkdir -p "$DEST/manifests"
